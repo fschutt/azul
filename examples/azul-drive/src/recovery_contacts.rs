@@ -800,7 +800,11 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
             let title = if *test {
                 format!("Test the trusted contacts of \"{}\"", name_of(drive_id))
             } else {
-                format!("Recover \"{}\" with trusted contacts", name_of(drive_id))
+                if drive_id.is_empty() {
+                    String::from("Recover a drive with trusted contacts")
+                } else {
+                    format!("Recover \"{}\" with trusted contacts", name_of(drive_id))
+                }
             };
             (title, body)
         }
@@ -1045,7 +1049,9 @@ extern "C" fn on_recover(mut data: RefAny, mut info: CallbackInfo) -> Update {
             .iter()
             .map(|share| Zeroizing::new(share.as_str().to_string()))
             .collect();
-        let Some(token_url) = crate::encryption::token_url_of(s, &drive_id) else {
+        let token_url = crate::encryption::token_url_of(s, &drive_id)
+            .or_else(|| drive_id.is_empty().then(|| s.token.url.clone()).flatten());
+        let Some(token_url) = token_url else {
             if let Some(Popup::Encryption(Dialog::Contacts(Page::Recover { error, .. }))) =
                 s.popup.as_mut()
             {
@@ -1099,9 +1105,12 @@ pub(crate) enum ContactsDone {
         test: bool,
         result: Result<(String, String), String>,
     },
+    /// The code back, the lockdown pending until then, the drive (found by the lookup when the
+    /// recovery started without one).
     Recovered {
         drive_id: String,
-        result: Result<(Zeroizing<String>, Option<u64>), String>,
+        token_url: String,
+        result: Result<(Zeroizing<String>, Option<u64>, String), String>,
     },
     /// A test's two shares gave back a code: its public recovery key (the drive's when they
     /// work).
@@ -1109,6 +1118,38 @@ pub(crate) enum ContactsDone {
         drive_id: String,
         result: Result<String, String>,
     },
+}
+
+/// The keyring name of a recovery request: the drive's id, or `lookup` for a recovery that
+/// starts without one (the drive is found by the code the shares give back).
+fn request_name(drive_id: &str) -> &str {
+    if drive_id.is_empty() {
+        "lookup"
+    } else {
+        drive_id
+    }
+}
+
+/// The one drive the code's findable key belongs to (POST /v1/recovery/lookup).
+fn lookup_drive(code: &RecoveryCode, token_url: &str) -> Result<String, String> {
+    let transport = azul_storage::azul_transport::AzulTransport::new(crate::USER_AGENT);
+    let server = azcloud_kit::TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    let key = crate::recovery_keys::findable_key_of(code);
+    let found = server
+        .recovery_lookup(&key.public_base64(), |message| Ok(key.sign_base64(message)))
+        .map_err(|e| crate::recovery_keys::token_text(&e))?;
+    match found.as_slice() {
+        [one] => Ok(one.drive_id.clone()),
+        [] => Err(String::from(
+            "The code the shares give back finds no drive: its findable key is not registered \
+             (a drive set up before findable keys). Recover from the drive's menu on a computer \
+             that lists it.",
+        )),
+        _ => Err(String::from(
+            "The code the shares give back belongs to several drives: recover from the drive's \
+             menu instead.",
+        )),
+    }
 }
 
 /// Runs on a worker thread.
@@ -1144,7 +1185,7 @@ pub(crate) fn run(job: ContactsJob) -> ContactsDone {
             ContactsDone::Answered(result)
         }
         ContactsJob::Request { drive_id, test } => {
-            let result = request_key(&keyring, &drive_id)
+            let result = request_key(&keyring, request_name(&drive_id))
                 .map(|secret| {
                     let public = secret.public();
                     (request_text(&public), safety_number(&public))
@@ -1163,10 +1204,11 @@ pub(crate) fn run(job: ContactsJob) -> ContactsDone {
             ..
         } => {
             let result = (|| -> Result<String, String> {
-                let request = request_key(&keyring, &drive_id).map_err(|e| e.to_string())?;
+                let request =
+                    request_key(&keyring, request_name(&drive_id)).map_err(|e| e.to_string())?;
                 let texts: Vec<&str> = shares.iter().map(|s| s.as_str()).collect();
                 let code = recovered_code(&texts, &request)?;
-                let _ = forget_request_key(&keyring, &drive_id);
+                let _ = forget_request_key(&keyring, request_name(&drive_id));
                 Ok(crate::encryption::recovery_key_of(&code, &drive_id).public_base64())
             })();
             ContactsDone::Tested { drive_id, result }
@@ -1178,16 +1220,27 @@ pub(crate) fn run(job: ContactsJob) -> ContactsDone {
             token_url,
             keyring: shared,
         } => {
-            let result = (|| -> Result<(Zeroizing<String>, Option<u64>), String> {
-                let request = request_key(&keyring, &drive_id).map_err(|e| e.to_string())?;
+            let result = (|| -> Result<(Zeroizing<String>, Option<u64>, String), String> {
+                let request =
+                    request_key(&keyring, request_name(&drive_id)).map_err(|e| e.to_string())?;
                 let texts: Vec<&str> = shares.iter().map(|s| s.as_str()).collect();
                 let code = recovered_code(&texts, &request)?;
+                // A computer that never had the drive: the code's findable key names it.
+                let drive = if drive_id.is_empty() {
+                    lookup_drive(&code, &token_url)?
+                } else {
+                    drive_id.clone()
+                };
                 let until =
-                    crate::encryption::recovery_lockdown(&drive_id, &code, &token_url, &shared)?;
-                let _ = forget_request_key(&keyring, &drive_id);
-                Ok((code.to_text(), until))
+                    crate::encryption::recovery_lockdown(&drive, &code, &token_url, &shared)?;
+                let _ = forget_request_key(&keyring, request_name(&drive_id));
+                Ok((code.to_text(), until, drive))
             })();
-            ContactsDone::Recovered { drive_id, result }
+            ContactsDone::Recovered {
+                drive_id,
+                token_url,
+                result,
+            }
         }
     }
 }
@@ -1319,10 +1372,24 @@ pub(crate) fn on_done(
                 }
             }
         }
-        ContactsDone::Recovered { drive_id, result } => match result {
-            Ok((code, until)) => {
+        ContactsDone::Recovered {
+            token_url, result, ..
+        } => match result {
+            Ok((code, until, drive_id)) => {
                 println!("AZDRIVE_CONTACTS_RECOVERED {drive_id}");
                 println!("AZDRIVE_RECOVERY_LOCKDOWN {drive_id}");
+                if s.slot_index(&drive_id).is_none() {
+                    // Finished in Options > Drives once the 48 hours are over.
+                    crate::recovery_health::note_pending(
+                        &mut s.settings.recovery.pending,
+                        &drive_id,
+                        &token_url,
+                        until,
+                        now_unix(),
+                    );
+                    println!("AZDRIVE_RECOVERY_PENDING {drive_id}");
+                    save_settings(info, app, s);
+                }
                 open(
                     s,
                     Page::Rebuilt {

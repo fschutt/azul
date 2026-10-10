@@ -187,6 +187,10 @@ mod recovery;
 /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
 #[cfg(feature = "encryption")]
 mod recovery_contacts;
+/// A drive's several recovery keys: the kit's lookup on a computer that never had the drive,
+/// a second kit, removing a key.
+#[cfg(feature = "encryption")]
+mod recovery_keys;
 /// A drive's recovery state (the code's checks, the drills, the trusted contacts) and its
 /// Recovery health: plain data in the settings.
 pub mod recovery_health;
@@ -663,6 +667,18 @@ pub(crate) enum Popup {
         error: String,
         busy: bool,
     },
+}
+
+impl Popup {
+    /// Whether its close box and Escape take it away: every popup but the recovery sheet (its
+    /// code shows only this once - the setup finishes when its groups are typed back).
+    pub(crate) fn may_close(&self) -> bool {
+        #[cfg(feature = "encryption")]
+        if let Popup::Encryption(dialog) = self {
+            return dialog.may_close();
+        }
+        true
+    }
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -2828,12 +2844,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         if s.inline_dialogs {
             body.add_child(ui_dialogs::inline_sheet(title, panel));
         } else {
+            let (closed_by, close_box) = ui_dialogs::window_close(popup);
             body.add_child(
                 Dialog::create(panel)
                     .with_title(AzString::from(title))
                     .with_open(true)
                     .with_modal(true)
-                    .with_close_button(true)
+                    .with_closed_by(closed_by)
+                    .with_close_button(close_box)
                     .with_on_close(app.clone(), ui_dialogs::on_dialog_closed)
                     .dom(),
             );

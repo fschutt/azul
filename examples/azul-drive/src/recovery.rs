@@ -761,7 +761,8 @@ fn method_button(app: &RefAny, drive_id: &str, method: Method, action: MethodAct
 /// health and the warning below two), and the shares this computer holds for others.
 pub(crate) fn options_sections(s: &DriveState, app: &RefAny) -> Vec<(String, Dom)> {
     let now = now();
-    let mut drives: Vec<Dom> = Vec::new();
+    // A drive this computer never had: the kit's lookup, trusted contacts; recoveries under way.
+    let mut drives: Vec<Dom> = vec![crate::recovery_keys::recover_block(s, app)];
     for state in &s.settings.recovery.drives {
         if s.slot_index(&state.drive_id).is_none() {
             continue;
@@ -800,9 +801,11 @@ pub(crate) fn options_sections(s: &DriveState, app: &RefAny) -> Vec<(String, Dom
             }
             block.add_child(item);
         }
+        // The drive's keys at the token server: listed, a second kit, one removed.
+        block.add_child(crate::recovery_keys::keys_block(state, app));
         drives.push(block);
     }
-    if drives.is_empty() {
+    if drives.len() == 1 {
         drives.push(
             line(
                 "No encrypted drive yet: an Azlin drive's menu in the source list offers \

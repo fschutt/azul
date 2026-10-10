@@ -20,6 +20,9 @@ use zeroize::Zeroizing;
 
 /// The HKDF salt of the derivation.
 const SALT: &[u8] = b"azlin-recovery-lockdown-v1";
+/// The HKDF info of a code's FINDABLE key ([`RecoveryKey::derive_findable`]): no drive id has
+/// this form, so the key is the code's alone.
+pub const FINDABLE_INFO: &str = "azlin-recovery-findable-v1";
 
 /// A drive's recovery key. `Debug` shows none of it.
 pub struct RecoveryKey {
@@ -45,6 +48,15 @@ impl RecoveryKey {
         RecoveryKey {
             signing: SigningKey::from_bytes(&seed),
         }
+    }
+
+    /// The FINDABLE recovery key of a recovery code: [`RecoveryKey::derive`] with
+    /// [`FINDABLE_INFO`] instead of a drive id. Registered as one more recovery key of the
+    /// drive, it names the drive to a computer that never had it - the kit leaves the drive id
+    /// out - through [`crate::TokenServer::recovery_lookup`]; it signs a lockdown too.
+    #[must_use]
+    pub fn derive_findable(code: &[u8]) -> RecoveryKey {
+        RecoveryKey::derive(code, FINDABLE_INFO)
     }
 
     /// The public key as the token server takes it: 32 bytes, standard base64.
