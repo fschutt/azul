@@ -43,6 +43,11 @@ azul-storage = { path = "../azul-storage", features = ["testing"] }
 default = ["opendal", "sql"]
 opendal = ["azul-storage/opendal"]
 sql = ["azul-storage/sql"]
+# Encrypted drives (src/encryption.rs): an Azlin drive opens through azul-storage's AutoEncrypted,
+# the cloud drives' menu offers "Encrypt this drive" (keys, the recovery sheet, the files moved
+# into the encryption) and "Unlock with the recovery code". Off until the drive index (the
+# encrypted metadata repository) is in: without it encrypted drives cannot be opened.
+encryption = ["azul-storage/encryption", "azcloud-kit/encryption"]
 
 [lib]
 name = "azdrive"

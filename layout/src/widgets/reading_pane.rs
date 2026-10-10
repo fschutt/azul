@@ -633,6 +633,7 @@ pub(crate) fn build(pane: ReadingPane, look: &ReadingPaneLook) -> Dom {
                 label,
                 data: shared.clone(),
                 on_click: cb,
+                trailing_icon: "",
             },
             theme,
         )

@@ -75,6 +75,7 @@ pub mod html;
 pub mod ids;
 pub mod imap_client;
 pub mod listing;
+pub mod mail_drive;
 pub mod message;
 pub mod mutf7;
 pub mod pictures;
@@ -107,7 +108,7 @@ use azul::{
     widgets::ListSelection,
 };
 use azul_appkit::ui as kit;
-use azul_storage::{azul_transport::AzulTransport, S3Drive};
+use azul_storage::{azul_keyring::AzulKeyring, azul_transport::AzulTransport, Drive};
 use listing::{FolderInfo, ListRow, LocalFlags};
 use message::MessageView;
 use store::{DriveFolder, FolderState, IndexEntry, MailStore};
@@ -1164,9 +1165,13 @@ fn sync_drive(
     options: &azlin_sync::AzlinOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
-    let drive = session
-        .open_drive(job.endpoints.s3_url.as_deref(), Box::new(transport.clone()))
-        .map_err(azlin_sync::drive_error)?;
+    let drive = mail_drive::open(
+        session,
+        job.endpoints.s3_url.as_deref(),
+        Box::new(transport.clone()),
+        std::sync::Arc::new(AzulKeyring::new()),
+    )
+    .map_err(azlin_sync::drive_error)?;
     azlin_sync::sync_account(&drive, &MailStore::new(job.mail_root.clone()), options, progress)
 }
 
@@ -1504,7 +1509,7 @@ impl AzlinContext {
     /// The drive with the session's credentials. Never signs in - two Threads refreshing one
     /// drive token at once would make the token server revoke the device - so credentials that
     /// are missing or out of date are an error saying that Send/Receive signs in again.
-    pub(crate) fn open_drive(&self) -> Result<S3Drive, String> {
+    pub(crate) fn open_drive(&self) -> Result<std::sync::Arc<dyn Drive>, String> {
         let drive_id = self
             .account
             .azlin
@@ -1517,12 +1522,13 @@ impl AzlinContext {
                 "the Azlin drive's sign-in is out of date: Send/Receive (F9) signs in again",
             ));
         }
-        session
-            .open_drive(
-                self.endpoints.s3_url.as_deref(),
-                Box::new(AzulTransport::new(USER_AGENT)),
-            )
-            .map_err(|e| e.to_string())
+        mail_drive::open(
+            &session,
+            self.endpoints.s3_url.as_deref(),
+            Box::new(AzulTransport::new(USER_AGENT)),
+            std::sync::Arc::new(AzulKeyring::new()),
+        )
+        .map_err(|e| e.to_string())
     }
 }
 

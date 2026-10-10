@@ -2070,7 +2070,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
         .with_active_item(s.backstage_pane)
         .with_on_nav_select(app.clone(), on_backstage_nav as BackstageOnNavSelectCallbackType)
         .with_on_back(app.clone(), on_backstage_back as ButtonOnClickCallbackType)
-        .with_title_strip(title_row(s))
+        // No title strip: the shell's title row is the screen's (as in AzWriter and AzShow).
         .with_content(pane)
         .dom()
 }
@@ -3419,6 +3419,30 @@ mod tests {
                 hidden: false,
             })
             .collect()
+    }
+
+    /// Every text of `dom`, depth first.
+    fn texts(dom: &Dom, out: &mut Vec<String>) {
+        if let Some(t) = dom.root.node_type.get_text().into_option() {
+            out.push(t.as_str().to_string());
+        }
+        for child in dom.children.as_slice() {
+            texts(child, out);
+        }
+    }
+
+    /// AzWriter's and AzShow's backstage: the shell's title row is the
+    /// screen's one title row. A title strip in the backstage as well drew the
+    /// window title a second time, in both themes.
+    #[test]
+    fn the_backstage_leaves_the_window_title_to_the_shells_title_row() {
+        let s = AppState::new(PathBuf::from("/tmp/azsheets-test"));
+        let mut shown = Vec::new();
+        texts(&backstage(&s, &RefAny::new(())), &mut shown);
+        assert!(
+            !shown.iter().any(|t| t.ends_with(" - AzSheets")),
+            "the window title shows in the backstage too: {shown:?}"
+        );
     }
 
     #[test]

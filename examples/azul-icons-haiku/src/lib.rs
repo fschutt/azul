@@ -21,6 +21,18 @@
 //! each at the size it is shown at, with the level of detail and the pixel
 //! hinting the icon has for that size. HVIF artwork is full colour: it does
 //! not follow the text colour as a Material glyph does.
+//!
+//! COLOUR, the rule under flora: Haiku's own colours are the point of the
+//! pack - the warm folders, the yellow mail, the gradient faces - so a Haiku
+//! icon keeps them in every mode and spin, and no tint reaches it (a
+//! `color` on the icon is the fallback's, not the artwork's). Only a
+//! MONOCHROME glyph takes an ink: a Material fallback (a name this pack does
+//! not draw) and the small UI glyphs (chevrons, close, the text-formatting
+//! and media controls). An app tints those with `system:icon`, flora's
+//! small-icon ink (`--fl-icon`: #56544C by day, #BEBEBE at night) - never
+//! with the accent, which marks a selection - and a selected row's glyph
+//! takes the row's ink. Colour that carries meaning (a file type's colour in
+//! a file list, a status) stays the app's.
 
 /// The pack the icons are registered in.
 pub const PACK: &str = "haiku";

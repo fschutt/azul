@@ -1289,7 +1289,7 @@ impl LandedTextEdit {
     /// The pass result the landing asks for: an incremental relayout when a
     /// landed edit changed its text's extent, a display-list rebuild when
     /// one landed without, and nothing when nothing landed.
-    pub fn event_result(&self) -> azul_core::events::ProcessEventResult {
+    pub const fn event_result(&self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         if !self.landed() {
             ProcessEventResult::DoNothing

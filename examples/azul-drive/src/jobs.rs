@@ -279,6 +279,9 @@ pub(crate) enum Job {
         show_hidden: bool,
         cancel: Arc<AtomicBool>,
     },
+    /// An encrypted drive's keys, recovery or files moved into the encryption.
+    #[cfg(feature = "encryption")]
+    Encryption(crate::encryption::EncryptionJob),
 }
 
 /// What a job answers, on the UI thread.
@@ -412,6 +415,9 @@ pub(crate) enum Outcome {
         searched: usize,
         end: Option<FindEnd>,
     },
+    /// What an encryption job found.
+    #[cfg(feature = "encryption")]
+    Encryption(crate::encryption::EncryptionOutcome),
 }
 
 /// A thread's start data: the job, taken out once.
@@ -1671,6 +1677,8 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 &mut emit,
             )
         }
+        #[cfg(feature = "encryption")]
+        Job::Encryption(job) => Outcome::Encryption(crate::encryption::run(job)),
     }
 }
 

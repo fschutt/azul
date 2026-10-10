@@ -432,7 +432,10 @@ fn terminal_tab(app: &RefAny, index: usize, t: &TerminalTab, active: bool) -> Do
             }),
             on_terminal_tab_click,
         )
-        .with_child(Dom::create_icon("terminal").with_css("font-size: 14px; padding-right: 4px;"))
+        .with_child(
+            Dom::create_icon("terminal")
+                .with_css(format!("font-size: 14px; padding-right: 4px; {}", ui::FLORA_GLYPH)),
+        )
         .with_child(Dom::create_span_with_text(format!("{}: {}", t.number, t.title)))
 }
 

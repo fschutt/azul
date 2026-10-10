@@ -59,7 +59,10 @@ pub fn explorer(app: &RefAny, st: &AppState) -> Dom {
             "display: flex; flex-direction: row; align-items: center; height: 22px; flex-shrink: 0; \
              padding: 0px 8px 0px 4px; font-size: 11px; font-weight: 700;",
         )
-        .with_child(Dom::create_icon("expand_more").with_css("font-size: 16px; padding-right: 2px;"))
+        .with_child(
+            Dom::create_icon("expand_more")
+                .with_css(format!("font-size: 16px; padding-right: 2px; {}", ui::FLORA_GLYPH)),
+        )
         .with_child(Dom::create_span_with_text(w.root.name.to_uppercase()));
     let tree = Dom::create_virtual_view(RefAny::new(ExplorerRef { app: app.clone() }), render_rows)
         .with_id(ids::EXPLORER)
@@ -136,9 +139,11 @@ fn row_dom(app: &RefAny, row: &Row, selected: bool) -> Dom {
     let chevron = if !row.folder {
         Dom::create_div().with_css("width: 16px; flex-shrink: 0;")
     } else if row.expanded {
-        Dom::create_icon("expand_more").with_css("font-size: 16px; width: 16px; flex-shrink: 0;")
+        Dom::create_icon("expand_more")
+            .with_css(format!("font-size: 16px; width: 16px; flex-shrink: 0; {}", ui::FLORA_GLYPH))
     } else {
-        Dom::create_icon("chevron_right").with_css("font-size: 16px; width: 16px; flex-shrink: 0;")
+        Dom::create_icon("chevron_right")
+            .with_css(format!("font-size: 16px; width: 16px; flex-shrink: 0; {}", ui::FLORA_GLYPH))
     };
     let icon = match (row.folder, row.expanded) {
         (true, true) => "folder_open",
@@ -168,7 +173,10 @@ fn row_dom(app: &RefAny, row: &Row, selected: bool) -> Dom {
             on_row_click,
         )
         .with_child(chevron)
-        .with_child(Dom::create_icon(icon).with_css("font-size: 16px; padding: 0px 6px 0px 2px; opacity: 0.8;"))
+        .with_child(
+            Dom::create_icon(icon)
+                .with_css(format!("font-size: 16px; padding: 0px 6px 0px 2px; {}", ui::SOFT_GLYPH)),
+        )
         .with_child(label(&row.name, "min-width: 0px; overflow: hidden;"));
     if selected {
         dom = dom.with_class(ids::TREE_SELECTED_CLASS);

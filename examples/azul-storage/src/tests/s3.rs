@@ -801,3 +801,105 @@ fn a_conditional_put_asks_if_none_match_or_if_match_and_reads_a_412_as_a_conflic
     assert_eq!(call.body, b"three");
     assert_eq!(fake.calls().len(), 3);
 }
+
+/// 8 MiB: the part size of a streamed upload.
+const PART: usize = 8 * 1024 * 1024;
+
+#[test]
+fn a_streamed_body_above_one_part_goes_up_as_a_multipart_upload() {
+    let fake = Fake::default();
+    fake.answer(
+        200,
+        &[],
+        "<InitiateMultipartUploadResult><Bucket>azdrive</Bucket><Key>big.bin</Key>\
+         <UploadId>up-1</UploadId></InitiateMultipartUploadResult>",
+    );
+    fake.answer(200, &[("ETag", "\"p1\"")], "");
+    fake.answer(200, &[("ETag", "\"p2\"")], "");
+    fake.answer(
+        200,
+        &[],
+        "<CompleteMultipartUploadResult><ETag>\"whole-2\"</ETag></CompleteMultipartUploadResult>",
+    );
+    let body: Vec<u8> = (0..PART + 5).map(|i| (i % 251) as u8).collect();
+    let written = local_drive(&fake).put_from("big.bin", &mut &body[..]).unwrap();
+    assert_eq!(written, body.len() as u64);
+
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 4, "start, two parts, complete: {calls:?}");
+    assert_eq!(calls[0].method, Method::Post);
+    assert_eq!(calls[0].url, "http://127.0.0.1:9000/azdrive/big.bin?uploads=");
+    assert_eq!(calls[1].method, Method::Put);
+    assert_eq!(
+        calls[1].url,
+        "http://127.0.0.1:9000/azdrive/big.bin?partNumber=1&uploadId=up-1"
+    );
+    assert_eq!(calls[1].body, &body[..PART]);
+    assert_eq!(
+        calls[2].url,
+        "http://127.0.0.1:9000/azdrive/big.bin?partNumber=2&uploadId=up-1"
+    );
+    assert_eq!(calls[2].body, &body[PART..]);
+    assert_eq!(calls[3].method, Method::Post);
+    assert_eq!(
+        calls[3].url,
+        "http://127.0.0.1:9000/azdrive/big.bin?uploadId=up-1"
+    );
+    let xml = String::from_utf8(calls[3].body.clone()).unwrap();
+    assert_eq!(
+        xml,
+        "<CompleteMultipartUpload>\
+         <Part><PartNumber>1</PartNumber><ETag>\"p1\"</ETag></Part>\
+         <Part><PartNumber>2</PartNumber><ETag>\"p2\"</ETag></Part>\
+         </CompleteMultipartUpload>"
+    );
+}
+
+#[test]
+fn a_multipart_upload_that_fails_is_aborted() {
+    let fake = Fake::default();
+    fake.answer(
+        200,
+        &[],
+        "<InitiateMultipartUploadResult><UploadId>up-2</UploadId></InitiateMultipartUploadResult>",
+    );
+    fake.answer(200, &[("ETag", "\"p1\"")], "");
+    fake.answer(
+        500,
+        &[],
+        "<Error><Code>InternalError</Code><Message>try again</Message></Error>",
+    );
+    fake.answer(204, &[], "");
+    let body = vec![7u8; PART + 1];
+    let error = local_drive(&fake)
+        .put_from("big.bin", &mut &body[..])
+        .unwrap_err();
+    assert!(matches!(error, DriveError::Service(ref e) if e.status == 500), "{error:?}");
+    let last = fake.last();
+    assert_eq!(last.method, Method::Delete, "the parts sent are not left behind");
+    assert_eq!(
+        last.url,
+        "http://127.0.0.1:9000/azdrive/big.bin?uploadId=up-2"
+    );
+    assert_eq!(fake.calls().len(), 4);
+}
+
+#[test]
+fn a_streamed_body_of_one_part_or_less_goes_up_in_one_put() {
+    let fake = Fake::default();
+    fake.answer(200, &[("ETag", "\"one\"")], "");
+    fake.answer(200, &[("ETag", "\"two\"")], "");
+    let drive = local_drive(&fake);
+    assert_eq!(drive.put_from("small.txt", &mut &b"hello"[..]).unwrap(), 5);
+    assert_eq!(fake.last().method, Method::Put);
+    assert_eq!(fake.last().body, b"hello");
+    let exactly_one_part = vec![1u8; PART];
+    assert_eq!(
+        drive
+            .put_from("part.bin", &mut &exactly_one_part[..])
+            .unwrap(),
+        PART as u64
+    );
+    assert_eq!(fake.calls().len(), 2, "one PUT each");
+    assert_eq!(fake.last().body.len(), PART);
+}

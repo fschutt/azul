@@ -243,7 +243,7 @@ impl ShellThemeScope {
 
     /// Replaces `self` with an empty scope and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div());
         core::mem::swap(&mut s, self);
         s

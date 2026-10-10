@@ -962,3 +962,74 @@ fn a_table_without_a_theme_follows_the_app_theme_and_declares_its_structure_once
         theme_checks::assert_structure_is_shared(&format!("data_table built for {}", theme.name()), &dom, &[]);
     }
 }
+
+/// A flora table is flora's ledger, as flora's list view is: the column
+/// titles are flora's capitals in the intro ink on the raised paper face,
+/// every other row lies on flora.css's table stripe (`--fl-strip` by day;
+/// the surface tone at night, where the strip token sits two steps off the
+/// night paper), and a selected row is flora's selection - the soft wash in
+/// the deep tone by day, the stone in the paper ink at night. The titles
+/// were semibold mixed case on the strip, the stripes the faint surface
+/// tone, and a selected row kept the plain ink.
+#[test]
+fn a_flora_table_heads_its_columns_in_capitals_and_stripes_and_selects_as_flora_does() {
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, DynamicSelector, ModeCondition},
+        props::{
+            basic::color::ColorU,
+            property::{CssProperty, CssPropertyType},
+            style::text::StyleTextTransform,
+        },
+    };
+
+    use crate::widgets::themes::flora;
+
+    /// The last declaration of `ty` that holds at rest by day or at night.
+    fn at_rest(props: &[CssPropertyWithConditions], ty: CssPropertyType, dark: bool) -> Option<CssProperty> {
+        props
+            .iter()
+            .filter(|p| {
+                p.property.get_type() == ty
+                    && p.apply_if.as_ref().iter().all(|c| match c {
+                        DynamicSelector::Mode(ModeCondition::Dark) => dark,
+                        DynamicSelector::Mode(ModeCondition::Light) => !dark,
+                        _ => false,
+                    })
+            })
+            .map(|p| p.property.clone())
+            .last()
+    }
+    fn ink(props: &[CssPropertyWithConditions], dark: bool) -> Option<ColorU> {
+        match at_rest(props, CssPropertyType::TextColor, dark)? {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+    fn fill(props: &[CssPropertyWithConditions], dark: bool) -> Option<ColorU> {
+        at_rest(props, CssPropertyType::BackgroundContent, dark).and_then(|p| theme_checks::bg_color(&p))
+    }
+
+    let dom = small().with_theme(UiTheme::Flora).dom();
+    let header = theme_checks::find(&dom, HEADER_CLASS_NAME).expect("a column title");
+    assert!(
+        matches!(
+            theme_checks::resolve(header, CssPropertyType::TextTransform, false, None),
+            Some(CssProperty::TextTransform(v)) if v.get_property() == Some(&StyleTextTransform::Uppercase)
+        ),
+        "a column title is set in capitals"
+    );
+    assert_eq!(theme_checks::text_color(header, false), Some(flora::LIGHT_INTRO));
+    assert_eq!(theme_checks::text_color(header, true), Some(flora::DARK_INTRO));
+    assert_eq!(
+        theme_checks::resolve(header, CssPropertyType::BackgroundContent, false, None)
+            .map(|p| theme_checks::bg_layers(&p)),
+        Some(vec![flora::RAISED_FACE_LIGHT]),
+        "the raised paper face"
+    );
+
+    let look = flora::data_table_look();
+    assert_eq!(fill(&look.row_alternate, false), Some(flora::LIGHT_STRIP), "the table stripe");
+    assert_eq!(fill(&look.row_alternate, true), Some(flora::DARK_SUR));
+    assert_eq!(ink(&look.row_selected, false), Some(flora::LIGHT_DEEP), "the selection's ink");
+    assert_eq!(ink(&look.row_selected, true), Some(flora::DARK_ON_ACC));
+}

@@ -265,7 +265,7 @@ impl Gauge {
 
     /// A bar showing `value` between `min` and `max`.
     #[must_use]
-    pub fn create_linear(value: f64, min: f64, max: f64) -> Self {
+    pub const fn create_linear(value: f64, min: f64, max: f64) -> Self {
         let mut g = Self::create(value, min, max);
         g.kind = GaugeKind::Linear;
         g.size = DEFAULT_LINEAR_WIDTH;
