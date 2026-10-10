@@ -100,6 +100,9 @@ pub(crate) struct SyncWork {
     /// Its AZL1 objects kept on this computer (encrypted local copies).
     #[cfg(feature = "encryption")]
     pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
+    /// Files over this many bytes wait for a pass on a free network, either way (a metered
+    /// network: [`sync_view::network_hold`]).
+    pub transfer_limit: Option<u64>,
 }
 
 impl SyncWork {
@@ -112,6 +115,7 @@ impl SyncWork {
             auto: None,
             #[cfg(feature = "encryption")]
             objects: None,
+            transfer_limit: None,
         }
     }
 
@@ -216,6 +220,8 @@ pub(crate) struct PassDone {
     pub paused: Option<azcloud_kit::sync::guard::Pause>,
     /// What the drive's index uses that this version does not know (D43).
     pub newer_format: Vec<String>,
+    /// Files whose transfer waited for a free network (a metered one held them back).
+    pub held: usize,
 }
 
 impl PassDone {

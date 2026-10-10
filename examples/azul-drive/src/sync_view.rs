@@ -54,6 +54,7 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{ButtonType, DropDown, OnTextInputReturn, TextInputState, TextInputValid},
+    window::NetworkState,
 };
 
 pub(crate) use crate::sync_store::SyncStore;
@@ -106,6 +107,8 @@ pub(crate) struct SyncView {
     /// A copy, move or download of a plain synced drive's own listing, waiting for its
     /// cloud-only files to come down.
     pub waiting_transfer: Option<sync_jobs::Transfer>,
+    /// The network as the poll timer last read it (azul's `NetworkState`); `None` before.
+    pub network: Option<NetworkState>,
 }
 
 /// What the ribbon, the menus and the Options ask of a synced drive.
@@ -133,7 +136,7 @@ pub(crate) enum SyncAction {
 /// conflict waiting, the last error, never synced, up to date - from its `states` and the pass
 /// `running`. An Azlin drive (`azlin`) is "Read-only (payment due)" when its token server says
 /// it takes no writes (`payment_due`, its drive status); another drive is "Read-only" when it
-/// refused a write.
+/// refused a write. `held`: the network holds its big transfers back ([`network_hold`]).
 #[must_use]
 pub(crate) fn status_text(
     setup: &SyncSetup,
@@ -141,6 +144,7 @@ pub(crate) fn status_text(
     running: Option<&Running>,
     azlin: bool,
     payment_due: bool,
+    _held: bool,
 ) -> String {
     if setup.paused {
         return String::from("Paused");
@@ -199,6 +203,17 @@ pub(crate) fn status_text(
         return String::from("Not synced yet");
     }
     String::from("Up to date")
+}
+
+/// Whether a pass of `setup`'s drive on `network` holds big transfers back, and from which
+/// size on: on a metered or low-data network (a phone's hotspot, Low Data Mode, Data Saver)
+/// the files over the auto-download size ("New files under N MB"; the default's size for the
+/// other choices) wait - uploads and downloads - while small files and the polls go on. `None`
+/// on a free network, offline (the pass says why it failed), before the network was read, and
+/// when the user said "Sync anyway on this network" (`sync_on_metered`).
+#[must_use]
+pub(crate) fn network_hold(_network: Option<&NetworkState>, _setup: &SyncSetup) -> Option<u64> {
+    None
 }
 
 /// A file state's icon (a Material name of the icon set).
@@ -544,7 +559,8 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> String {
     let states = s.sync_view.store.states(drive_id);
     let running = s.sync_view.drives.get(drive_id).and_then(|d| d.running.as_ref());
     let payment_due = s.sync_view.payment_due.contains(drive_id);
-    status_text(setup, &states, running, azlin, payment_due)
+    let held = network_hold(s.sync_view.network.as_ref(), setup).is_some();
+    status_text(setup, &states, running, azlin, payment_due, held)
 }
 
 /// A synced drive's state on its row of the source list: its glyph and its status line.
