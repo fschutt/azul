@@ -206,8 +206,8 @@ fn transports() -> TransportFactory {
     Arc::new(|| Box::new(crate::transport::UreqTransport::new()) as Box<dyn Transport>)
 }
 
-/// The token server and an S3 override, as azcloud-kit's settings resolve them.
-fn endpoints(options: &Options) -> (Option<String>, Option<String>) {
+/// The settings of this run, as azcloud-kit resolves them.
+fn settings(options: &Options) -> azcloud_kit::Settings {
     let flags = azcloud_kit::Flags {
         endpoints: EndpointFlags {
             token: options.token_url.clone(),
@@ -221,11 +221,37 @@ fn endpoints(options: &Options) -> (Option<String>, Option<String>) {
         config: dirs::config_dir(),
         data: dirs::data_dir(),
     };
-    let settings = azcloud_kit::Settings::from_process(&flags, &os);
+    azcloud_kit::Settings::from_process(&flags, &os)
+}
+
+/// The token server and an S3 override, as azcloud-kit's settings resolve them.
+fn endpoints(options: &Options) -> (Option<String>, Option<String>) {
+    let settings = settings(options);
     (
         settings.token_url().ok().map(str::to_string),
         settings.endpoints.url(Endpoint::S3).map(str::to_string),
     )
+}
+
+/// The drive's iroh dialer: azul's iroh endpoint when the bridge links libazul (`os-keyring`,
+/// `tray`); none otherwise - HTTPS with the failover, connect-by-IP included.
+/// `AZCLOUD_TRANSPORT=https` keeps to HTTPS.
+fn iroh_dialer() -> Option<Arc<dyn azcloud_kit::IrohDialer>> {
+    let asked = std::env::var("AZCLOUD_TRANSPORT").ok();
+    if asked.as_deref().and_then(azcloud_kit::TransportPref::parse)
+        == Some(azcloud_kit::TransportPref::Https)
+    {
+        return None;
+    }
+    #[cfg(feature = "os-keyring")]
+    let dialer: Option<Arc<dyn azcloud_kit::IrohDialer>> = Some(Arc::new(
+        |target: &azcloud_kit::IrohTarget, relay: Option<&str>| {
+            azul_storage::azul_iroh::dial(&target.id, &target.addrs, relay)
+        },
+    ));
+    #[cfg(not(feature = "os-keyring"))]
+    let dialer: Option<Arc<dyn azcloud_kit::IrohDialer>> = None;
+    dialer
 }
 
 fn say(line: &str) {
@@ -508,6 +534,11 @@ fn serve(
         let token_url = token_url.ok_or("no token server: pass --token-url or set AZLIN_TOKEN_URL")?;
         let drive = AccountDrive::open(state_dir, &token_url, transports(), s3_url)
             .map_err(|e| e.to_string())?;
+        // iroh to the nodes first when this build dials it, HTTPS with the failover after.
+        let drive = match iroh_dialer() {
+            Some(dialer) => drive.with_iroh(dialer, settings(options).relay()),
+            None => drive,
+        };
         let id = drive.drive_id();
         say(&format!("AZUL_BRIDGE_DRIVE {id}"));
         (

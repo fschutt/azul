@@ -6,13 +6,19 @@
 //! refresh spend the other's token, and the token server revokes a family when a spent token
 //! comes back. The credentials are renewed under the state folder's lock six hours before they
 //! run out ([`Account::ensure_fresh`]), and once more when the bucket refuses them.
+//!
+//! Every request goes through azcloud-kit's failover, as an app's Azlin drive does: iroh to the
+//! nodes first when the bridge is built with libazul (`os-keyring`, `tray`: azul's iroh
+//! endpoint, [`AccountDrive::with_iroh`]), then the block endpoint, the nodes the last refresh
+//! listed and its failover URLs, each reached at its addresses when its name does not resolve.
 
 use std::sync::{Arc, Mutex};
 
 use azcloud_kit::{
     drive::TransportFactory,
     error::{CloudError, CloudResult},
-    Account, StateDir,
+    failover::{Failover, Node},
+    Account, IrohDialer, IrohLane, StateDir,
 };
 use azul_storage::{
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition, S3Config,
@@ -47,6 +53,10 @@ pub struct AccountDrive {
     s3_override: Option<String>,
     /// The bucket of the current credentials, by their access key.
     bucket: Mutex<Option<(String, Arc<S3Drive>)>>,
+    /// Where every request goes (the failover of the drive's block endpoint).
+    failover: Mutex<Option<Arc<Failover>>>,
+    /// iroh to the nodes first, when the bridge dials it.
+    lane: Option<Arc<IrohLane>>,
 }
 
 impl std::fmt::Debug for AccountDrive {
@@ -74,7 +84,40 @@ impl AccountDrive {
             transports,
             s3_override: s3_override.filter(|s| !s.trim().is_empty()),
             bucket: Mutex::new(None),
+            failover: Mutex::new(None),
+            lane: None,
         })
+    }
+
+    /// Sends every request over iroh first: to each ready node the node list names with an iroh
+    /// id, dialed through `dialer` and relayed through `relay`; HTTPS with the failover is the
+    /// fallback.
+    #[must_use]
+    pub fn with_iroh(mut self, dialer: Arc<dyn IrohDialer>, relay: Option<&str>) -> Self {
+        self.lane = Some(Arc::new(IrohLane::new(dialer, relay)));
+        self
+    }
+
+    /// The failover of `endpoint` (kept while the endpoint stays), with the node list and the
+    /// failover URLs of the refresh `record` holds.
+    fn failover_for(&self, endpoint: &str, record: &azcloud_kit::account::DriveRecord) -> Arc<Failover> {
+        let mut kept = self
+            .failover
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let wanted = endpoint.trim().trim_end_matches('/');
+        let failover = match kept.as_ref() {
+            Some(failover) if failover.block() == wanted => failover.clone(),
+            _ => {
+                let failover = Arc::new(Failover::new(endpoint));
+                failover.set_lane(self.lane.clone());
+                *kept = Some(failover.clone());
+                failover
+            }
+        };
+        failover.set_nodes(Node::list(&record.nodes));
+        failover.set_alternatives(record.failover.clone());
+        failover
     }
 
     /// The drive's id (for people).
@@ -124,7 +167,9 @@ impl AccountDrive {
             bucket: record.bucket.clone(),
             path_style: record.path_style,
         };
-        let drive = Arc::new(S3Drive::new(config, credentials, (self.transports)())?);
+        let failover = self.failover_for(&config.endpoint, &record);
+        let drive =
+            Arc::new(S3Drive::new(config, credentials, (self.transports)())?.with_router(failover));
         *bucket = Some((key.clone(), drive.clone()));
         Ok((drive, key))
     }
