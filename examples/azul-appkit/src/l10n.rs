@@ -6,7 +6,11 @@
 //!   table) - and keeps them on this thread for the text that is no DOM text node.
 //! - **DOM text:** [`tr`] marks a key (`AzString::tr`): the layout pass translates it into the
 //!   window's language. [`span`] is a key with arguments (`with_fluent_args`), [`text_dom`] a
-//!   [`Text`]. [`label`] takes a key or - from an app not localized yet - plain words.
+//!   [`Text`].
+//! - **A widget's words** (a button's, a ribbon's, a segmented control's label): [`label`] says
+//!   a key here, in the language of the layout pass - widgets measure, wrap and join their
+//!   labels (a ribbon's two-line label, "Copy options" of a split button), which would take a
+//!   key apart - and passes plain words (an app not localized yet) as they are.
 //! - **Text that is no DOM text node** (a window title, a menu entry, an accessible name, a
 //!   tooltip, a placeholder): [`t`] / [`t_args`] / [`t_text`] in the language of the layout
 //!   pass, which an app's layout callback names first ([`begin_layout`] - asking for it makes
@@ -37,8 +41,6 @@ thread_local! {
     static LOCALIZER: RefCell<Option<FluentLocalizerHandle>> = const { RefCell::new(None) };
     /// The language of the layout pass ([`begin_layout`]).
     static LOCALE: RefCell<String> = RefCell::new(String::from("en-US"));
-    /// [`register`] gave the engine the resources.
-    static REGISTERED: RefCell<bool> = const { RefCell::new(false) };
 }
 
 /// The resources per language: appkit's first, then `resources` in their order, each
@@ -72,7 +74,6 @@ pub fn register(config: &mut AppConfig, resources: &[(&str, &str)]) {
             .collect(),
     );
     keep(&sources);
-    REGISTERED.with(|r| *r.borrow_mut() = true);
 }
 
 /// Keeps `sources` for [`t`] on this thread (without an `AppConfig`: a test).
@@ -118,24 +119,11 @@ pub fn tr(key: &str) -> AzString {
     AzString::tr(key)
 }
 
-/// Whether the app gave the engine its resources ([`register`]) on this thread.
-#[must_use]
-pub fn registered() -> bool {
-    REGISTERED.with(|r| *r.borrow())
-}
-
-/// A label a shared piece shows: a key ([`tr`]) or - from an app not localized yet - the
-/// words themselves. In an app that registered no resources (the engine translates nothing
-/// there) a key is said in English here ([`t`]).
+/// A widget's label: a key said in the language of the layout pass ([`t`]), plain words (an
+/// app not localized yet) as they are.
 #[must_use]
 pub fn label(text: &str) -> AzString {
-    if !is_key(text) {
-        AzString::from(text)
-    } else if registered() {
-        tr(text)
-    } else {
-        AzString::from(t(text))
-    }
+    AzString::from(t_label(text))
 }
 
 /// The labels as a `StringVec` (a segmented control's choices, a drop-down's), each a
