@@ -284,6 +284,35 @@ fn the_files_the_index_has_not_read_as_they_are_are_named() {
     assert_eq!(unread, vec!["notes/new.txt", "notes/plan.txt"]);
 }
 
+/// One file asked on its own (an app's "indexed" / "not indexable" overlays): read as it is
+/// now, never read (a kind without text, a document over the size limit), or not read yet - the
+/// list the index keeps beside it, read once, without opening the index.
+#[test]
+fn one_file_is_indexed_not_indexable_or_unread_as_the_index_last_read_it() {
+    let (drive, dir) = drive();
+    let index = DriveIndex::open(dir.path()).expect("the index");
+    let entry = |path: &str| {
+        listed(&drive)
+            .into_iter()
+            .find(|f| f.path == path)
+            .expect("listed")
+    };
+    let before = crate::indexed_files(dir.path());
+    assert_eq!(before.indexing(&entry("notes/plan.txt")), crate::FileIndexing::Unread);
+    assert_eq!(before.indexing(&entry("photo.jpg")), crate::FileIndexing::NotIndexable);
+    update(&index, &drive);
+    let after = crate::indexed_files(dir.path());
+    assert_eq!(after.indexing(&entry("notes/plan.txt")), crate::FileIndexing::Indexed);
+    assert_eq!(after.indexing(&entry("docs/Report.docx")), crate::FileIndexing::Indexed);
+    assert_eq!(after.indexing(&entry("photo.jpg")), crate::FileIndexing::NotIndexable);
+    drive.write("notes/plan.txt", b"the zebra-quartz plan, and a longer line\n");
+    assert_eq!(after.indexing(&entry("notes/plan.txt")), crate::FileIndexing::Unread);
+    assert!(crate::indexable("notes.txt", u64::MAX), "a text is read in part, however long");
+    assert!(!crate::indexable("big.docx", crate::MAX_DOCUMENT_BYTES + 1));
+    assert!(crate::indexable("small.docx", 10));
+    assert!(!crate::indexable("song.mp3", 10));
+}
+
 /// A file's text as the index reads it - an office document's paragraphs, a mail's text -, for
 /// the line a result of a document shows; none for a picture or a file that is not there.
 #[test]

@@ -579,3 +579,36 @@ fn the_search_asks_the_sync_store_through_its_seam() {
     );
     assert_eq!(seam.local_copy("home", &key("b.txt")), None);
 }
+
+/// §13.7's overlays from a drive's search index: a magnifier on a file the index read as it is
+/// now, a slashed one on a file it never reads (no text, too big), nothing on one not read yet;
+/// a row without its size and date (not stat'ed yet) is not asked.
+#[test]
+fn an_indexed_drives_rows_say_whether_the_index_holds_them() {
+    use azul_search_index::FileIndexing;
+
+    assert_eq!(
+        sync_view::index_overlay(FileIndexing::Indexed),
+        Some(("manage_search", "In the search index"))
+    );
+    assert_eq!(
+        sync_view::index_overlay(FileIndexing::NotIndexable),
+        Some(("search_off", "Not indexable: no text, or too big"))
+    );
+    assert_eq!(sync_view::index_overlay(FileIndexing::Unread), None);
+    let row = |known: bool| crate::browse::Entry {
+        key: String::from("docs/a.txt"),
+        name: String::from("a.txt"),
+        is_folder: false,
+        size: known.then_some(3),
+        modified: known.then_some(1_700_000_000),
+        etag: None,
+        known,
+    };
+    let file = sync_view::index_entry(&row(true)).expect("a file with its size and date");
+    assert_eq!(
+        (file.path.as_str(), file.size, file.modified),
+        ("docs/a.txt", 3, Some(1_700_000_000))
+    );
+    assert!(sync_view::index_entry(&row(false)).is_none());
+}
