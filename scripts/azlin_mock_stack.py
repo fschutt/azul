@@ -1432,6 +1432,64 @@ def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verb
     return Stack(token, s3)
 
 
+def self_test():
+    """The mock's lockdown as drives.rs does it (`--self-test`): by a drive token every family,
+    access key and public link of the drive at once, the caller in a new family; by the recovery
+    key nothing for 48 hours, then the same except the recovering device's family, which is the
+    owner's from then on."""
+    import azlin_client  # noqa: PLC0415 - only for the self-test
+    stack = start(tempfile.mkdtemp(prefix='azlin-mock-selftest-'))
+    try:
+        client = azlin_client.TokenClient(stack.token_url)
+        state = stack.token.state
+        _, bundle, _ = client.signup('self-test')
+        drive_id, owner = bundle['drive']['id'], bundle['drive_token']
+        path = '/v1/drives/%s' % drive_id
+        status, member, _ = client.call('POST', path + '/members', {'member': 'laptop'},
+                                        bearer=owner)
+        assert status == 201 and member['member'] == 'laptop', (status, member)
+        status, key, _ = client.call('POST', path + '/keys', {'perms': 'r'}, bearer=owner)
+        assert status == 201 and key['access_key_id'].startswith('AZK'), (status, key)
+        link = state.add_public_link(drive_id)
+        status, locked, _ = client.call('POST', path + '/lockdown', {}, bearer=owner)
+        assert status == 200 and locked['drive_token'] not in (owner, member['drive_token'])
+        drive = state.drives[drive_id]
+        assert drive['access_keys'][key['access_key_id']]['revoked_at'], 'the key is revoked'
+        assert drive['public_links'][link]['revoked_at'], 'the link is revoked'
+        assert drive['lockdown_until'] > time.time(), 'deletes paused'
+        assert client.refresh(drive_id, member['drive_token'])[0] == 401, 'the member is out'
+        assert client.refresh(drive_id, owner)[0] == 401, "the caller's old family is out"
+        assert client.refresh(drive_id, locked['drive_token'])[0] == 200, 'its new one works'
+        # By the recovery key.
+        _, bundle, _ = client.signup('self-test-recovery')
+        drive_id, owner = bundle['drive']['id'], bundle['drive_token']
+        path = '/v1/drives/%s' % drive_id
+        secret, public = azlin_ed25519.new_key()
+        client.call('POST', path + '/recovery', {'recovery_pubkey': public}, bearer=owner)
+        _, key, _ = client.call('POST', path + '/keys', {}, bearer=owner)
+        link = state.add_public_link(drive_id)
+        nonce = '0123456789abcdef0123456789abcdef'
+        message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
+        status, pending, _ = client.call('POST', path + '/lockdown',
+                                         {'nonce': nonce,
+                                          'signature': azlin_ed25519.sign_b64(secret, message)})
+        assert status == 202, (status, pending)
+        drive = state.drives[drive_id]
+        assert not drive['access_keys'][key['access_key_id']]['revoked_at'], 'nothing yet'
+        assert client.call('GET', path, bearer=owner)[0] == 200, 'the owner reads meanwhile'
+        state.finish_pending_lockdowns(time.time() + LOCKDOWN_PENDING_SECS + 1)
+        assert drive['access_keys'][key['access_key_id']]['revoked_at'], 'then the key'
+        assert drive['public_links'][link]['revoked_at'], 'then the link'
+        assert client.call('GET', path, bearer=owner)[0] == 401, "then the owner's device"
+        assert client.refresh(drive_id, pending['drive_token'])[0] == 200, 'the recovering one'
+        assert any(f['member'] == 'owner' and not f['revoked'] for f in state.families.values()
+                   if f['drive'] == drive_id), 'its family is the owner now'
+        print('ok: a lockdown revokes every family, key and link (by the recovery key after '
+              '48 h, the recovering family made the owner)')
+    finally:
+        stack.stop()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--host', default='127.0.0.1')
@@ -1446,7 +1504,12 @@ def main(argv=None):
     parser.add_argument('--providers', nargs='?', const=','.join(DEFAULT_PROVIDERS), default='',
                         help='offer fake payment providers (comma-separated, of %s; without a '
                              'list: %s)' % (', '.join(FAKE_PROVIDERS), ','.join(DEFAULT_PROVIDERS)))
+    parser.add_argument('--self-test', action='store_true',
+                        help="check the mock's own lockdown semantics and exit")
     args = parser.parse_args(argv)
+    if args.self_test:
+        self_test()
+        return
     root = args.root or tempfile.mkdtemp(prefix='azlin-mock-s3-')
     providers = [p for p in args.providers.split(',') if p]
     stack = start(root, args.host, args.token_port, args.s3_port, args.ttl, args.verbose,

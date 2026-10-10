@@ -56,6 +56,10 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     rata, more than a month on 100GB) and a later `period_until`; an unknown code is 400
     `voucher_invalid`. A server that takes no test code (a production one) skips the section;
     `--skip-vouchers` skips it anyway; `--mock` never skips it.
+14. A lockdown by a drive token (§18.7): with a member family (POST /v1/drives/<id>/members, 201)
+    and an access key (POST /v1/drives/<id>/keys, 201, `AZK...`) made first, the owner's lockdown
+    is 200 with a new drive token for the caller; the member's token and the caller's old one
+    are refused (401) and the new one refreshes.
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -188,11 +192,47 @@ def run(token_url, s3_url=None, vouchers='auto'):
                 status == 404 and error_code(value) == 'not_found', '(HTTP %d %r)' % (status, value))
     claim_checks(suite, client)
     recovery_checks(suite, client)
+    lockdown_checks(suite, client)
     if vouchers == 'skip':
         print('skipped: vouchers (--skip-vouchers)', flush=True)
     else:
         voucher_checks(suite, client, required=vouchers == 'required')
     return suite.failures
+
+
+def lockdown_checks(suite, client):
+    """14. A lockdown by a drive token: every family at once, the caller in a new one."""
+    status, bundle, text = client.signup('azlin-conformance-lockdown')
+    if not suite.check('a drive to lock down', status == 201 and isinstance(bundle, dict),
+                       '(HTTP %d %s)' % (status, text[:120])):
+        return
+    drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
+    owner = bundle.get('drive_token') or ''
+    path = '/v1/drives/%s' % drive_id
+    status, member, _ = client.call('POST', path + '/members', {'member': 'conformance'},
+                                    bearer=owner)
+    member_token = (member or {}).get('drive_token') or ''
+    suite.check('the owner adds a member family (201)', status == 201 and bool(member_token),
+                '(HTTP %d %r)' % (status, error_code(member)))
+    status, key, _ = client.call('POST', path + '/keys', {'perms': 'r', 'expires_days': 1},
+                                 bearer=owner)
+    suite.check('the owner makes an access key (201, AZK...)',
+                status == 201 and str((key or {}).get('access_key_id') or '').startswith('AZK'),
+                '(HTTP %d %r)' % (status, error_code(key)))
+    status, locked, _ = client.call('POST', path + '/lockdown', {}, bearer=owner)
+    new_token = (locked or {}).get('drive_token') or ''
+    suite.check("the owner's lockdown is 200 with a new drive token",
+                status == 200 and bool(new_token) and new_token not in (owner, member_token),
+                '(HTTP %d %r)' % (status, error_code(locked)))
+    status, value, _ = client.refresh(drive_id, member_token)
+    suite.check("the member's token is refused after the lockdown (401)", status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.refresh(drive_id, owner)
+    suite.check("the caller's old token is refused too (401)", status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.refresh(drive_id, new_token)
+    suite.check('the new token refreshes', status == 200,
+                '(HTTP %d %r)' % (status, error_code(value)))
 
 
 def voucher_checks(suite, client, required):
