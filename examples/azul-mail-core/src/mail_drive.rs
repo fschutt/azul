@@ -285,6 +285,42 @@ mod tests {
         assert!(!tmp.path().join("mail").exists(), "nothing written");
     }
 
+    /// "We always encrypt": the mail of an encrypted drive - new mail, a sent copy, a draft - goes
+    /// through the drive's encryption by default: the bucket holds neither its names nor its text.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn new_mail_of_an_encrypted_drive_reaches_the_bucket_as_ciphertext_only() {
+        use azul_storage::{
+            crypto::{device, keys::RecoveryKdf},
+            meta::MemoryBucket,
+        };
+        let _turn = provider_turn();
+        super::set_index_cache_root(None);
+        let keyring = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_new", cheap).unwrap();
+        let drive = wrap(bucket.clone(), "d_new", keyring);
+        let sent = b"Subject: the quarterly plan\r\n\r\nhello\r\n";
+        drive
+            .put("mail/Sent/20261010T080000Z-0011223344556677.eml", sent)
+            .unwrap();
+        drive.put("mail/Drafts/20261010T090000Z-8899aabbccddeeff.eml", b"draft").unwrap();
+        assert_eq!(
+            drive
+                .get("mail/Sent/20261010T080000Z-0011223344556677.eml")
+                .unwrap(),
+            sent
+        );
+        for (key, bytes) in bucket.objects() {
+            assert!(!key.contains("mail") && !key.contains("Sent"), "{key}");
+            assert!(
+                !bytes.windows(9).any(|w| w == b"quarterly"),
+                "{key} holds the mail's text"
+            );
+        }
+    }
+
     /// With a cache root set, an encrypted drive's index keeps this computer's copy there
     /// between runs (as AzDrive's does).
     #[cfg(feature = "encryption")]
