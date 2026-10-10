@@ -441,6 +441,8 @@ class Run:
             'AZLIN_DATA': os.path.join(self.tmp, 'azlin-data'),
             'AZLIN_CONFIG': 'off',
         }
+        # The checks read English words (the system may be German).
+        app_args = ('--language', 'en', *app_args)
         command = [binary, *app_args]
         if self.args.runner:
             command = [self.args.runner, '--cap-mb', '1500', '--seconds',
@@ -1107,7 +1109,7 @@ class LocalRun(Run):
             'AZLIN_CONFIG': 'off',
             'AZMAIL_DATA': self.mail_root,
         }
-        command = [binary, '--size', f'{MAIN_SIZE[0]}x{MAIN_SIZE[1]}']
+        command = [binary, '--size', f'{MAIN_SIZE[0]}x{MAIN_SIZE[1]}', '--language', 'en']
         if self.args.runner:
             command = [self.args.runner, '--cap-mb', '1500', '--seconds',
                        str(int(self.args.timeout) + 30), '--log',
@@ -1664,7 +1666,7 @@ class AzlinRun(Run):
             # The headless keyring in a file: the encrypted drive's key is in it.
             'AZ_KEYRING_FILE': self.keyring_file(),
         }
-        app_args = ['--size', f'{AZLIN_SIZE[0]}x{AZLIN_SIZE[1]}',
+        app_args = ['--size', f'{AZLIN_SIZE[0]}x{AZLIN_SIZE[1]}', '--language', 'en',
                     '--azlin-token-url', self.token_url]
         if self.s3_url:
             app_args += ['--azlin-s3-url', self.s3_url]

@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{NaiveDate, TimeZone};
+use chrono::{Datelike, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 
 use crate::{folders::Role, store::IndexEntry};
@@ -43,8 +43,9 @@ pub fn local_day<Tz: TimeZone>(rfc3339: &str, tz: &Tz) -> Option<NaiveDate> {
         .map(|date| date.with_timezone(tz).date_naive())
 }
 
-/// The list's date column in `tz`: the time for today ("21:12"), the weekday and time for this
-/// week ("Wed 21:12"), the date before ("2026-09-28"); the text as it is when it is not a date.
+/// The list's date column in `tz`: the time for today ("21:12"), the weekday (in the window's
+/// language) and time for this week ("Wed 21:12", "Mi 21:12"), the date before ("2026-09-28");
+/// the text as it is when it is not a date.
 pub fn list_date<Tz: TimeZone>(rfc3339: &str, today: NaiveDate, tz: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -55,7 +56,10 @@ where
     let local = date.with_timezone(tz);
     let format = match date_group(local.date_naive(), today) {
         DateGroup::Today => "%H:%M",
-        DateGroup::Yesterday | DateGroup::Weekday(_) => "%a %H:%M",
+        DateGroup::Yesterday | DateGroup::Weekday(_) => {
+            let day = azul_pim::dates::weekday_short_message_id(local.weekday());
+            return format!("{} {}", azul_appkit::l10n::t(day), local.format("%H:%M"));
+        }
         _ => "%Y-%m-%d",
     };
     local.format(format).to_string()
@@ -224,24 +228,47 @@ pub struct FolderNode {
     pub children: Vec<FolderNode>,
 }
 
-/// The name Outlook gives a special folder ("Sent Items", "Deleted Items", "Junk E-mail"), or the
+/// The name Outlook gives a special folder ("Sent Items", "Deleted Items", "Junk E-mail" - in
+/// the window's language: `azmail-folder-<role>`, the English without the resources), or the
 /// last segment of the folder's own name.
 pub fn folder_label(role: Role, display: &str) -> String {
-    let special = match role {
-        Role::Inbox => "Inbox",
-        Role::Drafts => "Drafts",
-        Role::Sent => "Sent Items",
-        Role::Trash => "Deleted Items",
-        Role::Spam => "Junk E-mail",
-        Role::Archive => "Archive",
-        Role::All => "All Mail",
-        Role::Flagged => "Flagged",
+    let (what, special) = match role {
+        Role::Inbox => ("folder-inbox", "Inbox"),
+        Role::Drafts => ("folder-drafts", "Drafts"),
+        Role::Sent => ("folder-sent", "Sent Items"),
+        Role::Trash => ("folder-trash", "Deleted Items"),
+        Role::Spam => ("folder-junk", "Junk E-mail"),
+        Role::Archive => ("folder-archive", "Archive"),
+        Role::All => ("folder-all", "All Mail"),
+        Role::Flagged => ("folder-flagged", "Flagged"),
         Role::Other => {
             let last = display.rsplit('/').next().unwrap_or(display);
             return if last.is_empty() { display } else { last }.to_string();
         }
     };
-    special.to_string()
+    azul_appkit::l10n::app_word("AzMail", what, special)
+}
+
+/// The Outbox's name in the folder pane (in the window's language).
+#[must_use]
+pub fn outbox_label() -> String {
+    azul_appkit::l10n::app_word("AzMail", "folder-outbox", "Outbox")
+}
+
+/// [`LOCAL_FOLDERS`] in the window's language.
+#[must_use]
+pub fn local_folders() -> String {
+    azul_appkit::l10n::app_word("AzMail", "local-folders", LOCAL_FOLDERS)
+}
+
+/// A folder's name in the pane: the Outbox's, a special folder's, or its own.
+#[must_use]
+pub fn label_of(folder: &FolderInfo) -> String {
+    if folder.key == OUTBOX_KEY {
+        outbox_label()
+    } else {
+        folder_label(folder.role, &folder.display)
+    }
 }
 
 /// Outlook's order for the special folders: Inbox, Drafts, Sent Items, Deleted Items, Junk
@@ -291,6 +318,7 @@ pub fn folder_tree(folders: &[FolderInfo]) -> Vec<FolderNode> {
                 };
                 (Some(at), label)
             }
+            None if folder.key == OUTBOX_KEY => (None, outbox_label()),
             None if folder.role == Role::Other => (None, folder.display.clone()),
             None => (None, folder_label(folder.role, &folder.display)),
         };
