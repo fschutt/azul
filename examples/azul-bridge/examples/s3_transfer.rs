@@ -98,6 +98,8 @@ fn drive(args: &Args) -> Result<S3Drive, DriveError> {
                 url: url.clone(),
                 addresses: Vec::new(),
                 ready: true,
+                iroh_id: None,
+                iroh_addrs: Vec::new(),
             })
             .collect(),
     );

@@ -3,14 +3,13 @@
 use serde_json::json;
 
 use crate::transport::{
-    decide, target_from_nodes, Decision, IrohTarget, Lane, TransportMemory, TransportPref,
-    IROH_RETRY_SECS,
+    decide, Decision, IrohTarget, Lane, TransportMemory, TransportPref, IROH_RETRY_SECS,
 };
 
 fn target() -> IrohTarget {
     IrohTarget {
         id: "ab".repeat(32),
-        addr: Some(String::from("127.0.0.1:41000")),
+        addrs: vec![String::from("127.0.0.1:41000")],
         source: String::from("environment AZLIN_IROH_NODE"),
     }
 }
@@ -45,6 +44,7 @@ fn auto_probes_iroh_and_after_a_failure_keeps_to_https_for_five_minutes() {
         decided_at: 1000,
         iroh_failed_at: Some(1000),
         iroh_error: Some(String::from("no answer within 10 s")),
+        nodes: Default::default(),
     };
     match decide(TransportPref::Auto, true, Some(&t), Some(&failed), 1100) {
         Ok(Decision::Https(reason)) => {
@@ -86,30 +86,12 @@ fn iroh_only_is_an_error_when_it_cannot_be_had_and_never_a_silent_https() {
         decided_at: 0,
         iroh_failed_at: Some(0),
         iroh_error: None,
+        nodes: Default::default(),
     };
     assert_eq!(
         decide(TransportPref::Iroh, true, Some(&t), Some(&failed), 1),
         Ok(Decision::Probe),
         "the memory of a failure does not stop an iroh-only run"
-    );
-}
-
-#[test]
-fn a_node_list_that_names_iroh_ids_gives_the_first_ready_node_with_its_ipv4_socket() {
-    let nodes = vec![
-        json!({"name": "n1", "url": "http://127.0.0.1:9001", "ready": false, "iroh_id": "aa"}),
-        json!({"name": "n2", "url": "http://127.0.0.1:9002", "ready": true}),
-        json!({"name": "n3", "ready": true, "sign_pubkey": "cc",
-               "iroh_addrs": ["[::1]:4433", "127.0.0.1:4433"]}),
-    ];
-    let t = target_from_nodes(&nodes).expect("n3");
-    assert_eq!(t.id, "cc");
-    assert_eq!(t.addr.as_deref(), Some("127.0.0.1:4433"));
-    assert!(t.source.contains("n3"));
-    assert_eq!(
-        target_from_nodes(&[json!({"name": "n1", "url": "http://x"})]),
-        None,
-        "a node list without iroh ids names no node to dial"
     );
 }
 

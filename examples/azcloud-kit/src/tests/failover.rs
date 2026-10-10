@@ -107,6 +107,8 @@ fn node(name: &str, url: &str, ready: bool) -> Node {
         url: url.to_string(),
         addresses: Vec::new(),
         ready,
+        iroh_id: None,
+        iroh_addrs: Vec::new(),
     }
 }
 
@@ -184,6 +186,8 @@ struct Resolving {
     s3: Arc<FakeS3>,
     told: Mutex<Vec<(String, Vec<String>)>>,
     calls: Mutex<Vec<HttpCall>>,
+    /// Hosts that refuse the connection (once resolved).
+    refused: Vec<&'static str>,
 }
 
 impl Transport for Resolving {
@@ -201,6 +205,9 @@ impl Transport for Resolving {
             || self.told.lock().unwrap().iter().any(|(h, _)| *h == host);
         if !known {
             return Err(format!("DNS resolution failed for {}", call.url));
+        }
+        if self.refused.contains(&host.as_str()) {
+            return Err(String::from("connection refused"));
         }
         Ok(self.s3.answer(call))
     }
@@ -233,6 +240,7 @@ fn a_node_whose_name_does_not_resolve_is_reached_at_its_address_under_its_name()
         s3: s3.clone(),
         told: Mutex::new(Vec::new()),
         calls: Mutex::new(Vec::new()),
+        refused: vec!["block.nodes.test"],
     });
     let shared = resolving.clone();
     let transports: TransportFactory =
@@ -250,19 +258,16 @@ fn a_node_whose_name_does_not_resolve_is_reached_at_its_address_under_its_name()
     .unwrap()
     .with_sleep(Arc::new(move |pause| heard.lock().unwrap().push(pause)))
     .with_nodes(vec![Node {
-        name: String::from("n2"),
-        url: String::from("http://n2.nodes.test:19002"),
         addresses: vec![String::from("127.0.0.1")],
-        ready: true,
+        ..node("n2", "http://n2.nodes.test:19002", true)
     }]);
     assert_eq!(bucket.get("a.txt").unwrap().unwrap(), b"alpha");
-    assert_eq!(
-        *resolving.told.lock().unwrap(),
-        vec![(
+    assert!(
+        resolving.told.lock().unwrap().contains(&(
             String::from("n2.nodes.test"),
             vec![String::from("127.0.0.1")]
-        )],
-        "only the node with addresses, only after its name failed"
+        )),
+        "the node's addresses were known before the request"
     );
     let last = resolving.calls.lock().unwrap().last().cloned().unwrap();
     assert!(
@@ -548,6 +553,7 @@ fn with_dns_down_from_the_start_the_block_endpoint_answers_at_the_nodes_addresse
         s3: s3.clone(),
         told: Mutex::new(Vec::new()),
         calls: Mutex::new(Vec::new()),
+        refused: Vec::new(),
     });
     let shared = resolving.clone();
     let transports: TransportFactory =

@@ -64,18 +64,18 @@ struct Dialer {
 }
 
 impl Dialer {
-    fn to(node: &Arc<Fake>) -> Dialer {
-        Dialer {
+    fn to(node: &Arc<Fake>) -> Arc<Dialer> {
+        Arc::new(Dialer {
             node: Some(node.clone()),
             dialed: Mutex::new(Vec::new()),
-        }
+        })
     }
 
-    fn failing() -> Dialer {
-        Dialer {
+    fn failing() -> Arc<Dialer> {
+        Arc::new(Dialer {
             node: None,
             dialed: Mutex::new(Vec::new()),
-        }
+        })
     }
 }
 
@@ -99,7 +99,7 @@ fn https_asked_for_never_dials_and_every_request_goes_over_https() {
     let (https, node) = (through(&s3), through(&s3));
     let dialer = Dialer::to(&node);
     let (_dir, account) = device(&https);
-    let drive = CloudDrive::open(&account, &settings("https", true), Some(&dialer)).unwrap();
+    let drive = CloudDrive::open(&account, &settings("https", true), Some(dialer.clone())).unwrap();
     assert_eq!(drive.lane(), Lane::Https);
     assert!(!drive.transport().probed);
     drive.put("a.txt", b"a").unwrap();
@@ -115,7 +115,7 @@ fn auto_takes_iroh_when_the_node_answers_the_probe_and_remembers_it() {
     let (https, node) = (through(&s3), through(&s3));
     let dialer = Dialer::to(&node);
     let (_dir, account) = device(&https);
-    let drive = CloudDrive::open(&account, &settings("auto", true), Some(&dialer)).unwrap();
+    let drive = CloudDrive::open(&account, &settings("auto", true), Some(dialer.clone())).unwrap();
     assert_eq!(drive.lane(), Lane::Iroh);
     let report = drive.transport();
     assert!(
@@ -141,7 +141,7 @@ fn a_node_that_does_not_answer_means_https_and_the_next_run_does_not_probe_again
     let dead = Fake::new(|_, _| Err(String::from("connection refused")));
     let dialer = Dialer::to(&dead);
     let (_dir, account) = device(&https);
-    let drive = CloudDrive::open(&account, &settings("auto", true), Some(&dialer)).unwrap();
+    let drive = CloudDrive::open(&account, &settings("auto", true), Some(dialer.clone())).unwrap();
     assert_eq!(drive.lane(), Lane::Https);
     let report = drive.transport();
     assert!(
@@ -149,7 +149,7 @@ fn a_node_that_does_not_answer_means_https_and_the_next_run_does_not_probe_again
         "{report:?}"
     );
     drive.close();
-    let again = CloudDrive::open(&account, &settings("auto", true), Some(&dialer)).unwrap();
+    let again = CloudDrive::open(&account, &settings("auto", true), Some(dialer.clone())).unwrap();
     assert_eq!(again.lane(), Lane::Https);
     assert!(!again.transport().probed, "the failure was remembered");
     assert_eq!(dead.calls().len(), 1, "one probe in all");
@@ -160,7 +160,7 @@ fn iroh_only_fails_instead_of_passing_over_https() {
     let s3 = FakeS3::new();
     let https = through(&s3);
     let (_dir, account) = device(&https);
-    let e = CloudDrive::open(&account, &settings("iroh", true), Some(&Dialer::failing()))
+    let e = CloudDrive::open(&account, &settings("iroh", true), Some(Dialer::failing()))
         .unwrap_err()
         .to_string();
     assert!(
@@ -171,7 +171,7 @@ fn iroh_only_fails_instead_of_passing_over_https() {
         .unwrap_err()
         .to_string();
     assert!(e.contains("without the iroh feature"), "{e}");
-    let e = CloudDrive::open(&account, &settings("iroh", false), Some(&Dialer::failing()))
+    let e = CloudDrive::open(&account, &settings("iroh", false), Some(Dialer::failing()))
         .unwrap_err()
         .to_string();
     assert!(e.contains("iroh id"), "{e}");
@@ -193,7 +193,7 @@ fn a_request_that_fails_over_iroh_later_falls_back_to_https_for_the_rest_of_the_
     });
     let dialer = Dialer::to(&flaky);
     let (_dir, account) = device(&https);
-    let drive = CloudDrive::open(&account, &settings("auto", true), Some(&dialer)).unwrap();
+    let drive = CloudDrive::open(&account, &settings("auto", true), Some(dialer.clone())).unwrap();
     assert_eq!(drive.lane(), Lane::Iroh);
     drive.put("b.txt", b"b").unwrap();
     assert_eq!(drive.lane(), Lane::Https);
@@ -231,7 +231,7 @@ fn an_error_iroh_carried_fine_is_the_services_and_is_not_repeated_over_https() {
     });
     let dialer = Dialer::to(&node);
     let (_dir, account) = device(&https);
-    let drive = CloudDrive::open(&account, &settings("auto", true), Some(&dialer)).unwrap();
+    let drive = CloudDrive::open(&account, &settings("auto", true), Some(dialer.clone())).unwrap();
     assert!(drive.get("secret.txt").is_err());
     assert_eq!(drive.lane(), Lane::Iroh, "iroh still works");
     assert!(https.calls().is_empty(), "https would only repeat the answer");

@@ -1,6 +1,10 @@
-//! The failover of an Azlin drive's requests (D35): four layers, tried in order, and retries by
-//! the class of what went wrong.
+//! The failover of an Azlin drive's requests (D35): the iroh lane, four HTTPS layers, tried in
+//! order, and retries by the class of what went wrong.
 //!
+//! 0. **The iroh lane**, when the app plugged in a dialer ([`Failover::set_lane`],
+//!    [`crate::transport::IrohLane`]): every ready node the node list names with an iroh id,
+//!    dialed at its iroh sockets - no DNS at all. A node that fails rests for five minutes and
+//!    the request goes on, to the next node and then to the layers below.
 //! 1. **The block endpoint** - the drive's own (its DNS name balances over the healthy nodes).
 //! 2. **The hint**: a node that cannot serve (draining, no majority, overloaded) answers `503`
 //!    with `x-azlin-alt-endpoints`; the SAME request goes to the nodes it names at once (with
@@ -8,9 +12,14 @@
 //! 3. **The node list** of the last credential refresh ([`Node::list`]: ready nodes first, in
 //!    the server's order), then the refresh's failover URLs. The endpoint that answered stays
 //!    first for [`STICKY_SECS`].
-//! 4. **The node's addresses**: when a node's name does not resolve, the transport is told its
-//!    addresses ([`azul_storage::Transport::fallback_addresses`]) and the request is sent again -
-//!    still to the node's name, so TLS verifies the certificate for it.
+//! 4. **The node's addresses**: as soon as the node list is known, every request first tells the
+//!    transport where each node is reached when its name does not resolve
+//!    ([`azul_storage::Transport::fallback_addresses`]), and the block host at every node's
+//!    addresses (the nodes serve the block's name; its certificate covers them) - the request
+//!    still goes to the name, so TLS verifies the certificate for it. With DNS down from the
+//!    start, the first request already answers. A transport that reports a name that did not
+//!    resolve ([`azul_storage::transport::is_dns_failure`]) is told the node's addresses once
+//!    more and the request is sent again.
 //!
 //! What happens to an answer is its class in [`crate::user_errors`] (no table here): busy and
 //! "something went wrong" are asked again at the next endpoint and, after every endpoint, again
@@ -33,12 +42,16 @@ use std::{
 use azul_storage::{
     s3::{Routed, Router},
     time::now_unix,
+    transport::is_dns_failure,
     DriveError, HttpReply, S3Drive, Transport,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::user_errors::{Behaviour, UserError};
+use crate::{
+    transport::{IrohLane, LaneAnswer},
+    user_errors::{Behaviour, UserError},
+};
 
 /// How long the endpoint that answered stays first (seconds).
 pub const STICKY_SECS: u64 = 600;
@@ -48,6 +61,8 @@ pub const ROUNDS: u32 = 3;
 pub const BACKOFF: Duration = Duration::from_millis(250);
 /// The longest `Retry-After` a request waits out itself.
 pub const MAX_PAUSE: Duration = Duration::from_secs(30);
+/// The most addresses one host is reached at (what azul's HTTP client keeps of a host).
+pub const MAX_ADDRESSES: usize = 16;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -73,27 +88,32 @@ fn host_of(url: &str) -> Option<String> {
     Some(host.to_ascii_lowercase()).filter(|h| !h.is_empty())
 }
 
-/// Whether a transport's reason says the name did not resolve.
-fn is_dns_failure(why: &str) -> bool {
-    let why = why.to_ascii_lowercase();
-    [
-        "dns",
-        "resolve",
-        "host not found",
-        "lookup",
-        "name or service not known",
-        "nodename nor servname",
-        "no such host",
-    ]
-    .iter()
-    .any(|sign| why.contains(sign))
+/// Whether `host` is an IP address (it needs no fallback address).
+fn is_ip(host: &str) -> bool {
+    host.parse::<std::net::IpAddr>().is_ok()
+}
+
+/// Adds the strings of `value` (one string or a list of them), trimmed, to `out` once each.
+fn add_strings(out: &mut Vec<String>, value: &Value) {
+    let found: Vec<&str> = match value {
+        Value::String(one) => vec![one.as_str()],
+        Value::Array(many) => many.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    for one in found.into_iter().map(str::trim).filter(|a| !a.is_empty()) {
+        if !out.iter().any(|a| a == one) {
+            out.push(one.to_string());
+        }
+    }
 }
 
 /// One node of the drive, as the credential refresh lists it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Node {
     pub name: String,
-    /// The node's own endpoint (`https://n2.<domain>`).
+    /// The node's own endpoint (`https://n2.<domain>`); empty for a node the list names only
+    /// with its iroh id.
+    #[serde(default)]
     pub url: String,
     /// Its IPv4 / IPv6 addresses: where it is reached when its name does not resolve.
     #[serde(default)]
@@ -101,41 +121,53 @@ pub struct Node {
     /// It serves (the token server's health); an unknown state counts as ready.
     #[serde(default)]
     pub ready: bool,
+    /// Its iroh endpoint id (the node's Ed25519 key), when the token server names one: the iroh
+    /// lane dials it ([`crate::transport::IrohLane`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iroh_id: Option<String>,
+    /// Its iroh sockets (`ip:port`, the node's fixed UDP port): where the lane dials it, without
+    /// any discovery or DNS.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub iroh_addrs: Vec<String>,
 }
 
 impl Node {
-    /// A node of the token server's list (`name`, `url` or `public_url`, `ipv4`, `ipv6`, `ready`);
-    /// `None` without a URL.
+    /// A node of the token server's list (`name`, `url` or `public_url`, `ipv4`, `ipv6`, `ready`,
+    /// `iroh_id` or `sign_pubkey`, `iroh_addrs`); `None` without a URL or an iroh id.
     #[must_use]
     pub fn from_value(value: &Value) -> Option<Node> {
         let url = value["url"]
             .as_str()
             .or_else(|| value["public_url"].as_str())
             .map(normal)
-            .filter(|url| !url.is_empty())?;
+            .unwrap_or_default();
+        let iroh_id = value["iroh_id"]
+            .as_str()
+            .or_else(|| value["sign_pubkey"].as_str())
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(String::from);
+        if url.is_empty() && iroh_id.is_none() {
+            return None;
+        }
         let mut addresses: Vec<String> = Vec::new();
         for field in ["ipv4", "ipv6", "addresses"] {
-            let found: Vec<&str> = match &value[field] {
-                Value::String(one) => vec![one.as_str()],
-                Value::Array(many) => many.iter().filter_map(Value::as_str).collect(),
-                _ => Vec::new(),
-            };
-            for address in found.into_iter().map(str::trim).filter(|a| !a.is_empty()) {
-                if !addresses.iter().any(|a| a == address) {
-                    addresses.push(address.to_string());
-                }
-            }
+            add_strings(&mut addresses, &value[field]);
         }
+        let mut iroh_addrs: Vec<String> = Vec::new();
+        add_strings(&mut iroh_addrs, &value["iroh_addrs"]);
         Some(Node {
             name: value["name"].as_str().unwrap_or_default().to_string(),
             url,
             addresses,
             ready: value["ready"].as_bool().unwrap_or(true),
+            iroh_id,
+            iroh_addrs,
         })
     }
 
     /// The nodes of a refresh's list: ready ones first, each group in the server's order
-    /// (healthiest first); entries without a URL are left out.
+    /// (healthiest first); entries without a URL or an iroh id are left out.
     #[must_use]
     pub fn list(nodes: &[Value]) -> Vec<Node> {
         let mut out: Vec<Node> = nodes.iter().filter_map(Node::from_value).collect();
@@ -202,9 +234,46 @@ enum Verdict {
     Moved(String),
 }
 
+/// Where each host of a drive is reached when its name does not resolve: each node's own
+/// addresses, and the block host at all of them (ready nodes first: the nodes serve the block's
+/// name, its certificate covers them). A host that is an IP address needs none.
+#[must_use]
+pub fn address_book(block: &str, nodes: &[Node]) -> Vec<(String, Vec<String>)> {
+    let mut book: Vec<(String, Vec<String>)> = Vec::new();
+    let mut every: Vec<String> = Vec::new();
+    let ready_first = nodes
+        .iter()
+        .filter(|n| n.ready)
+        .chain(nodes.iter().filter(|n| !n.ready));
+    for node in ready_first {
+        for address in &node.addresses {
+            if !every.contains(address) && every.len() < MAX_ADDRESSES {
+                every.push(address.clone());
+            }
+        }
+    }
+    if let Some(host) = host_of(block).filter(|h| !is_ip(h)) {
+        if !every.is_empty() {
+            book.push((host, every));
+        }
+    }
+    for node in nodes.iter().filter(|n| !n.addresses.is_empty()) {
+        let Some(host) = host_of(&node.url).filter(|h| !is_ip(h)) else {
+            continue;
+        };
+        if !book.iter().any(|(known, _)| *known == host) {
+            let addresses = node.addresses.iter().take(MAX_ADDRESSES).cloned().collect();
+            book.push((host, addresses));
+        }
+    }
+    book
+}
+
 #[derive(Default)]
 struct State {
     nodes: Vec<Node>,
+    /// Where each host is reached when its name does not resolve ([`address_book`]).
+    book: Vec<(String, Vec<String>)>,
     /// The refresh's failover URLs and the ones a caller added.
     alternatives: Vec<String>,
     /// What answers named in `x-azlin-alt-endpoints`.
@@ -221,6 +290,8 @@ pub struct Failover {
     retry: Mutex<Retry>,
     sleep: Mutex<Sleep>,
     clock: Mutex<Clock>,
+    /// The iroh lane (layer 0), when the app dials iroh.
+    lane: Mutex<Option<Arc<IrohLane>>>,
 }
 
 impl std::fmt::Debug for Failover {
@@ -243,6 +314,7 @@ impl Failover {
             retry: Mutex::new(Retry::default()),
             sleep: Mutex::new(Arc::new(std::thread::sleep) as Sleep),
             clock: Mutex::new(Arc::new(now_unix) as Clock),
+            lane: Mutex::new(None),
         }
     }
 
@@ -252,9 +324,40 @@ impl Failover {
         &self.block
     }
 
-    /// The node list (of a credential refresh) in its place.
+    /// The node list (of a credential refresh) in its place, and where each host is reached
+    /// when its name does not resolve ([`address_book`]): every request tells its transport
+    /// before it is sent.
     pub fn set_nodes(&self, nodes: Vec<Node>) {
-        lock(&self.state).nodes = nodes;
+        let book = address_book(&self.block, &nodes);
+        let mut state = lock(&self.state);
+        state.nodes = nodes;
+        state.book = book;
+    }
+
+    /// Where each host of the drive is reached when its name does not resolve.
+    #[must_use]
+    pub fn addresses(&self) -> Vec<(String, Vec<String>)> {
+        lock(&self.state).book.clone()
+    }
+
+    /// Sends every request over `lane` first (iroh to the nodes), then the HTTPS layers; `None`:
+    /// HTTPS only.
+    pub fn set_lane(&self, lane: Option<Arc<IrohLane>>) {
+        *lock(&self.lane) = lane;
+    }
+
+    /// The iroh lane, if the requests take one.
+    #[must_use]
+    pub fn lane(&self) -> Option<Arc<IrohLane>> {
+        lock(&self.lane).clone()
+    }
+
+    /// Tells `transport` where each host is reached when its name does not resolve.
+    fn teach(&self, transport: &dyn Transport) {
+        let book = lock(&self.state).book.clone();
+        for (host, addresses) in &book {
+            transport.fallback_addresses(host, addresses);
+        }
     }
 
     /// The node list as it is now.
@@ -452,6 +555,30 @@ impl Router for Failover {
         request: &Routed<'_>,
         transport: &dyn Transport,
     ) -> Result<HttpReply, DriveError> {
+        // Layer 4 before anything is sent: a name that does not resolve has its addresses.
+        self.teach(transport);
+        // Layer 0: iroh to the nodes, when the app dials it.
+        let mut lane_reply: Option<HttpReply> = None;
+        if let Some(lane) = self.lane() {
+            let nodes = self.nodes();
+            let key = request.key();
+            let mut reread_over_iroh = false;
+            let mut is_final = |reply: &HttpReply| {
+                matches!(
+                    self.verdict(reply, key, &mut reread_over_iroh),
+                    Verdict::Done
+                )
+            };
+            match lane.send(request, &self.block, &nodes, &mut is_final) {
+                LaneAnswer::Answered(reply) => return Ok(reply),
+                LaneAnswer::Busy(reply) if lane.is_required() => return Ok(reply),
+                LaneAnswer::Failed(why) if lane.is_required() => {
+                    return Err(DriveError::Transport(why));
+                }
+                LaneAnswer::Busy(reply) => lane_reply = Some(reply),
+                LaneAnswer::Failed(_) | LaneAnswer::Skipped => {}
+            }
+        }
         let retry = self.retry();
         let rounds = retry.rounds.max(1);
         let mut last_reply: Option<HttpReply> = None;
@@ -529,7 +656,7 @@ impl Router for Failover {
             let sleep = lock(&self.sleep).clone();
             sleep(pause);
         }
-        match last_reply {
+        match last_reply.or(lane_reply) {
             Some(reply) => Ok(reply),
             None => Err(last_error
                 .unwrap_or_else(|| DriveError::Transport(String::from("no endpoint to ask")))),
