@@ -240,6 +240,8 @@ pub const BAN_CLOSED: AzString = AzString::from_const_str("__azdrive_ban_closed"
 pub const ADD_CHOICE_CLAIM: AzString = AzString::from_const_str("__azdrive_add_choice_claim");
 pub const ADD_CLAIM_CODE: AzString = AzString::from_const_str("__azdrive_add_claim_code");
 pub const ADD_PICK_UP: AzString = AzString::from_const_str("__azdrive_add_pick_up");
+/// "Pay with cash by post" (the token server's tier list names cash, no pill offers it).
+pub const ADD_PAY_CASH: AzString = AzString::from_const_str("__azdrive_add_pay_cash");
 pub const ADD_CASH_WAITING: AzString = AzString::from_const_str("__azdrive_add_cash_waiting");
 pub const ADD_CASH_CLAIM_CODE: AzString =
     AzString::from_const_str("__azdrive_add_cash_claim_code");

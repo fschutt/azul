@@ -2169,6 +2169,14 @@ fn start_checkout(
     let claim = ClaimKey::generate().map_err(|e| e.to_string())?;
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let (checkout, answer) = match via {
+        // Cash by post: the method alone (the token server takes it with or without payment
+        // options).
+        Some(via) if via.surface == SurfaceKind::Paper => {
+            let (checkout, answer) = server
+                .checkout_cash(tier, months, &via.country, via.consent, &claim)
+                .map_err(|e| e.to_string())?;
+            (checkout, Some(answer))
+        }
         None => (
             server
                 .checkout(tier, months, azcloud_kit::token::DEFAULT_METHOD, &claim)

@@ -550,6 +550,17 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
             Some(words) if d.pays_with_pills() => words,
             _ => d.buy_label(),
         };
+        // Cash by post where the token server's tier list names it and no pill offers it.
+        if d.cash_choice().is_some() {
+            row.push(button(
+                app,
+                "Pay with cash by post\u{2026}",
+                ButtonType::Default,
+                AddEvent::PayCash,
+                ids::ADD_PAY_CASH,
+                busy.or(not_loaded),
+            ));
+        }
         row.push(button(
             app,
             &order,

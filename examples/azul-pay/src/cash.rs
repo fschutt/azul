@@ -20,11 +20,28 @@ use std::fmt::Write as _;
 use serde_json::Value;
 
 use crate::{
-    offer::amount_text,
-    pills::Choice,
+    offer::{amount_text, Offer, OfferContext},
+    pills::{self, Choice, PillContext},
     registry::{Method, SurfaceKind},
     surface::SurfaceError,
 };
+
+/// The registry's cash provider as an offer: what a token server without payment options (its
+/// tier list names `cash`) is taken to offer.
+const CASH_OFFER: &str =
+    r#"{"offers": [{"provider": "cash", "methods": [{"method": "cash", "surfaces": ["paper"]}]}]}"#;
+
+/// The choice of cash by post for this payer when the token server says it takes it in its tier
+/// list (`GET /v1/tiers`' methods) and offers no payment options: the registry's "cash" provider
+/// alone; `None` where its pill would not show (a subscription, an app that prints nothing).
+#[must_use]
+pub fn choice(ctx: &PillContext) -> Option<Choice> {
+    let offer = Offer::parse(CASH_OFFER, &OfferContext { fakes: false }).ok()?;
+    let pill = pills::pills(&offer, ctx)
+        .into_iter()
+        .find(|p| p.method == Method::Cash)?;
+    Choice::of(&offer, &pill, ctx)
+}
 
 /// What every activation code starts with (its version).
 pub const ACTIVATION_PREFIX: &str = "AZC1-";

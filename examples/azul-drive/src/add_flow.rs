@@ -116,6 +116,8 @@ pub(crate) enum AddEvent {
     ClaimCodePage,
     /// The claim code page's Pick up.
     PickUp,
+    /// "Pay with cash by post" (the token server's tier list names cash, no pill offers it).
+    PayCash,
 }
 
 /// The open dialog, if the popup is it.
@@ -262,6 +264,7 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
             }
         }
         AddEvent::PickUp => pick_up(info, app, s),
+        AddEvent::PayCash => pay_cash(info, app, s),
     }
     if let Some(d) = dialog(s) {
         if d.page_line() != page_before {
@@ -848,6 +851,29 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         d.notice = String::from("Choose how to pay first.");
         return;
     };
+    let consent = d.consent;
+    let _ = pay(info, app, s, Event::Pay { choice, consent });
+}
+
+/// "Pay with cash by post": the cash checkout through azul-pay's machine, made of the registry's
+/// cash provider (the token server says it takes cash in its tier list). Without payment options
+/// the order is the button itself, as Buy on the v1 page is; with them the box is ticked first.
+fn pay_cash(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if buy_parts(s).is_none() {
+        return;
+    }
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    let Some(choice) = d.cash_choice() else {
+        d.notice = String::from("This token server takes no cash by post.");
+        return;
+    };
+    if d.offer().is_none() {
+        // No payment options: the consent is the page's note, the button the order (the
+        // checkout says so to the token server).
+        d.consent = true;
+    }
     let consent = d.consent;
     let _ = pay(info, app, s, Event::Pay { choice, consent });
 }

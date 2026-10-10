@@ -178,6 +178,15 @@ pub struct Tiers {
 }
 
 impl Tiers {
+    /// Whether the token server takes cash by post (its methods name `cash`: it has its cash key
+    /// and the operator's address; cash contract v1).
+    #[must_use]
+    pub fn takes_cash(&self) -> bool {
+        self.methods
+            .iter()
+            .any(|m| m.trim() == crate::cash::CASH_METHOD)
+    }
+
     /// Reads the answer of `GET /v1/tiers`.
     pub fn parse(text: &str) -> Result<Tiers, TokenError> {
         let value: Value = serde_json::from_str(text)
@@ -861,6 +870,39 @@ impl<'a> TokenServer<'a> {
             "surface": via.surface.trim(),
             "vat_country": via.vat_country.trim().to_ascii_uppercase(),
             "withdrawal_consent": via.withdrawal_consent,
+            "claim_key": claim.public_base64(),
+        });
+        let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
+        let checkout = checkout_of(&value, months);
+        if checkout.checkout_id.is_empty() {
+            return Err(TokenError::Protocol(String::from("the checkout has no id")));
+        }
+        Ok((checkout, value))
+    }
+
+    /// A cash checkout of `tier` for `months` months (cash contract v1): `POST /v1/checkout
+    /// {"method": "cash"}` with the VAT country and the order's consent, its sign-up sealed to
+    /// `claim` - no provider, no surface: the token server answers the activation code, the
+    /// address to post the cash to and the checkout's end, all in the answer for azul-pay to
+    /// read. 400 `cash_unavailable` from a server that takes no cash.
+    ///
+    /// # Errors
+    ///
+    /// No answer, a refusal, or an answer without a checkout id.
+    pub fn checkout_cash(
+        &self,
+        tier: &str,
+        months: u32,
+        vat_country: &str,
+        withdrawal_consent: bool,
+        claim: &ClaimKey,
+    ) -> Result<(Checkout, Value), TokenError> {
+        let body = json!({
+            "tier": tier.trim(),
+            "months": months,
+            "method": crate::cash::CASH_METHOD,
+            "vat_country": vat_country.trim().to_ascii_uppercase(),
+            "withdrawal_consent": withdrawal_consent,
             "claim_key": claim.public_base64(),
         });
         let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
