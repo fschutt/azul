@@ -266,4 +266,59 @@ mod tests {
         assert_eq!(numbered.validity, 300);
         assert_eq!(uids_of(&numbered), vec![("b.eml", 1), ("c.eml", 2)]);
     }
+
+    fn states(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(name, state)| (name.to_string(), state.to_string()))
+            .collect()
+    }
+
+    /// CONDSTORE (RFC 7162): every change the bridge sees of a message - new, its flags - gets a
+    /// mod-sequence higher than any before; an expunge too, remembered with the UID for QRESYNC's
+    /// VANISHED; a STORE's change is recorded at once and not counted again.
+    #[test]
+    fn every_change_of_a_message_gets_a_higher_mod_sequence_and_an_expunge_is_remembered() {
+        let maps = UidMaps::in_memory().with_clock(|| 7);
+        let both = names(&["a.eml", "b.eml"]);
+        let first = maps.track("Inbox", &both, &states(&[("a.eml", ""), ("b.eml", "")]));
+        let (a, b) = (first.modseqs["a.eml"], first.modseqs["b.eml"]);
+        assert!(a > 0 && b > a, "{first:?}");
+        assert_eq!(first.highest_modseq, b);
+        let same = maps.track("Inbox", &both, &states(&[("a.eml", ""), ("b.eml", "")]));
+        assert_eq!(same.highest_modseq, first.highest_modseq, "nothing changed, nothing moves");
+
+        let flagged = maps.track("Inbox", &both, &states(&[("a.eml", ""), ("b.eml", "\\Flagged")]));
+        assert_eq!(flagged.modseqs["a.eml"], a);
+        assert!(flagged.modseqs["b.eml"] > first.highest_modseq);
+        assert_eq!(flagged.highest_modseq, flagged.modseqs["b.eml"]);
+
+        let gone = maps.track("Inbox", &names(&["b.eml"]), &states(&[("b.eml", "\\Flagged")]));
+        assert_eq!(gone.vanished.len(), 1, "{gone:?}");
+        assert_eq!(gone.vanished[0].0, 1, "a's UID");
+        assert!(gone.vanished[0].1 > flagged.highest_modseq);
+        assert_eq!(gone.highest_modseq, gone.vanished[0].1);
+
+        let stored = maps.record("Inbox", "b.eml", "\\Flagged \\Seen").expect("a numbered message");
+        assert!(stored > gone.highest_modseq);
+        let after = maps.track("Inbox", &names(&["b.eml"]), &states(&[("b.eml", "\\Flagged \\Seen")]));
+        assert_eq!(after.modseqs["b.eml"], stored, "the same state is no second change");
+        assert_eq!(after.highest_modseq, stored);
+        // Plain numbering (an APPEND's UID) leaves the mod-sequences as they are.
+        let numbered = maps.number("Inbox", &names(&["b.eml"]));
+        assert_eq!(numbered.highest_modseq, stored);
+    }
+
+    #[test]
+    fn the_mod_sequences_and_the_vanished_outlive_the_process() {
+        let dir = TempDir::new("uids-modseq");
+        let maps = UidMaps::in_folder(dir.0.join(UIDS_DIR)).with_clock(|| 100);
+        maps.track("Inbox", &names(&["a.eml", "b.eml"]), &states(&[("a.eml", ""), ("b.eml", "")]));
+        let before = maps.track("Inbox", &names(&["b.eml"]), &states(&[("b.eml", "\\Seen")]));
+        let again = UidMaps::in_folder(dir.0.join(UIDS_DIR)).with_clock(|| 200);
+        let after = again.track("Inbox", &names(&["b.eml"]), &states(&[("b.eml", "\\Seen")]));
+        assert_eq!(after.highest_modseq, before.highest_modseq);
+        assert_eq!(after.modseqs, before.modseqs);
+        assert_eq!(after.vanished, before.vanished);
+    }
 }
