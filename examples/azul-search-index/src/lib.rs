@@ -9,7 +9,9 @@
 //! walk as the search box's (azul-search's `list_files`, its filters), and only the files whose
 //! size or date changed are read again (the list of what the index read sits beside it). A query
 //! ([`DriveIndex::query`]) is words and word beginnings - the last word may be half typed
-//! ("quarterly rep" finds "quarterly report") -, below a folder of the drive, best first.
+//! ("quarterly rep" finds "quarterly report") -, below a folder of the drive, best first; what
+//! the index has not read as it is now ([`DriveIndex::unread`]: changed since its update) a
+//! search reads itself, and [`document_text`] gives a file's text for the line a result shows.
 //!
 //! Blocking and plain Rust (no azul types); an update stops within a file when it is cancelled
 //! and keeps what it committed. One update at a time per index (tantivy's writer lock): a
@@ -191,13 +193,44 @@ fn now_secs() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// The file of `path` (`/`-separated) below `root`.
+fn full_path(root: &Path, path: &str) -> PathBuf {
+    let mut full = root.to_path_buf();
+    for segment in path.split('/').filter(|s| !s.is_empty()) {
+        full.push(segment);
+    }
+    full
+}
+
+/// The files of `files` that `state` does not hold as they are: new, or of another size or date.
+fn unread_in<'a>(state: &state::State, files: &'a [FileEntry]) -> Vec<&'a FileEntry> {
+    files
+        .iter()
+        .filter(|f| state.files.get(&f.path) != Some(&(f.size, f.modified)))
+        .collect()
+}
+
+/// A file's text as the index reads it (`path` below `root`, `/`-separated): the bytes its kind
+/// needs through [`extract`] - for the line a result of a document shows. `None` for a kind
+/// without text (a picture), a file that cannot be read or is too large, one without any text.
+#[must_use]
+pub fn document_text(root: &Path, path: &str, extractors: &Extractors) -> Option<String> {
+    let name = path.rsplit('/').next().unwrap_or("");
+    let kind = kind_of(name)?;
+    let size = fs::metadata(full_path(root, path)).ok()?.len();
+    let file = FileEntry {
+        path: path.to_string(),
+        size,
+        modified: None,
+    };
+    let bytes = read_bytes(root, &file, kind)?;
+    extract(name, &bytes, extractors)
+}
+
 /// The bytes of `file` (below `root`) its kind needs: a plain file's first [`MAX_TEXT_BYTES`], a
 /// document whole (`None` when it is larger than [`MAX_DOCUMENT_BYTES`] or cannot be read).
 fn read_bytes(root: &Path, file: &FileEntry, kind: Kind) -> Option<Vec<u8>> {
-    let mut full = root.to_path_buf();
-    for segment in file.path.split('/').filter(|s| !s.is_empty()) {
-        full.push(segment);
-    }
+    let full = full_path(root, &file.path);
     let limit = match kind {
         Kind::Text => MAX_TEXT_BYTES as u64,
         _ if file.size > MAX_DOCUMENT_BYTES => return None,
@@ -297,10 +330,7 @@ impl DriveIndex {
             .filter(|path| !present.contains(path.as_str()))
             .cloned()
             .collect();
-        let mut changed: Vec<&FileEntry> = files
-            .iter()
-            .filter(|f| state.files.get(&f.path) != Some(&(f.size, f.modified)))
-            .collect();
+        let mut changed = unread_in(&state, &files);
         changed.sort_by(|a, b| a.path.cmp(&b.path));
         summary.unchanged = files.len() - changed.len();
         summary.removed = removed.len();
@@ -364,6 +394,14 @@ impl DriveIndex {
         self.reader.reload()?;
         on_progress(progress);
         Ok(summary)
+    }
+
+    /// The files of `files` (a walk of the drive's folder, [`azul_search::list_files`]) the
+    /// index has not read as they are now: new ones, and the ones whose size or date changed
+    /// since its update - what a search still reads itself.
+    #[must_use]
+    pub fn unread<'a>(&self, files: &'a [FileEntry]) -> Vec<&'a FileEntry> {
+        unread_in(&state::read(&self.dir.join(STATE_FILE)), files)
     }
 
     /// The files below `under` (a folder's key, `docs/`; `""`: the whole drive) whose text holds
