@@ -26,6 +26,8 @@ pub mod generator;
 pub mod ids;
 pub mod import;
 pub mod jobs;
+#[cfg(test)]
+mod l10n_tests;
 pub mod lock;
 pub mod sample;
 pub mod session;
