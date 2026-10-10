@@ -216,7 +216,11 @@ pub(crate) fn learn(guard: &mut Guard, actions: &[Action], root: &Path, scan: &S
                 judge(guard, root, key);
                 judge(guard, root, copy);
             }
-            Action::DeleteLocal { key } | Action::DeleteRemote { key } | Action::Forget { key } => {
+            // A cloud-only file has no copy here to judge; its next download judges it again.
+            Action::DeleteLocal { key }
+            | Action::DeleteRemote { key }
+            | Action::Forget { key }
+            | Action::CloudOnly { key } => {
                 guard.low_entropy.remove(key);
             }
             Action::Agree { .. } => {}
