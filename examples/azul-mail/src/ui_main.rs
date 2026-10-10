@@ -176,8 +176,10 @@ const PAPER_LINE_HEIGHT: f32 = 18.0;
 
 /// The main window's layout: the title row over the PIM shell (or the backstage).
 pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    // Reading the mode makes a light / dark switch rebuild the window.
+    // Reading the mode makes a light / dark switch rebuild the window; the layout's language
+    // says the words (a switch of it too).
     let _mode = info.get_mode();
+    azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<MailApp>() else {
         return Dom::create_body();
