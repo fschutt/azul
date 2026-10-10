@@ -50,6 +50,14 @@ pub struct BridgeConfig {
     /// direct delivery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sending_file: Option<PathBuf>,
+    /// Where the secrets are: `os` (the OS keyring) or `file` (the state folder's 0600 file);
+    /// a settings file of a bridge before the choice existed said nothing: `file`.
+    #[serde(default = "file_keyring")]
+    pub keyring: String,
+}
+
+fn file_keyring() -> String {
+    String::from("file")
 }
 
 impl BridgeConfig {
@@ -65,6 +73,7 @@ impl BridgeConfig {
             smtp_port: SMTP_PORT,
             dav_port: DAV_PORT,
             sending_file: None,
+            keyring: crate::secrets::KeyringChoice::default_for_build().name().to_string(),
         }
     }
 

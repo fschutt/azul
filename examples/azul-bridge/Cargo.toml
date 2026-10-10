@@ -45,6 +45,13 @@ base64 = "0.22"
 # The OS folders azcloud-kit's settings start from (the same `dirs` the azcloud CLI uses).
 dirs = "6"
 
+[features]
+default = []
+# The OS keyring (Keychain, Credential Manager, the Secret Service) through azul's blocking keyring
+# calls: azul-storage's AzulKeyring, which links libazul (AZ_LINK_PATH) - the build the apps
+# ship. Without it the secrets are the state folder's 0600 file.
+os-keyring = ["azul-storage/azul"]
+
 [dev-dependencies]
 # A temporary folder for the tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }

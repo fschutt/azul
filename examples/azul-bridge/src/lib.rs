@@ -37,8 +37,9 @@
 //! The drive ([`account`]): the bridge is a device of its own (azcloud-kit's account in its
 //! state folder, signed up or joined with a code), with its own token family, credentials
 //! renewed before they run out; requests go out through ureq with rustls ([`transport`]).
-//! The password lives in the secret store ([`secrets`]: azcloud-kit's 0600 secrets file until
-//! a process without libazul can reach the OS keyring). Sending ([`sender`]) is AzMail's own
+//! The password lives in a keyring ([`secrets`]: azul-storage's `KeyringStore` - the OS
+//! keyring through azul when the bridge is built with `os-keyring`, else the state folder's
+//! 0600 secrets file). Sending ([`sender`]) is AzMail's own
 //! path, through azul-mail-core. Running it: [`cli`].
 //!
 //! Modules: [`imap`], [`smtp`], [`dav`] (+ [`http`]) are the servers; [`store`], [`uids`],

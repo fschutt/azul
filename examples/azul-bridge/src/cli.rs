@@ -1,7 +1,7 @@
 //! `azul-bridge`'s command line.
 //!
 //! ```text
-//! azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] <command> [options]
+//! azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] <command> [options]
 //!
 //!   init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE]
 //!        [--imap-port N] [--smtp-port N] [--dav-port N]
@@ -21,7 +21,9 @@
 //!
 //! The state folder: `--state-dir`, else `$AZUL_BRIDGE_HOME`, else `<OS config folder>/azul-bridge`
 //! ([`crate::config`]). The token server: `--token-url`, `$AZLIN_TOKEN_URL`, the shared Azlin
-//! config (azcloud-kit's settings, as the `azcloud` command line resolves it).
+//! config (azcloud-kit's settings, as the `azcloud` command line resolves it). The secrets
+//! (`--keyring`): `os`, the OS keyring (a build with the `os-keyring` feature, the default
+//! there), or `file`, the state folder's 0600 file; `init` records the choice in `bridge.json`.
 
 use std::{
     io::Write,
@@ -43,7 +45,7 @@ use crate::{
     limits::Limits,
     memory::MemoryDrive,
     net,
-    secrets::{FileSecretStore, SecretStore, PASSWORD_ENTRY},
+    secrets::{self, FileKeyring, KeyringChoice, KeyringStore, PASSWORD_ENTRY},
     sender::AzMailSubmitter,
     sent::SentRegistry,
     smtp::{self, Smtp},
@@ -75,10 +77,12 @@ pub struct Options {
     pub memory: bool,
     /// Seconds between IMAP IDLE's looks at the drive (the default: 30).
     pub idle_poll: Option<u64>,
+    /// `os` (the OS keyring; a build with the os-keyring feature) or `file`.
+    pub keyring: Option<String>,
 }
 
 /// The usage text.
-pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] \
+pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] \
      <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
      [--smtp-port N] [--dav-port N] | password | signup [--name NAME] [--tier TIER] | \
      join --code-file FILE | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
@@ -120,6 +124,7 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--dav-port" => options.dav_port = Some(port(value(&mut i, arg)?, arg)?),
             "--folder" => options.folder = Some(PathBuf::from(value(&mut i, arg)?)),
             "--memory" => options.memory = true,
+            "--keyring" => options.keyring = Some(value(&mut i, arg)?),
             "--idle-poll" => {
                 let text = value(&mut i, arg)?;
                 let secs = text
@@ -203,9 +208,18 @@ pub fn run(options: &Options) -> Result<(), String> {
     )
     .ok_or("no state folder: pass --state-dir or set AZUL_BRIDGE_HOME")?;
     let state_dir = StateDir::open(&state).map_err(|e| e.to_string())?;
-    let secrets: Arc<dyn SecretStore> = Arc::new(FileSecretStore(state_dir.secrets()));
+    // The keyring: the flag, else the one the bridge was set up with, else this build's.
+    let choice = match &options.keyring {
+        Some(text) => KeyringChoice::parse(text).ok_or("--keyring takes os or file")?,
+        None => BridgeConfig::load(&state)
+            .ok()
+            .flatten()
+            .and_then(|config| KeyringChoice::parse(&config.keyring))
+            .unwrap_or_else(KeyringChoice::default_for_build),
+    };
+    let secrets: Arc<dyn KeyringStore> = secrets::open(choice, state_dir.secrets())?;
     match options.command.as_str() {
-        "init" => init(options, &state, &*secrets),
+        "init" => init(options, &state, &*secrets, choice),
         "password" => new_password(&*secrets),
         "signup" => {
             let (token_url, _) = endpoints(options);
@@ -271,7 +285,12 @@ fn print_password(password: &str, config: Option<&BridgeConfig>) {
     say("A new one: azul-bridge password");
 }
 
-fn init(options: &Options, state: &Path, secrets: &dyn SecretStore) -> Result<(), String> {
+fn init(
+    options: &Options,
+    state: &Path,
+    secrets: &dyn KeyringStore,
+    keyring: KeyringChoice,
+) -> Result<(), String> {
     let address = options.address.clone().unwrap_or_default();
     if !address.contains('@') {
         return Err(format!("{address} is not an address"));
@@ -300,10 +319,11 @@ fn init(options: &Options, state: &Path, secrets: &dyn SecretStore) -> Result<()
     if let Some(port) = options.dav_port {
         config.dav_port = port;
     }
+    config.keyring = keyring.name().to_string();
     config.save(state).map_err(|e| e.to_string())?;
-    if secrets.get(PASSWORD_ENTRY)?.is_none() {
+    if secrets.get(PASSWORD_ENTRY).map_err(|e| e.to_string())?.is_none() {
         let password = auth::new_password()?;
-        secrets.set(PASSWORD_ENTRY, &password)?;
+        secrets.set(PASSWORD_ENTRY, &password).map_err(|e| e.to_string())?;
         print_password(&password, Some(&config));
     } else {
         say("The bridge has a password already (azul-bridge password makes a new one).");
@@ -312,9 +332,9 @@ fn init(options: &Options, state: &Path, secrets: &dyn SecretStore) -> Result<()
     Ok(())
 }
 
-fn new_password(secrets: &dyn SecretStore) -> Result<(), String> {
+fn new_password(secrets: &dyn KeyringStore) -> Result<(), String> {
     let password = auth::new_password()?;
-    secrets.set(PASSWORD_ENTRY, &password)?;
+    secrets.set(PASSWORD_ENTRY, &password).map_err(|e| e.to_string())?;
     print_password(&password, None);
     Ok(())
 }
@@ -323,13 +343,14 @@ fn serve(
     options: &Options,
     state: &Path,
     state_dir: &StateDir,
-    secrets: Arc<dyn SecretStore>,
+    secrets: Arc<dyn KeyringStore>,
 ) -> Result<(), String> {
     let config = BridgeConfig::load(state)
         .map_err(|e| e.to_string())?
         .ok_or("not set up: azul-bridge init --address <your address>")?;
     let password = secrets
-        .get(PASSWORD_ENTRY)?
+        .get(PASSWORD_ENTRY)
+        .map_err(|e| e.to_string())?
         .ok_or("no password yet: azul-bridge init")?;
     let credentials = Credentials::new(&config.address, &password);
     let mut limits = Limits::default();
@@ -462,16 +483,20 @@ mod tests {
             String::from("init"),
             String::from("--address"),
             String::from("ada@example.org"),
+            // Never the OS keyring in a test, whatever the build links.
+            String::from("--keyring"),
+            String::from("file"),
         ])
         .unwrap();
         run(&options).unwrap();
-        let secrets = FileSecretStore(StateDir::open(&state).unwrap().secrets());
+        let secrets = FileKeyring(StateDir::open(&state).unwrap().secrets());
         let first = secrets.get(PASSWORD_ENTRY).unwrap().unwrap();
         assert_eq!(first.len(), 29);
         run(&options).unwrap();
         assert_eq!(secrets.get(PASSWORD_ENTRY).unwrap().unwrap(), first, "init keeps it");
         let config = BridgeConfig::load(&state).unwrap().unwrap();
         assert_eq!((config.address.as_str(), config.imap_port), ("ada@example.org", config::IMAP_PORT));
+        assert_eq!(config.keyring, "file");
         let text = std::fs::read_to_string(state.join(config::CONFIG_FILE)).unwrap();
         assert!(!text.contains(&first), "the password is not in bridge.json");
         #[cfg(unix)]

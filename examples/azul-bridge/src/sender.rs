@@ -29,7 +29,7 @@ use azmail_core::{
 use azul_storage::time::parse_iso8601;
 
 use crate::{
-    secrets::{self, SecretStore},
+    secrets::{self, KeyringStore},
     sent::{self, SentRegistry},
     smtp::{Submission, Submitter, Verdict},
     store::{MailStore, Marks},
@@ -45,7 +45,7 @@ pub struct AzMailSubmitter {
     spool: DriveFolder,
     account_id: String,
     settings_file: Option<PathBuf>,
-    secrets: Arc<dyn SecretStore>,
+    secrets: Arc<dyn KeyringStore>,
     store: Arc<dyn MailStore>,
     sent: Arc<SentRegistry>,
     drain_lock: Mutex<()>,
@@ -70,7 +70,7 @@ impl AzMailSubmitter {
         spool: PathBuf,
         account_id: &str,
         settings_file: Option<PathBuf>,
-        secrets: Arc<dyn SecretStore>,
+        secrets: Arc<dyn KeyringStore>,
         store: Arc<dyn MailStore>,
         sent: Arc<SentRegistry>,
     ) -> AzMailSubmitter {
@@ -212,10 +212,10 @@ mod tests {
         send::TlsPolicy,
         testutil::{spawn_smtp_sink, SinkScript},
     };
-    use azul_storage::{testing::TempDir, Drive};
+    use azul_storage::{keyring::MemoryKeyring, testing::TempDir, Drive};
 
     use super::*;
-    use crate::{memory::MemoryDrive, secrets::MemorySecretStore, store::DriveMailStore};
+    use crate::{memory::MemoryDrive, store::DriveMailStore};
 
     const ACCOUNT: &str = "ada@example.org";
     const MESSAGE: &str = "From: Ada <ada@example.org>\r\nTo: ben@example.net\r\n\
@@ -240,7 +240,7 @@ mod tests {
             dir.0.join("spool"),
             ACCOUNT,
             Some(file),
-            Arc::new(MemorySecretStore::default()),
+            Arc::new(MemoryKeyring::new()),
             Arc::new(DriveMailStore::new(drive.clone())),
             registry.clone(),
         );
@@ -315,7 +315,7 @@ mod tests {
         };
         let file = dir.0.join("sending.json");
         std::fs::write(&file, serde_json::to_vec(&settings).unwrap()).unwrap();
-        let store = Arc::new(MemorySecretStore::default());
+        let store = Arc::new(MemoryKeyring::new());
         store
             .set(&secrets::dkim_entry(ACCOUNT), "-----BEGIN PRIVATE KEY-----")
             .unwrap();
