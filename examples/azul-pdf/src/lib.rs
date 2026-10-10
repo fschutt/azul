@@ -62,6 +62,8 @@ use azul_appkit::{
 
 pub mod ids;
 pub mod jobs;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod ui;
 
