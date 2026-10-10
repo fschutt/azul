@@ -518,3 +518,57 @@ fn a_cloud_folders_own_listing_is_searched_with_the_refine() {
     let keys: Vec<&str> = big.iter().map(|f| f.entry.key.as_str()).collect();
     assert_eq!(keys, vec!["Docs/report-big.pdf"], "a size is files only");
 }
+
+/// A cloud drive's last full listing is kept in the cache folder: read back as written (names
+/// with tabs and line breaks too), refused when it is of another format; its file is named
+/// after the drive, safely.
+#[test]
+fn a_cloud_listing_is_kept_and_read_back() {
+    let dir = std::env::temp_dir().join(format!(
+        "azdrive-listing-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    ));
+    let file = find::listing_file(&dir, "s3:my/bucket");
+    assert!(file.starts_with(&dir));
+    let name = file.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    assert!(!name.contains('/') && !name.contains(':'), "{name}");
+    let listing = find::CachedListing {
+        prefix: String::from("Docs/"),
+        at: 1_700_000_000,
+        objects: vec![
+            object("Docs/a.txt", 5),
+            ObjectInfo {
+                key: String::from("Docs/odd\tname\n.txt"),
+                size: 7,
+                modified: None,
+                etag: None,
+            },
+        ],
+    };
+    find::write_listing(&file, &listing).expect("written");
+    assert_eq!(find::read_listing(&file), Some(listing));
+    std::fs::write(&file, "something else\n").expect("overwritten");
+    assert_eq!(find::read_listing(&file), None);
+    assert_eq!(find::read_listing(&dir.join("missing.tsv")), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A row the cached listing showed that the fresh listing has not got goes (deleted since).
+#[test]
+fn stale_results_go_when_the_fresh_listing_has_not_got_them() {
+    let mut find = state("x", false, true);
+    find.merge(vec![found("Docs/a.txt", Some((1, "x"))), found("Docs/b.txt", None)]);
+    find.set_sort(Some(Sort {
+        column: Column::Name,
+        descending: false,
+    }));
+    find.remove(&[String::from("Docs/a.txt")]);
+    let keys: Vec<String> = find.shown().iter().map(|e| e.key.clone()).collect();
+    assert_eq!(keys, vec!["Docs/b.txt"]);
+    assert!(find.entry("Docs/a.txt").is_none() && find.lines.get("Docs/a.txt").is_none());
+    assert!(find.entry("Docs/b.txt").is_some(), "the others keep their keys");
+    assert!(find.status_text().contains('1'));
+}

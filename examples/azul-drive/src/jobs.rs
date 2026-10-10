@@ -1918,6 +1918,120 @@ mod tests {
         ));
     }
 
+    /// A cloud search as the window asks for it.
+    fn remote(
+        serial: u64,
+        prefix: &str,
+        pattern: azul_search::Pattern,
+        options: &crate::find::FindOptions,
+        cache: Option<PathBuf>,
+    ) -> RemoteFind {
+        RemoteFind {
+            serial,
+            prefix: prefix.to_string(),
+            pattern,
+            options: options.clone(),
+            cache,
+        }
+    }
+
+    /// The end of a search's last answer.
+    fn end_of(outcomes: &[Outcome]) -> crate::find::FindEnd {
+        match outcomes.last() {
+            Some(Outcome::Searched { end: Some(end), .. }) => end.clone(),
+            _ => panic!("the search did not end"),
+        }
+    }
+
+    /// A cloud drive's folders are listed side by side (the folder's own level first, then each
+    /// subfolder's listing on a worker): every match is found, each once.
+    #[test]
+    fn a_cloud_drive_is_listed_folder_by_folder_in_parallel() {
+        use azul_search::Pattern;
+
+        let dir = TempDir::new("azdrive-find-parallel");
+        let mut expected = Vec::new();
+        for folder in 0..6 {
+            for file in 0..4 {
+                let key = format!("f{folder}/sub/file-{file}.txt");
+                fs::create_dir_all(dir.path().join(format!("f{folder}/sub"))).expect("folders");
+                fs::write(dir.path().join(&key), b"x").expect("a file");
+                expected.push(key);
+            }
+        }
+        fs::write(dir.path().join("file-top.txt"), b"x").expect("a file");
+        expected.push(String::from("file-top.txt"));
+        expected.sort();
+        let drive = LocalDrive::without_manifest(dir.path().to_path_buf());
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_find_remote(
+            &remote(3, "", Pattern::literal("file"), &crate::find::FindOptions::default(), None),
+            &drive,
+            &cancel,
+            &mut |o| outcomes.push(o),
+        );
+        outcomes.push(last);
+        let mut keys: Vec<String> = searched(&outcomes)
+            .iter()
+            .map(|f| f.entry.key.clone())
+            .collect();
+        keys.sort();
+        assert_eq!(keys, expected, "every file once");
+        assert!(end_of(&outcomes).error.is_none());
+    }
+
+    /// The last full listing of a cloud drive is kept: the next search shows its names at once
+    /// (the Cached phase), then the fresh listing's new ones, and ends with the ones it no longer
+    /// has (stale: deleted since).
+    #[test]
+    fn a_second_cloud_search_shows_the_last_listing_first_then_what_changed() {
+        use azul_search::Pattern;
+
+        let dir = TempDir::new("azdrive-find-cached");
+        let cache = TempDir::new("azdrive-find-cache");
+        let cache_file = cache.path().join("drive.tsv");
+        fs::create_dir_all(dir.path().join("Docs/old")).expect("folders");
+        fs::write(dir.path().join("Docs/old/report-gone.txt"), b"x").expect("a file");
+        fs::write(dir.path().join("Docs/report-kept.txt"), b"x").expect("a file");
+        let drive = LocalDrive::without_manifest(dir.path().to_path_buf());
+        let cancel = AtomicBool::new(false);
+        let options = crate::find::FindOptions::default();
+        let search = || remote(1, "", Pattern::literal("report"), &options, Some(cache_file.clone()));
+        let mut first = Vec::new();
+        let last = run_find_remote(&search(), &drive, &cancel, &mut |o| first.push(o));
+        first.push(last);
+        assert!(end_of(&first).stale.is_empty());
+        assert!(cache_file.exists(), "the full listing is kept");
+
+        fs::remove_file(dir.path().join("Docs/old/report-gone.txt")).expect("deleted");
+        fs::write(dir.path().join("Docs/report-new.txt"), b"x").expect("a new file");
+        let mut second = Vec::new();
+        let last = run_find_remote(&search(), &drive, &cancel, &mut |o| second.push(o));
+        second.push(last);
+        let cached: Vec<String> = second
+            .iter()
+            .filter_map(|o| match o {
+                Outcome::Searched {
+                    phase: crate::find::FindPhase::Cached,
+                    batch,
+                    ..
+                } => Some(batch.iter().map(|f| f.entry.key.clone()).collect::<Vec<_>>()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert!(cached.iter().any(|k| k == "Docs/old/report-gone.txt"), "shown at once: {cached:?}");
+        let keys: Vec<String> = searched(&second).iter().map(|f| f.entry.key.clone()).collect();
+        assert!(keys.iter().any(|k| k == "Docs/report-new.txt"), "the new one: {keys:?}");
+        assert_eq!(
+            keys.iter().filter(|k| *k == "Docs/report-kept.txt").count(),
+            1,
+            "a cached result is not handed over again"
+        );
+        assert_eq!(end_of(&second).stale, vec![String::from("Docs/old/report-gone.txt")]);
+    }
+
     /// A search cancelled (a new key, Escape, another folder) hands over nothing.
     #[test]
     fn a_cancelled_find_hands_over_nothing() {
@@ -1952,11 +2066,8 @@ mod tests {
         let mut outcomes = Vec::new();
         let every_folder = crate::find::FindOptions::default();
         let last = run_find_remote(
-            9,
+            &remote(9, "Docs/", Pattern::literal("report"), &every_folder, None),
             &drive,
-            "Docs/",
-            &Pattern::literal("report"),
-            &every_folder,
             &cancel,
             &mut |o| outcomes.push(o),
         );
@@ -1973,11 +2084,8 @@ mod tests {
             ..crate::find::FindOptions::default()
         };
         let last = run_find_remote(
-            11,
+            &remote(11, "", Pattern::literal("report"), &this_folder, None),
             &drive,
-            "",
-            &Pattern::literal("report"),
-            &this_folder,
             &cancel,
             &mut |o| here.push(o),
         );
@@ -1985,11 +2093,8 @@ mod tests {
         let keys: Vec<&str> = searched(&here).iter().map(|f| f.entry.key.as_str()).collect();
         assert_eq!(keys, vec!["elsewhere-report.txt"]);
         let bad = run_find_remote(
-            10,
+            &remote(10, "", Pattern::regex("("), &every_folder, None),
             &drive,
-            "",
-            &Pattern::regex("("),
-            &every_folder,
             &cancel,
             &mut |_| {},
         );
