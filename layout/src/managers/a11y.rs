@@ -600,6 +600,10 @@ pub struct A11yManager {
     /// When the last scroll-driven rebuild ran (see
     /// [`Self::scroll_rebuild_due`]).
     pub last_scroll_rebuild: Option<std::time::Instant>,
+    /// The scroll offsets the tree's bounds were last built with
+    /// (`ScrollManager::offsets_fingerprint`). A tick that finds another
+    /// fingerprint marks the tree scroll-dirty, whoever moved the offset.
+    pub scroll_fingerprint: u64,
 }
 
 #[cfg(feature = "a11y")]
@@ -627,6 +631,7 @@ impl A11yManager {
             last_rejection: None,
             scroll_dirty: false,
             last_scroll_rebuild: None,
+            scroll_fingerprint: 0,
             retained: A11yRetainedTree::default(),
             last_pass: A11yPassStats::default(),
         }

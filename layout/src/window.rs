@@ -16597,6 +16597,8 @@ impl LayoutWindow {
     pub fn update_a11y_tree(&mut self) {
         let _p = crate::probe::Probe::span("a11y_update_tree");
         self.a11y_tree_updates = self.a11y_tree_updates.saturating_add(1);
+        // This pass builds the bounds from the offsets as they are now.
+        self.a11y_manager.scroll_fingerprint = self.scroll_manager.offsets_fingerprint();
         // The selection on the node a screen reader reads it on - the
         // session's editing host - in that node's text, every paragraph of it
         // (`accessible_selection`).
@@ -16669,6 +16671,30 @@ impl LayoutWindow {
         }
     }
 
+    /// Whether the throttled scroll-driven rebuild of the a11y tree should
+    /// run now ([`crate::managers::a11y::A11yManager::scroll_rebuild_due`]).
+    /// Every shell asks once per event pass and per frame tick.
+    ///
+    /// It notices a scroll by itself: when any offset differs from the ones
+    /// the tree was last built with, the tree is marked scroll-dirty. A flag
+    /// set by whoever scrolls missed every path but `CallbackChange::ScrollTo`
+    /// (a scroll animation's tick, a focus or caret reveal, a direct offset
+    /// write), and the bounds a screen reader held stayed where the content
+    /// had been.
+    #[cfg(feature = "a11y")]
+    pub fn a11y_rebuild_after_scroll_due(
+        &mut self,
+        now: std::time::Instant,
+        min_interval: std::time::Duration,
+    ) -> bool {
+        let fingerprint = self.scroll_manager.offsets_fingerprint();
+        if fingerprint != self.a11y_manager.scroll_fingerprint {
+            self.a11y_manager.scroll_fingerprint = fingerprint;
+            self.a11y_manager.mark_scroll_dirty();
+        }
+        self.a11y_manager.scroll_rebuild_due(now, min_interval)
+    }
+
     /// Build the platform-neutral accessibility snapshot.
     ///
     /// The counterpart of [`Self::update_a11y_tree`] for the two shells
@@ -16691,41 +16717,6 @@ impl LayoutWindow {
             self.current_window_state.title.as_str(),
             self.current_window_state.size.dimensions,
         )
-    }
-
-    /// The accessibility children of `node_id`: its nearest descendants the
-    /// tree exposes, in document order - the links the full build makes
-    /// (`A11yManager::update_tree`'s nearest-exposed-ancestor pass).
-    #[cfg(feature = "a11y")]
-    fn a11y_children_of(&self, dom_id: DomId, node_id: NodeId) -> Vec<accesskit::NodeId> {
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return Vec::new();
-        };
-        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-        let node_data = lr.styled_dom.node_data.as_container();
-        let rendered = crate::managers::a11y::rendered_nodes(lr);
-        let mut out = Vec::new();
-        let mut stack = child_nodes(&hierarchy, node_id);
-        stack.reverse();
-        while let Some(child) = stack.pop() {
-            // A subtree the window does not render is not in the tree.
-            if !rendered.get(child.index()).copied().unwrap_or(true) {
-                continue;
-            }
-            let exposed = node_data
-                .get(child)
-                .is_some_and(crate::managers::a11y::is_exposed_to_accessibility);
-            if exposed {
-                out.push(accesskit::NodeId(
-                    ((dom_id.inner as u64) << 32) | ((child.index() as u64) + 1),
-                ));
-            } else {
-                let mut grandchildren = child_nodes(&hierarchy, child);
-                grandchildren.reverse();
-                stack.extend(grandchildren);
-            }
-        }
-        out
     }
 
     /// Incremental a11y update: only push the focused contenteditable node's
@@ -16760,29 +16751,18 @@ impl LayoutWindow {
         let a11y_node_id =
             accesskit::NodeId(((dom_id.inner as u64) << 32) | ((node_id.index() as u64) + 1));
 
-        // Get the node data to determine role
-        let role = self
-            .layout_results
-            .get(&dom_id)
-            .and_then(|lr| lr.styled_dom.node_data.as_ref().get(node_id.index()))
-            .map_or(accesskit::Role::GenericContainer, |nd| {
-                if nd.is_contenteditable() || matches!(nd.node_type, NodeType::TextArea) {
-                    accesskit::Role::MultilineTextInput
-                } else if matches!(nd.node_type, NodeType::Input) {
-                    accesskit::Role::TextInput
-                } else {
-                    accesskit::Role::GenericContainer
-                }
-            });
-
-        let mut node = accesskit::Node::new(role);
+        // An increment REPLACES the node, so it starts from the node as the
+        // full pass published it - its role (a password field stays one, and
+        // a screen reader does not echo its keys), bounds, label, states and
+        // children - and changes only the text and the selection. A node the
+        // adapter never received only a full pass can place.
+        let Some(mut node) = self.a11y_manager.published_node(a11y_node_id) else {
+            return self.update_a11y_tree();
+        };
         node.set_value(text_content.as_str());
         node.add_action(accesskit::Action::SetTextSelection);
         node.add_action(accesskit::Action::ReplaceSelectedText);
         node.add_action(accesskit::Action::SetValue);
-        // An increment REPLACES the node: without its children the consumer
-        // drops a host's paragraphs from the tree until the next full build.
-        node.set_children(self.a11y_children_of(dom_id, node_id));
 
         // Set cursor/selection
         {
@@ -20682,6 +20662,25 @@ impl LayoutWindow {
         solver3::getters::is_text_selectable(styled_dom, node_id, node_state)
     }
 
+    /// Whether `(dom_id, node_id)` names a node the accessibility tree holds
+    /// now: one the window has, renders and exposes
+    /// (`managers::a11y::rendered_nodes`, `is_exposed_to_accessibility`).
+    #[cfg(feature = "a11y")]
+    #[must_use]
+    pub fn is_live_a11y_target(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return false;
+        };
+        let Some(node_data) = lr.styled_dom.node_data.as_ref().get(node_id.index()) else {
+            return false;
+        };
+        crate::managers::a11y::is_exposed_to_accessibility(node_data)
+            && crate::managers::a11y::rendered_nodes(lr)
+                .get(node_id.index())
+                .copied()
+                .unwrap_or(false)
+    }
+
     /// Process an accessibility action from an assistive technology.
     ///
     /// This method dispatches actions to the appropriate managers (scroll, focus, etc.)
@@ -20717,6 +20716,15 @@ impl LayoutWindow {
         use crate::managers::text_input::TextInputSource;
 
         let mut affected_nodes = BTreeMap::new();
+
+        // The adapter answers from the tree it last received, which can be a
+        // frame behind the DOM, and hands the request back with that tree's
+        // ids. A node the window no longer renders is answered as gone:
+        // acting on it would park the focus on a node that does not exist or
+        // reach for one by index.
+        if !self.is_live_a11y_target(dom_id, node_id) {
+            return affected_nodes;
+        }
 
         match action {
             // Focus actions

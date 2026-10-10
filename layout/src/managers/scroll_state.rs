@@ -756,6 +756,24 @@ impl ScrollManager {
         self.scroll_dirty
     }
 
+    /// A hash of every scroll node's current offset. Two equal fingerprints
+    /// mean nothing scrolled in between, however the offsets were written: a
+    /// wheel, an animation's [`Self::tick`], a reveal or a direct
+    /// [`Self::set_scroll_position`]. The accessibility tree compares it per
+    /// tick to know its bounds went stale (`LayoutWindow::a11y_rebuild_after_scroll_due`).
+    #[must_use]
+    pub fn offsets_fingerprint(&self) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = azul_core::hash::DefaultHasher::new();
+        for ((dom_id, node_id), state) in &self.states {
+            dom_id.inner.hash(&mut h);
+            node_id.index().hash(&mut h);
+            state.current_offset.x.to_bits().hash(&mut h);
+            state.current_offset.y.to_bits().hash(&mut h);
+        }
+        h.finish()
+    }
+
     /// Every `(DomId, NodeId)` this manager currently keys scroll state on.
     ///
     /// The E2E `assert_manager_invariants` op needs the KEY SET, not just the
