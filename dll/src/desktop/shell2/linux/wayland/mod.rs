@@ -273,7 +273,7 @@ use azul_core::{
 };
 use azul_css::corety::OptionU32;
 use azul_layout::{
-    managers::hover::InputPointId,
+    managers::{hover::InputPointId, webview::WebViewPointer},
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions},
     ScrollbarDragState,
@@ -3660,6 +3660,14 @@ impl WaylandWindow {
         // Get keysym (symbolic key identifier)
         let keysym = unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, xkb_keycode) };
 
+        // A composited `<webview>` page with the keyboard focus takes the
+        // key as a keysym (no input method or key repeat inside the page
+        // yet), and the window's own key handling does not see it.
+        if PlatformWindow::route_webview_key(self, keysym, xkb_keycode, is_pressed) {
+            self.discard_input_delta("wayland.handle_key.webview");
+            return;
+        }
+
         // Translate keysym to VirtualKeyCode through the SHARED xkb table
         // (`x11::events::keysym_to_virtual_keycode`). `None` means "this keysym
         // has no virtual key" — it must stay None all the way down: inventing a
@@ -4580,6 +4588,10 @@ impl WaylandWindow {
         // Update hit test for hover effects
         self.update_hit_test(logical_pos);
 
+        // A composited `<webview>` page under the pointer (or holding it
+        // since a press) follows it.
+        let _ = PlatformWindow::route_webview_pointer(self, logical_pos, WebViewPointer::Move);
+
         // Update cursor based on CSS cursor properties
         // This is done BEFORE callbacks so callbacks can override the cursor
         if let Some(layout_window) = self.common.layout_window.as_ref() {
@@ -4760,6 +4772,17 @@ impl WaylandWindow {
         // LeftMouseUp — drags and text selections died mid-gesture.
         set_mouse_button_down(self.common.mouse_state_mut(), mouse_button, is_down);
         self.pointer_state.button_down = if is_down { Some(mouse_button) } else { None };
+
+        // A composited `<webview>` page under the pointer (the last motion's
+        // hit test) gets the button too.
+        let _ = PlatformWindow::route_webview_pointer(
+            self,
+            position,
+            WebViewPointer::Button {
+                button: mouse_button,
+                pressed: is_down,
+            },
+        );
 
         // Record input sample for gesture detection
         let button_state = match mouse_button {
@@ -5143,6 +5166,16 @@ impl WaylandWindow {
         };
         if let Some(pos) = hover_pos {
             self.update_hit_test(pos);
+            // A composited `<webview>` page under the pointer scrolls itself
+            // (its delta: positive y scrolls the content up; this one is
+            // the other way round, as X11's).
+            let _ = PlatformWindow::route_webview_pointer(
+                self,
+                pos,
+                WebViewPointer::Wheel {
+                    delta: LogicalPosition::new(-delta_x, -delta_y),
+                },
+            );
         }
 
         // Queue scroll input for the physics timer instead of directly setting offsets.
