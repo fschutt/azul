@@ -842,7 +842,7 @@ mod tests {
         TZOFFSETFROM:+0200\r\nTZOFFSETTO:+0100\r\nTZNAME:CET\r\nDTSTART:19701025T030000\r\n\
         RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n";
 
-    fn one(body: &str, zone: &FixedOffset) -> (Imported, Vec<String>) {
+    fn one(body: &str, zone: &FixedOffset) -> (Imported, Vec<ImportNote>) {
         let cal = parse(&calendar(body), zone).unwrap();
         assert_eq!(cal.events.len(), 1, "{:?}", cal.events);
         (cal.events[0].clone(), cal.notes)
@@ -911,7 +911,10 @@ mod tests {
             1,
             "one note for the zone, not one per time: {notes:?}"
         );
-        assert!(notes[0].contains("Mars/Olympus"));
+        assert_eq!(
+            notes[0],
+            ImportNote::ZoneWithoutRules(String::from("Mars/Olympus"))
+        );
         // UTC by name needs no rules
         let body = body.replace("Mars/Olympus", "UTC");
         let (sync, notes) = one(&body, &FixedOffset::east_opt(3600).unwrap());
@@ -969,7 +972,7 @@ mod tests {
         assert!(
             notes
                 .iter()
-                .any(|n| n.contains("Pills") && n.contains("first date")),
+                .any(|n| matches!(n, ImportNote::FirstDateOnly { title, .. } if title == "Pills")),
             "{notes:?}"
         );
     }
@@ -1028,7 +1031,7 @@ mod tests {
                     DTEND:20261001T020000\r\nEND:VEVENT\r\n";
         let (party, notes) = one(body, &utc());
         assert_eq!((party.start, party.end), (at(22, 0), at(23, 59)));
-        assert!(notes.iter().any(|n| n.contains("Party")));
+        assert_eq!(notes, vec![ImportNote::PastMidnight(String::from("Party"))]);
     }
 
     #[test]
@@ -1037,7 +1040,7 @@ mod tests {
         let body = "BEGIN:VTODO\r\nSUMMARY:Buy milk\r\nEND:VTODO\r\n";
         let cal = parse(&calendar(body), &utc()).unwrap();
         assert!(cal.events.is_empty());
-        assert_eq!(cal.notes.len(), 1);
+        assert_eq!(cal.notes, vec![ImportNote::NotEvents(1)]);
     }
 
     /// Every field AzCalendar keeps survives a write and a read: text with commas, semicolons,

@@ -63,3 +63,39 @@ fn the_language_is_a_switch_and_a_line_of_the_settings_file() {
     assert_eq!(settings::language(&text), LanguagePref::English);
     assert_eq!(settings::language(""), LanguagePref::System, "the system's by default");
 }
+
+/// What an import could not keep as it was (azul-calendar-core's notes), and a file that is no
+/// calendar, in the window's language.
+#[test]
+fn an_imports_notes_are_said_in_the_windows_language() {
+    use crate::{chrome::import_note, ics::ImportNote};
+
+    crate::l10n::in_english();
+    let party = || String::from("Party");
+    assert_eq!(
+        import_note(&ImportNote::PastMidnight(party())),
+        "\"Party\" runs past midnight: here it ends at 23:59 on its first day."
+    );
+    assert_eq!(
+        import_note(&ImportNote::NotEvents(2)),
+        "2 items that are no events (tasks, journal entries) are left out."
+    );
+    assert_eq!(
+        import_note(&ImportNote::ZoneWithoutRules(String::from("Mars/Olympus"))),
+        "The time zone \"Mars/Olympus\" has no rules in the file: its times are kept as written."
+    );
+    set_locale("de-DE");
+    assert_eq!(
+        import_note(&ImportNote::Cancelled(party())),
+        "„Party“ ist abgesagt und wird ausgelassen."
+    );
+    assert_eq!(
+        import_note(&ImportNote::NotEvents(1)),
+        "1 Eintrag, der kein Termin ist (Aufgaben, Journaleinträge), wird ausgelassen."
+    );
+    assert_eq!(
+        t("azcalendar-import-not-icalendar"),
+        "Das ist keine iCalendar-Datei (kein BEGIN:VCALENDAR)."
+    );
+    set_locale("en-US");
+}
