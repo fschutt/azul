@@ -1400,17 +1400,8 @@ impl A11yManager {
     /// A virtual view's content sorts right after the nodes before its view
     /// and before the nodes after it.
     fn reading_key(id: A11yNodeId, hosts: &BTreeMap<DomId, (DomId, NodeId)>) -> Vec<usize> {
-        let (mut dom, node) = decode_a11y_node_id(id);
-        let mut path = vec![node.index()];
-        for _ in 0..64 {
-            let Some(&(host_dom, host_node)) = hosts.get(&dom) else {
-                break;
-            };
-            path.push(host_node.index());
-            dom = host_dom;
-        }
-        path.reverse();
-        path
+        let (dom, node) = decode_a11y_node_id(id);
+        crate::managers::virtual_view::reading_order_key(dom, node.index(), hosts)
     }
 
     /// Whether an ancestor of `id` is hidden: accesskit leaves a hidden

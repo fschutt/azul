@@ -17,6 +17,55 @@ use crate::managers::scroll_state::ScrollManager;
 /// Distance in pixels from edge that triggers edge-scrolled callback
 const EDGE_THRESHOLD: f32 = 200.0;
 
+/// The view hosting each nested dom, `(host dom, host node)`, read off the
+/// laid-out display lists: a `VirtualView` item names the dom it shows, and
+/// the list's node mapping names the node that drew it. Reading order across
+/// doms is computed from it ([`reading_order_key`]) by everything that walks
+/// a window in that order: the Tab order, the accessibility tree.
+#[must_use]
+pub fn nested_dom_hosts(
+    layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+) -> BTreeMap<DomId, (DomId, NodeId)> {
+    use crate::solver3::display_list::DisplayListItem;
+
+    let mut hosts = BTreeMap::new();
+    for (host_dom, lr) in layout_results {
+        for (index, item) in lr.display_list.items.iter().enumerate() {
+            if let DisplayListItem::VirtualView { child_dom_id, .. } = item {
+                if let Some(Some(host_node)) = lr.display_list.node_mapping.get(index) {
+                    hosts.insert(*child_dom_id, (*host_dom, *host_node));
+                }
+            }
+        }
+    }
+    hosts
+}
+
+/// A node's place in reading order across doms: the node index of each view
+/// its dom is nested in (outermost first), then its own index. Compared as a
+/// sequence, a virtual view's content sorts after whatever comes before the
+/// view in its parent and before whatever follows it; within one dom it is
+/// the document order.
+#[must_use]
+pub fn reading_order_key(
+    dom: DomId,
+    node_index: usize,
+    hosts: &BTreeMap<DomId, (DomId, NodeId)>,
+) -> alloc::vec::Vec<usize> {
+    let mut path = alloc::vec![node_index];
+    let mut current = dom;
+    // Views nest a handful deep; a host map that loops must not hang.
+    for _ in 0..64 {
+        let Some(&(host_dom, host_node)) = hosts.get(&current) else {
+            break;
+        };
+        path.push(host_node.index());
+        current = host_dom;
+    }
+    path.reverse();
+    path
+}
+
 /// Manages `VirtualView` lifecycle, including re-invocation
 ///
 /// Tracks which `VirtualViews` have been invoked, assigns unique DOM IDs to nested
