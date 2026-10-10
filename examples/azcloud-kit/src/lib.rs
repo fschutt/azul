@@ -15,6 +15,8 @@
 //!   token server seals to it and the app opens however late it asks.
 //! - [`pending`]: the checkouts this device has no drive of yet - one keyring entry that
 //!   outlives the app - polled into their drives (after "Stop waiting", at the next start).
+//! - [`cash`]: cash by post - the activation code a slip carries to the operator, the claim
+//!   code (AZK1) that picks a cash checkout's drive up on another computer.
 //! - [`period`]: a paid checkout's months as blind-signed period tokens (RFC 9474) - blinded
 //!   here, issued against the sealed sign-up's issue key, finalized, kept per drive until each
 //!   buys the drive a month.
@@ -79,6 +81,7 @@ pub mod account;
 pub mod bridge;
 pub mod bucket;
 pub mod bundle;
+pub mod cash;
 pub mod claim;
 #[cfg(feature = "encryption")]
 pub mod cloudflare;
@@ -111,12 +114,13 @@ mod tests;
 pub use account::{Account, JoinCode};
 pub use bucket::Bucket;
 pub use bundle::{DriveBundle, PeriodTokens};
+pub use cash::{ActivationCode, CashError, ClaimCode};
 pub use claim::{ClaimError, ClaimKey};
 pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
-pub use pending::{Finished, PendingCheckout, PendingTokens, Polled};
+pub use pending::{CashKept, Finished, PendingCheckout, PendingTokens, Polled};
 pub use period::{
     issue_tokens, look_at_drive, redeem_due, IssueRequest, Issuer, IssuerKey, Look, PeriodToken,
     PeriodTokenStore, Redeemed,

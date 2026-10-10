@@ -8,7 +8,8 @@
 //! | `POST /v1/checkout`                   | a paid drive: where the browser pays (the claim   |
 //! |                                       | key the sign-up is sealed to)                     |
 //! | `GET /v1/checkout/{id}`               | pending / approved (the sealed sign-up, 30 days)  |
-//! |                                       | / declined / expired                              |
+//! |                                       | / declined / expired; a cash checkout             |
+//! |                                       | awaiting_cash / rejected (with its reason)        |
 //! | `GET /v1/checkout/options`            | the providers' offer for a tier, period, country  |
 //! |                                       | (azul-pay narrows it to the app's registry)       |
 //! | `POST /v1/checkout` + provider        | a checkout through a provider: its surface (the   |
@@ -716,7 +717,8 @@ impl<'a> TokenServer<'a> {
         };
         let reason = |default: &str| value["reason"].as_str().unwrap_or(default).to_string();
         match value["status"].as_str().unwrap_or_default() {
-            "pending" => Ok(CheckoutStatus::Pending),
+            // A cash checkout waits for its letter like any unpaid one (cash contract v1).
+            "pending" | "awaiting_cash" => Ok(CheckoutStatus::Pending),
             "approved" => {
                 // The plaintext `signup` of a token server without claims is never taken: anyone
                 // who knew the checkout id could have read it.
@@ -737,6 +739,10 @@ impl<'a> TokenServer<'a> {
             }
             "declined" | "reversed" => Ok(CheckoutStatus::Declined(reason(
                 "the payment was declined",
+            ))),
+            // The operator did not take the letter's cash (the amount, the slip).
+            "rejected" => Ok(CheckoutStatus::Declined(reason(
+                "the cash sent was not accepted",
             ))),
             "expired" => Ok(CheckoutStatus::Gone(reason(
                 "the checkout expired at the token server",
