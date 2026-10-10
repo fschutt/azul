@@ -483,8 +483,10 @@ fn a_file_deleted_through_the_session_goes_from_the_drive_with_the_next_pass() {
     assert_eq!(deleted, vec![String::from("cloud.txt")]);
     assert_eq!(b.session.states().state_of("cloud.txt"), None, "gone from the states at once");
     b.pass();
-    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
-    assert!(!index.contains("\"cloud.txt\""), "{index}");
+    let index: serde_json::Value =
+        serde_json::from_slice(&store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(index["files"].get("cloud.txt").is_none(), "{index:#}");
+    assert!(index["deleted"].get("cloud.txt").is_some(), "its tombstone: {index:#}");
     let (states, _) = a.pass();
     assert!(a.read("cloud.txt").is_none(), "the other device deletes it too");
     assert_eq!(states.state_of("cloud.txt"), None);
