@@ -10,6 +10,7 @@
 //!   [`crate::reader::feed_links`]); each is fetched for its preview ([`find_feeds`]).
 //! - The User-Agent names the app and its project, never a person ([`USER_AGENT`]).
 
+use azul_appkit::phrase::{Phrase, Text};
 use azul_storage::{HttpCall, HttpReply, Method, Transport};
 
 use crate::{
@@ -25,6 +26,14 @@ pub const USER_AGENT: &str = "AzNews/0.1 (+https://github.com/fschutt/azul)";
 pub const ACCEPT: &str =
     "application/rss+xml, application/atom+xml, application/feed+json, application/json;q=0.9, \
                           application/xml;q=0.8, text/xml;q=0.8, text/html;q=0.5, */*;q=0.3";
+
+/// Why a refresh failed when the server answered with an error status (a key: the window says
+/// it with the status).
+pub const ERROR_HTTP: &str = "aznews-error-http";
+/// Why a refresh failed when the answer is no feed and no web page.
+pub const ERROR_NOT_A_FEED: &str = "aznews-error-not-a-feed";
+/// Why a refresh failed when the address is a web page (its feeds are found by Add feed).
+pub const ERROR_WEB_PAGE: &str = "aznews-error-web-page";
 
 /// How many feeds a web page may name that are fetched for the preview.
 pub const MAX_CANDIDATES: usize = 6;
@@ -43,7 +52,8 @@ pub enum Fetched {
     },
     /// A web page and the feeds it names.
     Page { links: Vec<FeedLink> },
-    /// Nothing usable: the status (0: no answer) and why, as a sentence.
+    /// Nothing usable: the status (0: no answer) and why - a key of AzNews' words (said with
+    /// the status where it is shown), or the transport's or the parser's own sentence.
     Failed { status: u16, error: String },
 }
 
@@ -98,7 +108,7 @@ pub fn interpret(url: &str, reply: &HttpReply) -> Fetched {
     if !reply.is_success() {
         return Fetched::Failed {
             status: reply.status,
-            error: format!("the server answered HTTP {}", reply.status),
+            error: ERROR_HTTP.to_string(),
         };
     }
     let content_type = reply.header("content-type").unwrap_or("");
@@ -119,6 +129,10 @@ pub fn interpret(url: &str, reply: &HttpReply) -> Fetched {
                 links: reader::feed_links(&text, url),
             }
         }
+        Err(FeedError::NotAFeed { html: false }) => Fetched::Failed {
+            status: reply.status,
+            error: ERROR_NOT_A_FEED.to_string(),
+        },
         Err(e) => Fetched::Failed {
             status: reply.status,
             error: e.to_string(),
@@ -139,11 +153,11 @@ pub fn fetch(transport: &dyn Transport, url: &str, etag: &str, last_modified: &s
 /// as `https://`; only web addresses.
 ///
 /// # Errors
-/// A sentence for the user.
-pub fn normalize_input(input: &str) -> Result<String, String> {
+/// A sentence for the user (a key of AzNews' words: the window says it).
+pub fn normalize_input(input: &str) -> Result<String, Text> {
     let t = input.trim();
     if t.is_empty() {
-        return Err("Type the address of a website or of a feed.".to_string());
+        return Err(Text::key("aznews-type-address"));
     }
     let lower = t.to_ascii_lowercase();
     let candidate = if lower.starts_with("feed://") {
@@ -161,20 +175,22 @@ pub fn normalize_input(input: &str) -> Result<String, String> {
     } else {
         format!("https://{t}")
     };
+    let not_web = || Text::from(Phrase::new("aznews-not-web-address").arg("address", t));
     if !links::is_web(&candidate) {
-        return Err(format!("\u{201c}{t}\u{201d} is not a web address."));
+        return Err(not_web());
     }
     url::Url::parse(&candidate)
         .map(|u| u.to_string())
-        .map_err(|_| format!("\u{201c}{t}\u{201d} is not a web address."))
+        .map_err(|_| not_web())
 }
 
 /// The feeds for "Add feed": the address itself when it is a feed, else the feeds its page names
 /// that can be read (at most [`MAX_CANDIDATES`]).
 ///
 /// # Errors
-/// A sentence for the user (no answer, not found, no feed on the page).
-pub fn find_feeds(transport: &dyn Transport, input: &str) -> Result<Vec<Candidate>, String> {
+/// A sentence for the user (no answer, not found, no feed on the page): AzNews' words, or the
+/// transport's or the parser's own.
+pub fn find_feeds(transport: &dyn Transport, input: &str) -> Result<Vec<Candidate>, Text> {
     let url = normalize_input(input)?;
     match fetch(transport, &url, "", "") {
         Fetched::Feed {
@@ -191,7 +207,7 @@ pub fn find_feeds(transport: &dyn Transport, input: &str) -> Result<Vec<Candidat
         }]),
         Fetched::Page { links } => {
             if links.is_empty() {
-                return Err(format!("There is no feed on {url}."));
+                return Err(Phrase::new("aznews-no-feed-on").arg("url", url).into());
             }
             let mut out = Vec::new();
             for link in links.into_iter().take(MAX_CANDIDATES) {
@@ -212,17 +228,26 @@ pub fn find_feeds(transport: &dyn Transport, input: &str) -> Result<Vec<Candidat
                 }
             }
             if out.is_empty() {
-                Err(format!(
-                    "{url} names feeds, but none of them could be read."
-                ))
+                Err(Phrase::new("aznews-feeds-unreadable")
+                    .arg("url", url)
+                    .into())
             } else {
                 Ok(out)
             }
         }
-        Fetched::NotModified { .. } => {
-            Err("The server answered \u{201c}not modified\u{201d} to a first request.".to_string())
-        }
-        Fetched::Failed { error, .. } => Err(error),
+        Fetched::NotModified { .. } => Err(Text::key("aznews-not-modified-first")),
+        Fetched::Failed { status, error } => Err(failure(&error, status)),
+    }
+}
+
+/// A refresh's or a find's `error` with the `status` the server answered, to show: AzNews' key
+/// with the status, or the transport's or the parser's sentence as it is.
+#[must_use]
+pub fn failure(error: &str, status: u16) -> Text {
+    if azul_appkit::l10n::is_key(error) {
+        Phrase::new(error).arg("status", u32::from(status)).into()
+    } else {
+        Text::from(error)
     }
 }
 
@@ -354,7 +379,14 @@ mod tests {
             }
         );
         match fetch(&web, "https://example.org/missing", "", "") {
-            Fetched::Failed { status: 404, error } => assert!(error.contains("404"), "{error}"),
+            Fetched::Failed { status: 404, error } => {
+                assert_eq!(error, ERROR_HTTP);
+                let said = failure(&error, 404);
+                assert_eq!(
+                    said.phrase(ERROR_HTTP).and_then(|p| p.get("status")),
+                    Some(&azul_appkit::phrase::Arg::from(404_u32))
+                );
+            }
             other => panic!("a 404, got {other:?}"),
         }
         let garbage = FakeWeb::default().serve(
@@ -445,7 +477,7 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].link_title, "");
         let err = find_feeds(&web, "plain.example.org").expect_err("no feed");
-        assert!(err.contains("no feed"), "{err}");
+        assert_eq!(err.keys(), vec!["aznews-no-feed-on"], "{err}");
     }
 
     #[test]

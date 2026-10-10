@@ -10,13 +10,14 @@ use azul::{
     widgets::{ButtonType, Switch, SwitchState},
 };
 use azul_appkit::{
+    l10n::{t, t_args, tr, Arg},
     pieces::{block, button, column, flex_row, primary, text},
     ui as kit,
 };
 
 use super::{
-    age, form_page, now_secs, on_add_open, on_export, on_import_open, on_leave, on_refresh,
-    set_followed, unsubscribe, with_app, NewsApp, Reading,
+    ago, form_page, now_secs, on_add_open, on_export, on_import_open, on_leave, on_refresh,
+    refresh_failed, set_followed, unsubscribe, with_app, NewsApp, Reading,
 };
 use crate::{ids, library::FeedData, links};
 
@@ -33,23 +34,29 @@ pub(super) fn sources_page(s: &NewsApp, app: &RefAny) -> Dom {
     let mut children = vec![
         block(
             "font-size: 18px; font-weight: 600; padding-bottom: 4px;",
-            text("Sources"),
+            text(tr("aznews-sources")),
         ),
-        kit::note(&format!(
-            "{} feeds, {} followed. A feed you do not follow keeps its articles, but it is not \
-             refreshed and its articles stay out of All articles and Unread.",
-            lib.feeds.len(),
-            lib.followed().len()
+        kit::note(&t_args(
+            "aznews-sources-note",
+            &[
+                ("count", Arg::from(lib.feeds.len())),
+                ("followed", Arg::from(lib.followed().len())),
+            ],
         )),
         flex_row(
             "gap: 6px; padding: 8px 0px; flex-wrap: wrap;",
             vec![
-                primary("Add Feed\u{2026}", ids::SOURCES_ADD, app, on_add_open),
-                button("Import OPML\u{2026}", ids::SOURCES_IMPORT, app, on_import_open),
-                button("Export OPML", ids::SOURCES_EXPORT, app, on_export),
-                button("Get News", ids::SOURCES_REFRESH, app, on_refresh),
+                primary("aznews-menu-add-feed", ids::SOURCES_ADD, app, on_add_open),
+                button(
+                    "aznews-import-opml",
+                    ids::SOURCES_IMPORT,
+                    app,
+                    on_import_open,
+                ),
+                button("aznews-export-opml", ids::SOURCES_EXPORT, app, on_export),
+                button("aznews-get-news", ids::SOURCES_REFRESH, app, on_refresh),
                 block("flex-grow: 1;", Dom::create_div()),
-                button("Done", ids::SOURCES_DONE, app, on_leave),
+                button("aznews-done", ids::SOURCES_DONE, app, on_leave),
             ],
         ),
     ];
@@ -72,7 +79,7 @@ fn row_ref(app: &RefAny, f: &FeedData) -> RefAny {
     })
 }
 
-/// A button of a row.
+/// A button of a row (`label` a key, said in the window's language).
 fn row_button(
     label: &str,
     kind: Option<ButtonType>,
@@ -80,7 +87,7 @@ fn row_button(
     cb: ButtonOnClickCallbackType,
     id: azul::str::String,
 ) -> Dom {
-    let mut b = Button::create(label);
+    let mut b = Button::create(t(label));
     if let Some(kind) = kind {
         b = b.with_button_type(kind);
     }
@@ -98,27 +105,36 @@ fn source_row(s: &NewsApp, app: &RefAny, i: usize, f: &FeedData) -> Dom {
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| f.sub.url.clone());
     let folder = if f.sub.folder.is_empty() {
-        "no folder".to_string()
+        t("aznews-row-no-folder")
     } else {
         f.sub.folder.clone()
     };
     let facts = format!(
-        "{site} \u{b7} {folder} \u{b7} {} articles, {} unread",
-        f.items.len(),
-        lib.unread(i)
+        "{site} \u{b7} {folder} \u{b7} {}",
+        t_args(
+            "aznews-count-unread",
+            &[
+                ("count", Arg::from(f.items.len())),
+                ("unread", Arg::from(lib.unread(i))),
+            ],
+        )
     );
     let status = if !f.meta.error.is_empty() {
-        block(ERROR, text(format!("The last refresh failed: {}", f.meta.error)))
+        block(ERROR, text(refresh_failed(&f.meta)))
     } else if f.meta.checked == 0 {
-        block(DETAIL, text("Not refreshed yet"))
+        block(DETAIL, text(tr("aznews-not-refreshed")))
     } else {
+        let asked = t_args(
+            "aznews-asked",
+            &[("when", Arg::from(ago(f.meta.checked, now_secs())))],
+        );
         block(
             DETAIL,
-            text(format!(
-                "Asked {} ago{}",
-                age(f.meta.checked, now_secs()),
-                if f.sub.paused { " \u{b7} not followed" } else { "" }
-            )),
+            text(if f.sub.paused {
+                format!("{asked} \u{b7} {}", t("aznews-not-followed"))
+            } else {
+                asked
+            }),
         )
     };
     let info = column(
@@ -133,14 +149,14 @@ fn source_row(s: &NewsApp, app: &RefAny, i: usize, f: &FeedData) -> Dom {
     let actions = if asked {
         vec![
             row_button(
-                "Remove and delete its articles",
+                "aznews-remove-delete",
                 Some(ButtonType::Danger),
                 row_ref(app, f),
                 on_remove_yes,
                 ids::source_remove_yes(i),
             ),
             row_button(
-                "Cancel",
+                "kit-button-cancel",
                 None,
                 row_ref(app, f),
                 on_remove_no,
@@ -150,14 +166,14 @@ fn source_row(s: &NewsApp, app: &RefAny, i: usize, f: &FeedData) -> Dom {
     } else {
         vec![
             row_button(
-                "Edit\u{2026}",
+                "aznews-menu-edit",
                 None,
                 row_ref(app, f),
                 on_edit,
                 ids::source_edit(i),
             ),
             row_button(
-                "Remove\u{2026}",
+                "aznews-menu-remove",
                 None,
                 row_ref(app, f),
                 on_remove,
@@ -227,6 +243,6 @@ extern "C" fn on_remove_yes(mut data: RefAny, mut info: CallbackInfo) -> Update 
     };
     with_app(&mut app, &mut info, |s, info, handle| {
         unsubscribe(s, info, handle, &feed);
-        s.notice = "The feed was removed.".to_string();
+        s.notice = t("aznews-feed-removed");
     })
 }

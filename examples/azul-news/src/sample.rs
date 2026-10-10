@@ -162,7 +162,7 @@ pub fn sample_library(now: i64) -> Library {
             }
         }
     }
-    lib.feeds[BROKEN_404].meta.error = "the server answered HTTP 404".to_string();
+    lib.feeds[BROKEN_404].meta.error = crate::fetch::ERROR_HTTP.to_string();
     lib.feeds[BROKEN_404].meta.status = 404;
     lib.feeds[BROKEN_INVALID].meta.error =
         "the feed could not be read: the input ends inside <item>".to_string();

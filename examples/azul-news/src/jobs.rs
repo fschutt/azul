@@ -25,6 +25,7 @@ use azul::{
     },
     vec::U8VecRef,
 };
+use azul_appkit::phrase::Text;
 use azul_storage::{azul_transport::AzulTransport, HttpCall, Method, Transport};
 
 use crate::fetch::{self, Candidate, Fetched};
@@ -68,11 +69,11 @@ pub struct PictureEvent {
     pub error: String,
 }
 
-/// What "Find" found for the address the user typed.
+/// What "Find" found for the address the user typed (or why nothing, said in the window).
 #[derive(Debug, Clone)]
 pub struct FindEvent {
     pub input: String,
-    pub result: Result<Vec<Candidate>, String>,
+    pub result: Result<Vec<Candidate>, Text>,
 }
 
 /// A message on its way to the UI thread (taken out once).

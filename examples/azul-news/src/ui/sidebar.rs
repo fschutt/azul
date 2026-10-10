@@ -17,7 +17,10 @@ use azul::{
     prelude::*,
     str::String as AzString,
 };
-use azul_appkit::pieces::{block, column, text};
+use azul_appkit::{
+    l10n::{t, t_args, tr, Arg},
+    pieces::{block, column, text},
+};
 
 use super::{
     mark_read, now_secs, on_add_open, on_export, on_import_open, on_open_settings, on_refresh,
@@ -172,7 +175,7 @@ fn section_head(label: &str, open: bool, tail: Vec<Dom>) -> Dom {
 fn articles_section(s: &NewsApp, app: &RefAny) -> Dom {
     let lib = &s.library;
     let open = s.articles_open;
-    let head = section_head("Articles", open, Vec::new())
+    let head = section_head(&t("aznews-articles"), open, Vec::new())
         .with_id(ids::SECTION_ARTICLES)
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
@@ -185,32 +188,36 @@ fn articles_section(s: &NewsApp, app: &RefAny) -> Dom {
     }
     let unread = lib.unread_total();
     let rows = [
-        (("inbox", "All Articles", unread), View::All, ids::VIEW_ALL),
         (
-            ("mark_email_unread", "Unread", unread),
+            ("inbox", "aznews-all-articles", unread),
+            View::All,
+            ids::VIEW_ALL,
+        ),
+        (
+            ("mark_email_unread", "aznews-unread", unread),
             View::Unread,
             ids::VIEW_UNREAD,
         ),
         (
-            ("star", "Starred", lib.starred_count()),
+            ("star", "aznews-starred", lib.starred_count()),
             View::Starred,
             ids::VIEW_STARRED,
         ),
         (
-            ("bookmark", "Read Later", lib.later_count()),
+            ("bookmark", "aznews-read-later", lib.later_count()),
             View::Later,
             ids::VIEW_LATER,
         ),
     ];
-    for (what, view, id) in rows {
-        section.add_child(nav_row(s, app, what, view, id, 20));
+    for ((icon, key, count), view, id) in rows {
+        section.add_child(nav_row(s, app, (icon, &t(key), count), view, id, 20));
     }
     let broken = lib.broken().len();
     if broken > 0 {
         section.add_child(nav_row(
             s,
             app,
-            ("error", "Broken Feeds", broken),
+            ("error", &t("aznews-broken-feeds"), broken),
             View::Broken,
             ids::VIEW_BROKEN,
             20,
@@ -248,24 +255,24 @@ fn source_ref(app: &RefAny, feed: &str, action: SourceAction) -> RefAny {
     })
 }
 
-/// A source's context menu.
+/// A source's context menu (each entry a key, said in the window's language).
 fn source_menu(app: &RefAny, feed: &str, paused: bool) -> Menu {
-    let item = |label: &str, action: SourceAction| {
+    let item = |key: &str, action: SourceAction| {
         MenuItem::string(
-            StringMenuItem::create(label).with_callback(source_ref(app, feed, action), on_source),
+            StringMenuItem::create(t(key)).with_callback(source_ref(app, feed, action), on_source),
         )
     };
     Menu::create(vec![
-        item("Refresh", SourceAction::Refresh),
-        item("Mark All as Read", SourceAction::MarkRead),
+        item("aznews-menu-refresh", SourceAction::Refresh),
+        item("aznews-mark-all-as-read", SourceAction::MarkRead),
         MenuItem::separator(),
-        item("Edit\u{2026}", SourceAction::Edit),
+        item("aznews-menu-edit", SourceAction::Edit),
         if paused {
-            item("Follow", SourceAction::Follow(true))
+            item("aznews-follow", SourceAction::Follow(true))
         } else {
-            item("Stop Following", SourceAction::Follow(false))
+            item("aznews-stop-following", SourceAction::Follow(false))
         },
-        item("Remove\u{2026}", SourceAction::Remove),
+        item("aznews-menu-remove", SourceAction::Remove),
     ])
 }
 
@@ -286,7 +293,7 @@ fn source_section(s: &NewsApp, app: &RefAny, i: usize) -> Dom {
     if f.sub.paused {
         tail.push(block(
             "flex-shrink: 0; margin-left: 4px; font-size: 9px; font-weight: 400;",
-            text("paused"),
+            text(tr("aznews-paused")),
         ));
     }
     if !open {
@@ -312,7 +319,7 @@ fn source_section(s: &NewsApp, app: &RefAny, i: usize) -> Dom {
     section.add_child(nav_row(
         s,
         app,
-        ("rss_feed", "All", unread),
+        ("rss_feed", &t("aznews-all"), unread),
         View::Feed(f.sub.id.clone()),
         ids::source_all(i),
         20,
@@ -333,24 +340,29 @@ fn source_section(s: &NewsApp, app: &RefAny, i: usize) -> Dom {
 /// NEWS ACTIVITY: what the refresh is doing, when the feeds were last asked, the last word.
 fn activity(s: &NewsApp) -> Dom {
     let line = |content: String| block(ACTIVITY_LINE, text(content));
-    let mut children = vec![block(ACTIVITY_HEAD, text("NEWS ACTIVITY"))];
+    let mut children = vec![block(ACTIVITY_HEAD, text(tr("aznews-news-activity")))];
     if s.refreshing > 0 {
         let total = s.refresh_total.max(s.refreshing);
         let done = total - s.refreshing;
-        children.push(line("Fetching feeds\u{2026}".to_string()));
+        children.push(line(t("aznews-fetching-feeds")));
         children.push(block(
             "padding: 2px 10px;",
             ProgressBar::create(done as f32 * 100.0 / total.max(1) as f32).dom(),
         ));
-        children.push(line(format!("{done} of {total} feeds")));
+        children.push(line(t_args(
+            "aznews-feeds-done",
+            &[("done", Arg::from(done)), ("total", Arg::from(total))],
+        )));
     } else {
         children.push(line(updated_line(s.last_refresh, now_secs())));
     }
-    children.push(line(format!(
-        "{} unread \u{b7} {} of {} feeds followed",
-        s.library.unread_total(),
-        s.library.followed().len(),
-        s.library.feeds.len()
+    children.push(line(t_args(
+        "aznews-activity-summary",
+        &[
+            ("unread", Arg::from(s.library.unread_total())),
+            ("followed", Arg::from(s.library.followed().len())),
+            ("count", Arg::from(s.library.feeds.len())),
+        ],
     )));
     if !s.notice.is_empty() {
         children.push(
@@ -380,25 +392,25 @@ fn bottom_bar(s: &NewsApp, app: &RefAny) -> Dom {
         .with_css(BOTTOM)
         .with_child(small_button(
             "add",
-            "Add a feed",
+            &t("aznews-add-a-feed"),
             ids::NAV_ADD,
             app.clone(),
             on_add_open,
         ))
         .with_child(small_button(
             "data_usage",
-            if s.show_activity {
-                "Hide the activity"
+            &t(if s.show_activity {
+                "aznews-hide-activity"
             } else {
-                "Show the activity"
-            },
+                "aznews-show-activity"
+            }),
             ids::NAV_ACTIVITY,
             app.clone(),
             on_activity_toggle,
         ))
         .with_child(small_button(
             "settings",
-            "Actions",
+            &t("aznews-actions"),
             ids::NAV_ACTIONS,
             app.clone(),
             on_actions,
@@ -432,19 +444,20 @@ extern "C" fn on_activity_toggle(mut data: RefAny, mut info: CallbackInfo) -> Up
     })
 }
 
-/// The actions menu (Mail's gear): sources, import, export, refresh, settings.
+/// The actions menu (Mail's gear): sources, import, export, refresh, settings (each entry a
+/// key, said in the language of the last layout).
 extern "C" fn on_actions(data: RefAny, mut info: CallbackInfo) -> Update {
-    let item = |label: &str, cb: CallbackType| {
-        MenuItem::string(StringMenuItem::create(label).with_callback(data.clone(), cb))
+    let item = |key: &str, cb: CallbackType| {
+        MenuItem::string(StringMenuItem::create(t(key)).with_callback(data.clone(), cb))
     };
     let menu = Menu::create(vec![
-        item("Manage Sources\u{2026}", on_sources_open),
-        item("Add Feed\u{2026}", on_add_open),
-        item("Import Subscriptions (OPML)\u{2026}", on_import_open),
-        item("Export Subscriptions (OPML)", on_export),
+        item("aznews-manage-sources", on_sources_open),
+        item("aznews-menu-add-feed", on_add_open),
+        item("aznews-menu-import", on_import_open),
+        item("aznews-menu-export", on_export),
         MenuItem::separator(),
-        item("Get News", on_refresh),
-        item("Settings\u{2026}", on_open_settings),
+        item("aznews-get-news", on_refresh),
+        item("aznews-menu-settings", on_open_settings),
     ]);
     info.open_menu_for_hit_node(menu);
     Update::DoNothing
@@ -472,7 +485,7 @@ extern "C" fn on_source(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 let refs = s.library.list(&View::Feed(feed), "");
                 let unread = mark_read(s, info, handle, &refs);
                 println!("AZNEWS_MARKED_ALL {unread}");
-                s.notice = format!("{unread} article(s) marked as read");
+                s.notice = t_args("aznews-marked-read", &[("count", Arg::from(unread))]);
             }
             SourceAction::Edit => {
                 super::leave_form(s, info, handle);

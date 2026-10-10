@@ -38,10 +38,10 @@ use std::{
 
 use crate::{
     feed::Item,
-    fetch::{Candidate, Fetched},
+    fetch::{self, Candidate, Fetched},
     ids,
     jobs::{self, FindEvent, PictureEvent, RefreshEvent, RefreshJob},
-    library::{ArticleRef, Library, Sort, SortKey, View, DAY},
+    library::{ArticleRef, FeedMeta, Library, Sort, SortKey, View, DAY},
     links,
     opml::{self, Subscription},
     reader, sample, store,
@@ -73,8 +73,9 @@ use azul::{
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::{AppArgs, AppSpec, LanguagePref},
     files::{FileJob, FileOutcome},
+    l10n::{self, t, t_args, t_text, tr, Arg, DateStyle},
     pieces::{block, button, column, flex_row, primary, text},
     settings::AppSettings,
     shortcuts::Shortcut,
@@ -115,22 +116,25 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: store::APP_FOLDER,
 };
 
+/// The keyboard shortcuts the settings page lists: their groups and what they do are keys.
 pub const SHORTCUTS: [Shortcut; 12] = [
-    Shortcut::new("Articles", "J / Down", "Next article"),
-    Shortcut::new("Articles", "K / Up", "Previous article"),
-    Shortcut::new("Articles", "S", "Star or unstar the article"),
-    Shortcut::new("Articles", "M", "Mark the article read or unread"),
-    Shortcut::new("Articles", "L", "Read later"),
-    Shortcut::new("Articles", "O", "Open the original in the browser"),
-    Shortcut::new("Feeds", "R", "Get news: refresh every followed feed"),
-    Shortcut::new("Feeds", "Mod+N", "Add a feed"),
-    Shortcut::new("Feeds", "Mod+O", "Import an OPML file"),
-    Shortcut::new("Feeds", "Mod+E", "Export the subscriptions as OPML"),
-    Shortcut::new("Feeds", "Escape", "Leave a form"),
-    Shortcut::new("Panes", "F6 / Shift+F6", "Next / previous pane"),
+    Shortcut::new("aznews-articles", "J / Down", "aznews-shortcut-next"),
+    Shortcut::new("aznews-articles", "K / Up", "aznews-shortcut-previous"),
+    Shortcut::new("aznews-articles", "S", "aznews-shortcut-star"),
+    Shortcut::new("aznews-articles", "M", "aznews-shortcut-read"),
+    Shortcut::new("aznews-articles", "L", "aznews-shortcut-later"),
+    Shortcut::new("aznews-articles", "O", "aznews-shortcut-open"),
+    Shortcut::new("aznews-feeds", "R", "aznews-shortcut-get-news"),
+    Shortcut::new("aznews-feeds", "Mod+N", "aznews-add-a-feed"),
+    Shortcut::new("aznews-feeds", "Mod+O", "aznews-shortcut-import"),
+    Shortcut::new("aznews-feeds", "Mod+E", "aznews-shortcut-export"),
+    Shortcut::new("aznews-feeds", "Escape", "aznews-shortcut-leave-form"),
+    Shortcut::new("aznews-panes", "F6 / Shift+F6", "aznews-shortcut-panes"),
 ];
 
-const APP_CATEGORIES: [&str; 2] = ["Reading", "Refresh"];
+/// The settings page's own categories: ids, shown as `aznews-category-reading` and
+/// `aznews-category-refresh`.
+pub const APP_CATEGORIES: [&str; 2] = ["Reading", "Refresh"];
 
 const TAG_LOAD: u64 = 1;
 const TAG_WRITE: u64 = 2;
@@ -146,16 +150,24 @@ pub const OPEN_SOURCES_UP_TO: usize = 8;
 /// The reading font sizes offered (px).
 pub const FONT_SIZES: [u32; 5] = [16, 18, 20, 22, 24];
 /// The line widths offered: (label, px).
-pub const MEASURES: [(&str, u32); 3] = [("Narrow", 560), ("Medium", 680), ("Wide", 820)];
+pub const MEASURES: [(&str, u32); 3] = [
+    ("aznews-measure-narrow", 560),
+    ("aznews-measure-medium", 680),
+    ("aznews-measure-wide", 820),
+];
 /// How often feeds are refreshed while the window is open: (label, minutes; 0 = never).
 pub const REFRESH_EVERY: [(&str, u32); 4] = [
-    ("Never", 0),
-    ("15 min", 15),
-    ("Hourly", 60),
-    ("4 hours", 240),
+    ("aznews-every-never", 0),
+    ("aznews-every-15-min", 15),
+    ("aznews-every-hour", 60),
+    ("aznews-every-4-hours", 240),
 ];
 /// How long an article the feed dropped is kept: (label, days).
-pub const KEEP: [(&str, u32); 3] = [("A week", 7), ("A month", 30), ("Three months", 90)];
+pub const KEEP: [(&str, u32); 3] = [
+    ("aznews-keep-week", 7),
+    ("aznews-keep-month", 30),
+    ("aznews-keep-three-months", 90),
+];
 
 /// The DOM ids of the shell's two panes (what F6 finds them by).
 const NAVIGATION_PANE: &str = "shell-navigation";
@@ -191,9 +203,9 @@ impl Pictures {
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Pictures::Always => "Always",
-            Pictures::OnClick => "On click",
-            Pictures::Never => "Never",
+            Pictures::Always => "aznews-pictures-always",
+            Pictures::OnClick => "aznews-pictures-click",
+            Pictures::Never => "aznews-pictures-never",
         }
     }
 
@@ -303,18 +315,18 @@ impl Settings {
 // ==== Ages and dates ====
 
 /// How old something of `date` is at `now`, as the list says it: `now`, `5 min`, `2 h`, `3 d`,
-/// else the date (`2026-08-01`).
+/// else the date (`2026-08-01`), in the window's language.
 #[must_use]
 pub fn age(date: i64, now: i64) -> String {
     let secs = (now - date).max(0);
     if secs < 60 {
-        "now".to_string()
+        t("aznews-age-now")
     } else if secs < 3_600 {
-        format!("{} min", secs / 60)
+        t_args("aznews-age-min", &[("n", Arg::from(secs / 60))])
     } else if secs < DAY {
-        format!("{} h", secs / 3_600)
+        t_args("aznews-age-h", &[("n", Arg::from(secs / 3_600))])
     } else if secs < 7 * DAY {
-        format!("{} d", secs / DAY)
+        t_args("aznews-age-d", &[("n", Arg::from(secs / DAY))])
     } else {
         chrono::DateTime::<chrono::Utc>::from_timestamp(date, 0)
             .map(|d| {
@@ -326,30 +338,44 @@ pub fn age(date: i64, now: i64) -> String {
     }
 }
 
+/// When `date` was, seen from `now`: "just now", "5 min ago", a week back and more the date.
+#[must_use]
+pub fn ago(date: i64, now: i64) -> String {
+    let secs = now - date;
+    if secs < 60 {
+        t("aznews-just-now")
+    } else if secs >= 7 * DAY {
+        age(date, now)
+    } else {
+        t_args("aznews-ago", &[("age", Arg::from(age(date, now)))])
+    }
+}
+
 /// "Updated 5 min ago", "Updated just now", "Updated 2026-08-01" (`last` = when; 0 = never).
 #[must_use]
 pub fn updated_line(last: i64, now: i64) -> String {
     if last <= 0 {
-        return "Not refreshed yet".to_string();
+        return t("aznews-not-refreshed");
     }
-    let ago = age(last, now);
-    if ago == "now" {
-        "Updated just now".to_string()
-    } else if now - last >= 7 * DAY {
-        format!("Updated {ago}")
-    } else {
-        format!("Updated {ago} ago")
-    }
+    t_args("aznews-updated", &[("when", Arg::from(ago(last, now)))])
 }
 
-/// An article's date for the reading pane: `Wednesday, 30 September 2026, 10:42` (local time).
+/// An article's date for the reading pane: `Wednesday, 30 September 2026, 10:42` (local time),
+/// the day in the window's language.
 #[must_use]
 pub fn long_date(date: i64) -> String {
+    use chrono::Datelike;
     chrono::DateTime::<chrono::Utc>::from_timestamp(date, 0)
         .map(|d| {
-            d.with_timezone(&chrono::Local)
-                .format("%A, %-d %B %Y, %H:%M")
-                .to_string()
+            let local = d.with_timezone(&chrono::Local);
+            let day = l10n::date_text(
+                DateStyle::DayLong,
+                local.year(),
+                local.month(),
+                local.day(),
+                local.weekday().num_days_from_monday(),
+            );
+            format!("{day}, {}", local.format("%H:%M"))
         })
         .unwrap_or_default()
 }
@@ -634,11 +660,19 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        l10n::set_locale(language.tag());
+    }
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
     let app = NewsApp::new(kit_ref.clone(), &args);
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(
         &kit_ref,
         layout,
@@ -677,11 +711,11 @@ fn view_title(s: &NewsApp) -> String {
             .map_or_else(String::new, |i| s.library.feeds[i].name().to_string())
     };
     match &s.view {
-        View::All => "All articles".to_string(),
-        View::Unread => "Unread".to_string(),
-        View::Starred => "Starred".to_string(),
-        View::Later => "Read later".to_string(),
-        View::Broken => "Broken feeds".to_string(),
+        View::All => t("aznews-view-all"),
+        View::Unread => t("aznews-unread"),
+        View::Starred => t("aznews-starred"),
+        View::Later => t("aznews-view-later"),
+        View::Broken => t("aznews-view-broken"),
         View::Folder(name) => name.clone(),
         View::Feed(id) => feed_name(id.as_str()),
         View::Topic(id, topic) => format!("{} \u{203a} {topic}", feed_name(id.as_str())),
@@ -693,7 +727,7 @@ fn title_of(item: &Item) -> String {
     if item.title.trim().is_empty() {
         let start = reader::cut_at_word(&item.excerpt, 80);
         if start.is_empty() {
-            "(no title)".to_string()
+            t("aznews-no-title")
         } else {
             start
         }
@@ -705,10 +739,10 @@ fn title_of(item: &Item) -> String {
 // ==== The reading pane ====
 
 fn empty_reading(app: &RefAny) -> Dom {
-    ShellEmptyState::create("No article selected")
+    ShellEmptyState::create(t("aznews-no-article"))
         .with_icon("article")
-        .with_detail("Pick an article in the list, or add a feed.")
-        .with_action_label("Add feed")
+        .with_detail(t("aznews-no-article-detail"))
+        .with_action_label(t("aznews-add-feed"))
         .with_on_action(app.clone(), on_add_open as ButtonOnClickCallbackType)
         .dom()
 }
@@ -722,28 +756,27 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
     let mut pane = ReadingPane::create(title.as_str(), feed.name())
         .with_date(long_date(item.date()))
         .with_field(
-            "Reading time",
-            format!("{} min", reader::reading_minutes(article.words)),
+            t("aznews-reading-time"),
+            t_args(
+                "aznews-minutes",
+                &[("n", Arg::from(reader::reading_minutes(article.words)))],
+            ),
         );
     if !item.author.is_empty() {
-        pane = pane.with_field("Author", item.author.as_str());
+        pane = pane.with_field(t("aznews-author"), item.author.as_str());
     }
     if !item.link.is_empty() {
-        pane = pane.with_field("Link", item.link.as_str());
+        pane = pane.with_field(t("aznews-link"), item.link.as_str());
     }
     if article.blocked > 0 {
+        let blocked = [("count", Arg::from(article.blocked))];
         let notice = match s.settings.pictures {
-            Pictures::Never => InfoBar::create(format!(
-                "{} picture(s) are not shown (Settings, Reading, Pictures).",
-                article.blocked
-            ))
-            .with_icon("info"),
-            _ => InfoBar::create(format!(
-                "{} picture(s) were not loaded: the sites they are on learn nothing of what you read.",
-                article.blocked
-            ))
-            .with_icon("info")
-            .with_action("Load pictures"),
+            Pictures::Never => {
+                InfoBar::create(t_args("aznews-pictures-not-shown", &blocked)).with_icon("info")
+            }
+            _ => InfoBar::create(t_args("aznews-pictures-not-loaded", &blocked))
+                .with_icon("info")
+                .with_action(t("aznews-load-pictures")),
         };
         pane = pane.with_info_bar(notice);
     }
@@ -808,10 +841,10 @@ fn add_feed_view(app: &RefAny, st: &AddFeed) -> Dom {
     let mut children = vec![
         block(
             "font-size: 18px; font-weight: 600; padding-bottom: 8px;",
-            text("Add a feed"),
+            text(tr("aznews-add-a-feed")),
         ),
         kit::row(
-            "Website or feed",
+            "aznews-website-or-feed",
             flex_row(
                 "gap: 6px; flex-grow: 1;",
                 vec![
@@ -825,23 +858,22 @@ fn add_feed_view(app: &RefAny, st: &AddFeed) -> Dom {
                             on_add_input,
                         ),
                     ),
-                    primary("Find", ids::ADD_FIND, app, on_add_find),
+                    primary("aznews-find", ids::ADD_FIND, app, on_add_find),
                 ],
             ),
         ),
     ];
     if st.finding {
-        children.push(kit::note("Looking for feeds\u{2026}"));
+        children.push(kit::note("aznews-looking-for-feeds"));
     }
     if !st.problem.is_empty() {
         children.push(problem_line(&st.problem, ids::ADD_PROBLEM));
     }
     let mut actions = Vec::new();
     if !st.candidates.is_empty() {
-        children.push(section_title(&format!(
-            "Found {} feed{}",
-            st.candidates.len(),
-            if st.candidates.len() == 1 { "" } else { "s" }
+        children.push(section_title(&t_args(
+            "aznews-found-feeds",
+            &[("count", Arg::from(st.candidates.len()))],
         )));
         for (i, c) in st.candidates.iter().enumerate() {
             let chosen = i == st.chosen;
@@ -853,9 +885,12 @@ fn add_feed_view(app: &RefAny, st: &AddFeed) -> Dom {
                 c.url.clone()
             };
             let label = format!(
-                "{name} \u{b7} {} \u{b7} {} articles",
+                "{name} \u{b7} {} \u{b7} {}",
                 c.feed.format.label(),
-                c.feed.items.len()
+                t_args(
+                    "aznews-count-articles",
+                    &[("count", Arg::from(c.feed.items.len()))]
+                )
             );
             let mut pick = Button::create(label);
             if chosen {
@@ -883,17 +918,23 @@ fn add_feed_view(app: &RefAny, st: &AddFeed) -> Dom {
             }
         }
         children.push(kit::row(
-            "Folder",
-            input(&st.folder, "No folder", ids::ADD_FOLDER, app, on_add_folder),
+            "aznews-folder",
+            input(
+                &st.folder,
+                &t("aznews-no-folder"),
+                ids::ADD_FOLDER,
+                app,
+                on_add_folder,
+            ),
         ));
         actions.push(primary(
-            "Subscribe",
+            "aznews-subscribe",
             ids::ADD_SUBSCRIBE,
             app,
             on_add_subscribe,
         ));
     }
-    actions.push(button("Cancel", ids::ADD_CANCEL, app, on_leave));
+    actions.push(button("kit-button-cancel", ids::ADD_CANCEL, app, on_leave));
     children.push(flex_row("gap: 6px; padding-top: 12px;", actions));
     form_page(children).with_id(ids::ADD_FEED)
 }
@@ -907,10 +948,10 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
     let mut children = vec![
         block(
             "font-size: 18px; font-weight: 600; padding-bottom: 8px;",
-            text("Import subscriptions (OPML)"),
+            text(tr("aznews-import-title")),
         ),
         kit::row(
-            "File",
+            "aznews-file",
             flex_row(
                 "gap: 6px; flex-grow: 1;",
                 vec![
@@ -918,20 +959,20 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
                         "flex-grow: 1;",
                         input(
                             &st.path,
-                            "/path/to/subscriptions.opml",
+                            &t("aznews-opml-placeholder"),
                             ids::OPML_PATH,
                             app,
                             on_import_path,
                         ),
                     ),
-                    button("Choose\u{2026}", ids::OPML_CHOOSE, app, on_import_choose),
-                    button("Read", ids::OPML_READ, app, on_import_read),
+                    button("aznews-choose", ids::OPML_CHOOSE, app, on_import_choose),
+                    button("aznews-read-file", ids::OPML_READ, app, on_import_read),
                 ],
             ),
         ),
     ];
     if st.reading {
-        children.push(kit::note("Reading the file\u{2026}"));
+        children.push(kit::note("aznews-reading-file"));
     }
     if !st.problem.is_empty() {
         children.push(problem_line(&st.problem, ids::OPML_SUMMARY));
@@ -939,10 +980,13 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
     if !st.rows.is_empty() {
         let new = st.rows.iter().filter(|r| !r.known).count();
         children.push(
-            section_title(&format!(
-                "{} feeds, {new} new, {} subscribed already",
-                st.rows.len(),
-                st.rows.len() - new
+            section_title(&t_args(
+                "aznews-import-summary",
+                &[
+                    ("count", Arg::from(st.rows.len())),
+                    ("new", Arg::from(new)),
+                    ("known", Arg::from(st.rows.len() - new)),
+                ],
             ))
             .with_id(ids::OPML_SUMMARY),
         );
@@ -978,7 +1022,11 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
                         ),
                         block(
                             "font-size: 11px; opacity: 0.7;",
-                            text(if r.known { "subscribed" } else { "new" }),
+                            text(tr(if r.known {
+                                "aznews-row-subscribed"
+                            } else {
+                                "aznews-row-new"
+                            })),
                         ),
                     ],
                 )
@@ -989,9 +1037,9 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
     }
     let mut actions = Vec::new();
     if st.rows.iter().any(|r| r.selected) {
-        actions.push(primary("Import", ids::OPML_RUN, app, on_import_run));
+        actions.push(primary("aznews-import", ids::OPML_RUN, app, on_import_run));
     }
-    actions.push(button("Cancel", ids::OPML_CANCEL, app, on_leave));
+    actions.push(button("kit-button-cancel", ids::OPML_CANCEL, app, on_leave));
     children.push(flex_row("gap: 6px; padding-top: 12px;", actions));
     form_page(children).with_id(ids::OPML_IMPORT)
 }
@@ -999,9 +1047,9 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
 fn feed_page(s: &NewsApp, app: &RefAny, index: usize) -> Dom {
     let f = &s.library.feeds[index];
     let checked = if f.meta.checked == 0 {
-        "never".to_string()
+        t("aznews-never")
     } else {
-        format!("{} ago", age(f.meta.checked, now_secs()))
+        ago(f.meta.checked, now_secs())
     };
     let mut children = vec![
         block(
@@ -1009,59 +1057,68 @@ fn feed_page(s: &NewsApp, app: &RefAny, index: usize) -> Dom {
             text(f.name()),
         ),
         kit::row(
-            "Name",
+            "aznews-name",
             input(
                 &f.sub.title,
-                "The feed's own title",
+                &t("aznews-feed-title-placeholder"),
                 ids::FEED_TITLE,
                 app,
                 on_feed_title,
             ),
         ),
         kit::row(
-            "Folder",
+            "aznews-folder",
             input(
                 &f.sub.folder,
-                "No folder",
+                &t("aznews-no-folder"),
                 ids::FEED_FOLDER,
                 app,
                 on_feed_folder,
             ),
         ),
-        kit::row("Address", text(f.sub.url.as_str())),
-        kit::row("Website", text(f.meta.site.as_str())),
-        kit::row("Format", text(f.meta.kind.as_str())),
+        kit::row("aznews-address", text(f.sub.url.as_str())),
+        kit::row("aznews-website", text(f.meta.site.as_str())),
+        kit::row("aznews-format", text(f.meta.kind.as_str())),
         kit::row(
-            "Articles",
-            text(format!(
-                "{} ({} unread)",
-                f.items.len(),
-                s.library.unread(index)
+            "aznews-articles",
+            text(t_args(
+                "aznews-articles-unread",
+                &[
+                    ("count", Arg::from(f.items.len())),
+                    ("unread", Arg::from(s.library.unread(index))),
+                ],
             )),
         ),
         kit::row(
-            "Followed",
-            text(if f.sub.paused {
-                "no - not refreshed, not in All articles (Sources)"
+            "aznews-followed",
+            text(tr(if f.sub.paused {
+                "aznews-followed-no"
             } else {
-                "yes"
-            }),
+                "aznews-followed-yes"
+            })),
         ),
-        kit::row("Last asked", text(checked)),
+        kit::row("aznews-last-asked", text(checked)),
     ];
     if !f.meta.error.is_empty() {
-        children.push(problem_line(
-            &format!("The last refresh failed: {}", f.meta.error),
-            ids::ADD_PROBLEM,
-        ));
+        children.push(problem_line(&refresh_failed(&f.meta), ids::ADD_PROBLEM));
     }
     let mut actions = vec![
-        primary("Refresh now", ids::FEED_REFRESH, app, on_feed_refresh),
-        button("Show its articles", ids::FEED_PAGE, app, on_feed_articles),
+        primary(
+            "aznews-refresh-now",
+            ids::FEED_REFRESH,
+            app,
+            on_feed_refresh,
+        ),
+        button(
+            "aznews-show-articles",
+            ids::FEED_PAGE,
+            app,
+            on_feed_articles,
+        ),
     ];
     if s.confirm_unsubscribe {
         actions.push(
-            Button::create("Unsubscribe and delete its articles")
+            Button::create(t("aznews-unsubscribe-delete"))
                 .with_button_type(ButtonType::Danger)
                 .with_on_click(
                     app.clone(),
@@ -1072,18 +1129,25 @@ fn feed_page(s: &NewsApp, app: &RefAny, index: usize) -> Dom {
         );
     } else {
         actions.push(button(
-            "Unsubscribe",
+            "aznews-unsubscribe",
             ids::FEED_UNSUBSCRIBE,
             app,
             on_unsubscribe,
         ));
     }
-    actions.push(button("Done", ids::FEED_DONE, app, on_leave));
+    actions.push(button("aznews-done", ids::FEED_DONE, app, on_leave));
     children.push(flex_row(
         "gap: 6px; padding-top: 12px; flex-wrap: wrap;",
         actions,
     ));
     form_page(children)
+}
+
+/// "The last refresh failed: ..." with the feed's error: a key of AzNews' own, said here with
+/// the status the server answered, or the transport's or the parser's words.
+fn refresh_failed(meta: &FeedMeta) -> String {
+    let why = t_text(&fetch::failure(&meta.error, meta.status));
+    t_args("aznews-refresh-failed", &[("why", Arg::from(why))])
 }
 
 /// The right side: the table over the reading pane (on a splitter), or the open form.
@@ -1109,7 +1173,7 @@ fn main_pane(s: &NewsApp, app: &RefAny) -> Dom {
 
 // ==== Settings, the window ====
 
-/// A settings choice of several labels.
+/// A settings choice of several labels (keys said in the window's language, or plain words).
 fn choice(
     labels: Vec<String>,
     selected: usize,
@@ -1118,7 +1182,7 @@ fn choice(
     id: AzString,
 ) -> Dom {
     Segmented::create(StringVec::from_vec(
-        labels.into_iter().map(AzString::from).collect(),
+        labels.iter().map(|l| l10n::label(l)).collect(),
     ))
     .with_selected_index(selected)
     .with_on_change(app.clone(), cb)
@@ -1158,12 +1222,12 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
     vec![
         AppSection {
             category: 0,
-            title: "Reading".to_string(),
+            title: "aznews-category-reading".to_string(),
             content: column(
                 "",
                 vec![
                     kit::row(
-                        "Font size",
+                        "aznews-font-size",
                         choice(
                             FONT_SIZES.iter().map(|p| format!("{p} px")).collect(),
                             font,
@@ -1173,7 +1237,7 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
                         ),
                     ),
                     kit::row(
-                        "Line width",
+                        "aznews-line-width",
                         choice(
                             MEASURES.iter().map(|(l, _)| (*l).to_string()).collect(),
                             measure,
@@ -1183,9 +1247,12 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
                         ),
                     ),
                     kit::row(
-                        "Paper",
+                        "aznews-paper",
                         choice(
-                            vec!["Follow the theme".to_string(), "Sepia".to_string()],
+                            vec![
+                                "aznews-paper-theme".to_string(),
+                                "aznews-paper-sepia".to_string(),
+                            ],
                             usize::from(st.sepia),
                             app,
                             on_set_paper,
@@ -1193,7 +1260,7 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
                         ),
                     ),
                     kit::row(
-                        "Pictures",
+                        "aznews-pictures",
                         choice(
                             Pictures::ALL.iter().map(|p| p.label().to_string()).collect(),
                             pictures,
@@ -1203,28 +1270,25 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
                         ),
                     ),
                     kit::row(
-                        "Strip tracking",
+                        "aznews-strip-tracking",
                         switch(st.strip_tracking, app, on_set_strip, ids::SET_STRIP_TRACKING),
                     ),
-                    kit::note(
-                        "Articles are set in a serif at the size chosen; their colours follow the app's theme and \
-                         its light or dark mode. Tracking parameters (utm_*, fbclid, ...) come off links.",
-                    ),
+                    kit::note("aznews-reading-note"),
                 ],
             ),
         },
         AppSection {
             category: 1,
-            title: "Refresh".to_string(),
+            title: "aznews-category-refresh".to_string(),
             content: column(
                 "",
                 vec![
                     kit::row(
-                        "Refresh on start",
+                        "aznews-refresh-on-start",
                         switch(st.refresh_on_start, app, on_set_refresh_start, ids::SET_REFRESH_START),
                     ),
                     kit::row(
-                        "Refresh every",
+                        "aznews-refresh-every",
                         choice(
                             REFRESH_EVERY.iter().map(|(l, _)| (*l).to_string()).collect(),
                             every,
@@ -1234,7 +1298,7 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
                         ),
                     ),
                     kit::row(
-                        "Keep articles",
+                        "aznews-keep-articles",
                         choice(
                             KEEP.iter().map(|(l, _)| (*l).to_string()).collect(),
                             keep,
@@ -1243,10 +1307,16 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
                             ids::SET_KEEP_DAYS,
                         ),
                     ),
-                    kit::note(&format!(
-                        "A refresh asks each followed feed with what it said last time (ETag, Last-Modified): \
-                         a feed without news costs nothing. Your feeds, articles and marks are files in {}.",
-                        azul_appkit::data::local_path(&s.data_root, store::APP_FOLDER).display()
+                    kit::note(&t_args(
+                        "aznews-refresh-note",
+                        &[(
+                            "folder",
+                            Arg::from(
+                                azul_appkit::data::local_path(&s.data_root, store::APP_FOLDER)
+                                    .display()
+                                    .to_string(),
+                            ),
+                        )],
                     )),
                 ],
             ),
@@ -1256,6 +1326,8 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
 
 /// The window: the shell (or the settings page), the theme scope, the window keys.
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for every word this pass says.
+    l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let app = data.clone();
@@ -1283,13 +1355,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_pane(
                 ShellPane::create(NAVIGATION_PANE, sidebar::sidebar(s, &app))
                     .with_kind(ShellPaneKind::Navigation)
-                    .with_label("Sources")
+                    .with_label(t("aznews-sources"))
                     .with_ratio(s.nav_ratio),
             )
             .with_pane(
                 ShellPane::create(MAIN_PANE, main_pane(s, &app))
                     .with_kind(ShellPaneKind::Main)
-                    .with_label("Articles"),
+                    .with_label(t("aznews-articles")),
             )
             .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType)
             .dom()
@@ -1434,7 +1506,7 @@ fn start_refresh(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, feeds: 
         })
         .collect();
     if jobs.is_empty() {
-        s.notice = "Nothing to refresh.".to_string();
+        s.notice = t("aznews-nothing-to-refresh");
         return;
     }
     s.notice.clear();
@@ -1548,14 +1620,13 @@ fn set_followed(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, index: u
     }
     let id = s.library.feeds[index].sub.id.clone();
     println!("AZNEWS_FOLLOW {id} {}", if on { "on" } else { "off" });
-    s.notice = format!(
-        "{} {}",
-        s.library.feeds[index].name(),
+    s.notice = t_args(
         if on {
-            "is followed again"
+            "aznews-followed-again"
         } else {
-            "is no longer followed"
-        }
+            "aznews-no-longer-followed"
+        },
+        &[("name", Arg::from(s.library.feeds[index].name()))],
     );
     save_list(s, info, app);
     if on {
@@ -1631,9 +1702,9 @@ fn after_load(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, outcomes: 
         eprintln!("[aznews] {p}");
     }
     if !loaded.problems.is_empty() {
-        s.notice = format!(
-            "{} file(s) could not be read fully - see the log",
-            loaded.problems.len()
+        s.notice = t_args(
+            "aznews-files-not-read",
+            &[("count", Arg::from(loaded.problems.len()))],
         );
     }
     s.library = loaded.library;
@@ -1695,20 +1766,23 @@ fn import_file_read(s: &mut NewsApp, outcomes: Vec<FileOutcome>) {
             } => match opml::parse(&bytes) {
                 Ok(subs) => {
                     st.problem = if subs.is_empty() {
-                        "The file lists no feed.".to_string()
+                        t("aznews-import-no-feed")
                     } else {
                         String::new()
                     };
                     st.rows = import_rows(subs, &s.library);
                     println!("AZNEWS_IMPORT_PREVIEW {}", st.rows.len());
                 }
-                Err(e) => st.problem = e,
+                // The one thing `opml::parse` finds wrong: the file is no OPML.
+                Err(_) => st.problem = t("aznews-import-not-opml"),
             },
             FileOutcome::Got {
                 result: Ok(None),
                 key,
-            } => st.problem = format!("\u{201c}{key}\u{201d} does not exist."),
-            FileOutcome::Got { result: Err(e), .. } => st.problem = e,
+            } => st.problem = t_args("aznews-file-missing", &[("file", Arg::from(key))]),
+            FileOutcome::Got { result: Err(e), .. } => {
+                st.problem = t_args("aznews-file-unreadable", &[("why", Arg::from(e))]);
+            }
             _ => {}
         }
     }
@@ -1733,9 +1807,10 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                     println!("AZNEWS_SAVED {key}");
                     if key.starts_with(EXPORTS_PREFIX) {
                         println!("AZNEWS_EXPORTED {key}");
-                        s.notice = format!(
-                            "Exported to {}",
-                            azul_appkit::data::local_path(&s.data_root, key).display()
+                        let path = azul_appkit::data::local_path(&s.data_root, key);
+                        s.notice = t_args(
+                            "aznews-exported-to",
+                            &[("path", Arg::from(path.display().to_string()))],
                         );
                     }
                 }
@@ -1744,7 +1819,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                 println!("AZNEWS_SAMPLE_WRITTEN {}", reply.outcomes.len() - failed);
             }
             if failed > 0 {
-                s.notice = format!("{failed} file(s) could not be written - see the log");
+                s.notice = t_args("aznews-files-not-written", &[("count", Arg::from(failed))]);
             }
             if reply.tag == TAG_CLOSING && s.closing {
                 s.closing = false;
@@ -1754,9 +1829,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                 } else {
                     // Not lost without a word: the window stays and says so; the next close
                     // quits without the list.
-                    s.notice = "The subscription list could not be written - see the log. \
-                                Close the window again to quit without it."
-                        .to_string();
+                    s.notice = t("aznews-list-not-written");
                 }
             }
         }
@@ -1805,7 +1878,7 @@ extern "C" fn on_refresh_event(mut app: RefAny, mut msg: RefAny, mut info: Callb
                 Fetched::Page { .. } => {
                     let meta = &mut s.library.feeds[i].meta;
                     meta.checked = now;
-                    meta.error = "this address is a web page, not a feed".to_string();
+                    meta.error = fetch::ERROR_WEB_PAGE.to_string();
                     "error".to_string()
                 }
                 Fetched::Failed { status, error } => {
@@ -1866,7 +1939,7 @@ extern "C" fn on_find_event(mut app: RefAny, mut msg: RefAny, mut info: Callback
             }
             Err(problem) => {
                 println!("AZNEWS_FOUND 0");
-                st.problem = problem;
+                st.problem = t_text(&problem);
                 st.candidates.clear();
             }
         }
@@ -1931,7 +2004,7 @@ extern "C" fn on_mark_all_yes(mut data: RefAny, mut info: CallbackInfo) -> Updat
         let list = s.list();
         let unread = mark_read(s, info, handle, &list);
         println!("AZNEWS_MARKED_ALL {unread}");
-        s.notice = format!("{unread} article(s) marked as read");
+        s.notice = t_args("aznews-marked-read", &[("count", Arg::from(unread))]);
     })
 }
 
@@ -2001,7 +2074,7 @@ extern "C" fn on_open_original(mut data: RefAny, mut info: CallbackInfo) -> Upda
 extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |s, info, _| {
         let Some(link) = s.selected_link() else {
-            s.notice = "This article has no link.".to_string();
+            s.notice = t("aznews-no-link");
             return;
         };
         info.set_clipboard_content(ClipboardContent {
@@ -2010,7 +2083,7 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
             html: OptionString::None,
         });
         println!("AZNEWS_COPIED {link}");
-        s.notice = "The article's link is on the clipboard.".to_string();
+        s.notice = t("aznews-link-copied");
     })
 }
 
@@ -2102,7 +2175,7 @@ extern "C" fn on_add_find(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return;
         };
         if st.input.trim().is_empty() {
-            st.problem = "Type the address of a website or of a feed.".to_string();
+            st.problem = t("aznews-type-address");
             return;
         }
         st.finding = true;
@@ -2214,7 +2287,10 @@ fn read_import_file(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, path
     if kit::spawn_outside_read(info, path, app.clone(), TAG_IMPORT_FILE, on_files_done) {
         st.reading = true;
     } else {
-        st.problem = format!("\u{201c}{}\u{201d} is not a file.", path.display());
+        st.problem = t_args(
+            "aznews-not-a-file",
+            &[("path", Arg::from(path.display().to_string()))],
+        );
     }
 }
 
@@ -2226,7 +2302,7 @@ extern "C" fn on_import_read(mut data: RefAny, mut info: CallbackInfo) -> Update
         };
         if path.is_empty() {
             if let Reading::Import(st) = &mut s.reading {
-                st.problem = "Type the path of an .opml file, or choose one.".to_string();
+                st.problem = t("aznews-type-path");
             }
             return;
         }
@@ -2240,7 +2316,7 @@ extern "C" fn on_import_choose(mut data: RefAny, _info: CallbackInfo) -> Update 
         return Update::DoNothing;
     }
     let _request = FileDialog::open_file(
-        "Import subscriptions",
+        t("aznews-import-dialog"),
         OptionString::None,
         OptionFileTypeList::None,
         app,
@@ -2300,7 +2376,7 @@ extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         let added: Vec<usize> = (before..s.library.feeds.len()).collect();
         println!("AZNEWS_IMPORTED {}", added.len());
-        s.notice = format!("{} feed(s) imported", added.len());
+        s.notice = t_args("aznews-imported", &[("count", Arg::from(added.len()))]);
         save_list(s, info, handle);
         s.reading = Reading::Article;
         let followed: Vec<usize> = added
@@ -2622,6 +2698,7 @@ mod tests {
 
     #[test]
     fn ages_read_like_the_list_says_them() {
+        crate::l10n::in_english();
         let now = 1_790_856_000;
         assert_eq!(age(now - 10, now), "now");
         assert_eq!(age(now - 5 * 60, now), "5 min");
@@ -2638,6 +2715,7 @@ mod tests {
 
     #[test]
     fn the_activity_says_when_the_feeds_were_last_asked() {
+        crate::l10n::in_english();
         let now = 1_790_856_000;
         assert_eq!(updated_line(0, now), "Not refreshed yet");
         assert_eq!(updated_line(now - 5, now), "Updated just now");

@@ -11,7 +11,10 @@ use azul::{
     prelude::*,
     str::String as AzString,
 };
-use azul_appkit::pieces::{block, text};
+use azul_appkit::{
+    l10n::{t, tr},
+    pieces::{block, text},
+};
 
 use super::{
     on_add_open, on_copy_link, on_later, on_mark_all, on_open_original, on_refresh, on_search,
@@ -47,7 +50,7 @@ const LABEL: &str = "padding-top: 2px; font-size: 11px; white-space: nowrap; \
 /// The room between two groups of tools.
 const GAP: &str = "width: 12px; flex-shrink: 0;";
 
-/// One tool: `icon` on its face, `label` under it; `cb` with the app when it is clicked
+/// One tool: `icon` on its face, `label` (a key) under it; `cb` with the app when it is clicked
 /// (`enabled`), dimmed and inert otherwise.
 fn tool(
     app: &RefAny,
@@ -59,13 +62,13 @@ fn tool(
     let out = Dom::create_div()
         .with_id(id)
         .with_css(if enabled { TOOL } else { TOOL_OFF })
-        .with_accessibility_name(label)
+        .with_accessibility_name(t(label))
         .with_child(
             Dom::create_div()
                 .with_css(FACE)
                 .with_child(Dom::create_icon(icon).with_css(ICON)),
         )
-        .with_child(block(LABEL, text(label)));
+        .with_child(block(LABEL, text(tr(label))));
     if enabled {
         out.with_tab_index(TabIndex::Auto).with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
@@ -86,8 +89,8 @@ fn gap() -> Dom {
 fn search(s: &NewsApp, app: &RefAny) -> Dom {
     let field = TextInput::create_search()
         .with_text(s.query.as_str())
-        .with_placeholder("Search")
-        .with_accessibility_name("Search articles")
+        .with_placeholder(t("aznews-search"))
+        .with_accessibility_name(t("aznews-search-articles"))
         .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
         .dom()
         .with_id(ids::LIST_SEARCH);
@@ -97,7 +100,7 @@ fn search(s: &NewsApp, app: &RefAny) -> Dom {
              min-width: 120px; flex-shrink: 1;",
         )
         .with_child(block("width: 100%;", field))
-        .with_child(block(LABEL, text("Search")))
+        .with_child(block(LABEL, text(tr("aznews-search"))))
 }
 
 /// The toolbar.
@@ -112,9 +115,9 @@ pub(super) fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
     let starred = open.is_some_and(|r| lib.is_starred(r));
     let later = open.is_some_and(|r| lib.is_later(r));
     let refresh = if s.refreshing > 0 {
-        "Fetching\u{2026}"
+        "aznews-fetching"
     } else {
-        "Get News"
+        "aznews-get-news"
     };
     let tools = vec![
         tool(
@@ -129,9 +132,9 @@ pub(super) fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
             app,
             ids::TOOLBAR_MARK_READ,
             if read {
-                ("Mark Unread", "mark_email_unread")
+                ("aznews-mark-unread", "mark_email_unread")
             } else {
-                ("Mark Read", "mark_email_read")
+                ("aznews-mark-read", "mark_email_read")
             },
             on_toggle_read,
             article,
@@ -140,9 +143,9 @@ pub(super) fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
             app,
             ids::TOOLBAR_STAR,
             if starred {
-                ("Unstar", "star")
+                ("aznews-unstar", "star")
             } else {
-                ("Star", "star_border")
+                ("aznews-star", "star_border")
             },
             on_star,
             article,
@@ -151,9 +154,9 @@ pub(super) fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
             app,
             ids::TOOLBAR_LATER,
             if later {
-                ("Not Later", "bookmark")
+                ("aznews-not-later", "bookmark")
             } else {
-                ("Read Later", "bookmark_border")
+                ("aznews-read-later", "bookmark_border")
             },
             on_later,
             article,
@@ -162,14 +165,14 @@ pub(super) fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
         tool(
             app,
             ids::TOOLBAR_OPEN,
-            ("Open", "open_in_new"),
+            ("aznews-open", "open_in_new"),
             on_open_original,
             linked,
         ),
         tool(
             app,
             ids::TOOLBAR_SHARE,
-            ("Copy Link", "link"),
+            ("aznews-copy-link", "link"),
             on_copy_link,
             linked,
         ),
@@ -177,7 +180,7 @@ pub(super) fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
         tool(
             app,
             ids::TOOLBAR_MARK_ALL,
-            ("Mark All Read", "done_all"),
+            ("aznews-mark-all-read", "done_all"),
             on_mark_all,
             true,
         ),
@@ -185,14 +188,14 @@ pub(super) fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
         tool(
             app,
             ids::TOOLBAR_ADD,
-            ("Add Feed", "add"),
+            ("aznews-toolbar-add-feed", "add"),
             on_add_open,
             true,
         ),
         tool(
             app,
             ids::TOOLBAR_SOURCES,
-            ("Sources", "rss_feed"),
+            ("aznews-sources", "rss_feed"),
             on_sources_open,
             true,
         ),

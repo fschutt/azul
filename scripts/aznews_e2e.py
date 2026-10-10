@@ -76,7 +76,7 @@ def library_run(args, logs, out, base, site):
     opml_path = os.path.join(logs, "subs.opml")
     with urllib.request.urlopen(base + "/subs.opml", timeout=5) as response, open(opml_path, "wb") as f:
         f.write(response.read())
-    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--size", "1200x760", opml_path],
+    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--size", "1200x760", "--language", "en", opml_path],
                   args.debug_port, logs, args.timeout)
     try:
         # 1-2: the import.
@@ -228,7 +228,7 @@ def sample_run(args, logs, out):
     binary = e2e.find_binary("AzNews", args.bin, "AZNEWS_BIN")
     data_dir = os.path.join(logs, "sample-data")
     os.makedirs(data_dir, exist_ok=True)
-    app = e2e.App(TAG + "-sample", binary, ["--data-dir", data_dir, "--sample", "--size", "1200x760"],
+    app = e2e.App(TAG + "-sample", binary, ["--data-dir", data_dir, "--sample", "--size", "1200x760", "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.expect_line("AZNEWS_LOADED", "42 891", "the sample library")
@@ -277,7 +277,7 @@ def rename_run(args, logs, out):
     data_dir = os.path.join(logs, "rename-data")
     os.makedirs(data_dir, exist_ok=True)
     app = e2e.App(TAG + "-rename", binary,
-                  ["--data-dir", data_dir, "--sample", "--screen", "feed", "--size", "1200x760"],
+                  ["--data-dir", data_dir, "--sample", "--screen", "feed", "--size", "1200x760", "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.expect_line("AZNEWS_LOADED", "42 891", "the sample library")
@@ -304,7 +304,7 @@ def rename_run(args, logs, out):
         app.stop()
 
     app = e2e.App(TAG + "-rename-2", binary,
-                  ["--data-dir", data_dir, "--screen", "feed", "--size", "1200x760"],
+                  ["--data-dir", data_dir, "--screen", "feed", "--size", "1200x760", "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.expect_line("AZNEWS_LOADED", "42 891", "the library read back")
