@@ -18,6 +18,9 @@
 //! An Azlin account (the wizard's first page: "Azlin drive") has a token server, a drive id and
 //! a drive token instead of the IMAP server and the password; "Create a new drive" makes one at
 //! a development token server. Its sending is the same as an IMAP account's: from this computer.
+//!
+//! Account Settings' last category, "Other programs", shows the Azlin Bridge's settings to copy
+//! into other mail, file and calendar programs ([`crate::ui_bridge`]).
 
 use azul::{
     callbacks::{
@@ -45,7 +48,7 @@ use crate::{
 /// The wizard's steps.
 pub(crate) const WIZARD_STEPS: [&str; 4] = ["Your account", "Incoming mail", "Sending", "Finish"];
 /// Account Settings' categories (the same fields).
-pub(crate) const SETTINGS_CATEGORIES: [&str; 3] = ["Account", "Incoming mail", "Sending"];
+pub(crate) const SETTINGS_CATEGORIES: [&str; 4] = ["Account", "Incoming mail", "Sending", "Other programs"];
 /// The account kinds of the wizard's first page.
 pub(crate) const KINDS: [&str; 2] = ["IMAP server", "Azlin drive"];
 /// What an Azlin account is, on the wizard's pages.
@@ -99,6 +102,8 @@ pub(crate) struct AccountEditor {
     pub(crate) azlin_session: Option<Secret>,
     /// "Create a new drive" is asking the token server (on a thread).
     pub(crate) azlin_busy: bool,
+    /// The Azlin Bridge's settings ("Other programs"), read when Account Settings opened.
+    pub(crate) bridge: crate::ui_bridge::BridgeView,
 }
 
 impl AccountEditor {
@@ -120,6 +125,7 @@ impl AccountEditor {
             dkim_report: Vec::new(),
             azlin_session: None,
             azlin_busy: false,
+            bridge: crate::ui_bridge::BridgeView::default(),
         }
     }
 
@@ -240,6 +246,7 @@ pub(crate) fn open_settings_with_error(s: &mut MailApp, account_id: &str, error:
     form.token_default = s.endpoints.token_url.clone().unwrap_or_default();
     let mut editor = AccountEditor::create(form, true, settings);
     editor.error = error;
+    editor.bridge = crate::ui_bridge::BridgeView::load();
     editor.return_to = s.backstage.map(|_| ui_backstage::PAGE_INFO);
     s.editor = Some(editor);
     s.backstage = Some(ui_backstage::PAGE_SETTINGS);
@@ -425,6 +432,10 @@ pub(crate) fn settings_page(s: &MailApp, app: &RefAny) -> Dom {
             server_fields(s, editor, app),
         ))
         .with_section(ShellSettingsSection::create("Sending", sending_fields(editor, app)))
+        .with_section(ShellSettingsSection::create(
+            "Other programs",
+            crate::ui_bridge::section(&editor.bridge, app),
+        ))
         .with_active_category(editor.step.min(SETTINGS_CATEGORIES.len() - 1))
         .with_on_category(
             app.clone(),

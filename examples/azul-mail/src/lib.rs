@@ -80,6 +80,7 @@ pub mod sync;
 pub mod todo;
 mod ui_account;
 mod ui_backstage;
+mod ui_bridge;
 mod ui_compose;
 mod ui_main;
 mod ui_options;
@@ -280,6 +281,8 @@ pub(crate) enum KeyringOp {
     StoreDkim,
     /// The DKIM private key read to sign this account's mail.
     GetDkim { account: String },
+    /// The Azlin Bridge's password, read into the clipboard (Account Settings, Other programs).
+    GetBridge,
 }
 
 /// A keyring call: store `secret` under `key`, or (`secret` is `None`) read `key`.
@@ -807,6 +810,12 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
                 if s.current_account().map(|a| a.id.as_str()) == Some(account.as_str()) {
                     start_sync(s, &mut info, app);
                 }
+            }
+            (Some(KeyringOp::GetBridge), KeyringResult::Retrieved(secret)) => {
+                ui_bridge::copy_password(s, &mut info, secret.as_str());
+            }
+            (Some(KeyringOp::GetBridge), _) => {
+                ui_bridge::password_missing(s, outcome);
             }
             (Some(KeyringOp::GetDkim { account }), _) => {
                 // Asked once per run: signed mail waits in the Outbox until a new key is made.

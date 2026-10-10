@@ -141,9 +141,9 @@ impl BridgeSettings {
     #[must_use]
     pub fn mail_rows(&self) -> Vec<Row> {
         vec![
-            row("Incoming mail server (IMAP)", HOST),
+            row("IMAP server (incoming mail)", HOST),
             row("IMAP port", &self.imap_port.to_string()),
-            row("Outgoing mail server (SMTP)", HOST),
+            row("SMTP server (outgoing mail)", HOST),
             row("SMTP port", &self.smtp_port.to_string()),
             row("Connection security", "None (the bridge answers this computer only)"),
             row("User name", &self.address),
