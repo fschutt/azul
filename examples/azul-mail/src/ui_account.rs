@@ -37,6 +37,8 @@ use azul::{
     },
 };
 
+use azul_appkit::l10n::{self, t, t_args, Arg};
+
 use crate::{
     account::{self, Account, AccountForm, Secret},
     azlin, dkim,
@@ -45,20 +47,28 @@ use crate::{
     ids, ui_backstage, with_app, IoJob, MailApp,
 };
 
+// The pages' words are keys of the resources (appkit's label says them).
+
 /// The wizard's steps.
-pub(crate) const WIZARD_STEPS: [&str; 4] = ["Your account", "Incoming mail", "Sending", "Finish"];
+pub(crate) const WIZARD_STEPS: [&str; 4] = [
+    "azmail-acct-step-account",
+    "azmail-acct-step-incoming",
+    "azmail-acct-step-sending",
+    "azmail-acct-step-finish",
+];
 /// Account Settings' categories (the same fields).
-pub(crate) const SETTINGS_CATEGORIES: [&str; 4] = ["Account", "Incoming mail", "Sending", "Other programs"];
+pub(crate) const SETTINGS_CATEGORIES: [&str; 4] = [
+    "azmail-acct-category-account",
+    "azmail-acct-step-incoming",
+    "azmail-acct-step-sending",
+    "azmail-acct-category-other",
+];
 /// The account kinds of the wizard's first page.
-pub(crate) const KINDS: [&str; 2] = ["IMAP server", "Azlin drive"];
+pub(crate) const KINDS: [&str; 2] = ["azmail-acct-kind-imap", "azmail-acct-kind-azlin"];
 /// What an Azlin account is, on the wizard's pages.
-const AZLIN_NOTE: &str = "AzMail keeps your mail as files in your Azlin drive (one file per \
-                          message, under mail/) and a copy on this computer. The drive token \
-                          stays in the system keyring.";
+const AZLIN_NOTE: &str = "azmail-acct-azlin-note";
 /// How an Azlin account's mail leaves (Azlin itself never sends mail).
-const AZLIN_SENDING_NOTE: &str = "Your Azlin drive stores your mail; it does not send it. AzMail \
-                                  sends from this computer as chosen here, and the next \
-                                  Send/Receive puts the copy from Sent Items into the drive.";
+const AZLIN_SENDING_NOTE: &str = "azmail-acct-azlin-sending-note";
 
 const NOTE: &str = "font-size: 12px; margin-top: 4px; opacity: 0.75; \
                     @theme(flora) { opacity: 1; color: system:secondary-text; }";
@@ -204,7 +214,7 @@ pub(crate) fn dkim_checked(s: &mut MailApp, report: &dkim::DnsReport) {
         return;
     };
     editor.dkim_busy = false;
-    editor.dkim_report = dkim::report_lines(report);
+    editor.dkim_report = dkim_report_lines(report);
     println!(
         "AZMAIL_DKIM_CHECKED {}",
         if report.dkim == dkim::Published::Matches {
@@ -295,9 +305,9 @@ pub(crate) fn account_saved(
     s.editor = None;
     s.backstage = None;
     s.notice = if editing {
-        String::from("The account settings are saved.")
+        t("azmail-acct-saved")
     } else {
-        format!("{} was added.", account.email)
+        t_args("azmail-acct-added", &[("address", Arg::from(account.email.as_str()))])
     };
     s.show_account(index);
     crate::start_sync(s, info, app);
@@ -310,27 +320,25 @@ fn check_step(s: &MailApp, editor: &AccountEditor, step: usize) -> Result<(), St
     match step {
         0 if editor.form.azlin => {
             if !account::is_email(&editor.form.email) {
-                return Err(String::from("Enter your e-mail address."));
+                return Err(t("azmail-acct-enter-address"));
             }
             Ok(())
         }
         1 if editor.form.azlin => {
-            editor.form.to_account().map_err(|e| e.to_string())?;
+            editor.form.to_account().map_err(|e| form_error(&e))?;
             let id = account::account_id(&editor.form.email).unwrap_or_default();
             let have_token = !editor.secret.is_empty()
                 || editor.azlin_session.is_some()
                 || editor.editing
                 || s.secrets.contains_key(&id);
             if !have_token {
-                return Err(String::from(
-                    "Enter the drive token, or create a new drive.",
-                ));
+                return Err(t("azmail-acct-enter-token"));
             }
             Ok(())
         }
         0 => {
             if !account::is_email(&editor.form.email) {
-                return Err(String::from("Enter your e-mail address."));
+                return Err(t("azmail-acct-enter-address"));
             }
             let id = account::account_id(&editor.form.email).unwrap_or_default();
             let have_secret = !editor.secret.is_empty()
@@ -338,17 +346,35 @@ fn check_step(s: &MailApp, editor: &AccountEditor, step: usize) -> Result<(), St
                 || s.secrets.contains_key(&id)
                 || crate::test_secret().is_some();
             if !have_secret {
-                return Err(if editor.form.xoauth2 {
-                    String::from("Paste your OAuth access token.")
+                return Err(t(if editor.form.xoauth2 {
+                    "azmail-acct-paste-token"
                 } else {
-                    String::from("Enter your password or app password.")
-                });
+                    "azmail-acct-enter-password"
+                }));
             }
             Ok(())
         }
-        1 => editor.form.to_account().map(|_| ()).map_err(|e| e.to_string()),
+        1 => editor.form.to_account().map(|_| ()).map_err(|e| form_error(&e)),
         2 => editor.sending_settings().map(|_| ()),
         _ => Ok(()),
+    }
+}
+
+/// What is wrong with the form, in the window's language (azul-mail-core's `FormError`).
+fn form_error(e: &account::FormError) -> String {
+    match e {
+        account::FormError::BadEmail => t("azmail-form-bad-email"),
+        account::FormError::NoImapHost => t("azmail-form-no-imap-host"),
+        account::FormError::BadPort { field, value } => t_args(
+            "azmail-form-bad-port",
+            &[("field", Arg::from(*field)), ("value", Arg::from(value.as_str()))],
+        ),
+        account::FormError::PlainNotLocal(host) => {
+            t_args("azmail-form-plain-not-local", &[("host", Arg::from(host.as_str()))])
+        }
+        account::FormError::NoTokenServer => t("azmail-form-no-token-server"),
+        account::FormError::BadTokenServer(why) => why.clone(),
+        account::FormError::NoDrive => t("azmail-form-no-drive"),
     }
 }
 
@@ -361,7 +387,7 @@ fn save(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
         (0..3)
             .try_for_each(|step| check_step(s, editor, step).map_err(|e| (step, e)))
             .and_then(|()| {
-                let account = editor.form.to_account().map_err(|e| (1, e.to_string()))?;
+                let account = editor.form.to_account().map_err(|e| (1, form_error(&e)))?;
                 let settings = editor.sending_settings().map_err(|e| (2, e))?;
                 Ok((account, settings, editor.editing))
             })
@@ -411,14 +437,19 @@ pub(crate) fn wizard_page(s: &MailApp, app: &RefAny) -> Dom {
     }
     if editor.saving {
         page.add_child(
-            Dom::create_span_with_text("Saving the account and connecting...").with_css(NOTE),
+            Dom::create_span_with_text(l10n::label("azmail-acct-saving")).with_css(NOTE),
         );
     }
     // Cancel always: the mail window is there with or without an account.
-    WizardLayout::create("Add Account", strings(&WIZARD_STEPS))
+    WizardLayout::create(l10n::label("azmail-acct-add-title"), strings(&WIZARD_STEPS))
         .with_page(page)
         .with_current_step(step)
-        .with_labels("< Back", "Next >", "Finish", "Cancel")
+        .with_labels(
+            l10n::label("azmail-acct-back"),
+            l10n::label("azmail-acct-next"),
+            l10n::label("azmail-acct-step-finish"),
+            l10n::label("kit-button-cancel"),
+        )
         .with_can_go_next(!editor.saving)
         .with_on_event(app.clone(), on_wizard_event as WizardOnEventCallbackType)
         .dom()
@@ -430,14 +461,20 @@ pub(crate) fn settings_page(s: &MailApp, app: &RefAny) -> Dom {
         return Dom::create_div();
     };
     let layout = ShellSettingsLayout::create(strings(&SETTINGS_CATEGORIES))
-        .with_section(ShellSettingsSection::create("Account", account_fields(editor, app)))
         .with_section(ShellSettingsSection::create(
-            "Incoming mail",
+            l10n::label(SETTINGS_CATEGORIES[0]),
+            account_fields(editor, app),
+        ))
+        .with_section(ShellSettingsSection::create(
+            l10n::label(SETTINGS_CATEGORIES[1]),
             server_fields(s, editor, app),
         ))
-        .with_section(ShellSettingsSection::create("Sending", sending_fields(editor, app)))
         .with_section(ShellSettingsSection::create(
-            "Other programs",
+            l10n::label(SETTINGS_CATEGORIES[2]),
+            sending_fields(editor, app),
+        ))
+        .with_section(ShellSettingsSection::create(
+            l10n::label(SETTINGS_CATEGORIES[3]),
             crate::ui_bridge::section(&editor.bridge, app),
         ))
         .with_active_category(editor.step.min(SETTINGS_CATEGORIES.len() - 1))
@@ -462,7 +499,7 @@ pub(crate) fn settings_page(s: &MailApp, app: &RefAny) -> Dom {
         footer.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     }
     footer.add_child(
-        Button::with_type("Save", ButtonType::Primary)
+        Button::with_type(l10n::label("azmail-acct-save"), ButtonType::Primary)
             .with_on_click(app.clone(), on_settings_save as ButtonOnClickCallbackType)
             .dom(),
     );
@@ -472,8 +509,9 @@ pub(crate) fn settings_page(s: &MailApp, app: &RefAny) -> Dom {
         .with_child(footer)
 }
 
+/// Keys of the resources (or plain words) in the window's language.
 fn strings(items: &[&str]) -> Vec<AzString> {
-    items.iter().map(|s| AzString::from(*s)).collect()
+    items.iter().map(|s| l10n::label(s)).collect()
 }
 
 /// A form field.
@@ -514,13 +552,18 @@ struct FlagRef {
 }
 
 fn label(text: &str) -> Dom {
-    Dom::create_span_with_text(text).with_css(LABEL)
+    Dom::create_span_with_text(l10n::label(text)).with_css(LABEL)
+}
+
+/// A note line: a key of the resources, or words as they are.
+fn note(text: &str) -> Dom {
+    Dom::create_span_with_text(l10n::label(text)).with_css(NOTE)
 }
 
 fn input(app: &RefAny, kind: TextInput, field: Field, value: &str, placeholder: &str, id: AzString) -> Dom {
     let mut input = kind
         .with_text(value)
-        .with_placeholder(placeholder)
+        .with_placeholder(l10n::label(placeholder))
         .with_on_text_input(
             RefAny::new(FieldRef {
                 app: app.clone(),
@@ -555,7 +598,7 @@ fn check(app: &RefAny, checked: bool, flag: Flag, text: &str) -> Dom {
                 .dom(),
         )
         .with_child(
-            Dom::create_span_with_text(text)
+            Dom::create_span_with_text(l10n::label(text))
                 .with_css("margin-left: 8px; cursor: pointer;")
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
@@ -579,19 +622,19 @@ fn pair(left: Dom, right: Dom) -> Dom {
 fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     let f = &editor.form;
     let secret_label = if f.xoauth2 {
-        "OAuth access token (XOAUTH2):"
+        "azmail-acct-oauth-token"
     } else {
-        "Password:"
+        "azmail-acct-password"
     };
     let secret_placeholder = if editor.editing {
-        "Leave empty to keep the saved one"
+        "azmail-acct-keep-saved"
     } else {
         ""
     };
     let mut page = Dom::create_div().with_css("display: flex; flex-direction: column;");
     if !editor.editing {
         // The kind first: an IMAP server's mail, or the user's own Azlin drive.
-        page.add_child(label("Account type:"));
+        page.add_child(label("azmail-acct-type"));
         page.add_child(
             Segmented::create(strings(&KINDS))
                 .with_selected_index(usize::from(f.azlin))
@@ -603,27 +646,26 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     let intro = if f.azlin {
         AZLIN_NOTE
     } else {
-        "AzMail signs in over IMAP and keeps a copy of every folder on this computer. The \
-         password stays in the system keyring."
+        "azmail-acct-imap-note"
     };
     let page = page
-        .with_child(Dom::create_span_with_text(intro).with_css(NOTE))
-        .with_child(label("Your Name:"))
+        .with_child(note(intro))
+        .with_child(label("azmail-acct-your-name"))
         .with_child(input(
             app,
             TextInput::create(),
             Field::Name,
             &f.name,
-            "Example: Ada Lovelace",
+            "azmail-acct-name-example",
             ids::ACCT_NAME,
         ))
-        .with_child(label("E-mail Address:"))
+        .with_child(label("azmail-acct-address"))
         .with_child(input(
             app,
             TextInput::create_email(),
             Field::Email,
             &f.email,
-            "Example: ada@example.org",
+            "azmail-acct-address-example",
             ids::ACCT_EMAIL,
         ));
     if f.azlin {
@@ -640,15 +682,24 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
             secret_placeholder,
             ids::ACCT_SECRET,
         ))
-        .with_child(Dom::create_span_with_text(account::APP_PASSWORD_NOTE).with_css(NOTE));
+        .with_child(note("azmail-acct-app-password-note"));
     if !editor.drawn.note.is_empty() {
-        page.add_child(Dom::create_span_with_text(editor.drawn.note.as_str()).with_css(NOTE));
+        // The provider's note in the window's language (azul-mail-core's English without it).
+        let shown = match account::provider_for(&f.email) {
+            Some(provider) => l10n::app_word(
+                "AzMail",
+                &format!("provider-{}", provider.name.to_ascii_lowercase()),
+                &editor.drawn.note,
+            ),
+            None => editor.drawn.note.clone(),
+        };
+        page.add_child(note(&shown));
     }
     page.with_child(check(
         app,
         f.xoauth2,
         Flag::Xoauth2,
-        "Sign in with an OAuth access token (XOAUTH2) instead of a password",
+        "azmail-acct-use-oauth",
     ))
 }
 
@@ -659,18 +710,18 @@ fn azlin_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
         .map(|id| account::account_dir(&s.root, &id).path().display().to_string())
         .unwrap_or_default();
     let token_placeholder: &str = if f.token_default.is_empty() {
-        "https://... (your Azlin provider's token server)"
+        "azmail-acct-token-server-example"
     } else {
         &f.token_default
     };
     let secret_placeholder = if editor.editing || editor.azlin_session.is_some() {
-        "Leave empty to keep the one AzMail has"
+        "azmail-acct-keep-token"
     } else {
         "dt_..."
     };
     let mut page = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
-        .with_child(label("Azlin token server:"))
+        .with_child(label("azmail-acct-token-server"))
         .with_child(input(
             app,
             TextInput::create(),
@@ -679,7 +730,7 @@ fn azlin_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
             token_placeholder,
             ids::ACCT_TOKEN_URL,
         ))
-        .with_child(label("Drive id:"))
+        .with_child(label("azmail-acct-drive-id"))
         .with_child(input(
             app,
             TextInput::create(),
@@ -688,7 +739,7 @@ fn azlin_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
             "d_...",
             ids::ACCT_DRIVE_ID,
         ))
-        .with_child(label("Drive token:"))
+        .with_child(label("azmail-acct-drive-token"))
         .with_child(input(
             app,
             TextInput::create_password(),
@@ -697,41 +748,31 @@ fn azlin_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
             secret_placeholder,
             ids::ACCT_DRIVE_TOKEN,
         ))
-        .with_child(
-            Dom::create_span_with_text(
-                "A drive token for this computer, from your Azlin provider or AzDrive's devices. \
-                 Every sign-in replaces it with a new one: give AzMail a token of its own, not \
-                 one AzDrive uses.",
-            )
-            .with_css(NOTE),
-        );
+        .with_child(note("azmail-acct-drive-token-note"));
     if !editor.editing {
         page.add_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; margin-top: 12px;")
                 .with_child(
-                    Button::create("Create a new drive")
+                    Button::create(l10n::label("azmail-acct-create-drive"))
                         .with_on_click(app.clone(), on_create_drive as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::AZLIN_CREATE_DRIVE),
                 ),
         );
-        let note = if editor.azlin_busy {
-            String::from("Asking the token server for a new drive...")
+        let text = if editor.azlin_busy {
+            t("azmail-acct-asking-drive")
         } else if editor.azlin_session.is_some() {
             new_drive_note(
                 f.drive_id.trim(),
                 editor.azlin_recovery.as_ref().map(Secret::expose),
             )
         } else {
-            String::from(
-                "A new, empty drive at this token server (a development token server's: a real \
-                 one comes from your Azlin provider).",
-            )
+            t("azmail-acct-new-drive-what")
         };
-        page.add_child(Dom::create_span_with_text(note).with_css(NOTE));
+        page.add_child(note(&text));
     }
-    page.with_child(label("Local mail folder:")).with_child(input(
+    page.with_child(label("azmail-acct-local-folder")).with_child(input(
         app,
         TextInput::create(),
         Field::Folder,
@@ -753,12 +794,12 @@ fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
         .unwrap_or_default();
     Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
-        .with_child(label("Incoming mail server (IMAP) and port:"))
+        .with_child(label("azmail-acct-imap-server"))
         .with_child(pair(
             input(app, TextInput::create(), Field::ImapHost, &f.imap_host, &d.imap_host, ids::ACCT_IMAP_HOST),
             input(app, TextInput::create(), Field::ImapPort, &f.imap_port, &d.imap_port, ids::ACCT_IMAP_PORT),
         ))
-        .with_child(label("User Name:"))
+        .with_child(label("azmail-acct-user-name"))
         .with_child(input(
             app,
             TextInput::create(),
@@ -767,7 +808,7 @@ fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
             &d.username,
             ids::ACCT_USERNAME,
         ))
-        .with_child(label("Local mail folder:"))
+        .with_child(label("azmail-acct-local-folder"))
         .with_child(input(
             app,
             TextInput::create(),
@@ -780,7 +821,7 @@ fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
             app,
             f.plain,
             Flag::Plain,
-            "Unencrypted connection (only for a test server on this computer)",
+            "azmail-acct-unencrypted",
         ))
 }
 
@@ -789,10 +830,10 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     let sending = &editor.sending;
     let mut page = Dom::create_div().with_css("display: flex; flex-direction: column;");
     if editor.form.azlin {
-        page.add_child(Dom::create_span_with_text(AZLIN_SENDING_NOTE).with_css(NOTE));
+        page.add_child(note(AZLIN_SENDING_NOTE));
     }
     let mut page = page
-        .with_child(label("Send mail:"))
+        .with_child(label("azmail-acct-send-mail"))
         .with_child(
             Segmented::create(strings(&crate::sending::ROUTE_CHOICES))
                 .with_selected_index(sending.route_index())
@@ -800,7 +841,7 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
                 .dom(),
         );
     if sending.smtp {
-        page.add_child(label("Outgoing mail server (SMTP) and port:"));
+        page.add_child(label("azmail-acct-smtp-server"));
         page.add_child(pair(
             input(
                 app,
@@ -828,33 +869,28 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
                 editor.drawn.smtp_port.parse().unwrap_or(account::SMTPS_PORT),
             ),
         };
-        let protection = if port == account::SMTPS_PORT {
-            "encrypted from the first byte"
+        let protection = t(if port == account::SMTPS_PORT {
+            "azmail-acct-tls-implicit"
         } else {
-            "encrypted with STARTTLS before the sign-in"
-        };
-        let text = format!(
-            "AzMail signs in to {host} port {port} (the outgoing server on the Servers page) \
-             with this account's password or token, {protection}, and hands every mail to it. \
-             Gmail, iCloud and Fastmail want an app password. For a connection that cannot \
-             deliver directly; DKIM below still signs as your own domain."
+            "azmail-acct-tls-starttls"
+        });
+        let text = t_args(
+            "azmail-acct-submission-note",
+            &[
+                ("host", Arg::from(host.as_str())),
+                ("port", Arg::from(u32::from(port))),
+                ("protection", Arg::from(protection)),
+            ],
         );
-        page.add_child(Dom::create_span_with_text(text.as_str()).with_css(NOTE));
+        page.add_child(note(&text));
     } else {
-        page.add_child(
-            Dom::create_span_with_text(
-                "AzMail hands each mail to the receivers' own mail servers. Some providers take \
-                 mail only from a trusted server; AzMail remembers those and keeps such mail in \
-                 the Outbox.",
-            )
-            .with_css(NOTE),
-        );
+        page.add_child(note("azmail-acct-direct-note"));
     }
     page.with_child(check(
         app,
         sending.starttls,
         Flag::StartTls,
-        "Use STARTTLS when the server offers it",
+        "azmail-acct-starttls",
     ))
     .with_child(dkim_fields(editor, app))
 }
@@ -869,7 +905,7 @@ fn dkim_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
             app,
             sending.dkim,
             Flag::Dkim,
-            "Sign my mail with DKIM (needs a domain of your own whose DNS you can edit)",
+            "azmail-acct-dkim",
         ));
     if !sending.dkim {
         return page;
@@ -882,7 +918,7 @@ fn dkim_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
         .map(|d| d.selector.clone())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| dkim::default_selector(crate::now_unix()));
-    page.add_child(label("Domain and selector:"));
+    page.add_child(label("azmail-acct-domain-selector"));
     page.add_child(pair(
         input(
             app,
@@ -903,15 +939,15 @@ fn dkim_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     ));
     let public_key = editor.dkim_public_key();
     let create_label = if public_key.is_empty() {
-        "Create a key"
+        "azmail-acct-create-key"
     } else {
-        "Create a new key"
+        "azmail-acct-create-new-key"
     };
     let check_dns = if public_key.is_empty() {
         None
     } else {
         Some(
-            Button::create("Check DNS")
+            Button::create(l10n::label("azmail-acct-check-dns"))
                 .with_on_click(app.clone(), on_dkim_check as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::DKIM_CHECK)
@@ -921,7 +957,7 @@ fn dkim_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     let mut buttons = Dom::create_div()
         .with_css("display: flex; flex-direction: row; margin-top: 12px;")
         .with_child(
-            Button::create(create_label)
+            Button::create(l10n::label(create_label))
                 .with_on_click(app.clone(), on_dkim_create as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::DKIM_CREATE),
@@ -931,16 +967,10 @@ fn dkim_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     }
     page.add_child(buttons);
     if editor.dkim_busy {
-        page.add_child(Dom::create_span_with_text("Working...").with_css(NOTE));
+        page.add_child(note("azmail-acct-working"));
     }
     if public_key.is_empty() {
-        page.add_child(
-            Dom::create_span_with_text(
-                "AzMail makes the key on this computer and keeps its private half in the system \
-                 keyring; you publish the public half in your domain's DNS.",
-            )
-            .with_css(NOTE),
-        );
+        page.add_child(note("azmail-acct-dkim-what"));
         return page;
     }
     let domain = match sending.dkim_domain.trim() {
@@ -953,7 +983,7 @@ fn dkim_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     };
     let record_css = "font-family: monospace; font-size: 12px; overflow-wrap: anywhere; \
                       margin-top: 4px;";
-    page.add_child(label("Publish this TXT record in your domain's DNS:"));
+    page.add_child(label("azmail-acct-publish-txt"));
     page.add_child(
         Dom::create_span_with_text(dkim::record_name(&selector, &domain))
             .with_css(record_css)
@@ -964,27 +994,69 @@ fn dkim_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
             .with_css(record_css)
             .with_id(ids::DKIM_VALUE),
     );
-    page.add_child(label("As a line of a zone file:"));
+    page.add_child(label("azmail-acct-zone-line"));
     page.add_child(
         Dom::create_span_with_text(dkim::zone_line(&selector, &domain, &public_key))
             .with_css(record_css),
     );
     if editor.dkim_new_key.is_some() {
-        page.add_child(
-            Dom::create_span_with_text(
-                "A new key: Save puts it into the system keyring. Until its record is \
-                 published, receivers cannot check the signature.",
-            )
-            .with_css(NOTE),
-        );
+        page.add_child(note("azmail-acct-new-key-note"));
     }
     for line in &editor.dkim_report {
-        page.add_child(Dom::create_span_with_text(line.as_str()).with_css(NOTE));
+        page.add_child(note(line));
     }
-    for note in dkim::setup_notes(&domain, editor.form.email.trim()) {
-        page.add_child(Dom::create_span_with_text(note).with_css(NOTE));
+    for line in dkim_notes(&domain, editor.form.email.trim()) {
+        page.add_child(note(&line));
     }
     page
+}
+
+/// What the Sending page says under the DKIM record: DMARC, SPF, reverse DNS and port 25, for
+/// `domain` and the sender `address`. One paragraph per entry.
+fn dkim_notes(domain: &str, address: &str) -> Vec<String> {
+    let domain = dkim::domain_name(domain);
+    let (dmarc_name, dmarc_value) = dkim::dmarc_record(&domain, address);
+    vec![
+        t_args(
+            "azmail-dkim-note-dmarc",
+            &[
+                ("name", Arg::from(dmarc_name)),
+                ("value", Arg::from(dmarc_value)),
+                ("domain", Arg::from(domain.as_str())),
+                ("address", Arg::from(address.trim())),
+            ],
+        ),
+        t_args("azmail-dkim-note-spf", &[("domain", Arg::from(domain.as_str()))]),
+        t("azmail-dkim-note-ptr"),
+        t("azmail-dkim-note-port"),
+    ]
+}
+
+/// "Check DNS"'s report as the Sending page shows it: one line for DKIM, DMARC and SPF each.
+fn dkim_report_lines(report: &dkim::DnsReport) -> Vec<String> {
+    let dkim = match &report.dkim {
+        dkim::Published::Matches => t("azmail-dkim-published"),
+        dkim::Published::Different(key) if key.is_empty() => t("azmail-dkim-revoked"),
+        dkim::Published::Different(key) => {
+            t_args("azmail-dkim-other-key", &[("key", Arg::from(key.as_str()))])
+        }
+        dkim::Published::Missing => t("azmail-dkim-missing"),
+        dkim::Published::Unknown(why) => {
+            t_args("azmail-dkim-unknown", &[("why", Arg::from(why.as_str()))])
+        }
+    };
+    let dmarc = match &report.dmarc {
+        Some(record) => t_args("azmail-dkim-dmarc", &[("record", Arg::from(record.as_str()))]),
+        None => t("azmail-dkim-no-dmarc"),
+    };
+    let spf = match &report.spf {
+        Some(record) if record.to_ascii_lowercase().contains("-all") => {
+            t_args("azmail-dkim-spf-hard", &[("record", Arg::from(record.as_str()))])
+        }
+        Some(record) => t_args("azmail-dkim-spf", &[("record", Arg::from(record.as_str()))]),
+        None => t("azmail-dkim-no-spf"),
+    };
+    vec![dkim, dmarc, spf]
 }
 
 /// "Create a key": a new RSA key on a thread ([`dkim_key_made`] takes it).
@@ -1049,7 +1121,10 @@ fn finish_summary(editor: &AccountEditor) -> Dom {
         } else {
             f.token_url.trim()
         };
-        format!("the Azlin drive {} at {token}", f.drive_id.trim())
+        t_args(
+            "azmail-acct-azlin-drive-at",
+            &[("drive", Arg::from(f.drive_id.trim())), ("server", Arg::from(token))],
+        )
     } else if f.imap_host.trim().is_empty() {
         d.imap_host.clone()
     } else {
@@ -1063,12 +1138,21 @@ fn finish_summary(editor: &AccountEditor) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(
-            Dom::create_span_with_text("Finish adds the account and receives its mail.")
+            Dom::create_span_with_text(l10n::label("azmail-acct-finish-what"))
                 .with_css("font-size: 14px;"),
         )
-        .with_child(line(format!("Account: {}", f.email.trim())))
-        .with_child(line(format!("Incoming: {server}")))
-        .with_child(line(format!("Sending: {sending}")))
+        .with_child(line(t_args(
+            "azmail-acct-summary-account",
+            &[("address", Arg::from(f.email.trim()))],
+        )))
+        .with_child(line(t_args(
+            "azmail-acct-summary-incoming",
+            &[("server", Arg::from(server))],
+        )))
+        .with_child(line(t_args(
+            "azmail-acct-summary-sending",
+            &[("how", Arg::from(sending))],
+        )))
 }
 
 // ==== Callbacks ====
@@ -1187,7 +1271,7 @@ extern "C" fn on_create_drive(mut data: RefAny, mut info: CallbackInfo) -> Updat
             typed.to_string()
         };
         if url.is_empty() {
-            editor.error = account::FormError::NoTokenServer.to_string();
+            editor.error = form_error(&account::FormError::NoTokenServer);
             return Update::RefreshDom;
         }
         if let Err(e) = azlin::check_token_url(&url) {
@@ -1215,12 +1299,11 @@ extern "C" fn on_create_drive(mut data: RefAny, mut info: CallbackInfo) -> Updat
 /// - "we always encrypt" - its recovery code, shown this once.
 pub(crate) fn new_drive_note(drive_id: &str, recovery_code: Option<&str>) -> String {
     match recovery_code {
-        Some(code) => format!(
-            "The new drive {drive_id} is ready and encrypted: Finish adds it as this account. Its \
-             RECOVERY CODE, shown this once and stored nowhere - write it down and keep it apart \
-             from this computer (Azlin cannot reset it): {code}"
+        Some(code) => t_args(
+            "azmail-acct-new-drive-encrypted",
+            &[("drive", Arg::from(drive_id)), ("code", Arg::from(code))],
         ),
-        None => format!("The new drive {drive_id} is ready: Finish adds it as this account."),
+        None => t_args("azmail-acct-new-drive", &[("drive", Arg::from(drive_id))]),
     }
 }
 
@@ -1245,7 +1328,9 @@ pub(crate) fn drive_created(
             editor.azlin_recovery = recovery.map(Secret::new);
             editor.error.clear();
         }
-        Err(e) => editor.error = format!("No drive was made: {e}"),
+        Err(e) => {
+            editor.error = t_args("azmail-acct-no-drive", &[("why", Arg::from(l10n::t_label(&e)))]);
+        }
     }
 }
 
@@ -1329,16 +1414,72 @@ extern "C" fn on_settings_save(mut data: RefAny, mut info: CallbackInfo) -> Upda
 
 #[cfg(test)]
 mod tests {
-    use super::new_drive_note;
+    use super::{dkim_notes, dkim_report_lines, new_drive_note};
+    use crate::dkim::{DnsReport, Published};
+
+    #[test]
+    fn the_notes_say_what_dmarc_spf_reverse_dns_and_port_25_need() {
+        crate::l10n::in_english();
+        let notes = dkim_notes("example.org", "ada@example.org").join("\n");
+        assert!(notes.contains("_dmarc.example.org"), "{notes}");
+        assert!(
+            notes.contains("v=DMARC1; p=none; rua=mailto:ada@example.org"),
+            "{notes}"
+        );
+        assert!(notes.contains("SPF"), "{notes}");
+        assert!(notes.contains("~all"), "{notes}");
+        assert!(notes.contains("PTR"), "{notes}");
+        assert!(notes.contains("port 25"), "{notes}");
+    }
 
     /// "We always encrypt": a drive AzMail made is encrypted as it was made, and its page shows
     /// the recovery code (shown once: it is stored nowhere).
     #[test]
     fn a_new_drives_note_shows_its_recovery_code_once() {
+        crate::l10n::in_english();
         let code = "0123A-4567B-89CDE-FGHJK-MNPQRS";
         let note = new_drive_note("d_1", Some(code));
         assert!(note.contains(code), "{note}");
         assert!(note.contains("encrypted"), "{note}");
         assert!(!new_drive_note("d_1", None).contains("RECOVERY"));
+    }
+
+    #[test]
+    fn the_dns_check_reads_as_one_line_per_record() {
+        crate::l10n::in_english();
+        let lines = dkim_report_lines(&DnsReport {
+            dkim: Published::Matches,
+            dmarc: Some(String::from("v=DMARC1; p=none")),
+            spf: Some(String::from("v=spf1 mx -all")),
+        });
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].contains("published"), "{lines:?}");
+        assert_eq!(lines[1], "DMARC: v=DMARC1; p=none");
+        assert!(lines[2].starts_with("SPF: v=spf1 mx -all"), "{lines:?}");
+        assert!(
+            lines[2].contains("~all"),
+            "a hard -all is pointed out: {lines:?}"
+        );
+        let missing = dkim_report_lines(&DnsReport {
+            dkim: Published::Missing,
+            dmarc: None,
+            spf: None,
+        });
+        assert!(missing[0].contains("not found"), "{missing:?}");
+        assert!(missing[1].contains("no record"), "{missing:?}");
+        assert!(missing[2].contains("no record"), "{missing:?}");
+        let other = dkim_report_lines(&DnsReport {
+            dkim: Published::Different(String::from("MIIBother")),
+            dmarc: None,
+            spf: Some(String::from("v=spf1 ~all")),
+        });
+        assert!(other[0].contains("MIIBother"), "{other:?}");
+        assert!(!other[2].contains("-all"), "{other:?}");
+        let offline = dkim_report_lines(&DnsReport {
+            dkim: Published::Unknown(String::from("timed out")),
+            dmarc: None,
+            spf: None,
+        });
+        assert!(offline[0].contains("timed out"), "{offline:?}");
     }
 }

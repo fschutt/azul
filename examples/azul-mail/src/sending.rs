@@ -20,10 +20,11 @@ use crate::{
 pub const SUBMISSION_PORT: u16 = 587;
 
 /// The page's route choices, in the order it shows them ([`SendingForm::route_index`]).
+/// Keys of the resources: the page says them in the window's language.
 pub const ROUTE_CHOICES: [&str; 3] = [
-    "Directly",
-    "Through an SMTP server",
-    "Through my provider's server (sign in)",
+    "azmail-route-direct",
+    "azmail-route-smtp",
+    "azmail-route-provider-sign-in",
 ];
 
 /// What is wrong with signing in to the account's outgoing server `host:port` with
@@ -42,21 +43,25 @@ pub fn check_submission(settings: &SendSettings, host: &str, port: u16) -> Resul
 /// localhost:2525" (", STARTTLS" / ", STARTTLS required"), and ", DKIM-signed (<domain>)" for
 /// an account that signs.
 pub fn describe(settings: &SendSettings) -> String {
+    use azul_appkit::l10n::{t, t_args, Arg};
     let route = match &settings.route {
-        SendRoute::Direct => String::from("Direct delivery"),
-        SendRoute::Submission => String::from("Through my provider's server, signed in"),
+        SendRoute::Direct => t("azmail-route-direct-delivery"),
+        SendRoute::Submission => t("azmail-route-provider-signed-in"),
         SendRoute::Smtp { host, port } => {
             let tls = match settings.tls {
-                TlsPolicy::Opportunistic => ", STARTTLS",
-                TlsPolicy::Required => ", STARTTLS required",
-                TlsPolicy::Implicit => ", TLS",
-                TlsPolicy::Off => "",
+                TlsPolicy::Opportunistic => t("azmail-route-tls-starttls"),
+                TlsPolicy::Required => t("azmail-route-tls-required"),
+                TlsPolicy::Implicit => String::from(", TLS"),
+                TlsPolicy::Off => String::new(),
             };
             format!("SMTP {host}:{port}{tls}")
         }
     };
     match &settings.dkim {
-        Some(dkim) => format!("{route}, DKIM-signed ({})", dkim.domain),
+        Some(dkim) => t_args(
+            "azmail-route-dkim-signed",
+            &[("route", Arg::from(route)), ("domain", Arg::from(dkim.domain.as_str()))],
+        ),
         None => route,
     }
 }
@@ -138,9 +143,9 @@ impl SendingForm {
             typed => typed.to_string(),
         };
         if !dkim::is_selector(&selector) {
-            return Err(format!(
-                "The selector {selector:?} cannot be a DNS name: letters, digits and -, at most \
-                 63."
+            return Err(azul_appkit::l10n::t_args(
+                "azmail-dkim-bad-selector",
+                &[("selector", azul_appkit::l10n::Arg::from(selector.as_str()))],
             ));
         }
         let public_key = match public_key.trim() {
@@ -148,10 +153,7 @@ impl SendingForm {
             new => new.to_string(),
         };
         if public_key.is_empty() && saved.key_file.is_none() {
-            return Err(String::from(
-                "Create a key first: AzMail signs with a key of its own, whose public half goes \
-                 into your domain's DNS.",
-            ));
+            return Err(azul_appkit::l10n::t("azmail-dkim-create-key-first"));
         }
         Ok(SendSettings {
             dkim: Some(DkimSettings {
@@ -201,13 +203,13 @@ impl SendingForm {
         }
         let host = self.host.trim();
         if host.is_empty() || host.contains(char::is_whitespace) {
-            return Err(String::from("Enter the SMTP server's name, e.g. smtp.example.org."));
+            return Err(azul_appkit::l10n::t("azmail-smtp-enter-server"));
         }
         let port = match self.port.trim() {
             "" => SUBMISSION_PORT,
             text => match text.parse::<u16>() {
                 Ok(port) if port > 0 => port,
-                _ => return Err(String::from("The port is a number from 1 to 65535.")),
+                _ => return Err(azul_appkit::l10n::t("azmail-smtp-bad-port")),
             },
         };
         applied.route = SendRoute::Smtp {
@@ -236,6 +238,7 @@ mod tests {
 
     #[test]
     fn an_account_sends_directly_until_it_is_told_otherwise() {
+        crate::l10n::in_english();
         let form = SendingForm::from_settings(&SendSettings::default());
         assert!(!form.smtp);
         assert_eq!(form.port, SUBMISSION_PORT.to_string(), "the form proposes 587");
@@ -246,6 +249,7 @@ mod tests {
 
     #[test]
     fn the_form_shows_and_edits_the_route_and_starttls() {
+        crate::l10n::in_english();
         let local = smtp("localhost", 2525, TlsPolicy::Off);
         let form = SendingForm::from_settings(&local);
         assert_eq!(
@@ -283,6 +287,7 @@ mod tests {
 
     #[test]
     fn applying_the_form_keeps_every_other_setting() {
+        crate::l10n::in_english();
         let mut settings = SendSettings::default();
         settings.helo_name = String::from("mail.example.org");
         settings.direct_port = 2526;
@@ -300,6 +305,7 @@ mod tests {
 
     #[test]
     fn the_form_checks_the_server_and_the_port() {
+        crate::l10n::in_english();
         let form = SendingForm::from_settings(&smtp("localhost", 2525, TlsPolicy::Off));
         let no_host = SendingForm {
             host: String::from("  "),
@@ -324,6 +330,7 @@ mod tests {
 
     #[test]
     fn the_settings_go_into_sends_file_next_to_the_account() {
+        crate::l10n::in_english();
         let dir = TempDir::new("sending");
         let local = smtp("localhost", 2525, TlsPolicy::Off);
         let path = local.save(&dir.folder(), "ada@example.org").unwrap();
@@ -350,6 +357,7 @@ mod tests {
 
     #[test]
     fn dkim_is_off_until_ticked_and_then_signs_as_the_address_domain_with_the_created_key() {
+        crate::l10n::in_english();
         let form = SendingForm::from_settings(&SendSettings::default());
         assert!(!form.dkim);
         let off = form
@@ -392,6 +400,7 @@ mod tests {
 
     #[test]
     fn the_saved_dkim_settings_show_in_the_form_and_survive_a_save_without_a_new_key() {
+        crate::l10n::in_english();
         let saved = signing_settings();
         let form = SendingForm::from_settings(&saved);
         assert!(form.dkim);
@@ -405,6 +414,7 @@ mod tests {
 
     #[test]
     fn dkim_refuses_a_providers_domain_a_bad_selector_and_a_missing_key() {
+        crate::l10n::in_english();
         let ticked = SendingForm {
             dkim: true,
             ..SendingForm::default()
@@ -449,8 +459,9 @@ mod tests {
 
     #[test]
     fn the_page_offers_three_routes_and_direct_stays_the_default() {
+        crate::l10n::in_english();
         assert_eq!(ROUTE_CHOICES.len(), 3);
-        assert!(ROUTE_CHOICES[2].contains("sign in"), "{}", ROUTE_CHOICES[2]);
+        assert!(ROUTE_CHOICES[2].contains("sign-in"), "{}", ROUTE_CHOICES[2]);
         let mut form = SendingForm::from_settings(&SendSettings::default());
         assert_eq!(form.route_index(), 0);
         form.choose_route(2);
@@ -481,6 +492,7 @@ mod tests {
 
     #[test]
     fn implicit_tls_stays_with_submission_and_the_other_routes_speak_starttls() {
+        crate::l10n::in_english();
         let implicit = SendSettings {
             route: SendRoute::Submission,
             tls: TlsPolicy::Implicit,
@@ -507,6 +519,7 @@ mod tests {
 
     #[test]
     fn the_page_refuses_submission_without_encryption_to_another_computer() {
+        crate::l10n::in_english();
         let plain = SendSettings {
             route: SendRoute::Submission,
             tls: TlsPolicy::Off,

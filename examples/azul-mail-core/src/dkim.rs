@@ -8,7 +8,8 @@
 //! dkim_keyring_key`]), and the domain's DNS publishes the public half at
 //! `<selector>._domainkey.<domain>` ([`record_name`], [`record_value`], [`zone_line`]). A
 //! receiver that verifies the signature knows the mail comes from someone who holds the key of
-//! the From address's domain, and DMARC passes on DKIM alone ([`setup_notes`]).
+//! the From address's domain, and DMARC passes on DKIM alone (AzMail's Sending page says what
+//! DMARC, SPF, reverse DNS and port 25 need, in the window's language).
 //!
 //! - [`generate_key`]: a new RSA 2048 key (micromail's generator), the private half as PEM (a
 //!   [`Secret`]: no `Display`, never logged), the public half as base64 SubjectPublicKeyInfo -
@@ -116,7 +117,7 @@ pub fn is_selector(selector: &str) -> bool {
 }
 
 /// A domain as DNS names it here: trimmed, lower case, no root dot.
-fn domain_name(domain: &str) -> String {
+pub fn domain_name(domain: &str) -> String {
     domain.trim().trim_end_matches('.').to_ascii_lowercase()
 }
 
@@ -182,41 +183,6 @@ pub fn dmarc_record(domain: &str, reports_to: &str) -> (String, String) {
         format!("_dmarc.{}", domain_name(domain)),
         format!("v=DMARC1; p=none; rua=mailto:{}", reports_to.trim()),
     )
-}
-
-/// What the Sending page says under the DKIM record: DMARC, SPF, reverse DNS and port 25, for
-/// `domain` and the sender `address`. One paragraph per entry.
-pub fn setup_notes(domain: &str, address: &str) -> Vec<String> {
-    let domain = domain_name(domain);
-    let (dmarc_name, dmarc_value) = dmarc_record(&domain, address);
-    vec![
-        format!(
-            "DMARC: publish a TXT record {dmarc_name} with \"{dmarc_value}\". DMARC passes on \
-             DKIM alone, because the signature names {domain}, the From address's own domain. \
-             Receivers send their reports to {}; once they look clean, p=quarantine asks them \
-             to file failing mail as spam.",
-            address.trim()
-        ),
-        format!(
-            "SPF lists the computers that may send for {domain}. A home connection's address \
-             belongs to your Internet provider and changes, so SPF cannot list it: keep the \
-             domain's SPF record ending in ~all, not -all (or publish \"v=spf1 ~all\" if it has \
-             none). DKIM carries the mail through DMARC; a hard -all makes receivers that check \
-             SPF alone refuse it."
-        ),
-        String::from(
-            "Reverse DNS (PTR): receivers look up the name of the address a mail comes from. A \
-             home connection has the provider's generic name, and some receivers refuse such \
-             addresses (Gmail: 5.7.25 without a PTR; Outlook and others: home address lists \
-             such as Spamhaus PBL, 5.7.1). AzMail remembers each domain that refuses and keeps \
-             that mail in the Outbox for a relay.",
-        ),
-        String::from(
-            "Direct delivery talks to each receiver's mail server on port 25. Many home Internet \
-             providers block outgoing port 25; when no mail server can be reached at all, \
-             AzMail checks the port and says so.",
-        ),
-    ]
 }
 
 // ==== Is it published? ====
@@ -419,37 +385,6 @@ pub fn check_published(selector: &str, domain: &str, public_key: &str) -> Publis
     }
 }
 
-/// The report as the Sending page shows it: one line for DKIM, DMARC and SPF each.
-pub fn report_lines(report: &DnsReport) -> Vec<String> {
-    let dkim = match &report.dkim {
-        Published::Matches => String::from("DKIM record: published, with this key."),
-        Published::Different(key) if key.is_empty() => String::from(
-            "DKIM record: the key at this name is revoked (p= is empty): publish the record above.",
-        ),
-        Published::Different(key) => format!(
-            "DKIM record: another key is published at this name (p={key}): publish the record \
-             above instead."
-        ),
-        Published::Missing => String::from(
-            "DKIM record: not found yet (a new record can take up to an hour to show).",
-        ),
-        Published::Unknown(why) => format!("DKIM record: DNS could not be asked ({why})."),
-    };
-    let dmarc = match &report.dmarc {
-        Some(record) => format!("DMARC: {record}"),
-        None => String::from("DMARC: no record yet (see the note below)."),
-    };
-    let spf = match &report.spf {
-        Some(record) if record.to_ascii_lowercase().contains("-all") => format!(
-            "SPF: {record} - it ends in -all, so receivers that check SPF alone refuse mail \
-             from this computer; ~all is safer."
-        ),
-        Some(record) => format!("SPF: {record}"),
-        None => String::from("SPF: no record (see the note below)."),
-    };
-    vec![dkim, dmarc, spf]
-}
-
 /// The DKIM, DMARC and SPF records of `domain` (blocking: call it from an azul `Thread`).
 pub fn dns_report(selector: &str, domain: &str, public_key: &str) -> DnsReport {
     let first = |name: &str, prefix: &str| {
@@ -633,20 +568,10 @@ mod tests {
     }
 
     #[test]
-    fn the_notes_say_what_dmarc_spf_reverse_dns_and_port_25_need() {
+    fn the_dmarc_record_reports_to_the_sender() {
         let (name, value) = dmarc_record("example.org", "ada@example.org");
         assert_eq!(name, "_dmarc.example.org");
         assert_eq!(value, "v=DMARC1; p=none; rua=mailto:ada@example.org");
-        let notes = setup_notes("example.org", "ada@example.org").join("\n");
-        assert!(notes.contains("_dmarc.example.org"), "{notes}");
-        assert!(
-            notes.contains("v=DMARC1; p=none; rua=mailto:ada@example.org"),
-            "{notes}"
-        );
-        assert!(notes.contains("SPF"), "{notes}");
-        assert!(notes.contains("~all"), "{notes}");
-        assert!(notes.contains("PTR"), "{notes}");
-        assert!(notes.contains("port 25"), "{notes}");
     }
 
     #[test]
@@ -707,43 +632,5 @@ mod tests {
             match_record(&[String::from("v=DKIM1; p=")], key),
             Published::Different(String::new())
         );
-    }
-
-    #[test]
-    fn the_dns_check_reads_as_one_line_per_record() {
-        let lines = report_lines(&DnsReport {
-            dkim: Published::Matches,
-            dmarc: Some(String::from("v=DMARC1; p=none")),
-            spf: Some(String::from("v=spf1 mx -all")),
-        });
-        assert_eq!(lines.len(), 3, "{lines:?}");
-        assert!(lines[0].contains("published"), "{lines:?}");
-        assert_eq!(lines[1], "DMARC: v=DMARC1; p=none");
-        assert!(lines[2].starts_with("SPF: v=spf1 mx -all"), "{lines:?}");
-        assert!(
-            lines[2].contains("~all"),
-            "a hard -all is pointed out: {lines:?}"
-        );
-        let missing = report_lines(&DnsReport {
-            dkim: Published::Missing,
-            dmarc: None,
-            spf: None,
-        });
-        assert!(missing[0].contains("not found"), "{missing:?}");
-        assert!(missing[1].contains("no record"), "{missing:?}");
-        assert!(missing[2].contains("no record"), "{missing:?}");
-        let other = report_lines(&DnsReport {
-            dkim: Published::Different(String::from("MIIBother")),
-            dmarc: None,
-            spf: Some(String::from("v=spf1 ~all")),
-        });
-        assert!(other[0].contains("MIIBother"), "{other:?}");
-        assert!(!other[2].contains("-all"), "{other:?}");
-        let offline = report_lines(&DnsReport {
-            dkim: Published::Unknown(String::from("timed out")),
-            dmarc: None,
-            spf: None,
-        });
-        assert!(offline[0].contains("timed out"), "{offline:?}");
     }
 }
