@@ -1441,9 +1441,12 @@ def run(args, logs):
         app.after("the paid drive's bucket", "AZDRIVE_LISTED", r"%s / 0" % re.escape(paid),
                   lambda: app.click(selector=side_drive(paid)))
         # Its space as its node counts it (SRV17: HeadBucket's x-azlin-used-bytes and
-        # x-azlin-quota-bytes - the stored bytes, the tier's quota), no estimate.
-        counted = app.until("the node's count of %s" % paid, lambda: app.printed(
-            "AZDRIVE_SPACE", r"%s \d+ \d+" % re.escape(paid)))[-1].split()
+        # x-azlin-quota-bytes - the stored bytes, the tier's quota), no estimate. The drive's
+        # first count came as it arrived, before its encryption wrote the keys (0 bytes); the
+        # setup's writes ask the node again at once.
+        counted = app.until("the node's count of %s after its encryption's writes" % paid,
+                            lambda: app.printed("AZDRIVE_SPACE",
+                                                r"%s [1-9]\d* \d+" % re.escape(paid)))[-1].split()
         quota = stack.token.state.drives[paid]["quota_bytes"]
         used = int(counted[1])
         if int(counted[2]) != quota or not 0 < used <= stack.s3.store.stored_bytes(bucket_of(

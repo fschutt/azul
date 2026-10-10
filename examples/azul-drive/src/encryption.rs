@@ -2139,6 +2139,19 @@ pub(crate) fn on_outcome(
     s: &mut DriveState,
     outcome: EncryptionOutcome,
 ) {
+    // A task that wrote the drive's bucket (its keys, its objects, its index): the space used
+    // as its node counts it now.
+    if let EncryptionOutcome::SetUp { drive_id, .. }
+    | EncryptionOutcome::Recovered { drive_id, .. }
+    | EncryptionOutcome::Migrated { drive_id, .. }
+    | EncryptionOutcome::Recompressed { drive_id, .. }
+    | EncryptionOutcome::Rotated { drive_id, .. }
+    | EncryptionOutcome::Reencrypted { drive_id, .. }
+    | EncryptionOutcome::Maintained { drive_id, .. } = &outcome
+    {
+        let drive_id = drive_id.clone();
+        crate::usage_view::drive_written(info, app, s, &drive_id);
+    }
     match outcome {
         EncryptionOutcome::SetUp {
             drive_id,
