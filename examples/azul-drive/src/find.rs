@@ -234,7 +234,7 @@ pub fn found_content(prefix: &str, hit: ContentHit) -> Found {
 }
 
 /// Whether a path has a hidden part (a name starting with a dot).
-fn hidden_path(path: &str) -> bool {
+pub(crate) fn hidden_path(path: &str) -> bool {
     path.split('/').any(|part| part.starts_with('.'))
 }
 
@@ -635,6 +635,8 @@ pub struct FindState {
     pub contents: bool,
     /// A cloud drive: names over a listing, slower.
     pub remote: bool,
+    /// An encrypted drive: its names from its drive index on this computer.
+    pub drive_index: bool,
     /// Which search this is: a batch of an older one is dropped.
     pub serial: u64,
     /// Raised to stop it (a new key, Escape, another folder).
@@ -675,6 +677,7 @@ impl FindState {
             query,
             contents,
             remote,
+            drive_index: false,
             serial,
             cancel,
             rows: Vec::new(),
@@ -802,13 +805,14 @@ impl FindState {
     pub fn status_text(&self) -> String {
         let n = listing::grouped_digits(self.rows.len());
         match &self.end {
+            None if self.phase == FindPhase::Contents => {
+                format!("Searching file contents... {n} found")
+            }
+            None if self.drive_index => format!("Searching the drive's names... {n} found"),
             None if self.remote && self.phase == FindPhase::Cached => {
                 format!("Searching the last listing, then the cloud... {n} found")
             }
             None if self.remote => format!("Searching names in the cloud (slower)... {n} found"),
-            None if self.phase == FindPhase::Contents => {
-                format!("Searching file contents... {n} found")
-            }
             None => format!("Searching... {n} found"),
             Some(FindEnd {
                 error: Some(error), ..
@@ -818,6 +822,31 @@ impl FindState {
                 let noun = if self.rows.len() == 1 { "item" } else { "items" };
                 let more = if end.limited { " (the first ones)" } else { "" };
                 format!("{n} {noun} found{more}")
+            }
+        }
+    }
+
+    /// The note over a cloud or encrypted drive's results: where its names and contents come
+    /// from.
+    #[must_use]
+    pub fn cloud_note_text(&self) -> &'static str {
+        match (self.drive_index, self.contents) {
+            (true, true) => {
+                "The drive's names come from its index on this computer, file contents from its \
+                 search index (Index this drive)."
+            }
+            (true, false) => {
+                "The drive's names come from its index on this computer; Index this drive (the \
+                 Search tab) searches its files' contents too."
+            }
+            (false, true) => {
+                "A cloud drive is searched by name over a listing of every file below this folder \
+                 (slower than a folder on this computer), file contents from its search index."
+            }
+            (false, false) => {
+                "A cloud drive is searched by name, over a listing of every file below this \
+                 folder: slower than a folder on this computer, and file contents are not \
+                 searched."
             }
         }
     }
@@ -1141,5 +1170,25 @@ impl IndexInfo {
             }
             _ => String::from("Not indexed yet"),
         }
+    }
+}
+
+/// A cloud or encrypted drive's index as its search asks it for the contents.
+#[derive(Clone)]
+pub struct RemoteContents {
+    /// The index's folder.
+    pub dir: PathBuf,
+    /// The drive's id (the sync's name for it).
+    pub drive_id: String,
+    /// Where a result's local copy is (its line is read there).
+    pub sync: Arc<dyn crate::sync_lookup::SyncLookup>,
+}
+
+impl std::fmt::Debug for RemoteContents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteContents")
+            .field("dir", &self.dir)
+            .field("drive_id", &self.drive_id)
+            .finish_non_exhaustive()
     }
 }

@@ -85,7 +85,7 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
 
 /// The note over a cloud drive's results: its names come from a listing of every file below the
 /// folder - slower than a folder on this computer -, and its files are not read.
-pub(crate) fn cloud_note() -> Dom {
+pub(crate) fn cloud_note(find: &find::FindState) -> Dom {
     Dom::create_div()
         .with_id(ids::FIND_NOTE)
         .with_css(look::FIND_NOTE)
@@ -94,8 +94,7 @@ pub(crate) fn cloud_note() -> Dom {
                 .with_css("font-size: 14px; margin-right: 6px; flex-shrink: 0;"),
         )
         .with_child(Dom::create_span_with_text(AzString::from(
-            "A cloud drive is searched by name, over a listing of every file below this folder: \
-             slower than a folder on this computer, and file contents are not searched.",
+            find.cloud_note_text(),
         )))
 }
 

@@ -1591,7 +1591,7 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
         let mut empty = Dom::create_div()
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
         if find.remote {
-            empty.add_child(ui_find::cloud_note());
+            empty.add_child(ui_find::cloud_note(find));
         }
         if find.running() {
             empty.add_child(
@@ -1661,7 +1661,7 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
         // A cloud drive's results are marked: searched by name, slower.
         Some(find) => {
             if find.remote {
-                view.add_child(ui_find::cloud_note());
+                view.add_child(ui_find::cloud_note(find));
             }
             view.add_child(ui_find::header(s, app));
         }

@@ -137,6 +137,7 @@ mod ui_panes;
 /// Windows 8's ribbon and its File menu.
 mod ui_ribbon;
 /// The navigation pane: Finder's source list.
+mod sync_lookup;
 mod ui_sidebar;
 mod ui_view;
 
@@ -661,6 +662,9 @@ pub(crate) struct DriveState {
     /// `--cache-dir`, else AzDrive's folder in the user's cache folder; `None` in a `--shot` run
     /// without the switch (nothing kept) or on a system without a cache folder.
     pub cache_dir: Option<PathBuf>,
+    /// The sync's answers for the search (local copies, sync states): SYNC17's store once it is
+    /// in, else none.
+    pub sync: Arc<dyn sync_lookup::SyncLookup>,
     pub inline_dialogs: bool,
     /// Worker threads running.
     pub running: u32,
@@ -1131,6 +1135,7 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     let cancel = Arc::new(AtomicBool::new(false));
     let mut jobs = Vec::new();
     let mut remote = false;
+    let mut drive_index = false;
     if let Some(index) = s.current_drive() {
         let Some(drive) = open_slot(s, index) else {
             return;
@@ -1153,7 +1158,15 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             }
             None => {
                 remote = true;
-                options.contents = false;
+                // An encrypted drive's names come from its drive index.
+                drive_index = names_from_drive_index(&s.slots[index]);
+                // Contents only from the drive's index (its files are not on this computer).
+                let contents = if options.contents {
+                    remote_index_for_search(info, app, s, index)
+                } else {
+                    None
+                };
+                options.contents = contents.is_some();
                 // The drive's last complete listing is kept in the cache folder (never an
                 // encrypted drive's).
                 let cache = s
@@ -1170,6 +1183,8 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                         pattern: azul_search::Pattern::guess(query.clone()),
                         options: options.clone(),
                         cache,
+                        drive_index,
+                        contents,
                     },
                     drive,
                     cancel: cancel.clone(),
@@ -1205,6 +1220,7 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     }
     let mut state = find::FindState::new(query.clone(), options.contents, remote, serial, cancel);
     state.pending = jobs.len();
+    state.drive_index = drive_index;
     s.find = Some(state);
     // Windows 8: the Search tab (Search Tools) comes forward when a search opens - not again
     // with every key typed into it (the user may have chosen another tab meanwhile).
@@ -1235,31 +1251,82 @@ fn keeps_listing(_slot: &Slot) -> bool {
     true
 }
 
+/// Whether a drive's names come from its drive index on this computer: an encrypted drive's.
+#[cfg(feature = "encryption")]
+fn names_from_drive_index(slot: &Slot) -> bool {
+    slot.auto
+        .as_ref()
+        .is_some_and(|auto| auto.is_encrypted() == Some(true))
+}
+
+/// Without encrypted drives every cloud drive's names are its bucket's listing.
+#[cfg(not(feature = "encryption"))]
+fn names_from_drive_index(_slot: &Slot) -> bool {
+    false
+}
+
 // ==== A drive's full-text index ====
 
 /// How old a drive's index may be before a search of it brings it up to date in the background
 /// (seconds); the search asks it as it is meanwhile and reads what changed itself.
 const INDEX_REFRESH_SECS: u64 = 600;
 
-/// The folder drive `drive_id`'s index is in; `None` without a cache folder.
+/// The folder drive `drive_id`'s index is in: an encrypted drive's in its own cache folder
+/// beside its drive index (the plain text of its files never in the shared cache), any other's
+/// in the cache's `index/`; `None` without a cache folder, or for an Azlin drive not known to be
+/// plain or encrypted yet.
 fn index_folder(s: &DriveState, drive_id: &str) -> Option<PathBuf> {
+    #[cfg(feature = "encryption")]
+    {
+        let auto = s
+            .slot_index(drive_id)
+            .and_then(|index| s.slots[index].auto.as_ref());
+        if let Some(auto) = auto {
+            match auto.is_encrypted() {
+                Some(true) => {
+                    return encryption::search_index_dir(
+                        encryption::drive_index_root(),
+                        auto.drive(),
+                    )
+                }
+                Some(false) => {}
+                None => return None,
+            }
+        }
+    }
     Some(find::index_dir(&s.cache_dir.as_ref()?.join("index"), drive_id))
 }
 
-/// Brings drive `drive_id`'s index up to its folder on this computer, on a worker thread - not
-/// while an update of it runs, for a drive that is not on this computer, or without a cache
-/// folder.
+/// Brings drive `drive_id`'s index up to its files, on a worker thread: a drive on this
+/// computer's folder walked, a cloud or encrypted drive's listing read from its local copies -
+/// not while an update of it runs, or without a folder for it.
 pub(crate) fn update_index(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     drive_id: &str,
 ) {
-    let Some(root) = s.slot_index(drive_id).and_then(|index| s.local_root(index)) else {
+    let Some(slot) = s.slot_index(drive_id) else {
         return;
     };
     let Some(dir) = index_folder(s, drive_id) else {
         return;
+    };
+    if s.indexes.get(drive_id).is_some_and(|index| index.progress.is_some()) {
+        return;
+    }
+    let source = match s.local_root(slot) {
+        Some(root) => jobs::IndexSource::Folder(root),
+        None => {
+            let Some(drive) = open_slot(s, slot) else {
+                return;
+            };
+            jobs::IndexSource::Drive(jobs::DriveSource {
+                drive,
+                sync: s.sync.clone(),
+                download_cap: None,
+            })
+        }
     };
     let index = s.indexes.entry(drive_id.to_string()).or_default();
     if index.progress.is_some() {
@@ -1276,7 +1343,7 @@ pub(crate) fn update_index(
         s,
         Job::IndexDrive {
             drive_id: drive_id.to_string(),
-            root,
+            source,
             dir,
             cancel,
         },
@@ -1314,6 +1381,39 @@ fn index_for_search(
     index: usize,
     under: &str,
 ) -> Option<find::IndexAsk> {
+    let (_, dir) = usable_index(info, app, s, index)?;
+    Some(find::IndexAsk {
+        dir,
+        root: s.local_root(index)?,
+        under: under.to_string(),
+    })
+}
+
+/// The index a contents search of the cloud or encrypted drive `index` asks: as
+/// [`index_for_search`]; a result's line comes from its local copy (the sync's).
+fn remote_index_for_search(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+) -> Option<find::RemoteContents> {
+    let (drive_id, dir) = usable_index(info, app, s, index)?;
+    Some(find::RemoteContents {
+        dir,
+        drive_id,
+        sync: s.sync.clone(),
+    })
+}
+
+/// Drive `index`'s id and index folder when the user asked for its index and it holds the
+/// drive (one older than [`INDEX_REFRESH_SECS`], or not known yet, is brought up to date
+/// meanwhile, for the next search).
+fn usable_index(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+) -> Option<(String, PathBuf)> {
     let drive_id = s.slots.get(index)?.entry.id.clone();
     if !s.settings.indexed_drives.contains(&drive_id) {
         return None;
@@ -1333,11 +1433,8 @@ fn index_for_search(
     if !s.indexes.get(&drive_id).is_some_and(find::IndexInfo::usable) {
         return None;
     }
-    Some(find::IndexAsk {
-        dir: index_folder(s, &drive_id)?,
-        root: s.local_root(index)?,
-        under: under.to_string(),
-    })
+    let dir = index_folder(s, &drive_id)?;
+    Some((drive_id, dir))
 }
 
 /// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
@@ -2821,6 +2918,7 @@ pub fn start() {
         settings_drive,
         downloads,
         open_dir: std::env::temp_dir().join("AzDrive-open"),
+        sync: Arc::new(sync_lookup::NoSync),
         cache_dir: match &args.cache_dir {
             Some(dir) => Some(dir.clone()),
             None if args.kit.shot.is_some() => None,

@@ -72,11 +72,27 @@ use crate::{
 /// between runs (`<cache>/AzDrive/drive-index`), so a drive opens with one conditional read and
 /// browses without listing the bucket.
 pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
-    let cache = crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
-        .map(|dir| dir.join("AzDrive").join("drive-index"));
     Some(Arc::new(
-        MetaIndexProvider::new("AzDrive").with_cache_root(cache),
+        MetaIndexProvider::new("AzDrive").with_cache_root(drive_index_root()),
     ))
+}
+
+/// The folder of this computer's copies of the encrypted drives' indexes
+/// (`<cache>/AzDrive/drive-index`).
+pub(crate) fn drive_index_root() -> Option<PathBuf> {
+    crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
+        .map(|dir| dir.join("AzDrive").join("drive-index"))
+}
+
+/// Where the encrypted drive `drive`'s search index (the plain text of its files) is kept: in
+/// the drive's own cache folder under `root`, beside its drive index (`<root>/<hash of the
+/// drive>/search`, gone with it when the drive's key is rotated) - never in the cache the other
+/// drives share; `None` without a cache folder.
+pub(crate) fn search_index_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf> {
+    MetaIndexProvider::new("AzDrive")
+        .with_cache_root(root)
+        .drive_cache_dir(drive)
+        .map(|dir| dir.join("search"))
 }
 
 /// An Azlin drive's bucket as the drive the app uses: decided plain or encrypted on its first

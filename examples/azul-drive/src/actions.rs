@@ -377,11 +377,7 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             }
         }
         Action::IndexDrive => match s.current_drive() {
-            None => Some(String::from("Open a drive on this computer to index it.")),
-            Some(index) if s.local_root(index).is_none() => Some(String::from(
-                "Only a drive on this computer is indexed: a cloud drive's files would have to \
-                 be downloaded.",
-            )),
+            None => Some(String::from("Open a drive to index it.")),
             Some(_) if s.cache_dir.is_none() => {
                 Some(String::from("There is no cache folder to keep an index in."))
             }
