@@ -6,6 +6,10 @@ use azcal_core::{
     calendars::{self, Colour},
     event::{self, Meeting},
 };
+use azul_pim::{
+    task::{self, Subtask, Task, TaskList},
+    task_store,
+};
 use chrono::{NaiveDate, NaiveTime};
 
 use super::*;
@@ -551,6 +555,97 @@ fn sync_collection_gives_what_changed_and_what_went_since_a_token() {
     let calendar = text(&ask(&f.pim, "REPORT", "/calendars/default/", &[], &sync(&calendar_token)));
     assert!(calendar.contains("<D:href>/calendars/default/dentist.ics</D:href>"), "{calendar}");
     assert_eq!(calendar.matches("<D:response>").count(), 1, "only what changed: {calendar}");
+}
+
+/// A list of AzTasks and a task of it.
+const LIST: &str = "6c5b4a39-2817-4f06-9e5d-4c3b2a190807";
+const TASK: &str = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+
+fn vtodo(lines: &str) -> String {
+    format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Apple Inc.//Reminders//EN\r\nBEGIN:VTODO\r\n{lines}END:VTODO\r\nEND:VCALENDAR\r\n")
+}
+
+/// AzTasks' lists are CalDAV to-do lists (VTODO) - what Apple Reminders and Thunderbird show: in
+/// the calendar home, each task served as AzTasks' own iCalendar export, a program's to-do
+/// written into the task file (what iCalendar does not carry staying: the steps, the flag), a
+/// new to-do kept under the program's own name and UID, a new list made with MKCALENDAR, a to-do
+/// deleted with DELETE.
+#[test]
+fn aztasks_lists_are_caldav_to_do_lists() {
+    let f = fixture();
+    let list = TaskList::new(LIST.to_string(), String::from("Home"), 1);
+    f.contacts.put(&list.key(), task::list_to_json(&list).as_bytes()).unwrap();
+    let made = day(2026, 10, 1).and_time(at(8, 0));
+    let mut rent = Task::new(TASK.to_string(), LIST.to_string(), String::from("Pay rent"), made);
+    rent.due = Some(day(2026, 10, 2));
+    rent.flagged = true;
+    rent.subtasks = vec![Subtask {
+        id: String::from("s1"),
+        title: String::from("Check the amount"),
+        done: false,
+    }];
+    f.contacts.put(&rent.key(), task::task_to_json(&rent).as_bytes()).unwrap();
+
+    let home = text(&ask(&f.pim, "PROPFIND", "/calendars/", &[("Depth", "1")], CALENDAR_PROPS));
+    assert!(home.contains(&format!("<D:href>/calendars/tasks-{LIST}/</D:href>")), "{home}");
+    assert!(home.contains("<D:displayname>Home</D:displayname>"), "{home}");
+    assert!(home.contains("<C:comp name=\"VTODO\"/>"), "{home}");
+    let listing = text(&ask(&f.pim, "PROPFIND", &format!("/calendars/tasks-{LIST}/"), &[("Depth", "1")], ""));
+    assert!(listing.contains(&format!("<D:href>/calendars/tasks-{LIST}/{TASK}.ics</D:href>")), "{listing}");
+    let href = format!("/calendars/tasks-{LIST}/{TASK}.ics");
+    let served = text(&ask(&f.pim, "GET", &href, &[], ""));
+    for wanted in ["BEGIN:VTODO", "SUMMARY:Pay rent", "DUE;VALUE=DATE:20261002"] {
+        assert!(served.contains(wanted), "{wanted}: {served}");
+    }
+    assert!(served.contains(&format!("UID:{TASK}")), "{served}");
+
+    // Apple Reminders ticks it off and renames it.
+    let done = vtodo(&format!(
+        "UID:{TASK}\r\nSUMMARY:Pay the rent\r\nDUE;VALUE=DATE:20261002\r\nSTATUS:COMPLETED\r\n\
+         COMPLETED:20261002T090000Z\r\n"
+    ));
+    assert_eq!(ask(&f.pim, "PUT", &href, &[], &done).status, Status::NO_CONTENT);
+    let bytes = f.contacts.get(&task::task_key(LIST, TASK)).unwrap();
+    let stored = task::task_from_json(&String::from_utf8(bytes).unwrap()).unwrap();
+    assert_eq!(stored.title, "Pay the rent");
+    assert!(stored.completed.is_some(), "done");
+    assert!(stored.flagged && stored.subtasks.len() == 1, "the flag and the steps stay: {stored:?}");
+
+    // A new reminder under the program's own name and UID.
+    let plumber = vtodo("UID:C0FFEE-REMINDER\r\nSUMMARY:Call the plumber\r\n");
+    let plumber_href = format!("/calendars/tasks-{LIST}/C0FFEE-REMINDER.ics");
+    assert_eq!(ask(&f.pim, "PUT", &plumber_href, &[], &plumber).status, Status::CREATED);
+    let id = f.pim.names.id_of(Kind::Todo, "C0FFEE-REMINDER").expect("the program's name");
+    assert!(task::is_id(&id), "{id}");
+    let again = text(&ask(&f.pim, "GET", &plumber_href, &[], ""));
+    assert!(again.contains("UID:C0FFEE-REMINDER") && again.contains("SUMMARY:Call the plumber"), "{again}");
+
+    let query = |component: &str| {
+        format!(
+            "<C:calendar-query xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><D:prop><D:getetag/></D:prop>\
+             <C:filter><C:comp-filter name=\"VCALENDAR\"><C:comp-filter name=\"{component}\"/></C:comp-filter>\
+             </C:filter></C:calendar-query>"
+        )
+    };
+    let list_href = format!("/calendars/tasks-{LIST}/");
+    let todos = text(&ask(&f.pim, "REPORT", &list_href, &[("Depth", "1")], &query("VTODO")));
+    assert_eq!(todos.matches("<D:response>").count(), 2, "{todos}");
+    let events = text(&ask(&f.pim, "REPORT", &list_href, &[("Depth", "1")], &query("VEVENT")));
+    assert_eq!(events.matches("<D:response>").count(), 0, "{events}");
+
+    // Apple Reminders' "Add List": MKCALENDAR for to-dos only.
+    let mk = "<C:mkcalendar xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><D:set><D:prop>\
+         <D:displayname>Groceries</D:displayname><C:supported-calendar-component-set><C:comp name=\"VTODO\"/>\
+         </C:supported-calendar-component-set></D:prop></D:set></C:mkcalendar>";
+    assert_eq!(ask(&f.pim, "MKCALENDAR", "/calendars/9A8B-GROCERIES/", &[], mk).status, Status::CREATED);
+    let lists = task_store::load_all(&*f.contacts).unwrap().lists;
+    assert!(lists.iter().any(|l| l.name == "Groceries"), "{lists:?}");
+    assert!(calendars::load(&*f.calendar).iter().all(|c| c.name != "Groceries"), "a list, not a calendar");
+    let home = text(&ask(&f.pim, "PROPFIND", "/calendars/", &[("Depth", "1")], CALENDAR_PROPS));
+    assert!(home.contains("<D:href>/calendars/9A8B-GROCERIES/</D:href>"), "{home}");
+
+    assert_eq!(ask(&f.pim, "DELETE", &plumber_href, &[], "").status, Status::NO_CONTENT);
+    assert!(f.contacts.head(&task::task_key(LIST, &id)).is_err());
 }
 
 #[test]
