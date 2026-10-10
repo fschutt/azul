@@ -16,19 +16,24 @@
 //! store under AzMail's keyring names.
 
 use std::{
+    collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use azmail_core::{
     account::{self, Secret},
     folders::Role,
-    send::{self, PreparedMail, SendRoute, SendSettings, SendStatus},
+    send::{self, OutboxEntry, PreparedMail, RecipientProgress, SendRoute, SendSettings, SendStatus},
     store::{self as local, DriveFolder},
 };
 use azul_storage::time::parse_iso8601;
 
 use crate::{
+    bounce::{self, Failure},
     secrets::{self, KeyringStore},
     sent::{self, SentRegistry},
     smtp::{Submission, Submitter, Verdict},
@@ -172,10 +177,102 @@ impl AzMailSubmitter {
     }
 
     /// Tries the queued mail whose time has come again, then files what went out.
+    /// Tries the queued mail whose time has come again, files what went out, and puts a
+    /// report into the Inbox for every recipient that will never get a mail now (the mail
+    /// program had its 250 long ago).
     pub fn retry(&self) {
         let settings = self.settings();
-        let _ = send::retry_outbox(&self.spool, &self.account_id, &settings, false);
+        let spool = local::MailStore::new(account::account_dir(&self.spool, &self.account_id));
+        let before: HashMap<String, (OutboxEntry, Vec<u8>)> =
+            send::outbox_entries(&self.spool, &self.account_id)
+                .into_iter()
+                .map(|entry| {
+                    let eml = spool
+                        .get(&format!("{}/{}.eml", send::OUTBOX_DIR, entry.id))
+                        .unwrap_or_default();
+                    (entry.id.clone(), (entry, eml))
+                })
+                .collect();
+        let results = send::retry_outbox(&self.spool, &self.account_id, &settings, false);
+        let after: HashMap<String, OutboxEntry> = send::outbox_entries(&self.spool, &self.account_id)
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect();
         self.drain();
+        for (id, status) in results {
+            let SendStatus::Failed { reason } = status else {
+                continue;
+            };
+            let Some((old, eml)) = before.get(&id) else {
+                continue;
+            };
+            let failed_before: HashSet<&str> = old
+                .recipients
+                .iter()
+                .filter(|r| r.state == RecipientProgress::Failed)
+                .map(|r| r.address.as_str())
+                .collect();
+            let failures: Vec<Failure> = match after.get(&id) {
+                // Still in the outbox: its recipients say who failed this time.
+                Some(entry) => entry
+                    .recipients
+                    .iter()
+                    .filter(|r| {
+                        r.state == RecipientProgress::Failed
+                            && !failed_before.contains(r.address.as_str())
+                    })
+                    .map(|r| Failure {
+                        address: r.address.clone(),
+                        code: r.code,
+                        reason: r.reason.clone(),
+                    })
+                    .collect(),
+                // Gone into Sent (some got it): the status names the ones who did not.
+                None => old
+                    .recipients
+                    .iter()
+                    .filter(|r| r.state == RecipientProgress::Pending && reason.contains(&r.address))
+                    .map(|r| Failure {
+                        address: r.address.clone(),
+                        code: None,
+                        reason: reason.clone(),
+                    })
+                    .collect(),
+            };
+            if failures.is_empty() {
+                continue;
+            }
+            let others = after.get(&id).map_or(true, |entry| {
+                entry
+                    .recipients
+                    .iter()
+                    .any(|r| r.state == RecipientProgress::Sent)
+            });
+            self.file_report(&old.from, eml, &failures, others);
+        }
+    }
+
+    /// Puts a delivery report into the drive's Inbox (unread) for the mail `original` of
+    /// `sender`; never sends it anywhere.
+    fn file_report(&self, sender: &str, original: &[u8], failures: &[Failure], others_got_it: bool) {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let now = crate::store::now();
+        let token = format!("{now:x}{:x}", COUNTER.fetch_add(1, Ordering::SeqCst));
+        let bytes = bounce::report(
+            sender,
+            original,
+            failures,
+            others_got_it,
+            i64::try_from(now).unwrap_or(0),
+            &token,
+        );
+        let inbox = self
+            .store
+            .mailboxes()
+            .ok()
+            .and_then(|boxes| boxes.into_iter().find(|b| b.role == Role::Inbox))
+            .map_or_else(|| String::from("Inbox"), |b| b.path);
+        let _ = self.store.append(&inbox, &bytes, now, Marks::default());
     }
 }
 
@@ -189,6 +286,21 @@ impl Submitter for AzMailSubmitter {
         };
         let outcome = send::send_prepared(&self.spool, &self.account_id, &settings, &mail);
         self.drain();
+        // Taken with failures (some got it, or some still wait): the sender learns who will
+        // never get it from a report in the Inbox, as from any mail server.
+        let taken = outcome.delivered > 0 || outcome.pending > 0;
+        if taken && !outcome.failures.is_empty() {
+            let failures: Vec<Failure> = outcome
+                .failures
+                .iter()
+                .map(|r| Failure {
+                    address: r.address.clone(),
+                    code: r.code,
+                    reason: r.reason.clone(),
+                })
+                .collect();
+            self.file_report(&submission.from, &submission.message, &failures, outcome.delivered > 0);
+        }
         match outcome.status {
             SendStatus::Sent { .. } => Verdict::Accepted(String::from("Sent")),
             SendStatus::Queued { reason } => {
@@ -282,6 +394,35 @@ mod tests {
         let outbox = dir.0.join("spool").join(ACCOUNT).join("outbox");
         let left = std::fs::read_dir(outbox).map(|d| d.count()).unwrap_or(0);
         assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn a_mail_some_recipients_never_get_leaves_a_report_in_the_inbox() {
+        let dir = TempDir::new("bridge-send");
+        let script = SinkScript {
+            rcpt: vec![(String::from("bcc@example.com"), String::from("550 5.1.1 no such user"))],
+            ..SinkScript::default()
+        };
+        let (port, _sessions) = spawn_smtp_sink(script);
+        let (submitter, drive, _) = submitter(&dir, port);
+        let verdict = submitter.submit(&submission());
+        assert!(matches!(&verdict, Verdict::Accepted(text) if text.starts_with("Partly")), "{verdict:?}");
+        assert_eq!(drive.keys().iter().filter(|k| k.starts_with("mail/Sent/")).count(), 1);
+        let inbox: Vec<String> = drive
+            .keys()
+            .into_iter()
+            .filter(|k| k.starts_with("mail/Inbox/"))
+            .collect();
+        assert_eq!(inbox.len(), 1, "{:?}", drive.keys());
+        let report = String::from_utf8(drive.get(&inbox[0]).unwrap()).unwrap();
+        assert!(report.contains("Subject: Undelivered mail: From the bridge\r\n"), "{report}");
+        assert!(report.contains("Final-Recipient: rfc822; bcc@example.com\r\n"), "{report}");
+        assert!(report.contains("Status: 5.1.1\r\n"), "{report}");
+        assert!(report.contains("The other recipients got it."), "{report}");
+        assert!(!report.contains("Final-Recipient: rfc822; ben@example.net"), "{report}");
+        // Unread: no seen marker for it.
+        let id = azmail_core::azlin::message_id(&inbox[0]).unwrap();
+        assert!(!drive.keys().contains(&format!("mail/.state/{id}/seen")));
     }
 
     #[test]

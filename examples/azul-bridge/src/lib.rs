@@ -48,6 +48,7 @@
 
 pub mod account;
 pub mod auth;
+pub mod bounce;
 pub mod cli;
 pub mod config;
 pub mod dates;
