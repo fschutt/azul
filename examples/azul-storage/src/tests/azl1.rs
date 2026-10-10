@@ -12,7 +12,7 @@ use crate::crypto::{
         ObjectSummary, OpenObject, PublicHeader, WriteOptions, DEFAULT_SEGMENT_SIZE, HEADER_LEN,
         MAX_SEGMENT_SIZE,
     },
-    codec::Compression,
+    codec::{Compression, Recoding},
     CryptoError, DriveKey, FileKey, ObjectId,
 };
 
@@ -220,6 +220,37 @@ fn a_range_across_compressed_segments_reads_back() {
         .read_range(&object[..], MIB as u64 - 5, MIB as u64 + 5)
         .unwrap();
     assert_eq!(range, &plain[MIB - 5..=MIB + 5]);
+}
+
+#[test]
+fn a_recompressed_object_reads_back_whole_and_in_ranges() {
+    for recoding in [Recoding::Brotli, Recoding::ZstdMax] {
+        let options = WriteOptions {
+            segment_size: SMALL,
+            compression: Compression::Recode(recoding),
+        };
+        // Text with a segment of noise in the middle: that one stays stored.
+        let mut plain = text(3 * SMALL as usize);
+        plain.extend(noise(SMALL as usize));
+        plain.extend(text(2 * SMALL as usize + 9));
+        let (object, summary) = round_trip(&plain, &options);
+        assert!(summary.compressed, "{recoding:?}");
+        assert!(object.len() < plain.len(), "{recoding:?}");
+        let with_a_wrong_key =
+            OpenObject::open(&object[..], &summary.object_id, &FileKey::from_bytes([1; 32]));
+        assert_eq!(with_a_wrong_key.unwrap_err(), CryptoError::KeyMismatch);
+        let range_start = 3 * SMALL as u64 - 7;
+        let range_end = 4 * SMALL as u64 + 7;
+        let drive = drive_key();
+        let id = new_id();
+        let (object, summary) = encrypt(&plain, id, &drive, &options).unwrap();
+        let opened = OpenObject::open(&object[..], &id, &file_key_of(&drive, &summary)).unwrap();
+        assert_eq!(
+            opened.read_range(&object[..], range_start, range_end).unwrap(),
+            &plain[range_start as usize..=range_end as usize],
+            "{recoding:?}"
+        );
+    }
 }
 
 #[test]

@@ -90,8 +90,12 @@ chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"], optional = true }
 # BLAKE3: the plaintext hash, the key commitment and every key derived from another.
 blake3 = { version = "1.8", optional = true }
-# zstd level 3 per 1 MiB segment (the C library, as zip builds it).
+# zstd level 3 per 1 MiB segment (the C library, as zip builds it); level 19 in the
+# recompression pass.
 zstd = { version = "0.13.3", default-features = false, optional = true }
+# brotli quality 11 per segment in the recompression pass (pure Rust; brotli 8 is in Cargo.lock
+# already through webrender and the dll's `web` feature).
+brotli = { version = "8", optional = true }
 # Argon2id: the key of a recovery code (AzKeys' features).
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"], optional = true }
 # The OS random source: file keys, nonces, object ids, salts.
@@ -114,6 +118,7 @@ encryption = [
     "dep:x25519-dalek",
     "dep:blake3",
     "dep:zstd",
+    "dep:brotli",
     "dep:argon2",
     "dep:getrandom",
     "dep:zeroize",

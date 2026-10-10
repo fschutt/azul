@@ -1441,6 +1441,7 @@ dependencies = [
  "argon2",
  "azul-dll",
  "blake3",
+ "brotli",
  "chacha20poly1305",
  "futures",
  "getrandom 0.2.17",

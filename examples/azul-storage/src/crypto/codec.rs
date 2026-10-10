@@ -1,10 +1,13 @@
 //! What an AZL1 segment's codec byte says, and when a file is worth compressing.
 //!
-//! - The codec byte opens every segment's sealed bytes: 0 = stored as it is, 1 = zstd. 2
-//!   (brotli) and 3 (JPEG XL) are kept for the later recompression pass; this version reads
-//!   neither and says so.
+//! - The codec byte opens every segment's sealed bytes: 0 = stored as it is, 1 = zstd (one
+//!   frame, any level), 2 = brotli (one stream; the recompression pass writes it). 3 (JPEG XL)
+//!   is kept for a later version; this one refuses it by name.
 //! - On upload a segment is compressed with zstd level 3 and kept compressed only when that
 //!   saves at least 5 %.
+//! - The recompression pass ([`crate::recompress`], an idle computer on mains power) writes a
+//!   file again with [`Compression::Recode`]: every segment brotli at quality 11 (text) or zstd
+//!   at level 19 (everything else), kept per segment when that saves 5 % over storing it.
 //! - A file that is compressed already is not tried at all: the first segment's magic number
 //!   says so (JPEG, PNG, GIF, WebP, the ISO media files - MP4, MOV, HEIC, AVIF -, ZIP and with
 //!   it DOCX / XLSX / ODT / EPUB, gzip, zstd, xz, bzip2, 7z, RAR, PDF, ...). Otherwise the
@@ -22,9 +25,18 @@ use super::CryptoError;
 pub const ZSTD_LEVEL: i32 = 3;
 /// A segment stays compressed only when that saves at least this many percent.
 pub const MIN_SAVING_PERCENT: u64 = 5;
-/// The codec byte of a brotli segment (the later recompression pass; not read yet).
+/// The zstd level of the recompression pass.
+pub const ZSTD_MAX_LEVEL: i32 = 19;
+/// The brotli quality of the recompression pass (the slowest, the smallest).
+pub const BROTLI_QUALITY: u32 = 11;
+/// The smallest and the largest brotli window (log2 of its bytes): a segment's window is the
+/// smallest that holds the whole segment (1 MiB segments: 20), so a reader never needs more
+/// memory than the segment.
+pub const BROTLI_MIN_WINDOW_BITS: u32 = 16;
+pub const BROTLI_MAX_WINDOW_BITS: u32 = 24;
+/// The codec byte of a brotli segment.
 pub const CODEC_BROTLI: u8 = 2;
-/// The codec byte of a JPEG XL segment (the later recompression pass; not read yet).
+/// The codec byte kept for a JPEG XL segment (not written or read by this version).
 pub const CODEC_JPEG_XL: u8 = 3;
 
 /// How a segment's bytes are stored.
@@ -34,6 +46,8 @@ pub enum Codec {
     Stored,
     /// One zstd frame.
     Zstd,
+    /// One brotli stream.
+    Brotli,
 }
 
 impl Codec {
@@ -43,6 +57,7 @@ impl Codec {
         match self {
             Codec::Stored => 0,
             Codec::Zstd => 1,
+            Codec::Brotli => CODEC_BROTLI,
         }
     }
 
@@ -51,9 +66,7 @@ impl Codec {
         match byte {
             0 => Ok(Codec::Stored),
             1 => Ok(Codec::Zstd),
-            CODEC_BROTLI => Err(CryptoError::Unsupported(String::from(
-                "a brotli segment (written by a newer version)",
-            ))),
+            CODEC_BROTLI => Ok(Codec::Brotli),
             CODEC_JPEG_XL => Err(CryptoError::Unsupported(String::from(
                 "a JPEG XL segment (written by a newer version)",
             ))),
@@ -70,6 +83,18 @@ pub enum Compression {
     Auto,
     /// Every segment stored as it is (data known to be random, the tests' exact sizes).
     Never,
+    /// The recompression pass: every segment tried with `Recoding` (no trial on the first
+    /// segment: the pass chose the file), kept when it saves 5 %.
+    Recode(Recoding),
+}
+
+/// What the recompression pass writes a file's segments with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recoding {
+    /// brotli at quality 11: text, markup, source code, JSON, CSV, uncompressed documents.
+    Brotli,
+    /// zstd at level 19: everything else that is not compressed already.
+    ZstdMax,
 }
 
 /// Whether `compressed` bytes are worth keeping instead of `raw` ones: at least 5 % fewer.
@@ -122,10 +147,11 @@ pub fn looks_compressed(start: &[u8]) -> bool {
         && matches!(&start[8..12], b"WEBP" | b"AVI ")
 }
 
-/// A segment as it goes into its object: stored, or the zstd frame of it.
+/// A segment as it goes into its object: stored, or the zstd frame or brotli stream of it.
 pub(crate) enum Encoded {
     Stored,
     Zstd(Zeroizing<Vec<u8>>),
+    Brotli(Zeroizing<Vec<u8>>),
 }
 
 impl Encoded {
@@ -133,6 +159,15 @@ impl Encoded {
         match self {
             Encoded::Stored => Codec::Stored,
             Encoded::Zstd(_) => Codec::Zstd,
+            Encoded::Brotli(_) => Codec::Brotli,
+        }
+    }
+
+    /// The compressed bytes; `None` for a stored segment.
+    pub(crate) fn compressed(&self) -> Option<&[u8]> {
+        match self {
+            Encoded::Stored => None,
+            Encoded::Zstd(bytes) | Encoded::Brotli(bytes) => Some(bytes.as_slice()),
         }
     }
 }
@@ -144,6 +179,8 @@ enum State {
     On(zstd::bulk::Compressor<'static>),
     /// No segment is tried.
     Off,
+    /// Every segment is recompressed (the zstd compressor made on the first use).
+    Recode(Recoding, Option<zstd::bulk::Compressor<'static>>),
 }
 
 /// One file's compression: the first segment decides whether the others are tried.
@@ -161,12 +198,16 @@ impl Encoder {
             state: match compression {
                 Compression::Auto => State::Undecided,
                 Compression::Never => State::Off,
+                Compression::Recode(recoding) => State::Recode(recoding, None),
             },
         }
     }
 
     /// How the segment `raw` is stored.
     pub(crate) fn encode(&mut self, raw: &[u8]) -> Result<Encoded, CryptoError> {
+        if let State::Recode(recoding, compressor) = &mut self.state {
+            return recode(*recoding, compressor, raw);
+        }
         if let State::Undecided = self.state {
             if looks_compressed(raw) {
                 self.state = State::Off;
@@ -197,6 +238,82 @@ impl Encoder {
             Ok(Encoded::Stored)
         }
     }
+}
+
+/// The smallest brotli window that holds `len` bytes, within the bounds above.
+#[must_use]
+pub fn brotli_window_bits(len: usize) -> u32 {
+    let mut bits = BROTLI_MIN_WINDOW_BITS;
+    while bits < BROTLI_MAX_WINDOW_BITS && (1usize << bits) < len {
+        bits += 1;
+    }
+    bits
+}
+
+/// `raw` brotli-compressed at [`BROTLI_QUALITY`] (one stream).
+fn brotli_compress(raw: &[u8]) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+    use std::io::Write;
+    let mut out = Zeroizing::new(Vec::with_capacity(raw.len() / 2));
+    let mut writer = brotli::CompressorWriter::new(
+        &mut *out,
+        64 * 1024,
+        BROTLI_QUALITY,
+        brotli_window_bits(raw.len()),
+    );
+    writer
+        .write_all(raw)
+        .map_err(|e| CryptoError::Io(format!("brotli: {e}")))?;
+    // `into_inner` finishes the stream (into `out`, which needs no I/O to fail).
+    let _ = writer.into_inner();
+    Ok(out)
+}
+
+/// One segment of the recompression pass: `recoding`'s bytes when they save 5 %, else stored.
+fn recode(
+    recoding: Recoding,
+    compressor: &mut Option<zstd::bulk::Compressor<'static>>,
+    raw: &[u8],
+) -> Result<Encoded, CryptoError> {
+    if raw.is_empty() {
+        return Ok(Encoded::Stored);
+    }
+    let encoded = match recoding {
+        Recoding::Brotli => Encoded::Brotli(brotli_compress(raw)?),
+        Recoding::ZstdMax => {
+            if compressor.is_none() {
+                *compressor =
+                    Some(zstd::bulk::Compressor::new(ZSTD_MAX_LEVEL).map_err(zstd_failed)?);
+            }
+            let Some(compressor) = compressor.as_mut() else {
+                return Ok(Encoded::Stored);
+            };
+            Encoded::Zstd(Zeroizing::new(compressor.compress(raw).map_err(zstd_failed)?))
+        }
+    };
+    let keep = encoded
+        .compressed()
+        .is_some_and(|bytes| worth_it(bytes.len(), raw.len()));
+    Ok(if keep { encoded } else { Encoded::Stored })
+}
+
+/// The plaintext of a brotli segment, which must be exactly `expected` bytes (reading stops
+/// one byte past it: a segment cannot inflate past its size).
+pub(crate) fn decompress_brotli(
+    data: &[u8],
+    expected: usize,
+) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+    use std::io::Read;
+    let mut plain = Zeroizing::new(Vec::with_capacity(expected));
+    brotli::Decompressor::new(data, 64 * 1024)
+        .take(expected as u64 + 1)
+        .read_to_end(&mut plain)
+        .map_err(|_| CryptoError::Damaged(String::from("a segment does not decompress")))?;
+    if plain.len() != expected {
+        return Err(CryptoError::Damaged(String::from(
+            "a segment decompresses to another length than the file's",
+        )));
+    }
+    Ok(plain)
 }
 
 /// The plaintext of a zstd segment, which must be exactly `expected` bytes (more is refused
