@@ -134,6 +134,10 @@
 //! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
 
 mod actions;
+/// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
+mod ban;
+#[cfg(test)]
+mod ban_tests;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
 mod add_drive;
 #[cfg(test)]
