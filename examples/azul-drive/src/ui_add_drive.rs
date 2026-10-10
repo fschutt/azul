@@ -42,11 +42,11 @@ use azul::{
         OnTextInputReturn, TextInputState, TextInputValid, Tile,
     },
 };
+use azul_appkit::l10n::{self, t, t_args, Arg};
 use azul_pay::{
     bridge::{clean_name, CardBrand},
     machine::{Chip, Page},
-    offer::amount_text,
-    pills, Event as PayEvent, Method, SecretUrl, State as PayState, SurfaceKind,
+    Event as PayEvent, Method, SecretUrl, State as PayState, SurfaceKind,
 };
 use azul_storage::{
     catalog::{FieldKind, FieldSpec, ServiceSpec},
@@ -56,7 +56,7 @@ use azul_storage::{
 use crate::{
     add_drive::{source_groups, AddDialog, AddPage, BuyStep, OfferState, TiersState, COUNTRIES},
     add_flow::{self, AddEvent},
-    ids, look,
+    ids, look, pay_words,
     sign_in::{self, SignInSettings, SignInStep},
     with_state, DriveState, Popup,
 };
@@ -130,18 +130,20 @@ struct KeyRef {
 /// field values 13px, hints 12px): the dialog's text and its fields' values are set in it.
 const TEXT_SIZE: &str = "font-size: 13px;";
 
+// The pieces take a key of the resources, or plain words as they are (appkit's label).
+
 fn label(text: &str) -> Dom {
-    Dom::create_span_with_text(AzString::from(text))
+    Dom::create_span_with_text(l10n::label(text))
         .with_css("font-size: 12px; opacity: 0.75; margin-top: 10px; margin-bottom: 4px;")
 }
 
 fn note(text: &str) -> Dom {
-    Dom::create_span_with_text(AzString::from(text))
+    Dom::create_span_with_text(l10n::label(text))
         .with_css("font-size: 12px; opacity: 0.75; margin-top: 4px;")
 }
 
 fn line(text: &str) -> Dom {
-    Dom::create_span_with_text(AzString::from(text)).with_css("margin-top: 8px;")
+    Dom::create_span_with_text(l10n::label(text)).with_css("margin-top: 8px;")
 }
 
 fn error_line(text: &str) -> Dom {
@@ -151,7 +153,7 @@ fn error_line(text: &str) -> Dom {
 }
 
 fn heading(text: &str) -> Dom {
-    Dom::create_span_with_text(AzString::from(text)).with_css(
+    Dom::create_span_with_text(l10n::label(text)).with_css(
         "font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; \
          opacity: 0.7; margin: 12px 0px 6px 0px;",
     )
@@ -182,10 +184,10 @@ fn button(
     id: AzString,
     why_not: Option<&str>,
 ) -> Dom {
-    let mut b = Button::with_type(AzString::from(text), kind)
+    let mut b = Button::with_type(l10n::label(text), kind)
         .with_on_click(event_ref(app, event), on_event as ButtonOnClickCallbackType);
     if let Some(why) = why_not {
-        b = b.with_disabled(AzString::from(why));
+        b = b.with_disabled(l10n::label(why));
     }
     b.dom().with_id(id).with_css("margin-left: 6px; margin-top: 4px;")
 }
@@ -195,9 +197,12 @@ fn back(app: &RefAny) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; margin-bottom: 6px;")
         .with_child(
-            Button::create(AzString::from("Back"))
+            Button::create(l10n::label("azdrive-add-back"))
                 .with_icon(AzString::from("arrow_back"))
-                .with_on_click(event_ref(app, AddEvent::Back), on_event as ButtonOnClickCallbackType)
+                .with_on_click(
+                    event_ref(app, AddEvent::Back),
+                    on_event as ButtonOnClickCallbackType,
+                )
                 .dom()
                 .with_id(ids::ADD_BACK),
         )
@@ -213,9 +218,9 @@ fn tile(
     selected: bool,
     css: &str,
 ) -> Dom {
-    Tile::create(AzString::from(title))
+    Tile::create(l10n::label(title))
         .with_icon(AzString::from(icon))
-        .with_detail(AzString::from(detail))
+        .with_detail(l10n::label(detail))
         .with_selected(selected)
         .with_on_click(event_ref(app, event), on_event as TileOnClickCallbackType)
         .dom()
@@ -233,7 +238,7 @@ fn text_field(app: &RefAny, value: &str, placeholder: &str, secret: bool, target
         TextInput::create()
     };
     base.with_text(AzString::from(value))
-        .with_placeholder(AzString::from(placeholder))
+        .with_placeholder(l10n::label(placeholder))
         .with_on_text_input(
             RefAny::new(TextRef {
                 app: app.clone(),
@@ -257,16 +262,21 @@ pub(crate) fn dialog(
     app: &RefAny,
 ) -> (String, Dom) {
     let (title, page) = match d.page {
-        AddPage::Choose => (String::from("Add a drive"), choose(app)),
-        AddPage::Buy => (String::from("Buy storage"), buy(d, development, app)),
-        AddPage::Sources => (String::from("Connect a data source"), sources(app)),
-        AddPage::Voucher => (String::from("Redeem a voucher"), voucher(d, app)),
-        AddPage::ClaimCode => (String::from("Pick up a paid drive"), claim_code(d, app)),
+        AddPage::Choose => (t("azdrive-add-title"), choose(app)),
+        AddPage::Buy => (t("azdrive-add-buy-title"), buy(d, development, app)),
+        AddPage::Sources => (t("azdrive-add-sources-title"), sources(app)),
+        AddPage::Voucher => (t("azdrive-options-redeem-voucher"), voucher(d, app)),
+        AddPage::ClaimCode => (t("azdrive-add-claim-title"), claim_code(d, app)),
         AddPage::Form => {
             let title = match (&d.editing, d.spec()) {
-                (Some(_), _) => format!("Enter the keys of \"{}\" again", d.name),
-                (None, Some(spec)) => format!("Connect {}", spec.name),
-                (None, None) => String::from("Connect a data source"),
+                (Some(_), _) => t_args(
+                    "azdrive-add-keys-again",
+                    &[("name", Arg::from(d.name.as_str()))],
+                ),
+                (None, Some(spec)) => {
+                    t_args("azdrive-add-connect", &[("name", Arg::from(spec.name))])
+                }
+                (None, None) => t("azdrive-add-sources-title"),
             };
             (title, form(d, sign_in, app))
         }
@@ -288,8 +298,8 @@ fn choose(app: &RefAny) -> Dom {
         tile(
             app,
             "shopping_cart",
-            "Buy storage",
-            "Azlin cloud storage from 100 GB - the first month is free",
+            "azdrive-add-buy-title",
+            "azdrive-add-buy-detail",
             AddEvent::ChooseBuy,
             false,
             css,
@@ -298,8 +308,8 @@ fn choose(app: &RefAny) -> Dom {
         tile(
             app,
             "cable",
-            "Connect data source",
-            "S3, WebDAV, FTP, Google Drive, Dropbox, GitHub, databases ...",
+            "azdrive-add-connect-title",
+            "azdrive-add-connect-detail",
             AddEvent::ChooseConnect,
             false,
             css,
@@ -308,7 +318,7 @@ fn choose(app: &RefAny) -> Dom {
         buttons(vec![
             button(
                 app,
-                "Pick up a paid drive with a claim code",
+                "azdrive-add-claim-button",
                 ButtonType::Default,
                 AddEvent::ClaimCodePage,
                 ids::ADD_CHOICE_CLAIM,
@@ -316,7 +326,7 @@ fn choose(app: &RefAny) -> Dom {
             ),
             button(
                 app,
-                "Cancel",
+                "kit-button-cancel",
                 ButtonType::Default,
                 AddEvent::Cancel,
                 ids::ADD_CANCEL,
@@ -332,12 +342,8 @@ fn choose(app: &RefAny) -> Dom {
 fn claim_code(d: &AddDialog, app: &RefAny) -> Dom {
     let mut children = vec![
         back(app),
-        note(
-            "A drive paid in cash by post is picked up with the claim code on the buyer's copy: \
-             type it as the copy prints it, or scan its QR code. AzDrive asks for the drive \
-             now and then once a day until the money arrived.",
-        ),
-        label("The claim code"),
+        note("azdrive-add-drive-paid-cash-by"),
+        label("azdrive-add-claim-code"),
         text_field(
             app,
             &d.claim_code,
@@ -346,14 +352,10 @@ fn claim_code(d: &AddDialog, app: &RefAny) -> Dom {
             TextTarget::ClaimCode,
         )
         .with_id(ids::ADD_CLAIM_CODE),
-        label("Name"),
+        label("azdrive-add-name"),
         text_field(app, &d.buy_name, "Azlin Storage", false, TextTarget::BuyName)
             .with_id(ids::ADD_NAME),
-        note(
-            "Each computer that picks the drive up with the code gets a key of its own (three \
-             at most, within 30 days of the first pick-up); the computer that bought it keeps \
-             its own.",
-        ),
+        note("azdrive-add-claim-own-key"),
     ];
     if !d.notice.is_empty() {
         children.push(line(&d.notice).with_id(ids::ADD_STATUS));
@@ -361,7 +363,7 @@ fn claim_code(d: &AddDialog, app: &RefAny) -> Dom {
     children.push(buttons(vec![
         button(
             app,
-            "Cancel",
+            "kit-button-cancel",
             ButtonType::Default,
             AddEvent::Cancel,
             ids::ADD_CANCEL,
@@ -369,11 +371,11 @@ fn claim_code(d: &AddDialog, app: &RefAny) -> Dom {
         ),
         button(
             app,
-            "Pick up",
+            "azdrive-add-pick-up",
             ButtonType::Primary,
             AddEvent::PickUp,
             ids::ADD_PICK_UP,
-            d.busy().then_some("Wait for the step that runs."),
+            d.busy().then_some("azdrive-add-wait-step"),
         ),
     ]));
     column(children)
@@ -384,27 +386,23 @@ fn claim_code(d: &AddDialog, app: &RefAny) -> Dom {
 fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
     let mut children = vec![
         back(app),
-        Dom::create_span_with_text(AzString::from("Azlin cloud storage"))
+        Dom::create_span_with_text(l10n::label("azdrive-add-azlin-storage"))
             .with_css("font-size: 15px; font-weight: bold;"),
-        note(
-            "Storage for AzDrive, AzMail and every Azlin app, paid monthly or yearly. The first \
-             month is free.",
-        ),
-        note(
-            "Every file is compressed and encrypted on this computer before it leaves it, and a \
-             tier counts the bytes stored: what compresses well - text, documents, mail - takes \
-             less of it than its size.",
-        ),
+        note("azdrive-add-storage-azdrive-azmail-every"),
+        note("azdrive-add-every-file-compressed-encrypted"),
     ];
     match &d.tiers {
         TiersState::NotLoaded | TiersState::Loading => {
-            children.push(line("Loading the storage tiers ...").with_id(ids::ADD_STATUS));
+            children.push(line("azdrive-add-loading-storage-tiers").with_id(ids::ADD_STATUS));
         }
         TiersState::Failed(why) => {
-            children.push(error_line(&format!("The storage tiers could not be loaded: {why}")));
+            children.push(error_line(&t_args(
+                "azdrive-add-tiers-failed",
+                &[("why", Arg::from(l10n::t_label(why)))],
+            )));
             children.push(buttons(vec![button(
                 app,
-                "Try again",
+                "azdrive-add-try-again",
                 ButtonType::Default,
                 AddEvent::RetryTiers,
                 ids::ADD_RETRY,
@@ -417,13 +415,12 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                 .iter()
                 .enumerate()
                 .map(|(index, tier)| {
-                    let price = tier
-                        .price_text(d.yearly)
-                        .unwrap_or_else(|| String::from("price on request"));
+                    let price = pay_words::tier_price(tier, d.yearly)
+                        .unwrap_or_else(|| t("azdrive-add-price-on-request"));
                     tile(
                         app,
                         "cloud",
-                        &tier.quota_text(),
+                        &pay_words::quota(tier),
                         &price,
                         AddEvent::Tier(index),
                         index == d.tier,
@@ -446,7 +443,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                     .with_css("display: flex; flex-direction: row; align-items: center;")
                     .with_child(
                         CheckBox::create(d.yearly)
-                            .with_accessibility_name(AzString::from("Pay yearly"))
+                            .with_accessibility_name(l10n::label("azdrive-add-pay-yearly"))
                             .with_on_toggle(
                                 event_ref(app, AddEvent::Yearly),
                                 on_yearly as CheckBoxOnToggleCallbackType,
@@ -455,28 +452,26 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                             .with_id(ids::ADD_YEARLY),
                     )
                     .with_child(
-                        Dom::create_span_with_text(AzString::from(
-                            "Pay yearly (two months for free)",
-                        ))
-                        .with_css("margin-left: 8px;")
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::Click),
-                            event_ref(app, AddEvent::Yearly),
-                            on_event,
-                        ),
+                        Dom::create_span_with_text(l10n::label("azdrive-add-pay-yearly-free"))
+                            .with_css("margin-left: 8px;")
+                            .with_callback(
+                                EventFilter::Hover(HoverEventFilter::Click),
+                                event_ref(app, AddEvent::Yearly),
+                                on_event,
+                            ),
                     ),
             );
             if d.offer().is_some() {
                 children.extend(payment(d, app));
             } else if matches!(d.offer, OfferState::Loading) {
-                children.push(note("Loading the payment options ..."));
+                children.push(note("azdrive-add-loading-payment-options"));
             }
             if !d.pays_with_pills() {
                 if let Some(consent) = &tiers.withdrawal_consent {
                     children.push(note(consent));
                 }
             }
-            children.push(label("Name"));
+            children.push(label("azdrive-add-name"));
             children.push(
                 text_field(app, &d.buy_name, "Azlin Storage", false, TextTarget::BuyName)
                     .with_id(ids::ADD_NAME),
@@ -501,7 +496,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         {
             row.push(button(
                 app,
-                "Open the page again",
+                "azdrive-add-open-again",
                 ButtonType::Default,
                 AddEvent::OpenInBrowser,
                 ids::ADD_OPEN_AGAIN,
@@ -510,7 +505,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         }
         row.push(button(
             app,
-            "Stop waiting",
+            "azdrive-add-stop-waiting",
             ButtonType::Default,
             AddEvent::StopWaiting,
             ids::ADD_STOP,
@@ -520,19 +515,19 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         if matches!(d.pay, PayState::Stopped { .. }) {
             row.push(button(
                 app,
-                "Check again",
+                "azdrive-add-check-again",
                 ButtonType::Default,
                 AddEvent::CheckAgain,
                 ids::ADD_CHECK_AGAIN,
                 None,
             ));
         }
-        let busy = d.busy().then_some("Wait for the step that runs.");
-        let not_loaded = (!loaded).then_some("The storage tiers are not loaded yet.");
+        let busy = d.busy().then_some("azdrive-add-wait-step");
+        let not_loaded = (!loaded).then_some("azdrive-add-tiers-not-loaded");
         if development {
             row.push(button(
                 app,
-                "Create test drive",
+                "azdrive-add-test-drive",
                 ButtonType::Default,
                 AddEvent::CreateTestDrive,
                 ids::ADD_CREATE_TEST,
@@ -541,7 +536,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         }
         row.push(button(
             app,
-            "Cancel",
+            "kit-button-cancel",
             ButtonType::Default,
             AddEvent::Cancel,
             ids::ADD_CANCEL,
@@ -576,21 +571,18 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         }
     }
     if matches!(d.step, BuyStep::Paying { .. }) && matches!(d.pay, PayState::Choosing) {
-        children.push(note(
-            "Paying happens on the payment page in your browser; this window only waits for the \
-             drive.",
-        ));
+        children.push(note("azdrive-add-paying-happens-payment-page"));
     }
     children.push(buttons(row));
     // A voucher is never a pill: a line of its own (azul-pay's pills).
     if !d.paying() {
         children.push(buttons(vec![button(
             app,
-            "I have a voucher",
+            "azdrive-add-have-voucher",
             ButtonType::Default,
             AddEvent::VoucherPage,
             ids::ADD_VOUCHER,
-            d.busy().then_some("Wait for the step that runs."),
+            d.busy().then_some("azdrive-add-wait-step"),
         )]));
     }
     column(children).with_id(ids::ADD_BUY)
@@ -601,11 +593,8 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
 fn voucher(d: &AddDialog, app: &RefAny) -> Dom {
     let mut children = vec![
         back(app),
-        note(
-            "A voucher buys a new drive: its months, or its value, of the tier it names (else of \
-             the tier chosen in Buy storage).",
-        ),
-        label("The voucher's code"),
+        note("azdrive-add-voucher-buys-new-drive"),
+        label("azdrive-voucher-code"),
         text_field(
             app,
             &d.voucher_code,
@@ -621,7 +610,7 @@ fn voucher(d: &AddDialog, app: &RefAny) -> Dom {
     children.push(buttons(vec![
         button(
             app,
-            "Cancel",
+            "kit-button-cancel",
             ButtonType::Default,
             AddEvent::Cancel,
             ids::ADD_CANCEL,
@@ -629,11 +618,11 @@ fn voucher(d: &AddDialog, app: &RefAny) -> Dom {
         ),
         button(
             app,
-            "Redeem",
+            "azdrive-voucher-redeem",
             ButtonType::Primary,
             AddEvent::RedeemVoucher,
             ids::ADD_VOUCHER_REDEEM,
-            d.busy().then_some("Wait for the step that runs."),
+            d.busy().then_some("azdrive-add-wait-step"),
         ),
     ]));
     column(children)
@@ -647,7 +636,7 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
     let Some(offer) = d.offer() else {
         return Vec::new();
     };
-    let mut parts = vec![label("Country")];
+    let mut parts = vec![label("azdrive-add-country")];
     let selected = COUNTRIES
         .iter()
         .position(|(code, _)| *code == d.country)
@@ -656,11 +645,17 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
         DropDown::create(StringVec::from(
             COUNTRIES
                 .iter()
-                .map(|(_, name)| AzString::from(*name))
+                .map(|(code, name)| {
+                    AzString::from(l10n::app_word(
+                        "AzDrive",
+                        &format!("country-{}", code.to_ascii_lowercase()),
+                        name,
+                    ))
+                })
                 .collect::<Vec<AzString>>(),
         ))
         .with_selected(selected)
-        .with_accessibility_name(AzString::from("Country"))
+        .with_accessibility_name(l10n::label("azdrive-add-country"))
         .with_on_choice_change(
             RefAny::new(AppRef { app: app.clone() }),
             on_country as DropDownOnChoiceChangeCallbackType,
@@ -670,13 +665,10 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
     );
     let shown = d.pills();
     if shown.is_empty() {
-        parts.push(note(
-            "No payment method of this app is offered for this country: the payment page opens \
-             in your browser.",
-        ));
+        parts.push(note("azdrive-add-no-payment-method-app"));
         return parts;
     }
-    parts.push(label("Pay with"));
+    parts.push(label("azdrive-add-pay"));
     let chosen = d.chosen_pill();
     let cells: Vec<Dom> = shown
         .iter()
@@ -689,8 +681,8 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
             tile(
                 app,
                 pill.method.icon(),
-                pill.method.label(),
-                &pills::via(pill.provider(offer)),
+                &pay_words::method(pill.method),
+                &pay_words::via(pill.provider(offer)),
                 AddEvent::Pill(pill.method),
                 selected,
                 "width: 146px; box-sizing: border-box; margin: 0px 8px 8px 0px;",
@@ -707,7 +699,7 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
         let names: Vec<AzString> = pill
             .providers
             .iter()
-            .map(|&i| AzString::from(pills::via(&offer.providers[i])))
+            .map(|&i| AzString::from(pay_words::via(&offer.providers[i])))
             .collect();
         let at = pill
             .providers
@@ -717,7 +709,7 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
         parts.push(
             DropDown::create(StringVec::from(names))
                 .with_selected(at)
-                .with_accessibility_name(AzString::from("Payment provider"))
+                .with_accessibility_name(l10n::label("azdrive-add-payment-provider"))
                 .with_on_choice_change(
                     RefAny::new(ProviderRef {
                         app: app.clone(),
@@ -730,20 +722,19 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
         );
     }
     if let Some(price) = &offer.price {
-        parts.push(note(&price.text()).with_id(ids::ADD_PRICE));
+        parts.push(note(&pay_words::price(price)).with_id(ids::ADD_PRICE));
     }
-    let consent = offer.legal.withdrawal_consent.clone().unwrap_or_else(|| {
-        String::from(
-            "I ask Azlin to start the service now. If I withdraw, I pay for the service provided \
-             until then.",
-        )
-    });
+    let consent = offer
+        .legal
+        .withdrawal_consent
+        .clone()
+        .unwrap_or_else(|| t("azdrive-add-consent"));
     parts.push(
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 8px;")
             .with_child(
                 CheckBox::create(d.consent)
-                    .with_accessibility_name(AzString::from("Consent to the order"))
+                    .with_accessibility_name(l10n::label("azdrive-add-consent-name"))
                     .with_on_toggle(
                         event_ref(app, AddEvent::Consent),
                         on_consent as CheckBoxOnToggleCallbackType,
@@ -767,10 +758,10 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
 /// The amount the order costs: the offer's price, else the tier's.
 fn amount(d: &AddDialog) -> String {
     match d.offer().and_then(|o| o.price.as_ref()) {
-        Some(price) => format!("{} {}", price.currency, amount_text(price.amount_cents)),
+        Some(price) => l10n::money(price.amount_cents, &price.currency),
         None => d
             .chosen_tier()
-            .and_then(|t| t.price_text(d.yearly))
+            .and_then(|t| pay_words::tier_price(t, d.yearly))
             .unwrap_or_default(),
     }
 }
@@ -788,9 +779,9 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
     let mut parts = vec![chip_dom(&chip)];
     if card {
         parts.push(card_art(d, page));
-        parts.push(label("Name on card"));
+        parts.push(label("azdrive-add-name-card"));
         parts.push(
-            text_field(app, &d.card_name, "Name on card", false, TextTarget::CardName)
+            text_field(app, &d.card_name, "azdrive-add-name-card", false, TextTarget::CardName)
                 .with_id(ids::PAY_NAME),
         );
     }
@@ -804,10 +795,12 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
             .with_child(pay_webview(app, &checkout.surface.url, height)),
     );
     let what = match d.chosen_tier() {
-        Some(tier) => format!(
-            "{}, {}",
-            tier.quota_text(),
-            if d.yearly { "12 months" } else { "1 month" }
+        Some(tier) => t_args(
+            "azdrive-pay-what",
+            &[
+                ("quota", Arg::from(pay_words::quota(tier))),
+                ("months", Arg::from(if d.yearly { 12_u32 } else { 1 })),
+            ],
         ),
         None => String::new(),
     };
@@ -817,7 +810,7 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
     }
     let mut row = vec![button(
         app,
-        "Open in browser instead",
+        "azdrive-add-open-browser",
         ButtonType::Default,
         AddEvent::OpenInBrowser,
         ids::PAY_BROWSER,
@@ -825,13 +818,16 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
     )];
     if fields {
         let why_not = match &d.pay {
-            PayState::Confirming { .. } => Some("The payment is being confirmed."),
-            _ if !(page.ready && page.complete) => Some("Fill in the payment details first."),
+            PayState::Confirming { .. } => Some("azdrive-add-pay-confirming"),
+            _ if !(page.ready && page.complete) => Some("azdrive-add-pay-details-first"),
             _ => None,
         };
         row.push(button(
             app,
-            &format!("Pay {}", amount(d)),
+            &t_args(
+                "azdrive-pay-pay-amount",
+                &[("amount", Arg::from(amount(d)))],
+            ),
             ButtonType::Primary,
             AddEvent::PayConfirm,
             ids::PAY_CONFIRM,
@@ -841,8 +837,8 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
     parts.push(buttons(row));
     let title = format!(
         "{} {}",
-        checkout.choice.method.method.label(),
-        pills::via(&checkout.choice.provider)
+        pay_words::method(checkout.choice.method.method),
+        pay_words::via(&checkout.choice.provider)
     );
     let content = Dom::create_div()
         .with_id(ids::PAY_POPOVER)
@@ -869,7 +865,13 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
 /// can draw over it.
 fn chip_dom(chip: &Chip) -> Dom {
     let second = match chip.seller {
-        Some(seller) => format!("{} - sold by {seller}", chip.legal_name),
+        Some(seller) => t_args(
+            "azdrive-add-sold-by",
+            &[
+                ("name", Arg::from(chip.legal_name)),
+                ("seller", Arg::from(seller)),
+            ],
+        ),
         None => chip.legal_name.to_string(),
     };
     Dom::create_div()
@@ -889,7 +891,7 @@ fn chip_dom(chip: &Chip) -> Dom {
                 )
                 .with_child(Dom::create_span_with_text(AzString::from(format!(
                     " - {}",
-                    chip.what
+                    pay_words::chip_page(chip.page, chip.provider)
                 )))),
             Dom::create_span_with_text(AzString::from(second))
                 .with_css("font-size: 11px; opacity: 0.8;"),
@@ -991,7 +993,7 @@ fn sources(app: &RefAny) -> Dom {
     }
     let mut children = vec![
         back(app),
-        note("Choose what to connect. Passwords, tokens and keys stay in the system keyring."),
+        note("azdrive-add-choose-what-connect-passwords"),
         Dom::create_div()
             .with_css(
                 "display: flex; flex-direction: column; max-height: 380px; overflow-y: auto; \
@@ -1000,14 +1002,14 @@ fn sources(app: &RefAny) -> Dom {
             .with_children(DomVec::from(list)),
     ];
     if unavailable > 0 {
-        children.push(note(&format!(
-            "{unavailable} more sources need a build of AzDrive with OpenDAL or the database \
-             drivers."
+        children.push(note(&t_args(
+            "azdrive-add-more-sources",
+            &[("count", Arg::from(unavailable))],
         )));
     }
     children.push(buttons(vec![button(
         app,
-        "Cancel",
+        "kit-button-cancel",
         ButtonType::Default,
         AddEvent::Cancel,
         ids::ADD_CANCEL,
@@ -1118,36 +1120,27 @@ fn sign_in_row(
 ) -> Dom {
     let missing = sign_in::plan(provider.scheme, settings).err();
     let (text, failed) = match (&d.sign_in, &missing) {
-        (SignInStep::Idle, Some(why)) => (why.clone(), true),
-        (SignInStep::Idle, None) => (
-            String::from(
-                "Sign in with your browser; AzDrive keeps the refresh token in this computer's \
-                 keyring, never in its files.",
-            ),
-            false,
-        ),
-        (SignInStep::Waiting, _) => (
-            String::from("Waiting for the sign-in in your browser ..."),
-            false,
-        ),
-        (SignInStep::Exchanging, _) => (String::from("Signing in ..."), false),
+        (SignInStep::Idle, Some(why)) => (l10n::t_label(why), true),
+        (SignInStep::Idle, None) => (t("azdrive-add-sign-in-how"), false),
+        (SignInStep::Waiting, _) => (t("azdrive-add-sign-in-waiting"), false),
+        (SignInStep::Exchanging, _) => (t("azdrive-add-signing-in"), false),
         (SignInStep::SignedIn, _) => (
-            format!(
-                "Signed in to {}. Add drive keeps the refresh token in this computer's keyring.",
-                provider.name
-            ),
+            t_args("azdrive-add-signed-in", &[("provider", Arg::from(provider.name))]),
             false,
         ),
-        (SignInStep::Failed(why), _) => (why.clone(), true),
+        (SignInStep::Failed(why), _) => (l10n::t_label(why), true),
     };
     let why_not = missing
         .as_deref()
-        .or_else(|| d.signing_in().then_some("The sign-in runs."));
-    let label = if matches!(d.sign_in, SignInStep::SignedIn) {
-        format!("Sign in to {} again", provider.name)
-    } else {
-        format!("Sign in to {}", provider.name)
-    };
+        .or_else(|| d.signing_in().then_some("azdrive-add-sign-in-runs"));
+    let label = t_args(
+        if matches!(d.sign_in, SignInStep::SignedIn) {
+            "azdrive-add-sign-in-again"
+        } else {
+            "azdrive-add-sign-in-to"
+        },
+        &[("provider", Arg::from(provider.name))],
+    );
     let mut status = note(&text).with_id(ids::ADD_SIGN_IN_STATUS);
     if failed {
         status = status.with_css("color: #C42B1C; opacity: 1;");
@@ -1170,7 +1163,7 @@ fn sign_in_row(
 /// A source's form: its name, its fields, the test's sentence, Test connection / Add drive.
 fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
     let Some(spec) = d.spec() else {
-        return column(vec![back(app), error_line("Choose a source first.")]);
+        return column(vec![back(app), error_line("azdrive-add-choose-source-first")]);
     };
     let mut children = Vec::new();
     if d.editing.is_none() {
@@ -1181,14 +1174,12 @@ fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
         children.push(sign_in_row(d, sign_in, app, provider));
     }
     let mut fields = vec![
-        label("Name"),
+        label("azdrive-add-name"),
         text_field(app, &d.name, spec.name, false, TextTarget::Name).with_id(ids::ADD_NAME),
     ];
     fields.extend(spec.fields.iter().map(|f| field(d, app, f)));
     if spec.read_only {
-        fields.push(note(
-            "AzDrive browses this source; it does not write to it.",
-        ));
+        fields.push(note("azdrive-add-azdrive-browses-source-does"));
     }
     children.push(
         Dom::create_div()
@@ -1199,11 +1190,14 @@ fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
             .with_children(DomVec::from(fields)),
     );
     let status = if d.testing {
-        Some((String::from("Testing the connection ..."), false))
+        Some((t("azdrive-add-testing"), false))
     } else {
         match &d.tested {
-            Some(Ok(text)) => Some((text.clone(), false)),
-            Some(Err(text)) => Some((format!("The connection failed: {text}"), true)),
+            Some(Ok(text)) => Some((l10n::t_label(text), false)),
+            Some(Err(text)) => Some((
+                t_args("azdrive-add-test-failed", &[("why", Arg::from(l10n::t_label(text)))]),
+                true,
+            )),
             None => None,
         }
     };
@@ -1217,11 +1211,11 @@ fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
     if !d.error.is_empty() {
         children.push(error_line(&d.error));
     }
-    let busy = d.testing.then_some("The connection test runs.");
+    let busy = d.testing.then_some("azdrive-add-test-runs");
     children.push(buttons(vec![
         button(
             app,
-            "Test connection",
+            "azdrive-add-test-connection",
             ButtonType::Default,
             AddEvent::Test,
             ids::ADD_TEST,
@@ -1229,7 +1223,7 @@ fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
         ),
         button(
             app,
-            "Cancel",
+            "kit-button-cancel",
             ButtonType::Default,
             AddEvent::Cancel,
             ids::ADD_CANCEL,
@@ -1238,9 +1232,9 @@ fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
         button(
             app,
             if d.editing.is_some() {
-                "Save keys"
+                "azdrive-add-save-keys"
             } else {
-                "Add drive"
+                "azdrive-this-pc-add-drive"
             },
             ButtonType::Primary,
             AddEvent::Save,
@@ -1442,14 +1436,14 @@ extern "C" fn on_choose_path(mut data: RefAny, _info: CallbackInfo) -> Update {
     let picker = RefAny::new(KeyRef { app, key, folder });
     if folder {
         let _request = FileDialog::open_directory(
-            AzString::from("Choose a folder"),
+            l10n::label("azdrive-add-choose-folder"),
             OptionString::None,
             picker,
             on_path_picked,
         );
     } else {
         let _request = FileDialog::open_file(
-            AzString::from("Choose a database file"),
+            l10n::label("azdrive-add-choose-database"),
             OptionString::None,
             OptionFileTypeList::None,
             picker,

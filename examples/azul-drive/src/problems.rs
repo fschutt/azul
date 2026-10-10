@@ -1,6 +1,6 @@
 //! What AzDrive shows of a drive's errors (C11, D33): azcloud-kit's table
-//! ([`azcloud_kit::user_errors`]) in the user's language - from the environment's locale -
-//! with the request ID as the error ID. A storage error reads as the table's text wherever
+//! ([`azcloud_kit::user_errors`]), said by the engine in the window's language
+//! ([`crate::l10n::error_text`]), with the request ID as the error ID. A storage error reads as the table's text wherever
 //! AzDrive words it (a listing, a transfer); the drive in view keeps its problem in the status
 //! line (a transient one only after [`TRANSIENT_QUIET_SECS`]) until the drive answers again,
 //! and one the user must act on (sign in again, a full or unpaid drive) is a system
@@ -12,16 +12,13 @@
 //! recorded, `AZDRIVE_PROBLEM_NOTIFIED <drive id>` with its notification,
 //! `AZDRIVE_PROBLEM_GONE <drive id>` when it answers again.
 
-use std::{collections::HashMap, sync::OnceLock};
+use std::collections::HashMap;
 
-use azcloud_kit::{
-    user_errors::{Class, Lang},
-    UserError,
-};
+use azcloud_kit::{user_errors::Class, UserError};
 use azul::{notification::Notification, prelude::*};
-use azul_storage::DriveError;
+use azul_appkit::l10n::{translate_text, Text};
 
-use crate::{actions::now_secs, DriveState};
+use crate::{actions::now_secs, l10n::error_text, DriveState};
 
 /// A transient problem stays out of sight this long.
 pub(crate) const TRANSIENT_QUIET_SECS: u64 = 120;
@@ -29,37 +26,6 @@ pub(crate) const TRANSIENT_QUIET_SECS: u64 = 120;
 pub(crate) const NOTIFY_EVERY_SECS: u64 = 3_600;
 /// A transient problem that lasts this long notifies (once).
 pub(crate) const TRANSIENT_NOTIFY_SECS: u64 = 1_800;
-
-/// The language of the environment's locale: `LC_ALL`, `LC_MESSAGES`, `LANG` - the first one
-/// set and not empty ([`Lang::from_locale`]).
-#[must_use]
-pub(crate) fn lang_from(var: impl Fn(&str) -> Option<String>) -> Lang {
-    ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .iter()
-        .filter_map(|name| var(name))
-        .find(|value| !value.trim().is_empty())
-        .map_or(Lang::En, |locale| Lang::from_locale(&locale))
-}
-
-/// This run's language (read once).
-#[must_use]
-pub(crate) fn lang() -> Lang {
-    static LANG: OnceLock<Lang> = OnceLock::new();
-    *LANG.get_or_init(|| lang_from(|name| std::env::var(name).ok()))
-}
-
-/// The text of `e` in `lang`: a storage or token server error as the table words it, with its
-/// error ID; one the user caused (no such file, a name that cannot be one) as before.
-#[must_use]
-pub(crate) fn describe_in(e: &DriveError, lang: Lang) -> String {
-    UserError::from_drive_error(e).map_or_else(|| e.to_string(), |user| user.message(lang))
-}
-
-/// [`describe_in`] this run's language.
-#[must_use]
-pub(crate) fn describe(e: &DriveError) -> String {
-    describe_in(e, lang())
-}
 
 /// A drive's problem and since when it lasts.
 #[derive(Debug, Clone)]
@@ -187,7 +153,7 @@ pub(crate) fn drive_problem_for(
 ) {
     let id = problem.request_id.clone().unwrap_or_else(|| String::from("-"));
     println!("AZDRIVE_PROBLEM {drive_id} {} {id}", problem.code.as_str());
-    let text = problem.message(lang());
+    let text = error_text(&problem);
     if s.problems.record(drive_id, problem, now_secs()) {
         notify(info, s, drive_id, &text);
     }
@@ -197,14 +163,15 @@ pub(crate) fn drive_problem_for(
 /// half hour is up.
 pub(crate) fn notify_due(info: &mut CallbackInfo, s: &mut DriveState) {
     for (drive_id, problem) in s.problems.due(now_secs()) {
-        notify(info, s, &drive_id, &problem.message(lang()));
+        notify(info, s, &drive_id, &error_text(&problem));
     }
 }
 
-/// The system notification of `drive_id`'s problem `text` (`AZDRIVE_PROBLEM_NOTIFIED
-/// <drive>` on stdout).
-fn notify(info: &mut CallbackInfo, s: &DriveState, drive_id: &str, text: &str) {
+/// The system notification of `drive_id`'s problem `text`, in the window's language
+/// (`AZDRIVE_PROBLEM_NOTIFIED <drive>` on stdout).
+fn notify(info: &mut CallbackInfo, s: &DriveState, drive_id: &str, text: &Text) {
     let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
+    let text = translate_text(info, text);
     println!("AZDRIVE_PROBLEM_NOTIFIED {drive_id}");
     info.post_notification(
         Notification::create(format!("azdrive-problem-{drive_id}"), "AzDrive")
@@ -223,9 +190,7 @@ pub(crate) fn drive_answered(s: &mut DriveState) {
 
 /// The status line's words for the drive in view, when it has a problem to show.
 #[must_use]
-pub(crate) fn status_of(s: &DriveState) -> Option<String> {
+pub(crate) fn status_of(s: &DriveState) -> Option<Text> {
     let drive_id = s.current_drive_id()?;
-    s.problems
-        .shown(&drive_id, now_secs())
-        .map(|problem| problem.message(lang()))
+    s.problems.shown(&drive_id, now_secs()).map(error_text)
 }

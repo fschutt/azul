@@ -80,6 +80,9 @@ pub mod sample;
 pub mod sending;
 pub mod sync;
 pub mod todo;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 mod ui_account;
 mod ui_backstage;
 mod ui_bridge;
@@ -2099,7 +2102,10 @@ pub fn start() {
     // The app theme and the mode from settings.json (a --theme / --mode switch wins for this
     // run), and the kit's icons (Haiku's under flora, azul-icons-haiku); the window: NoTitle
     // (the app draws the title row), --size, a minimum size.
-    let config = kit::app_config(&kit_ref);
+    let mut config = kit::app_config(&kit_ref);
+    // AzMail's words and azcloud-kit's error table, in English and German (the engine's
+    // locale decides).
+    l10n::register(&mut config);
     let mut window = kit::window_options(
         &kit_ref,
         ui_main::layout_main,

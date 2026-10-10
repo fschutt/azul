@@ -38,12 +38,14 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     window::NetworkState,
 };
+use azul_appkit::l10n::{Phrase, Text};
 use azul_storage::{key, Drive};
 
 use crate::{
     browse::{self, Place},
     go,
     jobs::{Job, Outcome},
+    l10n::cloud_error_text,
     spawn,
     sync_view::{self, DriveSync, Running, SyncAction, SyncDialog},
     DriveState, Popup,
@@ -287,28 +289,29 @@ pub(crate) enum SyncOutcome {
     Opened {
         drive_id: String,
         key: String,
-        result: Result<PathBuf, String>,
+        result: Result<PathBuf, Text>,
         states: SyncStates,
     },
     /// A pin, a "Free up space", an answer: what to say (or why not), the states after.
     Changed {
         drive_id: String,
         done: SyncChange,
-        result: Result<String, String>,
+        result: Result<Text, Text>,
         states: SyncStates,
     },
 }
 
 /// What "Free up space" says.
-fn freed_text(freed: &Freed) -> String {
-    let mut text = format!(
-        "Freed {} on this computer; the drive keeps them.",
-        browse::counted(freed.freed.len(), "file", "files")
-    );
-    if let Some((key, why)) = freed.kept.first() {
-        text.push_str(&format!(" \"{}\" stays: {why}.", key::last_segment(key)));
+fn freed_text(freed: &Freed) -> Text {
+    let text = Text::from(Phrase::new("azdrive-sync-freed").arg("count", freed.freed.len()));
+    match freed.kept.first() {
+        Some((key, why)) => text.then(" ").then(
+            Phrase::new("azdrive-sync-freed-kept")
+                .arg("name", key::last_segment(key))
+                .arg("why", why.as_str()),
+        ),
+        None => text,
     }
-    text
 }
 
 /// Runs `job`; a pass tells its progress through `emit` while it runs.
@@ -345,7 +348,7 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
         }
         SyncJob::Open { work, key } => {
             let session = work.session();
-            let result = session.open(&key).map_err(|e| e.to_string());
+            let result = session.open(&key).map_err(|e| cloud_error_text(&e));
             SyncOutcome::Opened {
                 drive_id: work.drive_id(),
                 key,
@@ -358,19 +361,14 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let result = session
                 .pin(&keys, on)
                 .map(|_| {
-                    if on {
-                        format!(
-                            "{} always kept on this computer.",
-                            browse::counted(keys.len(), "item is", "items are")
-                        )
+                    let said = if on {
+                        "azdrive-sync-pinned"
                     } else {
-                        format!(
-                            "{} no longer always kept on this computer.",
-                            browse::counted(keys.len(), "item is", "items are")
-                        )
-                    }
+                        "azdrive-sync-unpinned"
+                    };
+                    Text::from(Phrase::new(said).arg("count", keys.len()))
                 })
-                .map_err(|e| e.to_string());
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Pinned(on),
@@ -383,7 +381,7 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let result = session
                 .free_up(&keys)
                 .map(|freed| freed_text(&freed))
-                .map_err(|e| e.to_string());
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Freed,
@@ -396,12 +394,9 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let result = session
                 .delete(&keys)
                 .map(|deleted| {
-                    format!(
-                        "{} deleted; the next sync deletes them on the drive.",
-                        browse::counted(deleted.len(), "file is", "files are")
-                    )
+                    Text::from(Phrase::new("azdrive-sync-deleted").arg("count", deleted.len()))
                 })
-                .map_err(|e| e.to_string());
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Deleted,
@@ -411,7 +406,10 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
         }
         SyncJob::Touch { work, key } => {
             let session = work.session();
-            let result = session.touch(&key).map(|()| key).map_err(|e| e.to_string());
+            let result = session
+                .touch(&key)
+                .map(|()| Text::plain(key))
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Touched,
@@ -423,8 +421,8 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let session = work.session();
             let result = session
                 .rename(&from, &to)
-                .map(|()| to.clone())
-                .map_err(|e| e.to_string());
+                .map(|()| Text::plain(to.clone()))
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Renamed,
@@ -437,8 +435,8 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let result = keys
                 .iter()
                 .try_for_each(|key| session.open(key).map(|_| ()))
-                .map(|()| format!("{} downloaded.", browse::counted(keys.len(), "file", "files")))
-                .map_err(|e| e.to_string());
+                .map(|()| Text::from(Phrase::new("azdrive-sync-fetched").arg("count", keys.len())))
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Fetched,
@@ -450,8 +448,8 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let session = work.session();
             let result = session
                 .answer_burst()
-                .map(|()| String::from("burst mine"))
-                .map_err(|e| e.to_string());
+                .map(|()| Text::plain("burst mine"))
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Answered,
@@ -464,13 +462,13 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let result = session
                 .answer_mass_delete(delete_too)
                 .map(|()| {
-                    String::from(if delete_too {
+                    Text::plain(if delete_too {
                         "mass-delete delete"
                     } else {
                         "mass-delete keep"
                     })
                 })
-                .map_err(|e| e.to_string());
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Answered,
@@ -482,8 +480,8 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             let session = work.session();
             let result = session
                 .resolve(&key, choice)
-                .map(|()| key.clone())
-                .map_err(|e| e.to_string());
+                .map(|()| Text::plain(key.clone()))
+                .map_err(|e| cloud_error_text(&e));
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Resolved(choice),
@@ -634,7 +632,7 @@ fn network_changed(s: &mut DriveState, network: NetworkState) -> bool {
 fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Option<SyncWork> {
     let setup = sync_view::setup_of(s, drive_id)?.clone();
     let Some(root) = state_root(s) else {
-        s.warn("There is no cache folder to keep the sync's state in.");
+        s.warn(Text::key("azdrive-sync-why-no-cache"));
         return None;
     };
     let index = s.slot_index(drive_id)?;
@@ -691,19 +689,18 @@ pub(crate) fn pair(
     drive_id: &str,
     folder: &str,
     prefix: &str,
-) -> Result<(), String> {
+) -> Result<(), Text> {
     if folder.is_empty() {
-        return Err(String::from("Type the folder on this computer."));
+        return Err(Text::key("azdrive-sync-pair-type-folder"));
     }
     let folder = PathBuf::from(folder);
     if !folder.is_absolute() {
-        return Err(String::from(
-            "Type the whole path of the folder (it starts at the top of the disk).",
-        ));
+        return Err(Text::key("azdrive-sync-pair-whole-path"));
     }
-    let prefix = azcloud_kit::sync::remote::normalize_prefix(prefix).map_err(|e| e.to_string())?;
+    let prefix = azcloud_kit::sync::remote::normalize_prefix(prefix)
+        .map_err(|e| Text::plain(e.to_string()))?;
     if sync_view::setup_of(s, drive_id).is_some() {
-        return Err(String::from("This drive syncs with a folder already."));
+        return Err(Text::key("azdrive-sync-pair-synced"));
     }
     if let Some(other) = s
         .settings
@@ -711,22 +708,18 @@ pub(crate) fn pair(
         .iter()
         .find(|p| folder.starts_with(&p.folder) || p.folder.starts_with(&folder))
     {
-        return Err(format!(
-            "{} syncs with another drive already; pick a folder outside it.",
-            other.folder.display()
-        ));
+        return Err(Phrase::new("azdrive-sync-pair-taken")
+            .arg("folder", other.folder.display().to_string())
+            .into());
     }
     let Some(place) = local_place(s, &folder) else {
-        return Err(String::from(
-            "The folder must lie in Home or in a folder added as a drive, so AzDrive can show it.",
-        ));
+        return Err(Text::key("azdrive-sync-pair-not-shown"));
     };
     if s.cache_dir.is_none() {
-        return Err(String::from(
-            "There is no cache folder to keep the sync's state in.",
-        ));
+        return Err(Text::key("azdrive-sync-why-no-cache"));
     }
-    std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    std::fs::create_dir_all(&folder)
+        .map_err(|e| Text::plain(format!("{}: {e}", folder.display())))?;
     s.settings
         .synced
         .push(SyncSetup::new(drive_id, &prefix, &folder));
@@ -760,7 +753,7 @@ pub(crate) fn stop(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, dr
     publish(s);
     crate::save_settings(info, app, s);
     println!("AZDRIVE_SYNC_STOPPED {drive_id}");
-    s.info("The drive no longer syncs; its files stay where they are.");
+    s.info(Text::key("azdrive-sync-stopped"));
 }
 
 /// Answers the conflict of `key` (D52), on a worker thread; a pass follows.
@@ -834,7 +827,7 @@ pub(crate) fn open_if_synced(
     let Some(work) = work_of(info, s, &drive_id) else {
         return true;
     };
-    s.info(format!("Opening \"{}\"...", entry.name));
+    s.info(Phrase::new("azdrive-opening").arg("name", entry.name.as_str()));
     spawn(info, app, s, Job::Sync(SyncJob::Open { work, key: rel }));
     true
 }
@@ -990,10 +983,7 @@ pub(crate) fn route_transfer(
                 let Some(work) = work_of(info, s, &drive_id) else {
                     return None;
                 };
-                s.info(format!(
-                    "Downloading {} from the drive first...",
-                    browse::counted(cloud.len(), "file", "files")
-                ));
+                s.info(Phrase::new("azdrive-sync-downloading-first").arg("count", cloud.len()));
                 s.sync_view.waiting_transfer = Some(t);
                 spawn(info, app, s, Job::Sync(SyncJob::Fetch { work, keys: cloud }));
                 return None;
@@ -1227,7 +1217,7 @@ pub(crate) fn run_action(
             let folder = sync_view::setup_of(s, &drive_id).map(|p| p.folder.clone());
             match folder.and_then(|f| local_place(s, &f)) {
                 Some(place) => go(info, app, s, place, true),
-                None => s.warn("The synced folder is not in a drive this window shows."),
+                None => s.warn(Text::key("azdrive-sync-folder-not-shown")),
             }
         }
     }
@@ -1321,10 +1311,12 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                         s.error(e);
                     }
                 }
-                Err(e) => s.error(format!(
-                    "Could not open \"{}\": {e}",
-                    key::last_segment(&key)
-                )),
+                Err(e) => s.error(
+                    Phrase::new("azdrive-sync-open-failed")
+                        .arg("name", key::last_segment(&key))
+                        .then(" ")
+                        .then(e),
+                ),
             }
             refresh_if_showing(info, app, s, &drive_id);
         }

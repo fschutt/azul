@@ -8,6 +8,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
+use azul_appkit::l10n::Arg;
 use azul_search::{ContentHit, LineMatch, NameHit, NameMatcher, Pattern, PatternKind};
 use azul_storage::{ListPage, ObjectInfo};
 
@@ -301,30 +302,31 @@ fn the_status_line_says_how_far_the_search_got() {
     let mut find = state("pick", true, false);
     let rows: Vec<Found> = (0..1234).map(|i| found(&format!("f{i}.txt"), None)).collect();
     find.merge(rows);
-    assert_eq!(find.status_text(), "Searching... 1,234 found");
+    let said = find.status_text();
+    assert_eq!(said.key, "azdrive-find-status-searching");
+    assert_eq!(said.get("count"), Some(&Arg::Int(1234)));
     find.phase = FindPhase::Contents;
-    assert_eq!(find.status_text(), "Searching file contents... 1,234 found");
+    assert_eq!(find.status_text().key, "azdrive-find-status-contents");
     find.end = Some(FindEnd::default());
     assert!(!find.running());
-    assert_eq!(find.status_text(), "1,234 items found");
+    assert_eq!(find.status_text().key, "azdrive-find-status-found");
     find.end = Some(FindEnd {
         limited: true,
         ..FindEnd::default()
     });
-    assert_eq!(find.status_text(), "1,234 items found (the first ones)");
+    assert_eq!(find.status_text().key, "azdrive-find-status-found-first");
     let cloud = state("pick", false, true);
-    assert_eq!(
-        cloud.status_text(),
-        "Searching names in the cloud (slower)... 0 found"
-    );
+    let said = cloud.status_text();
+    assert_eq!(said.key, "azdrive-find-status-cloud");
+    assert_eq!(said.get("count"), Some(&Arg::Int(0)));
     let mut nothing = state("zzz", false, false);
     nothing.end = Some(FindEnd::default());
-    assert_eq!(nothing.status_text(), "No items match your search.");
+    assert_eq!(nothing.status_text().key, "azdrive-find-none");
     nothing.end = Some(FindEnd {
         error: Some(String::from("\"(\" is not a regular expression")),
         ..FindEnd::default()
     });
-    assert!(nothing.status_text().starts_with("The search stopped: "));
+    assert_eq!(nothing.status_text().key, "azdrive-find-status-stopped");
 }
 
 /// The Folder column names where a result is: its folder from the drive's root.
@@ -413,7 +415,17 @@ fn the_refines_become_the_searchs_kinds_sizes_and_dates() {
     assert_eq!(refine.modified_from, Some(midnight(2026, 10, 8)));
     assert!(refine.extensions.iter().any(|e| e == "docx"));
     assert_eq!(refine.max_size, Some(16 * 1024));
-    assert_eq!(all.label(), "Date modified: Today, Kind: Document, Size: Tiny (0 - 16 KB)");
+    assert_eq!(
+        all.label().keys(),
+        [
+            "azdrive-refine-part-date",
+            "azdrive-refine-date-today",
+            "azdrive-refine-part-kind",
+            "azdrive-refine-kind-document",
+            "azdrive-refine-part-size",
+            "azdrive-refine-size-tiny",
+        ]
+    );
     for kind in KindRefine::ALL {
         assert!(!kind.label().is_empty());
     }
@@ -570,7 +582,7 @@ fn stale_results_go_when_the_fresh_listing_has_not_got_them() {
     assert_eq!(keys, vec!["Docs/b.txt"]);
     assert!(find.entry("Docs/a.txt").is_none() && find.lines.get("Docs/a.txt").is_none());
     assert!(find.entry("Docs/b.txt").is_some(), "the others keep their keys");
-    assert!(find.status_text().contains('1'));
+    assert_eq!(find.status_text().get("count"), Some(&Arg::Int(1)));
 }
 
 /// A document's line for its result: the first line of its text the search's text is on, the
@@ -617,15 +629,17 @@ fn an_index_says_how_far_it_got_and_is_asked_once_it_holds_the_drive() {
 
     let mut info = find::IndexInfo::default();
     assert!(!info.usable());
-    assert_eq!(info.status_text(), "Not indexed yet");
+    assert_eq!(info.status_text().key, "azdrive-index-status-never");
     info.progress = Some(UpdateProgress::default());
-    assert_eq!(info.status_text(), "Indexing: looking at the files...");
+    assert_eq!(info.status_text().key, "azdrive-index-status-looking");
     info.progress = Some(UpdateProgress {
         listed: 4000,
         to_read: 4000,
         read: 120,
     });
-    assert_eq!(info.status_text(), "Indexing: 120 of 4,000 files read...");
+    let reading = info.status_text();
+    assert_eq!(reading.key, "azdrive-index-status-reading");
+    assert_eq!(reading.get("count"), Some(&Arg::Int(4000)));
     info.status = Some(IndexStatus {
         files: 10,
         documents: 8,
@@ -638,11 +652,15 @@ fn an_index_says_how_far_it_got_and_is_asked_once_it_holds_the_drive() {
         documents: 3500,
         updated: Some(1_700_000_100),
     });
-    assert_eq!(info.status_text(), "Indexed: 4,000 files");
+    let indexed = info.status_text();
+    assert_eq!(indexed.key, "azdrive-index-status-indexed");
+    assert_eq!(indexed.get("count"), Some(&Arg::Int(4000)));
     info.error = Some(String::from("another window is updating this index"));
+    let failed = info.status_text();
+    assert_eq!(failed.key, "azdrive-index-status-failed");
     assert_eq!(
-        info.status_text(),
-        "The index could not be updated: another window is updating this index"
+        failed.get("error"),
+        Some(&Arg::from("another window is updating this index"))
     );
     let never = find::IndexInfo {
         status: Some(IndexStatus::default()),
@@ -674,7 +692,7 @@ fn a_drive_keeps_its_listing_unless_its_names_are_encrypted() {
 fn an_encrypted_drives_search_says_it_reads_the_drives_names() {
     let mut find = state("pick", false, true);
     find.drive_index = true;
-    assert_eq!(find.status_text(), "Searching the drive's names... 0 found");
+    assert_eq!(find.status_text().key, "azdrive-find-status-drive-names");
 }
 
 /// A result shows its sync state where its drive syncs (SYNC17's store answers through the
@@ -709,7 +727,7 @@ fn a_result_shows_its_sync_state_where_its_drive_syncs() {
     assert!(States.syncs() && !NoSync.syncs(), "a Status column only where something syncs");
     assert_eq!(
         SyncState::OnThisDevice.badge(),
-        ("check_circle", "Available on this device")
+        ("check_circle", "azdrive-sync-lookup-on-device")
     );
 }
 

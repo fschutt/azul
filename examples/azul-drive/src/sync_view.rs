@@ -61,12 +61,14 @@ use azul::{
     window::NetworkState,
 };
 
+use azul_appkit::l10n::{self, t, t_phrase, t_text, Phrase, Text};
+
 pub(crate) use crate::sync_store::SyncStore;
 use crate::{
     browse::{self, Entry, Place},
     ids,
     sync_jobs::{self, PassProgress},
-    ui_dialogs::{button, buttons, label, line, on_cancel_popup, typed_button},
+    ui_dialogs::{button, buttons, label, line, on_cancel_popup, text_line, typed_button},
     with_state, DriveState, Popup,
 };
 
@@ -116,7 +118,7 @@ pub(crate) struct SyncView {
 }
 
 /// The status line while a metered or low-data network holds big transfers back.
-pub(crate) const METERED_STATUS: &str = "Paused (metered network)";
+pub(crate) const METERED_STATUS: &str = "azdrive-sync-status-metered";
 
 const MB: u64 = 1024 * 1024;
 
@@ -154,67 +156,81 @@ pub(crate) fn status_text(
     azlin: bool,
     payment_due: bool,
     held: bool,
-) -> String {
+) -> Phrase {
     if setup.paused {
-        return String::from("Paused");
+        return Phrase::new("azdrive-sync-status-paused");
     }
     if azlin && payment_due {
-        return String::from("Read-only (payment due)");
+        return Phrase::new("azdrive-sync-status-payment-due");
     }
     if !states.newer_format.is_empty() {
-        return String::from("Read-only here: update the app to sync this drive");
+        return Phrase::new("azdrive-sync-status-newer-format");
     }
     if let Some(pause) = &states.burst {
-        return match pause.reason {
-            azcloud_kit::sync::guard::PauseReason::Burst => format!(
-                "Uploads paused: {} at once",
-                browse::counted(pause.changes, "change", "changes")
-            ),
-            azcloud_kit::sync::guard::PauseReason::Encryption => format!(
-                "Uploads paused: {} look encrypted",
-                browse::counted(pause.changes, "file", "files")
-            ),
+        let said = match pause.reason {
+            azcloud_kit::sync::guard::PauseReason::Burst => "azdrive-sync-status-burst",
+            azcloud_kit::sync::guard::PauseReason::Encryption => "azdrive-sync-status-encrypted",
         };
+        return Phrase::new(said).arg("count", pause.changes);
     }
     if let Some(asked) = &states.mass_delete {
-        return format!(
-            "Waiting for you: {} would be deleted",
-            browse::counted(asked.count, "file", "files")
-        );
+        return Phrase::new("azdrive-sync-status-mass-delete").arg("count", asked.count);
     }
     if !azlin && states.read_only {
-        return String::from("Read-only");
+        return Phrase::new("azdrive-sync-status-read-only");
     }
     if held {
-        return String::from(METERED_STATUS);
+        return Phrase::new(METERED_STATUS);
     }
     if let Some(running) = running {
         let p = &running.progress;
         let files = p.files_total.saturating_sub(p.files_done);
         if files == 0 {
-            return String::from("Syncing...");
+            return Phrase::new("azdrive-sync-status-syncing");
         }
         let bytes = p.bytes_total.saturating_sub(p.bytes_done);
-        return format!(
-            "Syncing {} ({})",
-            browse::counted(files, "file", "files"),
-            browse::format_size(Some(bytes))
-        );
+        return Phrase::new("azdrive-sync-status-syncing-files")
+            .arg("count", files)
+            .arg("size", browse::format_size(Some(bytes)));
     }
     let conflicts = states.conflicts().len();
     if conflicts > 0 {
-        return format!(
-            "Waiting for you: {}",
-            browse::counted(conflicts, "conflict", "conflicts")
-        );
+        return Phrase::new("azdrive-sync-status-conflicts").arg("count", conflicts);
     }
     if let Some(error) = &states.last_error {
-        return format!("Not synced: {error}");
+        return Phrase::new("azdrive-sync-status-failed").arg("error", error.as_str());
     }
     if states.last_pass.is_none() {
-        return String::from("Not synced yet");
+        return Phrase::new("azdrive-sync-status-never");
     }
-    String::from("Up to date")
+    Phrase::new("azdrive-sync-status-up-to-date")
+}
+
+/// Whether the status line says the drive takes no writes from here (its row's glyph).
+fn says_read_only(status: &Text) -> bool {
+    status.keys().iter().any(|key| {
+        matches!(
+            *key,
+            "azdrive-sync-status-payment-due"
+                | "azdrive-sync-status-newer-format"
+                | "azdrive-sync-status-read-only"
+        )
+    })
+}
+
+/// What a file's sync state says, in a sentence (a row's badge, its accessible name).
+#[must_use]
+pub(crate) fn state_text(state: &FileState) -> Phrase {
+    match state {
+        FileState::CloudOnly => Phrase::new("azdrive-sync-state-cloud-only"),
+        FileState::Downloading { .. } => Phrase::new("azdrive-sync-state-downloading"),
+        FileState::Uploading { .. } => Phrase::new("azdrive-sync-state-uploading"),
+        FileState::OnDevice => Phrase::new("azdrive-sync-state-on-device"),
+        FileState::OnDeviceEncrypted => Phrase::new("azdrive-sync-state-on-device-encrypted"),
+        FileState::Pinned => Phrase::new("azdrive-sync-state-pinned"),
+        FileState::Conflict => Phrase::new("azdrive-sync-state-conflict"),
+        FileState::Error(why) => Phrase::new("azdrive-sync-state-error").arg("error", why.as_str()),
+    }
 }
 
 /// Whether a pass of `setup`'s drive on `network` holds big transfers back, and from which
@@ -405,16 +421,10 @@ pub(crate) fn entry_state(s: &DriveState, entry: &Entry) -> Option<FileState> {
 /// that does not sync - Explorer's cloud (fetched when it is opened).
 pub(crate) fn badge(s: &DriveState, entry: &Entry) -> Option<(&'static str, String, &'static str)> {
     if let Some(state) = entry_state(s, entry) {
-        return Some((state_icon(&state), state.label(), state_tint(&state)));
+        return Some((state_icon(&state), t_phrase(&state_text(&state)), state_tint(&state)));
     }
     let cloud = !entry.is_folder && s.current_drive_id().is_some_and(|id| !s.is_local_drive(&id));
-    cloud.then(|| {
-        (
-            "cloud_queue",
-            String::from("In the cloud: fetched when it is opened"),
-            "opacity: 0.55;",
-        )
-    })
+    cloud.then(|| ("cloud_queue", t("azdrive-sync-in-the-cloud"), "opacity: 0.55;"))
 }
 
 /// The icon of `entry`'s state after its name ([`badge`]).
@@ -431,15 +441,18 @@ pub(crate) fn badge_dom(s: &DriveState, entry: &Entry) -> Option<Dom> {
 }
 
 /// §13.7's overlay from a drive's search index: a magnifier on a file it read as it is now, a
-/// slashed one on a file it never reads; nothing on one not read yet.
+/// slashed one on a file it never reads; nothing on one not read yet. (The icon, what it says
+/// as a key.)
 #[must_use]
 pub(crate) fn index_overlay(
     indexing: azul_search_index::FileIndexing,
 ) -> Option<(&'static str, &'static str)> {
     match indexing {
-        azul_search_index::FileIndexing::Indexed => Some(("manage_search", "In the search index")),
+        azul_search_index::FileIndexing::Indexed => {
+            Some(("manage_search", "azdrive-index-overlay-indexed"))
+        }
         azul_search_index::FileIndexing::NotIndexable => {
-            Some(("search_off", "Not indexable: no text, or too big"))
+            Some(("search_off", "azdrive-index-overlay-not-indexable"))
         }
         azul_search_index::FileIndexing::Unread => None,
     }
@@ -490,35 +503,23 @@ pub(crate) fn index_rows(states: &SyncStates, rel: &str, prefix: &str) -> Vec<En
 
 /// The mass delete's question, in AzDrive's words.
 #[must_use]
-pub(crate) fn mass_delete_text(asked: &azcloud_kit::sync::MassDelete) -> String {
-    if asked.here {
-        format!(
-            "The drive says {} of the {} files of this folder were deleted on another device. \
-             That may be a mistake, or ransomware: nothing was deleted here yet.",
-            asked.count, asked.of
-        )
+pub(crate) fn mass_delete_text(asked: &azcloud_kit::sync::MassDelete) -> Phrase {
+    let said = if asked.here {
+        "azdrive-sync-mass-delete-there"
     } else {
-        format!(
-            "{} of the {} files this folder held are gone from it (was a disk removed, or the \
-             folder emptied?). Nothing was deleted on the drive yet.",
-            asked.count, asked.of
-        )
-    }
+        "azdrive-sync-mass-delete-here"
+    };
+    Phrase::new(said).arg("count", asked.count).arg("of", asked.of)
 }
 
 /// What a synced row's preview says instead of its bytes: a file in the cloud only (its bytes
 /// are not here), or - `from_index`, a plain drive's own listing showing the sync's names - a
-/// file whose copy is in the synced folder. `None`: it previews as any file.
+/// file whose copy is in the synced folder. `None`: it previews as any file. The sentence's key.
 #[must_use]
 pub(crate) fn preview_note(state: &FileState, from_index: bool) -> Option<&'static str> {
     match state {
-        FileState::CloudOnly => Some(
-            "In the cloud only: open it to download it, or keep it on this device (Share > \
-             Sync).",
-        ),
-        _ if from_index => Some(
-            "Synced: its copy is in the synced folder - open it, or preview it there.",
-        ),
+        FileState::CloudOnly => Some("azdrive-preview-cloud-only"),
+        _ if from_index => Some("azdrive-preview-synced"),
         _ => None,
     }
 }
@@ -553,25 +554,23 @@ pub(crate) fn index_overlay_dom(s: &DriveState, entry: &Entry) -> Option<Dom> {
     Some(
         Dom::create_icon(AzString::from(icon))
             .with_class(ids::INDEX_STATE_CLASS)
-            .with_accessibility_name(says)
+            .with_accessibility_name(l10n::label(says))
             .with_css("font-size: 12px; margin-left: 2px; flex-shrink: 0; opacity: 0.55;"),
     )
 }
 
-/// The open folder's status line part: its pairing's status.
+/// The open folder's status line part: its pairing's status, in the window's language.
 pub(crate) fn status_for_place(s: &DriveState) -> Option<String> {
     let (drive_id, _) = place_in_pair(s)?;
-    Some(drive_status(s, &drive_id))
+    drive_status(s, &drive_id).map(|status| t_text(&status))
 }
 
 /// The status line of synced drive `drive_id`.
-pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> String {
-    let Some(setup) = setup_of(s, drive_id) else {
-        return String::new();
-    };
+pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> Option<Text> {
+    let setup = setup_of(s, drive_id)?;
     // A banned drive's sync pauses (ban contract v1): its uploads would be refused.
-    if let Some(text) = crate::ban::sync_status(s, drive_id) {
-        return text;
+    if let Some(said) = crate::ban::sync_status(s, drive_id) {
+        return Some(Text::from(said));
     }
     let azlin = s
         .slot_index(drive_id)
@@ -580,22 +579,22 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> String {
     let running = s.sync_view.drives.get(drive_id).and_then(|d| d.running.as_ref());
     let payment_due = s.sync_view.payment_due.contains(drive_id);
     let held = network_hold(s.sync_view.network.as_ref(), setup).is_some();
-    status_text(setup, &states, running, azlin, payment_due, held)
+    Some(status_text(setup, &states, running, azlin, payment_due, held).into())
 }
 
 /// A synced drive's state on its row of the source list: its glyph and its status line.
 pub(crate) fn sidebar_state(s: &DriveState, drive_id: &str) -> Option<(&'static str, String)> {
     let setup = setup_of(s, drive_id)?;
-    let text = drive_status(s, drive_id);
+    let status = drive_status(s, drive_id)?;
     let states = s.sync_view.store.states(drive_id);
     let running = s
         .sync_view
         .drives
         .get(drive_id)
         .is_some_and(|d| d.running.is_some());
-    let glyph = if setup.paused || text == METERED_STATUS {
+    let glyph = if setup.paused || status.keys() == [METERED_STATUS] {
         "pause_circle"
-    } else if text.starts_with("Read-only") {
+    } else if says_read_only(&status) {
         "cloud_off"
     } else if running {
         "sync"
@@ -608,7 +607,7 @@ pub(crate) fn sidebar_state(s: &DriveState, drive_id: &str) -> Option<(&'static 
     } else {
         "cloud_queue"
     };
-    Some((glyph, text))
+    Some((glyph, t_text(&status)))
 }
 
 /// The open folder's listing is in: an indexed drive's index answers are read again (its
@@ -680,9 +679,11 @@ pub(crate) fn print_changes(drive_id: &str, before: &SyncStates, after: &SyncSta
     }
 }
 
-/// Prints the drive's status line when it changed (`AZDRIVE_SYNC_STATUS <drive> <text>`).
+/// Prints the drive's status line when it changed (`AZDRIVE_SYNC_STATUS <drive> <status>`, the
+/// status as its key and arguments: `azdrive-sync-status-up-to-date`, the same in any
+/// language).
 pub(crate) fn say_status(s: &mut DriveState, drive_id: &str) {
-    let text = drive_status(s, drive_id);
+    let text = drive_status(s, drive_id).map_or_else(String::new, |status| status.to_string());
     let sync = s.sync_view.drives.entry(drive_id.to_string()).or_default();
     if sync.said != text {
         println!("AZDRIVE_SYNC_STATUS {drive_id} {text}");
@@ -696,30 +697,20 @@ pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
     let synced = target.as_deref().and_then(|id| setup_of(s, id));
     match what {
         SyncAction::Pair => match target.as_deref() {
-            None => Some(String::from("Open a cloud drive to sync it with a folder.")),
-            Some(id) if s.is_local_drive(id) => Some(String::from(
-                "This drive is on this computer already: open a cloud drive to sync it.",
-            )),
-            Some(_) if synced.is_some() => Some(String::from(
-                "This drive syncs with a folder already (Options > Drives).",
-            )),
-            Some(_) if s.cache_dir.is_none() => Some(String::from(
-                "There is no cache folder to keep the sync's state in.",
-            )),
+            None => Some(String::from("azdrive-sync-why-open-cloud")),
+            Some(id) if s.is_local_drive(id) => Some(String::from("azdrive-sync-why-local")),
+            Some(_) if synced.is_some() => Some(String::from("azdrive-sync-why-synced")),
+            Some(_) if s.cache_dir.is_none() => Some(String::from("azdrive-sync-why-no-cache")),
             Some(_) => None,
         },
-        SyncAction::Now | SyncAction::Pause | SyncAction::Stop | SyncAction::OpenFolder => {
-            synced.is_none().then(|| {
-                String::from("Open a synced folder or drive first (Share > Sync with a folder).")
-            })
-        }
+        SyncAction::Now | SyncAction::Pause | SyncAction::Stop | SyncAction::OpenFolder => synced
+            .is_none()
+            .then(|| String::from("azdrive-sync-why-open-synced")),
         SyncAction::KeepOnDevice | SyncAction::FreeUpSpace => {
             if s.selection.is_empty() {
-                Some(String::from("Select files or folders of a synced folder first."))
+                Some(String::from("azdrive-sync-why-select"))
             } else if selected_keys(s).is_none() {
-                Some(String::from(
-                    "Only the files of a synced folder are kept on this device or freed.",
-                ))
+                Some(String::from("azdrive-sync-why-only-synced"))
             } else {
                 None
             }
@@ -727,26 +718,25 @@ pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
     }
 }
 
-/// The sync's entries of a cloud drive's menu in the source list.
+/// The sync's entries of a cloud drive's menu in the source list (their keys).
 pub(crate) fn menu_entries(s: &DriveState, drive_id: &str) -> Vec<(String, SyncAction)> {
     match setup_of(s, drive_id) {
-        None if s.cache_dir.is_some() => vec![(
-            String::from("Sync with a folder on this computer\u{2026}"),
-            SyncAction::Pair,
-        )],
+        None if s.cache_dir.is_some() => {
+            vec![(String::from("azdrive-sync-menu-pair"), SyncAction::Pair)]
+        }
         None => Vec::new(),
         Some(setup) => vec![
-            (String::from("Open the synced folder"), SyncAction::OpenFolder),
-            (String::from("Sync now"), SyncAction::Now),
+            (String::from("azdrive-sync-menu-open-folder"), SyncAction::OpenFolder),
+            (String::from("azdrive-sync-menu-now"), SyncAction::Now),
             (
                 String::from(if setup.paused {
-                    "Resume syncing"
+                    "azdrive-sync-menu-resume"
                 } else {
-                    "Pause syncing"
+                    "azdrive-sync-menu-pause"
                 }),
                 SyncAction::Pause,
             ),
-            (String::from("Stop syncing\u{2026}"), SyncAction::Stop),
+            (String::from("azdrive-sync-menu-stop"), SyncAction::Stop),
         ],
     }
 }
@@ -760,7 +750,7 @@ pub(crate) enum SyncDialog {
         drive_id: String,
         folder: String,
         prefix: String,
-        error: String,
+        error: Text,
     },
     /// D52: "Someone changed this file" - keep mine, take theirs, keep both.
     Conflict { drive_id: String, key: String },
@@ -798,7 +788,7 @@ pub(crate) fn ask_pair(s: &mut DriveState, drive_id: &str) {
         drive_id: drive_id.to_string(),
         folder: default_folder(&home, &name).display().to_string(),
         prefix,
-        error: String::new(),
+        error: Text::default(),
     }));
 }
 
@@ -903,7 +893,7 @@ fn answer_button(text: &str, app: &RefAny, answer: Answer, id: AzString, primary
     } else {
         ButtonType::Default
     };
-    Button::with_type(AzString::from(text), kind)
+    Button::with_type(l10n::label(text), kind)
         .with_on_click(
             RefAny::new(AnswerRef {
                 app: app.clone(),
@@ -927,18 +917,14 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
         } => {
             let name = s.drive_name(&Place::folder(drive_id, ""));
             let mut body = column(vec![
-                line(
-                    "The files of the folder on this computer and of the drive's folder are kept \
-                     the same, both ways. New files under 25 MB come down by themselves; bigger \
-                     ones stay in the cloud until you open them (Options > Drives).",
-                ),
-                label("Folder on this computer"),
+                line("azdrive-sync-pair-what"),
+                label("azdrive-sync-pair-folder"),
                 TextInput::create()
                     .with_text(AzString::from(folder.as_str()))
                     .with_on_text_input(app.clone(), on_pair_folder as TextInputOnTextInputCallbackType)
                     .dom()
                     .with_id(ids::SYNC_FOLDER),
-                label("Folder of the drive (empty: the whole drive)"),
+                label("azdrive-sync-pair-prefix"),
                 TextInput::create()
                     .with_text(AzString::from(prefix.as_str()))
                     .with_placeholder(AzString::from("Documents/"))
@@ -947,13 +933,16 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                     .with_id(ids::SYNC_PREFIX),
             ]);
             if !error.is_empty() {
-                body.add_child(line(error).with_css("color: #C42B1C;"));
+                body.add_child(text_line(error).with_css("color: #C42B1C;"));
             }
             body.add_child(buttons(vec![
-                button("Cancel", app, on_cancel_popup),
-                answer_button("Sync", app, Answer::Pair, ids::SYNC_PAIR_OK, true),
+                button("kit-button-cancel", app, on_cancel_popup),
+                answer_button("azdrive-sync-pair-ok", app, Answer::Pair, ids::SYNC_PAIR_OK, true),
             ]));
-            (format!("Sync \"{name}\" with a folder"), body.with_id(ids::SYNC_PAIR))
+            (
+                l10n::t_args("azdrive-sync-pair-title", &[("name", l10n::Arg::from(name))]),
+                body.with_id(ids::SYNC_PAIR),
+            )
         }
         SyncDialog::Conflict { drive_id, key } => {
             let name = azul_storage::key::last_segment(key).to_string();
@@ -964,62 +953,78 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                 .files
                 .get(key)
                 .and_then(|r| r.conflict.clone());
-            let mut body = column(vec![line(&format!(
-                "\"{name}\" was changed on this computer and on the drive since they were last \
-                 the same."
-            ))
+            let mut body = column(vec![text_line(
+                &Phrase::new("azdrive-sync-conflict-what")
+                    .arg("name", name.as_str())
+                    .into(),
+            )
             .with_css("font-weight: bold;")]);
             if let Some(held) = &held {
                 let device = if held.there_device.is_empty() {
-                    String::from("another device")
+                    t("azdrive-sync-another-device")
                 } else {
                     held.there_device.clone()
                 };
-                body.add_child(line(&format!(
-                    "The drive's version: {}, from {device}.",
-                    browse::format_size(Some(held.there_size))
-                )));
+                body.add_child(text_line(
+                    &Phrase::new("azdrive-sync-conflict-theirs")
+                        .arg("size", browse::format_size(Some(held.there_size)))
+                        .arg("device", device)
+                        .into(),
+                ));
             }
             let choice = |text: &str, answer: Answer, id: AzString| {
                 answer_button(text, app, answer, id, false).with_css("margin-top: 8px;")
             };
             body.add_child(choice(
-                "Keep mine: the drive gets this computer's version",
+                "azdrive-sync-keep-mine",
                 Answer::KeepMine,
                 ids::SYNC_KEEP_MINE,
             ));
             body.add_child(choice(
-                "Take theirs: this computer gets the drive's version",
+                "azdrive-sync-take-theirs",
                 Answer::TakeTheirs,
                 ids::SYNC_TAKE_THEIRS,
             ));
             body.add_child(choice(
-                "Keep both: the drive's keeps the name, this computer's becomes a copy",
+                "azdrive-sync-keep-both",
                 Answer::KeepBoth,
                 ids::SYNC_KEEP_BOTH,
             ));
-            body.add_child(buttons(vec![button("Decide later", app, on_cancel_popup)]));
+            body.add_child(buttons(vec![button(
+                "azdrive-sync-decide-later",
+                app,
+                on_cancel_popup,
+            )]));
             (
-                String::from("Someone changed this file"),
+                t("azdrive-sync-conflict-title"),
                 body.with_id(ids::SYNC_CONFLICT),
             )
         }
         SyncDialog::Delete { drive_id, keys } => {
             let name = s.drive_name(&Place::folder(drive_id, ""));
-            let what = match keys.as_slice() {
-                [one] => format!("\"{}\"", azul_storage::key::last_segment(one)),
-                many => format!("these {} items", many.len()),
+            let one = match keys.as_slice() {
+                [one] => azul_storage::key::last_segment(one).to_string(),
+                _ => String::new(),
             };
             (
-                String::from("Delete from the drive"),
+                t("azdrive-sync-delete-title"),
                 column(vec![
-                    line(&format!(
-                        "Delete {what} from \"{name}\"? The next sync deletes them on the \
-                         drive, here and on your other devices."
-                    )),
+                    text_line(
+                        &Phrase::new("azdrive-sync-delete-what")
+                            .arg("count", keys.len())
+                            .arg("one", one)
+                            .arg("drive", name)
+                            .into(),
+                    ),
                     buttons(vec![
-                        button("Cancel", app, on_cancel_popup),
-                        answer_button("Delete", app, Answer::Delete, ids::SYNC_DELETE_OK, true),
+                        button("kit-button-cancel", app, on_cancel_popup),
+                        answer_button(
+                            "azdrive-delete-button",
+                            app,
+                            Answer::Delete,
+                            ids::SYNC_DELETE_OK,
+                            true,
+                        ),
                     ]),
                 ])
                 .with_id(ids::SYNC_DELETE),
@@ -1031,93 +1036,94 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
             let mut body = column(vec![]);
             if let Some(pause) = &states.burst {
                 let what = match pause.reason {
-                    azcloud_kit::sync::guard::PauseReason::Burst => format!(
-                        "{} were changed or deleted in a few minutes.",
-                        browse::counted(pause.changes, "file", "files")
-                    ),
-                    azcloud_kit::sync::guard::PauseReason::Encryption => format!(
-                        "{} turned into what looks like encrypted data.",
-                        browse::counted(pause.changes, "file", "files")
-                    ),
+                    azcloud_kit::sync::guard::PauseReason::Burst => "azdrive-sync-burst-changed",
+                    azcloud_kit::sync::guard::PauseReason::Encryption => {
+                        "azdrive-sync-burst-encrypted"
+                    }
                 };
-                body.add_child(line(&format!(
-                    "{what} AzDrive stopped sending changes of \"{name}\" to the drive - what \
-                     the drive changes still comes here."
-                )));
-                body.add_child(label("The changes"));
+                body.add_child(text_line(
+                    &Phrase::new(what)
+                        .arg("count", pause.changes)
+                        .then(" ")
+                        .then(Phrase::new("azdrive-sync-burst-stopped").arg("name", name.as_str())),
+                ));
+                body.add_child(label("azdrive-sync-burst-changes"));
                 for file in &pause.files {
                     body.add_child(line(file).with_css("font-size: 12px; margin-top: 2px;"));
                 }
             }
             body.add_child(buttons(vec![
-                button("Decide later", app, on_cancel_popup),
-                answer_button("I was hacked\u{2026}", app, Answer::Hacked, ids::SYNC_BURST_HACKED, false),
+                button("azdrive-sync-decide-later", app, on_cancel_popup),
                 answer_button(
-                    "These changes are mine",
+                    "azdrive-sync-i-was-hacked-button",
+                    app,
+                    Answer::Hacked,
+                    ids::SYNC_BURST_HACKED,
+                    false,
+                ),
+                answer_button(
+                    "azdrive-sync-changes-are-mine",
                     app,
                     Answer::BurstMine,
                     ids::SYNC_BURST_MINE,
                     true,
                 ),
             ]));
-            (
-                String::from("Many files changed at once"),
-                body.with_id(ids::SYNC_BURST),
-            )
+            (t("azdrive-sync-burst-title"), body.with_id(ids::SYNC_BURST))
         }
         SyncDialog::Hacked { drive_id } => {
             let azlin = s
                 .slot_index(drive_id)
                 .is_some_and(|i| s.slots[i].entry.azlin().is_some());
-            let mut body = column(vec![line(
-                "Lock the drive down (every other computer, key and link loses access) and put \
-                 its files back as they were before the changes.",
-            )]);
-            let mut actions = vec![button("Close", app, on_cancel_popup)];
+            let mut body = column(vec![line("azdrive-sync-hacked-what")]);
+            let mut actions = vec![button("azdrive-button-close", app, on_cancel_popup)];
             if azlin {
                 #[cfg(feature = "encryption")]
                 actions.push(answer_button(
-                    "Lock it down\u{2026}",
+                    "azdrive-sync-lock-down",
                     app,
                     Answer::LockDown,
                     ids::SYNC_HACKED_LOCKDOWN,
                     false,
                 ));
                 actions.push(answer_button(
-                    "Restore as of\u{2026}",
+                    "azdrive-options-restore",
                     app,
                     Answer::Restore,
                     ids::SYNC_HACKED_RESTORE,
                     true,
                 ));
             } else {
-                body.add_child(line(
-                    "Only an Azlin drive can be locked down and restored by AzDrive: do it at the \
-                     storage service's console.",
-                ));
+                body.add_child(line("azdrive-sync-hacked-not-azlin"));
             }
             body.add_child(buttons(actions));
-            (String::from("I was hacked"), body.with_id(ids::SYNC_HACKED))
+            (t("azdrive-sync-hacked-title"), body.with_id(ids::SYNC_HACKED))
         }
         SyncDialog::MassDelete { drive_id } => {
             let states = s.sync_view.store.states(drive_id);
             let mut body = column(vec![]);
             let here = states.mass_delete.as_ref().is_some_and(|m| m.here);
             if let Some(asked) = &states.mass_delete {
-                body.add_child(line(&mass_delete_text(asked)));
-                body.add_child(label("The files"));
+                body.add_child(text_line(&mass_delete_text(asked).into()));
+                body.add_child(label("azdrive-sync-mass-files"));
                 for key in asked.keys.iter().take(20) {
                     body.add_child(line(key).with_css("font-size: 12px; margin-top: 2px;"));
                 }
             }
             body.add_child(buttons(vec![
-                button("Decide later", app, on_cancel_popup),
-                answer_button("Keep them", app, Answer::KeepFiles, ids::SYNC_MASS_KEEP, false),
+                button("azdrive-sync-decide-later", app, on_cancel_popup),
+                answer_button(
+                    "azdrive-sync-mass-keep",
+                    app,
+                    Answer::KeepFiles,
+                    ids::SYNC_MASS_KEEP,
+                    false,
+                ),
                 answer_button(
                     if here {
-                        "Delete them here too"
+                        "azdrive-sync-mass-delete-here-too"
                     } else {
-                        "Delete them on the drive too"
+                        "azdrive-sync-mass-delete-there-too"
                     },
                     app,
                     Answer::DeleteFiles,
@@ -1125,10 +1131,7 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                     true,
                 ),
             ]));
-            (
-                String::from("Delete most of the files?"),
-                body.with_id(ids::SYNC_MASS),
-            )
+            (t("azdrive-sync-mass-title"), body.with_id(ids::SYNC_MASS))
         }
         SyncDialog::Stop { drive_id } => {
             let name = s.drive_name(&Place::folder(drive_id, ""));
@@ -1136,15 +1139,16 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                 .map(|p| p.folder.display().to_string())
                 .unwrap_or_default();
             (
-                format!("Stop syncing \"{name}\"?"),
+                l10n::t_args("azdrive-sync-stop-title", &[("name", l10n::Arg::from(name))]),
                 column(vec![
-                    line(&format!(
-                        "The files stay where they are: on the drive, and in {folder}. Changes \
-                         no longer travel between them."
-                    )),
+                    text_line(
+                        &Phrase::new("azdrive-sync-stop-what")
+                            .arg("folder", folder)
+                            .into(),
+                    ),
                     buttons(vec![
-                        button("Cancel", app, on_cancel_popup),
-                        typed_button("Stop syncing", ButtonType::Primary, app, on_stop),
+                        button("kit-button-cancel", app, on_cancel_popup),
+                        typed_button("azdrive-sync-stop-button", ButtonType::Primary, app, on_stop),
                     ]),
                 ]),
             )
@@ -1182,7 +1186,7 @@ fn typed(data: &mut RefAny, state: &TextInputState, is_folder: bool) -> OnTextIn
         } else {
             *prefix = text;
         }
-        error.clear();
+        *error = Text::default();
     }
     keep
 }
@@ -1301,6 +1305,18 @@ fn auto_choices(mb: u64) -> [AutoDownload; 4] {
     ]
 }
 
+/// An auto-download choice as the settings page says it.
+fn auto_label(choice: AutoDownload) -> String {
+    match choice {
+        AutoDownload::Everything => t("azdrive-sync-auto-everything"),
+        AutoDownload::NewUnder(mb) => {
+            l10n::t_args("azdrive-sync-auto-new-under", &[("mb", l10n::Arg::from(mb))])
+        }
+        AutoDownload::PinnedOnly => t("azdrive-sync-auto-pinned"),
+        AutoDownload::Nothing => t("azdrive-sync-auto-nothing"),
+    }
+}
+
 /// The setup's "new files under" size (the default while another choice is made).
 fn under_mb(setup: &SyncSetup) -> u64 {
     match setup.auto_download {
@@ -1326,37 +1342,39 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
             .with_css("display: flex; flex-direction: column; padding: 6px 0px;")
             .with_child(Dom::create_span_with_text(AzString::from(format!(
                 "{name} - {}",
-                drive_status(s, id)
+                drive_status(s, id).map(|status| t_text(&status)).unwrap_or_default()
             ))))
             .with_child(
-                Dom::create_span_with_text(AzString::from(format!(
-                    "{} with {}",
-                    setup.folder.display(),
+                Dom::create_span_with_text(AzString::from(l10n::t_args(
                     if setup.prefix.is_empty() {
-                        String::from("the whole drive")
+                        "azdrive-sync-pairing-whole"
                     } else {
-                        format!("its folder {}", setup.prefix)
-                    }
+                        "azdrive-sync-pairing-folder"
+                    },
+                    &[
+                        ("folder", l10n::Arg::from(setup.folder.display().to_string())),
+                        ("prefix", l10n::Arg::from(setup.prefix.as_str())),
+                    ],
                 )))
                 .with_css(small),
             )
-            .with_child(label("Download by themselves"))
+            .with_child(label("azdrive-sync-auto-download"))
             .with_child(
                 DropDown::create(StringVec::from(
                     choices
                         .iter()
-                        .map(|c| AzString::from(c.label()))
+                        .map(|c| AzString::from(auto_label(*c)))
                         .collect::<Vec<_>>(),
                 ))
                 .with_selected(selected)
-                .with_accessibility_name(AzString::from("Download by themselves"))
+                .with_accessibility_name(l10n::label("azdrive-sync-auto-download"))
                 .with_on_choice_change(
                     setting_ref(app, id),
                     on_auto_download as DropDownOnChoiceChangeCallbackType,
                 )
                 .dom(),
             )
-            .with_child(label("New files under (MB)"))
+            .with_child(label("azdrive-sync-under-mb"))
             .with_child(
                 TextInput::create()
                     .with_text(AzString::from(mb.to_string()))
@@ -1366,7 +1384,7 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                     )
                     .dom(),
             )
-            .with_child(label("Keep local copies at most (GB; empty: no limit)"))
+            .with_child(label("azdrive-sync-keep-gb"))
             .with_child(
                 TextInput::create()
                     .with_text(AzString::from(
@@ -1378,13 +1396,7 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                     )
                     .dom(),
             )
-            .with_child(
-                line(
-                    "The least recently used files are freed first; files kept on this device \
-                     (pinned) never are.",
-                )
-                .with_css(small),
-            )
+            .with_child(line("azdrive-sync-keep-gb-note").with_css(small))
             .with_child(
                 Dom::create_div()
                     .with_css(
@@ -1392,7 +1404,7 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                     )
                     .with_child(
                         CheckBox::create(setup.sync_on_metered)
-                            .with_accessibility_name(AzString::from(SYNC_ANYWAY))
+                            .with_accessibility_name(l10n::label(SYNC_ANYWAY))
                             .with_on_toggle(
                                 setting_ref(app, id),
                                 on_sync_on_metered as CheckBoxOnToggleCallbackType,
@@ -1401,29 +1413,31 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                             .with_id(ids::sync_on_metered(id)),
                     )
                     .with_child(
-                        Dom::create_span_with_text(AzString::from(SYNC_ANYWAY))
+                        Dom::create_span_with_text(l10n::label(SYNC_ANYWAY))
                             .with_css("margin-left: 8px;"),
                     ),
             )
             .with_child(
-                line(&format!(
-                    "On a metered or low-data network (a phone's hotspot, a capped plan, Low Data \
-                     Mode) files over {mb} MB wait for a free one; smaller files sync as always."
-                ))
+                line(&l10n::t_args("azdrive-sync-metered-note", &[("mb", l10n::Arg::from(mb))]))
                 .with_css(small),
             );
         if names_its_files(s, id) {
             let copies = [LocalCopies::Decrypted, LocalCopies::Encrypted];
-            row.add_child(label("Local copies"));
+            row.add_child(label("azdrive-sync-local-copies"));
             row.add_child(
                 DropDown::create(StringVec::from(
                     copies
                         .iter()
-                        .map(|c| AzString::from(c.label()))
+                        .map(|c| {
+                            l10n::label(match c {
+                                LocalCopies::Decrypted => "azdrive-sync-copies-decrypted",
+                                LocalCopies::Encrypted => "azdrive-sync-copies-encrypted",
+                            })
+                        })
                         .collect::<Vec<_>>(),
                 ))
                 .with_selected(usize::from(setup.local_copies == LocalCopies::Encrypted))
-                .with_accessibility_name(AzString::from("Local copies"))
+                .with_accessibility_name(l10n::label("azdrive-sync-local-copies"))
                 .with_on_choice_change(
                     setting_ref(app, id),
                     on_local_copies as DropDownOnChoiceChangeCallbackType,
@@ -1432,7 +1446,7 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
             );
         }
         let action = |text: &str, what: SyncAction| {
-            Button::create(AzString::from(text))
+            Button::create(l10n::label(text))
                 .with_on_click(
                     RefAny::new(ActionRef {
                         app: app.clone(),
@@ -1447,20 +1461,21 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
         row.add_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row;")
-                .with_child(action("Sync now", SyncAction::Now))
+                .with_child(action("azdrive-sync-menu-now", SyncAction::Now))
                 .with_child(action(
-                    if setup.paused { "Resume" } else { "Pause" },
+                    if setup.paused {
+                        "azdrive-sync-resume"
+                    } else {
+                        "azdrive-sync-pause"
+                    },
                     SyncAction::Pause,
                 ))
-                .with_child(action("Stop syncing\u{2026}", SyncAction::Stop)),
+                .with_child(action("azdrive-sync-menu-stop", SyncAction::Stop)),
         );
         rows.push(row);
     }
     if rows.is_empty() {
-        rows.push(line(
-            "No drive syncs with a folder yet: a cloud drive's menu in the source list (or Share > \
-             Sync with a folder) pairs it with one.",
-        ));
+        rows.push(line("azdrive-sync-none"));
     }
     Dom::create_div()
         .with_id(ids::SYNC_OPTIONS)
@@ -1487,7 +1502,7 @@ extern "C" fn on_drive_action(mut data: RefAny, mut info: CallbackInfo) -> Updat
 }
 
 /// The Options' check box that syncs a drive on a metered network too.
-const SYNC_ANYWAY: &str = "Sync anyway on this network";
+const SYNC_ANYWAY: &str = "azdrive-sync-anyway";
 
 /// "Sync anyway on this network" ticked or not: kept with the drive's sync settings; the status
 /// line says so at once, and a drive now free syncs its big files right away.

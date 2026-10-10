@@ -37,12 +37,15 @@ use azul::{
     prelude::*,
     str::String as AzString,
 };
-use azul_appkit::pieces::{block, text};
+use azul_appkit::{
+    l10n::{self, t, t_args, t_label, Arg, Phrase, Text},
+    pieces::{block, text},
+};
 use azul_storage::key;
 
 use crate::{
     actions::{self, action_ref, menu_item, on_action, Action},
-    browse::{self, Place},
+    browse::Place,
     go, ids,
     keys::{Key, Mods},
     look,
@@ -62,13 +65,13 @@ pub(crate) enum Section {
 }
 
 impl Section {
-    /// The title (shown in capitals).
+    /// The title (shown in capitals; a key of the resources).
     #[must_use]
     pub(crate) fn title(self) -> &'static str {
         match self {
-            Section::Favorites => "Favorites",
-            Section::Locations => "Locations",
-            Section::Cloud => "Cloud",
+            Section::Favorites => "azdrive-side-favorites",
+            Section::Locations => "azdrive-side-locations",
+            Section::Cloud => "azdrive-side-cloud",
         }
     }
 
@@ -110,7 +113,8 @@ pub(crate) struct Favorite {
     pub icon: &'static str,
 }
 
-/// Finder's standard folders, in its order: (the folder, its icon).
+/// Finder's standard folders, in its order: (the folder, its icon). Their rows say them in the
+/// window's language ([`standard_label`]); the folders keep their names.
 const STANDARD: [(&str, &str); 7] = [
     ("Desktop", "desktop_windows"),
     ("Documents", "description"),
@@ -120,6 +124,21 @@ const STANDARD: [(&str, &str); 7] = [
     ("Videos", "movie"),
     ("Movies", "movie"),
 ];
+
+/// A standard folder's row label: Finder's name for it in the window's language (a key), any
+/// other folder's name as it is.
+fn standard_label(name: &str) -> &str {
+    match name {
+        "Desktop" => "azdrive-standard-desktop",
+        "Documents" => "azdrive-standard-documents",
+        "Downloads" => "azdrive-standard-downloads",
+        "Pictures" => "azdrive-standard-pictures",
+        "Music" => "azdrive-standard-music",
+        "Videos" => "azdrive-standard-videos",
+        "Movies" => "azdrive-standard-movies",
+        other => other,
+    }
+}
 
 /// The standard folders the folder `home` (the Home drive's) holds, in Finder's order.
 #[must_use]
@@ -321,12 +340,16 @@ pub(crate) fn rows(src: &Sources) -> Vec<Row> {
     out.push(section_row(Section::Favorites, src.open[0]));
     if src.open[0] {
         out.push(
-            Row::new(RowKind::Go(Place::QuickAccess), browse::QUICK_ACCESS, "star")
+            Row::new(RowKind::Go(Place::QuickAccess), "azdrive-quick-access", "star")
                 .with_id(ids::SIDE_QUICK_ACCESS),
         );
         for f in src.standard {
             out.push(
-                Row::new(RowKind::Go(Place::folder(HOME_ID, &f.prefix)), &f.name, f.icon)
+                Row::new(
+                    RowKind::Go(Place::folder(HOME_ID, &f.prefix)),
+                    standard_label(&f.name),
+                    f.icon,
+                )
                     .with_id(ids::side_favorite(&f.name)),
             );
         }
@@ -349,7 +372,7 @@ pub(crate) fn rows(src: &Sources) -> Vec<Row> {
     out.push(section_row(Section::Locations, src.open[1]));
     if src.open[1] {
         out.push(
-            Row::new(RowKind::Go(Place::ThisPc), browse::THIS_PC, "computer")
+            Row::new(RowKind::Go(Place::ThisPc), "azdrive-this-pc", "computer")
                 .with_id(ids::SIDE_THIS_PC),
         );
         for (i, drive) in src.drives.iter().enumerate().filter(|(_, d)| d.local) {
@@ -362,7 +385,7 @@ pub(crate) fn rows(src: &Sources) -> Vec<Row> {
             drive_rows(src, i, drive, &mut out);
         }
         out.push(
-            Row::new(RowKind::AddDrive, "Add drive\u{2026}", "add_link")
+            Row::new(RowKind::AddDrive, "azdrive-side-add-drive", "add_link")
                 .with_id(ids::SIDE_ADD_DRIVE),
         );
     }
@@ -532,38 +555,38 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
     let RowKind::Go(place) = &row.kind else {
         return Vec::new();
     };
-    let mut entries = vec![(String::from("Open"), SideAction::Go(place.clone()))];
+    let mut entries = vec![(String::from("azdrive-menu-open"), SideAction::Go(place.clone()))];
     if let Some(index) = row.pin {
         entries.push((
-            String::from("Remove from Favorites"),
+            String::from("azdrive-side-unpin"),
             SideAction::Unpin(index),
         ));
     }
     if let Some(slot) = row.drive.and_then(|i| s.slots.get(i)) {
         entries.push((
-            String::from("Properties"),
+            String::from("azdrive-menu-properties"),
             SideAction::Properties(slot.entry.id.clone()),
         ));
         #[cfg(feature = "encryption")]
         if slot.entry.azlin().is_some() && crate::encryption::offered() {
             entries.push((
-                String::from("Encrypt this drive\u{2026}"),
+                String::from("azdrive-side-encrypt"),
                 SideAction::Encrypt(slot.entry.id.clone()),
             ));
             entries.push((
-                String::from("Unlock with the recovery code\u{2026}"),
+                String::from("azdrive-side-unlock"),
                 SideAction::Unlock(slot.entry.id.clone()),
             ));
             entries.push((
-                String::from("I was hacked: new keys\u{2026}"),
+                String::from("azdrive-side-rotate"),
                 SideAction::Rotate(slot.entry.id.clone()),
             ));
             entries.push((
-                String::from("Lock down with the recovery code\u{2026}"),
+                String::from("azdrive-side-lockdown"),
                 SideAction::RecoveryLockdown(slot.entry.id.clone()),
             ));
             entries.push((
-                String::from("Recover with trusted contacts\u{2026}"),
+                String::from("azdrive-side-contacts-recover"),
                 SideAction::ContactsRecover(slot.entry.id.clone()),
             ));
         }
@@ -576,13 +599,16 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
         }
         if slot.entry.azlin().is_some() {
             entries.push((
-                String::from("Restore as of\u{2026}"),
+                String::from("azdrive-options-restore"),
                 SideAction::Restore(slot.entry.id.clone()),
             ));
         }
         if !slot.is_built_in() {
             entries.push((
-                format!("Remove \"{}\"\u{2026}", slot.entry.name),
+                t_args(
+                    "azdrive-side-remove-drive",
+                    &[("name", Arg::from(slot.entry.name.as_str()))],
+                ),
                 SideAction::Eject(slot.entry.id.clone()),
             ));
         }
@@ -597,7 +623,7 @@ fn menu_of(app: &RefAny, entries: Vec<(String, SideAction)>) -> Menu {
             .into_iter()
             .map(|(label, action)| {
                 MenuItem::String(
-                    StringMenuItem::create(AzString::from(label))
+                    StringMenuItem::create(azul_appkit::l10n::label(&label))
                         .with_callback(row_ref(app, action), on_row_click),
                 )
             })
@@ -631,7 +657,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
         SideAction::Unpin(index) => {
             if index < s.settings.pinned.len() {
                 let pin = s.settings.pinned.remove(index);
-                s.info(format!("\"{}\" left Favorites.", pin.name));
+                s.info(Phrase::new("azdrive-side-unpinned").arg("name", pin.name.as_str()));
                 println!("AZDRIVE_DONE pinned {}", s.settings.pinned.len());
                 save_settings(info, app, s);
             }
@@ -710,10 +736,10 @@ fn pin_dropped(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         added += 1;
     }
     if added == 0 {
-        s.warn("Drop folders on Favorites to pin them.");
+        s.warn(Text::key("azdrive-side-drop-folders"));
         return;
     }
-    s.success(format!("{} pinned to Favorites.", browse::counted(added, "folder", "folders")));
+    s.success(Phrase::new("azdrive-side-pinned").arg("count", added));
     println!("AZDRIVE_DONE pinned {}", s.settings.pinned.len());
     save_settings(info, app, s);
 }
@@ -792,14 +818,17 @@ extern "C" fn on_add_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Place::Folder { drive, prefix } => s.settings.is_pinned(drive, prefix),
         _ => false,
     };
-    let pin_label = if pinned {
-        format!("Remove \"{}\" from Favorites", s.place_name())
-    } else {
-        format!("Pin \"{}\" to Favorites", s.place_name())
-    };
+    let pin_label = t_args(
+        if pinned {
+            "azdrive-side-unpin-place"
+        } else {
+            "azdrive-side-pin-place"
+        },
+        &[("name", Arg::from(s.place_name()))],
+    );
     let items = vec![
-        menu_item(&app, "Add drive\u{2026}", Action::AddDrive, false),
-        menu_item(&app, "Add a folder as a drive\u{2026}", Action::AddLocalDrive, false),
+        menu_item(&app, "azdrive-side-add-drive", Action::AddDrive, false),
+        menu_item(&app, "azdrive-menu-add-local-drive", Action::AddLocalDrive, false),
         MenuItem::separator(),
         menu_item(
             &app,
@@ -838,15 +867,15 @@ fn cloud_state(s: &DriveState, index: usize) -> (&'static str, String, usize) {
         .filter(|t| t.source_id == id || t.target_id == id)
         .count();
     if busy > 0 {
-        ("sync", String::from("Syncing"), busy)
+        ("sync", t("azdrive-side-state-busy"), busy)
     } else if let Some((glyph, says)) = crate::sync_view::sidebar_state(s, id) {
         (glyph, says, 0)
     } else if slot.locked() {
-        ("lock", String::from("Its keys are in the keyring"), 0)
+        ("lock", t("azdrive-side-state-locked"), 0)
     } else if slot.drive.is_some() {
-        ("cloud_done", String::from("Connected"), 0)
+        ("cloud_done", t("azdrive-side-state-connected"), 0)
     } else {
-        ("cloud_queue", String::from("Not opened yet"), 0)
+        ("cloud_queue", t("azdrive-side-state-not-opened"), 0)
     }
 }
 
@@ -868,12 +897,12 @@ fn section_dom(app: &RefAny, row: &Row, section: Section, stop: bool) -> Dom {
         } else {
             TabIndex::NoKeyboardFocus
         })
-        .with_accessibility_name(section.title())
+        .with_accessibility_name(l10n::label(section.title()))
         .with_child(
             Dom::create_icon(if open { "arrow_drop_down" } else { "arrow_right" })
                 .with_css(look::TRIANGLE),
         )
-        .with_child(block(look::SECTION_TITLE, text(section.title())))
+        .with_child(block(look::SECTION_TITLE, text(l10n::label(section.title()))))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
             row_ref(app, SideAction::Section(section)),
@@ -922,7 +951,7 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
         } else {
             TabIndex::NoKeyboardFocus
         })
-        .with_accessibility_name(row.label.as_str());
+        .with_accessibility_name(l10n::label(&row.label));
     if let Some(id) = &row.id {
         dom = dom.with_id(AzString::from(id.as_str()));
     }
@@ -933,7 +962,11 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
         (Some(open), Some(node)) => {
             Dom::create_icon(if open { "arrow_drop_down" } else { "arrow_right" })
                 .with_css(look::TRIANGLE)
-                .with_accessibility_name(if open { "Close" } else { "Open" })
+                .with_accessibility_name(l10n::label(if open {
+                    "azdrive-side-collapse"
+                } else {
+                    "azdrive-side-expand"
+                }))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
                     row_ref(app, SideAction::Expand(node)),
@@ -947,7 +980,7 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
         look::ROW_ICON,
         if selected { "" } else { look::ICON_TINT }
     )));
-    dom.add_child(block(look::CLIP, text(row.label.as_str())));
+    dom.add_child(block(look::CLIP, text(l10n::label(&row.label))));
     if let Some(index) = row.drive.filter(|i| *i < s.slots.len()) {
         let slot = &s.slots[index];
         if !slot.is_local() {
@@ -971,7 +1004,10 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
                         look::EJECT,
                         if selected { look::EJECT_SELECTED } else { "" }
                     ))
-                    .with_accessibility_name(format!("Remove \"{}\"", slot.entry.name))
+                    .with_accessibility_name(t_args(
+                        "azdrive-side-eject",
+                        &[("name", Arg::from(slot.entry.name.as_str()))],
+                    ))
                     .with_child(Dom::create_icon("eject"))
                     .with_callback(
                         EventFilter::Hover(HoverEventFilter::Click),
@@ -1024,30 +1060,38 @@ fn activity(s: &DriveState, app: &RefAny) -> Option<Dom> {
     let mut area = Dom::create_div()
         .with_id(ids::SIDE_ACTIVITY)
         .with_css(look::ACTIVITY)
-        .with_accessibility_name("Transfers")
-        .with_child(block(look::ACTIVITY_HEAD, text("Transfers")));
+        .with_accessibility_name(l10n::label("azdrive-transfers-title"))
+        .with_child(block(look::ACTIVITY_HEAD, text(l10n::label("azdrive-transfers-title"))));
     if let Some(job) = s.queue.running() {
         let p = &job.progress;
-        area.add_child(line(job.label.clone()));
+        area.add_child(line(l10n::t_text(&job.label)));
         area.add_child(block(
             "padding: 3px 10px 2px 10px;",
             ProgressBar::create(p.percent()).dom(),
         ));
-        area.add_child(line(format!(
-            "{} of {} ({:.0}%)",
-            p.files_done,
-            browse::counted(p.files_total, "file", "files"),
-            p.percent()
+        area.add_child(line(t_args(
+            "azdrive-side-activity-progress",
+            &[
+                ("done", Arg::from(p.files_done)),
+                ("total", Arg::from(p.files_total)),
+                ("percent", Arg::from(format!("{:.0}", p.percent()))),
+            ],
         )));
     }
     let waiting = s.queue.waiting();
     if waiting > 0 {
-        area.add_child(line(format!("{waiting} waiting")));
+        area.add_child(line(t_args(
+            "azdrive-queue-waiting",
+            &[("count", Arg::from(waiting))],
+        )));
     }
     if failed > 0 {
         area.add_child(block(
             look::ACTIVITY_ERROR,
-            text(format!("{} failed", browse::counted(failed, "transfer", "transfers"))),
+            text(t_args(
+                "azdrive-status-transfers-failed",
+                &[("count", Arg::from(failed))],
+            )),
         ));
     }
     Some(area.with_callback(
@@ -1063,7 +1107,7 @@ fn small_button(icon: &str, label: &str, id: AzString, data: RefAny, callback: C
         .with_id(id)
         .with_css(look::SMALL_BUTTON)
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(label)
+        .with_accessibility_name(l10n::label(label))
         .with_child(Dom::create_icon(icon))
         .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, callback)
 }
@@ -1074,14 +1118,14 @@ fn foot(app: &RefAny) -> Dom {
         .with_css(look::SIDEBAR_FOOT)
         .with_child(small_button(
             "add",
-            "Add a drive or pin a folder",
+            "azdrive-side-add",
             ids::SIDE_ADD,
             app.clone(),
             on_add_menu,
         ))
         .with_child(small_button(
             "settings",
-            "Options",
+            "azdrive-backstage-options",
             ids::SIDE_ACTIONS,
             action_ref(app, Action::Options),
             on_action,
@@ -1105,7 +1149,7 @@ pub(crate) fn sidebar(s: &DriveState, app: &RefAny) -> Dom {
         .with_id(ids::SIDEBAR)
         .with_class(ids::SIDEBAR_CLASS)
         .with_css(look::SIDEBAR)
-        .with_accessibility_name("Sources")
+        .with_accessibility_name(l10n::label("azdrive-side-sources"))
         .with_child(list);
     if let Some(area) = activity(s, app) {
         column.add_child(area);
@@ -1228,7 +1272,8 @@ pub(crate) fn on_sidebar_key(
     // A letter: the next row whose name starts with what was typed (Finder's type-ahead).
     if let Key::Char(c) = key {
         let query = s.type_ahead.push(c, actions::now_ms());
-        let names: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+        let shown: Vec<String> = rows.iter().map(|r| t_label(&r.label)).collect();
+        let names: Vec<&str> = shown.iter().map(String::as_str).collect();
         if let Some(to) = model::type_ahead_match(&names, &query, current) {
             focus_row(info, &nodes, to);
         }
@@ -1319,8 +1364,10 @@ mod tests {
         ]
     }
 
-    fn labels(rows: &[Row]) -> Vec<&str> {
-        rows.iter().map(|r| r.label.as_str()).collect()
+    /// The rows' labels as the list shows them, in English.
+    fn labels(rows: &[Row]) -> Vec<String> {
+        crate::l10n::in_english();
+        rows.iter().map(|r| t_label(&r.label)).collect()
     }
 
     #[test]

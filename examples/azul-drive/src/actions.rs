@@ -21,6 +21,7 @@ use azul::{
     url::Url,
     vec::StyledTextRunVec,
 };
+use azul_appkit::l10n::{label, t, Phrase, Text};
 use azul_storage::{
     azul_transport::AzulTransport,
     config::{self, DriveEntry, DriveLocation, DrivesFile},
@@ -33,6 +34,7 @@ use crate::{
     go,
     jobs::{Job, PreviewContent},
     keys::{self, Command, Key, Mods, Step},
+    l10n::drive_error_text,
     listing,
     model::{self, GroupBy, ViewLayout},
     open_current, open_drive, place_up, preview, refresh, save_settings, spawn, ui_view,
@@ -214,9 +216,9 @@ pub(crate) extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> 
 }
 
 /// A menu entry running `action`; `disabled` greys it.
-pub(crate) fn menu_item(app: &RefAny, label: &str, action: Action, disabled: bool) -> MenuItem {
+pub(crate) fn menu_item(app: &RefAny, text: &str, action: Action, disabled: bool) -> MenuItem {
     let mut item =
-        StringMenuItem::create(AzString::from(label)).with_callback(action_ref(app, action), on_action);
+        StringMenuItem::create(label(text)).with_callback(action_ref(app, action), on_action);
     if disabled {
         item.menu_item_state = MenuItemState::Greyed;
     }
@@ -224,9 +226,9 @@ pub(crate) fn menu_item(app: &RefAny, label: &str, action: Action, disabled: boo
 }
 
 /// A menu entry with a check mark.
-pub(crate) fn check_item(app: &RefAny, label: &str, action: Action, checked: bool) -> MenuItem {
+pub(crate) fn check_item(app: &RefAny, text: &str, action: Action, checked: bool) -> MenuItem {
     let mut item =
-        StringMenuItem::create(AzString::from(label)).with_callback(action_ref(app, action), on_action);
+        StringMenuItem::create(label(text)).with_callback(action_ref(app, action), on_action);
     item.icon = OptionMenuItemIcon::Some(MenuItemIcon::Checkbox(checked));
     MenuItem::String(item)
 }
@@ -273,19 +275,17 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
         )
     {
         return Some(String::from(
-            "This drive is browsed, not written (a database, a web server).",
+            "azdrive-why-read-only",
         ));
     }
     let in_folder = s.current_drive().is_some();
     let selected = !s.selection.is_empty() && in_folder;
-    let need_folder = || {
-        (!in_folder).then(|| String::from("Open a folder of a drive first."))
-    };
+    let need_folder = || (!in_folder).then(|| String::from("azdrive-why-open-folder"));
     let need_selection = || {
         if !in_folder {
-            Some(String::from("Open a folder and select items first."))
+            Some(String::from("azdrive-why-open-and-select"))
         } else if s.selection.is_empty() {
-            Some(String::from("Select one or more items first."))
+            Some(String::from("azdrive-why-select"))
         } else {
             None
         }
@@ -293,7 +293,7 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
     match action {
         Action::Pin => match &s.place {
             Place::Folder { .. } => None,
-            _ => Some(String::from("Open a folder to pin it to Quick access.")),
+            _ => Some(String::from("azdrive-why-pin-folder")),
         },
         Action::Copy | Action::Cut | Action::CopyPath | Action::MoveToMenu | Action::CopyToMenu
         | Action::DeleteMenu | Action::Delete | Action::DeletePermanently | Action::Zip
@@ -301,11 +301,10 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
         Action::Paste => need_folder().or_else(|| {
             s.clipboard
                 .is_none()
-                .then(|| String::from("Nothing to paste: copy or cut something first."))
+                .then(|| String::from("azdrive-why-nothing-to-paste"))
         }),
-        Action::Rename => need_selection().or_else(|| {
-            (s.selection.len() != 1).then(|| String::from("Select exactly one item to rename."))
-        }),
+        Action::Rename => need_selection()
+            .or_else(|| (s.selection.len() != 1).then(|| String::from("azdrive-why-rename-one"))),
         Action::NewFolder | Action::NewItemMenu | Action::NewTextDocument
         | Action::NewEmptyFile | Action::Upload | Action::SelectAll | Action::InvertSelection => {
             need_folder()
@@ -317,58 +316,48 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             Place::ThisPc if s.find.is_some() => s
                 .selection
                 .is_empty()
-                .then(|| String::from("Select a result to open.")),
+                .then(|| String::from("azdrive-why-open-result")),
             Place::ThisPc if s.selected_drive.is_none() => {
-                Some(String::from("Select a drive to open."))
+                Some(String::from("azdrive-why-open-drive"))
             }
             Place::QuickAccess if s.selected_pin.is_none() => {
-                Some(String::from("Select a pinned folder to open."))
+                Some(String::from("azdrive-why-open-pin"))
             }
-            Place::Folder { .. } if !selected => Some(String::from("Select an item to open.")),
+            Place::Folder { .. } if !selected => Some(String::from("azdrive-why-open-item")),
             _ => None,
         },
-        Action::Edit => need_selection().or_else(|| {
-            match s.single_selected() {
-                Some(e) if !e.is_folder => None,
-                Some(_) => Some(String::from("Edit opens a file; this is a folder.")),
-                None => Some(String::from("Select one file to edit.")),
-            }
+        Action::Edit => need_selection().or_else(|| match s.single_selected() {
+            Some(e) if !e.is_folder => None,
+            Some(_) => Some(String::from("azdrive-why-edit-folder")),
+            None => Some(String::from("azdrive-why-edit-one")),
         }),
         Action::RemoveDrive => match s.selected_drive.or(s.current_drive()) {
             Some(i) if s.slots.get(i).is_some_and(Slot::is_built_in) => {
-                Some(String::from("Home and the Azlin data folder stay."))
+                Some(String::from("azdrive-why-built-in-drive"))
             }
             Some(_) => None,
-            None => Some(String::from("Select a drive on This PC first.")),
+            None => Some(String::from("azdrive-why-select-drive")),
         },
         Action::DriveProperties => (s.selected_drive.or(s.current_drive()).is_none())
-            .then(|| String::from("Select a drive on This PC first.")),
+            .then(|| String::from("azdrive-why-select-drive")),
         Action::Undo => s
             .undo
             .is_empty()
-            .then(|| String::from("Nothing to undo.")),
+            .then(|| String::from("azdrive-why-nothing-to-undo")),
         Action::SortMenu | Action::GroupMenu | Action::ColumnsMenu | Action::FitColumns => {
             need_folder()
         }
         Action::OpenTerminal { azterm } => match s.current_drive() {
             Some(i) if s.slots[i].is_local() => (*azterm && sibling_app("AzTerm").is_none())
-                .then(|| String::from("AzTerm is not installed next to AzDrive.")),
-            Some(_) => Some(String::from(
-                "A terminal opens in a folder of this computer; this folder is in an S3 bucket.",
-            )),
-            None => Some(String::from(
-                "Open a folder of a drive on this computer first.",
-            )),
+                .then(|| String::from("azdrive-why-no-azterm")),
+            Some(_) => Some(String::from("azdrive-why-terminal-cloud")),
+            None => Some(String::from("azdrive-why-terminal-local")),
         },
         Action::Print => need_selection().or_else(|| {
             if !s.current_drive().is_some_and(|i| s.slots[i].is_local()) {
-                Some(String::from(
-                    "Printing goes through this computer: download the file first.",
-                ))
+                Some(String::from("azdrive-why-print-cloud"))
             } else if s.selected_entries().iter().any(|e| e.is_folder) {
-                Some(String::from(
-                    "Select files to print; a folder does not print.",
-                ))
+                Some(String::from("azdrive-why-print-folder"))
             } else {
                 None
             }
@@ -380,47 +369,41 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
                     .current_drive_id()
                     .is_some_and(|id| s.settings.indexed_drives.contains(&id)) =>
         {
-            Some(String::from(
-                "A cloud drive's files are searched through its index: turn on Index this drive \
-                 first.",
-            ))
+            Some(String::from("azdrive-why-search-contents-cloud"))
         }
         Action::Toggle(Toggle::IndexCloudFiles)
             if s.current_drive().is_some_and(|i| s.local_root(i).is_some()) =>
         {
-            Some(String::from(
-                "The files of a drive on this computer are read where they are.",
-            ))
+            Some(String::from("azdrive-why-index-local"))
         }
         Action::CloseSearch => s
             .find
             .is_none()
-            .then(|| String::from("No search is open.")),
+            .then(|| String::from("azdrive-why-no-search")),
         Action::OpenFileLocation => {
             if s.find.is_none() {
-                Some(String::from("Search first: this opens the folder a result is in."))
+                Some(String::from("azdrive-why-search-first"))
             } else if s.selection.len() != 1 {
-                Some(String::from("Select one result."))
+                Some(String::from("azdrive-why-one-result"))
             } else {
                 None
             }
         }
-        Action::SaveSearch => s.find.is_none().then(|| {
-            String::from("Search first: Save search keeps the search box's text and its choices.")
-        }),
+        Action::SaveSearch => s
+            .find
+            .is_none()
+            .then(|| String::from("azdrive-why-save-search")),
         Action::SavedSearchesMenu => s
             .settings
             .saved_searches
             .is_empty()
-            .then(|| String::from("No saved searches yet: Save search keeps the open one.")),
+            .then(|| String::from("azdrive-why-no-saved-searches")),
         Action::ForgetSavedSearch => open_saved_search(s)
             .is_none()
-            .then(|| String::from("The open search is not a saved one.")),
+            .then(|| String::from("azdrive-why-not-saved")),
         Action::IndexDrive => match s.current_drive() {
-            None => Some(String::from("Open a drive to index it.")),
-            Some(_) if s.cache_dir.is_none() => {
-                Some(String::from("There is no cache folder to keep an index in."))
-            }
+            None => Some(String::from("azdrive-why-index-open")),
+            Some(_) if s.cache_dir.is_none() => Some(String::from("azdrive-why-no-cache")),
             Some(_) => None,
         },
         Action::Sync(what) => crate::sync_view::why_not(s, *what),
@@ -431,7 +414,8 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
 /// Runs `action` (or says why it cannot run).
 pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: Action) {
     if let Some(reason) = why_not(s, &action) {
-        s.warn(reason);
+        // A key of the resources, or a ban's words as they are.
+        s.warn(crate::l10n::said(&reason));
         return;
     }
     match action {
@@ -451,9 +435,9 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 .and_then(|i| s.local_dir(i, &s.prefix().to_string()))
                 .map(|dir| AzString::from(dir.to_string_lossy().into_owned()));
             let _request = FileDialog::open_directory(
-                AzString::from(match kind {
-                    TransferKind::Move => "Move the items to",
-                    _ => "Copy the items to",
+                label(match kind {
+                    TransferKind::Move => "azdrive-pick-move-to",
+                    _ => "azdrive-pick-copy-to",
                 }),
                 match start {
                     Some(dir) => OptionString::Some(dir),
@@ -470,10 +454,12 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::Delete => delete_selected(info, app, s, false),
         Action::DeletePermanently => delete_selected(info, app, s, true),
         Action::Rename => start_rename(s),
-        Action::NewFolder => new_item(info, app, s, "New folder", true),
+        Action::NewFolder => new_item(info, app, s, &t("azdrive-new-folder-name"), true),
         Action::NewItemMenu => open_menu_below(info, new_items(app)),
-        Action::NewTextDocument => new_item(info, app, s, "New Text Document.txt", false),
-        Action::NewEmptyFile => new_item(info, app, s, "New file", false),
+        Action::NewTextDocument => {
+            new_item(info, app, s, &t("azdrive-new-text-document-name"), false);
+        }
+        Action::NewEmptyFile => new_item(info, app, s, &t("azdrive-new-file-name"), false),
         Action::Properties => show_properties(info, app, s),
         Action::Open | Action::Edit => open_selected(info, app, s),
         Action::OpenMenu => open_menu_below(info, open_items(app)),
@@ -494,7 +480,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::Download => download_selected(info, app, s),
         Action::Upload => {
             let _request = FileDialog::open_multiple_files(
-                AzString::from("Upload files"),
+                label("azdrive-pick-upload"),
                 OptionString::None,
                 OptionFileTypeList::None,
                 app.clone(),
@@ -512,7 +498,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::GroupMenu => open_menu_below(info, group_items(app, s)),
         Action::GroupBy(group) => {
             s.settings.group_by = group;
-            println!("AZDRIVE_GROUP {}", group.label());
+            println!("AZDRIVE_GROUP {}", group.english());
             // Groups by size or date need every item's stat (the scan reads names only).
             if needs_all_stats(s) {
                 request_sort_stats(info, app, s);
@@ -546,7 +532,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::AddLocalDrive => {
             let _request = FileDialog::open_directory(
-                AzString::from("Add a folder as a drive"),
+                label("azdrive-pick-local-drive"),
                 OptionString::None,
                 app.clone(),
                 on_local_drive_picked,
@@ -577,7 +563,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 })
                 .collect();
             if items.is_empty() {
-                s.info("No places visited yet.");
+                s.info(Text::key("azdrive-no-recent-places"));
             } else {
                 open_menu_below(info, items);
             }
@@ -604,11 +590,11 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 s.history.clear();
             }
             println!("AZDRIVE_DONE history {recent} {back_forward}");
-            s.info(match (recent, back_forward) {
-                (true, true) => "The places visited and the Back and Forward history are gone.",
-                (true, false) => "The places visited are gone (the pins stay).",
-                _ => "Back and Forward start from here.",
-            });
+            s.info(Text::key(match (recent, back_forward) {
+                (true, true) => "azdrive-history-cleared-all",
+                (true, false) => "azdrive-history-cleared-recent",
+                _ => "azdrive-history-cleared-back-forward",
+            }));
         }
         Action::Shortcuts => {
             let was_open = azul_appkit::ui::settings_open(&s.kit);
@@ -619,10 +605,10 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::TogglePin(place) => toggle_pin_of(info, app, s, place),
         Action::EasyAccessMenu => {
             let items = vec![
-                able_item(app, s, "Pin to Quick access", Action::Pin),
+                able_item(app, s, "azdrive-menu-pin", Action::Pin),
                 menu_item(
                     app,
-                    "Add a folder as a drive...",
+                    "azdrive-menu-add-local-drive",
                     Action::AddLocalDrive,
                     false,
                 ),
@@ -631,8 +617,8 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::PropertiesMenu => {
             let items = vec![
-                able_item(app, s, "Properties", Action::Properties),
-                able_item(app, s, "Drive properties", Action::DriveProperties),
+                able_item(app, s, "azdrive-menu-properties", Action::Properties),
+                able_item(app, s, "azdrive-menu-drive-properties", Action::DriveProperties),
             ];
             open_menu_below(info, items);
         }
@@ -716,7 +702,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 items.push(MenuItem::Separator);
                 items.push(menu_item(
                     app,
-                    "Forget this saved search",
+                    "azdrive-menu-forget-saved-search",
                     Action::ForgetSavedSearch,
                     false,
                 ));
@@ -756,7 +742,7 @@ fn save_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let name = saved.name.clone();
     crate::find::save_search(&mut s.settings.saved_searches, saved);
     println!("AZDRIVE_SEARCH_SAVED {name}");
-    s.info(format!("Saved the search \"{name}\": Saved searches runs it again."));
+    s.info(Phrase::new("azdrive-search-saved").arg("name", name.as_str()));
     save_settings(info, app, s);
 }
 
@@ -767,10 +753,7 @@ fn run_saved_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, a
         return;
     };
     if !saved.drive.is_empty() && s.slot_index(&saved.drive).is_none() {
-        s.error(format!(
-            "The drive the saved search \"{}\" searched is not in the list any more.",
-            saved.name
-        ));
+        s.error(Phrase::new("azdrive-saved-search-drive-gone").arg("name", saved.name.as_str()));
         return;
     }
     let place = saved.place();
@@ -872,19 +855,23 @@ pub(crate) fn sibling_app(name: &str) -> Option<PathBuf> {
 /// process") at the open place, with this run's switches - the place in `--open`.
 fn open_new_window(s: &mut DriveState) {
     let Ok(me) = std::env::current_exe() else {
-        s.error("AzDrive cannot find its own program to open another window.");
+        s.error(Text::key("azdrive-new-window-no-program"));
         return;
     };
-    let path = crate::window_title(s)
-        .trim_end_matches(" - AzDrive")
-        .to_string();
+    // The place as the address bar names it, This PC and Quick access in English: the new
+    // process reads it before its window says a word.
+    let path = match &s.place {
+        Place::ThisPc => String::from(browse::THIS_PC),
+        Place::QuickAccess => String::from(browse::QUICK_ACCESS),
+        place => browse::path_text(place, Some(&s.drive_name(place))),
+    };
     let args = crate::args::new_window_args(std::env::args().skip(1), &path);
     match std::process::Command::new(me).args(&args).spawn() {
         Ok(_) => {
             println!("AZDRIVE_NEW_WINDOW {path}");
-            s.info(format!("Another window opens at \"{path}\"."));
+            s.info(Phrase::new("azdrive-new-window-opens").arg("path", path.as_str()));
         }
-        Err(e) => s.error(format!("The new window could not be opened: {e}")),
+        Err(e) => s.error(Phrase::new("azdrive-new-window-failed").arg("detail", e.to_string())),
     }
 }
 
@@ -902,10 +889,10 @@ fn open_terminal(s: &mut DriveState, azterm: bool) {
                 .current_dir(&dir)
                 .spawn()
                 .map(|_| ()),
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "AzTerm is not installed next to AzDrive",
-            )),
+            None => {
+                s.error(Text::key("azdrive-why-no-azterm"));
+                return;
+            }
         }
     } else {
         system_terminal(&dir)
@@ -913,9 +900,9 @@ fn open_terminal(s: &mut DriveState, azterm: bool) {
     match spawned {
         Ok(()) => {
             println!("AZDRIVE_DONE terminal {}", dir.display());
-            s.info(format!("A terminal opens in {}.", dir.display()));
+            s.info(Phrase::new("azdrive-terminal-opens").arg("folder", dir.display().to_string()));
         }
-        Err(e) => s.error(format!("The terminal could not be opened: {e}")),
+        Err(e) => s.error(Phrase::new("azdrive-terminal-failed").arg("detail", e.to_string())),
     }
 }
 
@@ -996,12 +983,9 @@ fn print_selected(s: &mut DriveState) {
     match result {
         Ok(()) => {
             println!("AZDRIVE_DONE printed {}", paths.len());
-            s.success(format!(
-                "Sent {} to the printer.",
-                browse::counted(paths.len(), "file", "files")
-            ));
+            s.success(Phrase::new("azdrive-printed").arg("count", paths.len()));
         }
-        Err(e) => s.error(format!("Nothing could be printed: {e}")),
+        Err(e) => s.error(Phrase::new("azdrive-print-failed").arg("detail", e.to_string())),
     }
 }
 
@@ -1051,10 +1035,7 @@ fn hide_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         renamed += 1;
     }
     if renamed > 0 && !unhide && !s.settings.show_hidden {
-        s.info(format!(
-            "Hid {} (View > Hidden items shows them).",
-            browse::counted(renamed, "item", "items")
-        ));
+        s.info(Phrase::new("azdrive-hid-items").arg("count", renamed));
     }
 }
 
@@ -1649,7 +1630,7 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
             return;
         };
         let folder = s.open_dir.join(&drive_id);
-        s.info(format!("Opening \"{}\"...", entry.name));
+        s.info(Phrase::new("azdrive-opening").arg("name", entry.name.as_str()));
         spawn(
             info,
             app,
@@ -1679,7 +1660,7 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
         return;
     };
     let folder = s.open_dir.join(&drive_id);
-    s.info(format!("Opening \"{}\"...", entry.name));
+    s.info(Phrase::new("azdrive-opening").arg("name", entry.name.as_str()));
     spawn(
         info,
         app,
@@ -1709,11 +1690,12 @@ fn copy_selected(s: &mut DriveState, cut: bool) {
         if cut { "cut" } else { "copy" },
         items.len()
     );
-    s.info(format!(
-        "{} {} item(s): Ctrl+V pastes them into the open folder.",
-        if cut { "Cut" } else { "Copied" },
-        items.len()
-    ));
+    let said = if cut {
+        "azdrive-clipboard-cut"
+    } else {
+        "azdrive-clipboard-copied"
+    };
+    s.info(Phrase::new(said).arg("count", items.len()));
     s.clipboard = Some(ClipboardItems { drive, items, cut });
 }
 
@@ -1777,18 +1759,23 @@ fn copy_path(info: &mut CallbackInfo, s: &mut DriveState) {
         html: OptionString::None,
     });
     println!("AZDRIVE_DONE copied-path {lines}");
-    s.info(format!("Copied the path of {lines} item(s)."));
+    s.info(Phrase::new("azdrive-copied-paths").arg("count", lines));
 }
 
 // ==== The transfer queue ====
 
 /// "Copying 3 items to docs".
-fn transfer_label(kind: TransferKind, items: &[SourceItem], target: &str) -> String {
-    let what = match items {
-        [one] => format!("\"{}\"", key::last_segment(&one.key)),
-        many => format!("{} items", many.len()),
+fn transfer_label(kind: TransferKind, items: &[SourceItem], target: &str) -> Text {
+    let name = match items {
+        [one] => key::last_segment(&one.key).to_string(),
+        _ => String::new(),
     };
-    format!("{} {what} to {target}", kind.verb())
+    Phrase::new("azdrive-transfer-label")
+        .arg("kind", kind.name())
+        .arg("count", items.len())
+        .arg("name", name)
+        .arg("target", target)
+        .into()
 }
 
 /// Queues copying (or moving) `items` of drive `source_id` into
@@ -1806,7 +1793,7 @@ pub(crate) fn enqueue_transfer(
     auto: Option<ConflictChoice>,
 ) {
     let Some(source) = open_drive(s, source_id) else {
-        s.error("The items' drive is gone.");
+        s.error(Text::key("azdrive-transfer-drive-gone"));
         return;
     };
     let Some(target) = open_drive(s, target_id) else {
@@ -1915,7 +1902,7 @@ pub(crate) fn enqueue_routed(
             auto,
         },
     );
-    s.info(format!("{label}..."));
+    s.info(label.then("…"));
     pump_queue(info, app, s);
 }
 
@@ -1925,7 +1912,7 @@ pub(crate) fn pump_queue(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         return;
     };
     let Some(job) = s.transfers.get(&id) else {
-        s.queue.finish(id, Some(String::from("the transfer was lost")));
+        s.queue.finish(id, Some(Text::key("azdrive-transfer-lost")));
         return;
     };
     let plan_job = Job::Plan {
@@ -1936,6 +1923,7 @@ pub(crate) fn pump_queue(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         target_prefix: job.target_prefix.clone(),
         same_drive: job.same_drive,
         kind: job.kind,
+        copy: t("azdrive-copy-word"),
     };
     s.queue.start(id, now_ms());
     spawn(info, app, s, plan_job);
@@ -1966,9 +1954,10 @@ pub(crate) fn transfer_planned(
         Ok(plan) => plan,
         Err(e) => {
             s.transfers.remove(&id);
-            s.queue.finish(id, Some(e.to_string()));
+            let why = drive_error_text(&e);
+            s.queue.finish(id, Some(why.clone()));
             println!("AZDRIVE_TRANSFER {id} failed 0");
-            s.error(format!("The transfer cannot start: {e}"));
+            s.error(Text::key("azdrive-transfer-cannot-start").then(" ").then(why));
             pump_queue(info, app, s);
             return;
         }
@@ -1992,7 +1981,7 @@ pub(crate) fn transfer_planned(
         s.transfers.remove(&id);
         s.queue.finish(id, None);
         println!("AZDRIVE_TRANSFER {id} done 0");
-        s.info("Nothing to do: the items are where they would go.");
+        s.info(Text::key("azdrive-transfer-nothing-to-do"));
         pump_queue(info, app, s);
     } else if conflicts > 0 {
         println!("AZDRIVE_TRANSFER {id} conflict {conflicts}");
@@ -2077,7 +2066,7 @@ pub(crate) fn cancel_transfer(
         }
         s.transfers.remove(&id);
         println!("AZDRIVE_TRANSFER {id} cancelled 0");
-        s.info("The transfer was cancelled.");
+        s.info(Text::key("azdrive-transfer-cancelled"));
         pump_queue(info, app, s);
     }
 }
@@ -2098,11 +2087,13 @@ pub(crate) fn transfer_ran(
         crate::sync_jobs::transfer_done(info, app, s, &source_id, &target_id);
     }
     let failed = report.failed.first().map(|(what, why)| {
-        format!(
-            "{} item(s) failed; \"{}\": {why}",
-            report.failed.len(),
-            key::last_segment(what)
+        Text::from(
+            Phrase::new("azdrive-transfer-failed")
+                .arg("count", report.failed.len())
+                .arg("name", key::last_segment(what)),
         )
+        .then(" ")
+        .then(why.clone())
     });
     if !report.cancelled {
         s.queue.finish(id, failed.clone());
@@ -2116,13 +2107,16 @@ pub(crate) fn transfer_ran(
     };
     println!("AZDRIVE_TRANSFER {id} {state} {}", report.done);
     match (&failed, report.cancelled) {
-        (_, true) => s.info(format!("Cancelled after {} item(s).", report.done)),
+        (_, true) => {
+            s.info(Phrase::new("azdrive-transfer-cancelled-after").arg("count", report.done))
+        }
         (Some(text), _) => s.error(text.clone()),
-        (None, _) if report.skipped > 0 => s.success(format!(
-            "Done: {} item(s), {} skipped.",
-            report.done, report.skipped
-        )),
-        (None, _) => s.success(format!("Done: {} item(s).", report.done)),
+        (None, _) if report.skipped > 0 => s.success(
+            Phrase::new("azdrive-transfer-done-skipped")
+                .arg("count", report.done)
+                .arg("skipped", report.skipped),
+        ),
+        (None, _) => s.success(Phrase::new("azdrive-transfer-done").arg("count", report.done)),
     }
     if let Some(job) = job {
         crate::changed(info, app, s, &job.target_id, &job.target_prefix);
@@ -2158,7 +2152,11 @@ pub(crate) fn transfer_ran(
         }
         if job.kind == TransferKind::Download && !report.cancelled && failed.is_none() {
             let folder = s.downloads.display().to_string();
-            s.success(format!("Downloaded {} item(s) to {folder}.", report.done));
+            s.success(
+                Phrase::new("azdrive-downloaded")
+                    .arg("count", report.done)
+                    .arg("folder", folder.as_str()),
+            );
         }
     }
     if s.queue.is_idle() && s.queue.failed().is_empty() {
@@ -2234,7 +2232,7 @@ fn destination_items(app: &RefAny, s: &DriveState, kind: TransferKind) -> Vec<Me
     items.push(MenuItem::Separator);
     items.push(menu_item(
         app,
-        "Choose location...",
+        "azdrive-menu-choose-location",
         Action::ChooseLocation(kind),
         false,
     ));
@@ -2250,7 +2248,7 @@ pub(crate) fn transfer_selection_to(
     place: Place,
 ) {
     let Place::Folder { drive, prefix } = place else {
-        s.warn("Choose a folder of a drive.");
+        s.warn(Text::key("azdrive-choose-a-folder"));
         return;
     };
     let Some(source_id) = s.current_drive_id() else {
@@ -2293,7 +2291,7 @@ pub(crate) fn drop_on_place(
         prefix: target_prefix,
     } = place
     else {
-        s.warn("Drop the items on a folder of a drive.");
+        s.warn(Text::key("azdrive-drop-on-folder"));
         return;
     };
     // A folder never lands on itself, and an item dropped into the folder it is in stays
@@ -2327,7 +2325,7 @@ pub(crate) fn upload_paths(
     paths: Vec<PathBuf>,
 ) {
     let Some(target_id) = s.current_drive_id() else {
-        s.warn("Open a folder of a drive to upload into.");
+        s.warn(Text::key("azdrive-upload-open-folder"));
         return;
     };
     let Some(target) = open_current(s) else {
@@ -2344,7 +2342,12 @@ pub(crate) fn upload_paths(
             continue;
         };
         if let Err(why) = fileops::check_name(&name) {
-            s.error(format!("\"{name}\" cannot be uploaded: {why}"));
+            s.error(
+                Phrase::new("azdrive-cannot-upload")
+                    .arg("name", name.as_str())
+                    .then(" ")
+                    .then(why),
+            );
             continue;
         }
         let is_folder = path.is_dir();
@@ -2467,10 +2470,7 @@ fn delete_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, pe
         let Some(drive) = open_current(s) else {
             return;
         };
-        s.info(format!(
-            "Moving {} item(s) to the trash folder...",
-            items.len()
-        ));
+        s.info(Phrase::new("azdrive-moving-to-trash").arg("count", items.len()));
         spawn(
             info,
             app,
@@ -2510,7 +2510,7 @@ fn delete_for_good(
     let Some(drive) = open_drive(s, &drive_id) else {
         return;
     };
-    s.info(format!("Deleting {} item(s)...", items.len()));
+    s.info(Phrase::new("azdrive-deleting").arg("count", items.len()));
     spawn(
         info,
         app,
@@ -2569,9 +2569,7 @@ pub(crate) fn commit_rename(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
             .iter()
             .any(|e| e.key != entry.key && e.name.eq_ignore_ascii_case(&name))
     {
-        s.error(format!(
-            "There is already an item named \"{name}\" in this folder."
-        ));
+        s.error(Phrase::new("azdrive-name-taken").arg("name", name.as_str()));
         s.renaming = Some(renaming);
         return;
     }
@@ -2632,7 +2630,7 @@ fn undo(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(drive) = open_drive(s, &drive_id) else {
         return;
     };
-    s.info(format!("{}...", op.label()));
+    s.info(op.label().then("…"));
     spawn(
         info,
         app,
@@ -2654,9 +2652,9 @@ fn show_properties(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     match &s.place {
         Place::ThisPc => match s.selected_drive {
             Some(index) => open_properties(info, app, s, Vec::new(), Some(index)),
-            None => s.warn("Select a drive to see its properties."),
+            None => s.warn(Text::key("azdrive-properties-select-drive")),
         },
-        Place::QuickAccess => s.info("Open a pinned folder to see its properties."),
+        Place::QuickAccess => s.info(Text::key("azdrive-properties-open-pin")),
         Place::Folder { prefix, .. } => {
             let mut items: Vec<browse::Entry> =
                 s.selected_entries().into_iter().cloned().collect();
@@ -2778,9 +2776,7 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
     if entry.is_folder {
         s.preview = Some(PreviewState {
             key: entry.key.clone(),
-            content: Some(PreviewContent::Message(String::from(
-                "A folder: open it to see what it holds.",
-            ))),
+            content: Some(PreviewContent::Message(Text::key("azdrive-preview-folder"))),
         });
         return;
     }
@@ -2794,7 +2790,7 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
         println!("AZDRIVE_PREVIEW synced {}", entry.key);
         s.preview = Some(PreviewState {
             key: entry.key.clone(),
-            content: Some(PreviewContent::Message(note.to_string())),
+            content: Some(PreviewContent::Message(Text::key(note))),
         });
         return;
     }
@@ -2804,7 +2800,7 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
         println!("AZDRIVE_PREVIEW none {}", entry.key);
         s.preview = Some(PreviewState {
             key: entry.key.clone(),
-            content: Some(PreviewContent::Message(reason.to_string())),
+            content: Some(PreviewContent::Message(Text::key(reason))),
         });
         return;
     }
@@ -2844,11 +2840,11 @@ fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
     };
     let Some(config) = s.slots[index].entry.s3_config() else {
         copy_path(info, s);
-        s.info("Copied the items' paths (a link to share is a cloud drive's).");
+        s.info(Text::key("azdrive-link-local"));
         return;
     };
     let Some(credentials) = s.slots[index].credentials() else {
-        s.error("The drive's keys are not read yet: open one of its folders first.");
+        s.error(Text::key("azdrive-link-no-keys"));
         return;
     };
     let drive = match S3Drive::new(
@@ -2858,12 +2854,12 @@ fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
     ) {
         Ok(drive) => drive,
         Err(e) => {
-            s.error(format!("No link can be made: {e}"));
+            s.error(Text::key("azdrive-link-failed").then(" ").then(drive_error_text(&e)));
             return;
         }
     };
     let drive_id = s.slots[index].entry.id.clone();
-    let made: Result<(Vec<String>, usize), String> = {
+    let made: Result<(Vec<String>, usize), Text> = {
         let mut links = Vec::new();
         let mut files = 0;
         let mut failed = None;
@@ -2878,7 +2874,12 @@ fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
                     files += 1;
                 }
                 Err(e) => {
-                    failed = Some(format!("No link to \"{}\": {e}", entry.name));
+                    failed = Some(
+                        Phrase::new("azdrive-link-failed-for")
+                            .arg("name", entry.name.as_str())
+                            .then(" ")
+                            .then(drive_error_text(&e)),
+                    );
                     break;
                 }
             }
@@ -2903,9 +2904,8 @@ fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
     println!("AZDRIVE_DONE link {files}");
     // A folder has no download link (S3 signs one object per link), so its address went along.
     s.info(match files {
-        0 => String::from("A folder has no download link: copied its s3:// address."),
-        1 => String::from("Copied a link: anyone holding it can download the file for 7 days."),
-        n => format!("Copied {n} links: anyone holding one can download its file for 7 days."),
+        0 => Phrase::new("azdrive-link-folder"),
+        n => Phrase::new("azdrive-links-copied").arg("count", n),
     });
 }
 
@@ -2931,8 +2931,8 @@ fn email_selected(s: &mut DriveState) {
         azul_storage::sigv4::uri_encode(&body, true)
     );
     match Url::parse(url.as_str()).into_result() {
-        Ok(url) if url.open() => s.info("A new message with the items' addresses is open."),
-        _ => s.error("The system has no mail app to open."),
+        Ok(url) if url.open() => s.info(Text::key("azdrive-email-opened")),
+        _ => s.error(Text::key("azdrive-email-no-app")),
     }
 }
 
@@ -2943,7 +2943,7 @@ fn zip_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let items = s.selected_items();
     let known: u64 = items.iter().filter_map(|i| i.size).sum();
     if known > MAX_ZIP_BYTES {
-        s.error("The selection is too big to compress in memory (more than 256 MB).");
+        s.error(Text::key("azdrive-zip-too-big"));
         return;
     }
     let base = match items.as_slice() {
@@ -2964,7 +2964,7 @@ fn zip_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(drive) = open_current(s) else {
         return;
     };
-    s.info(format!("Compressing {} item(s)...", items.len()));
+    s.info(Phrase::new("azdrive-compressing").arg("count", items.len()));
     spawn(
         info,
         app,
@@ -2991,14 +2991,14 @@ fn toggle_pin(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         s.settings
             .pinned
             .retain(|p| !(p.drive == drive && p.prefix == prefix));
-        s.info(format!("\"{name}\" left Quick access."));
+        s.info(Phrase::new("azdrive-unpinned").arg("name", name.as_str()));
     } else {
         s.settings.pinned.push(model::Pinned {
             drive,
             prefix,
             name: name.clone(),
         });
-        s.success(format!("\"{name}\" is pinned to Quick access."));
+        s.success(Phrase::new("azdrive-pinned").arg("name", name.as_str()));
     }
     println!("AZDRIVE_DONE pinned {}", s.settings.pinned.len());
     save_settings(info, app, s);
@@ -3167,7 +3167,7 @@ pub(crate) fn sort_by(
     request_view_work(info, app, s);
     println!(
         "AZDRIVE_SORT {} {}",
-        s.settings.sort.column.label(),
+        s.settings.sort.column.english(),
         if s.settings.sort.descending {
             "desc"
         } else {
@@ -3258,12 +3258,12 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
 /// Delete's choices: into the trash, for good, and whether to ask first.
 fn delete_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
     vec![
-        menu_item(app, "Recycle (to the trash folder)", Action::Delete, false),
-        menu_item(app, "Permanently delete", Action::DeletePermanently, false),
+        menu_item(app, "azdrive-menu-recycle", Action::Delete, false),
+        menu_item(app, "azdrive-menu-delete-permanently", Action::DeletePermanently, false),
         MenuItem::Separator,
         check_item(
             app,
-            "Show delete confirmation",
+            "azdrive-menu-confirm-delete",
             Action::Toggle(Toggle::ConfirmDelete),
             s.settings.confirm_delete,
         ),
@@ -3273,19 +3273,19 @@ fn delete_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
 /// New: a folder, a text document, an empty file.
 fn new_items(app: &RefAny) -> Vec<MenuItem> {
     vec![
-        menu_item(app, "Folder", Action::NewFolder, false),
+        menu_item(app, "azdrive-menu-new-folder", Action::NewFolder, false),
         MenuItem::Separator,
-        menu_item(app, "Text Document", Action::NewTextDocument, false),
-        menu_item(app, "Empty file", Action::NewEmptyFile, false),
+        menu_item(app, "azdrive-menu-new-text", Action::NewTextDocument, false),
+        menu_item(app, "azdrive-menu-new-empty", Action::NewEmptyFile, false),
     ]
 }
 
 /// Open's choices.
 fn open_items(app: &RefAny) -> Vec<MenuItem> {
     vec![
-        menu_item(app, "Open", Action::Open, false),
-        menu_item(app, "Download", Action::Download, false),
-        menu_item(app, "Properties", Action::Properties, false),
+        menu_item(app, "azdrive-menu-open", Action::Open, false),
+        menu_item(app, "azdrive-menu-download", Action::Download, false),
+        menu_item(app, "azdrive-menu-properties", Action::Properties, false),
     ]
 }
 
@@ -3314,13 +3314,13 @@ fn sort_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
     items.push(MenuItem::Separator);
     items.push(check_item(
         app,
-        "Ascending",
+        "azdrive-menu-ascending",
         Action::SortDescending(false),
         !s.settings.sort.descending,
     ));
     items.push(check_item(
         app,
-        "Descending",
+        "azdrive-menu-descending",
         Action::SortDescending(true),
         s.settings.sort.descending,
     ));
@@ -3363,22 +3363,22 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
         let disabled = why_not(s, &action).is_some();
         menu_item(app, label, action, disabled)
     };
-    let submenu = |label: &str, children: Vec<MenuItem>| {
-        MenuItem::String(StringMenuItem::create(AzString::from(label)).with_children(children))
+    let submenu = |text: &str, children: Vec<MenuItem>| {
+        MenuItem::String(StringMenuItem::create(label(text)).with_children(children))
     };
     let items = if s.find.is_some() && s.current_drive().is_none() && !s.selection.is_empty() {
         // A result of This PC's search.
         vec![
-            item("Open", Action::Open),
-            item("Open file location", Action::OpenFileLocation),
+            item("azdrive-menu-open", Action::Open),
+            item("azdrive-menu-open-file-location", Action::OpenFileLocation),
         ]
     } else if s.current_drive().is_some() && !s.selection.is_empty() {
         let one_folder = s.single_selected().is_some_and(|e| e.is_folder);
-        let mut items = vec![item("Open", Action::Open)];
+        let mut items = vec![item("azdrive-menu-open", Action::Open)];
         if s.find.is_some() {
-            items.push(item("Open file location", Action::OpenFileLocation));
+            items.push(item("azdrive-menu-open-file-location", Action::OpenFileLocation));
         }
-        items.push(item("Download", Action::Download));
+        items.push(item("azdrive-menu-download", Action::Download));
         // A synced folder's items: kept on this device, or freed (§13.7).
         if crate::sync_view::selected_keys(s).is_some() {
             let pinned = crate::sync_view::selected_keys(s).is_some_and(|(drive_id, keys)| {
@@ -3387,32 +3387,32 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
             });
             items.push(check_item(
                 app,
-                "Always keep on this device",
+                "azdrive-menu-keep-on-device",
                 Action::Sync(crate::sync_view::SyncAction::KeepOnDevice),
                 pinned,
             ));
             items.push(item(
-                "Free up space",
+                "azdrive-menu-free-up-space",
                 Action::Sync(crate::sync_view::SyncAction::FreeUpSpace),
             ));
         }
         items.extend([
             MenuItem::Separator,
-            item("Cut", Action::Cut),
-            item("Copy", Action::Copy),
+            item("azdrive-menu-cut", Action::Cut),
+            item("azdrive-menu-copy", Action::Copy),
         ]);
         if one_folder {
-            items.push(item("Pin to Quick access", Action::Pin));
+            items.push(item("azdrive-menu-pin", Action::Pin));
         }
         items.extend([
             MenuItem::Separator,
-            item("Compress to zip", Action::Zip),
-            item("Copy path", Action::CopyPath),
+            item("azdrive-menu-zip", Action::Zip),
+            item("azdrive-menu-copy-path", Action::CopyPath),
             MenuItem::Separator,
-            item("Delete", Action::Delete),
-            item("Rename", Action::Rename),
+            item("azdrive-menu-delete", Action::Delete),
+            item("azdrive-menu-rename", Action::Rename),
             MenuItem::Separator,
-            item("Properties", Action::Properties),
+            item("azdrive-menu-properties", Action::Properties),
         ]);
         items
     } else {
@@ -3439,28 +3439,31 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
             .map(|g| check_item(app, g.label(), Action::GroupBy(*g), s.settings.group_by == *g))
             .collect();
         let mut items = vec![
-            submenu("View", layouts),
-            submenu("Sort by", sorts),
-            submenu("Group by", groups),
-            item("Refresh", Action::Refresh),
+            submenu("azdrive-menu-view", layouts),
+            submenu("azdrive-menu-sort-by", sorts),
+            submenu("azdrive-menu-group-by", groups),
+            item("azdrive-menu-refresh", Action::Refresh),
         ];
         if crate::sync_view::place_in_pair(s).is_some() {
-            items.push(item("Sync now", Action::Sync(crate::sync_view::SyncAction::Now)));
+            items.push(item(
+                "azdrive-menu-sync-now",
+                Action::Sync(crate::sync_view::SyncAction::Now),
+            ));
         }
         items.extend([
             MenuItem::Separator,
-            item("Paste", Action::Paste),
-            item("Undo", Action::Undo),
+            item("azdrive-menu-paste", Action::Paste),
+            item("azdrive-menu-undo", Action::Undo),
             MenuItem::Separator,
             submenu(
-                "New",
+                "azdrive-menu-new",
                 vec![
-                    item("Folder", Action::NewFolder),
-                    item("Text Document", Action::NewTextDocument),
+                    item("azdrive-menu-new-folder", Action::NewFolder),
+                    item("azdrive-menu-new-text", Action::NewTextDocument),
                 ],
             ),
             MenuItem::Separator,
-            item("Properties", Action::Properties),
+            item("azdrive-menu-properties", Action::Properties),
         ]);
         items
     };
@@ -3522,14 +3525,14 @@ extern "C" fn on_local_drive_picked(
                 file.save(&file_path)
             });
             if let Err(e) = saved {
-                s.error(format!("The drive could not be saved: {e}"));
+                s.error(Phrase::new("azdrive-drive-not-saved").arg("detail", e.to_string()));
                 return;
             }
         }
         s.slots.push(Slot::new(entry));
         crate::refresh_disks(s);
         println!("AZDRIVE_ADDED {id}");
-        s.success(format!("\"{name}\" is a drive now."));
+        s.success(Phrase::new("azdrive-is-a-drive").arg("name", name.as_str()));
         go(info, app, s, Place::folder(&id, ""), true);
     })
 }
@@ -3571,10 +3574,7 @@ extern "C" fn on_destination_picked(
                 s.popup = Some(Popup::ChooseLocation {
                     kind,
                     text: path.display().to_string(),
-                    error: String::from(
-                        "This folder is on none of AzDrive's drives: add it as a drive first \
-                         (This PC > Computer > Add folder as drive), or type a drive's folder.",
-                    ),
+                    error: Text::key("azdrive-pick-not-a-drive"),
                 });
             }
         }
@@ -3592,7 +3592,7 @@ pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             file.save(&file_path)
         });
         if let Err(e) = saved {
-            s.error(format!("The drives file could not be updated: {e}"));
+            s.error(Phrase::new("azdrive-drives-file-failed").arg("detail", e.to_string()));
             return;
         }
     }
@@ -3601,7 +3601,7 @@ pub(crate) fn forget_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
         let name = s.slots[index].entry.name.clone();
         needs_keyring = s.slots[index].entry.needs_keyring();
         s.slots.remove(index);
-        s.info(format!("\"{name}\" was removed from AzDrive. Its files stay where they are."));
+        s.info(Phrase::new("azdrive-drive-removed").arg("name", name.as_str()));
     }
     s.selected_drive = None;
     s.tree.expanded.retain(|node| node.0 != drive_id);
@@ -3631,7 +3631,9 @@ pub(crate) fn choose_location_done(info: &mut CallbackInfo, app: &RefAny, s: &mu
         _ => {
             s.popup = Some(Popup::ChooseLocation {
                 kind,
-                error: format!("\"{}\" is not a folder of a drive.", text.trim()),
+                error: Phrase::new("azdrive-pick-not-a-folder")
+                    .arg("path", text.trim())
+                    .into(),
                 text,
             });
         }

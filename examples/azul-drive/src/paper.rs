@@ -16,7 +16,10 @@ use std::{
 
 use azcloud_kit::Zeroizing;
 use azul::{pdf::Pdf, prelude::*, str::String as AzString};
-use azul_appkit::qr::QrCode;
+use azul_appkit::{
+    l10n::{t, t_label},
+    qr::QrCode,
+};
 
 /// A4 at 96 dpi in CSS px (the page AzMail prints on).
 pub(crate) const A4: (f32, f32) = (794.0, 1123.0);
@@ -73,7 +76,7 @@ pub(crate) struct Paper {
     pub address: Vec<String>,
     pub text: Vec<String>,
     /// The label over the secret, the secret as the page shows it (and its QR code holds), the
-    /// words beside the QR code.
+    /// words beside the QR code (keys of the resources, or plain words).
     pub label: &'static str,
     pub secret: Zeroizing<String>,
     pub qr_label: &'static str,
@@ -92,7 +95,7 @@ pub(crate) fn paper_dom(paper: &Paper, symbol: &QrCode) -> Dom {
         "margin-top: 4px; padding-bottom: 10px; border-bottom: 2px solid #000000;",
     ));
     if !paper.address.is_empty() {
-        body.add_child(block("Send it to:", "margin-top: 14px; font-weight: bold;"));
+        body.add_child(block(&t("azdrive-paper-send-to"), "margin-top: 14px; font-weight: bold;"));
         for line in &paper.address {
             body.add_child(block(line, "margin-top: 2px; font-size: 15px;"));
         }
@@ -100,7 +103,7 @@ pub(crate) fn paper_dom(paper: &Paper, symbol: &QrCode) -> Dom {
     for text in &paper.text {
         body.add_child(block(text, "margin-top: 10px;"));
     }
-    body.add_child(block(paper.label, "margin-top: 24px; font-weight: bold;"));
+    body.add_child(block(&t_label(paper.label), "margin-top: 24px; font-weight: bold;"));
     body.add_child(block(
         &paper.secret,
         "margin-top: 6px; padding: 12px; border: 1px solid #000000; font-family: monospace; \
@@ -110,7 +113,7 @@ pub(crate) fn paper_dom(paper: &Paper, symbol: &QrCode) -> Dom {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 24px;")
             .with_child(qr_dom(symbol, MODULE_PX))
-            .with_child(block(paper.qr_label, "margin-left: 18px; flex-grow: 1;")),
+            .with_child(block(&t_label(paper.qr_label), "margin-left: 18px; flex-grow: 1;")),
     );
     body
 }
@@ -128,9 +131,7 @@ pub(crate) fn paper_pdf(
             .to_vec(),
     );
     if bytes.is_empty() {
-        Err(String::from(
-            "azul's PDF writer made no file (a build without its `pdf` feature?).",
-        ))
+        Err(t("azdrive-kit-no-pdf"))
     } else {
         Ok(bytes)
     }

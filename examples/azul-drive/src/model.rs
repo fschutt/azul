@@ -39,18 +39,18 @@ impl ViewLayout {
         ViewLayout::Content,
     ];
 
-    /// The label of the View menus and the Options.
+    /// The label of the View menus and the Options (a key of the resources).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            ViewLayout::ExtraLargeIcons => "Extra large icons",
-            ViewLayout::LargeIcons => "Large icons",
-            ViewLayout::MediumIcons => "Medium icons",
-            ViewLayout::SmallIcons => "Small icons",
-            ViewLayout::List => "List",
-            ViewLayout::Details => "Details",
-            ViewLayout::Tiles => "Tiles",
-            ViewLayout::Content => "Content",
+            ViewLayout::ExtraLargeIcons => "azdrive-layout-extra-large-icons",
+            ViewLayout::LargeIcons => "azdrive-layout-large-icons",
+            ViewLayout::MediumIcons => "azdrive-layout-medium-icons",
+            ViewLayout::SmallIcons => "azdrive-layout-small-icons",
+            ViewLayout::List => "azdrive-layout-list",
+            ViewLayout::Details => "azdrive-layout-details",
+            ViewLayout::Tiles => "azdrive-layout-tiles",
+            ViewLayout::Content => "azdrive-layout-content",
         }
     }
 
@@ -428,8 +428,21 @@ impl GroupBy {
         GroupBy::Modified,
     ];
 
+    /// The choice's words (a key of the resources).
     #[must_use]
     pub fn label(self) -> &'static str {
+        match self {
+            GroupBy::None => "azdrive-group-by-none",
+            GroupBy::Name => "azdrive-group-by-name",
+            GroupBy::Type => "azdrive-group-by-type",
+            GroupBy::Size => "azdrive-group-by-size",
+            GroupBy::Modified => "azdrive-group-by-modified",
+        }
+    }
+
+    /// The choice's English name, for the stdout marker (`AZDRIVE_GROUP Name`).
+    #[must_use]
+    pub fn english(self) -> &'static str {
         match self {
             GroupBy::None => "(None)",
             GroupBy::Name => "Name",
@@ -439,8 +452,9 @@ impl GroupBy {
         }
     }
 
-    /// The group of `entry` - its place among the groups and its header -
-    /// `now` (seconds since 1970) in the local zone for the date groups.
+    /// The group of `entry` - its place among the groups and its header (a key of the
+    /// resources, or a Type's words) - `now` (seconds since 1970) in the local zone for the date
+    /// groups.
     #[must_use]
     pub fn group(self, entry: &Entry, now: i64) -> (u32, String) {
         match self {
@@ -457,26 +471,26 @@ impl GroupBy {
                     'A'..='H' => (1, "A - H"),
                     'I'..='P' => (2, "I - P"),
                     'Q'..='Z' => (3, "Q - Z"),
-                    _ => (4, "Other"),
+                    _ => (4, "azdrive-group-other"),
                 };
                 (order, label.to_string())
             }
             GroupBy::Type if entry.is_folder => (0, entry.kind()),
             GroupBy::Type => (1, entry.kind()),
-            GroupBy::Size if entry.is_folder => (0, String::from("Folders")),
+            GroupBy::Size if entry.is_folder => (0, String::from("azdrive-group-folders")),
             GroupBy::Size => {
                 const KB: u64 = 1024;
                 const MB: u64 = 1024 * KB;
                 const GB: u64 = 1024 * MB;
                 let (order, label) = match entry.size {
-                    None => (8, "Unspecified"),
-                    Some(0) => (1, "Empty (0 KB)"),
-                    Some(s) if s < 16 * KB => (2, "Tiny (0 - 16 KB)"),
-                    Some(s) if s < MB => (3, "Small (16 KB - 1 MB)"),
-                    Some(s) if s < 128 * MB => (4, "Medium (1 - 128 MB)"),
-                    Some(s) if s < GB => (5, "Large (128 MB - 1 GB)"),
-                    Some(s) if s < 4 * GB => (6, "Huge (1 - 4 GB)"),
-                    Some(_) => (7, "Gigantic (> 4 GB)"),
+                    None => (8, "azdrive-group-size-unspecified"),
+                    Some(0) => (1, "azdrive-refine-size-empty"),
+                    Some(s) if s < 16 * KB => (2, "azdrive-refine-size-tiny"),
+                    Some(s) if s < MB => (3, "azdrive-refine-size-small"),
+                    Some(s) if s < 128 * MB => (4, "azdrive-refine-size-medium"),
+                    Some(s) if s < GB => (5, "azdrive-refine-size-large"),
+                    Some(s) if s < 4 * GB => (6, "azdrive-refine-size-huge"),
+                    Some(_) => (7, "azdrive-refine-size-gigantic"),
                 };
                 (order, label.to_string())
             }
@@ -494,10 +508,10 @@ impl GroupBy {
 
 /// Explorer's date groups, relative to `now`'s day in `now`'s zone: Today,
 /// Yesterday, Earlier this week (weeks start on Monday), Last week, Earlier
-/// this month, Last month, Earlier this year, A long time ago.
+/// this month, Last month, Earlier this year, A long time ago (their keys).
 #[must_use]
 pub fn date_group<Tz: TimeZone>(unix: Option<u64>, now: &DateTime<Tz>) -> (u32, &'static str) {
-    const UNKNOWN: (u32, &str) = (8, "Unknown date");
+    const UNKNOWN: (u32, &str) = (8, "azdrive-group-date-unknown");
     let Some(secs) = unix.and_then(|s| i64::try_from(s).ok()) else {
         return UNKNOWN;
     };
@@ -507,20 +521,20 @@ pub fn date_group<Tz: TimeZone>(unix: Option<u64>, now: &DateTime<Tz>) -> (u32, 
     let today = now.date_naive();
     let day = then.date_naive();
     if day >= today {
-        return (0, "Today");
+        return (0, "azdrive-group-date-today");
     }
     if (today - day).num_days() == 1 {
-        return (1, "Yesterday");
+        return (1, "azdrive-group-date-yesterday");
     }
     let week_start = today - TimeDelta::days(i64::from(today.weekday().num_days_from_monday()));
     if day >= week_start {
-        return (2, "Earlier this week");
+        return (2, "azdrive-group-date-earlier-this-week");
     }
     if day >= week_start - TimeDelta::days(7) {
-        return (3, "Last week");
+        return (3, "azdrive-group-date-last-week");
     }
     if day.year() == today.year() && day.month() == today.month() {
-        return (4, "Earlier this month");
+        return (4, "azdrive-group-date-earlier-this-month");
     }
     let (last_year, last_month) = if today.month() == 1 {
         (today.year() - 1, 12)
@@ -528,12 +542,12 @@ pub fn date_group<Tz: TimeZone>(unix: Option<u64>, now: &DateTime<Tz>) -> (u32, 
         (today.year(), today.month() - 1)
     };
     if day.year() == last_year && day.month() == last_month {
-        return (5, "Last month");
+        return (5, "azdrive-group-date-last-month");
     }
     if day.year() == today.year() {
-        return (6, "Earlier this year");
+        return (6, "azdrive-group-date-earlier-this-year");
     }
-    (7, "A long time ago")
+    (7, "azdrive-group-date-long-ago")
 }
 
 /// One group of the view: its header and its items in the sorted order.
@@ -692,7 +706,7 @@ impl ColumnLayout {
                 .map(|e| cell_text(e, c.column, show_extensions).chars().count())
                 .max()
                 .unwrap_or(0)
-                .max(c.column.label().chars().count());
+                .max(azul_appkit::l10n::t_label(c.column.label()).chars().count());
             let icon = if c.column == Column::Name {
                 ICON_PX
             } else {
@@ -873,14 +887,14 @@ mod tests {
         assert_eq!(
             labels,
             vec![
-                "Extra large icons",
-                "Large icons",
-                "Medium icons",
-                "Small icons",
-                "List",
-                "Details",
-                "Tiles",
-                "Content"
+                "azdrive-layout-extra-large-icons",
+                "azdrive-layout-large-icons",
+                "azdrive-layout-medium-icons",
+                "azdrive-layout-small-icons",
+                "azdrive-layout-list",
+                "azdrive-layout-details",
+                "azdrive-layout-tiles",
+                "azdrive-layout-content"
             ]
         );
         for layout in ViewLayout::ALL {
@@ -987,24 +1001,25 @@ mod tests {
 
     #[test]
     fn group_by_name_size_type_and_date_puts_items_into_explorers_groups() {
+        crate::l10n::in_english();
         assert_eq!(GroupBy::Name.group(&file("apple.txt", 1, 0), 0).1, "A - H");
         assert_eq!(GroupBy::Name.group(&file("Quince", 1, 0), 0).1, "Q - Z");
         assert_eq!(GroupBy::Name.group(&file("7up", 1, 0), 0).1, "0 - 9");
-        assert_eq!(GroupBy::Name.group(&file("_x", 1, 0), 0).1, "Other");
-        assert_eq!(GroupBy::Size.group(&file("e", 0, 0), 0).1, "Empty (0 KB)");
+        assert_eq!(GroupBy::Name.group(&file("_x", 1, 0), 0).1, "azdrive-group-other");
+        assert_eq!(GroupBy::Size.group(&file("e", 0, 0), 0).1, "azdrive-refine-size-empty");
         assert_eq!(
             GroupBy::Size.group(&file("t", 10_000, 0), 0).1,
-            "Tiny (0 - 16 KB)"
+            "azdrive-refine-size-tiny"
         );
         assert_eq!(
             GroupBy::Size.group(&file("s", 500_000, 0), 0).1,
-            "Small (16 KB - 1 MB)"
+            "azdrive-refine-size-small"
         );
         assert_eq!(
             GroupBy::Size.group(&file("m", 50 * 1024 * 1024, 0), 0).1,
-            "Medium (1 - 128 MB)"
+            "azdrive-refine-size-medium"
         );
-        assert_eq!(GroupBy::Size.group(&folder("x"), 0).1, "Folders");
+        assert_eq!(GroupBy::Size.group(&folder("x"), 0).1, "azdrive-group-folders");
         assert_eq!(GroupBy::Type.group(&folder("x"), 0).1, "File folder");
         assert_eq!(
             GroupBy::Type.group(&file("a.txt", 1, 0), 0).1,
@@ -1023,15 +1038,15 @@ mod tests {
         let now = zone.with_ymd_and_hms(2026, 9, 30, 12, 0, 0).unwrap();
         let at = |y, m, d| zone.with_ymd_and_hms(y, m, d, 9, 0, 0).unwrap().timestamp() as u64;
         let label = |unix: Option<u64>| date_group(unix, &now).1;
-        assert_eq!(label(Some(at(2026, 9, 30))), "Today");
-        assert_eq!(label(Some(at(2026, 9, 29))), "Yesterday");
-        assert_eq!(label(Some(at(2026, 9, 28))), "Earlier this week");
-        assert_eq!(label(Some(at(2026, 9, 22))), "Last week");
-        assert_eq!(label(Some(at(2026, 9, 2))), "Earlier this month");
-        assert_eq!(label(Some(at(2026, 8, 15))), "Last month");
-        assert_eq!(label(Some(at(2026, 2, 1))), "Earlier this year");
-        assert_eq!(label(Some(at(2019, 2, 1))), "A long time ago");
-        assert_eq!(label(None), "Unknown date");
+        assert_eq!(label(Some(at(2026, 9, 30))), "azdrive-group-date-today");
+        assert_eq!(label(Some(at(2026, 9, 29))), "azdrive-group-date-yesterday");
+        assert_eq!(label(Some(at(2026, 9, 28))), "azdrive-group-date-earlier-this-week");
+        assert_eq!(label(Some(at(2026, 9, 22))), "azdrive-group-date-last-week");
+        assert_eq!(label(Some(at(2026, 9, 2))), "azdrive-group-date-earlier-this-month");
+        assert_eq!(label(Some(at(2026, 8, 15))), "azdrive-group-date-last-month");
+        assert_eq!(label(Some(at(2026, 2, 1))), "azdrive-group-date-earlier-this-year");
+        assert_eq!(label(Some(at(2019, 2, 1))), "azdrive-group-date-long-ago");
+        assert_eq!(label(None), "azdrive-group-date-unknown");
         assert!(
             date_group(Some(at(2026, 9, 30)), &now).0 < date_group(Some(at(2019, 2, 1)), &now).0
         );

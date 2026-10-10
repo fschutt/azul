@@ -28,17 +28,19 @@ use azul::{
     callbacks::ButtonOnClickCallbackType, dialog::FileDialog, prelude::*,
     str::String as AzString,
 };
-use azul_appkit::pieces::{block, text};
-use azul_pay::{cash::amount_in_words, offer::amount_text, CashSlip};
+use azul_appkit::{
+    l10n::{label, t, t_args, Arg},
+    pieces::{block, text},
+};
+use azul_pay::{cash::amount_in_words, CashSlip};
 
 use crate::{
     actions::now_secs, add_drive::DEFAULT_CLOUD_NAME, ids, look, paper::Paper, with_state,
     DriveState, Popup,
 };
 
-/// What the dialog and the drive list say while a cash order waits for its letter.
-pub(crate) const WAITING_TEXT: &str =
-    "Waiting for your letter: postal cash takes a while, AzDrive checks once a day.";
+/// What the dialog and the drive list say while a cash order waits for its letter (a key).
+pub(crate) const WAITING_TEXT: &str = "azdrive-cash-waiting";
 
 /// A cash checkout this AzDrive waits for, as the drive list shows it. `Debug` shows no claim
 /// secret (the checkout's).
@@ -114,10 +116,10 @@ impl Letter {
         }
     }
 
-    /// `EUR 9.90`.
+    /// `EUR 9.90` (`9,90 EUR` in German).
     #[must_use]
     pub(crate) fn amount_text(&self) -> String {
-        format!("{} {}", self.currency, amount_text(self.amount_cents))
+        azul_appkit::l10n::money(self.amount_cents, &self.currency)
     }
 
     /// `nine euros and ninety cents`.
@@ -126,18 +128,19 @@ impl Letter {
         amount_in_words(self.amount_cents, &self.currency)
     }
 
-    /// What was bought: `Azlin storage, 100 GB for 12 months`.
+    /// What was bought: `Azlin storage, 100 GB for 12 months` (in the window's language).
     fn bought(&self) -> String {
-        let months = match self.months {
-            0 => String::new(),
-            1 => String::from(" for 1 month"),
-            n => format!(" for {n} months"),
-        };
-        if self.tier.is_empty() {
-            format!("Azlin storage{months}")
-        } else {
-            format!("Azlin storage, {}{months}", tier_text(&self.tier))
-        }
+        t_args(
+            if self.tier.is_empty() {
+                "azdrive-cash-bought"
+            } else {
+                "azdrive-cash-bought-tier"
+            },
+            &[
+                ("tier", Arg::from(tier_text(&self.tier))),
+                ("months", Arg::from(self.months)),
+            ],
+        )
     }
 }
 
@@ -162,38 +165,35 @@ fn day_of(time: &str) -> &str {
 /// claim code `claim_code` as text and QR code; `made`: the day of the order.
 #[must_use]
 pub(crate) fn copy_paper(letter: &Letter, claim_code: &str, made: &str) -> Paper {
+    let title = t("azdrive-cash-copy-title");
     Paper {
-        title: String::from("Azlin cash order - your copy"),
-        subtitle: format!("Checkout {}, made on {made}.", letter.checkout_id),
+        subtitle: t_args(
+            "azdrive-cash-copy-subtitle",
+            &[
+                ("checkout", Arg::from(letter.checkout_id.as_str())),
+                ("made", Arg::from(made)),
+            ],
+        ),
         address: Vec::new(),
         text: vec![
-            format!(
-                "You bought: {}. The amount: {} ({}).",
-                letter.bought(),
-                letter.amount_text(),
-                letter.amount_words()
+            t_args(
+                "azdrive-cash-copy-bought",
+                &[
+                    ("bought", Arg::from(letter.bought())),
+                    ("amount", Arg::from(letter.amount_text())),
+                    ("words", Arg::from(letter.amount_words())),
+                ],
             ),
-            String::from("Keep this; AzDrive picks up your drive once the money arrived."),
-            String::from(
-                "Postal cash takes a while: AzDrive checks once a day. Nothing else tells you - \
-                 open AzDrive every day or two until the drive is there.",
-            ),
-            String::from(
-                "If this computer is lost: on another computer, in AzDrive, Add drive > \"Pick \
-                 up a paid drive with a claim code\", then type the code below or scan its QR \
-                 code.",
-            ),
-            String::from(
-                "The claim code is the key to the drive: whoever has it can pick the drive up. \
-                 Keep this page like a key, never send the code to anyone and never post it \
-                 with the cash.",
-            ),
+            t("azdrive-cash-copy-keep"),
+            t("azdrive-cash-copy-daily"),
+            t("azdrive-cash-copy-lost"),
+            t("azdrive-cash-copy-key"),
         ],
-        label: "Your claim code",
+        label: "azdrive-cash-copy-label",
         secret: Zeroizing::new(claim_code.to_string()),
-        qr_label: "The same claim code as a QR code: a phone's camera reads it, and AzDrive \
-                   takes the text it shows as it is.",
-        file_name: String::from("Azlin cash order - your copy.pdf"),
+        qr_label: "azdrive-cash-copy-qr",
+        file_name: format!("{title}.pdf"),
+        title,
     }
 }
 
@@ -205,38 +205,49 @@ pub(crate) fn slip_paper(letter: &Letter, made: &str) -> Paper {
     address.extend(letter.mail_to_lines.iter().cloned());
     let amount = letter.amount_text();
     let mut text = vec![
-        format!("Amount: {amount} - {}.", letter.amount_words()),
-        format!("Put this slip and exactly {amount} in cash in the envelope."),
-        String::from(
-            "Send it to the address above. Azlin activates the order when the letter arrived; \
-             this slip holds no key to the drive.",
+        t_args(
+            "azdrive-cash-slip-amount",
+            &[
+                ("amount", Arg::from(amount.as_str())),
+                ("words", Arg::from(letter.amount_words())),
+            ],
         ),
+        t_args("azdrive-cash-slip-envelope", &[("amount", Arg::from(amount.as_str()))]),
+        t("azdrive-cash-slip-send"),
     ];
     if !letter.expires_at.is_empty() {
-        text.push(format!(
-            "The order ends unpaid on {} if no letter arrived by then.",
-            day_of(&letter.expires_at)
+        text.push(t_args(
+            "azdrive-cash-slip-expires",
+            &[("day", Arg::from(day_of(&letter.expires_at)))],
         ));
     }
+    let title = t("azdrive-cash-slip-title");
     Paper {
-        title: String::from("Azlin cash order - slip to post"),
-        subtitle: format!(
-            "For checkout {}, {amount}, made on {made}.",
-            letter.checkout_id
+        subtitle: t_args(
+            "azdrive-cash-slip-subtitle",
+            &[
+                ("checkout", Arg::from(letter.checkout_id.as_str())),
+                ("amount", Arg::from(amount.as_str())),
+                ("made", Arg::from(made)),
+            ],
         ),
         address,
         text,
-        label: "Activation code",
+        label: "azdrive-cash-slip-label",
         secret: Zeroizing::new(letter.activation_code.clone()),
-        qr_label: "The same activation code as a QR code, for Azlin to read the slip back.",
-        file_name: String::from("Azlin cash order - slip to post.pdf"),
+        qr_label: "azdrive-cash-slip-qr",
+        file_name: format!("{title}.pdf"),
+        title,
     }
 }
 
 /// Why a cash order ended, as the dialog and the drive list say it.
 #[must_use]
 pub(crate) fn ended_text(why: &str) -> String {
-    format!("Your cash order ended: {}.", why.trim().trim_end_matches('.'))
+    t_args(
+        "azdrive-cash-ended",
+        &[("why", Arg::from(why.trim().trim_end_matches('.')))],
+    )
 }
 
 /// The unfinished cash checkout the claim code `code` (as typed or scanned) picks up at
@@ -248,16 +259,10 @@ pub(crate) fn ended_text(why: &str) -> String {
 pub(crate) fn picked_up(code: &str, token_url: &str, name: &str) -> Result<PendingCheckout, String> {
     let token_url = token_url.trim();
     if token_url.is_empty() {
-        return Err(String::from(
-            "No Azlin token server is set to ask for the drive: start AzDrive with --token-url \
-             or set AZLIN_TOKEN_URL.",
-        ));
+        return Err(t("azdrive-cash-no-token-server"));
     }
     let code = ClaimCode::parse(code).map_err(|e| {
-        format!(
-            "AzDrive cannot read that ({e}): type the claim code as your copy prints it, or \
-             scan its QR code."
-        )
+        t_args("azdrive-cash-unreadable-code", &[("detail", Arg::from(e.to_string()))])
     })?;
     let name = if name.trim().is_empty() {
         DEFAULT_CLOUD_NAME
@@ -422,13 +427,13 @@ struct PaperRef {
 /// A button saving (or printing) page `page` of the cash order `checkout_id`.
 pub(crate) fn paper_button(
     app: &RefAny,
-    label: &str,
+    words: &str,
     checkout_id: &str,
     page: Page,
     print: bool,
     id: AzString,
 ) -> Dom {
-    Button::create(AzString::from(label))
+    Button::create(label(words))
         .with_on_click(
             RefAny::new(PaperRef {
                 app: app.clone(),
@@ -484,20 +489,17 @@ extern "C" fn on_paper(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 azul_appkit::files::open_external(&path.to_string_lossy())
             });
             match opened {
-                Ok(()) => String::from(
-                    "It is open in your PDF viewer: print it from there. AzDrive deletes this \
-                     copy at its next start.",
-                ),
-                Err(why) => format!("It could not be opened for printing: {why}"),
+                Ok(()) => t("azdrive-cash-print-open"),
+                Err(why) => t_args("azdrive-kit-print-failed", &[("why", Arg::from(why))]),
             }
         }
         Ok(bytes) => {
             let len = bytes.len();
             if FileDialog::save_bytes(name.as_str(), "application/pdf", bytes.to_vec()) {
                 println!("AZDRIVE_CASH_SAVED {} {len}", page.word());
-                format!("Saved {name}.")
+                t_args("azdrive-kit-saved", &[("name", Arg::from(name.as_str()))])
             } else {
-                String::from("It was not saved.")
+                t("azdrive-kit-not-saved")
             }
         }
     };
@@ -512,7 +514,7 @@ extern "C" fn on_paper(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// pages to save or print.
 #[must_use]
 pub(crate) fn posted_pieces(kept: Option<&PendingCheckout>, app: &RefAny) -> Vec<Dom> {
-    let mut pieces = vec![Dom::create_span_with_text(AzString::from(WAITING_TEXT))
+    let mut pieces = vec![Dom::create_span_with_text(label(WAITING_TEXT))
         .with_id(ids::ADD_CASH_WAITING)
         .with_css("margin-top: 8px; font-weight: 600;")];
     let Some(kept) = kept else {
@@ -520,20 +522,16 @@ pub(crate) fn posted_pieces(kept: Option<&PendingCheckout>, app: &RefAny) -> Vec
     };
     if let Some(letter) = Letter::of(kept) {
         pieces.push(
-            Dom::create_span_with_text(AzString::from(format!(
-                "Save or print both pages. Keep your copy; post the slip with exactly {} in \
-                 cash to the address on it.",
-                letter.amount_text()
+            Dom::create_span_with_text(AzString::from(t_args(
+                "azdrive-cash-both-pages",
+                &[("amount", Arg::from(letter.amount_text()))],
             )))
             .with_css("margin-top: 6px; font-size: 12px;"),
         );
     }
     if let Ok(code) = ClaimCode::of(kept) {
         pieces.push(
-            Dom::create_span_with_text(AzString::from(
-                "Your claim code (it is on your copy too) - another computer picks the drive up \
-                 with it:",
-            ))
+            Dom::create_span_with_text(label("azdrive-cash-claim-code-is"))
             .with_css("margin-top: 8px; font-size: 12px; opacity: 0.75;"),
         );
         pieces.push(
@@ -554,7 +552,7 @@ pub(crate) fn posted_pieces(kept: Option<&PendingCheckout>, app: &RefAny) -> Vec
             .with_css("display: flex; flex-direction: row; flex-wrap: wrap; margin-top: 8px;")
             .with_child(paper_button(
                 app,
-                "Save your copy as PDF\u{2026}",
+                "azdrive-cash-save-copy",
                 id,
                 Page::Copy,
                 false,
@@ -562,7 +560,7 @@ pub(crate) fn posted_pieces(kept: Option<&PendingCheckout>, app: &RefAny) -> Vec
             ))
             .with_child(paper_button(
                 app,
-                "Print your copy\u{2026}",
+                "azdrive-cash-print-copy",
                 id,
                 Page::Copy,
                 true,
@@ -570,7 +568,7 @@ pub(crate) fn posted_pieces(kept: Option<&PendingCheckout>, app: &RefAny) -> Vec
             ))
             .with_child(paper_button(
                 app,
-                "Save the slip as PDF\u{2026}",
+                "azdrive-cash-save-slip",
                 id,
                 Page::Slip,
                 false,
@@ -578,7 +576,7 @@ pub(crate) fn posted_pieces(kept: Option<&PendingCheckout>, app: &RefAny) -> Vec
             ))
             .with_child(paper_button(
                 app,
-                "Print the slip\u{2026}",
+                "azdrive-cash-print-slip",
                 id,
                 Page::Slip,
                 true,
@@ -619,8 +617,8 @@ pub(crate) fn waiting_area(s: &DriveState, app: &RefAny) -> Option<Dom> {
     let mut area = Dom::create_div()
         .with_id(ids::SIDE_CASH)
         .with_css(look::ACTIVITY)
-        .with_accessibility_name("Cash orders")
-        .with_child(block(look::ACTIVITY_HEAD, text("Cash orders")));
+        .with_accessibility_name(label("azdrive-cash-orders"))
+        .with_child(block(look::ACTIVITY_HEAD, text(label("azdrive-cash-orders"))));
     for (index, wait) in s.cash_waits.iter().enumerate() {
         let kept = &wait.checkout;
         let letter = Letter::of(kept);
@@ -643,7 +641,7 @@ pub(crate) fn waiting_area(s: &DriveState, app: &RefAny) -> Option<Dom> {
                 );
                 area.add_child(
                     Dom::create_div().with_css("padding: 2px 10px;").with_child(
-                        Button::create(AzString::from("Dismiss"))
+                        Button::create(label("azdrive-message-dismiss"))
                             .with_on_click(
                                 RefAny::new(DismissRef {
                                     app: app.clone(),
@@ -657,14 +655,16 @@ pub(crate) fn waiting_area(s: &DriveState, app: &RefAny) -> Option<Dom> {
                 );
             }
             None => {
-                area.add_child(block(LINE, text(WAITING_TEXT)).with_id(ids::side_cash(index, "line")));
+                area.add_child(
+                    block(LINE, text(label(WAITING_TEXT))).with_id(ids::side_cash(index, "line")),
+                );
                 if letter.is_some() {
                     area.add_child(
                         Dom::create_div()
                             .with_css("display: flex; flex-direction: row; padding: 2px 10px;")
                             .with_child(paper_button(
                                 app,
-                                "Your copy",
+                                "azdrive-cash-your-copy",
                                 &kept.checkout_id,
                                 Page::Copy,
                                 false,
@@ -672,7 +672,7 @@ pub(crate) fn waiting_area(s: &DriveState, app: &RefAny) -> Option<Dom> {
                             ))
                             .with_child(paper_button(
                                 app,
-                                "The slip",
+                                "azdrive-cash-the-slip",
                                 &kept.checkout_id,
                                 Page::Slip,
                                 false,

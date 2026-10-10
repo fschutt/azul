@@ -114,6 +114,23 @@ fn on_click(data: RefAny, mut info: CallbackInfo) -> Update {
 }
 ```
 
+The locale is the app's choice, not one window's: a window opened afterwards (a dialog) starts
+in it. An empty locale (`info.set_locale("".into())`) follows the system's language again - the
+"System" entry of a Language setting.
+
+## Text That Is No DOM
+
+The layout pass translates the DOM's `String::tr` text. A notification's title and body, a native
+dialog's words and other text that never becomes a DOM text node are translated in a callback with
+`CallbackInfo::translate`, in the window's active locale:
+
+```rust
+let body = info.translate("backup-done".into(), vec![FluentArgKV {
+    key: "count".into(),
+    value: FluentArg::I32(12),
+}].into());
+```
+
 ## Translation Completeness
 
 In large applications, it is easy to forget to translate a string. Azul provides a 

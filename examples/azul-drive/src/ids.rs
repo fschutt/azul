@@ -200,7 +200,7 @@ pub const PAY_BROWSER: AzString = AzString::from_const_str("__azdrive_pay_browse
 pub const PAY_NOTICE: AzString = AzString::from_const_str("__azdrive_pay_notice");
 /// The web view's marker: how Pay's callback (in the popover's window) finds the web view to
 /// tell the fields page to confirm.
-pub const PAY_WEBVIEW_MARKER: &str = "azdrive-pay-webview";
+pub const PAY_WEBVIEW_MARKER: &str = "__azdrive_pay_webview_marker";
 /// The "delete for good?" question.
 pub const CONFIRM_DELETE: AzString = AzString::from_const_str("__azdrive_confirm_delete");
 /// "Move to / Copy to > Choose location" and its typed path.

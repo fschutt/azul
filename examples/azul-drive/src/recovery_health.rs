@@ -16,6 +16,7 @@
 //! Plain data with the settings (`Settings::recovery`, `drive/view.json`), so it is tested
 //! without the encryption feature; the flows are `recovery.rs`'s.
 
+use azul_appkit::l10n::{Phrase, Text};
 use serde::{Deserialize, Serialize};
 
 /// A day in seconds.
@@ -310,25 +311,26 @@ impl RecoveryState {
 }
 
 impl Health {
+    /// The light as a message's argument (`azdrive-health-line`'s `$health`).
     #[must_use]
     pub fn word(self) -> &'static str {
         match self {
-            Health::Green => "Green",
-            Health::Yellow => "Yellow",
-            Health::Red => "Red",
+            Health::Green => "green",
+            Health::Yellow => "yellow",
+            Health::Red => "red",
         }
     }
 }
 
 impl Method {
-    /// The method as the methods list names it.
+    /// The method as the methods list names it (a key of the resources).
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
-            Method::Code => "Recovery code",
-            Method::Contacts => "Trusted contacts",
-            Method::OtherDevice => "Another device",
-            Method::Passkey => "Passkey",
+            Method::Code => "azdrive-method-code",
+            Method::Contacts => "azdrive-method-contacts",
+            Method::OtherDevice => "azdrive-method-device",
+            Method::Passkey => "azdrive-method-passkey",
         }
     }
 }
@@ -432,29 +434,27 @@ pub fn forget_pending(pending: &mut Vec<PendingRecovery>, drive_id: &str) {
     pending.retain(|p| p.drive_id != drive_id);
 }
 
-/// The info panel's line: `Green: 2 methods, the code checked on 2026-10-10`; `None` for a
-/// drive this computer keeps no recovery of.
+/// The info panel's line: `Green: 2 methods, the code checked on 2026-10-10`, then what to do
+/// when it is not green; `None` for a drive this computer keeps no recovery of.
 #[must_use]
-pub fn health_line(states: &[RecoveryState], drive_id: &str, now: u64) -> Option<String> {
+pub fn health_line(states: &[RecoveryState], drive_id: &str, now: u64) -> Option<Text> {
     let state = state_of(states, drive_id)?;
     let health = state.health(now);
     let methods = state.methods().len();
-    let checked = state.code_checked.map_or_else(
-        || String::from("the code never checked"),
-        |at| format!("the code checked on {}", day(at)),
-    );
+    let line = Phrase::new("azdrive-health-line")
+        .arg("health", health.word())
+        .arg("methods", methods)
+        .arg("checked", state.code_checked.map_or_else(|| String::from("never"), day));
     let advice = match health {
-        Health::Green => String::new(),
-        Health::Yellow if methods < 2 => String::from(" - add a second method"),
-        Health::Yellow => String::from(" - check the code (Options > Drives > Test)"),
-        Health::Red => String::from(" - make a new recovery code"),
+        Health::Green => None,
+        Health::Yellow if methods < 2 => Some("azdrive-health-add-method"),
+        Health::Yellow => Some("azdrive-health-check-code"),
+        Health::Red => Some("azdrive-health-new-code"),
     };
-    let counted = if methods == 1 {
-        String::from("1 method")
-    } else {
-        format!("{methods} methods")
-    };
-    Some(format!("{}: {counted}, {checked}{advice}", health.word()))
+    Some(match advice {
+        Some(advice) => line.then(" - ").then(Text::key(advice)),
+        None => line.into(),
+    })
 }
 
 /// What a method's row in the methods list offers.
@@ -475,7 +475,7 @@ pub enum MethodAction {
 pub struct MethodRow {
     pub method: Method,
     pub present: bool,
-    pub status: String,
+    pub status: Text,
     pub actions: Vec<MethodAction>,
 }
 
@@ -484,24 +484,28 @@ pub struct MethodRow {
 pub fn methods_list(state: &RecoveryState, _now: u64) -> Vec<MethodRow> {
     let code = match state.code_checked {
         Some(at) => {
-            let next = if state.drills_off && state.may_stop_drills() {
-                String::from(", no more checks")
+            let checked = Text::from(Phrase::new("azdrive-method-code-checked").arg("on", day(at)));
+            let status = if state.drills_off && state.may_stop_drills() {
+                checked.then(", ").then(Text::key("azdrive-method-code-no-checks"))
             } else {
-                state
-                    .next_drill()
-                    .map_or_else(String::new, |due| format!(", next check on {}", day(due)))
+                match state.next_drill() {
+                    Some(due) => checked
+                        .then(", ")
+                        .then(Phrase::new("azdrive-method-code-next").arg("on", day(due))),
+                    None => checked,
+                }
             };
             MethodRow {
                 method: Method::Code,
                 present: true,
-                status: format!("Checked on {}{next}", day(at)),
+                status,
                 actions: vec![MethodAction::Test],
             }
         }
         None => MethodRow {
             method: Method::Code,
             present: false,
-            status: String::from("Never typed back: make a new recovery code"),
+            status: Text::key("azdrive-method-code-never"),
             actions: vec![MethodAction::Test],
         },
     };
@@ -511,7 +515,7 @@ pub fn methods_list(state: &RecoveryState, _now: u64) -> Vec<MethodRow> {
         MethodRow {
             method: Method::Contacts,
             present: false,
-            status: String::from("None"),
+            status: Text::key("azdrive-method-contacts-none"),
             actions: vec![MethodAction::Add],
         }
     } else {
@@ -520,17 +524,15 @@ pub fn methods_list(state: &RecoveryState, _now: u64) -> Vec<MethodRow> {
         MethodRow {
             method: Method::Contacts,
             present: enough,
-            status: if enough {
-                format!(
-                    "{handed} of {total} shares handed over ({})",
-                    names.join(", ")
-                )
+            status: Phrase::new(if enough {
+                "azdrive-method-contacts-handed"
             } else {
-                format!(
-                    "{handed} of {total} shares handed over ({}): two open the code",
-                    names.join(", ")
-                )
-            },
+                "azdrive-method-contacts-too-few"
+            })
+            .arg("handed", handed)
+            .arg("total", total)
+            .arg("names", names.join(", "))
+            .into(),
             actions: if enough {
                 vec![MethodAction::Test, MethodAction::Remove]
             } else {
@@ -541,34 +543,35 @@ pub fn methods_list(state: &RecoveryState, _now: u64) -> Vec<MethodRow> {
     let devices = MethodRow {
         method: Method::OtherDevice,
         present: state.other_devices > 0,
-        status: match state.other_devices {
-            0 => String::from("None counted"),
-            1 => String::from("1 other device has the key"),
-            n => format!("{n} other devices have the key"),
-        },
+        status: Phrase::new("azdrive-method-devices")
+            .arg("count", state.other_devices)
+            .into(),
         actions: vec![MethodAction::CountAgain, MethodAction::Add],
     };
     let passkey = MethodRow {
         method: Method::Passkey,
         present: false,
-        status: String::from("Not yet: a passkey comes with a later AzDrive"),
+        status: Text::key("azdrive-method-passkey-later"),
         actions: Vec::new(),
     };
     vec![code, contacts, devices, passkey]
 }
 
-/// The warning over the list when the drive has fewer than two methods.
+/// The warning over the list when the drive has fewer than two methods (a key).
 #[must_use]
 pub fn methods_warning(state: &RecoveryState) -> Option<&'static str> {
-    (state.methods().len() < 2).then_some(
-        "Fewer than two ways back in: with one, losing it locks you out of the drive. Add \
-         trusted contacts or another device.",
-    )
+    (state.methods().len() < 2).then_some("azdrive-methods-warning")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `text` in English.
+    fn said(text: &Text) -> String {
+        crate::l10n::in_english();
+        azul_appkit::l10n::t_text(text)
+    }
 
     const NOW: u64 = 1_790_000_000;
 
@@ -694,7 +697,7 @@ mod tests {
             health_line(&[], "d_1", NOW).is_none(),
             "a drive without a state"
         );
-        let line = health_line(&[state], "d_1", NOW).unwrap();
+        let line = said(&health_line(&[state], "d_1", NOW).unwrap());
         assert!(line.starts_with("Red"), "{line}");
     }
 
@@ -730,8 +733,8 @@ mod tests {
             ]
         );
         assert!(rows[0].present, "{:?}", rows[0]);
-        assert!(rows[0].status.contains("Checked on"), "{}", rows[0].status);
-        assert!(rows[0].status.contains("next check"), "{}", rows[0].status);
+        assert!(said(&rows[0].status).contains("Checked on"), "{}", rows[0].status);
+        assert!(said(&rows[0].status).contains("next check"), "{}", rows[0].status);
         assert_eq!(rows[0].actions, [MethodAction::Test]);
         assert!(!rows[1].present);
         assert_eq!(rows[1].actions, [MethodAction::Add]);
@@ -741,7 +744,7 @@ mod tests {
             [MethodAction::CountAgain, MethodAction::Add]
         );
         assert!(!rows[3].present && rows[3].actions.is_empty());
-        assert!(rows[3].status.contains("later"), "{}", rows[3].status);
+        assert!(said(&rows[3].status).contains("later"), "{}", rows[3].status);
         assert!(methods_warning(&state).is_some(), "one method");
 
         state.contacts = vec![
@@ -754,7 +757,7 @@ mod tests {
         ];
         let rows = methods_list(&state, NOW);
         assert!(rows[1].present);
-        assert!(rows[1].status.contains("2 of 3"), "{}", rows[1].status);
+        assert!(said(&rows[1].status).contains("2 of 3"), "{}", rows[1].status);
         assert_eq!(rows[1].actions, [MethodAction::Test, MethodAction::Remove]);
         assert!(methods_warning(&state).is_none(), "two methods");
 
@@ -766,7 +769,7 @@ mod tests {
         state.other_devices = 2;
         let rows = methods_list(&state, NOW);
         assert!(
-            rows[2].present && rows[2].status.contains('2'),
+            rows[2].present && said(&rows[2].status).contains('2'),
             "{}",
             rows[2].status
         );
@@ -776,7 +779,7 @@ mod tests {
         let rows = methods_list(&unchecked, NOW);
         assert!(!rows[0].present);
         assert!(
-            rows[0].status.contains("new recovery code"),
+            said(&rows[0].status).contains("new recovery code"),
             "{}",
             rows[0].status
         );

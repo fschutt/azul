@@ -24,6 +24,7 @@ use azul_search::{
     ContentHit, ContentMatcher, Filters, Limits, NameHit, NameMatcher, Pattern, PatternKind,
     Refine, Request,
 };
+use azul_appkit::l10n::{grouped, Phrase, Text};
 use azul_search_index::{IndexStatus, UpdateProgress};
 use azul_storage::{key, ListPage, ObjectInfo};
 use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone};
@@ -377,18 +378,19 @@ impl DateRefine {
         DateRefine::LastYear,
     ];
 
+    /// The choice's words (a key of the resources).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            DateRefine::Any => "Any date",
-            DateRefine::Today => "Today",
-            DateRefine::Yesterday => "Yesterday",
-            DateRefine::ThisWeek => "This week",
-            DateRefine::LastWeek => "Last week",
-            DateRefine::ThisMonth => "This month",
-            DateRefine::LastMonth => "Last month",
-            DateRefine::ThisYear => "This year",
-            DateRefine::LastYear => "Last year",
+            DateRefine::Any => "azdrive-refine-date-any",
+            DateRefine::Today => "azdrive-refine-date-today",
+            DateRefine::Yesterday => "azdrive-refine-date-yesterday",
+            DateRefine::ThisWeek => "azdrive-refine-date-this-week",
+            DateRefine::LastWeek => "azdrive-refine-date-last-week",
+            DateRefine::ThisMonth => "azdrive-refine-date-this-month",
+            DateRefine::LastMonth => "azdrive-refine-date-last-month",
+            DateRefine::ThisYear => "azdrive-refine-date-this-year",
+            DateRefine::LastYear => "azdrive-refine-date-last-year",
         }
     }
 }
@@ -420,17 +422,18 @@ impl KindRefine {
         KindRefine::Mail,
     ];
 
+    /// The choice's words (a key of the resources).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            KindRefine::Any => "Any kind",
-            KindRefine::Document => "Document",
-            KindRefine::Picture => "Picture",
-            KindRefine::Music => "Music",
-            KindRefine::Video => "Video",
-            KindRefine::Archive => "Archive",
-            KindRefine::Code => "Code",
-            KindRefine::Mail => "E-mail",
+            KindRefine::Any => "azdrive-refine-kind-any",
+            KindRefine::Document => "azdrive-refine-kind-document",
+            KindRefine::Picture => "azdrive-refine-kind-picture",
+            KindRefine::Music => "azdrive-refine-kind-music",
+            KindRefine::Video => "azdrive-refine-kind-video",
+            KindRefine::Archive => "azdrive-refine-kind-archive",
+            KindRefine::Code => "azdrive-refine-kind-code",
+            KindRefine::Mail => "azdrive-refine-kind-mail",
         }
     }
 
@@ -490,17 +493,18 @@ impl SizeRefine {
         SizeRefine::Gigantic,
     ];
 
+    /// The choice's words (a key of the resources).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            SizeRefine::Any => "Any size",
-            SizeRefine::Empty => "Empty (0 KB)",
-            SizeRefine::Tiny => "Tiny (0 - 16 KB)",
-            SizeRefine::Small => "Small (16 KB - 1 MB)",
-            SizeRefine::Medium => "Medium (1 - 128 MB)",
-            SizeRefine::Large => "Large (128 MB - 1 GB)",
-            SizeRefine::Huge => "Huge (1 - 4 GB)",
-            SizeRefine::Gigantic => "Gigantic (> 4 GB)",
+            SizeRefine::Any => "azdrive-refine-size-any",
+            SizeRefine::Empty => "azdrive-refine-size-empty",
+            SizeRefine::Tiny => "azdrive-refine-size-tiny",
+            SizeRefine::Small => "azdrive-refine-size-small",
+            SizeRefine::Medium => "azdrive-refine-size-medium",
+            SizeRefine::Large => "azdrive-refine-size-large",
+            SizeRefine::Huge => "azdrive-refine-size-huge",
+            SizeRefine::Gigantic => "azdrive-refine-size-gigantic",
         }
     }
 
@@ -559,18 +563,25 @@ impl Refines {
 
     /// What the status line says of it: "Date modified: Today, Kind: Document".
     #[must_use]
-    pub fn label(&self) -> String {
+    pub fn label(&self) -> Text {
         let mut parts = Vec::new();
         if self.date != DateRefine::Any {
-            parts.push(format!("Date modified: {}", self.date.label()));
+            parts.push(("azdrive-refine-part-date", self.date.label()));
         }
         if self.kind != KindRefine::Any {
-            parts.push(format!("Kind: {}", self.kind.label()));
+            parts.push(("azdrive-refine-part-kind", self.kind.label()));
         }
         if self.size != SizeRefine::Any {
-            parts.push(format!("Size: {}", self.size.label()));
+            parts.push(("azdrive-refine-part-size", self.size.label()));
         }
-        parts.join(", ")
+        let mut text = Text::default();
+        for (at, (name, chosen)) in parts.into_iter().enumerate() {
+            if at > 0 {
+                text = text.then(", ");
+            }
+            text = text.then(Text::key(name)).then(" ").then(Text::key(chosen));
+        }
+        text
     }
 }
 
@@ -819,74 +830,57 @@ impl FindState {
     }
 
     /// The status line: "Searching... 1,234 found" while it runs (the contents' walk and a
-    /// cloud drive's slower one say so), the count once it is done.
+    /// cloud drive's slower one say so), the count once it is done (`$count` the number,
+    /// `$n` it grouped in the window's language).
     #[must_use]
-    pub fn status_text(&self) -> String {
-        let n = listing::grouped_digits(self.rows.len());
-        match &self.end {
-            None if self.phase == FindPhase::Contents => {
-                format!("Searching file contents... {n} found")
-            }
-            None if self.drive_index => format!("Searching the drive's names... {n} found"),
-            None if self.remote && self.phase == FindPhase::Cached => {
-                format!("Searching the last listing, then the cloud... {n} found")
-            }
-            None if self.remote => format!("Searching names in the cloud (slower)... {n} found"),
-            None => format!("Searching... {n} found"),
+    pub fn status_text(&self) -> Phrase {
+        let said = match &self.end {
+            None if self.phase == FindPhase::Contents => "azdrive-find-status-contents",
+            None if self.drive_index => "azdrive-find-status-drive-names",
+            None if self.remote && self.phase == FindPhase::Cached => "azdrive-find-status-cached",
+            None if self.remote => "azdrive-find-status-cloud",
+            None => "azdrive-find-status-searching",
             Some(FindEnd {
                 error: Some(error), ..
-            }) => format!("The search stopped: {error}"),
-            Some(_) if self.rows.is_empty() => String::from("No items match your search."),
-            Some(end) => {
-                let noun = if self.rows.len() == 1 { "item" } else { "items" };
-                let more = if end.limited { " (the first ones)" } else { "" };
-                format!("{n} {noun} found{more}")
+            }) => {
+                return Phrase::new("azdrive-find-status-stopped").arg("error", error.as_str());
             }
-        }
+            Some(_) if self.rows.is_empty() => return Phrase::new("azdrive-find-none"),
+            Some(end) if end.limited => "azdrive-find-status-found-first",
+            Some(_) => "azdrive-find-status-found",
+        };
+        Phrase::new(said)
+            .arg("count", self.rows.len())
+            .arg("n", grouped(self.rows.len() as u64))
     }
 
     /// The note over a cloud or encrypted drive's results: where its names and contents come
-    /// from.
+    /// from (a key of the resources).
     #[must_use]
     pub fn cloud_note_text(&self) -> &'static str {
         match (self.drive_index, self.contents) {
-            (true, true) => {
-                "The drive's names come from its index on this computer, file contents from its \
-                 search index (Index this drive)."
-            }
-            (true, false) => {
-                "The drive's names come from its index on this computer; Index this drive (the \
-                 Search tab) searches its files' contents too."
-            }
-            (false, true) => {
-                "A cloud drive is searched by name over a listing of every file below this folder \
-                 (slower than a folder on this computer), file contents from its search index."
-            }
-            (false, false) => {
-                "A cloud drive is searched by name, over a listing of every file below this \
-                 folder: slower than a folder on this computer, and file contents are not \
-                 searched."
-            }
+            (true, true) => "azdrive-find-note-index-contents",
+            (true, false) => "azdrive-find-note-index",
+            (false, true) => "azdrive-find-note-cloud-contents",
+            (false, false) => "azdrive-find-note-cloud",
         }
     }
 
-    /// What the empty results say: still searching, or what was searched.
+    /// What the empty results say: still searching, or what was searched (keys of the
+    /// resources; the second is empty while it searches).
     #[must_use]
-    pub fn empty_text(&self) -> (&'static str, String) {
+    pub fn empty_text(&self) -> (&'static str, &'static str) {
         if self.running() {
-            return ("Searching...", String::new());
+            return ("azdrive-find-empty-searching", "");
         }
         let what = if self.remote {
-            "The search looked at the names in this folder and every folder below it; a cloud \
-             drive's files are not read."
+            "azdrive-find-empty-cloud"
         } else if self.contents {
-            "The search looked at the names and the contents of the files in this folder and \
-             every folder below it."
+            "azdrive-find-empty-contents"
         } else {
-            "The search looked at the names in this folder and every folder below it; File \
-             contents (the Search tab) reads the files too."
+            "azdrive-find-empty-names"
         };
-        ("No items match your search.", what.to_string())
+        ("azdrive-find-none", what)
     }
 }
 
@@ -1168,26 +1162,25 @@ impl IndexInfo {
     /// The status line's words: how far the update got, what the index holds, or why it could
     /// not be brought up to date.
     #[must_use]
-    pub fn status_text(&self) -> String {
+    pub fn status_text(&self) -> Phrase {
         if let Some(progress) = self.progress {
             return if progress.to_read == 0 {
-                String::from("Indexing: looking at the files...")
+                Phrase::new("azdrive-index-status-looking")
             } else {
-                format!(
-                    "Indexing: {} of {} files read...",
-                    listing::grouped_digits(progress.read),
-                    listing::grouped_digits(progress.to_read)
-                )
+                Phrase::new("azdrive-index-status-reading")
+                    .arg("read", grouped(progress.read as u64))
+                    .arg("total", grouped(progress.to_read as u64))
+                    .arg("count", progress.to_read)
             };
         }
         if let Some(error) = &self.error {
-            return format!("The index could not be updated: {error}");
+            return Phrase::new("azdrive-index-status-failed").arg("error", error.as_str());
         }
         match self.status {
-            Some(status) if status.updated.is_some() => {
-                format!("Indexed: {} files", listing::grouped_digits(status.files))
-            }
-            _ => String::from("Not indexed yet"),
+            Some(status) if status.updated.is_some() => Phrase::new("azdrive-index-status-indexed")
+                .arg("n", grouped(status.files as u64))
+                .arg("count", status.files),
+            _ => Phrase::new("azdrive-index-status-never"),
         }
     }
 }

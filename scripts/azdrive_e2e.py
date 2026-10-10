@@ -468,6 +468,7 @@ def run(args, logs):
     # variables (the shared driver sets them).
     switches = [
         "--sample", "--screen", "this-pc", "--theme", "flat", "--mode", "light",
+        "--language", "en",  # the clicks read English words (the system may be German)
         "--home", home,
         "--downloads", os.path.join(logs, "downloads"),
         "--data-dir", os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
@@ -1312,8 +1313,9 @@ def last_status(app, drive_id):
 
 
 def settled(status):
-    """Whether a status line says the drive synced: no pause for the network, no pass running."""
-    return bool(status) and "metered" not in status and not status.startswith("Syncing")
+    """Whether a status line (its key form: azdrive-sync-status-...) says the drive synced: no
+    pause for the network, no pass running."""
+    return bool(status) and "metered" not in status and "syncing" not in status
 
 
 def synced_setting(view, drive_id, name):
@@ -1427,6 +1429,7 @@ def sync_step(args, logs, binary, out):
                                "folder": os.path.join(home, "AzDrive", PAID_NAME)}]}, f)
     switches = [
         "--screen", "this-pc", "--theme", "flat", "--mode", "light",
+        "--language", "en",  # the clicks read English words (the system may be German)
         "--home", home,
         "--downloads", os.path.join(base, "downloads"),
         "--data-dir", os.path.join(base, "data"),
@@ -1471,10 +1474,10 @@ def sync_step(args, logs, binary, out):
         app.until("the first pass", lambda: app.printed("AZDRIVE_SYNC_DONE",
                                                          re.escape(SYNC_DRIVE) + r" .*"))
         app.until("Up to date", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) +
-                                                    r" Up to date"))
+                                                    r" azdrive-sync-status-up-to-date"))
         app.until("the status line says it", lambda: "Up to date" in status())
         app.until("the unpaid drive is read-only by its token server's word", lambda: app.printed(
-            status_key, re.escape(paid_id) + r" Read-only \(payment due\)"))
+            status_key, re.escape(paid_id) + r" azdrive-sync-status-payment-due"))
         log("25a. paired: %s, the first pass, \"Up to date\" on the status line; the unpaid "
             "Azlin drive: \"Read-only (payment due)\"" % folder)
 
@@ -1513,7 +1516,8 @@ def sync_step(args, logs, binary, out):
         app.tab("Share")
         app.after("Pause syncing", "AZDRIVE_SYNC_PAUSED", re.escape(SYNC_DRIVE),
                   lambda: app.ribbon("Pause syncing"))
-        app.until("Paused", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) + r" Paused"))
+        app.until("Paused", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) +
+                                                r" azdrive-sync-status-paused"))
         other_device_writes(s3_root, "notes.txt", b"third version, from the desktop\n")
         with open(notes, "wb") as f:
             f.write(b"third version, from the laptop!\n")
@@ -1809,7 +1813,7 @@ def sync_step(args, logs, binary, out):
         app.until("the metered network read", lambda: app.printed(
             "AZDRIVE_NETWORK", r"Cellular connected=true metered=true constrained=false"))
         app.until("Paused (metered network)", lambda: last_status(app, SYNC_DRIVE)
-                  == "Paused (metered network)")
+                  == "azdrive-sync-status-metered")
         app.until("the status line says it", lambda: "Paused (metered network)" in status())
         app.until("the drive's row has its glyph", lambda: app.has(
             "#__azdrive_side_sync_" + SYNC_DRIVE))
@@ -1828,7 +1832,7 @@ def sync_step(args, logs, binary, out):
                 "AZDRIVE_SYNC_DONE", re.escape(SYNC_DRIVE) + r" .*")))
         if "film.bin" in sync_index(s3_root).get("files", {}):
             raise Failure("the big file went up on a metered network")
-        if last_status(app, SYNC_DRIVE) != "Paused (metered network)":
+        if last_status(app, SYNC_DRIVE) != "azdrive-sync-status-metered":
             raise Failure("the status line says %r" % last_status(app, SYNC_DRIVE))
         log("25k. a metered network: \"Paused (metered network)\"; memo.txt went up, film.bin "
             "(26 MB, over the auto-download size) waited")
@@ -1856,7 +1860,7 @@ def sync_step(args, logs, binary, out):
                   re.escape(SYNC_DRIVE) + r" sync_on_metered false",
                   lambda: app.click(selector=anyway))
         app.until("paused again", lambda: last_status(app, SYNC_DRIVE)
-                  == "Paused (metered network)")
+                  == "azdrive-sync-status-metered")
         app.until("kept off", lambda: synced_setting(view, SYNC_DRIVE, "sync_on_metered")
                   is False)
         app.key("escape")
@@ -1869,7 +1873,7 @@ def sync_step(args, logs, binary, out):
         app.until("the low-data network read", lambda: app.printed(
             "AZDRIVE_NETWORK", r"WiFi connected=true metered=false constrained=true"))
         app.until("still paused", lambda: last_status(app, SYNC_DRIVE)
-                  == "Paused (metered network)")
+                  == "azdrive-sync-status-metered")
         write_network(network_file, "wifi")
         app.until("the free network read", lambda: app.printed(
             "AZDRIVE_NETWORK", r"WiFi connected=true metered=false constrained=false"))

@@ -382,6 +382,7 @@ def run(args, logs):
         "--downloads", downloads,
         "--drives", drives_file,
         "--dialogs", "window" if args.window_dialogs else "inline",
+        "--language", "en",  # the clicks read English words (the system may be German)
     ]
 
     app = App(binary, switches, args.debug_port, env, logs, deadline)

@@ -53,6 +53,7 @@ fn past_its_end_the_drive_says_when_it_was_closed_and_why_and_nothing_else() {
 
 #[test]
 fn a_banned_drive_takes_no_uploads_new_folders_or_links_and_says_why() {
+    crate::l10n::in_english();
     let now = UNTIL - 10 * 3_600;
     for action in [
         Action::Upload,
@@ -76,10 +77,11 @@ fn a_banned_drive_takes_no_uploads_new_folders_or_links_and_says_why() {
 
 #[test]
 fn the_sync_pauses_its_uploads_while_the_drive_is_banned() {
-    let paused = sync_text(&ban(), UNTIL - 60);
+    crate::l10n::in_english();
+    let paused = azul_appkit::l10n::t_phrase(&sync_text(&ban(), UNTIL - 60));
     assert!(paused.starts_with("Uploads paused"), "{paused}");
     assert!(paused.contains("banned"), "{paused}");
-    let closed = sync_text(&ban(), UNTIL + 60);
+    let closed = azul_appkit::l10n::t_phrase(&sync_text(&ban(), UNTIL + 60));
     assert!(closed.starts_with("This drive was closed"), "{closed}");
 }
 

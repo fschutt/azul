@@ -22,6 +22,7 @@ use std::{
 };
 
 use azcloud_kit::{PendingCheckout, Tier, Tiers};
+use azul_appkit::l10n::{t, t_args, Arg};
 use azul_pay::{
     offer::Offer,
     pills::{self, Choice, Pill, PillContext},
@@ -443,7 +444,7 @@ impl AddDialog {
     pub(crate) fn check(&self) -> Result<(), String> {
         let spec = self
             .spec()
-            .ok_or_else(|| String::from("Choose a source first."))?;
+            .ok_or_else(|| t("azdrive-add-choose-source-first"))?;
         catalog::check(spec, &self.name, &self.values)
     }
 
@@ -451,7 +452,7 @@ impl AddDialog {
     pub(crate) fn build(&self, id: &str) -> Result<NewDrive, String> {
         let spec = self
             .spec()
-            .ok_or_else(|| String::from("Choose a source first."))?;
+            .ok_or_else(|| t("azdrive-add-choose-source-first"))?;
         let mut new = catalog::build_entry(spec, id, &self.name, &self.values)?;
         if let (Some(token_url), DriveLocation::Opendal { options, .. }) =
             (&self.token_url, &mut new.entry.location)
@@ -503,7 +504,7 @@ impl AddDialog {
         let pending = self
             .pending_sign_in
             .take()
-            .ok_or_else(|| String::from("No sign-in waits for an answer."))?;
+            .ok_or_else(|| t("azdrive-add-no-sign-in-waits"))?;
         let settings = match crate::sign_in::form_settings(&pending.plan, tokens) {
             Ok(settings) => settings,
             Err(why) => {
@@ -553,15 +554,24 @@ impl AddDialog {
         }
     }
 
-    /// The Buy button's words: `Buy 100 GB - EUR 0.99 a month`.
+    /// The Buy button's words: `Buy 100 GB - EUR 0.99 a month` (in the window's language).
     #[must_use]
     pub(crate) fn buy_label(&self) -> String {
         match self.chosen_tier() {
-            Some(tier) => match tier.price_text(self.yearly) {
-                Some(price) => format!("Buy {} - {price}", tier.quota_text()),
-                None => format!("Buy {}", tier.quota_text()),
+            Some(tier) => match crate::pay_words::tier_price(tier, self.yearly) {
+                Some(price) => t_args(
+                    "azdrive-add-buy-tier-price",
+                    &[
+                        ("quota", Arg::from(crate::pay_words::quota(tier))),
+                        ("price", Arg::from(price)),
+                    ],
+                ),
+                None => t_args(
+                    "azdrive-add-buy-tier",
+                    &[("quota", Arg::from(crate::pay_words::quota(tier)))],
+                ),
             },
-            None => String::from("Buy"),
+            None => t("azdrive-add-buy"),
         }
     }
 

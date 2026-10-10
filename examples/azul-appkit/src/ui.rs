@@ -62,10 +62,11 @@ use azul_storage::LocalDrive;
 
 use crate::{
     about::{about_rows, AboutInfo},
-    args::{AppArgs, AppSpec, ModePref, Theme},
+    args::{AppArgs, AppSpec, LanguagePref, ModePref, Theme},
     azlin_config::{self, AzlinConfig},
     data::{self, app_key},
     files::{run_jobs, FileJob, FileOutcome},
+    l10n::{self, label, phrase_dom, t_args, t_label, text_dom, Phrase, Text},
     look::{self, CategoryItem},
     migrate,
     options::{categories, category_id, category_index, notice_after_save, Category, Snapshot},
@@ -99,8 +100,8 @@ pub struct Kit {
     pub category: usize,
     /// The app's own settings categories (first on the page).
     pub app_categories: Vec<String>,
-    /// The last problem saving or reading the settings ("" = none).
-    pub notice: String,
+    /// The last problem saving or reading the settings (empty = none).
+    pub notice: Text,
     /// Cmd (macOS) or Ctrl.
     pub mac: bool,
     /// The About box (azul's standard `AboutDialog`) is open.
@@ -156,6 +157,14 @@ impl Kit {
         app_key(self.about.app_folder, name)
     }
 
+    /// The language of the app's words this run: a `--language` switch, else the settings'.
+    #[must_use]
+    pub fn language(&self) -> LanguagePref {
+        self.args
+            .language
+            .unwrap_or_else(|| self.settings.language())
+    }
+
     /// The theme and mode this run shows: a `--theme` / `--mode` switch,
     /// else the app's pinned theme, else the user's choice.
     #[must_use]
@@ -204,7 +213,7 @@ pub fn create_kit(
     }
     let drive = LocalDrive::new(&data_root);
     let key = app_key(about.app_folder, SETTINGS_FILE);
-    let mut notice = String::new();
+    let mut notice = Text::default();
     let settings = match run_jobs(&drive, vec![FileJob::Get { key: key.clone() }]).pop() {
         Some(FileOutcome::Got {
             result: Ok(Some(bytes)),
@@ -212,13 +221,17 @@ pub fn create_kit(
         }) => {
             let (settings, problem) = AppSettings::parse(&String::from_utf8_lossy(&bytes));
             if let Some(problem) = problem {
-                notice = format!("The settings file could not be read fully ({problem}).");
+                notice = Phrase::new("kit-settings-read-partly")
+                    .arg("problem", problem.as_str())
+                    .into();
                 eprintln!("[{}] {key}: {problem}", spec.binary);
             }
             settings
         }
         Some(FileOutcome::Got { result: Err(e), .. }) => {
-            notice = format!("The settings file could not be read: {e}");
+            notice = Phrase::new("kit-settings-unreadable")
+                .arg("detail", e.to_string())
+                .into();
             AppSettings::default()
         }
         _ => AppSettings::default(),
@@ -310,6 +323,8 @@ pub fn app_config(kit: &RefAny) -> AppConfig {
         .with_theme(theme.name())
         .with_mode(mode_option(mode));
     add_kit_icons(&mut config);
+    // appkit's own words (the settings page); an app adds its own with `l10n::register`.
+    l10n::register(&mut config, &[]);
     config
 }
 
@@ -362,9 +377,14 @@ pub fn tabs_in_titlebar() -> TabsInTitlebar {
     TabsInTitlebar::platform()
 }
 
-/// Called from the app's window-created callback: starts the `--shot` timer.
+/// Called from the app's window-created callback: the language of the app's words (the
+/// Language setting, `--language`; the system's needs nothing), and the `--shot` timer.
 pub fn on_window_created(kit: &RefAny, info: &mut CallbackInfo) {
     let mut kit = kit.clone();
+    let language = kit.downcast_ref::<Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        info.set_locale(language.tag());
+    }
     let shot = kit
         .downcast_ref::<Kit>()
         .and_then(|k| k.args.shot.clone().map(|p| (p, k.args.shot_delay_ms)));
@@ -758,7 +778,11 @@ pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppS
         if open {
             println!("{}_SETTINGS_CLOSED cancel", k.spec.binary.to_uppercase());
         }
+        let language = k.language();
         let restored = snapshot.restore_keeping(&mut k.settings, &mut k.args, &k.kept_on_cancel);
+        if k.language() != language {
+            info.set_locale(k.language().tag());
+        }
         (restored, k.settings.clone(), reload, k.pinned_theme.is_some())
     };
     if let Some((theme, mode)) = restored.look {
@@ -820,7 +844,7 @@ pub fn handle_key(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<Update> {
             Some(Update::RefreshDom)
         }
         VirtualKeyCode::F1 => {
-            open_settings(kit_ref, Some("Shortcuts"));
+            open_settings(kit_ref, Some(SHORTCUTS_CATEGORY));
             info.prevent_default();
             Some(Update::RefreshDom)
         }
@@ -866,15 +890,15 @@ pub use crate::look::{note, row};
 use crate::look::section;
 
 fn appearance_section(k: &Kit, kit_ref: &RefAny) -> Dom {
-    let mode_labels: Vec<&str> = ModePref::ALL.iter().map(|m| m.label()).collect();
+    let mode_labels: Vec<&str> = ModePref::ALL.iter().map(|m| m.key()).collect();
     let mut rows = Vec::new();
     match k.pinned_theme {
         Some(pinned) => rows.push(row(
-            "Theme",
-            note(&format!(
-                "{} is always set in {}. The mode below is shared with every Azlin app.",
-                k.spec.name,
-                pinned.label()
+            "kit-general-theme",
+            note_dom(phrase_dom(
+                &Phrase::new("kit-general-theme-pinned")
+                    .arg("app", k.spec.name)
+                    .arg("theme", t_label(pinned.key())),
             )),
         )),
         None => {
@@ -882,18 +906,17 @@ fn appearance_section(k: &Kit, kit_ref: &RefAny) -> Dom {
             // one choice (`flora:green`), shared with every Azlin app.
             let theme = k.settings.theme;
             rows.push(row(
-                "Theme",
-                Segmented::create(strs(&["Flat", "Flora"]))
+                "kit-general-theme",
+                Segmented::create(strs(&[Theme::Flat.key(), Theme::Flora.key()]))
                     .with_selected_index(usize::from(theme.is_flora()))
                     .with_on_change(kit_ref.clone(), on_theme as SegmentedOnChangeCallbackType)
                     .dom()
                     .with_id("appkit-theme"),
             ));
             if let Some(stone) = theme.stone_index() {
-                let stone_labels: Vec<&str> =
-                    Theme::FLORA.iter().map(|t| t.stone_label()).collect();
+                let stone_labels: Vec<&str> = Theme::FLORA.iter().map(|t| t.stone_key()).collect();
                 rows.push(row(
-                    "Stone",
+                    "kit-general-stone",
                     Segmented::create(strs(&stone_labels))
                         .with_selected_index(stone)
                         .with_on_change(kit_ref.clone(), on_stone as SegmentedOnChangeCallbackType)
@@ -904,34 +927,51 @@ fn appearance_section(k: &Kit, kit_ref: &RefAny) -> Dom {
         }
     }
     rows.push(row(
-        "Mode",
+        "kit-general-mode",
         Segmented::create(strs(&mode_labels))
             .with_selected_index(k.settings.mode.index())
             .with_on_change(kit_ref.clone(), on_mode as SegmentedOnChangeCallbackType)
             .dom()
             .with_id("appkit-mode"),
     ));
-    if k.args.theme.is_some() || k.args.mode.is_some() {
-        rows.push(note(
-            "A --theme or --mode switch overrides these settings until the app restarts.",
-        ));
+    // The language of the app's words: the system's, English, German (each in its own words).
+    let language_labels: Vec<&str> = LanguagePref::ALL.iter().map(|l| l.key()).collect();
+    rows.push(row(
+        "kit-general-language",
+        Segmented::create(strs(&language_labels))
+            .with_selected_index(k.language().index())
+            .with_on_change(kit_ref.clone(), on_language as SegmentedOnChangeCallbackType)
+            .dom()
+            .with_id("appkit-language"),
+    ));
+    if k.args.theme.is_some() || k.args.mode.is_some() || k.args.language.is_some() {
+        rows.push(note("kit-general-switch-overrides"));
     }
     if let Ok(env) = std::env::var("AZ_THEME") {
         if !env.trim().is_empty() {
-            rows.push(note(&format!(
-                "AZ_THEME={} overrides the theme of every app it runs.",
-                env.trim()
+            rows.push(note_dom(phrase_dom(
+                &Phrase::new("kit-general-az-theme").arg("value", env.trim()),
             )));
         }
     }
     column("", rows)
 }
 
+/// A [`note`] of a span with arguments.
+fn note_dom(words: Dom) -> Dom {
+    Dom::create_div()
+        .with_css(format!(
+            "padding: 4px 0px; font-size: 12px; color: {};",
+            look::QUIET_TEXT
+        ))
+        .with_child(words)
+}
+
 fn data_section(k: &Kit) -> Dom {
     let folder = data::local_path(&k.data_root, k.about.app_folder);
     column("", vec![
         row(
-            "Data folder",
+            "kit-data-folder",
             Dom::create_div()
                 .with_id("appkit-data-folder")
                 .with_css(
@@ -939,10 +979,7 @@ fn data_section(k: &Kit) -> Dom {
                 )
                 .with_child(text(folder.display().to_string())),
         ),
-        note(
-            "Your data are plain files in this folder, one folder per app. An S3 drive can \
-             take the place of the folder later without changing them.",
-        ),
+        note("kit-data-note"),
     ])
 }
 
@@ -955,10 +992,10 @@ fn shortcuts_sections(k: &Kit) -> Dom {
                 .iter()
                 .map(|s| {
                     row(
-                        &display_keys(s.keys, k.mac),
+                        &shown_keys(s.keys, k.mac),
                         Dom::create_div()
                             .with_css("flex-grow: 1; min-width: 0px; font-size: 13px;")
-                            .with_child(text(s.action)),
+                            .with_child(text(label(s.action))),
                     )
                 })
                 .collect();
@@ -974,7 +1011,7 @@ fn about_section(k: &Kit, kit_ref: &RefAny) -> Dom {
             .with_id("appkit-about-name")
             .with_css("font-size: 20px; font-weight: 600; padding-bottom: 4px;")
             .with_child(text(k.about.name)),
-        note(k.about.summary),
+        note(&l10n::app_word(k.about.name, "about-summary", k.about.summary)),
     ];
     for (label, value) in about_rows(&k.about, &k.data_root) {
         children.push(row(
@@ -990,7 +1027,7 @@ fn about_section(k: &Kit, kit_ref: &RefAny) -> Dom {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; padding-top: 8px;")
             .with_child(
-                Button::create(format!("About {}\u{2026}", k.about.name))
+                Button::create(t_args("kit-about-open", &[("app", k.about.name.into())]))
                     .with_icon("info")
                     .with_on_click(kit_ref.clone(), on_about_open as ButtonOnClickCallbackType)
                     .dom()
@@ -1029,14 +1066,14 @@ pub fn set_about_open(kit_ref: &RefAny, open: bool) {
 fn about_modal(k: &Kit, kit_ref: &RefAny) -> Dom {
     let mut dialog = AboutDialog::create(k.about.name, k.about.version)
         .with_icon("info")
-        .with_description(k.about.summary)
+        .with_description(label(k.about.summary))
         .with_copyright(format!("{} - {}", k.about.name, k.about.license))
         .with_on_event(kit_ref.clone(), on_about_event);
-    for (label, value) in about_rows(&k.about, &k.data_root) {
-        dialog = dialog.with_credit(label, value);
+    for (name, value) in about_rows(&k.about, &k.data_root) {
+        dialog = dialog.with_credit(t_label(&name), value);
     }
     Modal::create(dialog.dom())
-        .with_title(format!("About {}", k.about.name))
+        .with_title(t_args("kit-about-title", &[("app", k.about.name.into())]))
         .with_open(k.about_open)
         .with_on_close(kit_ref.clone(), on_about_close)
         .dom()
@@ -1109,12 +1146,21 @@ fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<
     let categories = k.categories();
     let chosen = k.category.min(categories.len().saturating_sub(1));
     let kind = Category::of(chosen, app_count);
-    let label = categories.get(chosen).cloned().unwrap_or_default();
+    // The categories as the list shows them: an app's by its own message, the kit's by appkit's.
+    let shown: Vec<String> = categories
+        .iter()
+        .enumerate()
+        .map(|(index, name)| match Category::of(index, app_count) {
+            Category::App(_) => l10n::named(k.about.name, "category", name),
+            _ => t_label(category_label(name)),
+        })
+        .collect();
+    let label = shown.get(chosen).cloned().unwrap_or_default();
 
     let mut pane = vec![look::header_line(
         "appkit-settings-header",
         kind.icon(),
-        &kind.header(&label, k.about.name),
+        phrase_dom(&kind.header(&label, k.about.name)),
     )];
     match kind {
         Category::App(index) => {
@@ -1122,11 +1168,14 @@ fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<
                 pane.push(section(&s.title, s.content));
             }
         }
-        Category::General => pane.push(section("Appearance", appearance_section(&k, kit_ref))),
-        Category::Data => pane.push(section("Your data", data_section(&k))),
+        Category::General => pane.push(section(
+            "kit-section-appearance",
+            appearance_section(&k, kit_ref),
+        )),
+        Category::Data => pane.push(section("kit-section-data", data_section(&k))),
         Category::Shortcuts => pane.push(shortcuts_sections(&k)),
         Category::About => pane.push(section(
-            &format!("About {}", k.about.name),
+            &t_args("kit-about-title", &[("app", k.about.name.into())]),
             about_section(&k, kit_ref),
         )),
     }
@@ -1135,7 +1184,7 @@ fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<
         .iter()
         .enumerate()
         .map(|(index, name)| CategoryItem {
-            name: name.as_str(),
+            name: shown[index].as_str(),
             id: category_id(name),
             // Outlook's groups: the app's categories, General / Data / Shortcuts, About.
             rule_before: (index == app_count && app_count > 0)
@@ -1160,14 +1209,20 @@ fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<
     let notice = (!k.notice.is_empty()).then(|| {
         Dom::create_div()
             .with_id("appkit-settings-notice")
-            .with_child(text(k.notice.as_str()))
+            .with_child(text_dom(&k.notice))
     });
     let buttons = look::dialog_buttons(
         "appkit-settings-buttons",
         notice,
         vec![
-            look::dialog_button("OK", true, "appkit-settings-ok", &page_data, on_ok),
-            look::dialog_button("Cancel", false, "appkit-settings-cancel", &page_data, on_cancel),
+            look::dialog_button("kit-button-ok", true, "appkit-settings-ok", &page_data, on_ok),
+            look::dialog_button(
+                "kit-button-cancel",
+                false,
+                "appkit-settings-cancel",
+                &page_data,
+                on_cancel,
+            ),
         ],
     );
     look::dialog(
@@ -1266,6 +1321,73 @@ extern "C" fn on_mode(kit: RefAny, mut info: CallbackInfo, state: SegmentedState
     let mode = ModePref::ALL[state.selected_index.min(ModePref::ALL.len() - 1)];
     choose_mode(&kit, &mut info, mode);
     Update::RefreshDom
+}
+
+extern "C" fn on_language(kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let language = LanguagePref::ALL[state.selected_index.min(LanguagePref::ALL.len() - 1)];
+    choose_language(&kit, &mut info, language);
+    Update::RefreshDom
+}
+
+/// The user chose the language of the app's words: in effect at once (the engine's locale,
+/// every window built from now on too), kept in settings.json, winning over `--language` from
+/// now on.
+pub fn choose_language(kit_ref: &RefAny, info: &mut CallbackInfo, language: LanguagePref) {
+    let mut kit = kit_ref.clone();
+    let save = match kit.downcast_mut::<Kit>() {
+        Some(mut k) => {
+            k.settings.set_language(language);
+            k.args.language = None;
+            true
+        }
+        None => false,
+    };
+    if save {
+        let binary = kit
+            .downcast_ref::<Kit>()
+            .map(|k| k.spec.binary.to_uppercase())
+            .unwrap_or_default();
+        println!("{binary}_LANGUAGE {}", language.name());
+        info.set_locale(language.tag());
+        save_settings(kit_ref, info);
+    }
+}
+
+/// The name a category of the page shows: the kit's own by their keys, an app's as it gave it
+/// (a key, or plain words).
+fn category_label(name: &str) -> &str {
+    match name {
+        "General" => "kit-category-general",
+        "Data" => "kit-category-data",
+        SHORTCUTS_CATEGORY => "kit-category-shortcuts",
+        "About" => "kit-category-about",
+        other => other,
+    }
+}
+
+/// The kit's category of the shortcuts (F1).
+const SHORTCUTS_CATEGORY: &str = "Shortcuts";
+
+/// The keys of a shortcut as the user reads them, the modifier and key names in the window's
+/// language (`Ctrl` is `Strg` in German).
+fn shown_keys(keys: &str, mac: bool) -> String {
+    display_keys(keys, mac)
+        .split('+')
+        .map(|part| {
+            let key = format!("kit-key-{}", part.to_ascii_lowercase());
+            if part.len() > 1 && l10n::is_key(&key) {
+                let shown = l10n::t(&key);
+                if shown == key {
+                    part.to_string()
+                } else {
+                    shown
+                }
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+")
 }
 
 extern "C" fn on_category(mut data: RefAny, _info: CallbackInfo) -> Update {

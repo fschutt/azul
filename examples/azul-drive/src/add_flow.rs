@@ -48,6 +48,7 @@ use azul::{
         AuthSessionStatus, Url,
     },
 };
+use azul_appkit::l10n::{self, t, t_args, Arg, Phrase, Text};
 use azul_pay::{
     machine::Notice,
     offer::{Offer, OfferContext},
@@ -183,7 +184,7 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
         }
         AddEvent::Service(id) => {
             if !d.open_service(id) {
-                d.error = String::from("This app cannot open that source.");
+                d.error = t("azdrive-add-cannot-open-source");
             }
         }
         AddEvent::Tier(index) => {
@@ -424,18 +425,21 @@ fn sign_in_returned(
     let scheme = pending.plan.provider.scheme;
     let ended = match result.status {
         AuthSessionStatus::Redirected => None,
-        AuthSessionStatus::Cancelled => Some(("cancelled", String::from("The sign-in was cancelled."))),
-        AuthSessionStatus::TimedOut => Some((
-            "timed-out",
-            String::from("The sign-in did not come back in time. Try again."),
-        )),
+        AuthSessionStatus::Cancelled => Some(("cancelled", t("azdrive-add-sign-in-cancelled"))),
+        AuthSessionStatus::TimedOut => Some(("timed-out", t("azdrive-add-sign-in-timed-out"))),
         AuthSessionStatus::Unsupported => Some((
             "unsupported",
-            format!("This computer cannot run the sign-in: {}.", result.message.as_str()),
+            t_args(
+                "azdrive-add-sign-in-unsupported",
+                &[("why", Arg::from(result.message.as_str()))],
+            ),
         )),
         AuthSessionStatus::Failed => Some((
             "failed",
-            format!("The sign-in did not finish: {}.", result.message.as_str()),
+            t_args(
+                "azdrive-add-sign-in-unfinished",
+                &[("why", Arg::from(result.message.as_str()))],
+            ),
         )),
     };
     if let Some((word, why)) = ended {
@@ -450,9 +454,9 @@ fn sign_in_returned(
     };
     let code = pkce.read_redirect(result.redirect_url.clone());
     if !matches!(code.status, AuthCodeStatus::Code) {
-        d.sign_in_failed(&format!(
-            "The sign-in did not finish: {}.",
-            code.message.as_str()
+        d.sign_in_failed(&t_args(
+            "azdrive-add-sign-in-unfinished",
+            &[("why", Arg::from(code.message.as_str()))],
         ));
         print_sign_in(scheme, "failed");
         return;
@@ -486,7 +490,10 @@ pub(crate) fn signed_in(s: &mut DriveState, serial: u64, result: Result<Tokens, 
     let done = match result {
         Ok(tokens) => d.signed_in(&tokens),
         Err(why) => {
-            let why = format!("The sign-in's token request failed: {why}");
+            let why = t_args(
+                "azdrive-add-sign-in-token-failed",
+                &[("why", Arg::from(l10n::t_label(&why)))],
+            );
             d.sign_in_failed(&why);
             Err(why)
         }
@@ -542,16 +549,19 @@ fn save(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 /// Writes `entry` into the drives file at `path` (replacing the drive with its id).
 fn save_entry(path: Option<&std::path::Path>, entry: &DriveEntry) -> Result<(), String> {
     let Some(path) = path else {
-        return Err(String::from(
-            "There is no configuration folder to save the drive in.",
-        ));
+        return Err(t("azdrive-add-no-config-folder"));
     };
     DrivesFile::load(path)
         .and_then(|mut file| {
             file.add(entry.clone());
             file.save(path)
         })
-        .map_err(|e: DriveError| format!("The drive could not be saved: {e}"))
+        .map_err(|e: DriveError| {
+            t_args(
+                "azdrive-drive-not-saved",
+                &[("detail", Arg::from(e.to_string()))],
+            )
+        })
 }
 
 /// A new (or re-keyed) drive joins the source list with its secret (into the keyring too,
@@ -603,17 +613,15 @@ pub(crate) fn add_slot(
             KeyringCall::Store(config::keyring_key(&id), secret),
         ),
         Some(_) => {}
-        None => s.success(format!("\"{name}\" is a drive now.")),
+        None => s.success(Phrase::new("azdrive-is-a-drive").arg("name", name.as_str())),
     }
     if from_dialog {
         go(info, app, s, Place::folder(&id, ""), true);
         if stored_already {
-            s.success(format!(
-                "\"{name}\" is a drive now; its session is in the system keyring."
-            ));
+            s.success(Phrase::new("azdrive-add-drive-with-session").arg("name", name.as_str()));
         }
     } else {
-        s.info(format!("\"{name}\" is ready: it is in the source list."));
+        s.info(Phrase::new("azdrive-add-drive-ready").arg("name", name.as_str()));
     }
 }
 
@@ -644,10 +652,7 @@ fn load_tiers(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, again: 
 
 /// Why Buy storage cannot ask anyone.
 fn no_token_server() -> String {
-    String::from(
-        "No Azlin token server is set: start AzDrive with --token-url, set AZLIN_TOKEN_URL, or \
-         name one in the endpoints of the shared Azlin config.",
-    )
+    t("azdrive-add-no-token-server")
 }
 
 /// The tier list's answer; then the payment options are asked for (the page is ready -
@@ -759,11 +764,11 @@ fn buy_parts(s: &mut DriveState) -> Option<(String, String, String, u64)> {
         return None;
     };
     let Some(tier) = d.chosen_tier().map(|t| t.id.clone()) else {
-        d.notice = String::from("Choose a tier first.");
+        d.notice = t("azdrive-add-choose-tier");
         return None;
     };
     if d.buy_name.trim().is_empty() {
-        d.notice = String::from("Give the drive a name.");
+        d.notice = t("azdrive-add-give-name");
         return None;
     }
     Some((tier, d.buy_name.trim().to_string(), token_url, d.serial))
@@ -787,13 +792,13 @@ fn redeem_voucher(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     };
     let code = d.voucher_code.trim().to_string();
     if code.is_empty() {
-        d.notice = String::from("Type the voucher's code.");
+        d.notice = t("azdrive-voucher-type-code");
         return;
     }
     let tier = d.chosen_tier().map(|t| t.id.clone()).unwrap_or_default();
     let serial = d.serial;
     d.step = BuyStep::Creating;
-    d.notice = String::from("Redeeming the voucher...");
+    d.notice = t("azdrive-voucher-redeeming");
     spawn(
         info,
         app,
@@ -815,7 +820,7 @@ fn create_test_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
     };
     if let Some(d) = dialog(s) {
         d.step = BuyStep::Creating;
-        d.notice = String::from("Creating the test drive...");
+        d.notice = t("azdrive-add-creating-test-drive");
     }
     let keyring = s.keyring.clone();
     spawn(
@@ -848,7 +853,7 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     };
     d.look_name = look;
     let Some(choice) = d.choice() else {
-        d.notice = String::from("Choose how to pay first.");
+        d.notice = t("azdrive-add-choose-payment");
         return;
     };
     let consent = d.consent;
@@ -904,7 +909,7 @@ fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     let months = match dialog(s) {
         Some(d) => {
             d.step = BuyStep::StartingCheckout;
-            d.notice = String::from("Preparing the payment...");
+            d.notice = t("azdrive-add-preparing-payment");
             d.months()
         }
         None => return,
@@ -977,9 +982,7 @@ fn run_effect(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, effect:
                 Some(node) => info.webview_navigate(node, AzString::from(url.reveal())),
                 None => {
                     if let Some(d) = dialog(s) {
-                        d.notice = String::from(
-                            "The payment page is not shown here, so it could not be told to pay.",
-                        );
+                        d.notice = t("azdrive-add-pay-page-not-shown");
                     }
                 }
             }
@@ -1038,7 +1041,7 @@ fn run_effect(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, effect:
                 println!("AZDRIVE_PAY_BLOCKED {host}");
             }
             if let Some(d) = dialog(s) {
-                d.notice = notice.text();
+                d.notice = crate::pay_words::notice(&notice);
             }
         }
         // Cash by post: the two pages are offered (the dialog shows them), the order joins the
@@ -1085,12 +1088,12 @@ fn start_pay_checkout(
             info,
             app,
             s,
-            Event::CreateFailed(String::from("there is no token server or no tier")),
+            Event::CreateFailed(t("azdrive-add-no-server-or-tier")),
         );
         return;
     };
     d.step = BuyStep::StartingCheckout;
-    d.notice = String::from("Preparing the payment...");
+    d.notice = t("azdrive-add-preparing-payment");
     d.kept = None;
     let job = Job::Checkout {
         serial: d.serial,
@@ -1115,7 +1118,10 @@ fn open_browser(s: &mut DriveState, url: &SecretUrl) {
         .unwrap_or(false);
     if !opened {
         if let Some(d) = dialog(s) {
-            d.notice = format!("Open this payment page in your browser: {page}");
+            d.notice = t_args(
+                "azdrive-add-open-pay-page",
+                &[("page", Arg::from(page.to_string()))],
+            );
         }
     }
 }
@@ -1166,7 +1172,7 @@ pub(crate) fn surface_answered(
     }
     let event = match result {
         Ok(surface) => Event::Switched(surface),
-        Err(why) => Event::SwitchFailed(why),
+        Err(why) => Event::SwitchFailed(l10n::t_label(&why)),
     };
     let _ = pay(info, app, s, event);
 }
@@ -1227,12 +1233,10 @@ pub(crate) fn checkout_started(
                 match (started.created, started.cash) {
                     (Some(created), _) => Event::Created(Box::new(created)),
                     (None, Some(slip)) => Event::Posted(Box::new(slip)),
-                    (None, None) => Event::CreateFailed(String::from(
-                        "the token server answered without a payment surface",
-                    )),
+                    (None, None) => Event::CreateFailed(t("azdrive-add-no-surface")),
                 }
             }
-            Err(why) => Event::CreateFailed(why),
+            Err(why) => Event::CreateFailed(l10n::t_label(&why)),
         };
         let _ = pay(info, app, s, event);
         return;
@@ -1241,7 +1245,10 @@ pub(crate) fn checkout_started(
         Ok(started) => (started.checkout, started.kept),
         Err(why) => {
             d.step = BuyStep::Idle;
-            d.notice = format!("The payment could not be prepared: {why}");
+            d.notice = t_args(
+                "azdrive-add-pay-not-prepared",
+                &[("why", Arg::from(l10n::t_label(&why)))],
+            );
             return;
         }
     };
@@ -1257,15 +1264,11 @@ pub(crate) fn checkout_started(
         cancel: cancel.clone(),
     };
     d.notice = if opened {
-        String::from(
-            "The payment page is open in your browser. The drive appears here once the payment \
-             went through.",
-        )
+        t("azdrive-add-pay-page-open")
     } else {
-        format!(
-            "Open this payment page in your browser: {}. The drive appears here once the \
-             payment went through.",
-            checkout.pay_url
+        t_args(
+            "azdrive-add-pay-page-open-yourself",
+            &[("page", Arg::from(checkout.pay_url.to_string()))],
         )
     };
     spawn(
@@ -1294,10 +1297,9 @@ fn stop_waiting(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
             checkout_id,
         } => {
             cancel.store(true, Ordering::SeqCst);
-            Some(format!(
-                "Stopped waiting for the payment of checkout {checkout_id}. A payment made now \
-                 still brings the drive: AzDrive asks in the background, and again at its next \
-                 start."
+            Some(t_args(
+                "azdrive-add-stopped-waiting-for",
+                &[("checkout", Arg::from(checkout_id.as_str()))],
             ))
         }
         _ => None,
@@ -1305,7 +1307,7 @@ fn stop_waiting(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     d.step = BuyStep::Idle;
     d.notice = stopped
         .clone()
-        .unwrap_or_else(|| String::from("Stopped waiting."));
+        .unwrap_or_else(|| t("azdrive-add-stopped-waiting"));
     if stopped.is_some() {
         start_claims(info, app, s);
     }
@@ -1319,12 +1321,13 @@ pub(crate) fn payment_ended(
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    why: String,
+    why: Text,
 ) {
     if why.is_empty() {
         start_claims(info, app, s);
         return;
     }
+    let said = l10n::t_text(&why);
     let waiting = match dialog_of(s, serial) {
         Some(d) => {
             d.step = BuyStep::Idle;
@@ -1337,10 +1340,10 @@ pub(crate) fn payment_ended(
     };
     if waiting {
         // The machine's checkout ended: a new order may follow.
-        let _ = pay(info, app, s, Event::Declined(why.clone()));
+        let _ = pay(info, app, s, Event::Declined(said.clone()));
     }
     if let Some(d) = dialog_of(s, serial) {
-        d.notice = why;
+        d.notice = said;
     }
 }
 
@@ -1365,9 +1368,9 @@ pub(crate) fn bought(
         Err(why) => {
             if let Some(d) = dialog_of(s, serial) {
                 d.step = BuyStep::Idle;
-                d.notice = why;
+                d.notice = l10n::t_label(&why);
             } else {
-                s.error(format!("The new drive could not be made: {why}"));
+                s.error(Phrase::new("azdrive-add-not-made").arg("why", l10n::t_label(&why)));
             }
             return;
         }
@@ -1381,9 +1384,7 @@ pub(crate) fn bought(
     add_slot(info, app, s, entry, Some(bought.session), open, in_keyring);
     if let Err(problem) = saved {
         // Said in the window (the dialog closed with the drive).
-        s.error(format!(
-            "{problem} The drive works until AzDrive closes; its session is in the keyring."
-        ));
+        s.error(Phrase::new("azdrive-add-unsaved").arg("problem", problem));
     }
     // "We always encrypt": the new drive's keys and recovery sheet are part of its making.
     #[cfg(feature = "encryption")]
@@ -1479,10 +1480,7 @@ pub(crate) fn claimed(
             match saved {
                 Ok(()) => true,
                 Err(problem) => {
-                    s.error(format!(
-                        "{problem} The drive works until AzDrive closes; its session is in the \
-                         keyring, and AzDrive adds it again at its next start."
-                    ));
+                    s.error(Phrase::new("azdrive-add-unsaved-again").arg("problem", problem));
                     false
                 }
             }
@@ -1515,9 +1513,11 @@ pub(crate) fn checkout_dropped(s: &mut DriveState, checkout_id: &str, why: &str)
         s.warn(text);
         return;
     }
-    s.warn(format!(
-        "The checkout {checkout_id} is not waited for any more: {why}."
-    ));
+    s.warn(
+        Phrase::new("azdrive-add-checkout-dropped")
+            .arg("checkout", checkout_id)
+            .arg("why", l10n::t_label(why)),
+    );
 }
 
 // ==== Cash by post: a claim code picked up ====
@@ -1537,7 +1537,7 @@ fn pick_up(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         Err(why) => d.notice = why,
         Ok(checkout) => {
             d.step = BuyStep::Creating;
-            d.notice = String::from("Picking the drive up\u{2026}");
+            d.notice = t("azdrive-add-picking-up");
             let serial = d.serial;
             spawn(
                 info,
@@ -1566,11 +1566,11 @@ pub(crate) fn picked_up_answered(
     if let Some(d) = dialog_of(s, serial) {
         d.step = BuyStep::Idle;
         d.notice = match &result {
-            Ok(()) => String::from(
-                "Picked up. AzDrive asks for the drive now, then once a day until the money \
-                 arrived: postal cash takes a while.",
+            Ok(()) => t("azdrive-add-picked-up"),
+            Err(why) => t_args(
+                "azdrive-add-claim-not-kept",
+                &[("why", Arg::from(l10n::t_label(why)))],
             ),
-            Err(why) => format!("The claim code was not kept: {why}"),
         };
         if result.is_ok() {
             d.claim_code.clear();
@@ -1585,7 +1585,7 @@ pub(crate) fn picked_up_answered(
 }
 
 /// The background claims ended.
-pub(crate) fn claims_done(s: &mut DriveState, problem: Option<String>) {
+pub(crate) fn claims_done(s: &mut DriveState, problem: Option<Text>) {
     s.claiming = false;
     if let Some(problem) = problem {
         s.warn(problem);
@@ -1608,18 +1608,21 @@ pub(crate) fn checkout_finished(
             // A drive whose free month is nearly gone gets its first paid one at once.
             crate::periods::start_redemptions(info, app, s, Some(&drive_id));
         }
-        Ok(Some(Finished::Dropped(why))) => s.warn(format!(
-            "The paid months of the checkout {checkout_id} could not be fetched: {why}."
-        )),
+        Ok(Some(Finished::Dropped(why))) => s.warn(
+            Phrase::new("azdrive-add-months-not-fetched")
+                .arg("checkout", checkout_id)
+                .arg("why", why.as_str()),
+        ),
         Ok(Some(Finished::Kept(why))) => {
             eprintln!(
                 "[azdrive] the period tokens of the checkout {checkout_id} wait for the next \
                  try: {why}"
             );
         }
-        Err(why) => s.error(format!(
-            "The checkout {checkout_id} could not be finished in the keyring's list ({why}); \
-             AzDrive asks about it again at its next start."
-        )),
+        Err(why) => s.error(
+            Phrase::new("azdrive-add-checkout-unfinished")
+                .arg("checkout", checkout_id)
+                .arg("why", l10n::t_label(&why)),
+        ),
     }
 }

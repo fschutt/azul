@@ -98,7 +98,7 @@ pub fn fits_preview(kind: PreviewKind, size: Option<u64>) -> bool {
 pub fn text_preview(bytes: &[u8], truncated: bool) -> Result<String, &'static str> {
     let probe = &bytes[..bytes.len().min(8192)];
     if probe.contains(&0) {
-        return Err("a binary file");
+        return Err("azdrive-preview-binary");
     }
     let mut text = String::from_utf8_lossy(bytes).into_owned();
     if truncated {
@@ -154,7 +154,7 @@ pub fn is_playable_audio(name: &str) -> bool {
 /// compressed WAV (ADPCM, ...) or another file is refused, with the reason.
 pub fn wav_samples(bytes: &[u8]) -> Result<WavSamples, &'static str> {
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        return Err("not a WAV file");
+        return Err("azdrive-preview-not-wav");
     }
     let mut at = 12usize;
     let mut format: Option<(u16, u16, u32, u16)> = None;
@@ -167,7 +167,7 @@ pub fn wav_samples(bytes: &[u8]) -> Result<WavSamples, &'static str> {
         let body = &bytes[body_start..body_end];
         if id == b"fmt " {
             if body.len() < 16 {
-                return Err("a broken format chunk");
+                return Err("azdrive-preview-wav-broken");
             }
             let tag = u16::from_le_bytes([body[0], body[1]]);
             let channels = u16::from_le_bytes([body[2], body[3]]);
@@ -182,10 +182,10 @@ pub fn wav_samples(bytes: &[u8]) -> Result<WavSamples, &'static str> {
             format = Some((tag, channels, rate, bits));
         } else if id == b"data" {
             let Some((tag, channels, rate, bits)) = format else {
-                return Err("no format chunk before the samples");
+                return Err("azdrive-preview-wav-no-format");
             };
             if channels == 0 || rate == 0 {
-                return Err("no channels or no sample rate");
+                return Err("azdrive-preview-wav-no-channels");
             }
             let samples: Vec<f32> = match (tag, bits) {
                 (1, 8) => body.iter().map(|b| (f32::from(*b) - 128.0) / 128.0).collect(),
@@ -205,7 +205,7 @@ pub fn wav_samples(bytes: &[u8]) -> Result<WavSamples, &'static str> {
                     .chunks_exact(4)
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect(),
-                _ => return Err("its samples are compressed, not PCM or float"),
+                _ => return Err("azdrive-preview-wav-compressed"),
             };
             return Ok(WavSamples {
                 sample_rate: rate,
@@ -216,18 +216,15 @@ pub fn wav_samples(bytes: &[u8]) -> Result<WavSamples, &'static str> {
         // Chunks are padded to an even size.
         at = body_start.saturating_add(len).saturating_add(len & 1);
     }
-    Err("no samples in the file")
+    Err("azdrive-preview-wav-no-samples")
 }
 
-/// Why the pane shows no preview for a kind (a sentence), or `None`.
+/// Why the pane shows no preview for a kind (a sentence's key), or `None`.
 #[must_use]
 pub fn no_preview_reason(kind: PreviewKind) -> Option<&'static str> {
     match kind {
-        PreviewKind::Audio => Some(
-            "No preview: azul plays raw samples and has no decoder for this audio format (a WAV \
-             file plays).",
-        ),
-        PreviewKind::None => Some("No preview available."),
+        PreviewKind::Audio => Some("azdrive-preview-audio-format"),
+        PreviewKind::None => Some("azdrive-preview-none"),
         PreviewKind::Image | PreviewKind::Pdf | PreviewKind::Text | PreviewKind::Video => None,
     }
 }

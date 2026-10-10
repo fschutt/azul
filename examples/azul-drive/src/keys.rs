@@ -117,37 +117,42 @@ pub enum Command {
 }
 
 /// The keyboard shortcuts as the Options' "Keyboard shortcuts" section lists them (azul-appkit's
-/// table, `Mod` = Cmd on macOS, Ctrl elsewhere). A test checks that every one of them runs a
-/// command in [`command_for`], so the list cannot drift from the keys (DEDUP_OFFICE D13).
+/// table, `Mod` = Cmd on macOS, Ctrl elsewhere; the groups and actions are keys of the
+/// resources). A test checks that every one of them runs a command in [`command_for`], so the
+/// list cannot drift from the keys (DEDUP_OFFICE D13).
 pub const SHORTCUTS: [Shortcut; 28] = [
-    Shortcut::new("Open and go", "Enter", "Open the selected item"),
-    Shortcut::new("Open and go", "Alt+Enter", "Properties"),
-    Shortcut::new("Open and go", "Backspace", "Up one level"),
-    Shortcut::new("Open and go", "Alt+Up", "Up one level"),
-    Shortcut::new("Open and go", "Alt+Left", "Back"),
-    Shortcut::new("Open and go", "Alt+Right", "Forward"),
-    Shortcut::new("Open and go", "F5", "Refresh"),
-    Shortcut::new("Open and go", "Mod+R", "Refresh"),
-    Shortcut::new("Open and go", "Mod+F", "Search this folder"),
-    Shortcut::new("Open and go", "F3", "Search this folder"),
-    Shortcut::new("Organize", "F2", "Rename in place"),
-    Shortcut::new("Organize", "Delete", "Delete (a local drive keeps it in its trash folder)"),
-    Shortcut::new("Organize", "Shift+Delete", "Delete for good"),
-    Shortcut::new("Organize", "Mod+C", "Copy"),
-    Shortcut::new("Organize", "Mod+X", "Cut"),
-    Shortcut::new("Organize", "Mod+V", "Paste"),
-    Shortcut::new("Organize", "Mod+Z", "Undo"),
-    Shortcut::new("Organize", "Mod+Shift+N", "New folder"),
-    Shortcut::new("Select", "Mod+A", "Select all"),
-    Shortcut::new("Select", "Mod+Space", "Select or clear the focused item"),
-    Shortcut::new("Select", "Shift+Down", "Extend the selection"),
-    Shortcut::new("Select", "Escape", "Select nothing"),
-    Shortcut::new("Select", "Shift+F10", "The context menu"),
-    Shortcut::new("View", "Mod+Shift+2", "Large icons"),
-    Shortcut::new("View", "Mod+Shift+5", "List"),
-    Shortcut::new("View", "Mod+Shift+6", "Details"),
-    Shortcut::new("View", "Alt+P", "Preview pane"),
-    Shortcut::new("View", "Alt+Shift+P", "Details pane"),
+    Shortcut::new("azdrive-shortcut-group-open", "Enter", "azdrive-shortcut-open-selected"),
+    Shortcut::new("azdrive-shortcut-group-open", "Alt+Enter", "azdrive-shortcut-properties"),
+    Shortcut::new("azdrive-shortcut-group-open", "Backspace", "azdrive-shortcut-up"),
+    Shortcut::new("azdrive-shortcut-group-open", "Alt+Up", "azdrive-shortcut-up"),
+    Shortcut::new("azdrive-shortcut-group-open", "Alt+Left", "azdrive-shortcut-back"),
+    Shortcut::new("azdrive-shortcut-group-open", "Alt+Right", "azdrive-shortcut-forward"),
+    Shortcut::new("azdrive-shortcut-group-open", "F5", "azdrive-shortcut-refresh"),
+    Shortcut::new("azdrive-shortcut-group-open", "Mod+R", "azdrive-shortcut-refresh"),
+    Shortcut::new("azdrive-shortcut-group-open", "Mod+F", "azdrive-shortcut-search"),
+    Shortcut::new("azdrive-shortcut-group-open", "F3", "azdrive-shortcut-search"),
+    Shortcut::new("azdrive-shortcut-group-organize", "F2", "azdrive-shortcut-rename"),
+    Shortcut::new("azdrive-shortcut-group-organize", "Delete", "azdrive-shortcut-delete"),
+    Shortcut::new(
+        "azdrive-shortcut-group-organize",
+        "Shift+Delete",
+        "azdrive-shortcut-delete-for-good",
+    ),
+    Shortcut::new("azdrive-shortcut-group-organize", "Mod+C", "azdrive-shortcut-copy"),
+    Shortcut::new("azdrive-shortcut-group-organize", "Mod+X", "azdrive-shortcut-cut"),
+    Shortcut::new("azdrive-shortcut-group-organize", "Mod+V", "azdrive-shortcut-paste"),
+    Shortcut::new("azdrive-shortcut-group-organize", "Mod+Z", "azdrive-shortcut-undo"),
+    Shortcut::new("azdrive-shortcut-group-organize", "Mod+Shift+N", "azdrive-shortcut-new-folder"),
+    Shortcut::new("azdrive-shortcut-group-select", "Mod+A", "azdrive-shortcut-select-all"),
+    Shortcut::new("azdrive-shortcut-group-select", "Mod+Space", "azdrive-shortcut-toggle-focused"),
+    Shortcut::new("azdrive-shortcut-group-select", "Shift+Down", "azdrive-shortcut-extend"),
+    Shortcut::new("azdrive-shortcut-group-select", "Escape", "azdrive-shortcut-select-none"),
+    Shortcut::new("azdrive-shortcut-group-select", "Shift+F10", "azdrive-shortcut-context-menu"),
+    Shortcut::new("azdrive-shortcut-group-view", "Mod+Shift+2", "azdrive-shortcut-large-icons"),
+    Shortcut::new("azdrive-shortcut-group-view", "Mod+Shift+5", "azdrive-shortcut-list"),
+    Shortcut::new("azdrive-shortcut-group-view", "Mod+Shift+6", "azdrive-shortcut-details"),
+    Shortcut::new("azdrive-shortcut-group-view", "Alt+P", "azdrive-shortcut-preview-pane"),
+    Shortcut::new("azdrive-shortcut-group-view", "Alt+Shift+P", "azdrive-shortcut-details-pane"),
 ];
 
 /// Explorer's keyboard.

@@ -1193,6 +1193,7 @@ def run(args, logs):
 
     switches = [
         "--screen", "this-pc", "--theme", "flat", "--mode", "light",
+        "--language", "en",  # the clicks read English words (the system may be German)
         "--home", home,
         "--downloads", os.path.join(logs, "downloads"),
         "--data-dir", os.path.join(logs, "data"),

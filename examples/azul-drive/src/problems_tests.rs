@@ -1,17 +1,12 @@
-//! What AzDrive shows of a drive's errors (C11, D33): the table's text in the user's language
-//! with the error ID, in the status line - a transient one only after two minutes - and as a
-//! notification for the ones the user must act on, at most once an hour per drive. No window.
+//! What AzDrive shows of a drive's errors (C11, D33): the table's message with the error ID
+//! (said by the engine in the window's language, `l10n_tests.rs`), in the status line - a
+//! transient one only after two minutes - and as a notification for the ones the user must act
+//! on, at most once an hour per drive. No window.
 
-use azcloud_kit::{
-    user_errors::{Code, Lang},
-    UserError,
-};
+use azcloud_kit::{user_errors::Code, UserError};
 use azul_storage::{DriveError, ServiceError};
 
-use crate::problems::{
-    describe_in, lang_from, Problems, NOTIFY_EVERY_SECS, TRANSIENT_NOTIFY_SECS,
-    TRANSIENT_QUIET_SECS,
-};
+use crate::problems::{Problems, NOTIFY_EVERY_SECS, TRANSIENT_NOTIFY_SECS, TRANSIENT_QUIET_SECS};
 
 const NOW: u64 = 1_791_450_000;
 
@@ -28,41 +23,6 @@ fn unpaid() -> DriveError {
 
 fn user(e: &DriveError) -> UserError {
     UserError::from_drive_error(e).unwrap()
-}
-
-#[test]
-fn the_language_comes_from_the_locale_of_the_environment() {
-    let env = |pairs: &'static [(&'static str, &'static str)]| {
-        move |name: &str| {
-            pairs
-                .iter()
-                .find(|(key, _)| *key == name)
-                .map(|(_, value)| value.to_string())
-        }
-    };
-    assert_eq!(lang_from(env(&[("LC_ALL", "de_DE.UTF-8")])), Lang::De);
-    assert_eq!(lang_from(env(&[("LC_ALL", ""), ("LANG", "de_AT")])), Lang::De);
-    assert_eq!(
-        lang_from(env(&[("LC_MESSAGES", "en_GB"), ("LANG", "de_DE")])),
-        Lang::En,
-        "LC_MESSAGES before LANG"
-    );
-    assert_eq!(lang_from(env(&[])), Lang::En);
-}
-
-#[test]
-fn a_storage_error_reads_as_the_tables_text_with_its_error_id_and_a_local_one_as_before() {
-    let text = describe_in(&unpaid(), Lang::En);
-    assert_eq!(
-        text,
-        "Your last payment didn't go through. Your files are safe and readable. \
-         Error ID: n2-81723"
-    );
-    assert!(describe_in(&unpaid(), Lang::De).starts_with("Deine letzte Zahlung"));
-    let missing = DriveError::NotFound {
-        key: String::from("a.txt"),
-    };
-    assert_eq!(describe_in(&missing, Lang::De), missing.to_string());
 }
 
 #[test]

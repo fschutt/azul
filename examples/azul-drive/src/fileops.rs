@@ -11,6 +11,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use azul_appkit::l10n::{Phrase, Text};
 use azul_storage::{key, ops as storage_ops, transfer, Drive, DriveError};
 
 use crate::browse;
@@ -53,30 +54,24 @@ fn first_free(
     last
 }
 
-/// The name Explorer gives a copy pasted into the folder it came from:
-/// `a - Copy.txt`, then `a - Copy (2).txt`, ...
+/// The name Explorer gives a copy pasted into the folder it came from: `a - Copy.txt`, then
+/// `a - Copy (2).txt`, ... - `copy` the window's language's word ("Kopie").
 #[must_use]
-pub fn copy_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
+pub fn copy_name(name: &str, copy: &str, taken: &dyn Fn(&str) -> bool) -> String {
     let (stem, ext) = split_extension(name);
-    first_free(
-        stem,
-        ext,
-        std::iter::once(String::from(" - Copy"))
-            .chain((2..10_000).map(|n| format!(" - Copy ({n})"))),
-        taken,
-    )
+    first_free(stem, ext, copy_suffixes(copy), taken)
 }
 
 /// [`copy_name`] for a folder (a dot in its name is not an extension).
 #[must_use]
-pub fn copy_folder_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    first_free(
-        name,
-        "",
-        std::iter::once(String::from(" - Copy"))
-            .chain((2..10_000).map(|n| format!(" - Copy ({n})"))),
-        taken,
-    )
+pub fn copy_folder_name(name: &str, copy: &str, taken: &dyn Fn(&str) -> bool) -> String {
+    first_free(name, "", copy_suffixes(copy), taken)
+}
+
+/// ` - Copy`, ` - Copy (2)`, ...
+fn copy_suffixes(copy: &str) -> impl Iterator<Item = String> + '_ {
+    std::iter::once(format!(" - {copy}"))
+        .chain((2..10_000).map(move |n| format!(" - {copy} ({n})")))
 }
 
 /// The name "Keep both files" gives the newcomer: `a (2).txt`, `a (3).txt`.
@@ -101,21 +96,19 @@ pub fn new_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
 pub const FORBIDDEN_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
 /// Whether `name` can name a file or folder, or why not (a sentence).
-pub fn check_name(name: &str) -> Result<(), String> {
+pub fn check_name(name: &str) -> Result<(), Text> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(String::from("A name cannot be empty."));
+        return Err(Text::key("azdrive-name-empty"));
     }
     if trimmed == "." || trimmed == ".." {
-        return Err(format!("\"{trimmed}\" is reserved."));
+        return Err(Phrase::new("azdrive-name-reserved").arg("name", trimmed).into());
     }
     if name.chars().any(|c| FORBIDDEN_CHARS.contains(&c)) {
-        return Err(String::from(
-            "A name cannot contain any of these characters: \\ / : * ? \" < > |",
-        ));
+        return Err(Text::key("azdrive-name-forbidden-chars"));
     }
     if name.chars().any(char::is_control) {
-        return Err(String::from("A name cannot contain control characters."));
+        return Err(Text::key("azdrive-name-control-chars"));
     }
     Ok(())
 }
@@ -136,6 +129,17 @@ pub enum TransferKind {
 }
 
 impl TransferKind {
+    /// The kind as a message's argument (`azdrive-transfer-label`'s `$kind`).
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            TransferKind::Copy => "copy",
+            TransferKind::Move => "move",
+            TransferKind::Upload => "upload",
+            TransferKind::Download => "download",
+        }
+    }
+
     /// "Copying", "Moving", ...
     #[must_use]
     pub fn verb(self) -> &'static str {
@@ -307,6 +311,7 @@ pub fn plan_transfer(
     target_prefix: &str,
     same_drive: bool,
     kind: TransferKind,
+    copy: &str,
 ) -> Result<Plan, DriveError> {
     let mut plan = Plan {
         same_drive,
@@ -355,12 +360,12 @@ pub fn plan_transfer(
         }
         let target_name = if same_place {
             if item.is_folder {
-                copy_folder_name(&name, &|n: &str| {
+                copy_folder_name(&name, copy, &|n: &str| {
                     storage_ops::folder_exists(target, &format!("{target_prefix}{n}/"))
                         .unwrap_or(true)
                 })
             } else {
-                copy_name(&name, &|n: &str| {
+                copy_name(&name, copy, &|n: &str| {
                     storage_ops::exists(target, &format!("{target_prefix}{n}")).unwrap_or(true)
                 })
             }
@@ -472,7 +477,7 @@ pub struct TransferReport {
     pub done: usize,
     pub skipped: usize,
     /// What failed, and why.
-    pub failed: Vec<(String, String)>,
+    pub failed: Vec<(String, azul_appkit::l10n::Text)>,
     pub cancelled: bool,
 }
 
@@ -509,14 +514,14 @@ pub fn run_transfer(
         progress.current = key::last_segment(from).to_string();
         match source.rename(from, to) {
             Ok(()) => out.done += 1,
-            Err(e) => out.failed.push((from.clone(), crate::problems::describe(&e))),
+            Err(e) => out.failed.push((from.clone(), crate::l10n::drive_error_text(&e))),
         }
         progress.files_done += 1;
         report(&progress);
     }
     for folder in &plan.folders {
         if let Err(e) = target.create_folder(folder) {
-            out.failed.push((folder.clone(), crate::problems::describe(&e)));
+            out.failed.push((folder.clone(), crate::l10n::drive_error_text(&e)));
         }
     }
     let mut copied = Vec::new();
@@ -562,7 +567,7 @@ pub fn run_transfer(
                     out.done += 1;
                     copied.push(file.source_key.clone());
                 }
-                Err(e) => out.failed.push((file.source_key.clone(), crate::problems::describe(&e))),
+                Err(e) => out.failed.push((file.source_key.clone(), crate::l10n::drive_error_text(&e))),
             }
         } else {
             out.skipped += 1;
@@ -574,14 +579,14 @@ pub fn run_transfer(
     if kind.removes_source() && !out.cancelled {
         for key in &copied {
             if let Err(e) = source.delete(key) {
-                out.failed.push((key.clone(), crate::problems::describe(&e)));
+                out.failed.push((key.clone(), crate::l10n::drive_error_text(&e)));
             }
         }
         // A folder goes only when everything in it went.
         if out.failed.is_empty() && out.skipped == 0 {
             for folder in &plan.source_folders {
                 if let Err(e) = source.delete_folder(folder) {
-                    out.failed.push((folder.clone(), crate::problems::describe(&e)));
+                    out.failed.push((folder.clone(), crate::l10n::drive_error_text(&e)));
                 }
             }
         }
@@ -685,7 +690,7 @@ pub enum JobState {
     Waiting,
     Running,
     Done,
-    Failed(String),
+    Failed(Text),
     Cancelled,
 }
 
@@ -694,7 +699,7 @@ pub enum JobState {
 pub struct QueuedJob {
     pub id: u64,
     /// "Copying 3 items to docs".
-    pub label: String,
+    pub label: Text,
     pub state: JobState,
     pub progress: Progress,
     /// When it started running (milliseconds since 1970; 0 while it waits).
@@ -712,7 +717,7 @@ pub struct TransferQueue {
 
 impl TransferQueue {
     /// Queues a transfer; returns its id.
-    pub fn push(&mut self, label: String) -> u64 {
+    pub fn push(&mut self, label: Text) -> u64 {
         self.next_id += 1;
         self.jobs.push(QueuedJob {
             id: self.next_id,
@@ -756,7 +761,7 @@ impl TransferQueue {
     }
 
     /// The transfer ended: with an error, or without.
-    pub fn finish(&mut self, id: u64, error: Option<String>) {
+    pub fn finish(&mut self, id: u64, error: Option<Text>) {
         if let Some(job) = self.job_mut(id) {
             job.state = match error {
                 Some(e) => JobState::Failed(e),
@@ -804,26 +809,26 @@ impl TransferQueue {
 
     /// The running transfer's line: "Copying 3 items - 1 of 3 (25%), 2 waiting".
     #[must_use]
-    pub fn status_text(&self) -> String {
+    pub fn status_text(&self) -> Text {
+        let waiting = Phrase::new("azdrive-queue-waiting").arg("count", self.waiting());
         let Some(job) = self.running() else {
             return match self.waiting() {
-                0 => String::new(),
-                n => format!("{n} waiting"),
+                0 => Text::default(),
+                _ => waiting.into(),
             };
         };
         let p = &job.progress;
-        let mut text = format!(
-            "{} - {} of {} ({:.0}%)",
-            job.label,
-            p.files_done,
-            p.files_total,
-            p.percent()
+        let text = job.label.clone().then(" - ").then(
+            Phrase::new("azdrive-queue-progress")
+                .arg("done", p.files_done)
+                .arg("total", p.files_total)
+                .arg("percent", format!("{:.0}", p.percent())),
         );
-        let waiting = self.waiting();
-        if waiting > 0 {
-            text.push_str(&format!(", {waiting} waiting"));
+        if self.waiting() > 0 {
+            text.then(", ").then(waiting)
+        } else {
+            text
         }
-        text
     }
 
     /// The transfers that failed.
@@ -869,6 +874,7 @@ mod tests {
         sync::atomic::{AtomicBool, AtomicU32, Ordering},
     };
 
+    use azul_appkit::l10n::Arg;
     use azul_storage::{testing::TempDir, Drive, LocalDrive};
 
     use super::*;
@@ -897,9 +903,10 @@ mod tests {
     #[test]
     fn explorer_names_a_copy_in_the_same_folder_and_a_kept_duplicate() {
         let taken = |n: &str| ["a.txt", "a - Copy.txt", "b (2).txt", "New folder"].contains(&n);
-        assert_eq!(copy_name("a.txt", &taken), "a - Copy (2).txt");
-        assert_eq!(copy_name("c.txt", &taken), "c - Copy.txt");
-        assert_eq!(copy_name("dir", &|_| false), "dir - Copy");
+        assert_eq!(copy_name("a.txt", "Copy", &taken), "a - Copy (2).txt");
+        assert_eq!(copy_name("c.txt", "Copy", &taken), "c - Copy.txt");
+        assert_eq!(copy_name("dir", "Copy", &|_| false), "dir - Copy");
+        assert_eq!(copy_name("c.txt", "Kopie", &taken), "c - Kopie.txt");
         assert_eq!(keep_both_name("b.txt", &taken), "b (3).txt");
         assert_eq!(keep_both_name("a.txt", &taken), "a (2).txt");
         assert_eq!(new_name("New folder", &taken), "New folder (2)");
@@ -922,7 +929,7 @@ mod tests {
         assert!(check_name("what?").is_err());
         assert!(check_name("..").is_err());
         let reason = check_name("a|b").unwrap_err();
-        assert!(reason.contains('|'), "{reason}");
+        assert_eq!(reason.keys(), ["azdrive-name-forbidden-chars"], "{reason}");
     }
 
     #[test]
@@ -938,6 +945,7 @@ mod tests {
             "in/",
             false,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         let targets: Vec<&str> = plan.files.iter().map(|f| f.target_key.as_str()).collect();
@@ -966,6 +974,7 @@ mod tests {
             "",
             true,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         assert_eq!(plan.files[0].target_key, "readme - Copy.txt");
@@ -978,6 +987,7 @@ mod tests {
             "",
             true,
             TransferKind::Move,
+            "Copy",
         )
         .unwrap();
         assert!(noop.files.is_empty() && noop.folders.is_empty());
@@ -987,7 +997,8 @@ mod tests {
             &home,
             "docs/sub/",
             true,
-            TransferKind::Move
+            TransferKind::Move,
+            "Copy",
         )
         .is_err());
     }
@@ -1006,6 +1017,7 @@ mod tests {
             "",
             false,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         assert_eq!(plan.conflicts().len(), 2);
@@ -1055,6 +1067,7 @@ mod tests {
             "",
             false,
             TransferKind::Move,
+            "Copy",
         )
         .unwrap();
         for i in plan.conflicts() {
@@ -1090,6 +1103,7 @@ mod tests {
             "archive/",
             true,
             TransferKind::Move,
+            "Copy",
         )
         .unwrap();
         let report = run_transfer(
@@ -1110,6 +1124,7 @@ mod tests {
             "",
             true,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         let cancelled = AtomicBool::new(true);
@@ -1153,7 +1168,7 @@ mod tests {
     #[test]
     fn a_transfer_running_two_seconds_asks_for_the_progress_dialog_once() {
         let mut queue = TransferQueue::default();
-        let a = queue.push("Copying 1 item to docs".to_string());
+        let a = queue.push(Text::plain("Copying 1 item to docs"));
         assert_eq!(queue.wants_progress_dialog(5_000, 2_000), None, "nothing runs");
         queue.start(a, 1_000);
         assert_eq!(
@@ -1169,7 +1184,7 @@ mod tests {
             "a dialog the user closed stays closed"
         );
         queue.finish(a, None);
-        let b = queue.push("Copying 2 items to docs".to_string());
+        let b = queue.push(Text::plain("Copying 2 items to docs"));
         queue.start(b, 10_000);
         assert_eq!(queue.wants_progress_dialog(12_000, 2_000), Some(b), "the next one asks again");
     }
@@ -1177,8 +1192,8 @@ mod tests {
     #[test]
     fn a_transfer_queue_runs_one_job_at_a_time_and_sums_the_progress() {
         let mut queue = TransferQueue::default();
-        let a = queue.push("Copying 3 items".to_string());
-        let b = queue.push("Uploading photo.jpg".to_string());
+        let a = queue.push(Text::plain("Copying 3 items"));
+        let b = queue.push(Text::plain("Uploading photo.jpg"));
         assert_eq!(queue.next_to_start(), Some(a));
         queue.start(a, 1_000);
         assert_eq!(queue.next_to_start(), None, "one at a time");
@@ -1193,15 +1208,22 @@ mod tests {
             },
         );
         assert_eq!(queue.percent(), Some(25.0));
-        assert!(
-            queue.status_text().contains("Copying 3 items"),
-            "{}",
-            queue.status_text()
+        let status = queue.status_text();
+        assert!(status.to_string().starts_with("Copying 3 items - "), "{status}");
+        let progress = status.phrase("azdrive-queue-progress").expect("the progress");
+        assert_eq!(progress.get("done"), Some(&Arg::Int(1)));
+        assert_eq!(progress.get("total"), Some(&Arg::Int(3)));
+        assert_eq!(progress.get("percent"), Some(&Arg::from("25")));
+        assert_eq!(
+            status
+                .phrase("azdrive-queue-waiting")
+                .and_then(|w| w.get("count")),
+            Some(&Arg::Int(1))
         );
         queue.finish(a, None);
         assert_eq!(queue.next_to_start(), Some(b));
         queue.start(b, 2_000);
-        queue.finish(b, Some("no answer".to_string()));
+        queue.finish(b, Some(Text::plain("no answer")));
         assert!(queue.is_idle());
         assert_eq!(queue.failed().len(), 1);
         queue.clear_finished();
@@ -1285,6 +1307,7 @@ mod tests {
             "backup/",
             true,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         assert!(plan.same_drive);
@@ -1327,6 +1350,7 @@ mod tests {
             "backup/",
             true,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         let mut seen = Vec::new();

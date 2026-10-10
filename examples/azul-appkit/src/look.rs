@@ -30,7 +30,10 @@ use azul::{
     widgets::ButtonType,
 };
 
-use crate::pieces::{column, text};
+use crate::{
+    l10n::label,
+    pieces::{column, text},
+};
 
 /// The dialog's own surface: around the two panes and under OK / Cancel.
 pub const DIALOG_BG: &str = "system:window-background";
@@ -57,7 +60,7 @@ pub const LABEL_WIDTH: &str = "160px";
 
 /// A settings row: a label column and the control (Outlook's "Color scheme: [Silver]").
 #[must_use]
-pub fn row(label: &str, control: Dom) -> Dom {
+pub fn row(label_text: &str, control: Dom) -> Dom {
     Dom::create_div()
         .with_class("appkit-row")
         .with_css(
@@ -70,7 +73,7 @@ pub fn row(label: &str, control: Dom) -> Dom {
                     "width: {LABEL_WIDTH}; flex-shrink: 1; min-width: 72px; padding-right: 8px; \
                      font-size: 13px;"
                 ))
-                .with_child(text(label)),
+                .with_child(text(label(label_text))),
         )
         .with_child(control)
 }
@@ -80,7 +83,7 @@ pub fn row(label: &str, control: Dom) -> Dom {
 pub fn note(content: &str) -> Dom {
     Dom::create_div()
         .with_css(format!("padding: 4px 0px; font-size: 12px; color: {QUIET_TEXT};"))
-        .with_child(text(content))
+        .with_child(text(label(content)))
 }
 
 /// A section's band: its title in bold on Outlook's grey bar.
@@ -94,7 +97,7 @@ pub fn band(title: &str) -> Dom {
              text-transform: uppercase; letter-spacing: 0.12em; color: system:secondary-text; \
              border-bottom: 1px solid system:grid; padding: 4px 0px; }}"
         ))
-        .with_child(text(title))
+        .with_child(text(label(title)))
 }
 
 /// A section: its band over its rows, the rows indented under it.
@@ -112,9 +115,9 @@ pub fn section(title: &str, content: Dom) -> Dom {
 }
 
 /// The line over a category's sections: a big icon (a name of azul's icon set) and what the
-/// category is for ("General options for working with AzNotes.").
+/// category is for ("General options for working with AzNotes."), `line` (its words, a span).
 #[must_use]
-pub fn header_line(id: &str, icon: &str, line: &str) -> Dom {
+pub fn header_line(id: &str, icon: &str, line: Dom) -> Dom {
     Dom::create_div()
         .with_id(id)
         .with_css(
@@ -130,13 +133,13 @@ pub fn header_line(id: &str, icon: &str, line: &str) -> Dom {
                 .with_css(format!(
                     "flex-grow: 1; min-width: 0px; font-size: 15px; color: {QUIET_TEXT};"
                 ))
-                .with_child(text(line)),
+                .with_child(line),
         )
 }
 
 /// One category of the list.
 pub struct CategoryItem<'a> {
-    /// Its name in the list.
+    /// Its name in the list: a key or plain words ([`label`]).
     pub name: &'a str,
     /// Its DOM id, for scripts.
     pub id: String,
@@ -174,7 +177,7 @@ pub fn category_list(
                 .with_id(item.id.as_str())
                 .with_css(css)
                 .with_tab_index(TabIndex::Auto)
-                .with_child(text(item.name))
+                .with_child(text(label(item.name)))
                 .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), pick.clone(), on_pick)
                 // Enter / Space on the focused category (the engine's keyboard activation).
                 .with_callback(EventFilter::Hover(HoverEventFilter::Click), pick, on_pick),
@@ -214,13 +217,13 @@ pub fn options_pane(id: &str, children: Vec<Dom>) -> Dom {
 /// primary (default) one.
 #[must_use]
 pub fn dialog_button(
-    label: &str,
+    label_text: &str,
     primary: bool,
     id: &str,
     data: &RefAny,
     on_click: ButtonOnClickCallbackType,
 ) -> Dom {
-    let button = Button::create(label);
+    let button = Button::create(crate::l10n::label(label_text));
     let button = if primary {
         button.with_button_type(ButtonType::Primary)
     } else {

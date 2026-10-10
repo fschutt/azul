@@ -13,6 +13,7 @@ use azul::{
     video::{VideoConfig, VideoSource},
     widgets::{AddressBar, AddressBarEvent, AddressBarEventKind, DetailsPane, VideoWidget},
 };
+use azul_appkit::l10n::{grouped, label, t, t_args, t_phrase, t_text, Arg, Phrase, Text};
 use azul_storage::{config::DriveLocation, key};
 
 use crate::{
@@ -45,7 +46,10 @@ pub(crate) fn address_bar(s: &DriveState, app: &RefAny, width: f32) -> Dom {
         .with_available_width(width)
         .with_path(AzString::from(browse::path_text(&s.place, path_drive)))
         .with_search(AzString::from(s.search.as_str()))
-        .with_search_placeholder(AzString::from(format!("Search {}", s.place_name())))
+        .with_search_placeholder(AzString::from(t_args(
+            "azdrive-search-placeholder",
+            &[("place", Arg::from(s.place_name()))],
+        )))
         .with_can_go(
             s.history.can_go_back(),
             s.history.can_go_forward(),
@@ -135,10 +139,10 @@ extern "C" fn on_address(
                         .collect();
                     actions::open_menu_below(info, items);
                 }
-                Some(_) => s.info("This folder has no subfolders."),
+                Some(_) => s.info(Text::key("azdrive-no-subfolders")),
                 None => {
                     if let Place::Folder { drive, prefix } = place {
-                        s.info("Listing the folder...");
+                        s.info(Text::key("azdrive-listing-folder"));
                         start_tree_listing(info, app, s, (drive, prefix));
                     }
                 }
@@ -149,7 +153,7 @@ extern "C" fn on_address(
             s.editing_path = false;
             match browse::parse_path(&text, &s.drive_names()) {
                 Some(place) => go(info, app, s, place, true),
-                None => s.error(format!("There is no drive for \"{}\".", text.trim())),
+                None => s.error(Phrase::new("azdrive-no-drive-for").arg("path", text.trim())),
             }
         }
         AddressBarEventKind::EditCancelled => s.editing_path = false,
@@ -202,7 +206,7 @@ pub(crate) fn path_bar(s: &DriveState, app: &RefAny) -> Dom {
     let mut bar = Dom::create_div()
         .with_id(ids::PATH_BAR)
         .with_css(look::PATH_BAR)
-        .with_accessibility_name("Path");
+        .with_accessibility_name(label("azdrive-path-bar"));
     for (i, (label, place)) in crumbs.into_iter().enumerate() {
         if i > 0 {
             bar.add_child(Dom::create_icon("chevron_right").with_css(look::CRUMB_SEPARATOR));
@@ -281,13 +285,13 @@ pub(crate) fn status_text(s: &DriveState) -> String {
     let mut parts = Vec::new();
     // The drive in view's storage problem first, in the table's words with its error ID.
     if let Some(problem) = crate::problems::status_of(s) {
-        parts.push(problem);
+        parts.push(t_text(&problem));
     }
     if let Some(find) = &s.find {
         // The search's own line: "Searching... 1,234 found", then the count; the refine.
-        parts.push(find.status_text());
+        parts.push(t_phrase(&find.status_text()));
         if !s.refines.is_any() {
-            parts.push(s.refines.label());
+            parts.push(t_text(&s.refines.label()));
         }
         // The drive's index, when it has one: how far its update got, what it holds.
         if let Some(drive_id) = s
@@ -295,46 +299,59 @@ pub(crate) fn status_text(s: &DriveState) -> String {
             .filter(|id| s.settings.indexed_drives.contains(id))
         {
             parts.push(s.indexes.get(&drive_id).map_or_else(
-                || String::from("Not indexed yet"),
-                crate::find::IndexInfo::status_text,
+                || t("azdrive-index-status-never"),
+                |info| t_phrase(&info.status_text()),
             ));
         }
         let selected = s.selection.len();
         if selected > 0 {
-            parts.push(format!("{} selected", listing::grouped_digits(selected)));
+            parts.push(t_args(
+                "azdrive-status-selected",
+                &[
+                    ("count", Arg::from(selected)),
+                    ("n", Arg::from(grouped(selected as u64))),
+                ],
+            ));
         }
         if let Some(clip) = &s.clipboard {
-            parts.push(format!("{} on the clipboard", clip.items.len()));
+            parts.push(clipboard_text(clip.items.len()));
         }
         return parts.join(", ");
     }
     match &s.place {
         Place::ThisPc => {
-            let drives = browse::counted(s.slots.len(), "drive", "drives");
+            let drives = t_args("azdrive-status-drives", &[("count", Arg::from(s.slots.len()))]);
             parts.push(match s.selected_drive.and_then(|i| s.slots.get(i)) {
-                Some(slot) => format!("\"{}\" selected, {drives}", slot.entry.name),
+                Some(slot) => t_args(
+                    "azdrive-status-drive-selected",
+                    &[
+                        ("name", Arg::from(slot.entry.name.as_str())),
+                        ("drives", Arg::from(drives)),
+                    ],
+                ),
                 None => drives,
             });
         }
-        Place::QuickAccess => parts.push(browse::counted(
-            s.settings.pinned.len(),
-            "pinned folder",
-            "pinned folders",
+        Place::QuickAccess => parts.push(t_args(
+            "azdrive-status-pins",
+            &[("count", Arg::from(s.settings.pinned.len()))],
         )),
-        Place::Folder { .. } if s.loading => parts.push(String::from("Loading...")),
+        Place::Folder { .. } if s.loading => parts.push(t("azdrive-status-loading")),
         Place::Folder { drive, .. } => {
             let shown = s.visible_entries().len();
             let selected = s.selected_entries();
             if selected.is_empty() {
                 // While the scan still runs, the count says so ("12,345 items so far").
-                parts.push(listing::count_text(shown, s.listing_done));
+                parts.push(t_phrase(&listing::count_text(shown, s.listing_done)));
             } else {
                 let bytes: u64 = selected.iter().filter_map(|e| e.size).sum();
                 let more = if s.listing_done { "" } else { "+" };
-                let mut text = format!(
-                    "{} of {}{more} selected",
-                    listing::grouped_digits(selected.len()),
-                    listing::grouped_digits(shown)
+                let mut text = t_args(
+                    "azdrive-status-selected-of",
+                    &[
+                        ("n", Arg::from(grouped(selected.len() as u64))),
+                        ("shown", Arg::from(format!("{}{more}", grouped(shown as u64)))),
+                    ],
                 );
                 if bytes > 0 {
                     text.push_str(&format!(" ({})", browse::format_size(Some(bytes))));
@@ -342,7 +359,10 @@ pub(crate) fn status_text(s: &DriveState) -> String {
                 parts.push(text);
             }
             if let Some((_, free)) = s.disk.get(drive) {
-                parts.push(format!("{} available", browse::format_size(Some(*free))));
+                parts.push(t_args(
+                    "azdrive-status-available",
+                    &[("size", Arg::from(browse::format_size(Some(*free))))],
+                ));
             } else if let Some(available) =
                 crate::usage_view::usage_of_slot(s, drive).and_then(crate::usage_view::available_part)
             {
@@ -356,9 +376,14 @@ pub(crate) fn status_text(s: &DriveState) -> String {
         }
     }
     if let Some(clip) = &s.clipboard {
-        parts.push(format!("{} on the clipboard", clip.items.len()));
+        parts.push(clipboard_text(clip.items.len()));
     }
     parts.join(", ")
+}
+
+/// "3 on the clipboard".
+fn clipboard_text(count: usize) -> String {
+    t_args("azdrive-status-clipboard", &[("count", Arg::from(count))])
 }
 
 /// Finder's status line under the path bar ([`status_text`]); while the source list is hidden
@@ -392,7 +417,7 @@ pub(crate) fn status_line(s: &DriveState, app: &RefAny) -> Dom {
                     on_action,
                 )
         };
-        let transfer = s.queue.status_text();
+        let transfer = t_text(&s.queue.status_text());
         if !transfer.is_empty() {
             line.add_child(chip("sync", transfer));
         }
@@ -400,7 +425,7 @@ pub(crate) fn status_line(s: &DriveState, app: &RefAny) -> Dom {
         if failed > 0 {
             line.add_child(chip(
                 "error",
-                format!("{} failed", browse::counted(failed, "transfer", "transfers")),
+                t_args("azdrive-status-transfers-failed", &[("count", Arg::from(failed))]),
             ));
         }
     }
@@ -441,8 +466,8 @@ extern "C" fn on_play_audio(mut data: RefAny, mut info: CallbackInfo) -> Update 
                 .error_message()
                 .into_option()
                 .map(|e| e.as_str().to_string())
-                .unwrap_or_else(|| String::from("no audio output"));
-            s.error(format!("The sound cannot play: {why}"));
+                .unwrap_or_else(|| t("azdrive-audio-no-output"));
+            s.error(Phrase::new("azdrive-audio-cannot-play").arg("why", why));
             return;
         }
         sink.play(AudioFrame {
@@ -459,12 +484,12 @@ extern "C" fn on_play_audio(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// video.
 pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
     let body = match &s.preview {
-        None => note("Select a file to preview."),
+        None => note(&t("azdrive-preview-select")),
         Some(preview) => {
             let name = key::last_segment(&preview.key).to_string();
             match &preview.content {
-                None => note(&format!("Loading the preview of \"{name}\"...")),
-                Some(PreviewContent::Message(text)) => note(text),
+                None => note(&t_args("azdrive-preview-loading", &[("name", Arg::from(name))])),
+                Some(PreviewContent::Message(text)) => note(&t_text(text)),
                 Some(PreviewContent::Text(text)) => Dom::create_div()
                     .with_id(ids::PREVIEW_TEXT)
                     .with_css(
@@ -487,8 +512,13 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                             .with_css("max-width: 100%; max-height: 420px;"),
                     )
                     .with_child(
-                        Dom::create_span_with_text(AzString::from(format!(
-                            "{name} - {width} x {height} pixels"
+                        Dom::create_span_with_text(AzString::from(t_args(
+                            "azdrive-preview-image-size",
+                            &[
+                                ("name", Arg::from(name.as_str())),
+                                ("width", Arg::from(*width)),
+                                ("height", Arg::from(*height)),
+                            ],
                         )))
                         .with_css("margin-top: 8px; font-size: 12px; opacity: 0.75;"),
                     ),
@@ -497,9 +527,12 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                     let minutes = (seconds / 60.0).floor() as u64;
                     let rest = seconds - minutes as f64 * 60.0;
                     let channels = match wav.channels {
-                        1 => String::from("mono"),
-                        2 => String::from("stereo"),
-                        n => format!("{n} channels"),
+                        1 => t("azdrive-preview-mono"),
+                        2 => t("azdrive-preview-stereo"),
+                        n => t_args(
+                            "azdrive-preview-channels",
+                            &[("count", Arg::from(u32::from(n)))],
+                        ),
                     };
                     let playing = s
                         .audio
@@ -517,7 +550,11 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                             f64::from(wav.sample_rate) / 1000.0
                         ))))
                         .with_child(
-                            Button::create(AzString::from(if playing { "Stop" } else { "Play" }))
+                            Button::create(label(if playing {
+                                "azdrive-preview-stop"
+                            } else {
+                                "azdrive-preview-play"
+                            }))
                                 .with_icon(AzString::from(if playing {
                                     "stop"
                                 } else {
@@ -550,9 +587,9 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                                 .with_css("width: 100%; height: 240px;"),
                         )
                         .with_child(
-                            Dom::create_span_with_text(AzString::from(format!(
-                                "{name} (H.264, without sound: azul's video widget has no audio \
-                                 track)"
+                            Dom::create_span_with_text(AzString::from(t_args(
+                                "azdrive-preview-video-note",
+                                &[("name", Arg::from(name.as_str()))],
                             )))
                             .with_css("margin-top: 8px; font-size: 12px; opacity: 0.75;"),
                         )
@@ -583,8 +620,8 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                     azul_storage::time::now_unix(),
                 ) {
                     pane = pane.with_property(
-                        AzString::from("Recovery health"),
-                        AzString::from(health),
+                        label("azdrive-details-recovery-health"),
+                        AzString::from(t_text(&health)),
                     );
                 }
                 // An Azlin drive's space: its stored bytes against the quota, the files' size
@@ -594,8 +631,8 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                     .filter(|usage| usage.quota > 0)
                 {
                     pane = pane.with_property(
-                        AzString::from("Space used"),
-                        AzString::from(usage.text()),
+                        label("azdrive-details-used"),
+                        AzString::from(crate::usage_view::usage_text(&usage)),
                     );
                 }
                 match &slot.entry.location {
@@ -603,21 +640,24 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                         if let Some((total, free)) = s.disk.get(&slot.entry.id) {
                             pane = pane
                                 .with_property(
-                                    AzString::from("Space used"),
+                                    label("azdrive-details-used"),
                                     AzString::from(browse::format_size(Some(
                                         total.saturating_sub(*free),
                                     ))),
                                 )
                                 .with_property(
-                                    AzString::from("Free space"),
+                                    label("azdrive-details-free"),
                                     AzString::from(browse::format_size(Some(*free))),
                                 )
                                 .with_property(
-                                    AzString::from("Total size"),
+                                    label("azdrive-details-total"),
                                     AzString::from(browse::format_size(Some(*total))),
                                 );
                         }
-                        pane.with_property(AzString::from("Path"), AzString::from(root.as_str()))
+                        pane.with_property(
+                            label("azdrive-details-path"),
+                            AzString::from(root.as_str()),
+                        )
                     }
                     DriveLocation::S3 {
                         endpoint,
@@ -625,44 +665,53 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                         bucket,
                         ..
                     } => pane
-                        .with_property(AzString::from("Bucket"), AzString::from(bucket.as_str()))
                         .with_property(
-                            AzString::from("Endpoint"),
+                            label("azdrive-props-bucket"),
+                            AzString::from(bucket.as_str()),
+                        )
+                        .with_property(
+                            label("azdrive-props-endpoint"),
                             AzString::from(endpoint.as_str()),
                         )
-                        .with_property(AzString::from("Region"), AzString::from(region.as_str())),
+                        .with_property(
+                            label("azdrive-props-region"),
+                            AzString::from(region.as_str()),
+                        ),
                     DriveLocation::Opendal { options, .. }
                     | DriveLocation::Database { options, .. } => {
                         let mut pane = pane;
                         for (name, value) in crate::ui_dialogs::source_rows(&slot.entry, options) {
-                            pane = pane.with_property(AzString::from(name), AzString::from(value));
+                            pane = pane.with_property(label(&name), AzString::from(value));
                         }
                         pane
                     }
                 }
             }
-            None => DetailsPane::create(AzString::from(browse::THIS_PC))
+            None => DetailsPane::create(label("azdrive-this-pc"))
                 .with_icon(AzString::from("computer"))
-                .with_subtitle(AzString::from(browse::counted(s.slots.len(), "drive", "drives"))),
+                .with_subtitle(AzString::from(t_args(
+                    "azdrive-status-drives",
+                    &[("count", Arg::from(s.slots.len()))],
+                ))),
         },
-        Place::QuickAccess => DetailsPane::create(AzString::from(browse::QUICK_ACCESS))
+        Place::QuickAccess => DetailsPane::create(label("azdrive-quick-access"))
             .with_icon(AzString::from("star"))
-            .with_subtitle(AzString::from(format!(
-                "{} pinned folders",
-                s.settings.pinned.len()
+            .with_subtitle(AzString::from(t_args(
+                "azdrive-status-pins",
+                &[("count", Arg::from(s.settings.pinned.len()))],
             ))),
         Place::Folder { drive, .. } => {
             let selected = s.selected_entries();
             match selected.as_slice() {
                 [] => DetailsPane::create(AzString::from(s.place_name()))
                     .with_icon(AzString::from("folder_open"))
-                    .with_subtitle(AzString::from("File folder"))
+                    .with_subtitle(label("azdrive-details-file-folder"))
                     .with_property(
-                        AzString::from("Items"),
-                        AzString::from(s.visible_entries().len().to_string()),
+                        label("azdrive-details-items"),
+                        AzString::from(grouped(s.visible_entries().len() as u64)),
                     )
                     .with_property(
-                        AzString::from("Location"),
+                        label("azdrive-props-location"),
                         AzString::from(actions::item_location(s, drive, s.prefix())),
                     ),
                 [entry] => {
@@ -672,11 +721,11 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                     if !entry.is_folder {
                         pane = pane
                             .with_property(
-                                AzString::from("Size"),
+                                label("azdrive-props-size"),
                                 AzString::from(browse::format_size(entry.size)),
                             )
                             .with_property(
-                                AzString::from("Date modified"),
+                                label("azdrive-find-column-modified"),
                                 AzString::from(browse::format_modified(
                                     entry.modified,
                                     &chrono::Local,
@@ -685,12 +734,12 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                     } else if let Some(n) = s.counts.get(&entry.key) {
                         // Counted with one read of the folder, no stat per item.
                         pane = pane.with_property(
-                            AzString::from("Items"),
-                            AzString::from(listing::grouped_digits(*n)),
+                            label("azdrive-details-items"),
+                            AzString::from(grouped(*n as u64)),
                         );
                     }
                     pane = pane.with_property(
-                        AzString::from("Location"),
+                        label("azdrive-props-location"),
                         AzString::from(actions::item_location(s, drive, &entry.key)),
                     );
                     if let Some(etag) = &entry.etag {
@@ -699,7 +748,7 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                     if let Some(Ok(pairs)) = s.metadata.get(&entry.key) {
                         let shown = ["Size", "Date modified", "Location", "ETag"];
                         for (name, value) in browse::metadata_rows(pairs, &shown, &chrono::Local) {
-                            pane = pane.with_property(AzString::from(name), AzString::from(value));
+                            pane = pane.with_property(label(&name), AzString::from(value));
                         }
                     }
                     pane
@@ -707,17 +756,23 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                 many => {
                     let bytes: u64 = many.iter().filter_map(|e| e.size).sum();
                     let folders = many.iter().filter(|e| e.is_folder).count();
-                    DetailsPane::create(AzString::from(format!("{} items selected", many.len())))
-                        .with_icon(AzString::from("library_add_check"))
-                        .with_property(
-                            AzString::from("Files"),
-                            AzString::from((many.len() - folders).to_string()),
-                        )
-                        .with_property(AzString::from("Folders"), AzString::from(folders.to_string()))
-                        .with_property(
-                            AzString::from("Size of the files"),
-                            AzString::from(browse::format_size(Some(bytes))),
-                        )
+                    DetailsPane::create(AzString::from(t_args(
+                        "azdrive-details-selected",
+                        &[("count", Arg::from(many.len()))],
+                    )))
+                    .with_icon(AzString::from("library_add_check"))
+                    .with_property(
+                        label("azdrive-details-files"),
+                        AzString::from((many.len() - folders).to_string()),
+                    )
+                    .with_property(
+                        label("azdrive-details-folders"),
+                        AzString::from(folders.to_string()),
+                    )
+                    .with_property(
+                        label("azdrive-props-size-of-files"),
+                        AzString::from(browse::format_size(Some(bytes))),
+                    )
                 }
             }
         }

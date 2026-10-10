@@ -21,6 +21,7 @@
 
 use crate::{
     args::{AppArgs, ModePref, Theme},
+    phrase::{Phrase, Text},
     settings::AppSettings,
 };
 
@@ -73,14 +74,15 @@ impl Category {
     /// The header line over the category's options ("General options for working with
     /// AzNotes."); `label` is the category's name in the list, `app` the app's name.
     #[must_use]
-    pub fn header(self, label: &str, app: &str) -> String {
+    pub fn header(self, label: &str, app: &str) -> Phrase {
         match self {
-            Category::App(_) => format!("{label} options for working with {app}."),
-            Category::General => format!("General options for working with {app}."),
-            Category::Data => format!("Where {app} keeps your data."),
-            Category::Shortcuts => format!("The keyboard shortcuts of {app}."),
-            Category::About => format!("The version, the licence and the data folder of {app}."),
+            Category::App(_) => Phrase::new("kit-header-app").arg("category", label),
+            Category::General => Phrase::new("kit-header-general"),
+            Category::Data => Phrase::new("kit-header-data"),
+            Category::Shortcuts => Phrase::new("kit-header-shortcuts"),
+            Category::About => Phrase::new("kit-header-about"),
         }
+        .arg("app", app)
     }
 }
 
@@ -197,9 +199,9 @@ impl Snapshot {
 /// (a Switch's knob glides for 150 ms) - a rebuild of the window then is a dropped frame for
 /// nothing.
 #[must_use]
-pub fn notice_after_save(notice: &mut String, error: Option<&str>) -> bool {
-    let next = error.map_or_else(String::new, |e| {
-        format!("The settings could not be saved: {e}")
+pub fn notice_after_save(notice: &mut Text, error: Option<&str>) -> bool {
+    let next = error.map_or_else(Text::default, |e| {
+        Phrase::new("kit-settings-not-saved").arg("detail", e).into()
     });
     if *notice == next {
         return false;
@@ -217,17 +219,20 @@ mod tests {
         // A toggle on the page saves the file on a thread; its answer arrives a frame or two
         // later, while the switch's knob is still gliding. The notice is all it can change on
         // the page, so only a notice that comes or goes is a reason to rebuild the window.
-        let mut notice = String::new();
+        let mut notice = Text::default();
         assert!(
             !notice_after_save(&mut notice, None),
             "saved, and no notice before or after: nothing to draw"
         );
-        assert_eq!(notice, "");
+        assert!(notice.is_empty());
         assert!(
             notice_after_save(&mut notice, Some("disk full")),
             "a failed save says why"
         );
-        assert_eq!(notice, "The settings could not be saved: disk full");
+        assert_eq!(
+            notice,
+            Text::from(Phrase::new("kit-settings-not-saved").arg("detail", "disk full"))
+        );
         assert!(
             !notice_after_save(&mut notice, Some("disk full")),
             "the same failure again: the page shows it already"
@@ -236,13 +241,14 @@ mod tests {
             notice_after_save(&mut notice, None),
             "the next save went through: it goes"
         );
-        assert_eq!(notice, "");
-        let mut read_problem = "The settings file could not be read fully (x).".to_string();
+        assert!(notice.is_empty());
+        let mut read_problem =
+            Text::from(Phrase::new("kit-settings-read-partly").arg("problem", "x"));
         assert!(
             notice_after_save(&mut read_problem, None),
             "a save that went through ends a reading problem too"
         );
-        assert_eq!(read_problem, "");
+        assert!(read_problem.is_empty());
     }
 
     fn names(list: &[&str]) -> Vec<String> {
@@ -279,11 +285,13 @@ mod tests {
     fn the_header_line_names_the_app_like_outlooks() {
         assert_eq!(
             Category::General.header("General", "AzNotes"),
-            "General options for working with AzNotes."
+            Phrase::new("kit-header-general").arg("app", "AzNotes")
         );
         assert_eq!(
             Category::App(0).header("Reading", "AzReader"),
-            "Reading options for working with AzReader."
+            Phrase::new("kit-header-app")
+                .arg("category", "Reading")
+                .arg("app", "AzReader")
         );
         for c in [
             Category::App(0),
@@ -292,7 +300,13 @@ mod tests {
             Category::Shortcuts,
             Category::About,
         ] {
-            assert!(c.header("X", "AzApp").contains("AzApp"), "{c:?}");
+            let header = c.header("X", "AzApp");
+            assert!(header.key.starts_with("kit-header-"), "{c:?}");
+            assert_eq!(
+                header.get("app"),
+                Some(&crate::phrase::Arg::from("AzApp")),
+                "{c:?}"
+            );
             assert!(!c.icon().is_empty(), "{c:?}");
         }
     }

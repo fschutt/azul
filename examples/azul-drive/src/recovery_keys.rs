@@ -34,8 +34,8 @@
 use std::sync::Arc;
 
 use azcloud_kit::{
-    user_errors::Code, AzlinSession, RecoveryKey, RecoveryKeyInfo, SharedKeyring, TokenError,
-    TokenServer, UserError,
+    user_errors::{Code, Lang},
+    AzlinSession, RecoveryKey, RecoveryKeyInfo, SharedKeyring, TokenError, TokenServer, UserError,
 };
 use azul::{
     callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType},
@@ -43,6 +43,7 @@ use azul::{
     str::String as AzString,
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
 };
+use azul_appkit::l10n::{t, t_args, t_label, Arg, Phrase};
 use azul_storage::{
     azul_keyring::AzulKeyring,
     azul_transport::AzulTransport,
@@ -69,10 +70,19 @@ use crate::{
     with_state, DriveState, Popup,
 };
 
-/// The name a drive recovered on a computer that never had it gets (the kit has none).
-pub(crate) const RECOVERED_NAME: &str = "Recovered drive";
-/// The label of a second kit's key at the token server.
+/// The label of a second kit's key at the token server (the server keeps it as it is; the
+/// window says [`key_label`]).
 pub(crate) const SECOND_KIT_LABEL: &str = "another recovery code";
+
+/// A key's label at the token server as the window says it: AzDrive's own labels in the window's
+/// language, any other as it is.
+pub(crate) fn key_label(label: &str) -> String {
+    match label {
+        SECOND_KIT_LABEL => t("azdrive-keys-label-second-kit"),
+        FINDABLE_LABEL => t("azdrive-keys-label-findable"),
+        _ => label.to_string(),
+    }
+}
 
 /// A code's findable key (no drive in it).
 pub(crate) fn findable_key_of(code: &RecoveryCode) -> RecoveryKey {
@@ -86,30 +96,32 @@ pub(crate) fn pick_signer(
     typed: &str,
     drive_id: &str,
 ) -> Result<RecoveryKey, String> {
-    let code = RecoveryCode::parse(typed).ok_or_else(|| {
-        String::from("That is not a recovery code: 26 letters and digits, in five groups.")
-    })?;
+    let code = RecoveryCode::parse(typed).ok_or_else(|| t("azdrive-drill-not-a-code"))?;
     let drive = crate::encryption::recovery_key_of(&code, drive_id);
     let findable = findable_key_of(&code);
-    let state = state.ok_or_else(|| {
-        String::from("This computer knows no recovery keys of the drive: Check them first.")
-    })?;
+    let state = state.ok_or_else(|| t("azdrive-keys-none-known"))?;
     match state.signer_for(&drive.public_base64(), &findable.public_base64()) {
         Some(CodeKey::Drive) => Ok(drive),
         Some(CodeKey::Findable) => Ok(findable),
-        None => Err(String::from(
-            "That is not a recovery code of this drive (none of its keys at the token server).",
-        )),
+        None => Err(t("azdrive-keys-not-this-drives")),
     }
 }
 
-/// A token server's refusal as the user reads it (the D33 table), else as it is.
+/// A token server's refusal as the user reads it (the D33 table), else as it is - on a worker
+/// thread: the table's message as its key (said on the UI thread by `t_label`), in English when
+/// it has arguments.
 pub(crate) fn token_text(e: &TokenError) -> String {
     UserError::from_token_error(e)
         .filter(|user| user.code != Code::Other)
         .map_or_else(
             || e.to_string(),
-            |user| user.message(crate::problems::lang()),
+            |user| {
+                if user.fluent_args().is_empty() {
+                    user.message_id()
+                } else {
+                    user.message(Lang::En)
+                }
+            },
         )
 }
 
@@ -186,7 +198,7 @@ pub(crate) fn check_keys(
     drive_id: &str,
 ) {
     let Some(token_url) = crate::encryption::token_url_of(s, drive_id) else {
-        s.error("The drive's token server is not known.");
+        s.error(Phrase::new("azdrive-no-token-server"));
         return;
     };
     let job = KeysJob::List {
@@ -258,32 +270,25 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
     match page {
         Page::Kit { error, .. } => {
             let mut body = column(vec![
-                line(
-                    "Type the recovery code from the drive's emergency kit. AzDrive finds the \
-                     drive at its token server by the code alone, then locks it down for this \
-                     computer: the drive's other devices are told and have 48 hours to stop \
-                     it.",
-                ),
-                label("The recovery code"),
+                line("azdrive-keys-kit-what"),
+                label("azdrive-drill-code"),
                 code_input(app, ids::KIT_RECOVER_CODE),
             ]);
             if !error.is_empty() {
                 body.add_child(red(error));
             }
             body.add_child(buttons(vec![
-                button("Cancel", app, crate::ui_dialogs::on_cancel_popup),
-                typed_button("Find the drive", ButtonType::Primary, app, on_kit_find)
+                button("kit-button-cancel", app, crate::ui_dialogs::on_cancel_popup),
+                typed_button("azdrive-keys-find", ButtonType::Primary, app, on_kit_find)
                     .with_id(ids::KIT_RECOVER_FIND),
             ]));
-            (String::from("Recover a drive with its emergency kit"), body)
+            (t("azdrive-keys-kit-title"), body)
         }
         Page::Found { drives, error, .. } => {
             let mut body = column(vec![line(if drives.len() == 1 {
-                "The kit's code belongs to this drive. Lock it down for this computer? Its \
-                 other devices are told and may stop it within 48 hours; then the drive is \
-                 this computer's."
+                "azdrive-keys-found-one"
             } else {
-                "The kit's code belongs to these drives. Lock one down for this computer?"
+                "azdrive-keys-found-several"
             })]);
             for (index, drive_id) in drives.iter().enumerate() {
                 body.add_child(
@@ -297,16 +302,19 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
                                 .with_css("font-family: monospace; flex-grow: 1;"),
                         )
                         .with_child(
-                            Button::with_type(AzString::from("Lock down"), ButtonType::Primary)
-                                .with_on_click(
-                                    RefAny::new(FoundRef {
-                                        app: app.clone(),
-                                        index,
-                                    }),
-                                    on_found_lockdown as ButtonOnClickCallbackType,
-                                )
-                                .dom()
-                                .with_id(ids::kit_recover_lockdown(index)),
+                            Button::with_type(
+                                AzString::from(t("azdrive-enc-lock-down")),
+                                ButtonType::Primary,
+                            )
+                            .with_on_click(
+                                RefAny::new(FoundRef {
+                                    app: app.clone(),
+                                    index,
+                                }),
+                                on_found_lockdown as ButtonOnClickCallbackType,
+                            )
+                            .dom()
+                            .with_id(ids::kit_recover_lockdown(index)),
                         ),
                 );
             }
@@ -314,11 +322,11 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
                 body.add_child(red(error));
             }
             body.add_child(buttons(vec![button(
-                "Cancel",
+                "kit-button-cancel",
                 app,
                 crate::ui_dialogs::on_cancel_popup,
             )]));
-            (String::from("The kit's drive"), body)
+            (t("azdrive-keys-found-title"), body)
         }
         Page::Sign {
             drive_id,
@@ -327,43 +335,37 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
             ..
         } => {
             let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
+            let named = |key: &str| t_args(key, &[("name", Arg::from(name.as_str()))]);
             let (title, text, ok) = match action {
                 KeyAction::AddCode => (
-                    format!("Another recovery code for \"{name}\""),
-                    String::from(
-                        "A second emergency kit: a new recovery code that opens the drive as \
-                         the first does - for a kit kept in another place. Type a recovery \
-                         code the drive has now; then the new one shows once, to write down.",
-                    ),
-                    "Make the code",
+                    named("azdrive-keys-add-title"),
+                    t("azdrive-keys-add-what"),
+                    "azdrive-keys-add-button",
                 ),
                 KeyAction::MakeFindable => (
-                    format!("Let the kit find \"{name}\""),
-                    String::from(
-                        "On a computer that never had the drive, its kit finds it only by a \
-                         findable key. Type the recovery code to register its findable key.",
-                    ),
-                    "Make findable",
+                    named("azdrive-keys-findable-title"),
+                    t("azdrive-keys-findable-what"),
+                    "azdrive-keys-findable-button",
                 ),
                 KeyAction::Remove { label, .. } => (
-                    format!("Remove a recovery key of \"{name}\""),
-                    format!(
-                        "\"{label}\" stops locking the drive down. Type a recovery code the \
-                         drive has to confirm. The drive's last key always stays."
+                    named("azdrive-keys-remove-title"),
+                    t_args(
+                        "azdrive-keys-remove-what",
+                        &[("label", Arg::from(key_label(label)))],
                     ),
-                    "Remove",
+                    "azdrive-method-remove",
                 ),
             };
             let mut body = column(vec![
                 line(&text),
-                label("A recovery code of the drive"),
+                label("azdrive-keys-a-code"),
                 code_input(app, ids::RECOVERY_SIGN_CODE),
             ]);
             if !error.is_empty() {
                 body.add_child(red(error));
             }
             body.add_child(buttons(vec![
-                button("Cancel", app, crate::ui_dialogs::on_cancel_popup),
+                button("kit-button-cancel", app, crate::ui_dialogs::on_cancel_popup),
                 typed_button(ok, ButtonType::Primary, app, on_sign_ok)
                     .with_id(ids::RECOVERY_SIGN_OK),
             ]));
@@ -391,7 +393,7 @@ enum KeysButton {
 }
 
 fn keys_button(app: &RefAny, drive_id: &str, what: KeysButton, text: &str, id: AzString) -> Dom {
-    Button::create(AzString::from(text))
+    Button::create(azul_appkit::l10n::label(text))
         .with_on_click(
             RefAny::new(KeysRef {
                 app: app.clone(),
@@ -421,12 +423,14 @@ pub(crate) fn keys_block(state: &RecoveryState, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: row; align-items: center;")
         .with_child(
             Dom::create_span_with_text(AzString::from(match state.keys_checked {
-                Some(at) => format!(
-                    "Recovery keys at the token server ({}, listed on {})",
-                    state.server_keys.len(),
-                    day(at)
+                Some(at) => t_args(
+                    "azdrive-keys-listed",
+                    &[
+                        ("count", Arg::from(state.server_keys.len())),
+                        ("day", Arg::from(day(at))),
+                    ],
                 ),
-                None => String::from("Recovery keys at the token server: not listed yet"),
+                None => t("azdrive-keys-not-listed"),
             }))
             .with_css("flex-grow: 1;"),
         )
@@ -435,9 +439,9 @@ pub(crate) fn keys_block(state: &RecoveryState, app: &RefAny) -> Dom {
             drive_id,
             KeysButton::Check,
             if state.keys_checked.is_some() {
-                "Check again"
+                "azdrive-add-check-again"
             } else {
-                "Check"
+                "azdrive-drill-check"
             },
             ids::recovery_keys_check(drive_id),
         ));
@@ -446,20 +450,20 @@ pub(crate) fn keys_block(state: &RecoveryState, app: &RefAny) -> Dom {
             app,
             drive_id,
             KeysButton::AddCode,
-            "Add another recovery code\u{2026}",
+            "azdrive-keys-add-another",
             ids::recovery_keys_add(drive_id),
         ));
     }
     block.add_child(head);
     for key in &state.server_keys {
         let added = key.created_at.map_or_else(
-            || String::from("from before"),
-            |at| format!("added on {}", day(at)),
+            || t("azdrive-keys-from-before"),
+            |at| t_args("azdrive-keys-added-on", &[("day", Arg::from(day(at)))]),
         );
-        let verified = if key.verified {
-            ""
+        let line_key = if key.verified {
+            "azdrive-keys-key-line"
         } else {
-            ", not verified yet"
+            "azdrive-keys-key-line-unverified"
         };
         block.add_child(
             Dom::create_div()
@@ -467,9 +471,12 @@ pub(crate) fn keys_block(state: &RecoveryState, app: &RefAny) -> Dom {
                     "display: flex; flex-direction: row; align-items: center; margin-top: 2px;",
                 )
                 .with_child(
-                    Dom::create_span_with_text(AzString::from(format!(
-                        "{} - {added}{verified}",
-                        key.label
+                    Dom::create_span_with_text(AzString::from(t_args(
+                        line_key,
+                        &[
+                            ("label", Arg::from(key_label(&key.label))),
+                            ("added", Arg::from(added)),
+                        ],
                     )))
                     .with_css(format!("flex-grow: 1; {small}")),
                 )
@@ -480,7 +487,7 @@ pub(crate) fn keys_block(state: &RecoveryState, app: &RefAny) -> Dom {
                         key_id: key.key_id.clone(),
                         label: key.label.clone(),
                     },
-                    "Remove\u{2026}",
+                    "azdrive-keys-remove-button",
                     ids::recovery_key_remove(drive_id, &key.key_id),
                 )),
         );
@@ -492,17 +499,14 @@ pub(crate) fn keys_block(state: &RecoveryState, app: &RefAny) -> Dom {
                     "display: flex; flex-direction: row; align-items: center; margin-top: 4px;",
                 )
                 .with_child(
-                    line(
-                        "A computer that never had this drive cannot find it from its kit: no \
-                         key finds it.",
-                    )
-                    .with_css(format!("flex-grow: 1; color: #9D5D00; {small}")),
+                    line("azdrive-keys-findable-missing")
+                        .with_css(format!("flex-grow: 1; color: #9D5D00; {small}")),
                 )
                 .with_child(keys_button(
                     app,
                     drive_id,
                     KeysButton::MakeFindable,
-                    "Make the kit find it\u{2026}",
+                    "azdrive-keys-make-findable",
                     ids::recovery_keys_findable(drive_id),
                 )),
         );
@@ -518,44 +522,45 @@ pub(crate) fn recover_block(s: &DriveState, app: &RefAny) -> Dom {
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center;")
                 .with_child(
-                    Dom::create_span_with_text(AzString::from("A drive this computer never had:"))
+                    Dom::create_span_with_text(azul_appkit::l10n::label("azdrive-keys-never-had"))
                         .with_css("flex-grow: 1;"),
                 )
                 .with_child(
-                    button("Recover with its emergency kit\u{2026}", app, on_kit_open)
-                        .with_id(ids::KIT_RECOVER),
+                    button("azdrive-keys-recover-kit", app, on_kit_open).with_id(ids::KIT_RECOVER),
                 )
                 .with_child(
-                    button(
-                        "Recover with trusted contacts\u{2026}",
-                        app,
-                        on_contacts_open,
-                    )
-                    .with_id(ids::CONTACTS_RECOVER_NEW),
+                    button("azdrive-keys-recover-contacts", app, on_contacts_open)
+                        .with_id(ids::CONTACTS_RECOVER_NEW),
                 ),
         );
     for pending in &s.settings.recovery.pending {
-        let until = pending.until.map_or_else(String::new, |at| {
-            format!(" until {}", azul_storage::time::iso8601(at))
-        });
+        let text = match pending.until {
+            Some(at) => t_args(
+                "azdrive-keys-recovering-until",
+                &[
+                    ("drive", Arg::from(pending.drive_id.as_str())),
+                    ("until", Arg::from(azul_storage::time::iso8601(at))),
+                ],
+            ),
+            None => t_args(
+                "azdrive-keys-recovering",
+                &[("drive", Arg::from(pending.drive_id.as_str()))],
+            ),
+        };
         block.add_child(
             Dom::create_div()
                 .with_css(
                     "display: flex; flex-direction: row; align-items: center; margin-top: 4px;",
                 )
                 .with_child(
-                    Dom::create_span_with_text(AzString::from(format!(
-                        "Recovering {}: its lockdown is pending{until}. Then Finish adds the \
-                         drive here.",
-                        pending.drive_id
-                    )))
-                    .with_css("flex-grow: 1; font-size: 12px;"),
+                    Dom::create_span_with_text(AzString::from(text))
+                        .with_css("flex-grow: 1; font-size: 12px;"),
                 )
                 .with_child(keys_button(
                     app,
                     &pending.drive_id,
                     KeysButton::Finish,
-                    "Finish",
+                    "azdrive-keys-finish",
                     ids::recovery_finish(&pending.drive_id),
                 )),
         );
@@ -603,6 +608,7 @@ extern "C" fn on_keys_button(mut data: RefAny, mut info: CallbackInfo) -> Update
                 drive_id,
                 token_url: pending.token_url,
                 keyring: s.keyring.clone(),
+                name: t("azdrive-keys-recovered-name"),
             };
             spawn(info, app, s, Job::Encryption(EncryptionJob::Keys(job)));
         }
@@ -618,14 +624,11 @@ extern "C" fn on_kit_find(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return;
         };
         let Some(code) = RecoveryCode::parse(typed) else {
-            set_error(
-                s,
-                String::from("That is not a recovery code: 26 letters and digits, in five groups."),
-            );
+            set_error(s, t("azdrive-drill-not-a-code"));
             return;
         };
         let Some(token_url) = s.token.url.clone() else {
-            set_error(s, String::from("This AzDrive knows no Azlin token server."));
+            set_error(s, t("azdrive-keys-no-azlin-server"));
             return;
         };
         let job = KeysJob::Lookup { code, token_url };
@@ -651,7 +654,7 @@ extern "C" fn on_found_lockdown(mut data: RefAny, mut info: CallbackInfo) -> Upd
             return;
         };
         let Some(token_url) = s.token.url.clone() else {
-            set_error(s, String::from("This AzDrive knows no Azlin token server."));
+            set_error(s, t("azdrive-keys-no-azlin-server"));
             return;
         };
         let job = KeysJob::Lockdown {
@@ -689,7 +692,7 @@ extern "C" fn on_sign_ok(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
         };
         let Some(token_url) = crate::encryption::token_url_of(s, &drive_id) else {
-            set_error(s, String::from("The drive's token server is not known."));
+            set_error(s, t("azdrive-no-token-server"));
             return;
         };
         let keyring = s.keyring.clone();
@@ -758,11 +761,13 @@ pub(crate) enum KeysJob {
         token_url: String,
         keyring: SharedKeyring,
     },
-    /// After the 48 hours: the first refresh hands the drive over; its entry.
+    /// After the 48 hours: the first refresh hands the drive over; its entry, named `name` (the
+    /// kit has no name: "Recovered drive" in the window's language).
     Finish {
         drive_id: String,
         token_url: String,
         keyring: SharedKeyring,
+        name: String,
     },
     /// The drive's keys as the token server lists them.
     List {
@@ -845,12 +850,14 @@ fn with_token<T>(
         .map_err(|e| TokenError::Config(e.to_string()))?
 }
 
-/// The drive's entry and session after the hand-over: the pending session's token refreshed.
+/// The drive's entry (named `name`) and session after the hand-over: the pending session's
+/// token refreshed.
 fn finish(
     drive_id: &str,
     server: &TokenServer<'_>,
     keyring: &SharedKeyring,
     token_url: &str,
+    name: &str,
 ) -> Result<(DriveEntry, String), String> {
     let entry_key = keyring_key(drive_id);
     let _lock = keyring.lock(&entry_key).map_err(|e| e.to_string())?;
@@ -861,13 +868,13 @@ fn finish(
         .transpose()
         .map_err(|e| e.to_string())?
         .filter(|session| session.drive_id == drive_id && !session.drive_token.is_empty())
-        .ok_or_else(|| String::from("this computer keeps no session of the recovery"))?;
+        .ok_or_else(|| String::from("azdrive-keys-err-no-session"))?;
     let bundle = server
         .refresh(drive_id, &session.drive_token)
         .map_err(|e| token_text(&e))?;
     let text = bundle.session().to_keyring_secret();
     keyring.set(&entry_key, &text).map_err(|e| e.to_string())?;
-    Ok((bundle.entry_named(RECOVERED_NAME, token_url), text))
+    Ok((bundle.entry_named(name, token_url), text))
 }
 
 /// Runs on a worker thread.
@@ -907,10 +914,11 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
             drive_id,
             token_url,
             keyring,
+            name,
         } => {
             let result = TokenServer::new(&token_url, &transport)
                 .map_err(|e| e.to_string())
-                .and_then(|server| finish(&drive_id, &server, &keyring, &token_url));
+                .and_then(|server| finish(&drive_id, &server, &keyring, &token_url, &name));
             KeysDone::Finished { drive_id, result }
         }
         KeysJob::List {
@@ -1030,15 +1038,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
             Ok(drives) => {
                 println!("AZDRIVE_KIT_LOOKUP {}", drives.len());
                 if drives.is_empty() {
-                    set_error(
-                        s,
-                        String::from(
-                            "No drive has this code as a key that finds it. A kit made before \
-                             AzDrive registered findable keys finds its drive only after a \
-                             computer that has the drive lets it (Options > Drives > Make the \
-                             kit find it).",
-                        ),
-                    );
+                    set_error(s, t("azdrive-keys-found-none"));
                 } else {
                     open(
                         s,
@@ -1050,7 +1050,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                     );
                 }
             }
-            Err(why) => set_error(s, why),
+            Err(why) => set_error(s, t_label(&why)),
         },
         KeysDone::LockedDown {
             drive_id,
@@ -1070,33 +1070,34 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                     );
                     println!("AZDRIVE_RECOVERY_PENDING {drive_id}");
                 }
-                let until = until.map_or_else(String::new, |at| {
-                    format!(" until {}", azul_storage::time::iso8601(at))
-                });
-                s.popup = Some(Popup::Encryption(Dialog::Message {
-                    title: String::from("The drive is locked down for this computer"),
-                    text: format!(
-                        "The lockdown with the kit's code is pending{until}: the drive's other \
-                         devices are told and may stop it. Then Options > Drives > Finish adds \
-                         the drive here, and \"Unlock with the recovery code\" opens it."
+                let text = match until {
+                    Some(at) => t_args(
+                        "azdrive-keys-locked-down-until",
+                        &[("until", Arg::from(azul_storage::time::iso8601(at)))],
                     ),
+                    None => t("azdrive-keys-locked-down-what"),
+                };
+                s.popup = Some(Popup::Encryption(Dialog::Message {
+                    title: t("azdrive-keys-locked-down-title"),
+                    text,
                 }));
                 save_settings(info, app, s);
             }
-            Err(why) => set_error(s, why),
+            Err(why) => set_error(s, t_label(&why)),
         },
         KeysDone::Finished { drive_id, result } => match result {
             Ok((entry, secret)) => {
                 forget_pending(&mut s.settings.recovery.pending, &drive_id);
                 crate::add_flow::add_slot(info, app, s, entry, Some(secret), false, true);
                 println!("AZDRIVE_RECOVERY_FINISHED {drive_id}");
-                s.success(format!(
-                    "{drive_id} is this computer's now. Open it with the kit's code: its menu > \
-                     Unlock with the recovery code."
-                ));
+                s.success(Phrase::new("azdrive-keys-finished").arg("drive", drive_id.as_str()));
                 save_settings(info, app, s);
             }
-            Err(why) => s.warn(format!("The recovery of {drive_id} is not finished: {why}")),
+            Err(why) => s.warn(
+                Phrase::new("azdrive-keys-not-finished")
+                    .arg("drive", drive_id.as_str())
+                    .arg("why", t_label(&why)),
+            ),
         },
         KeysDone::Listed { drive_id, result } => match result {
             Ok(keys) => {
@@ -1115,7 +1116,9 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 state.keys_checked = Some(now);
                 save_settings(info, app, s);
             }
-            Err(why) => s.warn(format!("The recovery keys were not listed: {why}")),
+            Err(why) => {
+                s.warn(Phrase::new("azdrive-keys-not-listed-why").arg("why", t_label(&why)))
+            }
         },
         KeysDone::CodeAdded { drive_id, result } => match result {
             Ok((code, key_id, file)) => {
@@ -1133,7 +1136,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 save_settings(info, app, s);
                 check_keys(info, app, s, &drive_id);
             }
-            Err(why) => set_error(s, why),
+            Err(why) => set_error(s, t_label(&why)),
         },
         KeysDone::MadeFindable {
             drive_id,
@@ -1145,11 +1148,11 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 state_mut(&mut s.settings.recovery.drives, &drive_id).findable_key =
                     Some(findable_public);
                 s.popup = None;
-                s.success("Its kit finds the drive now, on any computer.");
+                s.success(Phrase::new("azdrive-keys-findable-now"));
                 save_settings(info, app, s);
                 check_keys(info, app, s, &drive_id);
             }
-            Err(why) => set_error(s, why),
+            Err(why) => set_error(s, t_label(&why)),
         },
         KeysDone::Removed {
             drive_id,
@@ -1169,7 +1172,7 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
                 if matches!(&e, TokenError::Refused { code, .. } if code == "last_recovery_key") {
                     println!("AZDRIVE_RECOVERY_KEY_KEPT {drive_id} {key_id}");
                 }
-                set_error(s, token_text(&e));
+                set_error(s, t_label(&token_text(&e)));
             }
         },
     }
@@ -1185,6 +1188,7 @@ mod tests {
 
     #[test]
     fn a_typed_code_picks_the_key_the_drive_has_or_says_why_not() {
+        crate::l10n::in_english();
         let mut state = RecoveryState::new("d_1");
         let drive = crate::encryption::recovery_key_of(&code(), "d_1").public_base64();
         let findable = findable_key_of(&code()).public_base64();
@@ -1219,17 +1223,18 @@ mod tests {
 
     #[test]
     fn the_token_servers_recovery_refusals_read_as_the_table_says() {
+        crate::l10n::in_english();
         let refused = |code: &str| TokenError::Refused {
             status: 409,
             code: code.to_string(),
             message: String::from("raw"),
         };
-        // The table's row, in the language of this computer's locale (English or German).
-        let last = token_text(&refused("last_recovery_key"));
-        assert!(
-            last.contains("last recovery key") || last.contains("letzte Wiederherstellungsschl"),
-            "{last}"
+        // The table's message as its key on a worker; the window says it.
+        assert_eq!(
+            token_text(&refused("last_recovery_key")),
+            "azlin-error-last-recovery-key"
         );
+        assert!(t_label(&token_text(&refused("last_recovery_key"))).contains("last recovery key"));
         assert!(
             token_text(&refused("frobnicated")).contains("raw"),
             "as it is otherwise"

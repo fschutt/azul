@@ -70,8 +70,10 @@ extern "C" fn on_options_created(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// The Options window's layout: the title row over the kit's page, with AzMail's Mail page
 /// and the reload that reads the View tab's switches back after Cancel.
 extern "C" fn layout_options(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    // Reading the mode makes a light / dark switch rebuild the window.
+    // Reading the mode makes a light / dark switch rebuild the window; the layout's language
+    // says the words.
     let _mode = info.get_mode();
+    azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<MailApp>() else {
         return Dom::create_body();

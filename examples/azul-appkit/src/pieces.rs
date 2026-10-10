@@ -11,10 +11,11 @@ use azul::{
     widgets::ButtonType,
 };
 
-/// The labels as a `StringVec` (a drop-down's choices, a segmented control's).
+/// The labels as a `StringVec` (a drop-down's choices, a segmented control's): keys the layout
+/// pass translates, or plain words ([`crate::l10n::label`]).
 #[must_use]
 pub fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
+    crate::l10n::labels(items)
 }
 
 /// A run of text (an inline span).
@@ -50,7 +51,7 @@ pub fn flex_row(css: &str, children: Vec<Dom>) -> Dom {
 /// A button with the id `id` that calls `cb` with `app` when clicked.
 #[must_use]
 pub fn button(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label)
+    Button::create(crate::l10n::label(label))
         .with_on_click(app.clone(), cb)
         .dom()
         .with_id(id)
@@ -65,7 +66,7 @@ pub fn icon_button(
     app: &RefAny,
     cb: ButtonOnClickCallbackType,
 ) -> Dom {
-    Button::create(label)
+    Button::create(crate::l10n::label(label))
         .with_icon(icon)
         .with_on_click(app.clone(), cb)
         .dom()
@@ -75,7 +76,7 @@ pub fn icon_button(
 /// The primary (default) [`button`] of a form or a dialog.
 #[must_use]
 pub fn primary(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label)
+    Button::create(crate::l10n::label(label))
         .with_button_type(ButtonType::Primary)
         .with_on_click(app.clone(), cb)
         .dom()

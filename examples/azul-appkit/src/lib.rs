@@ -26,6 +26,13 @@
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
 //! - [`qr`]: QR codes for paper (byte mode, level M, versions 1 to 10): the
 //!   recovery code on AzDrive's emergency kit, a trusted contact's share.
+//! - [`phrase`]: words of an app's Fluent resources kept as a key and its arguments until
+//!   they are shown ([`phrase::Phrase`], [`phrase::Text`]).
+//! - [`l10n_check`]: the checks every app's localization test runs (every key in English and
+//!   German, both resources parse).
+//! - `l10n` (feature `look`, part of `azul`): an app's words through azul's localization -
+//!   its resources registered with the engine, keys in the DOM (`AzString::tr`), the text that
+//!   is no DOM text node in the window's language.
 //! - [`options`]: the settings page's model - Outlook 2010's Options dialog
 //!   (the categories, the header line over each, the ids, what Cancel puts
 //!   back).
@@ -61,16 +68,24 @@ pub mod data;
 pub mod files;
 pub mod find;
 pub mod history;
+pub mod l10n_check;
 pub mod migrate;
 pub mod oauth_clients;
 pub mod options;
+pub mod phrase;
 pub mod qr;
 pub mod settings;
 pub mod shared_endpoint;
 pub mod shortcuts;
+#[cfg(test)]
+mod l10n_tests;
+#[cfg(all(test, feature = "azul"))]
+mod l10n_switch_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
+#[cfg(feature = "look")]
+pub mod l10n;
 #[cfg(feature = "look")]
 pub mod look;
 #[cfg(feature = "look")]

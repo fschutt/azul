@@ -8369,7 +8369,9 @@ pub trait PlatformWindow {
                 // re-localized in place and `layout()` does NOT run again -
                 // unless the last `layout()` read the locale or the direction
                 // (`get_locale` / `is_rtl`) and that input moved, in which case
-                // its DOM is stale and has to be rebuilt.
+                // its DOM is stale and has to be rebuilt. The choice is the
+                // app's: a window built afterwards (a dialog) starts in it.
+                azul_layout::window::set_app_locale(Some(locale.as_str()));
                 let rebuild = match self.get_layout_window_mut() {
                     Some(lw) => {
                         let change = lw.set_locale(locale.as_str());

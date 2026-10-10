@@ -31,7 +31,7 @@ pub fn callback_button(
     data: RefAny,
     cb: ButtonOnClickCallbackType,
 ) -> RibbonButton {
-    RibbonButton::create(AzString::from(icon), AzString::from(label)).with_on_click(data, cb)
+    RibbonButton::create(AzString::from(icon), crate::l10n::label(label)).with_on_click(data, cb)
 }
 
 /// A ribbon button that runs `cmd` on `app`.
@@ -89,7 +89,7 @@ pub fn icon_button<C: RibbonCommand>(
     RibbonItem::SmallButton(
         button(app, icon, "", cmd)
             .with_toggled(on)
-            .with_alt(AzString::from(name)),
+            .with_alt(AzString::from(crate::l10n::t_label(name))),
     )
 }
 
@@ -108,5 +108,5 @@ pub fn row(items: Vec<RibbonItem>) -> RibbonItem {
 /// A labelled group of items.
 #[must_use]
 pub fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    RibbonGroup::create(AzString::from(label)).with_items(items)
+    RibbonGroup::create(crate::l10n::label(label)).with_items(items)
 }

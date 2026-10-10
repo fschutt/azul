@@ -29,6 +29,7 @@ use azcloud_kit::{
     PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
     TokenServer, UserError, VoucherRedeemed,
 };
+use azul_appkit::l10n::{Phrase, Text};
 use azul_pay::{CashSlip, Choice, Created, Look, SurfaceKind};
 use azul::{
     image::{ImageRef, RawImage},
@@ -47,6 +48,7 @@ use crate::{
     browse::{self, Entry},
     fileops::{self, Plan, Progress, SourceItem, TransferKind, TransferReport},
     find::{self, FindEnd, FindPhase},
+    l10n::{cloud_error_text, drive_error_text, token_error_text},
     listing::{self, Stat},
     preview::{self, PreviewKind},
     TreeKey, USER_AGENT,
@@ -73,7 +75,12 @@ pub(crate) enum PreviewContent {
     /// A WAV file's samples, for azul's AudioSink.
     Audio(preview::WavSamples),
     /// Why there is nothing to show.
-    Message(String),
+    Message(Text),
+}
+
+/// "No preview: " and why.
+fn no_preview(why: Text) -> PreviewContent {
+    PreviewContent::Message(Text::key("azdrive-preview-failed").then(" ").then(why))
 }
 
 /// A test drive a development token server made: its bundle, its session's keyring text, and
@@ -160,6 +167,8 @@ pub(crate) enum Job {
         target_prefix: String,
         same_drive: bool,
         kind: TransferKind,
+        /// The window's language's word of a copy's name ("a - Copy.txt").
+        copy: String,
     },
     /// Runs transfer `id`, sending its progress while it copies.
     Run {
@@ -464,7 +473,7 @@ pub(crate) enum Outcome {
         serial: u64,
         batch: Vec<Entry>,
         done: bool,
-        error: Option<String>,
+        error: Option<azul_appkit::l10n::Text>,
     },
     /// The sizes and dates a [`Job::Stat`] found.
     Stats { serial: u64, stats: Vec<Stat> },
@@ -569,7 +578,7 @@ pub(crate) enum Outcome {
         result: Result<(), String>,
     },
     /// The wait for a payment ended without a drive: why (empty: "Stop waiting" said it).
-    PaymentEnded { serial: u64, why: String },
+    PaymentEnded { serial: u64, why: Text },
     /// A paid checkout's drive, its session in the keyring: from the dialog's wait (`serial`)
     /// or from the background claims (`None`: a message of a job that still runs).
     Claimed {
@@ -581,7 +590,7 @@ pub(crate) enum Outcome {
     /// token server no longer has it): why - to be said once. A job that still runs.
     CheckoutDropped { checkout_id: String, why: String },
     /// The background claims ended: what kept them from asking, if anything.
-    ClaimsDone { problem: Option<String> },
+    ClaimsDone { problem: Option<Text> },
     /// A claimed checkout finished: `Ok(None)` off the keyring's list (no period tokens to
     /// issue), `Ok(Some(..))` what became of its period tokens, `Err` the list could not be
     /// changed. `from_claims`: a message of the background claims, which still run.
@@ -642,7 +651,7 @@ pub(crate) enum Outcome {
     /// 1970), or why not.
     VoucherRedeemed {
         drive_id: String,
-        result: Result<(u32, Option<u64>), String>,
+        result: Result<(u32, Option<u64>), Text>,
     },
     /// What a sync job did (a pass's progress while it runs).
     Sync(crate::sync_jobs::SyncOutcome),
@@ -650,7 +659,7 @@ pub(crate) enum Outcome {
     DriveRestored {
         drive_id: String,
         as_of: u64,
-        result: Result<crate::restore::Restored, String>,
+        result: Result<crate::restore::Restored, Text>,
     },
     /// The background claims asked about the cash checkout `checkout`: it awaits its letter. A
     /// job that still runs.
@@ -717,16 +726,12 @@ fn pdf_first_page(bytes: &[u8]) -> PreviewContent {
     };
     let pages = azul::pdf::Pdf::create().to_svg_pages(azul::vec::U8VecRef::from(&bytes[..]));
     let Some(svg) = pages.as_slice().first().map(|s| s.as_str().to_string()) else {
-        return PreviewContent::Message(String::from(
-            "No preview: azul could not read this PDF.",
-        ));
+        return PreviewContent::Message(Text::key("azdrive-preview-pdf-unreadable"));
     };
     let parsed = match ParsedSvg::from_string(svg, SvgParseOptions::create_default()) {
         ResultParsedSvgSvgParseError::Ok(parsed) => parsed,
         ResultParsedSvgSvgParseError::Err(_) => {
-            return PreviewContent::Message(String::from(
-                "No preview: the PDF's first page could not be drawn.",
-            ))
+            return PreviewContent::Message(Text::key("azdrive-preview-pdf-not-drawn"))
         }
     };
     let mut options = SvgRenderOptions::create_default();
@@ -749,9 +754,7 @@ fn pdf_first_page(bytes: &[u8]) -> PreviewContent {
             width,
             height,
         },
-        None => PreviewContent::Message(String::from(
-            "No preview: the PDF's first page could not be drawn.",
-        )),
+        None => PreviewContent::Message(Text::key("azdrive-preview-pdf-not-drawn")),
     }
 }
 
@@ -774,30 +777,25 @@ fn make_preview(
     });
     if kind == PreviewKind::Audio && preview::is_playable_audio(key) {
         if !size.is_some_and(|s| s <= preview::AUDIO_PREVIEW_MAX_BYTES) {
-            return PreviewContent::Message(String::from(
-                "No preview: the WAV file is too big to fetch for a preview.",
-            ));
+            return PreviewContent::Message(Text::key("azdrive-preview-wav-too-big"));
         }
-        return match drive
-            .get(key)
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| preview::wav_samples(&bytes).map_err(String::from))
-        {
-            Ok(wav) => PreviewContent::Audio(wav),
-            Err(why) => PreviewContent::Message(format!("No preview: {why}.")),
+        return match drive.get(key) {
+            Err(e) => no_preview(drive_error_text(&e)),
+            Ok(bytes) => match preview::wav_samples(&bytes) {
+                Ok(wav) => PreviewContent::Audio(wav),
+                Err(why) => PreviewContent::Message(Text::key(why)),
+            },
         };
     }
     if let Some(reason) = preview::no_preview_reason(kind) {
-        return PreviewContent::Message(reason.to_string());
+        return PreviewContent::Message(Text::key(reason));
     }
     if kind == PreviewKind::Video {
         if let Some(path) = drive.local_path(key) {
             return PreviewContent::Video(path);
         }
         if !preview::fits_preview(kind, size) {
-            return PreviewContent::Message(String::from(
-                "No preview: the video is too big to fetch for a preview; open it instead.",
-            ));
+            return PreviewContent::Message(Text::key("azdrive-preview-video-too-big"));
         }
         return match transfer::download_path(temp_dir, key)
             .ok_or_else(|| DriveError::InvalidKey {
@@ -809,22 +807,20 @@ fn make_preview(
                 Ok(dest)
             }) {
             Ok(path) => PreviewContent::Video(path),
-            Err(e) => PreviewContent::Message(format!("No preview: {e}")),
+            Err(e) => no_preview(drive_error_text(&e)),
         };
     }
     if !preview::fits_preview(kind, size) {
-        return PreviewContent::Message(String::from(
-            "No preview: the file is too big to fetch for a preview.",
-        ));
+        return PreviewContent::Message(Text::key("azdrive-preview-too-big"));
     }
     let (bytes, truncated) = match preview_bytes(drive, key, size, kind) {
         Ok(read) => read,
-        Err(e) => return PreviewContent::Message(format!("No preview: {e}")),
+        Err(e) => return no_preview(drive_error_text(&e)),
     };
     match kind {
         PreviewKind::Text => match preview::text_preview(&bytes, truncated) {
             Ok(text) => PreviewContent::Text(text),
-            Err(why) => PreviewContent::Message(format!("No preview: {why}.")),
+            Err(why) => PreviewContent::Message(Text::key(why)),
         },
         PreviewKind::Pdf => pdf_first_page(&bytes),
         PreviewKind::Image => {
@@ -837,17 +833,17 @@ fn make_preview(
                             width,
                             height,
                         },
-                        None => PreviewContent::Message(String::from(
-                            "No preview: the image could not be prepared.",
-                        )),
+                        None => {
+                            PreviewContent::Message(Text::key("azdrive-preview-image-not-prepared"))
+                        }
                     }
                 }
-                azul::error::ResultRawImageDecodeImageError::Err(_) => PreviewContent::Message(
-                    String::from("No preview: azul cannot decode this image."),
-                ),
+                azul::error::ResultRawImageDecodeImageError::Err(_) => {
+                    PreviewContent::Message(Text::key("azdrive-preview-image-undecodable"))
+                }
             }
         }
-        _ => PreviewContent::Message(String::from("No preview available.")),
+        _ => PreviewContent::Message(Text::key("azdrive-preview-none")),
     }
 }
 
@@ -962,7 +958,7 @@ fn scan_dir(
                 serial,
                 batch: Vec::new(),
                 done: true,
-                error: Some(e.to_string()),
+                error: Some(e.to_string().into()),
             }
         }
     };
@@ -1043,7 +1039,7 @@ fn scan_bucket(
                     serial,
                     batch: Vec::new(),
                     done: true,
-                    error: Some(crate::problems::describe(&e)),
+                    error: Some(crate::l10n::drive_error_text(&e)),
                 };
             }
         };
@@ -2270,7 +2266,7 @@ fn switch_surface(
         .map_err(|e| e.to_string())?;
     let surface = answer
         .get("surface")
-        .ok_or_else(|| String::from("the answer has no surface"))?;
+        .ok_or_else(|| String::from("azdrive-pay-err-no-surface"))?;
     azul_pay::Surface::parse(surface, choice, look).map_err(|e| e.to_string())
 }
 
@@ -2303,7 +2299,7 @@ fn await_payment(
         Err(e) => {
             return Outcome::PaymentEnded {
                 serial,
-                why: e.to_string(),
+                why: Text::plain(e.to_string()),
             }
         }
     };
@@ -2316,24 +2312,20 @@ fn await_payment(
                 // "Stop waiting" said why, and the background claims take over.
                 return Outcome::PaymentEnded {
                     serial,
-                    why: String::new(),
+                    why: Text::default(),
                 };
             }
             std::thread::sleep(Duration::from_millis(250));
         }
         if started.elapsed() > Duration::from_secs(PAYMENT_WAIT_SECS) {
-            let problem = if last_problem.is_empty() {
-                String::new()
+            let why = if last_problem.is_empty() {
+                Text::key("azdrive-pay-no-payment")
             } else {
-                format!(" (last: {last_problem})")
+                Phrase::new("azdrive-pay-no-payment-last")
+                    .arg("last", last_problem.as_str())
+                    .into()
             };
-            return Outcome::PaymentEnded {
-                serial,
-                why: format!(
-                    "No payment arrived within an hour{problem}. The checkout is kept: a payment \
-                     made later still brings the drive, at the next start at the latest."
-                ),
-            };
+            return Outcome::PaymentEnded { serial, why };
         }
         match pending::poll(&server, keyring, checkout) {
             Polled::Pending => {}
@@ -2348,13 +2340,15 @@ fn await_payment(
             Polled::Dropped(why) => {
                 return Outcome::PaymentEnded {
                     serial,
-                    why: format!("The checkout ended: {why}."),
+                    why: Phrase::new("azdrive-pay-checkout-ended")
+                        .arg("why", why.as_str())
+                        .into(),
                 }
             }
             Polled::Settled => {
                 return Outcome::PaymentEnded {
                     serial,
-                    why: String::from("Another AzDrive window finished this checkout."),
+                    why: Text::key("azdrive-pay-other-window"),
                 }
             }
         }
@@ -2412,7 +2406,9 @@ fn claim_pending(
                 );
                 return Outcome::ClaimsDone {
                     problem: (!no_keyring).then(|| {
-                        format!("The unfinished checkouts could not be read from the keyring: {e}")
+                        Phrase::new("azdrive-pay-checkouts-unread")
+                            .arg("why", e.to_string())
+                            .into()
                     }),
                 };
             }
@@ -2476,10 +2472,7 @@ fn claim_pending(
         }
         if asked == 0 {
             return Outcome::ClaimsDone {
-                problem: Some(String::from(
-                    "Unfinished checkouts wait in the keyring, but no Azlin token server is set \
-                     to ask about them.",
-                )),
+                problem: Some(Text::key("azdrive-pay-claims-no-server")),
             };
         }
         if started.elapsed() > Duration::from_secs(CLAIM_WAIT_SECS) {
@@ -2593,6 +2586,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             target_prefix,
             same_drive,
             kind,
+            copy,
         } => Outcome::Planned {
             id,
             result: fileops::plan_transfer(
@@ -2602,6 +2596,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 &target_prefix,
                 same_drive,
                 kind,
+                &copy,
             ),
         },
         Job::Run {
@@ -2751,9 +2746,9 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 .and_then(|drive| drive.list(&ListRequest::folder("").with_max_keys(1)))
                 .map(|page| {
                     if page.folders.is_empty() && page.objects.is_empty() {
-                        String::from("Connection OK: the source answered; it is empty.")
+                        String::from("azdrive-add-connection-ok-empty")
                     } else {
-                        String::from("Connection OK: the source answered and lists its files.")
+                        String::from("azdrive-add-connection-ok")
                     }
                 });
             Outcome::Tested { serial, result }
@@ -2795,10 +2790,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 .and_then(|server| server.create_dev_drive(&name, &tier))
                 .map_err(|e| {
                     if e.is_checkout_only() {
-                        String::from(
-                            "This token server sells drives through a checkout only: it makes \
-                             no test drives. Use Buy.",
-                        )
+                        String::from("azdrive-add-checkout-only")
                     } else {
                         e.to_string()
                     }
@@ -3056,7 +3048,7 @@ fn redeem_voucher(
             return match drive {
                 Some(drive_id) => Outcome::VoucherRedeemed {
                     drive_id,
-                    result: Err(e.to_string()),
+                    result: Err(token_error_text(&e)),
                 },
                 None => Outcome::Bought {
                     serial,
@@ -3070,16 +3062,14 @@ fn redeem_voucher(
             .with_drive_token(&drive_id, |token| {
                 server.redeem_voucher(code, Some((drive_id.as_str(), token)), "")
             })
-            .map_err(|e| e.to_string())
-            .and_then(|answer| answer.map_err(|e| e.to_string()));
+            .map_err(|e| cloud_error_text(&e))
+            .and_then(|answer| answer.map_err(|e| token_error_text(&e)));
         let result = match redeemed {
             Ok(VoucherRedeemed::Extended {
                 days_added,
                 period_until,
             }) => Ok((days_added, period_until)),
-            Ok(VoucherRedeemed::NewDrive(_)) => Err(String::from(
-                "The token server made a new drive instead of extending this one.",
-            )),
+            Ok(VoucherRedeemed::NewDrive(_)) => Err(Text::key("azdrive-voucher-made-new-drive")),
             Err(why) => Err(why),
         };
         return Outcome::VoucherRedeemed { drive_id, result };
@@ -3101,9 +3091,7 @@ fn redeem_voucher(
                 },
             })
         }
-        Ok(VoucherRedeemed::Extended { .. }) => Err(String::from(
-            "The token server answered with days for a drive, not with a new drive.",
-        )),
+        Ok(VoucherRedeemed::Extended { .. }) => Err(String::from("azdrive-add-days-not-drive")),
         Err(e) => Err(e.to_string()),
     };
     Outcome::Bought { serial, result }

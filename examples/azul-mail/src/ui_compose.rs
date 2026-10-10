@@ -389,6 +389,7 @@ fn compose_id_of(info: &LayoutCallbackInfo) -> Option<u64> {
 /// A compose window's layout.
 pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let _mode = info.get_mode();
+    azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
     let Some(id) = compose_id_of(&info) else {
         return Dom::create_body();
