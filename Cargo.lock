@@ -1155,6 +1155,7 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "ed25519-dalek 2.2.0",
+ "fluent-syntax",
  "getrandom 0.2.17",
  "hkdf",
  "num-bigint-dig",
@@ -1174,6 +1175,7 @@ dependencies = [
  "azul-icons-haiku",
  "azul-storage",
  "csv",
+ "fluent-syntax",
  "serde",
  "serde_json",
 ]
