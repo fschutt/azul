@@ -11,6 +11,8 @@
 //! keeps BOTH sides of the multi-valued fields - phones, emails, addresses,
 //! web pages, groups, custom fields - without repeating a value.
 
+use azul_appkit::phrase::{Phrase, Text};
+
 use crate::book::fold;
 use crate::contact::{Address, Contact, Labeled};
 
@@ -85,11 +87,11 @@ impl Keys {
 
 /// How alike two contacts are (0..=1) and why.
 #[must_use]
-pub fn similarity(a: &Contact, b: &Contact) -> (f32, Vec<String>) {
+pub fn similarity(a: &Contact, b: &Contact) -> (f32, Vec<Text>) {
     similarity_of(&Keys::of(a), &Keys::of(b))
 }
 
-fn similarity_of(a: &Keys, b: &Keys) -> (f32, Vec<String>) {
+fn similarity_of(a: &Keys, b: &Keys) -> (f32, Vec<Text>) {
     let mut score: f32 = 0.0;
     let mut reasons = Vec::new();
     let same_name = !a.name.is_empty() && a.name == b.name;
@@ -97,15 +99,15 @@ fn similarity_of(a: &Keys, b: &Keys) -> (f32, Vec<String>) {
         // Exactly the same name, or the same only after dropping a note such as "(imported)".
         let exact = a.folded_display == b.folded_display;
         score = score.max(if exact { 0.93 } else { 0.9 });
-        reasons.push("same name".to_string());
+        reasons.push(Text::key("azcontacts-dupe-same-name"));
     }
     if let Some(e) = a.emails.iter().find(|e| b.emails.contains(e)) {
         score = score.max(0.95);
-        reasons.push(format!("same email {e}"));
+        reasons.push(Phrase::new("azcontacts-dupe-same-email").arg("email", e.as_str()).into());
     }
     if a.phones.iter().any(|p| b.phones.contains(p)) {
         score = score.max(0.9);
-        reasons.push("same phone number".to_string());
+        reasons.push(Text::key("azcontacts-dupe-same-phone"));
     }
     if same_name && reasons.len() > 1 {
         score = 0.99;
@@ -119,7 +121,8 @@ pub struct Pair {
     pub a: usize,
     pub b: usize,
     pub score: f32,
-    pub reasons: Vec<String>,
+    /// Why (the app says them): the same name, email or phone number.
+    pub reasons: Vec<Text>,
 }
 
 /// Every pair at or above `threshold`, best first; pairs the user marked
@@ -310,6 +313,8 @@ pub fn merge(a: &Contact, b: &Contact, plan: &MergePlan) -> Contact {
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::{Phrase, Text};
+
     use super::*;
     use crate::contact::Birthday;
 
@@ -356,7 +361,7 @@ mod tests {
         assert_eq!(name_key(&anna_imported()), "anna berg");
         let (score, reasons) = similarity(&anna(), &anna_imported());
         assert!((score - 0.9).abs() < 1e-6, "{score}");
-        assert_eq!(reasons, vec!["same name"]);
+        assert_eq!(reasons, vec![Text::key("azcontacts-dupe-same-name")]);
         let mut same = anna_imported();
         same.family = "Berg".into();
         same.phones.clear();
@@ -375,10 +380,13 @@ mod tests {
         };
         let (score, reasons) = similarity(&anna(), &other);
         assert!((score - 0.95).abs() < 1e-6);
-        assert_eq!(reasons, vec!["same email anna@example.org"]);
+        assert_eq!(
+            reasons,
+            vec![Text::from(Phrase::new("azcontacts-dupe-same-email").arg("email", "anna@example.org"))]
+        );
         other.emails.clear();
         other.phones = vec![Labeled::new("work", "0151 00000004")];
-        assert_eq!(similarity(&anna(), &other).1, vec!["same phone number"]);
+        assert_eq!(similarity(&anna(), &other).1, vec![Text::key("azcontacts-dupe-same-phone")]);
         let mut twin = anna();
         twin.uid = "d".into();
         assert!((similarity(&anna(), &twin).0 - 0.99).abs() < 1e-6, "name and email: almost certain");

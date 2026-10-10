@@ -159,7 +159,14 @@ fn a_date_is_written_as_the_language_writes_it() {
     assert_eq!(day(DateStyle::DayShortMonth), "30 Sep");
     // A range's first day in its month: "28 - 30 September".
     assert_eq!(day(DateStyle::DayOnly), "30");
+    // A day not of this year, short and long: AzTasks' due dates and its day headings.
+    assert_eq!(day(DateStyle::ShortDateYear), "Wed 30 Sep 2026");
+    assert_eq!(day(DateStyle::WeekdayDate), "Wednesday 30 September 2026");
+    assert_eq!(t("kit-date-tomorrow"), "Tomorrow");
     set_locale("de-DE");
+    assert_eq!(day(DateStyle::ShortDateYear), "Mi. 30. Sept. 2026");
+    assert_eq!(day(DateStyle::WeekdayDate), "Mittwoch, 30. September 2026");
+    assert_eq!(t("kit-date-tomorrow"), "Morgen");
     assert_eq!(day(DateStyle::DayLong), "Mittwoch, 30. September 2026");
     assert_eq!(day(DateStyle::WeekdayDayMonth), "Mittwoch, 30. September");
     assert_eq!(day(DateStyle::ShortWeekdayDay), "Mi. 30.");
@@ -188,6 +195,27 @@ fn a_worker_thread_that_adopts_the_ui_threads_voice_says_its_words_in_its_langua
     assert_ne!(Voice::here(), voice_in("de-DE"), "a printout in another language differs");
 }
 
+/// A worker that said appkit's words before (with nothing kept, `t` keeps appkit's own) speaks
+/// the voice's app words once it adopts it: the voice brings its thread's resources.
+#[test]
+fn a_worker_that_spoke_before_it_adopts_a_voice_speaks_the_voices_words() {
+    keep(&sources(&[
+        ("en", "aztest-voice = Voice\n"),
+        ("de", "aztest-voice = Stimme\n"),
+    ]));
+    set_locale("de-DE");
+    let voice = Voice::here();
+    set_locale("en-US");
+    let said = std::thread::spawn(move || {
+        let _appkits_own = t("kit-general-language");
+        voice.adopt();
+        t("aztest-voice")
+    })
+    .join()
+    .expect("the worker thread ends");
+    assert_eq!(said, "Stimme");
+}
+
 /// The voice of a thread speaking `locale`.
 fn voice_in(locale: &str) -> Voice {
     let here = crate::l10n::locale();
@@ -195,4 +223,131 @@ fn voice_in(locale: &str) -> Voice {
     let voice = Voice::here();
     set_locale(&here);
     voice
+}
+
+/// What a repeat rule does (azul-pim's description) in the window's language.
+#[test]
+fn a_repeat_rule_is_said_in_english_and_german() {
+    use azul_pim::rrule::Rule;
+    use chrono::NaiveDate;
+
+    use crate::l10n::t_said;
+
+    keep(&sources(&[]));
+    let first = NaiveDate::from_ymd_opt(2026, 9, 30).expect("a day");
+    let said = |text: &str| t_said(&Rule::parse(text).expect("a rule").description(first));
+    set_locale("en-US");
+    assert_eq!(said("FREQ=WEEKLY"), "Weekly on Wednesday");
+    assert_eq!(said("FREQ=DAILY"), "Daily");
+    assert_eq!(said("FREQ=DAILY;INTERVAL=3"), "Every 3 days");
+    assert_eq!(said("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"), "Every weekday");
+    assert_eq!(
+        said("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR;COUNT=10"),
+        "Every 2 weeks on Monday and Friday, 10 times"
+    );
+    assert_eq!(said("FREQ=WEEKLY;COUNT=1"), "Weekly on Wednesday, once");
+    assert_eq!(said("FREQ=MONTHLY"), "Monthly on day 30");
+    assert_eq!(
+        said("FREQ=MONTHLY;BYDAY=-1FR;UNTIL=20261231"),
+        "Monthly on the last Friday, until 31 December 2026"
+    );
+    assert_eq!(
+        said("FREQ=MONTHLY;BYDAY=2TU"),
+        "Monthly on the second Tuesday"
+    );
+    assert_eq!(said("FREQ=YEARLY"), "Yearly on 30 September");
+    assert_eq!(
+        said("FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU"),
+        "Yearly on the last Sunday of March"
+    );
+    set_locale("de-DE");
+    assert_eq!(said("FREQ=WEEKLY"), "Wöchentlich am Mittwoch");
+    assert_eq!(said("FREQ=DAILY;INTERVAL=3"), "Alle 3 Tage");
+    assert_eq!(said("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"), "Jeden Werktag");
+    assert_eq!(
+        said("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR;COUNT=10"),
+        "Alle 2 Wochen am Montag und Freitag, 10-mal"
+    );
+    assert_eq!(said("FREQ=MONTHLY"), "Monatlich am 30.");
+    assert_eq!(
+        said("FREQ=MONTHLY;BYDAY=-1FR;UNTIL=20261231"),
+        "Monatlich am letzten Freitag, bis 31. Dezember 2026"
+    );
+    assert_eq!(said("FREQ=YEARLY"), "Jährlich am 30. September");
+    assert_eq!(
+        said("FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU"),
+        "Jährlich am letzten Sonntag im März"
+    );
+    set_locale("en-US");
+}
+
+/// "a, b and c", in the window's language.
+#[test]
+fn a_list_is_joined_as_the_language_joins_it() {
+    use crate::l10n::and_list;
+
+    keep(&sources(&[]));
+    let list = |items: &[&str]| and_list(items.iter().map(|i| (*i).to_string()).collect());
+    set_locale("en-US");
+    assert_eq!(list(&[]), "");
+    assert_eq!(list(&["Monday"]), "Monday");
+    assert_eq!(list(&["Monday", "Friday"]), "Monday and Friday");
+    assert_eq!(list(&["a", "b", "c"]), "a, b and c");
+    set_locale("de-DE");
+    assert_eq!(list(&["a", "b", "c"]), "a, b und c");
+    set_locale("en-US");
+}
+
+/// A to-do's repeat (azul-pim's Repeat::description) and a task's priority, colour and sort,
+/// in the window's language.
+#[test]
+fn a_tasks_repeat_and_its_words_are_said_in_english_and_german() {
+    use azul_pim::{
+        repeat::{Repeat, Unit},
+        task::{ListColor, Priority, SortMode},
+    };
+    use chrono::Weekday;
+
+    use crate::l10n::t_said;
+
+    keep(&sources(&[]));
+    let said = |r: Repeat| t_said(&r.description());
+    let on_mon_wed = || Repeat::weekly().on_weekdays(&[Weekday::Wed, Weekday::Mon]);
+    set_locale("en-US");
+    assert_eq!(said(Repeat::daily()), "Daily");
+    assert_eq!(said(Repeat::new(3, Unit::Day)), "Every 3 days");
+    assert_eq!(said(Repeat::weekdays()), "Weekdays");
+    assert_eq!(said(on_mon_wed()), "Weekly on Mon and Wed");
+    assert_eq!(said(Repeat::new(2, Unit::Week)), "Every 2 weeks");
+    assert_eq!(
+        said(Repeat::monthly().on_month_day(31)),
+        "Monthly on the 31st"
+    );
+    assert_eq!(
+        said(Repeat::monthly().on_month_day(12)),
+        "Monthly on the 12th"
+    );
+    assert_eq!(
+        said(Repeat::monthly().on_month_day(22)),
+        "Monthly on the 22nd"
+    );
+    assert_eq!(said(Repeat::yearly()), "Yearly");
+    assert_eq!(
+        said(Repeat::daily().counting_from_completion(true)),
+        "Daily after completion"
+    );
+    assert_eq!(t(Priority::High.message_id()), "High");
+    assert_eq!(t(ListColor::Gray.message_id()), "Gray");
+    assert_eq!(t(SortMode::Due.message_id()), "Due date");
+    set_locale("de-DE");
+    assert_eq!(said(Repeat::weekdays()), "Werktags");
+    assert_eq!(said(on_mon_wed()), "Wöchentlich am Mo und Mi");
+    assert_eq!(said(Repeat::monthly().on_month_day(31)), "Monatlich am 31.");
+    assert_eq!(
+        said(Repeat::daily().counting_from_completion(true)),
+        "Täglich nach Erledigung"
+    );
+    assert_eq!(t(Priority::High.message_id()), "Hoch");
+    assert_eq!(t(SortMode::Due.message_id()), "Fälligkeitsdatum");
+    set_locale("en-US");
 }

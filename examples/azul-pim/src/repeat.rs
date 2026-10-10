@@ -15,8 +15,12 @@
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 pub use crate::dates::WORK_DAYS;
-use crate::dates::{add_months_clamped, days_in_month, ordinal_suffix, weekday_short, ymd_clamped};
+use crate::dates::{
+    add_months_clamped, days_in_month, ordinal_suffix, weekday_short, weekday_short_message_id,
+    ymd_clamped,
+};
 use crate::rrule::{ByDay, Freq, RepeatEnd, Rule};
+use crate::said::{Said, SaidArg};
 
 /// The step of a rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -250,6 +254,45 @@ impl Repeat {
             text.push_str(" after completion");
         }
         text
+    }
+
+    /// What the rule does as messages of azul-appkit's resources an app says in the window's
+    /// language (`l10n::t_said`): "Weekdays", "Every 3 days", "Weekly on Mon and Wed", "Monthly
+    /// on the 31st", "... after completion" ([`Repeat::label`]'s English is for logs).
+    #[must_use]
+    pub fn description(&self) -> Said {
+        let every = Said::new(match self.unit {
+            Unit::Day => "kit-rule-daily",
+            Unit::Week => "kit-rule-weekly",
+            Unit::Month => "kit-rule-monthly",
+            Unit::Year => "kit-rule-yearly",
+        })
+        .arg("n", SaidArg::Number(i64::from(self.every.max(1))));
+        let on = |every: Said, on: SaidArg| {
+            Said::new("kit-rule-on")
+                .arg("every", SaidArg::Said(every))
+                .arg("on", on)
+        };
+        let rule = if self.is_weekdays() {
+            Said::new("kit-repeat-weekdays")
+        } else if self.unit == Unit::Week && !self.weekdays.is_empty() {
+            let days = self
+                .weekdays
+                .iter()
+                .map(|d| Said::new(weekday_short_message_id(*d)))
+                .collect();
+            on(every, SaidArg::List(days))
+        } else if let (Unit::Month, Some(day)) = (self.unit, self.month_day) {
+            let day = Said::new("kit-repeat-month-day").arg("day", SaidArg::Number(i64::from(day)));
+            on(every, SaidArg::Said(day))
+        } else {
+            every
+        };
+        if self.from_completion {
+            Said::new("kit-repeat-after-completion").arg("rule", SaidArg::Said(rule))
+        } else {
+            rule
+        }
     }
 }
 
@@ -619,6 +662,53 @@ mod tests {
             day(2026, 10, 1)
         );
         assert_eq!(Repeat::daily().first_on_or_after(thursday), thursday);
+    }
+
+    /// What a repeat does, as messages of azul-appkit's resources (azul-appkit's
+    /// `l10n_switch_tests` say them in English and German).
+    #[test]
+    fn a_repeat_says_what_it_does_as_messages() {
+        use crate::said::{Said, SaidArg};
+        let every = |id: &'static str, n: i64| Said::new(id).arg("n", SaidArg::Number(n));
+        assert_eq!(Repeat::daily().description(), every("kit-rule-daily", 1));
+        assert_eq!(
+            Repeat::new(3, Unit::Day).description(),
+            every("kit-rule-daily", 3)
+        );
+        assert_eq!(
+            Repeat::weekdays().description(),
+            Said::new("kit-repeat-weekdays")
+        );
+        assert_eq!(
+            Repeat::weekly()
+                .on_weekdays(&[Weekday::Wed, Weekday::Mon])
+                .description(),
+            Said::new("kit-rule-on")
+                .arg("every", SaidArg::Said(every("kit-rule-weekly", 1)))
+                .arg(
+                    "on",
+                    SaidArg::List(vec![
+                        Said::new("kit-weekday-short-mon"),
+                        Said::new("kit-weekday-short-wed"),
+                    ])
+                )
+        );
+        assert_eq!(
+            Repeat::monthly().on_month_day(31).description(),
+            Said::new("kit-rule-on")
+                .arg("every", SaidArg::Said(every("kit-rule-monthly", 1)))
+                .arg(
+                    "on",
+                    SaidArg::Said(
+                        Said::new("kit-repeat-month-day").arg("day", SaidArg::Number(31))
+                    )
+                )
+        );
+        assert_eq!(
+            Repeat::daily().counting_from_completion(true).description(),
+            Said::new("kit-repeat-after-completion")
+                .arg("rule", SaidArg::Said(every("kit-rule-daily", 1)))
+        );
     }
 
     #[test]

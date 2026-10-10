@@ -62,6 +62,9 @@ pub mod find_in_files;
 pub mod git;
 pub mod highlight;
 pub mod ids;
+pub mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod menu;
 pub mod palette;
 pub mod sample;
@@ -107,6 +110,7 @@ pub const SPEC: AppSpec = AppSpec {
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzCode",
     version: env!("CARGO_PKG_VERSION"),
+    // The About page says it by `azcode-about-summary` (l10n::app_word).
     summary: "A code editor: the explorer, tabs, syntax colours, find and replace, search in the folder, \
               a terminal, go to line, files of a million lines. Your folders are edited in place; the \
               sample lives in your data folder.",
@@ -115,30 +119,30 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 pub const SHORTCUTS: [Shortcut; 24] = [
-    Shortcut::new("File", "Mod+K Mod+O / Mod+O", "Open a folder"),
-    Shortcut::new("File", "Mod+K F", "Close the folder"),
-    Shortcut::new("File", "Mod+P", "Quick open a file of the folder"),
-    Shortcut::new("File", "Mod+S", "Save every changed file"),
-    Shortcut::new("File", "Mod+W", "Close the tab"),
-    Shortcut::new("Window", "Mod+Shift+P", "The command palette"),
-    Shortcut::new("Window", "Mod+B", "Show / hide the side bar"),
-    Shortcut::new("Window", "Mod+Shift+E", "The explorer"),
-    Shortcut::new("Window", "Ctrl+` / Mod+J", "Show / hide the terminal"),
-    Shortcut::new("Window", "Ctrl+Shift+`", "A new terminal"),
-    Shortcut::new("Find", "Mod+Shift+F", "Search the folder's files"),
-    Shortcut::new("Find", "Mod+F", "Find in the file"),
-    Shortcut::new("Find", "Mod+H", "Replace in the file"),
-    Shortcut::new("Find", "F3 / Shift+F3", "Next / previous match"),
-    Shortcut::new("Find", "Mod+G", "Go to line"),
-    Shortcut::new("Editing", "Mod+Z / Mod+Shift+Z", "Undo / redo"),
-    Shortcut::new("Editing", "Mod+D", "Select the word, then its next occurrence"),
-    Shortcut::new("Editing", "Alt+click", "Another cursor"),
-    Shortcut::new("Editing", "Tab / Shift+Tab", "Indent / outdent the selected lines"),
-    Shortcut::new("Editing", "Mod+X / Mod+C / Mod+V", "Cut / copy / paste (a whole line without a selection)"),
-    Shortcut::new("Moving", "Mod+Home / Mod+End", "To the start / end of the file"),
-    Shortcut::new("Moving", "Alt+arrows (macOS) / Ctrl+arrows", "By words"),
-    Shortcut::new("Explorer", "Up / Down / Left / Right / Enter", "Move in the tree, close / open a folder, open a file"),
-    Shortcut::new("Window", "Escape", "Close the palette, the find bar, the go-to bar"),
+    Shortcut::new("azcode-menu-file", "Mod+K Mod+O / Mod+O", "azcode-shortcut-open-folder"),
+    Shortcut::new("azcode-menu-file", "Mod+K F", "azcode-shortcut-close-folder"),
+    Shortcut::new("azcode-menu-file", "Mod+P", "azcode-shortcut-quick-open"),
+    Shortcut::new("azcode-menu-file", "Mod+S", "azcode-shortcut-save"),
+    Shortcut::new("azcode-menu-file", "Mod+W", "azcode-shortcut-close-tab"),
+    Shortcut::new("azcode-shortcut-window", "Mod+Shift+P", "azcode-shortcut-palette"),
+    Shortcut::new("azcode-shortcut-window", "Mod+B", "azcode-shortcut-side-bar"),
+    Shortcut::new("azcode-shortcut-window", "Mod+Shift+E", "azcode-shortcut-explorer"),
+    Shortcut::new("azcode-shortcut-window", "Ctrl+` / Mod+J", "azcode-shortcut-terminal"),
+    Shortcut::new("azcode-shortcut-window", "Ctrl+Shift+`", "azcode-shortcut-new-terminal"),
+    Shortcut::new("azcode-action-find", "Mod+Shift+F", "azcode-shortcut-find-in-files"),
+    Shortcut::new("azcode-action-find", "Mod+F", "azcode-shortcut-find"),
+    Shortcut::new("azcode-action-find", "Mod+H", "azcode-shortcut-replace"),
+    Shortcut::new("azcode-action-find", "F3 / Shift+F3", "azcode-shortcut-next-match"),
+    Shortcut::new("azcode-action-find", "Mod+G", "azcode-shortcut-go-to-line"),
+    Shortcut::new("azcode-shortcut-editing", "Mod+Z / Mod+Shift+Z", "azcode-shortcut-undo"),
+    Shortcut::new("azcode-shortcut-editing", "Mod+D", "azcode-shortcut-select-word"),
+    Shortcut::new("azcode-shortcut-editing", "Alt+click", "azcode-shortcut-cursor"),
+    Shortcut::new("azcode-shortcut-editing", "Tab / Shift+Tab", "azcode-shortcut-indent"),
+    Shortcut::new("azcode-shortcut-editing", "Mod+X / Mod+C / Mod+V", "azcode-shortcut-clipboard"),
+    Shortcut::new("azcode-shortcut-moving", "Mod+Home / Mod+End", "azcode-shortcut-file-ends"),
+    Shortcut::new("azcode-shortcut-moving", "Alt+arrows (macOS) / Ctrl+arrows", "azcode-shortcut-words"),
+    Shortcut::new("azcode-action-explorer", "Up / Down / Left / Right / Enter", "azcode-shortcut-tree"),
+    Shortcut::new("azcode-shortcut-window", "Escape", "azcode-shortcut-escape"),
 ];
 
 // ==== Start ====
@@ -160,6 +164,15 @@ pub fn start() {
         let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
         root.unwrap_or_default()
     };
+    // appkit's words and AzCode's, before any is said (the start's own notice below); the
+    // language chosen (Settings, `--language`) says them from here.
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let mut st = AppState::new(kit_ref.clone(), data_root, args.kit.sample);
     st.recent = recent_of(&kit_ref);
     st.shell = args.shell.clone();
@@ -173,13 +186,15 @@ pub fn start() {
         } else if path.is_file() && args.folder.is_none() {
             st.file_to_open = Some(path);
         } else {
-            st.notice = format!("{} is not a folder AzCode can open.", path.display());
+            st.notice = azul_appkit::l10n::t_args(
+                "azcode-not-a-folder",
+                &[("path", azul_appkit::l10n::Arg::from(path.display().to_string()))],
+            );
         }
     }
     if args.kit.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), on_window_created);
     App::create(RefAny::new(st), config).run(window);
 }
@@ -224,9 +239,11 @@ fn recent_of(kit_ref: &RefAny) -> Vec<String> {
 // ==== The window ====
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    // Reading the mode and the theme makes a switch of either rebuild the window.
+    // Reading the mode and the theme makes a switch of either rebuild the window; the layout's
+    // language says the words (a switch of it too).
     let _mode = info.get_mode();
     let _theme = info.get_theme();
+    azul_appkit::l10n::begin_layout(&info);
     let size = (info.get_window_width(), info.get_window_height());
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         st.window = size;

@@ -262,8 +262,27 @@ pub struct IcsCalendar {
     /// The calendar's name (`X-WR-CALNAME`).
     pub name: Option<String>,
     pub events: Vec<Imported>,
-    /// What could not be kept as it was, for the user, one sentence each.
-    pub notes: Vec<String>,
+    /// What could not be kept as it was, for the user (the app says each).
+    pub notes: Vec<ImportNote>,
+}
+
+/// What an import could not keep as it was: data an app says to the user in the window's
+/// language.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportNote {
+    /// The time zone (its `TZID`) has no rules in the file: its times are kept as written.
+    ZoneWithoutRules(String),
+    /// The event (its title) has no start: it is left out.
+    NoStart(String),
+    /// The event runs past midnight: here it ends at 23:59 on its first day.
+    PastMidnight(String),
+    /// The event's repeat rule is none AzCalendar keeps (`why`, the rule reader's words): only
+    /// its first date is imported.
+    FirstDateOnly { title: String, why: String },
+    /// The event is cancelled: it is left out.
+    Cancelled(String),
+    /// This many items that are no events (tasks, journal entries) are left out.
+    NotEvents(usize),
 }
 
 /// A component's lines, as read.
@@ -470,18 +489,16 @@ fn day_of(read: Read) -> NaiveDate {
 fn imported<Tz: TimeZone>(
     event: &Component,
     clock: &Clock<'_, Tz>,
-    notes: &mut Vec<String>,
+    notes: &mut Vec<ImportNote>,
 ) -> Option<(Imported, Option<NaiveDate>, bool)> {
     let title = event
         .first("SUMMARY")
         .map(|l| unescape_text(&l.value).trim().to_string())
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| String::from(NO_TITLE));
-    let note_zone = |tzid: Option<String>, notes: &mut Vec<String>| {
+    let note_zone = |tzid: Option<String>, notes: &mut Vec<ImportNote>| {
         if let Some(tzid) = tzid {
-            let note = format!(
-                "The time zone {tzid:?} has no rules in the file: its times are kept as written."
-            );
+            let note = ImportNote::ZoneWithoutRules(tzid);
             if !notes.contains(&note) {
                 notes.push(note);
             }
@@ -491,7 +508,7 @@ fn imported<Tz: TimeZone>(
         .first("DTSTART")
         .and_then(|l| parse_times(l).into_iter().next())
     else {
-        notes.push(format!("{title:?} has no start: it is left out."));
+        notes.push(ImportNote::NoStart(title));
         return None;
     };
     let (start, zone) = clock.read(&start);
@@ -527,9 +544,7 @@ fn imported<Tz: TimeZone>(
                 .unwrap_or(NaiveTime::MIN)
                 .min(NaiveTime::from_hms_opt(23, 58, 0).unwrap_or(NaiveTime::MIN));
             let mut end_time = if end_at.date() > at.date() {
-                notes.push(format!(
-                    "{title:?} runs past midnight: here it ends at 23:59 on its first day."
-                ));
+                notes.push(ImportNote::PastMidnight(title.clone()));
                 last_minute()
             } else {
                 NaiveTime::from_hms_opt(end_at.hour(), end_at.minute(), 0).unwrap_or(last_minute())
@@ -547,7 +562,10 @@ fn imported<Tz: TimeZone>(
         Some(line) => match Rule::parse(&line.value) {
             Ok(rule) => Some(rule),
             Err(e) => {
-                notes.push(format!("{title:?}: {e}; only its first date is imported."));
+                notes.push(ImportNote::FirstDateOnly {
+                    title: title.clone(),
+                    why: e.to_string(),
+                });
                 None
             }
         },
@@ -656,9 +674,7 @@ pub fn parse<Tz: TimeZone>(text: &str, zone: &Tz) -> Result<IcsCalendar, String>
                     };
                     match recurrence {
                         Some(day) => overrides.push((event, day, cancelled)),
-                        None if cancelled => out
-                            .notes
-                            .push(format!("{:?} is cancelled: it is left out.", event.title)),
+                        None if cancelled => out.notes.push(ImportNote::Cancelled(event.title)),
                         None => masters.push(event),
                     }
                 }
@@ -685,9 +701,7 @@ pub fn parse<Tz: TimeZone>(text: &str, zone: &Tz) -> Result<IcsCalendar, String>
         }
     }
     if other > 0 {
-        out.notes.push(format!(
-            "{other} item(s) that are no events (tasks, journal entries) are left out."
-        ));
+        out.notes.push(ImportNote::NotEvents(other));
     }
     out.events = masters;
     Ok(out)
@@ -842,7 +856,7 @@ mod tests {
         TZOFFSETFROM:+0200\r\nTZOFFSETTO:+0100\r\nTZNAME:CET\r\nDTSTART:19701025T030000\r\n\
         RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n";
 
-    fn one(body: &str, zone: &FixedOffset) -> (Imported, Vec<String>) {
+    fn one(body: &str, zone: &FixedOffset) -> (Imported, Vec<ImportNote>) {
         let cal = parse(&calendar(body), zone).unwrap();
         assert_eq!(cal.events.len(), 1, "{:?}", cal.events);
         (cal.events[0].clone(), cal.notes)
@@ -911,7 +925,10 @@ mod tests {
             1,
             "one note for the zone, not one per time: {notes:?}"
         );
-        assert!(notes[0].contains("Mars/Olympus"));
+        assert_eq!(
+            notes[0],
+            ImportNote::ZoneWithoutRules(String::from("Mars/Olympus"))
+        );
         // UTC by name needs no rules
         let body = body.replace("Mars/Olympus", "UTC");
         let (sync, notes) = one(&body, &FixedOffset::east_opt(3600).unwrap());
@@ -969,7 +986,7 @@ mod tests {
         assert!(
             notes
                 .iter()
-                .any(|n| n.contains("Pills") && n.contains("first date")),
+                .any(|n| matches!(n, ImportNote::FirstDateOnly { title, .. } if title == "Pills")),
             "{notes:?}"
         );
     }
@@ -1028,7 +1045,7 @@ mod tests {
                     DTEND:20261001T020000\r\nEND:VEVENT\r\n";
         let (party, notes) = one(body, &utc());
         assert_eq!((party.start, party.end), (at(22, 0), at(23, 59)));
-        assert!(notes.iter().any(|n| n.contains("Party")));
+        assert_eq!(notes, vec![ImportNote::PastMidnight(String::from("Party"))]);
     }
 
     #[test]
@@ -1037,7 +1054,7 @@ mod tests {
         let body = "BEGIN:VTODO\r\nSUMMARY:Buy milk\r\nEND:VTODO\r\n";
         let cal = parse(&calendar(body), &utc()).unwrap();
         assert!(cal.events.is_empty());
-        assert_eq!(cal.notes.len(), 1);
+        assert_eq!(cal.notes, vec![ImportNote::NotEvents(1)]);
     }
 
     /// Every field AzCalendar keeps survives a write and a read: text with commas, semicolons,

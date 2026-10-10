@@ -32,12 +32,13 @@ impl Page {
     /// In the backstage's order.
     pub const ALL: [Page; 3] = [Page::Settings, Page::Shortcuts, Page::About];
 
+    /// The page's name: a key of the resources.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Page::Settings => "Settings",
-            Page::Shortcuts => "Keyboard shortcuts",
-            Page::About => "About",
+            Page::Settings => "aztasks-cmd-settings",
+            Page::Shortcuts => "aztasks-cmd-shortcuts",
+            Page::About => "aztasks-page-about",
         }
     }
 }
@@ -118,6 +119,8 @@ pub struct Tasks {
     pub files: FileWork,
     /// The appearance kept across restarts (`aztasks/settings.json`, `appearance.rs`).
     pub appearance: azul_appkit::settings::AppSettings,
+    /// The language of the words now (`--language` for this run, else the file's).
+    pub language: azul_appkit::args::LanguagePref,
     /// The Data settings' import path, and what the last import or export did.
     pub import_path: String,
     pub io_message: String,
@@ -234,6 +237,7 @@ impl Tasks {
             queue: WriteQueue::new(),
             files: FileWork::default(),
             appearance: azul_appkit::settings::AppSettings::default(),
+            language: azul_appkit::args::LanguagePref::System,
             import_path: String::new(),
             io_message: String::new(),
             sample_requested: false,
@@ -413,9 +417,7 @@ impl Tasks {
         to_local: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
     ) -> Vec<String> {
         let Some(list) = self.default_list() else {
-            return vec![String::from(
-                "There is no list to import the to-dos into: make a list first.",
-            )];
+            return vec![azul_appkit::l10n::t("aztasks-import-no-list")];
         };
         let mut ids = new_id;
         let imported = crate::vtodo::read(text, &list, now, &mut ids, to_local);
@@ -588,7 +590,8 @@ impl Tasks {
         }
         match self.default_list() {
             Some(id) => id,
-            None => self.new_list("Tasks", ""),
+            // A list's name in its file: in the window's language.
+            None => self.new_list(&azul_appkit::l10n::t("aztasks-tasks"), ""),
         }
     }
 
@@ -742,8 +745,11 @@ impl Tasks {
         let n = undo.tasks.len();
         self.notice = match n {
             0 => String::new(),
-            1 => format!("Deleted \"{}\".", undo.tasks[0].title),
-            n => format!("Deleted {n} tasks."),
+            1 => azul_appkit::l10n::t_args(
+                "aztasks-deleted-one",
+                &[("title", azul_appkit::l10n::Arg::from(undo.tasks[0].title.as_str()))],
+            ),
+            n => azul_appkit::l10n::t_args("aztasks-deleted-many", &[("count", azul_appkit::l10n::Arg::from(n))]),
         };
         let gone = self.undo.take().map(|u| u.prefixes).unwrap_or_default();
         if n > 0 {
@@ -865,7 +871,10 @@ impl Tasks {
             gone.extend(u.prefixes);
         }
         gone.push(format!("{}/{}/", model::TASKS_DIR, id));
-        self.notice = format!("Deleted the list \"{}\".", l.name);
+        self.notice = azul_appkit::l10n::t_args(
+            "aztasks-deleted-list",
+            &[("name", azul_appkit::l10n::Arg::from(l.name.as_str()))],
+        );
         if self.view == View::List(id.to_string()) {
             self.view = View::Smart(Smart::Today);
         }
@@ -890,7 +899,10 @@ impl Tasks {
         if let Some(u) = self.undo.take() {
             gone.extend(u.prefixes);
         }
-        self.notice = format!("Cleared {} completed task(s).", ids.len());
+        self.notice = azul_appkit::l10n::t_args(
+            "aztasks-cleared",
+            &[("count", azul_appkit::l10n::Arg::from(ids.len()))],
+        );
         gone
     }
 
@@ -912,7 +924,7 @@ impl Tasks {
         for i in first_task..self.tasks.len() {
             self.save_task(i);
         }
-        self.notice = "Sample lists and tasks were added.".to_string();
+        self.notice = azul_appkit::l10n::t("aztasks-sample-added");
     }
 
     // ==== Loading ====
@@ -938,10 +950,11 @@ impl Tasks {
             if self.sample_requested {
                 self.add_sample(now);
             } else {
-                self.new_list("Tasks", "");
+                // The first list's name in its file: in the window's language.
+                self.new_list(&azul_appkit::l10n::t("aztasks-tasks"), "");
             }
         } else if self.sample_requested {
-            self.notice = "The data folder has tasks already; --sample adds nothing.".to_string();
+            self.notice = azul_appkit::l10n::t("aztasks-sample-not-added");
         }
         if let View::List(id) = &self.view {
             if self.list_index(id).is_none() {

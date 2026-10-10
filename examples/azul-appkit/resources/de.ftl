@@ -104,6 +104,7 @@ kit-money = { $amount } { $currency }
 
 kit-date-today = Heute
 kit-date-yesterday = Gestern
+kit-date-tomorrow = Morgen
 kit-date-last-week = Letzte Woche
 kit-date-two-weeks-ago = Vor zwei Wochen
 kit-date-three-weeks-ago = Vor drei Wochen
@@ -158,3 +159,72 @@ kit-date-style-short-weekday-day = { $wd }. { $day }.
 kit-date-style-short-date = { $wd }. { $day }. { $mon }
 kit-date-style-day-short-month = { $day }. { $mon }
 kit-date-style-day-only = { $day }.
+# A list: l10n::and_list.
+kit-list-and = { $first } und { $last }
+# What a repeat rule does (azul-pim's Rule::description, l10n::t_said): "Alle 2 Wochen am Montag
+# und Freitag, 10-mal".
+kit-rule-every-weekday = Jeden Werktag
+kit-rule-daily = { $n ->
+    [one] Täglich
+   *[other] Alle { $n } Tage
+ }
+kit-rule-weekly = { $n ->
+    [one] Wöchentlich
+   *[other] Alle { $n } Wochen
+ }
+kit-rule-monthly = { $n ->
+    [one] Monatlich
+   *[other] Alle { $n } Monate
+ }
+kit-rule-yearly = { $n ->
+    [one] Jährlich
+   *[other] Alle { $n } Jahre
+ }
+kit-rule-on = { $every } am { $on }
+kit-rule-nth-weekday = { $nth } { $day }
+kit-rule-ordinal = { $n ->
+    [1] ersten
+    [2] zweiten
+    [3] dritten
+    [4] vierten
+    [5] fünften
+   *[other] { $n }.
+ }
+kit-rule-ordinal-last = { $n ->
+    [1] letzten
+    [2] vorletzten
+   *[other] { $n }.-letzten
+ }
+kit-rule-month-day = { $day }.
+kit-rule-last-day = letzten Tag
+kit-rule-day-from-end = { $nth } Tag vor Monatsende
+kit-rule-days-of-month = { $days } im { $month }
+kit-rule-day-of-months = { $day }. { $months }
+kit-rule-times = { $count ->
+    [one] { $rule }, einmal
+   *[other] { $rule }, { $count }-mal
+ }
+kit-rule-until = { $rule }, bis { $date }
+kit-date-style-short-date-year = { $wd }. { $day }. { $mon } { $year }
+kit-date-style-weekday-date = { $weekday }, { $day }. { $month } { $year }
+# A task's words (azul-pim's task and repeat, AzTasks).
+kit-task-priority-none = Keine
+kit-task-priority-low = Niedrig
+kit-task-priority-medium = Mittel
+kit-task-priority-high = Hoch
+kit-task-color-blue = Blau
+kit-task-color-green = Grün
+kit-task-color-red = Rot
+kit-task-color-orange = Orange
+kit-task-color-purple = Lila
+kit-task-color-teal = Türkis
+kit-task-color-gray = Grau
+kit-task-color-pink = Rosa
+kit-task-sort-manual = Manuell
+kit-task-sort-due = Fälligkeitsdatum
+kit-task-sort-priority = Priorität
+kit-task-sort-title = Titel
+kit-task-sort-created = Erstellt
+kit-repeat-weekdays = Werktags
+kit-repeat-month-day = { $day }.
+kit-repeat-after-completion = { $rule } nach Erledigung

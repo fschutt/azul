@@ -15,6 +15,8 @@ use azul::{
     str::String as AzString,
 };
 
+use azul_appkit::l10n::label;
+
 use crate::{
     actions::{self, Action},
     app::{AppState, IndexState, Palette, PaletteKind},
@@ -41,14 +43,14 @@ fn files(app: &RefAny, st: &AppState, query: &str) -> Dom {
         .map(|key| ShellPaletteCommand::create(key.as_str()).with_icon("description"))
         .collect();
     let placeholder = match st.index_state {
-        IndexState::Done => "Search files by name (type > for the commands)",
-        IndexState::None | IndexState::Running => "Listing the folder's files...",
+        IndexState::Done => "azcode-quick-open-placeholder",
+        IndexState::None | IndexState::Running => "azcode-quick-open-listing",
     };
     Dom::create_div().with_id(ids::QUICK_OPEN).with_child(
         ShellCommandPalette::create()
             .with_commands(commands)
             .with_query(query)
-            .with_placeholder(placeholder)
+            .with_placeholder(label(placeholder))
             .with_open(true)
             .with_on_query(app.clone(), on_query as ShellCommandPaletteOnQueryCallbackType)
             .with_on_run(app.clone(), on_run as ShellCommandPaletteOnRunCallbackType)
@@ -63,8 +65,8 @@ fn commands_palette(app: &RefAny, st: &AppState, query: &str) -> Dom {
     let commands: Vec<ShellPaletteCommand> = actions::available(st)
         .into_iter()
         .map(|a| {
-            ShellPaletteCommand::create(a.label())
-                .with_category(a.category())
+            ShellPaletteCommand::create(label(a.label()))
+                .with_category(label(a.category()))
                 .with_icon(a.icon())
                 .with_shortcut(commands::keys(a.keys()))
         })
@@ -73,7 +75,7 @@ fn commands_palette(app: &RefAny, st: &AppState, query: &str) -> Dom {
         ShellCommandPalette::create()
             .with_commands(commands)
             .with_query(query)
-            .with_placeholder("Type the name of a command to run")
+            .with_placeholder(label("azcode-palette-placeholder"))
             .with_open(true)
             .with_on_query(app.clone(), on_query as ShellCommandPaletteOnQueryCallbackType)
             .with_on_run(app.clone(), on_run as ShellCommandPaletteOnRunCallbackType)

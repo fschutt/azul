@@ -19,6 +19,8 @@ use azul::{
     widgets::{Button, OnTextInputReturn, TextInput, TextInputState, TextInputValid},
 };
 
+use azul_appkit::l10n;
+
 use crate::{
     app::{AppState, ResultRow},
     commands,
@@ -43,8 +45,8 @@ struct ResultRef {
 pub fn search_panel(app: &RefAny, st: &AppState) -> Dom {
     let field = TextInput::create()
         .with_text(AzString::from(st.search.query.as_str()))
-        .with_placeholder(AzString::from("Search"))
-        .with_accessibility_name(AzString::from("Search the folder"))
+        .with_placeholder(l10n::label("azcode-category-search"))
+        .with_accessibility_name(l10n::label("azcode-search-folder"))
         .with_on_text_input(app.clone(), on_search_text as TextInputOnTextInputCallbackType)
         .with_on_virtual_key_down(app.clone(), on_search_key as TextInputOnVirtualKeyDownCallbackType)
         .dom()
@@ -57,7 +59,7 @@ pub fn search_panel(app: &RefAny, st: &AppState) -> Dom {
                 .with_on_click(app.clone(), on_match_case as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::SEARCH_MATCH_CASE)
-                .with_accessibility_name("Match Case"),
+                .with_accessibility_name(l10n::label("azcode-match-case")),
         )
         .with_child(
             Button::create(AzString::from("ab"))
@@ -65,18 +67,18 @@ pub fn search_panel(app: &RefAny, st: &AppState) -> Dom {
                 .with_on_click(app.clone(), on_whole_word as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::SEARCH_WHOLE_WORD)
-                .with_accessibility_name("Match Whole Word"),
+                .with_accessibility_name(l10n::label("azcode-whole-word")),
         );
     let summary = match st.workspace {
-        None => "Open a folder to search its files.".to_string(),
+        None => l10n::t("azcode-search-no-folder"),
         Some(_) => st.search.summary(),
     };
     let results = Dom::create_virtual_view(RefAny::new(ResultsRef { app: app.clone() }), render_results)
         .with_id(ids::SEARCH_RESULTS)
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
-        .with_accessibility_info(AccessibilityInfo::named("Search results", AccessibilityRole::List));
+        .with_accessibility_info(AccessibilityInfo::named(l10n::label("azcode-search-results"), AccessibilityRole::List));
     column(vec![
-        side_title("SEARCH", Vec::new()),
+        side_title(&l10n::t("azcode-category-search").to_uppercase(), Vec::new()),
         Dom::create_div()
             .with_css("display: flex; flex-direction: column; flex-shrink: 0; padding: 0px 12px 6px 20px;")
             .with_child(field)

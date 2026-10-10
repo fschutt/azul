@@ -138,7 +138,8 @@ def body(args, logs, out):
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
     app = e2e.App(TAG, binary, ["--sample", "--data-dir", data_dir, "--size", "1280x800",
-                                "--theme", "flat", "--mode", "light"],
+                                "--theme", "flat", "--mode", "light",
+                                "--language", "en"],  # the clicks read English words
                   args.debug_port, logs, args.timeout)
     try:
         app.until("the window", lambda: app.printed("AZCODE_READY", r".*"))
@@ -291,7 +292,7 @@ def folder_run(args, logs, out):
     write_project(project, PROJECT)
     # No --mode: the empty start shows AzCode's own default, dark.
     app = e2e.App(TAG + "-folder", binary, ["--data-dir", data_dir, "--size", "1280x800",
-                                            "--theme", "flat"],
+                                            "--theme", "flat", "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.until("the window", lambda: app.printed("AZCODE_READY", r".*"))
@@ -424,7 +425,8 @@ def workbench_run(args, logs, out):
     write_project(other, {"README.md": "# Other\n"})
     app = e2e.App(TAG + "-workbench", binary, ["--folder", project, "--shell", "/bin/sh",
                                                "--data-dir", data_dir, "--size", "1280x800",
-                                               "--theme", "flat", "--mode", "dark"],
+                                               "--theme", "flat", "--mode", "dark",
+                                               "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.until("the window", lambda: app.printed("AZCODE_READY", r".*"))

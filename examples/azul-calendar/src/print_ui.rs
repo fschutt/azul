@@ -849,7 +849,7 @@ fn week_box(day: Option<&Day>, box_px: f32, gap: f32, rows: usize) -> Dom {
             crate::day_text(DateStyle::Weekday, day.date),
             crate::day_text(DateStyle::DayMonth, day.date),
         ),
-        None => (t("azcalendar-print-notes"), String::new()),
+        None => (t("azcalendar-notes"), String::new()),
     };
     let mut b = Dom::create_div()
         .with_css(format!(

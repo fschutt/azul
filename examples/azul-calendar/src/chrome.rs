@@ -33,7 +33,7 @@ use azul::{
 };
 use azul_appkit::{
     args::LanguagePref,
-    l10n::{label, t, t_args, t_label, Arg},
+    l10n::{label, t, t_args, t_text, Arg},
     pieces::{self, flex_row},
     ribbon::callback_button,
 };
@@ -270,7 +270,7 @@ fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
                 )
                 .with_child(
                     CheckBox::create(!s.hidden.contains(&c.id))
-                        .with_accessibility_name(c.name.as_str())
+                        .with_accessibility_name(crate::calendar_name(c))
                         .with_on_toggle(target, on_calendar_shown as CheckBoxOnToggleCallbackType)
                         .dom(),
                 )
@@ -280,7 +280,7 @@ fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
                     c.colour.swatch_css()
                 )))
                 .with_child(
-                    Dom::create_span_with_text(c.name.as_str()).with_css(
+                    Dom::create_span_with_text(crate::calendar_name(c)).with_css(
                         "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;",
                     ),
                 ),
@@ -466,7 +466,10 @@ fn sync_status(s: &CalState) -> String {
         (n, true) => t_args("azcalendar-sync-sending", &[("count", Arg::from(n))]),
         (n, false) => t_args(
             "azcalendar-sync-waiting",
-            &[("count", Arg::from(n)), ("why", Arg::from(t_label(&s.sync_error)))],
+            &[
+                ("count", Arg::from(n)),
+                ("why", Arg::from(t_text(&s.sync_error))),
+            ],
         ),
     }
 }
@@ -504,7 +507,7 @@ fn info_page(s: &CalState, app: &RefAny) -> Dom {
 
 /// The calendars' names for a list, with one choice more at the end (`last`).
 fn calendar_names(s: &CalState, last: &str) -> Vec<String> {
-    let mut names: Vec<String> = s.calendars.iter().map(|c| c.name.clone()).collect();
+    let mut names: Vec<String> = s.calendars.iter().map(crate::calendar_name).collect();
     names.push(last.to_string());
     names
 }
@@ -608,10 +611,10 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;")
                 .with_child(
                     TextInput::create()
-                        .with_text(c.name.as_str())
+                        .with_text(crate::calendar_name(c).as_str())
                         .with_accessibility_name(t_args(
                             "azcalendar-calendar-name-of",
-                            &[("name", Arg::from(c.name.as_str()))],
+                            &[("name", Arg::from(crate::calendar_name(c)))],
                         ))
                         .with_on_virtual_key_down(target(), on_calendar_rename as TextInputOnVirtualKeyDownCallbackType)
                         .dom()
@@ -620,7 +623,10 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
             crate::drop_down(
                 colours.clone(),
                 Colour::ALL.iter().position(|x| *x == c.colour).unwrap_or(0),
-                &t_args("azcalendar-calendar-colour-of", &[("name", Arg::from(c.name.as_str()))]),
+                &t_args(
+                    "azcalendar-calendar-colour-of",
+                    &[("name", Arg::from(crate::calendar_name(c)))],
+                ),
                 ids::calendar_colour(index),
                 target(),
                 on_calendar_colour,
@@ -1327,8 +1333,11 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
     let typed = path.display().to_string();
     let parsed = match ics::parse(&text, &chrono::Local) {
         Ok(parsed) => parsed,
+        // The one refusal: the text is no iCalendar file.
         Err(e) => {
-            report(s, true, format!("{typed}: {e}"));
+            eprintln!("[azcalendar] {typed}: {e}");
+            let said = t("azcalendar-import-not-icalendar");
+            report(s, true, format!("{typed}: {said}"));
             return;
         }
     };
@@ -1354,7 +1363,7 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
         id
     };
     let (mut added, mut updated) = (0usize, 0usize);
-    let mut problems = parsed.notes.clone();
+    let mut problems: Vec<String> = parsed.notes.iter().map(import_note).collect();
     let mut first: Option<NaiveDate> = None;
     for imported in &parsed.events {
         let existing = if imported.uid.is_empty() {
@@ -1371,7 +1380,10 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
             Err(e) => {
                 problems.push(t_args(
                     "azcalendar-import-left-out",
-                    &[("title", Arg::from(imported.title.as_str())), ("why", Arg::from(e.to_string()))],
+                    &[
+                        ("title", Arg::from(imported.title.as_str())),
+                        ("why", Arg::from(e.to_string())),
+                    ],
                 ));
                 continue;
             }
@@ -1412,11 +1424,41 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
     }
 }
 
+/// What an import could not keep as it was (`ics::ImportNote`), in the window's language.
+pub(crate) fn import_note(note: &ics::ImportNote) -> String {
+    use ics::ImportNote;
+    // The messages quote the title or zone as the language quotes.
+    let name = |title: &str| Arg::from(title);
+    match note {
+        ImportNote::ZoneWithoutRules(zone) => t_args(
+            "azcalendar-import-zone-without-rules",
+            &[("zone", name(zone))],
+        ),
+        ImportNote::NoStart(title) => {
+            t_args("azcalendar-import-no-start", &[("title", name(title))])
+        }
+        ImportNote::PastMidnight(title) => {
+            t_args("azcalendar-import-past-midnight", &[("title", name(title))])
+        }
+        ImportNote::FirstDateOnly { title, why } => t_args(
+            "azcalendar-import-first-date-only",
+            &[("title", name(title)), ("why", Arg::from(why.as_str()))],
+        ),
+        ImportNote::Cancelled(title) => {
+            t_args("azcalendar-import-cancelled", &[("title", name(title))])
+        }
+        ImportNote::NotEvents(count) => t_args(
+            "azcalendar-import-not-events",
+            &[("count", Arg::from(*count))],
+        ),
+    }
+}
+
 /// The name of the calendar Export writes (all of them: "AzCalendar").
 fn export_name(s: &CalState) -> String {
     s.calendars
         .get(s.export_calendar)
-        .map_or_else(|| String::from("AzCalendar"), |c| c.name.clone())
+        .map_or_else(|| String::from("AzCalendar"), crate::calendar_name)
 }
 
 /// Export: the chosen calendar's events (or all) as an .ics file, at the path given (else in
@@ -1575,10 +1617,12 @@ extern "C" fn on_calendar_add(mut data: RefAny, _info: CallbackInfo) -> Update {
         }
         if s.calendars
             .iter()
-            .any(|c| c.name.eq_ignore_ascii_case(&name))
+            .any(|c| crate::calendar_name(c).eq_ignore_ascii_case(&name))
         {
-            s.calendar_error =
-                t_args("azcalendar-calendar-exists", &[("name", Arg::from(name.as_str()))]);
+            s.calendar_error = t_args(
+                "azcalendar-calendar-exists",
+                &[("name", Arg::from(name.as_str()))],
+            );
             return Update::RefreshDom;
         }
         let made = Calendar {

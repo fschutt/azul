@@ -22,9 +22,12 @@
 
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
-use crate::dates::{
-    days_in_month, join_and, month_name, ordinal_word, shift_month, start_of_week, weekday_code,
-    weekday_from_code, weekday_name,
+use crate::{
+    dates::{
+        days_in_month, month_message_id, shift_month, start_of_week, weekday_code,
+        weekday_from_code, weekday_message_id,
+    },
+    said::{Said, SaidArg},
 };
 
 /// How often a rule repeats.
@@ -600,91 +603,107 @@ impl Rule {
         horizon > first && self.dates(first, &[], first, horizon).len() > 1
     }
 
-    /// What the rule says, for people: "Weekly on Wednesday", "Every 2 weeks on Monday and
-    /// Friday, 10 times", "Monthly on the last Friday, until 31 December 2026".
+    /// What the rule does, for people - "Weekly on Wednesday", "Every 2 weeks on Monday and
+    /// Friday, 10 times", "Monthly on the last Friday, until 31 December 2026" - as messages of
+    /// azul-appkit's resources an app says in the window's language (`l10n::t_said`).
     #[must_use]
-    pub fn describe(&self, first: NaiveDate) -> String {
-        let n = self.interval.max(1);
-        let every = |one: &str, many: &str| {
-            if n == 1 {
-                one.to_string()
-            } else {
-                format!("Every {n} {many}")
+    pub fn description(&self, first: NaiveDate) -> Said {
+        let n = i64::from(self.interval.max(1));
+        let every = |id: &'static str| SaidArg::Said(Said::new(id).arg("n", SaidArg::Number(n)));
+        let on = |every: SaidArg, on: SaidArg| {
+            Said::new("kit-rule-on").arg("every", every).arg("on", on)
+        };
+        let weekday = |d: &ByDay| {
+            let day = Said::new(weekday_message_id(d.weekday));
+            match d.nth {
+                0 => day,
+                nth => Said::new("kit-rule-nth-weekday")
+                    .arg("nth", SaidArg::Said(ordinal(i32::from(nth))))
+                    .arg("day", SaidArg::Said(day)),
             }
         };
-        let names = |days: &[ByDay]| {
-            let names: Vec<String> = days
-                .iter()
-                .map(|d| {
-                    let day = weekday_name(d.weekday);
-                    match d.nth {
-                        0 => day.to_string(),
-                        n => format!("the {} {day}", ordinal_word(i32::from(n))),
-                    }
-                })
-                .collect();
-            join_and(&names)
-        };
-        let mut text = match self.freq {
-            Freq::Daily if is_weekdays(&self.by_day) && n == 1 => String::from("Every weekday"),
-            Freq::Daily => every("Daily", "days"),
-            Freq::Weekly if is_weekdays(&self.by_day) && n == 1 => String::from("Every weekday"),
+        let weekdays = |days: &[ByDay]| SaidArg::List(days.iter().map(weekday).collect());
+        let month_day =
+            |day: u32| Said::new("kit-rule-month-day").arg("day", SaidArg::Number(i64::from(day)));
+        let rule = match self.freq {
+            Freq::Daily | Freq::Weekly if is_weekdays(&self.by_day) && n == 1 => {
+                Said::new("kit-rule-every-weekday")
+            }
+            Freq::Daily => Said::new("kit-rule-daily").arg("n", SaidArg::Number(n)),
             Freq::Weekly => {
                 let days = if self.by_day.is_empty() {
-                    weekday_name(first.weekday()).to_string()
+                    SaidArg::List(vec![Said::new(weekday_message_id(first.weekday()))])
                 } else {
-                    names(&self.by_day)
+                    weekdays(&self.by_day)
                 };
-                format!("{} on {days}", every("Weekly", "weeks"))
+                on(every("kit-rule-weekly"), days)
             }
             Freq::Monthly => {
-                let on = if !self.by_month_day.is_empty() {
-                    let days: Vec<String> = self
-                        .by_month_day
-                        .iter()
-                        .map(|&d| match d {
-                            -1 => String::from("the last day"),
-                            d if d < 0 => {
-                                format!("the {} day from the end", ordinal_word(i32::from(-d)))
-                            }
-                            d => format!("day {d}"),
-                        })
-                        .collect();
-                    join_and(&days)
+                let days = if !self.by_month_day.is_empty() {
+                    SaidArg::List(
+                        self.by_month_day
+                            .iter()
+                            .map(|&d| match d {
+                                -1 => Said::new("kit-rule-last-day"),
+                                d if d < 0 => Said::new("kit-rule-day-from-end")
+                                    .arg("nth", SaidArg::Said(ordinal(-i32::from(d)))),
+                                d => month_day(u32::from(d.unsigned_abs())),
+                            })
+                            .collect(),
+                    )
                 } else if !self.by_day.is_empty() {
-                    names(&self.by_day)
+                    weekdays(&self.by_day)
                 } else {
-                    format!("day {}", first.day())
+                    SaidArg::Said(month_day(first.day()))
                 };
-                format!("{} on {on}", every("Monthly", "months"))
+                on(every("kit-rule-monthly"), days)
             }
             Freq::Yearly => {
-                let on = if self.by_month.is_empty() && self.by_day.is_empty() {
-                    first.format("%-d %B").to_string()
+                let days = if self.by_month.is_empty() && self.by_day.is_empty() {
+                    SaidArg::DayMonth(first)
                 } else if !self.by_day.is_empty() && self.by_month.len() == 1 {
-                    format!(
-                        "{} of {}",
-                        names(&self.by_day),
-                        month_name(self.by_month[0])
+                    SaidArg::Said(
+                        Said::new("kit-rule-days-of-month")
+                            .arg("days", weekdays(&self.by_day))
+                            .arg(
+                                "month",
+                                SaidArg::Said(Said::new(month_message_id(self.by_month[0]))),
+                            ),
                     )
                 } else {
-                    let months: Vec<String> = self
+                    let months = self
                         .by_month
                         .iter()
-                        .map(|&m| month_name(m).to_string())
+                        .map(|&m| Said::new(month_message_id(m)))
                         .collect();
-                    format!("{} {}", first.day(), join_and(&months))
+                    SaidArg::Said(
+                        Said::new("kit-rule-day-of-months")
+                            .arg("day", SaidArg::Number(i64::from(first.day())))
+                            .arg("months", SaidArg::List(months)),
+                    )
                 };
-                format!("{} on {on}", every("Yearly", "years"))
+                on(every("kit-rule-yearly"), days)
             }
         };
         match self.end {
-            RepeatEnd::Never => {}
-            RepeatEnd::Count(1) => text.push_str(", once"),
-            RepeatEnd::Count(c) => text.push_str(&format!(", {c} times")),
-            RepeatEnd::Until(d) => text.push_str(&format!(", until {}", d.format("%-d %B %Y"))),
+            RepeatEnd::Never => rule,
+            RepeatEnd::Count(count) => Said::new("kit-rule-times")
+                .arg("rule", SaidArg::Said(rule))
+                .arg("count", SaidArg::Number(i64::from(count))),
+            RepeatEnd::Until(day) => Said::new("kit-rule-until")
+                .arg("rule", SaidArg::Said(rule))
+                .arg("date", SaidArg::Date(day)),
         }
-        text
+    }
+}
+
+/// "first", "second", ... (`n` > 0), "last", "second to last", ... (`n` < 0): the words of a
+/// rule's nth weekday ("the last Friday").
+fn ordinal(n: i32) -> Said {
+    if n < 0 {
+        Said::new("kit-rule-ordinal-last").arg("n", SaidArg::Number(i64::from(-n)))
+    } else {
+        Said::new("kit-rule-ordinal").arg("n", SaidArg::Number(i64::from(n)))
     }
 }
 
@@ -1010,24 +1029,75 @@ mod tests {
         ));
     }
 
+    /// What a rule does, as messages of azul-appkit's resources an app says in the window's
+    /// language (azul-appkit's `l10n_switch_tests` say them in English and German).
     #[test]
-    fn a_rule_says_what_it_does() {
+    fn a_rule_says_what_it_does_as_messages() {
+        use crate::said::{Said, SaidArg};
         let first = d(2026, 9, 30);
-        let said = |text: &str| Rule::parse(text).unwrap().describe(first);
-        assert_eq!(said("FREQ=WEEKLY"), "Weekly on Wednesday");
-        assert_eq!(said("FREQ=DAILY"), "Daily");
-        assert_eq!(said("FREQ=DAILY;INTERVAL=3"), "Every 3 days");
-        assert_eq!(said("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"), "Every weekday");
+        let said = |text: &str| Rule::parse(text).unwrap().description(first);
+        let every =
+            |id: &'static str, n: i64| SaidArg::Said(Said::new(id).arg("n", SaidArg::Number(n)));
+        let word = |id: &'static str| Said::new(id);
+        let on = |every: SaidArg, on: SaidArg| {
+            Said::new("kit-rule-on").arg("every", every).arg("on", on)
+        };
+        assert_eq!(
+            said("FREQ=WEEKLY"),
+            on(
+                every("kit-rule-weekly", 1),
+                SaidArg::List(vec![word("kit-weekday-wednesday")])
+            )
+        );
+        assert_eq!(
+            said("FREQ=DAILY;INTERVAL=3"),
+            Said::new("kit-rule-daily").arg("n", SaidArg::Number(3))
+        );
+        assert_eq!(
+            said("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"),
+            word("kit-rule-every-weekday")
+        );
         assert_eq!(
             said("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR;COUNT=10"),
-            "Every 2 weeks on Monday and Friday, 10 times"
+            Said::new("kit-rule-times")
+                .arg(
+                    "rule",
+                    SaidArg::Said(on(
+                        every("kit-rule-weekly", 2),
+                        SaidArg::List(vec![word("kit-weekday-monday"), word("kit-weekday-friday")])
+                    ))
+                )
+                .arg("count", SaidArg::Number(10))
         );
-        assert_eq!(said("FREQ=MONTHLY"), "Monthly on day 30");
+        assert_eq!(
+            said("FREQ=MONTHLY"),
+            on(
+                every("kit-rule-monthly", 1),
+                SaidArg::Said(Said::new("kit-rule-month-day").arg("day", SaidArg::Number(30)))
+            )
+        );
+        let last_friday = Said::new("kit-rule-nth-weekday")
+            .arg(
+                "nth",
+                SaidArg::Said(Said::new("kit-rule-ordinal-last").arg("n", SaidArg::Number(1))),
+            )
+            .arg("day", SaidArg::Said(word("kit-weekday-friday")));
         assert_eq!(
             said("FREQ=MONTHLY;BYDAY=-1FR;UNTIL=20261231"),
-            "Monthly on the last Friday, until 31 December 2026"
+            Said::new("kit-rule-until")
+                .arg(
+                    "rule",
+                    SaidArg::Said(on(
+                        every("kit-rule-monthly", 1),
+                        SaidArg::List(vec![last_friday])
+                    ))
+                )
+                .arg("date", SaidArg::Date(d(2026, 12, 31)))
         );
-        assert_eq!(said("FREQ=YEARLY"), "Yearly on 30 September");
+        assert_eq!(
+            said("FREQ=YEARLY"),
+            on(every("kit-rule-yearly", 1), SaidArg::DayMonth(first))
+        );
     }
 
     #[test]

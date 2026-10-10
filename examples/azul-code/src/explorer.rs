@@ -20,6 +20,8 @@ use azul::{
     widgets::{Button, ButtonType},
 };
 
+use azul_appkit::l10n::{self, t_args, Arg};
+
 use crate::{
     app::AppState,
     commands, ids,
@@ -45,13 +47,18 @@ struct RowRef {
 
 /// The explorer: its title row, the workspace's name, the virtualized tree;
 /// without a workspace, VSCode's empty state.
+/// The side bar's title: EXPLORER.
+fn explorer_title() -> String {
+    l10n::t("azcode-action-explorer").to_uppercase()
+}
+
 pub fn explorer(app: &RefAny, st: &AppState) -> Dom {
     let Some(w) = st.workspace.as_ref() else {
-        return column(vec![side_title("EXPLORER", Vec::new()), no_folder(app, st)]);
+        return column(vec![side_title(&explorer_title(), Vec::new()), no_folder(app, st)]);
     };
     let actions = vec![
-        ui::icon_button(ids::REFRESH, "refresh", "Refresh Explorer", app.clone(), on_refresh),
-        ui::icon_button(ids::COLLAPSE, "unfold_less", "Collapse Folders in Explorer", app.clone(), on_collapse),
+        ui::icon_button(ids::REFRESH, "refresh", "azcode-action-refresh-explorer", app.clone(), on_refresh),
+        ui::icon_button(ids::COLLAPSE, "unfold_less", "azcode-action-collapse-folders", app.clone(), on_collapse),
     ];
     let folder = Dom::create_div()
         .with_id(ids::EXPLORER_FOLDER)
@@ -68,7 +75,10 @@ pub fn explorer(app: &RefAny, st: &AppState) -> Dom {
         .with_id(ids::EXPLORER)
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_info(AccessibilityInfo::named(format!("Files of {}", w.root.name), AccessibilityRole::Outline))
+        .with_accessibility_info(AccessibilityInfo::named(
+            t_args("azcode-files-of", &[("folder", Arg::from(w.root.name.as_str()))]),
+            AccessibilityRole::Outline,
+        ))
         .with_callback(
             EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
             app.clone(),
@@ -151,9 +161,9 @@ fn row_dom(app: &RefAny, row: &Row, selected: bool) -> Dom {
         _ => "description",
     };
     let state = match (row.folder, row.expanded) {
-        (true, true) => ", open folder",
-        (true, false) => ", folder",
-        _ => "",
+        (true, true) => l10n::t("azcode-row-open-folder"),
+        (true, false) => l10n::t("azcode-row-folder"),
+        _ => String::new(),
     };
     let mut dom = Dom::create_div()
         .with_id(ids::tree_row(&row.key))
@@ -194,7 +204,7 @@ fn no_folder(app: &RefAny, st: &AppState) -> Dom {
              padding: 4px 20px 12px 20px;",
         )
         .with_child(label(
-            "You have not yet opened a folder.",
+            "azcode-no-folder",
             "font-size: 13px; padding: 8px 0px 12px 0px;",
         ))
         .with_child(
@@ -202,23 +212,24 @@ fn no_folder(app: &RefAny, st: &AppState) -> Dom {
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
                 .with_child(
-                    Button::with_type("Open Folder", ButtonType::Primary)
+                    Button::with_type(l10n::label("azcode-welcome-open-folder"), ButtonType::Primary)
                         .with_on_click(app.clone(), ui::on_open_folder as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::OPEN_FOLDER),
                 ),
         )
         .with_child(label(
-            &format!(
-                "Or press {}, or start AzCode with a folder: AzCode ~/my-project. Its files open \
-                 in the editor; quick open ({}) finds them by name.",
-                commands::keys("Mod+K Mod+O"),
-                commands::keys("Mod+P"),
+            &t_args(
+                "azcode-no-folder-what",
+                &[
+                    ("open", Arg::from(commands::keys("Mod+K Mod+O"))),
+                    ("quick", Arg::from(commands::keys("Mod+P"))),
+                ],
             ),
             "font-size: 12px; opacity: 0.7; padding-top: 10px;",
         ));
     if !st.recent.is_empty() {
-        out.add_child(label("RECENT", "font-size: 11px; opacity: 0.8; padding: 20px 0px 6px 0px;"));
+        out.add_child(label(&l10n::t("azcode-welcome-recent").to_uppercase(), "font-size: 11px; opacity: 0.8; padding: 20px 0px 6px 0px;"));
         for (i, folder) in st.recent.iter().enumerate() {
             out.add_child(ui::recent_row(app, ids::recent(i), i, folder));
         }

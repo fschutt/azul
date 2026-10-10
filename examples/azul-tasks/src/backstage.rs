@@ -27,7 +27,8 @@ use azul::{
 };
 use chrono::{NaiveTime, Timelike, Weekday};
 
-use azul_appkit::args::{ModePref, Theme};
+use azul_appkit::args::{LanguagePref, ModePref, Theme};
+use azul_appkit::l10n::{label, t, t_args, t_label, Arg};
 
 use crate::{
     appearance,
@@ -37,13 +38,18 @@ use crate::{
     views,
 };
 
-/// The settings' categories.
-pub const CATEGORIES: [&str; 4] = ["General", "Reminders", "Appearance", "Data"];
-/// The week-start choices.
+/// The settings' categories (keys of the resources).
+pub const CATEGORIES: [&str; 4] = [
+    "aztasks-settings-general",
+    "aztasks-settings-reminders",
+    "aztasks-group-appearance",
+    "aztasks-settings-data",
+];
+/// The week-start choices (the kit's weekday words).
 const WEEK_STARTS: [(Weekday, &str); 3] = [
-    (Weekday::Mon, "Monday"),
-    (Weekday::Sun, "Sunday"),
-    (Weekday::Sat, "Saturday"),
+    (Weekday::Mon, "kit-weekday-monday"),
+    (Weekday::Sun, "kit-weekday-sunday"),
+    (Weekday::Sat, "kit-weekday-saturday"),
 ];
 
 const PAGE: &str = "display: flex; flex-direction: column; gap: 10px; padding: 24px 32px; \
@@ -51,12 +57,14 @@ const PAGE: &str = "display: flex; flex-direction: column; gap: 10px; padding: 2
 const TEXT: &str = "font-size: 13px;";
 const SOFT: &str = "font-size: 12px; color: system:secondary-text;";
 
+/// Keys of the resources (or words as they are), said.
 fn strings(items: &[&str]) -> StringVec {
-    StringVec::from(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
+    azul_appkit::l10n::labels(items)
 }
 
+/// A paragraph: a key of the resources, or words as they are.
 fn line(text: impl Into<String>, css: &str) -> Dom {
-    Dom::create_p_with_text(text.into()).with_css(css)
+    Dom::create_p_with_text(t_label(&text.into())).with_css(css)
 }
 
 fn row(control: Dom, text: &str) -> Dom {
@@ -66,11 +74,16 @@ fn row(control: Dom, text: &str) -> Dom {
         .with_child(line(text, SOFT))
 }
 
+/// A section of the settings with its title (a key) said.
+fn section(title: &str, content: Dom) -> ShellSettingsSection {
+    ShellSettingsSection::create(label(title), content)
+}
+
 /// The FILE backstage on `page`; `theme` and `dark` are the window's.
 pub fn backstage(s: &Tasks, app: &RefAny, page: Page, theme: &str, dark: bool) -> Dom {
     let items: Vec<BackstageNavItem> = Page::ALL
         .iter()
-        .map(|p| BackstageNavItem::create(p.label()))
+        .map(|p| BackstageNavItem::create(label(p.label())))
         .collect();
     let content = match page {
         Page::Settings => settings(s, app, theme, dark),
@@ -93,13 +106,13 @@ fn settings(s: &Tasks, app: &RefAny, theme: &str, _dark: bool) -> Dom {
     let mut layout = ShellSettingsLayout::create(strings(&CATEGORIES))
         .with_active_category(s.settings_category)
         .with_search(s.settings_search.as_str())
-        .with_search_placeholder("Find a setting")
+        .with_search_placeholder(label("aztasks-settings-find"))
         .with_on_category(app.clone(), on_category as ShellSettingsLayoutOnCategoryCallbackType)
         .with_on_search(app.clone(), on_search as ShellSettingsLayoutOnSearchCallbackType);
     for (category, sections) in [
         (0, general(s, app)),
         (1, reminder_settings(s, app)),
-        (2, appearance_settings(app, theme, s.appearance.mode)),
+        (2, appearance_settings(app, theme, s.appearance.mode, s.language)),
         (3, data(s, app)),
     ] {
         if searching || category == s.settings_category {
@@ -124,108 +137,124 @@ fn general(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
         .position(|(d, _)| *d == s.settings.week_start)
         .unwrap_or(0);
     vec![
-        ShellSettingsSection::create(
-            "Default list",
+        section(
+            "aztasks-settings-default-list",
             row(
                 DropDown::create(StringVec::from(names))
                     .with_selected(selected)
-                    .with_accessibility_name("Default list")
+                    .with_accessibility_name(label("aztasks-settings-default-list"))
                     .with_on_choice_change(app.clone(), on_default_list as DropDownOnChoiceChangeCallbackType)
                     .dom()
                     .with_id(ids::SETTINGS_DEFAULT_LIST),
-                "where a new task goes from Today, All or a tag",
+                "aztasks-settings-default-list-what",
             ),
         ),
-        ShellSettingsSection::create(
-            "Week starts on",
+        section(
+            "aztasks-settings-week-starts",
             Segmented::create(strings(&WEEK_STARTS.map(|(_, n)| n)))
                 .with_selected_index(week)
                 .with_on_change(app.clone(), on_week_start as SegmentedOnChangeCallbackType)
                 .dom()
                 .with_id(ids::SETTINGS_WEEK_START),
         ),
-        ShellSettingsSection::create(
-            "Completed tasks",
+        section(
+            "aztasks-settings-completed",
             row(
                 Switch::create(s.settings.show_completed)
-                    .with_accessibility_name("Show completed tasks under a list")
+                    .with_accessibility_name(label("aztasks-settings-completed-name"))
                     .with_on_toggle(app.clone(), on_show_completed as SwitchOnToggleCallbackType)
                     .dom()
                     .with_id(ids::SETTINGS_SHOW_COMPLETED),
-                "show them under a list's open tasks (folded)",
+                "aztasks-settings-completed-what",
             ),
         ),
     ]
 }
 
 fn reminder_settings(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
-    let t = s.settings.reminder_time;
+    let time = s.settings.reminder_time;
     let (available, why) = &s.os_notifications;
+    // `why`: the system's own words.
     let os_line = if *available {
-        format!("This system shows them ({why}).")
+        t_args("aztasks-settings-os-shows", &[("why", Arg::from(why.as_str()))])
     } else {
-        format!("Not on this system: {why}. Reminders show in the window only.")
+        t_args("aztasks-settings-os-none", &[("why", Arg::from(why.as_str()))])
     };
     vec![
-        ShellSettingsSection::create(
-            "Reminder time",
+        section(
+            "aztasks-settings-reminder-time",
             row(
-                TimePicker::create(t.hour(), t.minute())
+                TimePicker::create(time.hour(), time.minute())
                     .with_24h(true)
-                    .with_accessibility_name("Reminder time")
+                    .with_accessibility_name(label("aztasks-settings-reminder-time"))
                     .with_on_change(app.clone(), on_reminder_time as TimePickerOnChangeCallbackType)
                     .dom()
                     .with_id(ids::SETTINGS_REMINDER_TIME),
-                "for tasks due on a day without a time, and a new due time",
+                "aztasks-settings-reminder-time-what",
             ),
         ),
-        ShellSettingsSection::create(
-            "Sounds",
+        section(
+            "aztasks-settings-sounds",
             row(
                 Switch::create(s.settings.sounds)
-                    .with_accessibility_name("Play a sound with a reminder")
+                    .with_accessibility_name(label("aztasks-settings-sounds-name"))
                     .with_on_toggle(app.clone(), on_sounds as SwitchOnToggleCallbackType)
                     .dom()
                     .with_id(ids::SETTINGS_SOUNDS),
-                "play the system's sound with a reminder",
+                "aztasks-settings-sounds-what",
             ),
         ),
-        ShellSettingsSection::create(
-            "Notifications",
+        section(
+            "aztasks-settings-notifications",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column; gap: 4px;")
                 .with_child(row(
                     Switch::create(s.settings.notifications)
-                        .with_accessibility_name("Show reminders as notifications")
+                        .with_accessibility_name(label("aztasks-settings-notifications-name"))
                         .with_on_toggle(app.clone(), on_notifications as SwitchOnToggleCallbackType)
                         .dom()
                         .with_id(ids::SETTINGS_NOTIFICATIONS),
-                    "show a reminder as a notification of the system too",
+                    "aztasks-settings-notifications-what",
                 ))
                 .with_child(line(os_line, SOFT)),
         ),
     ]
 }
 
-fn appearance_settings(app: &RefAny, theme: &str, mode: ModePref) -> Vec<ShellSettingsSection> {
+fn appearance_settings(
+    app: &RefAny,
+    theme: &str,
+    mode: ModePref,
+    language: LanguagePref,
+) -> Vec<ShellSettingsSection> {
+    let languages: Vec<&str> = LanguagePref::ALL.iter().map(|l| l.key()).collect();
     vec![
-        ShellSettingsSection::create(
-            "Theme",
-            Segmented::create(strings(&["Flat", "Flora"]))
+        section(
+            "kit-general-theme",
+            Segmented::create(strings(&["kit-theme-flat", "kit-theme-flora"]))
                 // Flora or a spin of it ("flora:green").
                 .with_selected_index(usize::from(Theme::parse(theme).is_some_and(Theme::is_flora)))
                 .with_on_change(app.clone(), on_theme as SegmentedOnChangeCallbackType)
                 .dom()
                 .with_id(ids::SETTINGS_THEME),
         ),
-        ShellSettingsSection::create(
-            "Mode",
-            Segmented::create(strings(&["System", "Light", "Dark"]))
+        section(
+            "kit-general-mode",
+            Segmented::create(strings(&["kit-mode-system", "kit-mode-light", "kit-mode-dark"]))
                 // The kept choice (System follows the OS), not only what is shown now.
                 .with_selected_index(appearance::mode_index(mode))
                 .with_on_change(app.clone(), on_mode as SegmentedOnChangeCallbackType)
                 .dom()
                 .with_id(ids::SETTINGS_MODE),
+        ),
+        // The words' language: the system's, English or German (appkit's words for them).
+        section(
+            "kit-general-language",
+            Segmented::create(strings(&languages))
+                .with_selected_index(language.index())
+                .with_on_change(app.clone(), on_language as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_id(ids::SETTINGS_LANGUAGE),
         ),
     ]
 }
@@ -234,12 +263,14 @@ fn data(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
     let mut contents = Dom::create_div()
         .with_css("display: flex; flex-direction: column; gap: 4px;")
         .with_child(line(
-            format!(
-                "{} lists, {} tasks ({} open), {} file(s) left out",
-                s.lists.len(),
-                s.tasks.len(),
-                s.tasks.iter().filter(|t| !t.is_done()).count(),
-                s.skipped.len()
+            t_args(
+                "aztasks-settings-contents",
+                &[
+                    ("lists", Arg::from(s.lists.len())),
+                    ("tasks", Arg::from(s.tasks.len())),
+                    ("open", Arg::from(s.tasks.iter().filter(|t| !t.is_done()).count())),
+                    ("skipped", Arg::from(s.skipped.len())),
+                ],
             ),
             TEXT,
         ));
@@ -247,28 +278,23 @@ fn data(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
         contents.add_child(line(format!("{}: {}", skipped.key, skipped.reason), SOFT));
     }
     vec![
-        ShellSettingsSection::create(
-            "Data folder",
+        section(
+            "aztasks-settings-data-folder",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column; gap: 4px;")
                 .with_child(line(s.root.display().to_string(), TEXT))
-                .with_child(line(
-                    "One file per task: tasks/<list>/<task>.json, a list's tasks/<list>/list.json, \
-                     its attachments next to the task. The same layout as the S3 bucket the files \
-                     can move to.",
-                    SOFT,
-                )),
+                .with_child(line("aztasks-settings-data-folder-what", SOFT)),
         ),
-        ShellSettingsSection::create("Contents", contents),
-        ShellSettingsSection::create("Import and export", import_export(s, app)),
-        ShellSettingsSection::create(
-            "Sample",
+        section("aztasks-settings-contents-title", contents),
+        section("aztasks-settings-import-export", import_export(s, app)),
+        section(
+            "aztasks-settings-sample",
             row(
-                Button::create("Add the sample tasks")
+                Button::create(label("aztasks-settings-add-sample"))
                     .with_on_click(app.clone(), on_sample as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::SETTINGS_SAMPLE),
-                "lists and tasks to try AzTasks with",
+                "aztasks-settings-sample-what",
             ),
         ),
     ]
@@ -286,7 +312,7 @@ fn import_export(s: &Tasks, app: &RefAny) -> Dom {
                     TextInput::create()
                         .with_text(s.import_path.as_str())
                         .with_placeholder("/path/to/tasks.ics")
-                        .with_accessibility_name("iCalendar file to import")
+                        .with_accessibility_name(label("aztasks-settings-import-file"))
                         .with_on_text_input(
                             app.clone(),
                             on_import_path as TextInputOnTextInputCallbackType,
@@ -296,29 +322,25 @@ fn import_export(s: &Tasks, app: &RefAny) -> Dom {
                         .with_css("flex-grow: 1; min-width: 200px;"),
                 )
                 .with_child(
-                    Button::create("Browse...")
+                    Button::create(label("aztasks-settings-browse"))
                         .with_on_click(app.clone(), on_import_browse as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::SETTINGS_IMPORT_BROWSE),
                 )
                 .with_child(
-                    Button::create("Import")
+                    Button::create(label("aztasks-settings-import"))
                         .with_on_click(app.clone(), on_import as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::SETTINGS_IMPORT),
                 ),
         )
-        .with_child(line(
-            "To-dos of an iCalendar file (Outlook, Apple Reminders, Thunderbird) go into the \
-             default list.",
-            SOFT,
-        ))
+        .with_child(line("aztasks-settings-import-what", SOFT))
         .with_child(row(
-            Button::create("Export")
+            Button::create(label("aztasks-settings-export"))
                 .with_on_click(app.clone(), on_export as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::SETTINGS_EXPORT),
-            "the list shown (or every task) as an iCalendar file in aztasks/exports",
+            "aztasks-settings-export-what",
         ));
     if !s.io_message.is_empty() {
         out.add_child(line(s.io_message.as_str(), TEXT).with_id(ids::SETTINGS_IO_MESSAGE));
@@ -332,7 +354,7 @@ fn shortcuts() -> Dom {
     let mut page = Dom::create_div()
         .with_id(ids::SHORTCUTS)
         .with_css(PAGE)
-        .with_child(Dom::create_h2_with_text("Keyboard shortcuts").with_css("font-size: 20px;"));
+        .with_child(Dom::create_h2_with_text(label("aztasks-cmd-shortcuts")).with_css("font-size: 20px;"));
     let mut rows: Vec<(String, String)> = Command::ALL
         .iter()
         .chain(std::iter::once(&Command::Palette))
@@ -341,15 +363,15 @@ fn shortcuts() -> Dom {
         .collect();
     rows.extend(
         [
-            ("Up / Down", "Select the task above / below (Shift extends)"),
-            ("Click / Shift+click / Cmd+click", "Select a task / a range / add one"),
-            ("Drag a task", "Put it before another (onto another list's task: move it there)"),
-            ("Enter (quick add)", "Add the typed task; a click on a chip keeps its words"),
-            ("Esc", "Close the palette or the backstage; clear the quick-add line"),
-            ("Cmd+7 .. Cmd+9", "Your first three lists"),
+            ("aztasks-keys-up-down", "aztasks-keys-up-down-what"),
+            ("aztasks-keys-click", "aztasks-keys-click-what"),
+            ("aztasks-keys-drag", "aztasks-keys-drag-what"),
+            ("aztasks-keys-enter", "aztasks-keys-enter-what"),
+            ("aztasks-keys-esc", "aztasks-keys-esc-what"),
+            ("aztasks-keys-lists", "aztasks-keys-lists-what"),
         ]
         .iter()
-        .map(|(k, v)| ((*k).to_string(), (*v).to_string())),
+        .map(|(k, v)| (t(k), t(v))),
     );
     for (keys, what) in rows {
         page.add_child(
@@ -359,10 +381,7 @@ fn shortcuts() -> Dom {
                 .with_child(Dom::create_span_with_text(what).with_css(TEXT)),
         );
     }
-    page.with_child(line(
-        "Cmd is the Command key on macOS and Ctrl elsewhere. Single keys work while no text field has the focus.",
-        SOFT,
-    ))
+    page.with_child(line("aztasks-keys-note", SOFT))
 }
 
 fn about(s: &Tasks) -> Dom {
@@ -371,22 +390,24 @@ fn about(s: &Tasks) -> Dom {
         .with_id(ids::ABOUT)
         .with_css(PAGE)
         .with_child(Dom::create_h2_with_text("AzTasks").with_css("font-size: 24px;"))
-        .with_child(line(format!("Version {}", env!("CARGO_PKG_VERSION")), TEXT))
         .with_child(line(
-            "To-dos and reminders: smart lists, lists in groups, tags, quick add in plain words \
-             (English and German), repeating tasks, reminders, steps, notes and files.",
+            t_args("aztasks-about-version", &[("version", Arg::from(env!("CARGO_PKG_VERSION")))]),
             TEXT,
         ))
-        .with_child(line(format!("Data folder: {}", s.root.display()), SOFT))
+        .with_child(line("aztasks-about-summary", TEXT))
+        .with_child(line(
+            t_args("aztasks-about-data", &[("folder", Arg::from(s.root.display().to_string()))]),
+            SOFT,
+        ))
         .with_child(line(
             if *available {
-                format!("Notifications: {why}")
+                t_args("aztasks-about-notifications", &[("why", Arg::from(why.as_str()))])
             } else {
-                format!("Notifications: not on this system ({why})")
+                t_args("aztasks-about-no-notifications", &[("why", Arg::from(why.as_str()))])
             },
             SOFT,
         ))
-        .with_child(line("Built on azul. MIT licensed.", SOFT))
+        .with_child(line("aztasks-about-built", SOFT))
 }
 
 // ==== Callbacks ====
@@ -509,6 +530,18 @@ extern "C" fn on_mode(mut data: RefAny, mut info: CallbackInfo, state: Segmented
     })
 }
 
+/// The language of the words: in effect at once (every window), kept for the next start.
+extern "C" fn on_language(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let language = LanguagePref::ALL[state.selected_index.min(LanguagePref::ALL.len() - 1)];
+    info.set_locale(language.tag());
+    println!("AZTASKS_LANGUAGE {}", language.name());
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
+        s.language = language;
+        s.appearance.set_language(language);
+        s.save_appearance();
+    })
+}
+
 extern "C" fn on_import_path(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
     if let Some(mut s) = data.downcast_mut::<Tasks>() {
         s.import_path = state.get_text().as_str().to_string();
@@ -521,7 +554,7 @@ extern "C" fn on_import_path(mut data: RefAny, _info: CallbackInfo, state: TextI
 
 extern "C" fn on_import_browse(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::open_file(
-        "Import to-dos from an iCalendar file",
+        label("aztasks-import-dialog"),
         OptionString::None,
         OptionFileTypeList::None,
         data,
@@ -546,10 +579,10 @@ extern "C" fn on_import(mut data: RefAny, mut info: CallbackInfo) -> Update {
     crate::with_tasks(&mut data, &mut info, |info, app, s| {
         let path = s.import_path.trim().to_string();
         if path.is_empty() {
-            s.io_message = String::from("Give the iCalendar file to import, or Browse for it.");
+            s.io_message = t("aztasks-import-give-file");
             return;
         }
-        s.io_message = format!("Reading {path}...");
+        s.io_message = t_args("aztasks-import-reading", &[("path", Arg::from(path.as_str()))]);
         crate::jobs::spawn(info, app, s, crate::jobs::Job::ReadImport(PathBuf::from(path)));
     })
 }
@@ -559,9 +592,12 @@ extern "C" fn on_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
     crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
         let (key, count) = s.export_tasks(crate::state::now(), &crate::state::local_to_utc);
         println!("AZTASKS_EXPORTED {count} {key}");
-        s.io_message = format!(
-            "Exported {count} to-do(s) to {}.",
-            s.root.join(&key).display()
+        s.io_message = t_args(
+            "aztasks-exported",
+            &[
+                ("count", Arg::from(count)),
+                ("path", Arg::from(s.root.join(&key).display().to_string())),
+            ],
         );
     })
 }
@@ -579,7 +615,10 @@ mod tests {
 
     #[test]
     fn the_settings_have_four_categories_and_three_week_starts() {
-        assert_eq!(CATEGORIES, ["General", "Reminders", "Appearance", "Data"]);
+        assert_eq!(
+            CATEGORIES,
+            ["aztasks-settings-general", "aztasks-settings-reminders", "aztasks-group-appearance", "aztasks-settings-data"]
+        );
         assert_eq!(WEEK_STARTS[0].0, Weekday::Mon);
         assert_eq!(Page::ALL.len(), 3);
     }

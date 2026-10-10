@@ -22,6 +22,8 @@ use std::collections::BTreeMap;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime};
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 use crate::model::{self, SortMode, Task, TaskList};
 
 /// The manual order's step, a new task's order, and the lists in the navigation's order (groups
@@ -53,16 +55,17 @@ impl Smart {
         Smart::Completed,
     ];
 
+    /// The view's name in the window's language.
     #[must_use]
-    pub fn label(self) -> &'static str {
-        match self {
-            Smart::Today => "Today",
-            Smart::Upcoming => "Upcoming",
-            Smart::Scheduled => "Scheduled",
-            Smart::Flagged => "Flagged",
-            Smart::All => "All",
-            Smart::Completed => "Completed",
-        }
+    pub fn label(self) -> String {
+        t(match self {
+            Smart::Today => "aztasks-smart-today",
+            Smart::Upcoming => "aztasks-smart-upcoming",
+            Smart::Scheduled => "aztasks-smart-scheduled",
+            Smart::Flagged => "aztasks-smart-flagged",
+            Smart::All => "aztasks-smart-all",
+            Smart::Completed => "aztasks-smart-completed",
+        })
     }
 
     /// A Material icon name.
@@ -313,8 +316,10 @@ pub fn sections(
     let today = now.date();
     match view {
         View::Smart(Smart::Today) => {
-            let mut overdue = Section::new("overdue".into(), "Overdue".into(), SectionKind::Overdue);
-            let mut due_today = Section::new("today".into(), "Today".into(), SectionKind::Plain);
+            let mut overdue =
+                Section::new("overdue".into(), t("aztasks-overdue"), SectionKind::Overdue);
+            let mut due_today =
+                Section::new("today".into(), t("kit-date-today"), SectionKind::Plain);
             for (i, t) in tasks.iter().enumerate() {
                 if !in_smart(Smart::Today, t, today) {
                     continue;
@@ -355,7 +360,8 @@ pub fn sections(
             non_empty(days)
         }
         View::Smart(Smart::Scheduled) => {
-            let mut overdue = Section::new("overdue".into(), "Overdue".into(), SectionKind::Overdue);
+            let mut overdue =
+                Section::new("overdue".into(), t("aztasks-overdue"), SectionKind::Overdue);
             let mut by_key: BTreeMap<String, Section> = BTreeMap::new();
             for (i, t) in tasks.iter().enumerate() {
                 let (true, Some(due)) = (in_smart(Smart::Scheduled, t, today), t.due) else {
@@ -376,9 +382,9 @@ pub fn sections(
                     (
                         format!("month-{:04}-{:02}", due.year(), due.month()),
                         if due.year() == today.year() {
-                            due.format("%B").to_string()
+                            t(azul_pim::dates::month_message_id(due.month()))
                         } else {
-                            due.format("%B %Y").to_string()
+                            model::said(azul_appkit::l10n::DateStyle::MonthYear, due)
                         },
                     )
                 };
@@ -438,7 +444,10 @@ pub fn sections(
                 done.sort_by(|&a, &b| tasks[b].completed.cmp(&tasks[a].completed));
                 out.push(Section {
                     key: "completed".into(),
-                    title: format!("Completed ({})", done.len()),
+                    title: t_args(
+                        "aztasks-completed-count",
+                        &[("count", Arg::from(done.len()))],
+                    ),
                     kind: SectionKind::Completed,
                     tasks: done,
                 });
@@ -455,7 +464,10 @@ pub fn sections(
                 done.sort_by(|&a, &b| tasks[b].completed.cmp(&tasks[a].completed));
                 out.push(Section {
                     key: "completed".into(),
-                    title: format!("Completed ({})", done.len()),
+                    title: t_args(
+                        "aztasks-completed-count",
+                        &[("count", Arg::from(done.len()))],
+                    ),
                     kind: SectionKind::Completed,
                     tasks: done,
                 });
@@ -507,7 +519,7 @@ fn by_list(tasks: &[Task], lists: &[TaskList], sort: SortMode, keep: impl Fn(&Ta
         sort_indices(&mut orphans, tasks, sort);
         out.push(Section {
             key: "list-".into(),
-            title: "Other".into(),
+            title: t("aztasks-other-list"),
             kind: SectionKind::Plain,
             tasks: orphans,
         });
@@ -664,13 +676,14 @@ impl Column {
     /// Left to right.
     pub const ALL: [Column; 3] = [Column::ToDo, Column::Doing, Column::Done];
 
+    /// The column's name in the window's language.
     #[must_use]
-    pub fn label(self) -> &'static str {
-        match self {
-            Column::ToDo => "To do",
-            Column::Doing => "Doing",
-            Column::Done => "Done",
-        }
+    pub fn label(self) -> String {
+        t(match self {
+            Column::ToDo => "aztasks-column-to-do",
+            Column::Doing => "aztasks-column-doing",
+            Column::Done => "aztasks-column-done",
+        })
     }
 
     /// The name in ids and on stdout: `todo`, `doing`, `done`.
@@ -855,6 +868,7 @@ mod tests {
 
     #[test]
     fn a_list_shows_its_open_tasks_in_manual_order_then_its_completed_ones() {
+        crate::l10n::in_english();
         let tasks = sample();
         let s = sections(&View::List("home".into()), &tasks, &lists(), now(), SortMode::Manual, true);
         assert_eq!(s.len(), 2);

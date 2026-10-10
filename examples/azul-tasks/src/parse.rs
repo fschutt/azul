@@ -142,7 +142,7 @@ pub fn parse_with(input: &str, ctx: &Context<'_>, ignore: &[usize]) -> Parsed {
                 (PartKind::Time, model::format_time(t))
             }
             Hit::Repeat(r) => {
-                let label = r.label();
+                let label = azul_appkit::l10n::t_said(&r.description());
                 out.repeat = Some(r);
                 (PartKind::Repeat, label)
             }
@@ -159,11 +159,17 @@ pub fn parse_with(input: &str, ctx: &Context<'_>, ignore: &[usize]) -> Parsed {
             }
             Hit::Priority(p) => {
                 out.priority = Some(p);
-                (PartKind::Priority, format!("{} priority", p.label()))
+                (
+                    PartKind::Priority,
+                    azul_appkit::l10n::t_args(
+                        "aztasks-priority-of",
+                        &[("priority", azul_appkit::l10n::Arg::from(azul_appkit::l10n::t(p.message_id())))],
+                    ),
+                )
             }
             Hit::Flag => {
                 out.flagged = true;
-                (PartKind::Flag, "Flagged".to_string())
+                (PartKind::Flag, azul_appkit::l10n::t("aztasks-smart-flagged"))
             }
         };
         out.parts.push(Part {
@@ -829,6 +835,7 @@ mod tests {
 
     #[test]
     fn pay_rent_tomorrow_9am_home_high_is_a_task_due_tomorrow_at_nine() {
+        crate::l10n::in_english();
         let p = at_thursday("Pay rent tomorrow 9am #home !high");
         assert_eq!(p.title, "Pay rent");
         assert_eq!(p.due, Some(day(2026, 10, 2)));

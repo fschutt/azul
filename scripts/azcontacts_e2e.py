@@ -96,7 +96,9 @@ def body(args, logs, out):
     fixture = os.path.join(logs, "friends.vcf")
     with open(fixture, "w", encoding="utf-8", newline="") as f:
         f.write(FIXTURE)
-    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--sample", "--size", "1100x720", fixture],
+    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--sample", "--size", "1100x720",
+                                "--language", "en",  # the clicks read English words
+                                fixture],
                   args.debug_port, logs, args.timeout)
     try:
         # 1-2: the sample and the import preview.

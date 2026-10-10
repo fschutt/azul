@@ -9,6 +9,8 @@
 //! possible duplicate of one (dupes.rs); export writes the chosen contacts
 //! as one `.vcf` in the version asked for.
 
+use azul_appkit::phrase::{Phrase, Text};
+
 use crate::contact::{parse_vcf, write_vcf, Contact};
 use crate::dupes::{similarity, THRESHOLD};
 use crate::vcard::Version;
@@ -72,23 +74,28 @@ pub fn file_of(c: &Contact) -> (String, Vec<u8>) {
 /// Reads the contact files (`(key, bytes)`, as the file jobs return them):
 /// the contacts, and what could not be read.
 #[must_use]
-pub fn load(files: &[(String, Vec<u8>)]) -> (Vec<Contact>, Vec<String>) {
+pub fn load(files: &[(String, Vec<u8>)]) -> (Vec<Contact>, Vec<Text>) {
     let mut contacts = Vec::new();
     let mut problems = Vec::new();
     for (key, bytes) in files {
         let Some(uid) = uid_of_key(key) else {
-            problems.push(format!("{key}: not a contact file name"));
+            problems.push(Phrase::new("azcontacts-load-not-a-file-name").arg("file", key.as_str()).into());
             continue;
         };
         let text = String::from_utf8_lossy(bytes);
         let (mut cards, card_problems) = parse_vcf(&text);
-        problems.extend(card_problems.into_iter().map(|p| format!("{key}: {p}")));
+        problems.extend(card_problems.into_iter().map(|p| Text::plain(format!("{key}: ")).then(p)));
         if cards.is_empty() {
-            problems.push(format!("{key}: no vCard in the file"));
+            problems.push(Phrase::new("azcontacts-load-no-vcard").arg("file", key.as_str()).into());
             continue;
         }
         if cards.len() > 1 {
-            problems.push(format!("{key}: {} cards, the first is used", cards.len()));
+            problems.push(
+                Phrase::new("azcontacts-load-many-cards")
+                    .arg("file", key.as_str())
+                    .arg("count", cards.len())
+                    .into(),
+            );
         }
         let mut c = cards.swap_remove(0);
         c.uid = uid;
@@ -119,7 +126,7 @@ pub struct ImportRow {
 
 /// The import preview of a `.vcf` text against the address book.
 #[must_use]
-pub fn import_preview(text: &str, existing: &[Contact]) -> (Vec<ImportRow>, Vec<String>) {
+pub fn import_preview(text: &str, existing: &[Contact]) -> (Vec<ImportRow>, Vec<Text>) {
     let (cards, problems) = parse_vcf(text);
     (preview_rows(cards, existing), problems)
 }
@@ -130,7 +137,7 @@ pub fn csv_preview(
     table: &crate::csv::Table,
     mapping: &[crate::csv::Field],
     existing: &[Contact],
-) -> (Vec<ImportRow>, Vec<String>) {
+) -> (Vec<ImportRow>, Vec<Text>) {
     let (cards, problems) = crate::csv::contacts(table, mapping);
     (preview_rows(cards, existing), problems)
 }
@@ -173,20 +180,24 @@ fn preview_rows(cards: Vec<Contact>, existing: &[Contact]) -> Vec<ImportRow> {
     rows
 }
 
-/// The import summary: `55 new · 3 duplicates · 1 update`.
+/// The import summary (the app says it): `55 new · 3 possible duplicates · 1 update`.
 #[must_use]
-pub fn import_summary(rows: &[ImportRow]) -> String {
+pub fn import_summary(rows: &[ImportRow]) -> Text {
     let new = rows.iter().filter(|r| r.status == ImportStatus::New).count();
     let dup = rows.iter().filter(|r| matches!(r.status, ImportStatus::Duplicate(..))).count();
     let upd = rows.iter().filter(|r| matches!(r.status, ImportStatus::Update(_))).count();
-    let mut parts = vec![format!("{new} new")];
+    let mut summary = Text::from(Phrase::new("azcontacts-import-new").arg("count", new));
     if dup > 0 {
-        parts.push(format!("{dup} possible duplicate{}", if dup == 1 { "" } else { "s" }));
+        summary = summary
+            .then(" \u{b7} ")
+            .then(Phrase::new("azcontacts-import-duplicates").arg("count", dup));
     }
     if upd > 0 {
-        parts.push(format!("{upd} update{}", if upd == 1 { "" } else { "s" }));
+        summary = summary
+            .then(" \u{b7} ")
+            .then(Phrase::new("azcontacts-import-updates").arg("count", upd));
     }
-    parts.join(" \u{b7} ")
+    summary
 }
 
 /// The chosen contacts as one `.vcf` text.
@@ -201,6 +212,8 @@ pub fn export(contacts: &[Contact], indices: &[usize], version: Version) -> Stri
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::{Phrase, Text};
+
     use super::*;
     use crate::contact::Labeled;
 
@@ -238,7 +251,10 @@ mod tests {
         assert_eq!(contacts[0], a);
         assert_eq!(contacts[1].uid, "cccc", "the file's name is the contact's identity");
         assert_eq!(contacts[1].given, "Ben");
-        assert_eq!(problems, vec!["contacts/broken.vcf: no vCard in the file"]);
+        assert_eq!(
+            problems,
+            vec![Text::from(Phrase::new("azcontacts-load-no-vcard").arg("file", "contacts/broken.vcf"))]
+        );
     }
 
     #[test]
@@ -272,7 +288,16 @@ mod tests {
         assert!(!rows[1].selected);
         assert!(matches!(rows[2].status, ImportStatus::Duplicate(0, s) if (s - 0.93).abs() < 1e-6));
         assert!(!rows[2].selected);
-        assert_eq!(import_summary(&rows), "1 new \u{b7} 1 possible duplicate \u{b7} 1 update");
+        let summary = import_summary(&rows);
+        assert_eq!(
+            summary.keys(),
+            vec!["azcontacts-import-new", "azcontacts-import-duplicates", "azcontacts-import-updates"]
+        );
+        assert_eq!(
+            summary.to_string(),
+            "azcontacts-import-new(count=1) \u{b7} azcontacts-import-duplicates(count=1) \u{b7} \
+             azcontacts-import-updates(count=1)"
+        );
     }
 
     #[test]

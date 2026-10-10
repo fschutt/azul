@@ -437,7 +437,7 @@ fn schedule_view(s: &CalState, app: &RefAny) -> Dom {
                             calendar.colour.swatch_css()
                         )))
                         .with_child(
-                            Dom::create_span_with_text(calendar.name.as_str())
+                            Dom::create_span_with_text(crate::calendar_name(calendar))
                                 .with_css(CLIPPED_LINE),
                         ),
                 )
@@ -485,7 +485,7 @@ fn agenda_view(s: &CalState, app: &RefAny) -> Dom {
                 details.push(e.location.clone());
             }
             if let Some(rule) = &e.repeat {
-                details.push(rule.describe(e.date));
+                details.push(azul_appkit::l10n::t_said(&rule.description(e.date)));
             }
             if !details.is_empty() {
                 text.add_child(

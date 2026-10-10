@@ -28,11 +28,15 @@ use azul::{
         ButtonType, CheckBoxState, CloseGuard, CloseGuardDocumentState, CloseGuardEvent,
         CloseGuardEventKind, DatePicker,
         DatePickerState, DatePickerWeekStart,
-        OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Ribbon, RibbonButton, RibbonGroup,
+        OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Ribbon, RibbonGroup,
         RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea, TextAreaState,
         TextInputState, TimePicker, TimePickerState, Titlebar,
     },
     window::WindowDecorations,
+};
+use azul_appkit::{
+    l10n::{label, t, t_args, Arg, DateStyle},
+    ribbon::callback_button,
 };
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
@@ -42,8 +46,6 @@ use crate::{
 };
 
 /// What the form's "Add AzMeet link" line says once it is ticked.
-const WILL_MINT: &str = "A new AzMeet link is made when you save. It works offline too: the \
-                         meeting server gets it as soon as it answers.";
 
 // ==== Opening ====
 
@@ -137,8 +139,7 @@ pub(crate) fn open_form(
         return Update::DoNothing;
     };
     if s.editor.is_some() {
-        s.notice =
-            String::from("An appointment is open in its own window: save or close it first.");
+        s.notice = t("azcalendar-editor-already-open");
         return Update::RefreshDom;
     }
     let title = form.window_title();
@@ -196,7 +197,9 @@ extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .dom(),
         None => Dom::create_div()
             .with_css(PAGE)
-            .with_child(Dom::create_span_with_text("This appointment is closed.")),
+            .with_child(Dom::create_span_with_text(label(
+                "azcalendar-editor-closed",
+            ))),
     };
     // "Save changes?" over the window: the close guard holds a close while the form differs
     // from the one it opened with - asked when the close comes (`editor_dirty_check`), so the
@@ -231,37 +234,40 @@ extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 /// The editor's ribbon: APPOINTMENT (or MEETING) - Save & Close, Delete, Delete This
 /// Occurrence; Add AzMeet Link; Close.
 fn ribbon(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
-    let button = |icon: &str, label: &str, cb: ButtonOnClickCallbackType| {
-        RibbonButton::create(icon, label).with_on_click(app.clone(), cb)
+    let button = |icon: &str, text: &str, cb: ButtonOnClickCallbackType| {
+        callback_button(icon, text, app.clone(), cb)
     };
-    let mut actions = RibbonGroup::create("Actions").with_item(RibbonItem::LargeButton(button(
-        "save",
-        "Save & Close",
-        on_save,
-    )));
+    let mut actions = RibbonGroup::create(label("azcalendar-editor-actions")).with_item(
+        RibbonItem::LargeButton(button("save", "azcalendar-save-close", on_save)),
+    );
     if form.existing {
         actions = actions.with_item(RibbonItem::LargeButton(button(
-            "delete", "Delete", on_delete,
+            "delete",
+            "azcalendar-delete",
+            on_delete,
         )));
         if s.editor_occurrence.is_some() {
             actions = actions.with_item(RibbonItem::LargeButton(button(
                 "event_busy",
-                "Delete This Occurrence",
+                "azcalendar-delete-occurrence",
                 on_delete_occurrence,
             )));
         }
     }
-    let meeting = RibbonGroup::create("Meeting").with_item(RibbonItem::LargeButton(
-        button("video_call", "Add AzMeet Link", on_meet_label).with_toggled(form.add_meet),
+    let meeting =
+        RibbonGroup::create(label("azcalendar-kind-meeting")).with_item(RibbonItem::LargeButton(
+            button("video_call", "azcalendar-ribbon-add-meet", on_meet_label)
+                .with_toggled(form.add_meet),
+        ));
+    let close = RibbonGroup::create(label("azcalendar-close")).with_item(RibbonItem::LargeButton(
+        button("close", "azcalendar-close", on_cancel),
     ));
-    let close = RibbonGroup::create("Close")
-        .with_item(RibbonItem::LargeButton(button("close", "Close", on_cancel)));
     let tab = if form.meeting_request || !form.attendees.trim().is_empty() {
-        "MEETING"
+        "azcalendar-tab-meeting"
     } else {
-        "APPOINTMENT"
+        "azcalendar-tab-appointment"
     };
-    Ribbon::create(vec![RibbonTab::create(tab)
+    Ribbon::create(vec![RibbonTab::create(label(tab))
         .with_group(actions)
         .with_group(meeting)
         .with_group(close)])
@@ -269,10 +275,10 @@ fn ribbon(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
 }
 
 /// One labelled row of the form: the label column, then the controls.
-fn row(label: &str, controls: Vec<Dom>) -> Dom {
+fn row(text: &str, controls: Vec<Dom>) -> Dom {
     let mut line = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 10px;")
-        .with_child(Dom::create_span_with_text(label).with_css(format!(
+        .with_child(Dom::create_span_with_text(label(text)).with_css(format!(
             "width: 96px; flex-shrink: 0; font-size: 13px; {SECONDARY}"
         )));
     for c in controls {
@@ -291,7 +297,7 @@ fn date_picker(
     DatePicker::create(date.year().max(1) as u32, date.month(), date.day())
         // The calendar's weeks run Monday to Sunday: so do its date pickers' rows.
         .with_week_start(DatePickerWeekStart::Monday)
-        .with_accessibility_name(name)
+        .with_accessibility_name(label(name))
         .with_on_change(app.clone(), cb)
         .dom()
         .with_id(id)
@@ -307,7 +313,7 @@ fn time_picker(
 ) -> Dom {
     TimePicker::create(time.hour(), time.minute())
         .with_24h(true)
-        .with_accessibility_name(name)
+        .with_accessibility_name(label(name))
         .with_on_change(app.clone(), cb)
         .dom()
         .with_id(id)
@@ -316,7 +322,7 @@ fn time_picker(
 
 fn check(
     checked: bool,
-    label: &str,
+    text: &str,
     id: AzString,
     app: &RefAny,
     cb: CheckBoxOnToggleCallbackType,
@@ -325,12 +331,12 @@ fn check(
         .with_css("display: flex; flex-direction: row; align-items: center; margin-right: 12px;")
         .with_child(
             CheckBox::create(checked)
-                .with_accessibility_name(label)
+                .with_accessibility_name(label(text))
                 .with_on_toggle(app.clone(), cb)
                 .dom()
                 .with_id(id),
         )
-        .with_child(Dom::create_span_with_text(label).with_css("margin-left: 6px;"))
+        .with_child(Dom::create_span_with_text(label(text)).with_css("margin-left: 6px;"))
 }
 
 /// The day a date picker shows for `date`.
@@ -348,11 +354,11 @@ fn picker_day(date: NaiveDate) -> DatePickerState {
 fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
     // One occurrence does not repeat by itself: the series' rule is edited with the series.
     if form.edits_one_occurrence() {
-        return vec![Dom::create_span_with_text(
-            "This occurrence only - choose \"The whole series\" to change how it repeats.",
-        )
-        .with_id(ids::EDITOR_REPEAT_OCCURRENCE)
-        .with_css(SECONDARY)];
+        return vec![
+            Dom::create_span_with_text(label("azcalendar-occurrence-only"))
+                .with_id(ids::EDITOR_REPEAT_OCCURRENCE)
+                .with_css(SECONDARY),
+        ];
     }
     let text = form
         .shown_rule()
@@ -362,7 +368,7 @@ fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
         Some(rule) => vec![DateRepeatPicker::create(rule)
             // The calendar's weeks run Monday to Sunday (`week::week_start`).
             .with_week_start(DatePickerWeekStart::Monday)
-            .with_accessibility_name("Repeat")
+            .with_accessibility_name(label("azcalendar-editor-repeat"))
             .with_on_change(app.clone(), on_repeat_rule as DateRepeatPickerOnChangeCallbackType)
             .dom()
             .with_id(ids::EDITOR_REPEAT)],
@@ -374,7 +380,7 @@ fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
             ))
             .with_id(ids::EDITOR_REPEAT_CUSTOM)
             .with_css("margin-right: 8px;"),
-            Button::create("Replace")
+            Button::create(label("azcalendar-replace"))
                 .with_on_click(app.clone(), on_repeat_replace)
                 .dom()
                 .with_id(ids::EDITOR_REPEAT_REPLACE),
@@ -389,25 +395,26 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     // Opened on an occurrence of a series: this occurrence alone, or the whole series.
     if let Some(day) = form.occurrence {
         page.add_child(row(
-            "Edit",
-            vec![
-                Segmented::create(StringVec::from(vec![
-                    AzString::from(format!("This occurrence ({})", day.format("%a %-d %b"))),
-                    AzString::from("The whole series"),
-                ]))
-                .with_selected_index(usize::from(form.whole_series))
-                .with_on_change(app.clone(), on_scope as SegmentedOnChangeCallbackType)
-                .dom()
-                .with_id(ids::EDITOR_SCOPE),
-            ],
+            "azcalendar-editor-edit",
+            vec![Segmented::create(StringVec::from(vec![
+                AzString::from(t_args(
+                    "azcalendar-this-occurrence",
+                    &[("day", Arg::from(crate::day_text(DateStyle::ShortDate, day)))],
+                )),
+                label("azcalendar-whole-series"),
+            ]))
+            .with_selected_index(usize::from(form.whole_series))
+            .with_on_change(app.clone(), on_scope as SegmentedOnChangeCallbackType)
+            .dom()
+            .with_id(ids::EDITOR_SCOPE)],
         ));
     }
     page.add_child(row(
-        "Subject",
+        "azcalendar-editor-subject",
         vec![crate::text_field(
             &form.title,
-            "Add a title",
-            "Subject",
+            "azcalendar-add-a-title",
+            "azcalendar-editor-subject",
             ids::EDITOR_TITLE,
             app.clone(),
             on_title,
@@ -415,11 +422,11 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     ));
     let attendees = || {
         row(
-            "Attendees",
+            "azcalendar-editor-attendees",
             vec![crate::text_field(
                 &form.attendees,
                 "ana@example.com, bo@example.org",
-                "Attendees",
+                "azcalendar-editor-attendees",
                 ids::EDITOR_ATTENDEES,
                 app.clone(),
                 on_attendees,
@@ -428,11 +435,11 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     };
     let location = || {
         row(
-            "Location",
+            "azcalendar-editor-location",
             vec![crate::text_field(
                 &form.location,
-                "Where?",
-                "Location",
+                "azcalendar-where",
+                "azcalendar-editor-location",
                 ids::EDITOR_LOCATION,
                 app.clone(),
                 on_location,
@@ -449,7 +456,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     }
     let mut start = vec![date_picker(
         form.date,
-        "Start date",
+        "azcalendar-start-date",
         ids::EDITOR_START_DATE,
         app,
         on_start_date,
@@ -457,7 +464,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     if !form.all_day {
         start.push(time_picker(
             form.start,
-            "Start time",
+            "azcalendar-start-time",
             ids::EDITOR_START_TIME,
             app,
             on_start_time,
@@ -465,17 +472,17 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     }
     start.push(check(
         form.all_day,
-        "All day",
+        "azcalendar-all-day",
         ids::EDITOR_ALL_DAY,
         app,
         on_all_day,
     ));
-    page.add_child(row("Start", start));
+    page.add_child(row("azcalendar-editor-start", start));
     let mut end = Vec::new();
     if form.all_day {
         end.push(date_picker(
             form.last_day,
-            "End date",
+            "azcalendar-end-date",
             ids::EDITOR_END_DATE,
             app,
             on_end_date,
@@ -483,41 +490,41 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     } else {
         end.push(time_picker(
             form.end,
-            "End time",
+            "azcalendar-end-time",
             ids::EDITOR_END_TIME,
             app,
             on_end_time,
         ));
     }
-    page.add_child(row("End", end));
+    page.add_child(row("azcalendar-editor-end", end));
     // Repeat: the date repeat picker (daily / weekly on days / monthly / yearly, every N, the
     // end), or the event's own rule when it is one the editor cannot show.
-    page.add_child(row("Repeat", repeat_rows(form, app)));
+    page.add_child(row("azcalendar-editor-repeat", repeat_rows(form, app)));
 
     let reminders: Vec<String> = REMINDERS.iter().map(|(_, l)| l.to_string()).collect();
     page.add_child(row(
-        "Reminder",
+        "azcalendar-editor-reminder",
         vec![crate::drop_down(
             reminders,
             editor::reminder_index(form.reminder),
-            "Reminder",
+            "azcalendar-editor-reminder",
             ids::EDITOR_REMINDER,
             app.clone(),
             on_reminder,
         )],
     ));
-    let calendars: Vec<String> = s.calendars.iter().map(|c| c.name.clone()).collect();
+    let calendars: Vec<String> = s.calendars.iter().map(crate::calendar_name).collect();
     let calendar = s
         .calendars
         .iter()
         .position(|c| c.id == form.calendar)
         .unwrap_or(0);
     page.add_child(row(
-        "Calendar",
+        "azcalendar-editor-calendar",
         vec![crate::drop_down(
             calendars,
             calendar,
-            "Calendar",
+            "azcalendar-editor-calendar",
             ids::EDITOR_CALENDAR,
             app.clone(),
             on_calendar,
@@ -525,28 +532,30 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     ));
     let mut meet = vec![check(
         form.add_meet,
-        "Add AzMeet link",
+        "azcalendar-add-meet-link",
         ids::EDITOR_MEET,
         app,
         on_meet,
     )];
     if form.add_meet {
         let text = match &form.meeting {
-            Some(m) if m.pending => format!("{} (waits for the meeting server)", m.link),
+            Some(m) if m.pending => {
+                t_args("azcalendar-link-waits", &[("link", Arg::from(&m.link))])
+            }
             Some(m) => m.link.clone(),
-            None => String::from(WILL_MINT),
+            None => t(timegrid::WILL_MINT),
         };
         meet.push(
             Dom::create_span_with_text(text).with_css(format!("font-size: 12px; {SECONDARY}")),
         );
     }
     page.add_child(row("AzMeet", meet));
-    page.add_child(Dom::create_span_with_text("Notes").with_css(LABEL));
+    page.add_child(Dom::create_span_with_text(label("azcalendar-notes")).with_css(LABEL));
     page.add_child(
         TextArea::create()
             .with_text(form.notes.as_str())
-            .with_placeholder("Notes")
-            .with_accessibility_name("Notes")
+            .with_placeholder(label("azcalendar-notes"))
+            .with_accessibility_name(label("azcalendar-notes"))
             .with_on_text_input(app.clone(), on_notes as TextAreaOnTextInputCallbackType)
             .dom()
             .with_id(ids::EDITOR_NOTES)
@@ -563,7 +572,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 20px;");
     if form.existing {
         buttons.add_child(
-            Button::with_type("Delete", ButtonType::Danger)
+            Button::with_type(label("azcalendar-delete"), ButtonType::Danger)
                 .with_on_click(app.clone(), on_delete)
                 .dom()
                 .with_id(ids::EDITOR_DELETE),
@@ -571,14 +580,14 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
     }
     buttons.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     buttons.add_child(
-        Button::create("Cancel")
+        Button::create(label("kit-button-cancel"))
             .with_on_click(app.clone(), on_cancel)
             .dom()
             .with_id(ids::EDITOR_CANCEL)
             .with_css("margin-right: 8px;"),
     );
     buttons.add_child(
-        Button::with_type("Save & Close", ButtonType::Primary)
+        Button::with_type(label("azcalendar-save-close"), ButtonType::Primary)
             .with_on_click(app.clone(), on_save)
             .dom()
             .with_id(ids::EDITOR_SAVE),
@@ -864,9 +873,7 @@ fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
             Some(series) => form
                 .occurrence_events(series, &event::new_event_id(), meeting)
                 .map(|(kept, one)| vec![kept, one]),
-            None => Err(String::from(
-                "The series of this occurrence is gone: it was deleted meanwhile.",
-            )),
+            None => Err(t("azcalendar-series-gone")),
         }
     } else {
         form.event(meeting).map(|event| vec![event])
@@ -893,7 +900,7 @@ fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
             return Update::RefreshDom;
         }
     }
-    s.notice = format!("Saved \"{title}\".");
+    s.notice = t_args("azcalendar-saved-event", &[("title", Arg::from(&title))]);
     closed(s);
     timegrid::reveal(s, info, date, start);
     info.close_window();
@@ -930,7 +937,7 @@ extern "C" fn on_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
         s.announce_on_landing(&event::object_key(&id), format!("AZCAL_DELETED {id}"));
         s.events.retain(|e| e.id != id);
         s.selected = None;
-        s.notice = format!("Deleted \"{title}\".");
+        s.notice = t_args("azcalendar-deleted-event", &[("title", Arg::from(&title))]);
     }
     closed(s);
     info.close_window();
@@ -958,7 +965,13 @@ extern "C" fn on_delete_occurrence(mut data: RefAny, mut info: CallbackInfo) -> 
     match stored {
         Ok(_) => {
             s.selected = None;
-            s.notice = format!("Removed the occurrence of {}.", day.format("%A %-d %B"));
+            s.notice = t_args(
+                "azcalendar-occurrence-removed",
+                &[(
+                    "day",
+                    Arg::from(crate::day_text(DateStyle::WeekdayDayMonth, day)),
+                )],
+            );
             closed(s);
             info.close_window();
             Update::RefreshDomAllWindows

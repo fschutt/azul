@@ -104,6 +104,7 @@ kit-money = { $currency } { $amount }
 
 kit-date-today = Today
 kit-date-yesterday = Yesterday
+kit-date-tomorrow = Tomorrow
 kit-date-last-week = Last Week
 kit-date-two-weeks-ago = Two Weeks Ago
 kit-date-three-weeks-ago = Three Weeks Ago
@@ -158,3 +159,81 @@ kit-date-style-short-weekday-day = { $wd } { $day }
 kit-date-style-short-date = { $wd } { $day } { $mon }
 kit-date-style-day-short-month = { $day } { $mon }
 kit-date-style-day-only = { $day }
+# A list: l10n::and_list.
+kit-list-and = { $first } and { $last }
+# What a repeat rule does (azul-pim's Rule::description, l10n::t_said): "Every 2 weeks on Monday
+# and Friday, 10 times".
+kit-rule-every-weekday = Every weekday
+kit-rule-daily = { $n ->
+    [one] Daily
+   *[other] Every { $n } days
+ }
+kit-rule-weekly = { $n ->
+    [one] Weekly
+   *[other] Every { $n } weeks
+ }
+kit-rule-monthly = { $n ->
+    [one] Monthly
+   *[other] Every { $n } months
+ }
+kit-rule-yearly = { $n ->
+    [one] Yearly
+   *[other] Every { $n } years
+ }
+kit-rule-on = { $every } on { $on }
+kit-rule-nth-weekday = the { $nth } { $day }
+kit-rule-ordinal = { $n ->
+    [1] first
+    [2] second
+    [3] third
+    [4] fourth
+    [5] fifth
+   *[other] { $n }th
+ }
+kit-rule-ordinal-last = { $n ->
+    [1] last
+    [2] second to last
+   *[other] { $n }th to last
+ }
+kit-rule-month-day = day { $day }
+kit-rule-last-day = the last day
+kit-rule-day-from-end = the { $nth } day from the end
+kit-rule-days-of-month = { $days } of { $month }
+kit-rule-day-of-months = { $day } { $months }
+kit-rule-times = { $count ->
+    [one] { $rule }, once
+   *[other] { $rule }, { $count } times
+ }
+kit-rule-until = { $rule }, until { $date }
+kit-date-style-short-date-year = { $wd } { $day } { $mon } { $year }
+kit-date-style-weekday-date = { $weekday } { $day } { $month } { $year }
+# A task's words (azul-pim's task and repeat, AzTasks).
+kit-task-priority-none = None
+kit-task-priority-low = Low
+kit-task-priority-medium = Medium
+kit-task-priority-high = High
+kit-task-color-blue = Blue
+kit-task-color-green = Green
+kit-task-color-red = Red
+kit-task-color-orange = Orange
+kit-task-color-purple = Purple
+kit-task-color-teal = Teal
+kit-task-color-gray = Gray
+kit-task-color-pink = Pink
+kit-task-sort-manual = Manual
+kit-task-sort-due = Due date
+kit-task-sort-priority = Priority
+kit-task-sort-title = Title
+kit-task-sort-created = Created
+kit-repeat-weekdays = Weekdays
+kit-repeat-month-day = the { $day }{ $day ->
+    [1] st
+    [2] nd
+    [3] rd
+    [21] st
+    [22] nd
+    [23] rd
+    [31] st
+   *[other] th
+ }
+kit-repeat-after-completion = { $rule } after completion

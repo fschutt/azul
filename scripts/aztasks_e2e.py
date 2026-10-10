@@ -214,7 +214,8 @@ def run(args, logs, out, data_dir):
 
     # ---- first run: the sample, a reminder, quick add, Upcoming / Today, completing a repeat
     app = e2e.App("first", binary,
-                  ["--data", data_dir, "--sample", "--view", "today", "--size", "1280x800"],
+                  ["--data", data_dir, "--sample", "--view", "today", "--size", "1280x800",
+                   "--language", "en"],  # the clicks read English words
                   args.debug_port, logs, args.timeout, extra_env=env)
     try:
         loaded = app.until("AZTASKS_LOADED", lambda: app.printed("AZTASKS_LOADED", r"\d+ \d+ \d+"))
@@ -393,7 +394,8 @@ def run(args, logs, out, data_dir):
         app.stop()
 
     # ---- second run: the files are read back
-    app = e2e.App("second", binary, ["--data", data_dir, "--view", "scheduled"], args.debug_port, logs,
+    app = e2e.App("second", binary, ["--data", data_dir, "--view", "scheduled", "--language", "en"],
+                  args.debug_port, logs,
                   args.timeout, extra_env=env)
     try:
         loaded = app.until("AZTASKS_LOADED", lambda: app.printed("AZTASKS_LOADED", r"\d+ \d+ \d+"))

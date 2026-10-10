@@ -17,6 +17,8 @@ use azul::{
     widgets::{ButtonType, DropDown, OnTextInputReturn, Switch, SwitchState, TextInputState, TextInputValid},
 };
 
+use azul_appkit::l10n::{self, t_args, Arg};
+
 use crate::{
     ids,
     model::ListColor,
@@ -30,8 +32,9 @@ const FIELD: &str = "display: flex; flex-direction: row; align-items: center; ga
                      flex-wrap: wrap;";
 const LABEL: &str = "font-size: 12px; color: system:secondary-text; min-width: 72px;";
 
+/// A field's label: a key of the resources, or words as they are.
 fn label(text: &str) -> Dom {
-    Dom::create_span_with_text(text).with_css(LABEL)
+    Dom::create_span_with_text(l10n::label(text)).with_css(LABEL)
 }
 
 const KEEP: OnTextInputReturn = OnTextInputReturn {
@@ -56,11 +59,11 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
     } else {
         (l.name.as_str(), l.group.as_str())
     };
-    let mut colors = Dom::create_div().with_css(FIELD).with_child(label("Colour"));
+    let mut colors = Dom::create_div().with_css(FIELD).with_child(label("aztasks-colour"));
     for color in ListColor::ALL {
         let on = color == l.color;
         colors.add_child(
-            Button::with_type(color.label(), if on { ButtonType::Primary } else { ButtonType::Default })
+            Button::with_type(l10n::label(color.message_id()), if on { ButtonType::Primary } else { ButtonType::Default })
                 .with_on_click(
                     RefAny::new(ColorRef {
                         app: app.clone(),
@@ -80,13 +83,13 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
     Dom::create_div()
         .with_id(ids::LIST_EDIT)
         .with_css(PANE)
-        .with_child(Dom::create_h2_with_text("List settings").with_css("font-size: 18px; font-weight: bold;"))
+        .with_child(Dom::create_h2_with_text(l10n::label("aztasks-list-settings")).with_css("font-size: 18px; font-weight: bold;"))
         .with_child(
-            Dom::create_div().with_css(FIELD).with_child(label("Name")).with_child(
+            Dom::create_div().with_css(FIELD).with_child(label("aztasks-name")).with_child(
                 TextInput::create()
                     .with_text(name)
-                    .with_placeholder("List name")
-                    .with_accessibility_name("List name")
+                    .with_placeholder(l10n::label("aztasks-list-name"))
+                    .with_accessibility_name(l10n::label("aztasks-list-name"))
                     .with_on_text_input(app.clone(), on_name_text as TextInputOnTextInputCallbackType)
                     .with_on_virtual_key_down(app.clone(), on_field_key as TextInputOnVirtualKeyDownCallbackType)
                     .with_on_focus_lost(app.clone(), on_field_blur as TextInputOnFocusLostCallbackType)
@@ -96,11 +99,11 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
             ),
         )
         .with_child(
-            Dom::create_div().with_css(FIELD).with_child(label("Group")).with_child(
+            Dom::create_div().with_css(FIELD).with_child(label("aztasks-group")).with_child(
                 TextInput::create()
                     .with_text(group)
-                    .with_placeholder("No group (or type one: \"Azlin launch\")")
-                    .with_accessibility_name("Group")
+                    .with_placeholder(l10n::label("aztasks-no-group-type-one"))
+                    .with_accessibility_name(l10n::label("aztasks-group"))
                     .with_on_text_input(app.clone(), on_group_text as TextInputOnTextInputCallbackType)
                     .with_on_virtual_key_down(app.clone(), on_field_key as TextInputOnVirtualKeyDownCallbackType)
                     .with_on_focus_lost(app.clone(), on_field_blur as TextInputOnFocusLostCallbackType)
@@ -113,27 +116,27 @@ pub fn pane(s: &Tasks, app: &RefAny, list: &str) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(FIELD)
-                .with_child(label("Default"))
+                .with_child(label("aztasks-default"))
                 .with_child(
                     Switch::create(is_default)
-                        .with_accessibility_name("New tasks outside a list go here")
+                        .with_accessibility_name(l10n::label("aztasks-new-tasks-outside-list"))
                         .with_on_toggle(app.clone(), on_default as SwitchOnToggleCallbackType)
                         .dom()
                         .with_id(ids::LIST_DEFAULT),
                 )
-                .with_child(Dom::create_span_with_text("New tasks outside a list go here").with_css(LABEL)),
+                .with_child(Dom::create_span_with_text(l10n::label("aztasks-new-tasks-outside-list")).with_css(LABEL)),
         )
         .with_child(
             Dom::create_div()
                 .with_css(FIELD)
                 .with_child(
-                    Button::with_type("Done", ButtonType::Primary)
+                    Button::with_type(l10n::label("aztasks-column-done"), ButtonType::Primary)
                         .with_on_click(app.clone(), on_done as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::LIST_DONE),
                 )
                 .with_child(
-                    Button::with_type("Delete list...", ButtonType::Danger)
+                    Button::with_type(l10n::label("aztasks-delete-list"), ButtonType::Danger)
                         .with_icon("delete")
                         .with_on_click(app.clone(), on_delete as ButtonOnClickCallbackType)
                         .dom()
@@ -148,27 +151,27 @@ pub fn bulk(s: &Tasks, app: &RefAny) -> Dom {
     let all_done = !picked.is_empty() && picked.iter().all(|&i| s.tasks[i].is_done());
     let all_flagged = !picked.is_empty() && picked.iter().all(|&i| s.tasks[i].flagged);
     let order = views::lists_in_nav_order(&s.lists);
-    let mut names = vec![AzString::from("Move to...")];
+    let mut names = vec![l10n::label("aztasks-move-to")];
     names.extend(order.iter().map(|&i| AzString::from(s.lists[i].name.as_str())));
     Dom::create_div()
         .with_id(ids::BULK)
         .with_css(PANE)
         .with_child(
-            Dom::create_h2_with_text(format!("{} tasks selected", picked.len()))
+            Dom::create_h2_with_text(t_args("aztasks-selected", &[("count", Arg::from(picked.len()))]))
                 .with_css("font-size: 18px; font-weight: bold;"),
         )
         .with_child(
             Dom::create_div()
                 .with_css(FIELD)
                 .with_child(
-                    Button::create(if all_done { "Open again" } else { "Complete" })
+                    Button::create(l10n::label(if all_done { "aztasks-open-again" } else { "aztasks-cmd-complete" }))
                         .with_icon("task_alt")
                         .with_on_click(app.clone(), on_bulk_complete as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::BULK_COMPLETE),
                 )
                 .with_child(
-                    Button::create(if all_flagged { "Unflag" } else { "Flag" })
+                    Button::create(l10n::label(if all_flagged { "aztasks-unflag" } else { "aztasks-cmd-flag" }))
                         .with_icon("flag")
                         .with_on_click(app.clone(), on_bulk_flag as ButtonOnClickCallbackType)
                         .dom()
@@ -177,13 +180,13 @@ pub fn bulk(s: &Tasks, app: &RefAny) -> Dom {
                 .with_child(
                     DropDown::create(StringVec::from(names))
                         .with_selected(0)
-                        .with_accessibility_name("Move to")
+                        .with_accessibility_name(l10n::label("aztasks-move"))
                         .with_on_choice_change(app.clone(), on_bulk_move as DropDownOnChoiceChangeCallbackType)
                         .dom()
                         .with_id(ids::BULK_MOVE),
                 )
                 .with_child(
-                    Button::with_type("Delete", ButtonType::Danger)
+                    Button::with_type(l10n::label("aztasks-cmd-delete"), ButtonType::Danger)
                         .with_icon("delete")
                         .with_on_click(app.clone(), on_bulk_delete as ButtonOnClickCallbackType)
                         .dom()
@@ -191,7 +194,7 @@ pub fn bulk(s: &Tasks, app: &RefAny) -> Dom {
                 ),
         )
         .with_child(
-            Dom::create_span_with_text("Ctrl / Cmd + click adds a task, Shift + click a range; Space completes, Delete deletes.")
+            Dom::create_span_with_text(l10n::label("aztasks-ctrl-cmd-click-adds"))
                 .with_css(LABEL),
         )
 }

@@ -122,6 +122,18 @@ impl Priority {
         }
     }
 
+    /// Its word in azul-appkit's resources (`kit-task-priority-high`): an app says it in the
+    /// window's language.
+    #[must_use]
+    pub fn message_id(self) -> &'static str {
+        match self {
+            Priority::None => "kit-task-priority-none",
+            Priority::Low => "kit-task-priority-low",
+            Priority::Medium => "kit-task-priority-medium",
+            Priority::High => "kit-task-priority-high",
+        }
+    }
+
     /// The row's mark: nothing, `!`, `!!`, `!!!`.
     #[must_use]
     pub fn mark(self) -> &'static str {
@@ -436,6 +448,21 @@ impl ListColor {
         }
     }
 
+    /// Its word in azul-appkit's resources (`kit-task-color-teal`).
+    #[must_use]
+    pub fn message_id(self) -> &'static str {
+        match self {
+            ListColor::Blue => "kit-task-color-blue",
+            ListColor::Green => "kit-task-color-green",
+            ListColor::Red => "kit-task-color-red",
+            ListColor::Orange => "kit-task-color-orange",
+            ListColor::Purple => "kit-task-color-purple",
+            ListColor::Teal => "kit-task-color-teal",
+            ListColor::Gray => "kit-task-color-gray",
+            ListColor::Pink => "kit-task-color-pink",
+        }
+    }
+
     /// The colour's dot: `#rrggbb` for the light mode, a lighter twin for the dark one.
     #[must_use]
     pub fn hex(self, dark: bool) -> &'static str {
@@ -540,6 +567,18 @@ impl SortMode {
             SortMode::Priority => "Priority",
             SortMode::Title => "Title",
             SortMode::Created => "Created",
+        }
+    }
+
+    /// Its word in azul-appkit's resources (`kit-task-sort-due`).
+    #[must_use]
+    pub fn message_id(self) -> &'static str {
+        match self {
+            SortMode::Manual => "kit-task-sort-manual",
+            SortMode::Due => "kit-task-sort-due",
+            SortMode::Priority => "kit-task-sort-priority",
+            SortMode::Title => "kit-task-sort-title",
+            SortMode::Created => "kit-task-sort-created",
         }
     }
 }
@@ -1286,6 +1325,25 @@ pub fn default_list(lists: &[TaskList], settings: &Settings) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A priority's, a list colour's and a sort's words are messages of azul-appkit's
+    /// resources (an app says them in the window's language), one each.
+    #[test]
+    fn the_words_of_a_priority_a_colour_and_a_sort_are_messages_of_the_kit() {
+        assert_eq!(Priority::High.message_id(), "kit-task-priority-high");
+        assert_eq!(ListColor::Teal.message_id(), "kit-task-color-teal");
+        assert_eq!(SortMode::Due.message_id(), "kit-task-sort-due");
+        let ids: Vec<&str> = Priority::ALL
+            .iter()
+            .map(|p| p.message_id())
+            .chain(ListColor::ALL.iter().map(|c| c.message_id()))
+            .chain(SortMode::ALL.iter().map(|m| m.message_id()))
+            .collect();
+        let mut unique = ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len(), "{ids:?}");
+    }
 
     const LIST: &str = "9d4c1f3a-2b7e-4d10-8f6a-51c2e7b9a0d3";
     const TASK: &str = "0b0f6f2e-5b8e-4c43-9a57-3f1f0d6f4b1a";

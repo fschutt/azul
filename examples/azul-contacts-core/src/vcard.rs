@@ -12,6 +12,7 @@
 pub use azul_pim::content_line::{
     escape_text, fold, parse_line, unfold, ContentLine as Property,
 };
+use azul_appkit::phrase::{Phrase, Text};
 
 /// The vCard version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -59,7 +60,7 @@ impl Card {
 /// Every card of a text (a `.vcf` file may hold many), and what could not be
 /// read (a line that is not a property, a card without END).
 #[must_use]
-pub fn parse(text: &str) -> (Vec<Card>, Vec<String>) {
+pub fn parse(text: &str) -> (Vec<Card>, Vec<Text>) {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut cards = Vec::new();
     let mut problems = Vec::new();
@@ -71,7 +72,7 @@ pub fn parse(text: &str) -> (Vec<Card>, Vec<String>) {
         let upper = line.trim().to_ascii_uppercase();
         if upper == "BEGIN:VCARD" {
             if current.is_some() {
-                problems.push(format!("line {}: a card without END:VCARD", n + 1));
+                problems.push(Phrase::new("azcontacts-vcard-no-end").arg("line", n + 1).into());
             }
             current = Some(Card::default());
             continue;
@@ -79,7 +80,7 @@ pub fn parse(text: &str) -> (Vec<Card>, Vec<String>) {
         if upper == "END:VCARD" {
             match current.take() {
                 Some(card) => cards.push(card),
-                None => problems.push(format!("line {}: END:VCARD without BEGIN", n + 1)),
+                None => problems.push(Phrase::new("azcontacts-vcard-no-begin").arg("line", n + 1).into()),
             }
             continue;
         }
@@ -92,17 +93,28 @@ pub fn parse(text: &str) -> (Vec<Card>, Vec<String>) {
                     "4.0" => Version::V4,
                     "3.0" => Version::V3,
                     other => {
-                        problems.push(format!("line {}: vCard {other} read as 3.0", n + 1));
+                        problems.push(
+                            Phrase::new("azcontacts-vcard-read-as-3")
+                                .arg("line", n + 1)
+                                .arg("version", other)
+                                .into(),
+                        );
                         Version::V3
                     }
                 };
             }
             Ok(p) => card.properties.push(p),
-            Err(e) => problems.push(format!("line {}: {e}", n + 1)),
+            // The content line reader's own words (azul-pim).
+            Err(e) => problems.push(
+                Phrase::new("azcontacts-vcard-bad-line")
+                    .arg("line", n + 1)
+                    .arg("why", e.to_string())
+                    .into(),
+            ),
         }
     }
     if current.is_some() {
-        problems.push("the last card has no END:VCARD".to_string());
+        problems.push(Text::key("azcontacts-vcard-last-no-end"));
     }
     (cards, problems)
 }
@@ -126,6 +138,8 @@ pub fn write(card: &Card) -> String {
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::Arg;
+
     use super::*;
 
     #[test]
@@ -144,8 +158,11 @@ mod tests {
         let (cards, problems) = parse("BEGIN:VCARD\nVERSION:2.1\nFN:A\nthis is not a property\nEND:VCARD\nBEGIN:VCARD\nFN:B\n");
         assert_eq!(cards.len(), 1);
         assert_eq!(problems.len(), 3, "{problems:?}");
-        assert!(problems[0].contains("2.1"));
-        assert!(problems[2].contains("no END"));
+        assert_eq!(
+            problems[0].phrase("azcontacts-vcard-read-as-3").and_then(|p| p.get("version")),
+            Some(&Arg::from("2.1"))
+        );
+        assert_eq!(problems[2].keys(), vec!["azcontacts-vcard-last-no-end"]);
     }
 
     #[test]

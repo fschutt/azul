@@ -393,8 +393,11 @@ pub fn job(
                         let e = &events[o.index];
                         let calendar = calendar_of(e);
                         let (id, name, colour) = calendar.map_or_else(
-                            || (String::new(), String::from(calendars::DEFAULT_NAME), Colour::Blue),
-                            |c| (c.id.clone(), c.name.clone(), c.colour),
+                            || {
+                                let default = Calendar::default_calendar();
+                                (String::new(), crate::calendar_name(&default), Colour::Blue)
+                            },
+                            |c| (c.id.clone(), crate::calendar_name(c), c.colour),
                         );
                         if !legend_ids.contains(&id) {
                             legend_ids.push(id);
@@ -402,7 +405,7 @@ pub fn job(
                         }
                         Item {
                             title: if e.title.trim().is_empty() {
-                                String::from(UNTITLED)
+                                azul_appkit::l10n::t(UNTITLED)
                             } else {
                                 e.title.clone()
                             },
@@ -565,6 +568,7 @@ mod tests {
 
     #[test]
     fn a_monthly_page_has_the_weeks_of_its_month_and_dims_the_other_days() {
+        crate::l10n::in_english();
         // October 2026 starts on a Thursday and ends on a Saturday: five weeks.
         let days = month_days(d(2026, 10, 1));
         assert_eq!((days.len(), days[0], days[34]), (35, d(2026, 9, 28), d(2026, 11, 1)));
@@ -587,7 +591,7 @@ mod tests {
         assert_eq!(page.title, "October 2026");
         assert!(!page.days[0].in_month && page.days[3].in_month);
         // The other month's day prints its event too, an untitled one as "(No title)".
-        assert_eq!(page.days[1].items[0].title, UNTITLED);
+        assert_eq!(page.days[1].items[0].title, "(No title)");
         let wednesday = page.days.iter().find(|day| day.date == wed()).unwrap();
         assert_eq!(wednesday.items[0].short_line(), "09:30 Standup");
         assert_eq!(wednesday.items[0].times(), "09:30 - 10:00");

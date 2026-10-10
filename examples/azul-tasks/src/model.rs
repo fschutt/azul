@@ -4,6 +4,7 @@
 //! `crate::model::...` path of AzTasks stays; what is AzTasks' own (how a day is named in its
 //! rows and headings) is here.
 
+use azul_appkit::l10n::{date_text, t, DateStyle};
 use chrono::{Datelike, NaiveDate};
 
 pub use azul_pim::task::*;
@@ -13,12 +14,24 @@ pub use azul_pim::task::*;
 #[must_use]
 pub fn day_label(date: NaiveDate, today: NaiveDate) -> String {
     match (date - today).num_days() {
-        0 => "Today".to_string(),
-        1 => "Tomorrow".to_string(),
-        -1 => "Yesterday".to_string(),
-        _ if date.year() == today.year() => date.format("%a %-d %b").to_string(),
-        _ => date.format("%a %-d %b %Y").to_string(),
+        0 => t("kit-date-today"),
+        1 => t("kit-date-tomorrow"),
+        -1 => t("kit-date-yesterday"),
+        _ if date.year() == today.year() => said(DateStyle::ShortDate, date),
+        _ => said(DateStyle::ShortDateYear, date),
     }
+}
+
+/// `date` in `style`, in the window's language.
+#[must_use]
+pub fn said(style: DateStyle, date: NaiveDate) -> String {
+    date_text(
+        style,
+        date.year(),
+        date.month(),
+        date.day(),
+        date.weekday().num_days_from_monday(),
+    )
 }
 
 /// A day as a section heading names it: "Today", "Tomorrow", else "Saturday 3 October"
@@ -26,11 +39,11 @@ pub fn day_label(date: NaiveDate, today: NaiveDate) -> String {
 #[must_use]
 pub fn day_heading(date: NaiveDate, today: NaiveDate) -> String {
     match (date - today).num_days() {
-        0 => "Today".to_string(),
-        1 => "Tomorrow".to_string(),
-        -1 => "Yesterday".to_string(),
-        _ if date.year() == today.year() => date.format("%A %-d %B").to_string(),
-        _ => date.format("%A %-d %B %Y").to_string(),
+        0 => t("kit-date-today"),
+        1 => t("kit-date-tomorrow"),
+        -1 => t("kit-date-yesterday"),
+        _ if date.year() == today.year() => said(DateStyle::WeekdayDayMonth, date),
+        _ => said(DateStyle::WeekdayDate, date),
     }
 }
 

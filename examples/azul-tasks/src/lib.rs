@@ -34,6 +34,9 @@ pub mod chrome;
 pub mod detail;
 pub mod ids;
 pub mod jobs;
+pub mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod layouts;
 pub mod list;
 pub mod listedit;
@@ -103,8 +106,10 @@ pub(crate) fn with_tasks(
 // ==== Layout ====
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    // Reading the mode and the theme makes a switch of either rebuild the window.
+    // Reading the mode and the theme makes a switch of either rebuild the window; the layout's
+    // language says the words (a switch of it too).
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
+    azul_appkit::l10n::begin_layout(&info);
     let theme = info.get_theme().as_str().to_string();
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<Tasks>() else {
@@ -125,7 +130,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         list_column,
         detail::pane(s, &app, now),
     )
-    .with_list_label("Tasks")
+    .with_list_label(azul_appkit::l10n::label("aztasks-tasks"))
     // LOOK 2026-10-03: the list was narrow (the reminder banner wrapped, "Dismiss" was cut) and
     // the reading pane far too wide; the navigation pane's lists were cut at its right edge.
     .with_navigation_ratio(0.22)
@@ -302,7 +307,13 @@ pub(crate) fn check_reminders(info: &mut CallbackInfo, app: &RefAny, s: &mut Tas
         if s.settings.notifications {
             let t = &s.tasks[i];
             let body = match views::due_label(t, now.date()) {
-                Some(due) => format!("{} (due {due})", t.title),
+                Some(due) => azul_appkit::l10n::t_args(
+                    "aztasks-notification-due",
+                    &[
+                        ("title", azul_appkit::l10n::Arg::from(t.title.as_str())),
+                        ("due", azul_appkit::l10n::Arg::from(due)),
+                    ],
+                ),
                 None => t.title.clone(),
             };
             let sound = if s.settings.sounds {
@@ -311,10 +322,10 @@ pub(crate) fn check_reminders(info: &mut CallbackInfo, app: &RefAny, s: &mut Tas
                 NotificationSound::Silent
             };
             info.post_notification(
-                Notification::create(format!("aztasks-{id}"), "Reminder")
+                Notification::create(format!("aztasks-{id}"), azul_appkit::l10n::t("aztasks-reminder"))
                     .with_body(body)
-                    .with_action("complete", "Complete")
-                    .with_action("snooze", "Snooze 10 min")
+                    .with_action("complete", azul_appkit::l10n::t("aztasks-cmd-complete"))
+                    .with_action("snooze", azul_appkit::l10n::t("aztasks-snooze"))
                     .with_sound(sound)
                     .with_payload(id.as_str())
                     .with_callback(app.clone(), on_notification),
@@ -407,6 +418,10 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         .filter(|&ms| ms >= 100)
         .unwrap_or(TICK_MS);
     with_tasks(&mut data, &mut info, |info, app, s| {
+        // The system's language needs nothing.
+        if s.language != azul_appkit::args::LanguagePref::System {
+            info.set_locale(s.language.tag());
+        }
         jobs::spawn(info, app, s, jobs::Job::Load);
         let get_time = info.get_system_time_fn();
         info.add_timer(
@@ -516,6 +531,9 @@ pub fn start() {
         });
     // The kit's icons: Haiku's under flora, Material under flat.
     azul_appkit::ui::add_kit_icons(&mut config);
+    // AzTasks' words after appkit's; the run's language (`--language`, else the file's).
+    crate::l10n::register(&mut config);
+    s.language = appearance::language(&args, &s.appearance);
     let app = App::create(RefAny::new(s), config);
     let mut window = WindowCreateOptions::create(layout);
     let (w, h) = args.size.unwrap_or((1280.0, 800.0));

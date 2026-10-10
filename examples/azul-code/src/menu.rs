@@ -16,6 +16,8 @@ use azul::{
     prelude::*,
 };
 
+use azul_appkit::l10n::label;
+
 use crate::{
     actions::{self, Action},
     app::AppState,
@@ -108,12 +110,12 @@ recent_callbacks! {
 
 /// An item running `action`.
 fn item(app: &RefAny, action: Action) -> MenuItem {
-    MenuItem::string(StringMenuItem::create(action.label()).with_callback(app.clone(), callback_of(action)))
+    MenuItem::string(StringMenuItem::create(label(action.label())).with_callback(app.clone(), callback_of(action)))
 }
 
 /// A menu of the bar.
 fn menu(title: &str, items: Vec<MenuItem>) -> MenuItem {
-    MenuItem::string(StringMenuItem::create(title).with_children(items))
+    MenuItem::string(StringMenuItem::create(label(title)).with_children(items))
 }
 
 /// File > Open Recent: the recent folders (the newest first).
@@ -127,9 +129,9 @@ fn open_recent_menu(app: &RefAny, st: &AppState) -> MenuItem {
         })
         .collect();
     if items.is_empty() {
-        items.push(MenuItem::string(StringMenuItem::create("No Recent Folders")));
+        items.push(MenuItem::string(StringMenuItem::create(label("azcode-no-recent"))));
     }
-    menu("Open Recent", items)
+    menu("azcode-open-recent", items)
 }
 
 /// The window's menu bar.
@@ -137,7 +139,7 @@ fn open_recent_menu(app: &RefAny, st: &AppState) -> MenuItem {
 pub fn menu_bar(app: &RefAny, st: &AppState) -> Menu {
     Menu::create(vec![
         menu(
-            "File",
+            "azcode-menu-file",
             vec![
                 item(app, Action::OpenFolder),
                 item(app, Action::OpenFile),
@@ -151,7 +153,7 @@ pub fn menu_bar(app: &RefAny, st: &AppState) -> Menu {
             ],
         ),
         menu(
-            "Edit",
+            "azcode-menu-edit",
             vec![
                 item(app, Action::Undo),
                 item(app, Action::Redo),
@@ -163,7 +165,7 @@ pub fn menu_bar(app: &RefAny, st: &AppState) -> Menu {
             ],
         ),
         menu(
-            "View",
+            "azcode-menu-view",
             vec![
                 item(app, Action::CommandPalette),
                 MenuItem::separator(),
@@ -174,13 +176,13 @@ pub fn menu_bar(app: &RefAny, st: &AppState) -> Menu {
                 item(app, Action::ToggleTerminal),
             ],
         ),
-        menu("Go", vec![item(app, Action::QuickOpen), item(app, Action::GoToLine)]),
+        menu("azcode-menu-go", vec![item(app, Action::QuickOpen), item(app, Action::GoToLine)]),
         menu(
-            "Terminal",
+            "azcode-action-terminal",
             vec![item(app, Action::NewTerminal), item(app, Action::KillTerminal)],
         ),
         menu(
-            "Help",
+            "azcode-menu-help",
             vec![
                 item(app, Action::KeyboardShortcuts),
                 item(app, Action::Settings),

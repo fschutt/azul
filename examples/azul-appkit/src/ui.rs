@@ -1066,7 +1066,7 @@ pub fn set_about_open(kit_ref: &RefAny, open: bool) {
 fn about_modal(k: &Kit, kit_ref: &RefAny) -> Dom {
     let mut dialog = AboutDialog::create(k.about.name, k.about.version)
         .with_icon("info")
-        .with_description(label(k.about.summary))
+        .with_description(l10n::app_word(k.about.name, "about-summary", k.about.summary))
         .with_copyright(format!("{} - {}", k.about.name, k.about.license))
         .with_on_event(kit_ref.clone(), on_about_event);
     for (name, value) in about_rows(&k.about, &k.data_root) {

@@ -13,6 +13,8 @@
 //! (`item1.TEL` + `item1.X-ABLabel:_$!<Mobile>!$_`). A label vCard has no
 //! type for is written as `x-<label>`.
 
+use azul_appkit::phrase::{Phrase, Text};
+
 use crate::vcard::{self, escape_text, Card, Property, Version};
 
 /// A value with its label: a phone, an email, a web page, a custom field.
@@ -93,6 +95,10 @@ const MONTHS: [&str; 12] = [
 
 /// The year a birthday without one is shown in: a leap year.
 const LEAP_YEAR: i32 = 2000;
+
+/// What a contact without a name, an email or a phone number is called (its card's FN too);
+/// the app says it in the window's language.
+pub const NO_NAME: &str = "(no name)";
 
 impl Birthday {
     /// `1987-03-14`, `19870314`, `--0314`, `--03-14`, `1987-03-14T00:00:00Z`;
@@ -320,7 +326,7 @@ impl Contact {
         if let Some(p) = self.phones.first() {
             return p.value.clone();
         }
-        "(no name)".to_string()
+        NO_NAME.to_string()
     }
 
     /// A company card: no personal name, a company.
@@ -343,13 +349,13 @@ impl Contact {
             .join(" \u{b7} ")
     }
 
-    /// What the edit form refuses: no name at all, an email that is not one
+    /// What the edit form refuses (the app says it): no name at all, an email that is not one
     /// (`azul_pim::mail_address::is_email`), a birthday that is not a date.
     #[must_use]
-    pub fn problems(&self, birthday_text: Option<&str>) -> Vec<String> {
+    pub fn problems(&self, birthday_text: Option<&str>) -> Vec<Text> {
         let mut out = Vec::new();
         if self.composed_name().is_empty() && nonempty(&self.formatted).is_none() && nonempty(&self.org).is_none() {
-            out.push("A contact needs a name or a company.".to_string());
+            out.push(Text::key("azcontacts-problem-no-name"));
         }
         for e in &self.emails {
             let v = e.value.trim();
@@ -357,12 +363,12 @@ impl Contact {
                 continue;
             }
             if !azul_pim::mail_address::is_email(v) {
-                out.push(format!("\"{v}\" is not an email address."));
+                out.push(Phrase::new("azcontacts-problem-not-email").arg("value", v).into());
             }
         }
         if let Some(text) = birthday_text {
             if !text.trim().is_empty() && Birthday::parse(text).is_none() {
-                out.push(format!("\"{}\" is not a date (DD.MM.YYYY, or DD.MM. without a year).", text.trim()));
+                out.push(Phrase::new("azcontacts-problem-not-a-date").arg("value", text.trim()).into());
             }
         }
         out
@@ -645,7 +651,7 @@ fn photo_property(photo: &str, version: Version) -> Property {
 
 /// Every contact of a `.vcf` text, and what could not be read.
 #[must_use]
-pub fn parse_vcf(text: &str) -> (Vec<Contact>, Vec<String>) {
+pub fn parse_vcf(text: &str) -> (Vec<Contact>, Vec<Text>) {
     let (cards, problems) = vcard::parse(text);
     (cards.iter().map(Contact::from_card).collect(), problems)
 }
@@ -658,6 +664,8 @@ pub fn write_vcf(contacts: &[Contact], version: Version) -> String {
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::Text;
+
     use super::*;
 
     /// The plan's sample card.
@@ -830,18 +838,21 @@ mod tests {
         let only_fn = parse_vcf("BEGIN:VCARD\nVERSION:3.0\nFN:Dr. Who\nEND:VCARD\n").0.remove(0);
         assert_eq!(only_fn.display_name(), "Dr. Who");
         assert_eq!(robin().subtitle(), "Product lead \u{b7} Northwind");
-        assert_eq!(Contact::default().display_name(), "(no name)");
+        assert_eq!(Contact::default().display_name(), NO_NAME, "the app says it in its language");
     }
 
     #[test]
     fn the_edit_form_refuses_a_nameless_contact_and_bad_emails() {
         let mut c = Contact::default();
-        assert_eq!(c.problems(None), vec!["A contact needs a name or a company."]);
+        assert_eq!(c.problems(None), vec![Text::key("azcontacts-problem-no-name")]);
         c.given = "A".into();
         c.emails = vec![Labeled::new("work", "a@example.org"), Labeled::new("home", "not-an-email"), Labeled::new("home", "x@y")];
         let p = c.problems(Some("31.02.1990"));
         assert_eq!(p.len(), 3, "{p:?}");
-        assert!(p[0].contains("not-an-email") && p[1].contains("x@y") && p[2].contains("31.02.1990"));
+        let said: Vec<String> = p.iter().map(Text::to_string).collect();
+        assert!(said[0].contains("not-an-email") && said[1].contains("x@y") && said[2].contains("31.02.1990"));
+        assert_eq!(p[0].keys(), vec!["azcontacts-problem-not-email"]);
+        assert_eq!(p[2].keys(), vec!["azcontacts-problem-not-a-date"]);
         assert!(c.problems(Some("")).len() == 2, "an empty birthday is fine");
     }
 
@@ -857,7 +868,8 @@ mod tests {
         ];
         let p = c.problems(None);
         assert_eq!(p.len(), 2, "{p:?}");
-        assert!(p[0].contains("a@b@example.org") && p[1].contains("<a@example.org>"), "{p:?}");
+        let said: Vec<String> = p.iter().map(Text::to_string).collect();
+        assert!(said[0].contains("a@b@example.org") && said[1].contains("<a@example.org>"), "{p:?}");
     }
 
     #[test]
