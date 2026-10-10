@@ -27,10 +27,10 @@
 //! sits beside the migration's, so the next idle minute continues where it stopped.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
 };
 
@@ -77,11 +77,31 @@ pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
     ))
 }
 
-/// The folder of this computer's copies of the encrypted drives' indexes
-/// (`<cache>/AzDrive/drive-index`).
+/// The run's cache folder (`--cache-dir`, else `<cache>/AzDrive`; `None` in a `--shot` run
+/// without the switch), set once at the start.
+static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Sets the run's cache folder (the start, once): the drives' index copies live in it.
+pub(crate) fn set_cache_dir(dir: Option<PathBuf>) {
+    let _ = CACHE_DIR.set(dir);
+}
+
+/// The folder of this computer's copies of the encrypted drives' indexes: `drive-index/` in the
+/// run's cache folder (before the start set it: in `<cache>/AzDrive`).
 pub(crate) fn drive_index_root() -> Option<PathBuf> {
-    crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
-        .map(|dir| dir.join("AzDrive").join("drive-index"))
+    match CACHE_DIR.get() {
+        Some(dir) => drive_index_root_in(dir.as_deref()),
+        None => {
+            let default = crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
+                .map(|dir| dir.join("AzDrive"));
+            drive_index_root_in(default.as_deref())
+        }
+    }
+}
+
+/// `drive-index/` in the cache folder `cache_dir`; `None` without one (the copies in memory).
+pub(crate) fn drive_index_root_in(cache_dir: Option<&Path>) -> Option<PathBuf> {
+    cache_dir.map(|dir| dir.join("drive-index"))
 }
 
 /// Where the encrypted drive `drive`'s search index (the plain text of its files) is kept: in

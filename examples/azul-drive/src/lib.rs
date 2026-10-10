@@ -2851,6 +2851,15 @@ pub fn start() {
     );
     let period_tokens =
         azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
+    // The caches' folder: `--cache-dir`, else AzDrive's in the user's cache folder; none in a
+    // `--shot` run without the switch. The drives' index copies (encryption) live there too.
+    let cache_dir = match &args.cache_dir {
+        Some(dir) => Some(dir.clone()),
+        None if args.kit.shot.is_some() => None,
+        None => path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive")),
+    };
+    #[cfg(feature = "encryption")]
+    encryption::set_cache_dir(cache_dir.clone());
     let mut state = DriveState {
         slots,
         place,
@@ -2920,13 +2929,7 @@ pub fn start() {
         downloads,
         open_dir: std::env::temp_dir().join("AzDrive-open"),
         sync: Arc::new(sync_lookup::NoSync),
-        cache_dir: match &args.cache_dir {
-            Some(dir) => Some(dir.clone()),
-            None if args.kit.shot.is_some() => None,
-            None => {
-                path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive"))
-            }
-        },
+        cache_dir,
         inline_dialogs,
         running: 0,
         trash_serial: 0,
