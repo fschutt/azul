@@ -441,10 +441,11 @@ pub(crate) enum Outcome {
         searched: usize,
         end: Option<FindEnd>,
     },
-    /// How far a drive's index update got.
+    /// How far a drive's index update got, and what the index held when it began.
     IndexProgress {
         drive_id: String,
         progress: UpdateProgress,
+        held: IndexStatus,
     },
     /// A drive's index update ended: what it did and what the index holds, or why it could not.
     Indexed {
@@ -1448,6 +1449,7 @@ pub(crate) fn run_index_update(
     emit: &mut dyn FnMut(Outcome),
 ) -> Outcome {
     let result = DriveIndex::open(dir).and_then(|index| {
+        let held = index.status();
         let summary = index.update(
             root,
             &find::index_filters(),
@@ -1457,6 +1459,7 @@ pub(crate) fn run_index_update(
                 emit(Outcome::IndexProgress {
                     drive_id: drive_id.to_string(),
                     progress,
+                    held,
                 });
             },
         )?;

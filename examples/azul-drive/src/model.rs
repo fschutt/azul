@@ -750,6 +750,8 @@ pub struct Settings {
     /// The search box searches every folder below the open one (the Search tab's "All
     /// subfolders"); `false`: the folder's own items ("Current folder").
     pub search_subfolders: bool,
+    /// The drives whose full-text index is kept (the Search tab's "Index this drive"), by id.
+    pub indexed_drives: Vec<String>,
 }
 
 impl Default for Settings {
@@ -771,6 +773,7 @@ impl Default for Settings {
             search_contents: false,
             search_ignore_files: true,
             search_subfolders: true,
+            indexed_drives: Vec::new(),
         }
     }
 }

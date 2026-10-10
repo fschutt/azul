@@ -24,6 +24,7 @@ use azul_search::{
     ContentHit, ContentMatcher, Filters, Limits, NameHit, NameMatcher, Pattern, PatternKind,
     Refine, Request,
 };
+use azul_search_index::{IndexStatus, UpdateProgress};
 use azul_storage::{key, ListPage, ObjectInfo};
 use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone};
 
@@ -1093,5 +1094,52 @@ pub fn found_document(
     Found {
         entry: result_row(key, name, false, Some(size), modified),
         line,
+    }
+}
+
+/// A drive's index as the window knows it.
+#[derive(Debug, Clone, Default)]
+pub struct IndexInfo {
+    /// What it holds, as far as known (a former run's index while its first update here runs).
+    pub status: Option<IndexStatus>,
+    /// How far the update running got (`Some` from its start; `None`: none runs).
+    pub progress: Option<UpdateProgress>,
+    /// Why the last update could not end.
+    pub error: Option<String>,
+    /// Raised to stop the update running ("Index this drive" turned off).
+    pub cancel: Arc<AtomicBool>,
+}
+
+impl IndexInfo {
+    /// Whether a search asks it: an update went over the drive (here or in a former run).
+    #[must_use]
+    pub fn usable(&self) -> bool {
+        self.status.is_some_and(|status| status.updated.is_some())
+    }
+
+    /// The status line's words: how far the update got, what the index holds, or why it could
+    /// not be brought up to date.
+    #[must_use]
+    pub fn status_text(&self) -> String {
+        if let Some(progress) = self.progress {
+            return if progress.to_read == 0 {
+                String::from("Indexing: looking at the files...")
+            } else {
+                format!(
+                    "Indexing: {} of {} files read...",
+                    listing::grouped_digits(progress.read),
+                    listing::grouped_digits(progress.to_read)
+                )
+            };
+        }
+        if let Some(error) = &self.error {
+            return format!("The index could not be updated: {error}");
+        }
+        match self.status {
+            Some(status) if status.updated.is_some() => {
+                format!("Indexed: {} files", listing::grouped_digits(status.files))
+            }
+            _ => String::from("Not indexed yet"),
+        }
     }
 }

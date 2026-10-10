@@ -285,6 +285,16 @@ pub(crate) fn status_text(s: &DriveState) -> String {
         if !s.refines.is_any() {
             parts.push(s.refines.label());
         }
+        // The drive's index, when it has one: how far its update got, what it holds.
+        if let Some(drive_id) = s
+            .current_drive_id()
+            .filter(|id| s.settings.indexed_drives.contains(id))
+        {
+            parts.push(s.indexes.get(&drive_id).map_or_else(
+                || String::from("Not indexed yet"),
+                crate::find::IndexInfo::status_text,
+            ));
+        }
         let selected = s.selection.len();
         if selected > 0 {
             parts.push(format!("{} selected", listing::grouped_digits(selected)));

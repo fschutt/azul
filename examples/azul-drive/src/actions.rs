@@ -169,6 +169,8 @@ pub(crate) enum Action {
     SortResults(Option<Column>),
     /// The selected result's folder, opened with the result selected.
     OpenFileLocation,
+    /// "Index this drive": the open drive's full-text index kept from now on, or thrown away.
+    IndexDrive,
 }
 
 /// A button's / menu item's click data.
@@ -374,6 +376,17 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
                 None
             }
         }
+        Action::IndexDrive => match s.current_drive() {
+            None => Some(String::from("Open a drive on this computer to index it.")),
+            Some(index) if s.local_root(index).is_none() => Some(String::from(
+                "Only a drive on this computer is indexed: a cloud drive's files would have to \
+                 be downloaded.",
+            )),
+            Some(_) if s.cache_dir.is_none() => {
+                Some(String::from("There is no cache folder to keep an index in."))
+            }
+            Some(_) => None,
+        },
         _ => None,
     }
 }
@@ -652,7 +665,33 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             }
         }
         Action::OpenFileLocation => open_file_location(info, app, s),
+        Action::IndexDrive => toggle_index(info, app, s),
     }
+}
+
+/// "Index this drive": the open drive's index is made and kept up to date from now on (an
+/// update now, one at every start, one when a search finds it old), or - again - thrown away
+/// (an update running stops first).
+fn toggle_index(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    if let Some(at) = s.settings.indexed_drives.iter().position(|d| *d == drive_id) {
+        s.settings.indexed_drives.remove(at);
+        println!("AZDRIVE_INDEX off {drive_id}");
+        match s.indexes.get(&drive_id) {
+            // Thrown away when it has stopped (its answer).
+            Some(index) if index.progress.is_some() => {
+                index.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            _ => crate::remove_index(info, app, s, &drive_id),
+        }
+    } else {
+        s.settings.indexed_drives.push(drive_id.clone());
+        println!("AZDRIVE_INDEX on {drive_id}");
+        crate::update_index(info, app, s, &drive_id);
+    }
+    save_settings(info, app, s);
 }
 
 /// A Refine changed: the search runs again with it.

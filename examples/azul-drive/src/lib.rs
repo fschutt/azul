@@ -570,6 +570,8 @@ pub(crate) struct DriveState {
     pub find_serial: u64,
     /// The Search tab's Refine (Date modified, Kind, Size); forgotten when the search closes.
     pub refines: find::Refines,
+    /// The drives' indexes as far as known (the ones the user asked for), by drive id.
+    pub indexes: HashMap<String, find::IndexInfo>,
     /// The item to select once the open folder is listed (Open file location of a result).
     pub select_when_listed: Option<String>,
     pub editing_path: bool,
@@ -616,8 +618,9 @@ pub(crate) struct DriveState {
     pub settings_drive: Option<LocalDrive>,
     pub downloads: PathBuf,
     pub open_dir: PathBuf,
-    /// AzDrive's folder in the user's cache folder (a cloud drive's last listing); `None` in a
-    /// `--shot` run (nothing kept) or on a system without one.
+    /// Where the caches are kept (a cloud drive's last listing, the drives' indexes):
+    /// `--cache-dir`, else AzDrive's folder in the user's cache folder; `None` in a `--shot` run
+    /// without the switch (nothing kept) or on a system without a cache folder.
     pub cache_dir: Option<PathBuf>,
     pub inline_dialogs: bool,
     /// Worker threads running.
@@ -1092,13 +1095,20 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         };
         let prefix = s.prefix().to_string();
         match s.local_dir(index, &prefix) {
-            Some(dir) => jobs.push(Job::Find {
-                serial,
-                request: find::local_request(dir, &query, prefix.is_empty(), &options),
-                prefix,
-                index: None,
-                cancel: cancel.clone(),
-            }),
+            Some(dir) => {
+                let ask = if options.contents {
+                    index_for_search(info, app, s, index, &prefix)
+                } else {
+                    None
+                };
+                jobs.push(Job::Find {
+                    serial,
+                    request: find::local_request(dir, &query, prefix.is_empty(), &options),
+                    prefix,
+                    index: ask,
+                    cancel: cancel.clone(),
+                });
+            }
             None => {
                 remote = true;
                 options.contents = false;
@@ -1126,11 +1136,16 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 continue;
             };
             let prefix = find::pc_key(&s.slots[index].entry.id, "");
+            let ask = if options.contents {
+                index_for_search(info, app, s, index, "")
+            } else {
+                None
+            };
             jobs.push(Job::Find {
                 serial,
                 request: find::local_request(root, &query, true, &options),
                 prefix,
-                index: None,
+                index: ask,
                 cancel: cancel.clone(),
             });
         }
@@ -1155,6 +1170,111 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     for job in jobs {
         spawn(info, app, s, job);
     }
+}
+
+// ==== A drive's full-text index ====
+
+/// How old a drive's index may be before a search of it brings it up to date in the background
+/// (seconds); the search asks it as it is meanwhile and reads what changed itself.
+const INDEX_REFRESH_SECS: u64 = 600;
+
+/// The folder drive `drive_id`'s index is in; `None` without a cache folder.
+fn index_folder(s: &DriveState, drive_id: &str) -> Option<PathBuf> {
+    Some(find::index_dir(&s.cache_dir.as_ref()?.join("index"), drive_id))
+}
+
+/// Brings drive `drive_id`'s index up to its folder on this computer, on a worker thread - not
+/// while an update of it runs, for a drive that is not on this computer, or without a cache
+/// folder.
+pub(crate) fn update_index(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    let Some(root) = s.slot_index(drive_id).and_then(|index| s.local_root(index)) else {
+        return;
+    };
+    let Some(dir) = index_folder(s, drive_id) else {
+        return;
+    };
+    let index = s.indexes.entry(drive_id.to_string()).or_default();
+    if index.progress.is_some() {
+        return;
+    }
+    index.progress = Some(azul_search_index::UpdateProgress::default());
+    index.error = None;
+    index.cancel = Arc::new(AtomicBool::new(false));
+    let cancel = index.cancel.clone();
+    println!("AZDRIVE_INDEXING {drive_id}");
+    spawn(
+        info,
+        app,
+        s,
+        Job::IndexDrive {
+            drive_id: drive_id.to_string(),
+            root,
+            dir,
+            cancel,
+        },
+    );
+}
+
+/// Throws drive `drive_id`'s index away (its folder), on a worker thread.
+pub(crate) fn remove_index(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    s.indexes.remove(drive_id);
+    if let Some(dir) = index_folder(s, drive_id) {
+        spawn(
+            info,
+            app,
+            s,
+            Job::RemoveIndex {
+                drive_id: drive_id.to_string(),
+                dir,
+            },
+        );
+    }
+}
+
+/// The index a contents search of drive `index`'s folder `under` asks first: the drive's, when
+/// the user asked for one and it holds the drive. One older than [`INDEX_REFRESH_SECS`] (or not
+/// known yet) is brought up to date meanwhile, for the next search.
+fn index_for_search(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+    under: &str,
+) -> Option<find::IndexAsk> {
+    let drive_id = s.slots.get(index)?.entry.id.clone();
+    if !s.settings.indexed_drives.contains(&drive_id) {
+        return None;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let old = s
+        .indexes
+        .get(&drive_id)
+        .and_then(|known| known.status)
+        .and_then(|status| status.updated)
+        .is_none_or(|at| now.saturating_sub(at) > INDEX_REFRESH_SECS);
+    if old {
+        update_index(info, app, s, &drive_id);
+    }
+    if !s.indexes.get(&drive_id).is_some_and(find::IndexInfo::usable) {
+        return None;
+    }
+    Some(find::IndexAsk {
+        dir: index_folder(s, &drive_id)?,
+        root: s.local_root(index)?,
+        under: under.to_string(),
+    })
 }
 
 /// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
@@ -2105,10 +2225,44 @@ pub(crate) extern "C" fn on_job_done(
             // The rows that came into view get their sizes and dates.
             actions::request_view_work(&mut info, &handle, s);
         }
-        // A drive's index (the Search tab's "Index this drive").
-        Outcome::IndexProgress { .. }
-        | Outcome::Indexed { .. }
-        | Outcome::IndexRemoved { .. } => {}
+        Outcome::IndexProgress {
+            drive_id,
+            progress,
+            held,
+        } => {
+            let index = s.indexes.entry(drive_id).or_default();
+            index.progress = Some(progress);
+            // A former run's index is asked while it is brought up to date.
+            if index.status.is_none() {
+                index.status = Some(held);
+            }
+        }
+        Outcome::Indexed { drive_id, result } => {
+            let index = s.indexes.entry(drive_id.clone()).or_default();
+            index.progress = None;
+            match result {
+                Ok((summary, status)) => {
+                    println!(
+                        "AZDRIVE_INDEXED {drive_id} {} {} {}",
+                        status.files, summary.indexed, summary.removed
+                    );
+                    index.status = Some(status);
+                    index.error = None;
+                }
+                Err(error) => {
+                    println!("AZDRIVE_INDEX_FAILED {drive_id} {error}");
+                    index.error = Some(error);
+                }
+            }
+            // "Index this drive" was turned off while it ran: thrown away now that it stopped.
+            if !s.settings.indexed_drives.contains(&drive_id) {
+                remove_index(&mut info, &handle, s, &drive_id);
+            }
+        }
+        Outcome::IndexRemoved { drive_id, error } => match error {
+            None => println!("AZDRIVE_INDEX_REMOVED {drive_id}"),
+            Some(error) => s.error(format!("The index could not be removed: {error}")),
+        },
     }
     Update::RefreshDom
 }
@@ -2312,6 +2466,10 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         s.backstage = backstage;
         // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
         add_flow::start_claims(info, app, s);
+        // The drives' indexes catch up with what changed while AzDrive was closed.
+        for drive_id in s.settings.indexed_drives.clone() {
+            update_index(info, app, s, &drive_id);
+        }
     })
 }
 
@@ -2511,6 +2669,7 @@ pub fn start() {
         find: None,
         find_serial: 0,
         refines: find::Refines::default(),
+        indexes: HashMap::new(),
         select_when_listed: None,
         editing_path: false,
         renaming: None,
@@ -2547,10 +2706,12 @@ pub fn start() {
         settings_drive,
         downloads,
         open_dir: std::env::temp_dir().join("AzDrive-open"),
-        cache_dir: if args.kit.shot.is_some() {
-            None
-        } else {
-            path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive"))
+        cache_dir: match &args.cache_dir {
+            Some(dir) => Some(dir.clone()),
+            None if args.kit.shot.is_some() => None,
+            None => {
+                path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive"))
+            }
         },
         inline_dialogs,
         running: 0,

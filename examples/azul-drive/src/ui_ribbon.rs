@@ -21,7 +21,7 @@
 //!        [Remove drive]  System [Refresh][Options]
 //! Search (Search Tools, while a search is open): Location [Current folder][All subfolders]
 //!        Refine [Date modified v] Kind v / Size v  Options [File contents] Hidden items /
-//!        Skip ignored files / Open file location  Close [Close search]
+//!        Skip ignored files / Open file location / Index this drive  Close [Close search]
 //! ```
 //!
 //! Every control runs its [`Action`] or is greyed with the reason it cannot run now
@@ -496,6 +496,9 @@ fn computer_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
 fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
     let settings = &s.settings;
     let refines = &s.refines;
+    let indexed = s
+        .current_drive_id()
+        .is_some_and(|id| settings.indexed_drives.contains(&id));
     // A refine that is set shows its choice on its button.
     let refine_label = |name: &str, chosen: Option<&str>| match chosen {
         Some(chosen) => format!("{name}: {chosen}"),
@@ -575,6 +578,10 @@ fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                     "Open file location",
                     Action::OpenFileLocation,
                 )),
+                small(
+                    button(s, app, "manage_search", "Index this drive", Action::IndexDrive)
+                        .with_toggled(indexed),
+                ),
             ],
         ))
         .with_group(group(
