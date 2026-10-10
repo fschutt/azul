@@ -75,7 +75,7 @@ fn known_folders(s: &DriveState, place: &Place) -> Option<Vec<(String, Place)>> 
         Place::ThisPc => Some(
             s.slots
                 .iter()
-                .map(|slot| (slot.entry.name.clone(), Place::folder(&slot.entry.id, "")))
+                .map(|slot| (slot.name(), Place::folder(&slot.entry.id, "")))
                 .collect(),
         ),
         Place::Folder { drive, prefix } => {
@@ -325,7 +325,7 @@ pub(crate) fn status_text(s: &DriveState) -> String {
                 Some(slot) => t_args(
                     "azdrive-status-drive-selected",
                     &[
-                        ("name", Arg::from(slot.entry.name.as_str())),
+                        ("name", Arg::from(slot.name())),
                         ("drives", Arg::from(drives)),
                     ],
                 ),
@@ -490,13 +490,22 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
             match &preview.content {
                 None => note(&t_args("azdrive-preview-loading", &[("name", Arg::from(name))])),
                 Some(PreviewContent::Message(text)) => note(&t_text(text)),
-                Some(PreviewContent::Text(text)) => Dom::create_div()
-                    .with_id(ids::PREVIEW_TEXT)
-                    .with_css(
-                        "padding: 8px 12px; font-family: monospace; font-size: 12px; \
-                         white-space: pre-wrap; overflow-y: auto; flex-grow: 1; min-height: 0px;",
-                    )
-                    .with_child(Dom::create_span_with_text(AzString::from(text.as_str()))),
+                Some(PreviewContent::Text { text, cut }) => {
+                    // A cut file says it is its start.
+                    let shown = if *cut {
+                        format!("{text}\n{}", t("azdrive-preview-cut"))
+                    } else {
+                        text.clone()
+                    };
+                    Dom::create_div()
+                        .with_id(ids::PREVIEW_TEXT)
+                        .with_css(
+                            "padding: 8px 12px; font-family: monospace; font-size: 12px; \
+                             white-space: pre-wrap; overflow-y: auto; flex-grow: 1; \
+                             min-height: 0px;",
+                        )
+                        .with_child(Dom::create_span_with_text(AzString::from(shown)))
+                }
                 Some(PreviewContent::Image {
                     image,
                     width,
@@ -610,7 +619,7 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
     let pane = match &s.place {
         Place::ThisPc => match s.selected_drive.and_then(|i| s.slots.get(i)) {
             Some(slot) => {
-                let mut pane = DetailsPane::create(AzString::from(slot.entry.name.as_str()))
+                let mut pane = DetailsPane::create(AzString::from(slot.name()))
                     .with_icon(AzString::from(slot.icon()))
                     .with_subtitle(AzString::from(slot.kind()));
                 // An encrypted drive's recovery: green, yellow or red, and why (D51).
@@ -748,7 +757,8 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                     if let Some(Ok(pairs)) = s.metadata.get(&entry.key) {
                         let shown = ["Size", "Date modified", "Location", "ETag"];
                         for (name, value) in browse::metadata_rows(pairs, &shown, &chrono::Local) {
-                            pane = pane.with_property(label(&name), AzString::from(value));
+                            let (name, value) = crate::source_words::meta_row(&name, &value);
+                            pane = pane.with_property(AzString::from(name), AzString::from(value));
                         }
                     }
                     pane

@@ -122,6 +122,35 @@ pub fn weekday_name(weekday: Weekday) -> &'static str {
     }
 }
 
+/// "Monday"'s message in azul-appkit's resources (`kit-weekday-monday`): an app says it in the
+/// window's language.
+#[must_use]
+pub fn weekday_message_id(weekday: Weekday) -> &'static str {
+    match weekday {
+        Weekday::Mon => "kit-weekday-monday",
+        Weekday::Tue => "kit-weekday-tuesday",
+        Weekday::Wed => "kit-weekday-wednesday",
+        Weekday::Thu => "kit-weekday-thursday",
+        Weekday::Fri => "kit-weekday-friday",
+        Weekday::Sat => "kit-weekday-saturday",
+        Weekday::Sun => "kit-weekday-sunday",
+    }
+}
+
+/// "Mon"'s message in azul-appkit's resources (`kit-weekday-short-mon`).
+#[must_use]
+pub fn weekday_short_message_id(weekday: Weekday) -> &'static str {
+    match weekday {
+        Weekday::Mon => "kit-weekday-short-mon",
+        Weekday::Tue => "kit-weekday-short-tue",
+        Weekday::Wed => "kit-weekday-short-wed",
+        Weekday::Thu => "kit-weekday-short-thu",
+        Weekday::Fri => "kit-weekday-short-fri",
+        Weekday::Sat => "kit-weekday-short-sat",
+        Weekday::Sun => "kit-weekday-short-sun",
+    }
+}
+
 /// "Mon", as a row or a button shows a weekday.
 #[must_use]
 pub fn weekday_short(weekday: Weekday) -> &'static str {
@@ -176,6 +205,29 @@ pub fn weekday_from_code(code: &str) -> Option<Weekday> {
     WEEKDAYS
         .into_iter()
         .find(|d| weekday_code(*d).eq_ignore_ascii_case(code))
+}
+
+/// The month's message in azul-appkit's resources (`kit-month-january` for 1); January's for
+/// anything else, as [`month_name`].
+#[must_use]
+pub fn month_message_id(month: u32) -> &'static str {
+    const IDS: [&str; 12] = [
+        "kit-month-january",
+        "kit-month-february",
+        "kit-month-march",
+        "kit-month-april",
+        "kit-month-may",
+        "kit-month-june",
+        "kit-month-july",
+        "kit-month-august",
+        "kit-month-september",
+        "kit-month-october",
+        "kit-month-november",
+        "kit-month-december",
+    ];
+    IDS.get(month.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or(IDS[0])
 }
 
 /// "January" for 1 .. "December" for 12; "January" for anything else.
@@ -268,6 +320,22 @@ impl DateGroup {
             DateGroup::Older => "Older",
         })
     }
+
+    /// The group header's message in azul-appkit's resources (`kit-date-today`, a weekday's
+    /// `kit-weekday-monday`): an app says it in the window's language.
+    #[must_use]
+    pub fn message_id(self) -> String {
+        String::from(match self {
+            DateGroup::Today => "kit-date-today",
+            DateGroup::Yesterday => "kit-date-yesterday",
+            DateGroup::Weekday(day) => weekday_message_id(day),
+            DateGroup::LastWeek => "kit-date-last-week",
+            DateGroup::TwoWeeksAgo => "kit-date-two-weeks-ago",
+            DateGroup::ThreeWeeksAgo => "kit-date-three-weeks-ago",
+            DateGroup::LastMonth => "kit-date-last-month",
+            DateGroup::Older => "kit-date-older",
+        })
+    }
 }
 
 /// The group of something dated `day` when it is `today` (a day after today - a sender's clock
@@ -341,6 +409,61 @@ mod tests {
         let monday = day(2026, 9, 28);
         assert_eq!(date_group(day(2026, 9, 27), monday), DateGroup::Yesterday);
         assert_eq!(date_group(day(2026, 9, 26), monday), DateGroup::LastWeek);
+    }
+
+    /// The value of `id` in a Fluent resource of single-line messages (`id = value`).
+    fn message<'a>(resource: &'a str, id: &str) -> Option<&'a str> {
+        resource.lines().find_map(|line| {
+            let (name, value) = line.split_once(" = ")?;
+            (name == id).then_some(value)
+        })
+    }
+
+    /// The date words are azul-appkit's messages (the apps say them in the window's language):
+    /// each message the English the words here have, and a German one.
+    #[test]
+    fn the_date_words_are_the_kits_messages_in_english_and_german() {
+        let en = include_str!("../../azul-appkit/resources/en.ftl");
+        let de = include_str!("../../azul-appkit/resources/de.ftl");
+        let groups = [
+            DateGroup::Today,
+            DateGroup::Yesterday,
+            DateGroup::LastWeek,
+            DateGroup::TwoWeeksAgo,
+            DateGroup::ThreeWeeksAgo,
+            DateGroup::LastMonth,
+            DateGroup::Older,
+        ];
+        let mut pairs: Vec<(String, String)> =
+            groups.iter().map(|g| (g.message_id(), g.label())).collect();
+        for day in WEEKDAYS {
+            pairs.push((
+                weekday_message_id(day).to_string(),
+                weekday_name(day).to_string(),
+            ));
+            pairs.push((
+                weekday_short_message_id(day).to_string(),
+                weekday_short(day).to_string(),
+            ));
+            assert_eq!(
+                DateGroup::Weekday(day).message_id(),
+                weekday_message_id(day)
+            );
+        }
+        for month in 1..=12 {
+            pairs.push((
+                month_message_id(month).to_string(),
+                month_name(month).to_string(),
+            ));
+        }
+        for (id, english) in pairs {
+            assert_eq!(message(en, &id), Some(english.as_str()), "{id} in English");
+            assert!(
+                message(de, &id).is_some_and(|v| !v.is_empty()),
+                "{id} in German"
+            );
+        }
+        assert_eq!(message(de, &DateGroup::Today.message_id()), Some("Heute"));
     }
 
     #[test]

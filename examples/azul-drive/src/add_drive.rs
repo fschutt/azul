@@ -369,7 +369,7 @@ impl AddDialog {
         };
         self.service = Some(spec.id);
         self.values = spec.defaults();
-        self.name = spec.name.to_string();
+        self.name = crate::source_words::name(spec);
         self.testing = false;
         self.tested = None;
         self.error.clear();
@@ -445,7 +445,8 @@ impl AddDialog {
         let spec = self
             .spec()
             .ok_or_else(|| t("azdrive-add-choose-source-first"))?;
-        catalog::check(spec, &self.name, &self.values)
+        catalog::problem(spec, &self.name, &self.values)
+            .map_or(Ok(()), |problem| Err(crate::source_words::problem(problem)))
     }
 
     /// The drive the form describes, with the id `id`.

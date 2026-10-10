@@ -58,7 +58,7 @@ use crate::{
     add_flow::{self, AddEvent},
     ids, look, pay_words,
     sign_in::{self, SignInSettings, SignInStep},
-    with_state, DriveState, Popup,
+    source_words, with_state, DriveState, Popup,
 };
 
 // ==== Pieces ====
@@ -274,7 +274,7 @@ pub(crate) fn dialog(
                     &[("name", Arg::from(d.name.as_str()))],
                 ),
                 (None, Some(spec)) => {
-                    t_args("azdrive-add-connect", &[("name", Arg::from(spec.name))])
+                    t_args("azdrive-add-connect", &[("name", Arg::from(source_words::name(spec)))])
                 }
                 (None, None) => t("azdrive-add-sources-title"),
             };
@@ -550,7 +550,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         if d.cash_choice().is_some() {
             row.push(button(
                 app,
-                "Pay with cash by post\u{2026}",
+                "azdrive-add-pay-cash",
                 ButtonType::Default,
                 AddEvent::PayCash,
                 ids::ADD_PAY_CASH,
@@ -968,15 +968,15 @@ fn sources(app: &RefAny) -> Dom {
     let (groups, unavailable) = source_groups();
     let mut list = Vec::new();
     for (group, specs) in groups {
-        list.push(heading(group.title()));
+        list.push(heading(&source_words::group(group)));
         let cells: Vec<Dom> = specs
             .iter()
             .map(|spec| {
                 tile(
                     app,
                     spec.icon,
-                    spec.name,
-                    spec.summary,
+                    &source_words::name(spec),
+                    &source_words::summary(spec),
                     AddEvent::Service(spec.id),
                     false,
                     // one to a line, so a source's summary is not cut off
@@ -1020,11 +1020,9 @@ fn sources(app: &RefAny) -> Dom {
 
 /// One field of a source's form.
 fn field(d: &AddDialog, app: &RefAny, f: &'static FieldSpec) -> Dom {
-    let title = if f.required {
-        f.label.to_string()
-    } else {
-        format!("{} (optional)", f.label)
-    };
+    let title = source_words::field_title(f);
+    let field_label = AzString::from(source_words::field_label(f));
+    let placeholder = source_words::placeholder(f);
     let value = d.value(f.key);
     let control = match f.kind {
         FieldKind::Bool => {
@@ -1034,7 +1032,7 @@ fn field(d: &AddDialog, app: &RefAny, f: &'static FieldSpec) -> Dom {
                 )
                 .with_child(
                     CheckBox::create(d.bool_value(f.key))
-                        .with_accessibility_name(AzString::from(f.label))
+                        .with_accessibility_name(field_label.clone())
                         .with_on_toggle(
                             RefAny::new(KeyRef {
                                 app: app.clone(),
@@ -1047,8 +1045,7 @@ fn field(d: &AddDialog, app: &RefAny, f: &'static FieldSpec) -> Dom {
                         .with_id(ids::add_field(f.key)),
                 )
                 .with_child(
-                    Dom::create_span_with_text(AzString::from(f.label))
-                        .with_css("margin-left: 8px;"),
+                    Dom::create_span_with_text(field_label).with_css("margin-left: 8px;"),
                 );
         }
         FieldKind::Choice(words) => {
@@ -1060,7 +1057,7 @@ fn field(d: &AddDialog, app: &RefAny, f: &'static FieldSpec) -> Dom {
                     .collect::<Vec<AzString>>(),
             ))
             .with_selected(selected)
-            .with_accessibility_name(AzString::from(f.label))
+            .with_accessibility_name(field_label)
             .with_on_choice_change(
                 RefAny::new(KeyRef {
                     app: app.clone(),
@@ -1075,12 +1072,12 @@ fn field(d: &AddDialog, app: &RefAny, f: &'static FieldSpec) -> Dom {
         FieldKind::Path => Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center;")
             .with_child(
-                text_field(app, value, f.placeholder, false, TextTarget::Field(f.key))
+                text_field(app, value, &placeholder, false, TextTarget::Field(f.key))
                     .with_id(ids::add_field(f.key))
                     .with_css("flex-grow: 1; min-width: 0px;"),
             )
             .with_child(
-                Button::create(AzString::from("Choose ..."))
+                Button::create(l10n::label("azdrive-add-choose-path"))
                     .with_on_click(
                         RefAny::new(KeyRef {
                             app: app.clone(),
@@ -1095,17 +1092,17 @@ fn field(d: &AddDialog, app: &RefAny, f: &'static FieldSpec) -> Dom {
                     .with_css("margin-left: 6px;"),
             ),
         FieldKind::Secret => {
-            text_field(app, value, f.placeholder, true, TextTarget::Field(f.key))
+            text_field(app, value, &placeholder, true, TextTarget::Field(f.key))
                 .with_id(ids::add_field(f.key))
         }
         FieldKind::Text | FieldKind::Url | FieldKind::Number => {
-            text_field(app, value, f.placeholder, false, TextTarget::Field(f.key))
+            text_field(app, value, &placeholder, false, TextTarget::Field(f.key))
                 .with_id(ids::add_field(f.key))
         }
     };
     let mut parts = vec![label(&title), control];
     if !f.help.is_empty() {
-        parts.push(note(f.help));
+        parts.push(note(&source_words::help(f)));
     }
     column(parts)
 }
@@ -1175,7 +1172,14 @@ fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
     }
     let mut fields = vec![
         label("azdrive-add-name"),
-        text_field(app, &d.name, spec.name, false, TextTarget::Name).with_id(ids::ADD_NAME),
+        text_field(
+            app,
+            &d.name,
+            &source_words::name(spec),
+            false,
+            TextTarget::Name,
+        )
+        .with_id(ids::ADD_NAME),
     ];
     fields.extend(spec.fields.iter().map(|f| field(d, app, f)));
     if spec.read_only {
@@ -1254,9 +1258,9 @@ fn header(spec: &ServiceSpec) -> Dom {
                 .with_css("font-size: 28px; margin-right: 10px;"),
         )
         .with_child(column(vec![
-            Dom::create_span_with_text(AzString::from(spec.name))
+            Dom::create_span_with_text(AzString::from(source_words::name(spec)))
                 .with_css("font-size: 15px; font-weight: bold;"),
-            note(spec.summary),
+            note(&source_words::summary(spec)),
         ]))
 }
 

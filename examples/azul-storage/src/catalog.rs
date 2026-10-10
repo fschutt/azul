@@ -978,21 +978,59 @@ pub fn service_of(entry: &DriveEntry) -> Option<&'static ServiceSpec> {
     }
 }
 
+/// What kind of drive a drives-file entry is ([`kind_of`]); its `Display` is the English
+/// [`kind_label`] says, an app says it in its own language.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DriveKind {
+    /// A folder on this computer.
+    LocalDisk,
+    /// An Azlin drive.
+    AzlinCloud,
+    /// An S3 bucket of the user's own keys.
+    S3Bucket,
+    /// A source of the catalog.
+    Source(&'static ServiceSpec),
+    /// An OpenDAL scheme the catalog does not list.
+    Scheme(String),
+    /// A database browsed as tables.
+    Database(DatabaseEngine),
+}
+
+impl fmt::Display for DriveKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DriveKind::LocalDisk => f.write_str("Local Disk"),
+            DriveKind::AzlinCloud => f.write_str("Azlin cloud drive"),
+            DriveKind::S3Bucket => f.write_str("S3 bucket"),
+            DriveKind::Source(spec) => f.write_str(spec.name),
+            DriveKind::Scheme(scheme) => f.write_str(scheme),
+            DriveKind::Database(engine) => write!(f, "{} database", engine.name()),
+        }
+    }
+}
+
+/// What kind of drive `entry` is.
+#[must_use]
+pub fn kind_of(entry: &DriveEntry) -> DriveKind {
+    match &entry.location {
+        DriveLocation::Local { .. } => DriveKind::LocalDisk,
+        DriveLocation::S3 {
+            auth: DriveAuth::Azlin { .. },
+            ..
+        } => DriveKind::AzlinCloud,
+        DriveLocation::S3 { .. } => DriveKind::S3Bucket,
+        DriveLocation::Opendal { scheme, .. } => {
+            service_of(entry).map_or_else(|| DriveKind::Scheme(scheme.clone()), DriveKind::Source)
+        }
+        DriveLocation::Database { engine, .. } => DriveKind::Database(*engine),
+    }
+}
+
 /// What kind of drive it is, as Explorer's Type column says it: "Local Disk", "S3 bucket",
 /// "Azlin cloud drive", the source's name ("WebDAV"), "SQLite database".
 #[must_use]
 pub fn kind_label(entry: &DriveEntry) -> String {
-    match &entry.location {
-        DriveLocation::Local { .. } => String::from("Local Disk"),
-        DriveLocation::S3 {
-            auth: DriveAuth::Azlin { .. },
-            ..
-        } => String::from("Azlin cloud drive"),
-        DriveLocation::S3 { .. } => String::from("S3 bucket"),
-        DriveLocation::Opendal { scheme, .. } => service_of(entry)
-            .map_or_else(|| scheme.clone(), |s| s.name.to_string()),
-        DriveLocation::Database { engine, .. } => format!("{} database", engine.name()),
-    }
+    kind_of(entry).to_string()
 }
 
 // ==== Checking a form ====
@@ -1010,8 +1048,67 @@ fn value<'a>(values: &'a FormValues, f: &FieldSpec) -> Option<&'a str> {
     })
 }
 
+/// What a filled form lacks first ([`problem`]); its `Display` is the English sentence
+/// [`check`] says, an app says it in its own language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormProblem {
+    /// The drive has no name.
+    NoName,
+    /// A required field is empty.
+    Required(&'static FieldSpec),
+    /// An address without its scheme ([`FormProblem::scheme`]: the one its example has).
+    NotAnAddress(&'static FieldSpec),
+    NotANumber(&'static FieldSpec),
+    /// A check box's value that is neither `true` nor `false`.
+    NotOnOff(&'static FieldSpec),
+    /// A drop-down's value that is none of its words.
+    NotOneOf(&'static FieldSpec),
+}
+
+impl FormProblem {
+    /// The scheme the field's example address has (`https` without one).
+    #[must_use]
+    pub fn scheme(self) -> &'static str {
+        match self {
+            FormProblem::NoName => "https",
+            FormProblem::Required(f)
+            | FormProblem::NotAnAddress(f)
+            | FormProblem::NotANumber(f)
+            | FormProblem::NotOnOff(f)
+            | FormProblem::NotOneOf(f) => f
+                .placeholder
+                .split_once("://")
+                .map_or("https", |(scheme, _)| scheme),
+        }
+    }
+}
+
+impl fmt::Display for FormProblem {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FormProblem::NoName => out.write_str("Give the drive a name."),
+            FormProblem::Required(f) => write!(out, "\"{}\" is required.", f.label),
+            FormProblem::NotAnAddress(f) => write!(
+                out,
+                "\"{}\" must be an address with its scheme, such as {}://...",
+                f.label,
+                self.scheme()
+            ),
+            FormProblem::NotANumber(f) => write!(out, "\"{}\" must be a number.", f.label),
+            FormProblem::NotOnOff(f) => write!(out, "\"{}\" must be on or off.", f.label),
+            FormProblem::NotOneOf(f) => {
+                let words = match f.kind {
+                    FieldKind::Choice(words) => words.join(", "),
+                    _ => String::new(),
+                };
+                write!(out, "\"{}\" must be one of: {words}.", f.label)
+            }
+        }
+    }
+}
+
 /// Checks one filled field.
-fn check_field(f: &FieldSpec, v: &str) -> Result<(), String> {
+fn check_field(f: &'static FieldSpec, v: &str) -> Result<(), FormProblem> {
     match f.kind {
         FieldKind::Url => {
             let ok = v
@@ -1027,38 +1124,28 @@ fn check_field(f: &FieldSpec, v: &str) -> Result<(), String> {
             if ok {
                 Ok(())
             } else {
-                Err(format!(
-                    "\"{}\" must be an address with its scheme, such as {}://...",
-                    f.label,
-                    f.placeholder
-                        .split_once("://")
-                        .map_or("https", |(scheme, _)| scheme)
-                ))
+                Err(FormProblem::NotAnAddress(f))
             }
         }
         FieldKind::Number => {
             if v.chars().all(|c| c.is_ascii_digit()) {
                 Ok(())
             } else {
-                Err(format!("\"{}\" must be a number.", f.label))
+                Err(FormProblem::NotANumber(f))
             }
         }
         FieldKind::Bool => {
             if v == "true" || v == "false" {
                 Ok(())
             } else {
-                Err(format!("\"{}\" must be on or off.", f.label))
+                Err(FormProblem::NotOnOff(f))
             }
         }
         FieldKind::Choice(words) => {
             if words.contains(&v) {
                 Ok(())
             } else {
-                Err(format!(
-                    "\"{}\" must be one of: {}.",
-                    f.label,
-                    words.join(", ")
-                ))
+                Err(FormProblem::NotOneOf(f))
             }
         }
         FieldKind::Text | FieldKind::Secret | FieldKind::Path => Ok(()),
@@ -1067,19 +1154,29 @@ fn check_field(f: &FieldSpec, v: &str) -> Result<(), String> {
 
 /// Checks a filled form: the drive's name first, then every field in the form's order (a
 /// required one empty, an address without its scheme, a port that is no number). `Err` says
-/// what to fix, as a sentence.
+/// what to fix, as a sentence ([`problem`]'s English).
 pub fn check(spec: &ServiceSpec, name: &str, values: &FormValues) -> Result<(), String> {
+    problem(spec, name, values).map_or(Ok(()), |p| Err(p.to_string()))
+}
+
+/// What a filled form lacks first, as [`check`] reads it; `None`: nothing.
+#[must_use]
+pub fn problem(spec: &ServiceSpec, name: &str, values: &FormValues) -> Option<FormProblem> {
     if name.trim().is_empty() {
-        return Err(String::from("Give the drive a name."));
+        return Some(FormProblem::NoName);
     }
     for f in spec.fields {
         match value(values, f) {
-            None if f.required => return Err(format!("\"{}\" is required.", f.label)),
+            None if f.required => return Some(FormProblem::Required(f)),
             None => {}
-            Some(v) => check_field(f, v)?,
+            Some(v) => {
+                if let Err(problem) = check_field(f, v) {
+                    return Some(problem);
+                }
+            }
         }
     }
-    Ok(())
+    None
 }
 
 // ==== What a form becomes ====

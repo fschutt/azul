@@ -212,6 +212,9 @@ mod pay_words;
 #[cfg(test)]
 mod pay_words_tests;
 pub mod preview;
+mod source_words;
+#[cfg(test)]
+mod source_words_tests;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
 /// Options > Drives' "Use with other programs": the Azlin Bridge's settings to copy.
@@ -284,6 +287,8 @@ pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
 };
 /// The Home drive's id (never in the drives file).
 pub(crate) const HOME_ID: &str = "home";
+/// The home folder's name, a key of the resources ([`Slot::label`]).
+pub(crate) const HOME_NAME: &str = "azdrive-home-drive";
 /// The places "Recent locations" remembers.
 const RECENT_PLACES: usize = 10;
 
@@ -505,10 +510,30 @@ impl Slot {
         }
     }
 
+    /// The drive's name as a key-aware piece says it ([`azul_appkit::l10n::label`]): the home
+    /// folder's key ([`HOME_NAME`]: its name in the window's language), any other's own name.
+    pub fn label(&self) -> &str {
+        if self.entry.id == HOME_ID {
+            HOME_NAME
+        } else {
+            &self.entry.name
+        }
+    }
+
+    /// The drive's name in the window's language: the home folder's word ("Home", "Persönlicher
+    /// Ordner"; its entry's name without the resources), any other's own name.
+    pub fn name(&self) -> String {
+        if self.entry.id == HOME_ID {
+            azul_appkit::l10n::app_word("AzDrive", "home-drive", &self.entry.name)
+        } else {
+            self.entry.name.clone()
+        }
+    }
+
     /// What the drive is: "Local Disk", "S3 bucket", "Azlin cloud drive", "WebDAV", "SQLite
-    /// database".
+    /// database" (in the window's language).
     pub fn kind(&self) -> String {
-        azul_storage::catalog::kind_label(&self.entry)
+        crate::source_words::kind(&azul_storage::catalog::kind_of(&self.entry))
     }
 }
 
@@ -1018,12 +1043,18 @@ impl DriveState {
         }
     }
 
-    /// The drives as `(id, name)`, for the typed path.
+    /// The drives as `(id, name)`, for the typed path: the name the window says, and the entry's
+    /// own where it differs (a new window's `--open` path, "Home/Documents").
     pub fn drive_names(&self) -> Vec<(String, String)> {
-        self.slots
-            .iter()
-            .map(|s| (s.entry.id.clone(), s.entry.name.clone()))
-            .collect()
+        let mut names = Vec::new();
+        for slot in &self.slots {
+            let shown = slot.name();
+            if shown != slot.entry.name {
+                names.push((slot.entry.id.clone(), slot.entry.name.clone()));
+            }
+            names.push((slot.entry.id.clone(), shown));
+        }
+        names
     }
 
     /// The name of the place's drive (This PC and Quick access in the window's language).
@@ -1033,7 +1064,7 @@ impl DriveState {
             Place::ThisPc => browse::this_pc(),
             Place::Folder { drive, .. } => self
                 .slot_index(drive)
-                .map(|i| self.slots[i].entry.name.clone())
+                .map(|i| self.slots[i].name())
                 .unwrap_or_else(|| drive.clone()),
         }
     }
@@ -1995,11 +2026,12 @@ pub(crate) fn take_rotated(s: &mut DriveState) {
         };
         s.slots[index].secret = Some(session.secret);
         if let Some(why) = session.unsaved {
-            let name = s.slots[index].entry.name.clone();
-            s.error(format!(
-                "The new session of \"{name}\" could not be saved in the keyring: {why}. AzDrive \
-                 keeps it until it closes; after that the drive must be added again."
-            ));
+            let name = s.slots[index].name();
+            s.error(
+                Phrase::new("azdrive-session-not-saved")
+                    .arg("name", name)
+                    .arg("why", azul_appkit::l10n::t_label(&why)),
+            );
         }
     }
 }
@@ -2514,7 +2546,7 @@ pub(crate) extern "C" fn on_job_done(
             if let Some(preview) = s.preview.as_mut().filter(|p| p.key == key) {
                 let kind = match &content {
                     PreviewContent::Image { .. } => "image",
-                    PreviewContent::Text(_) => "text",
+                    PreviewContent::Text { .. } => "text",
                     PreviewContent::Video(_) => "video",
                     PreviewContent::Audio(_) => "audio",
                     PreviewContent::Message(_) => "none",

@@ -11,10 +11,17 @@ use azul_appkit::{
 
 use crate::l10n::{sources, DE, EN};
 
+/// The windows' ids look like keys (`azmail-main`): the debug server and the scripts address
+/// the windows by them, no window says them.
+const WINDOW_IDS: [&str; 2] = [crate::MAIN_WINDOW_ID, crate::ui_options::OPTIONS_WINDOW_ID];
+
 #[test]
 fn every_key_of_azmails_source_is_in_english_and_german_and_both_parse() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let problems = check(&dir, &["azmail"], EN, DE);
+    let problems: Vec<String> = check(&dir, &["azmail"], EN, DE)
+        .into_iter()
+        .filter(|problem| !WINDOW_IDS.iter().any(|id| problem.starts_with(&format!("{id}: "))))
+        .collect();
     assert!(problems.is_empty(), "{problems:#?}");
 }
 

@@ -135,7 +135,7 @@ pub(crate) fn cloud_note(find: &find::FindState) -> Dom {
 fn folder_text(s: &DriveState, row: &str) -> String {
     let drive_name = |id: &str| {
         s.slot_index(id)
-            .map_or_else(|| id.to_string(), |i| s.slots[i].entry.name.clone())
+            .map_or_else(|| id.to_string(), |i| s.slots[i].name())
     };
     match find::split_pc_key(row) {
         Some((drive, key)) => match find::folder_of(key) {

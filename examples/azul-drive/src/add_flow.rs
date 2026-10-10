@@ -871,7 +871,7 @@ fn pay_cash(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         return;
     };
     let Some(choice) = d.cash_choice() else {
-        d.notice = String::from("This token server takes no cash by post.");
+        d.notice = t("azdrive-add-no-cash");
         return;
     };
     if d.offer().is_none() {

@@ -252,6 +252,33 @@ mod tests {
         assert!(!summary.to_ascii_lowercase().contains("password"), "{summary}");
     }
 
+    /// The rows' words are messages of the kit's resources (an app says them in the window's
+    /// language): a row's label and a worded value name their message, whose English is the
+    /// row's own; every message has its German.
+    #[test]
+    fn the_rows_words_are_messages_in_english_and_german() {
+        let dir = TempDir::new("bridge-words");
+        write_settings(&dir.0, "file");
+        let settings = BridgeSettings::load(&dir.0).expect("set up");
+        let en = fluent_source(crate::user_errors::Lang::En);
+        let de = fluent_source(crate::user_errors::Lang::De);
+        let message = |source: &str, id: &str| {
+            source
+                .lines()
+                .find_map(|line| line.strip_prefix(&format!("{id} = ")).map(str::to_string))
+        };
+        let rows = [settings.mail_rows(), settings.files_rows(), settings.calendar_rows()].concat();
+        for row in rows {
+            assert_eq!(message(&en, row.label_id).as_deref(), Some(row.label.as_str()), "{row:?}");
+            assert!(message(&de, row.label_id).is_some(), "{row:?}");
+            if let Some(id) = row.value_id {
+                assert_eq!(message(&en, id).as_deref(), Some(row.value.as_str()), "{row:?}");
+                assert!(message(&de, id).is_some(), "{row:?}");
+            }
+        }
+        assert_eq!(message(&de, "azlin-bridge-user").as_deref(), Some("Benutzername"));
+    }
+
     #[test]
     fn a_folder_without_the_bridge_or_with_another_file_has_no_settings() {
         let dir = TempDir::new("bridge-settings-none");

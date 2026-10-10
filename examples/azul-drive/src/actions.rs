@@ -1507,7 +1507,9 @@ fn type_ahead(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, c: char
     let query = s.type_ahead.push(c, now_ms());
     match s.place {
         Place::ThisPc if s.find.is_none() => {
-            let names: Vec<&str> = s.slots.iter().map(|slot| slot.entry.name.as_str()).collect();
+            // The names the window shows (the home folder's in its language).
+            let shown: Vec<String> = s.slots.iter().map(crate::Slot::name).collect();
+            let names: Vec<&str> = shown.iter().map(String::as_str).collect();
             if let Some(i) = model::type_ahead_match(&names, &query, s.selected_drive) {
                 s.selected_drive = Some(i);
             }
@@ -2224,7 +2226,7 @@ fn destination_items(app: &RefAny, s: &DriveState, kind: TransferKind) -> Vec<Me
     for slot in &s.slots {
         items.push(menu_item(
             app,
-            &slot.entry.name,
+            slot.label(),
             wrap(Place::folder(&slot.entry.id, "")),
             false,
         ));

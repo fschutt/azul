@@ -120,7 +120,11 @@ pub(crate) fn source_rows(
         Some(spec) => spec
             .fields
             .iter()
-            .filter_map(|f| options.get(f.key).map(|v| (f.label.to_string(), v.clone())))
+            .filter_map(|f| {
+                options
+                    .get(f.key)
+                    .map(|v| (crate::source_words::field_label(f), v.clone()))
+            })
             .collect(),
         None => options.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
     }
@@ -475,7 +479,7 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
     let mut details: Vec<(String, String)> = Vec::new();
     let title;
     if let Some(slot) = props.drive.and_then(|i| s.slots.get(i)) {
-        title = slot.entry.name.clone();
+        title = slot.name();
         general.push((String::from("azdrive-props-type"), slot.kind().to_string()));
         match &slot.entry.location {
             DriveLocation::Local { root } => {
@@ -613,7 +617,11 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
                     }
                     Some(Ok(pairs)) => {
                         let shown = ["Name", "Key", "ETag"];
-                        details.extend(browse::metadata_rows(pairs, &shown, &chrono::Local));
+                        details.extend(
+                            browse::metadata_rows(pairs, &shown, &chrono::Local)
+                                .into_iter()
+                                .map(|(name, value)| crate::source_words::meta_row(&name, &value)),
+                        );
                     }
                     Some(Err(e)) => {
                         details.push((String::from("azdrive-props-metadata"), t_text(e)));
@@ -1119,7 +1127,7 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                             Dom::create_div()
                                 .with_css("display: flex; flex-direction: column; flex-grow: 1;")
                                 .with_child(Dom::create_span_with_text(AzString::from(
-                                    slot.entry.name.as_str(),
+                                    slot.name(),
                                 )))
                                 .with_child(
                                     Dom::create_span_with_text(AzString::from(format!(

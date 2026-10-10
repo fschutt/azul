@@ -407,7 +407,8 @@ class Run:
             env['AZMAIL_TEST_CA'] = ca
         log(f'IMAP server on 127.0.0.1:{self.port}' + (' (TLS)' if self.args.tls else ''))
 
-        self.start('azmail', [binary], env)
+        # The checks read English words (the system may be German).
+        self.start('azmail', [binary, '--language', 'en'], env)
         # No account: the real window, its message list saying so and offering Add Account
         # (the wizard of File > Info) - no wizard in front of the window.
         self.until('the empty mail window', lambda: self.shows('No account yet'))

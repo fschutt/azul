@@ -60,6 +60,8 @@ use azul::{
     },
 };
 
+use azul_appkit::l10n::{label, t, t_args, t_label, Arg};
+
 use crate::{
     compose::ComposeKind,
     folders::Role,
@@ -198,7 +200,7 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
                 message_list(s, &app),
                 reading_pane(s, &app),
             )
-            .with_list_label("Message list")
+            .with_list_label(label("azmail-message-list"))
             .with_navigation_ratio(0.2)
             .with_list_ratio(0.42);
             if s.show_todo {
@@ -264,7 +266,7 @@ fn title_row(s: &MailApp) -> Dom {
         (Some(folder), Some(account)) => format!("{folder} - {} - AzMail", account.email),
         (None, Some(account)) => format!("{} - AzMail", account.email),
         (Some(folder), None) if s.shows_local() => {
-            format!("{folder} - {} - AzMail", listing::LOCAL_FOLDERS)
+            format!("{folder} - {} - AzMail", listing::local_folders())
         }
         _ => String::from("AzMail"),
     };
@@ -279,7 +281,7 @@ fn current_folder_label(s: &MailApp) -> Option<String> {
         .get(index)?
         .iter()
         .find(|f| &f.key == key)
-        .map(|f| listing::folder_label(f.role, &f.display))
+        .map(listing::label_of)
 }
 
 /// The main window is up: what `--screen compose` / `reply` / `options` asked for opens over
@@ -351,15 +353,17 @@ extern "C" fn on_main_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// (F1).
 fn about_dialog(app: &RefAny) -> Dom {
     let about = crate::args::ABOUT;
-    let dialog = AboutDialog::create(about.name, format!("Version {}", about.version))
+    let version = format!("{} {}", t("kit-about-version"), about.version);
+    let dialog = AboutDialog::create(about.name, version)
         .with_icon("mail")
-        .with_description(about.summary)
+        .with_description(azul_appkit::l10n::app_word("AzMail", "about-summary", about.summary))
+        .with_labels(label("azmail-about-credits"), label("kit-button-ok"))
         .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType);
     let dialog = CREDITS
         .iter()
         .fold(dialog, |dialog, (name, license)| dialog.with_credit(*name, *license));
     Modal::create(dialog.dom())
-        .with_title(format!("About {}", about.name))
+        .with_title(t_args("kit-about-title", &[("app", Arg::from(about.name))]))
         .with_open(true)
         .with_on_close(app.clone(), on_about_closed as ModalOnCloseCallbackType)
         .dom()
@@ -401,24 +405,21 @@ pub(crate) fn mail_options(s: &MailApp, app: &RefAny) -> Vec<azul_appkit::ui::Ap
     };
     vec![azul_appkit::ui::AppSection {
         category: 0,
-        title: String::from("Mail"),
+        title: String::from("azmail-category-mail"),
         content: azul_appkit::pieces::column(
             "",
             vec![
-                check("Reading Pane", s.show_reading, Action::ToggleReading, ids::OPTION_READING_PANE),
-                check("To-Do Bar", s.show_todo, Action::ToggleTodo, ids::OPTION_TODO_BAR),
+                check("azmail-cmd-reading-pane", s.show_reading, Action::ToggleReading, ids::OPTION_READING_PANE),
+                check("azmail-cmd-todo-bar", s.show_todo, Action::ToggleTodo, ids::OPTION_TODO_BAR),
                 check(
-                    "Navigation Pane",
+                    "azmail-cmd-navigation-pane",
                     !s.nav_collapsed,
                     Action::ToggleNavigation,
                     ids::OPTION_NAVIGATION_PANE,
                 ),
-                check("Newest on top", s.newest_first, Action::ReverseSort, ids::OPTION_NEWEST_FIRST),
-                check("Read as plain text", s.plain_text, Action::PlainText, ids::OPTION_PLAIN_TEXT),
-                azul_appkit::ui::note(
-                    "The View tab's switches; AzMail remembers them. The accounts are under \
-                     File > Info.",
-                ),
+                check("azmail-newest-on-top", s.newest_first, Action::ReverseSort, ids::OPTION_NEWEST_FIRST),
+                check("azmail-option-plain-text", s.plain_text, Action::PlainText, ids::OPTION_PLAIN_TEXT),
+                azul_appkit::ui::note("azmail-option-note"),
             ],
         ),
     }]
@@ -487,7 +488,8 @@ pub(crate) enum Action {
     About,
     /// Home > New Items: the menu of the new items AzMail makes.
     NewItemsMenu,
-    /// A command AzMail does not have (yet): its line in the status bar says why.
+    /// A command AzMail does not have (yet): its line in the status bar says why (a key of the
+    /// resources).
     Notice(&'static str),
     /// Home > Respond > More: the menu of the other answers.
     MoreRespondMenu,
@@ -517,22 +519,20 @@ pub(crate) enum Action {
 
 /// Outlook 2010's Quick Steps (icon, name, what it does in AzMail): two columns of three.
 const QUICK_STEPS: [(&str, &str, Action); 6] = [
-    ("drive_file_move", "Move to: ?", Action::Move),
-    ("group", "Team E-mail", Action::NewMail),
-    ("reply", "Reply & Delete", Action::Reply),
-    ("forward", "To Manager", Action::Forward),
-    ("done", "Done", Action::Done),
-    ("add", "Create New", Action::Notice(QUICK_STEPS_FIXED)),
+    ("drive_file_move", "azmail-quick-move-to", Action::Move),
+    ("group", "azmail-quick-team", Action::NewMail),
+    ("reply", "azmail-quick-reply-delete", Action::Reply),
+    ("forward", "azmail-quick-to-manager", Action::Forward),
+    ("done", "azmail-quick-done", Action::Done),
+    ("add", "azmail-quick-create-new", Action::Notice(QUICK_STEPS_FIXED)),
 ];
 
 /// Why the commands that change the server's folders are not there yet.
-const READ_ONLY: &str = "AzMail keeps the server's folders as they are (it receives read-only); \
-                         deleting, moving and filing come with two-way sync.";
+const READ_ONLY: &str = "azmail-notice-read-only";
 /// Why Quick Steps cannot be made yet.
-const QUICK_STEPS_FIXED: &str = "AzMail's Quick Steps are fixed: Move to, Team E-mail, Reply & \
-                                 Delete, To Manager, Done.";
+const QUICK_STEPS_FIXED: &str = "azmail-notice-quick-steps";
 /// Why the server tools of Send / Receive are greyed.
-const WHOLE_MESSAGES: &str = "AzMail downloads whole messages: there are no headers to mark.";
+const WHOLE_MESSAGES: &str = "azmail-notice-whole-messages";
 
 pub(crate) struct ActionRef {
     app: RefAny,
@@ -601,16 +601,16 @@ fn move_to(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, to: String) {
         return;
     };
     if from == listing::OUTBOX_KEY {
-        s.notice = String::from("The Outbox's mail is not in the drive yet: it is sent first.");
+        s.notice = t("azmail-notice-outbox-first");
         return;
     }
     if from == to {
-        s.notice = String::from("The messages are in that folder already.");
+        s.notice = t("azmail-notice-already-there");
         return;
     }
     let uids = action_uids(s);
     if uids.is_empty() {
-        s.notice = String::from("Select a message first.");
+        s.notice = t("azmail-notice-select-first");
         return;
     }
     crate::spawn_azlin(s, info, app, crate::AzlinAction::Move { from, uids, to });
@@ -619,7 +619,7 @@ fn move_to(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, to: String) {
 /// Archive, Junk: into the account's folder of `role` (Archive, Junk E-mail).
 fn move_to_role(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, role: Role) {
     if !shows_azlin(s) {
-        s.notice = String::from(READ_ONLY);
+        s.notice = t(READ_ONLY);
         return;
     }
     if let Some(to) = role.key() {
@@ -630,7 +630,7 @@ fn move_to_role(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, role: Rol
 /// Delete: into Deleted Items; in Deleted Items, out of the drive for good.
 fn delete_messages(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
     if !shows_azlin(s) {
-        s.notice = String::from(READ_ONLY);
+        s.notice = t(READ_ONLY);
         return;
     }
     if s.folder.as_deref() != Role::Trash.key() {
@@ -641,7 +641,7 @@ fn delete_messages(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
         return;
     };
     if uids.is_empty() {
-        s.notice = String::from("Select a message first.");
+        s.notice = t("azmail-notice-select-first");
         return;
     }
     crate::spawn_azlin(s, info, app, crate::AzlinAction::Delete { folder, uids });
@@ -665,7 +665,7 @@ fn move_menu(s: &MailApp, app: &RefAny) -> Vec<MenuItem> {
                 app: app.clone(),
                 to: f.key.clone(),
             });
-            let label = listing::folder_label(f.role, &f.display);
+            let label = listing::label_of(f);
             MenuItem::String(StringMenuItem::create(label.as_str()).with_callback(data, on_move_to))
         })
         .collect()
@@ -711,7 +711,10 @@ pub(crate) fn azlin_action_done(
                 Err(e) => {
                     if let Some(open) = s.open.as_mut() {
                         open.fetching = false;
-                        open.error = format!("Could not download this message: {e}");
+                        open.error = t_args(
+                            "azmail-error-download",
+                            &[("why", Arg::from(t_label(&e)))],
+                        );
                     }
                 }
             }
@@ -722,18 +725,23 @@ pub(crate) fn azlin_action_done(
             s.reload_messages();
         }
         (crate::AzlinAction::PushMarks { .. }, Err(e)) => {
-            s.notice = format!("The read and flag marks wait for the next Send/Receive: {e}");
+            s.notice = t_args("azmail-notice-marks-wait", &[("why", Arg::from(t_label(&e)))]);
         }
         (crate::AzlinAction::Move { to, .. }, result) => {
             let label = s
                 .current
                 .and_then(|i| s.folders.get(i))
                 .and_then(|list| list.iter().find(|f| f.key == to))
-                .map_or(to.clone(), |f| listing::folder_label(f.role, &f.display));
+                .map_or(to.clone(), listing::label_of);
             s.notice = match result {
-                Ok(1) => format!("Moved 1 message to {label}."),
-                Ok(n) => format!("Moved {n} messages to {label}."),
-                Err(e) => format!("Could not move to {label}: {e}"),
+                Ok(n) => t_args(
+                    "azmail-notice-moved",
+                    &[("count", Arg::from(n)), ("folder", Arg::from(label))],
+                ),
+                Err(e) => t_args(
+                    "azmail-notice-not-moved",
+                    &[("folder", Arg::from(label)), ("why", Arg::from(t_label(&e)))],
+                ),
             };
             s.selection = azul::widgets::ListSelection::create();
             s.reload_folders();
@@ -741,9 +749,8 @@ pub(crate) fn azlin_action_done(
         }
         (crate::AzlinAction::Delete { .. }, result) => {
             s.notice = match result {
-                Ok(1) => String::from("Deleted 1 message for good."),
-                Ok(n) => format!("Deleted {n} messages for good."),
-                Err(e) => format!("Could not delete: {e}"),
+                Ok(n) => t_args("azmail-notice-deleted", &[("count", Arg::from(n))]),
+                Err(e) => t_args("azmail-notice-not-deleted", &[("why", Arg::from(t_label(&e)))]),
             };
             s.selection = azul::widgets::ListSelection::create();
             s.reload_folders();
@@ -785,7 +792,7 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 if s.open.as_ref().is_some_and(|o| o.view.is_some()) {
                     ui_compose::open_compose(s, info, app, kind);
                 } else {
-                    s.notice = String::from("Select a message first.");
+                    s.notice = t("azmail-notice-select-first");
                 }
             }
             Action::Delete => delete_messages(s, info, app),
@@ -795,7 +802,7 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 open_menu_below(info, move_menu(s, &app));
                 return Update::DoNothing;
             }
-            Action::Move => s.notice = String::from(READ_ONLY),
+            Action::Move => s.notice = t(READ_ONLY),
             Action::Done => {
                 let uids = selected_uids(s);
                 mark_read(s, info, app, &uids, true);
@@ -881,17 +888,17 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 return Update::RefreshDomAllWindows;
             }
             Action::About => s.about_open = true,
-            Action::Notice(text) => s.notice = String::from(text),
+            Action::Notice(text) => s.notice = t_label(text),
             Action::NewItemsMenu => {
                 open_menu_below(
                     info,
                     vec![
-                        menu_item(&app, "E-mail Message", Action::NewMail),
+                        menu_item(&app, "azmail-menu-mail-message", Action::NewMail),
                         MenuItem::Separator,
-                        greyed_item("Appointment"),
-                        greyed_item("Meeting"),
-                        greyed_item("Contact"),
-                        greyed_item("Task"),
+                        greyed_item("azmail-menu-appointment"),
+                        greyed_item("azmail-menu-meeting"),
+                        greyed_item("azmail-menu-contact"),
+                        greyed_item("azmail-menu-task"),
                     ],
                 );
                 return Update::DoNothing;
@@ -900,23 +907,23 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 open_menu_below(
                     info,
                     vec![
-                        menu_item(&app, "Forward", Action::Forward),
-                        greyed_item("Forward as Attachment"),
-                        greyed_item("Reply with Meeting"),
+                        menu_item(&app, "azmail-cmd-forward", Action::Forward),
+                        greyed_item("azmail-menu-forward-attachment"),
+                        greyed_item("azmail-menu-reply-meeting"),
                     ],
                 );
                 return Update::DoNothing;
             }
             Action::FollowUpMenu => {
-                open_menu_below(info, vec![menu_item(&app, "Flag / Clear Flag", Action::ToggleFlag)]);
+                open_menu_below(info, vec![menu_item(&app, "azmail-menu-flag", Action::ToggleFlag)]);
                 return Update::DoNothing;
             }
             Action::FilterMenu => {
                 open_menu_below(
                     info,
                     vec![
-                        check_item(&app, "All Mail", Action::FilterUnread(false), s.scope == 0),
-                        check_item(&app, "Unread", Action::FilterUnread(true), s.scope == 1),
+                        check_item(&app, "azmail-menu-all-mail", Action::FilterUnread(false), s.scope == 0),
+                        check_item(&app, "azmail-menu-unread", Action::FilterUnread(true), s.scope == 1),
                     ],
                 );
                 return Update::DoNothing;
@@ -924,7 +931,7 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
             Action::SendReceiveGroupsMenu => {
                 open_menu_below(
                     info,
-                    vec![menu_item(&app, "All Accounts", Action::SendReceive)],
+                    vec![menu_item(&app, "azmail-menu-all-accounts", Action::SendReceive)],
                 );
                 return Update::DoNothing;
             }
@@ -932,8 +939,8 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 open_menu_below(
                     info,
                     vec![
-                        check_item(&app, "Normal", Action::ShowNavigation(true), !s.nav_collapsed),
-                        check_item(&app, "Minimized", Action::ShowNavigation(false), s.nav_collapsed),
+                        check_item(&app, "azmail-menu-normal", Action::ShowNavigation(true), !s.nav_collapsed),
+                        check_item(&app, "azmail-menu-minimized", Action::ShowNavigation(false), s.nav_collapsed),
                     ],
                 );
                 return Update::DoNothing;
@@ -942,8 +949,8 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 open_menu_below(
                     info,
                     vec![
-                        check_item(&app, "Right", Action::ShowReading(true), s.show_reading),
-                        check_item(&app, "Off", Action::ShowReading(false), !s.show_reading),
+                        check_item(&app, "azmail-menu-right", Action::ShowReading(true), s.show_reading),
+                        check_item(&app, "azmail-menu-off", Action::ShowReading(false), !s.show_reading),
                     ],
                 );
                 return Update::DoNothing;
@@ -952,8 +959,8 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 open_menu_below(
                     info,
                     vec![
-                        check_item(&app, "Normal", Action::ShowTodo(true), s.show_todo),
-                        check_item(&app, "Off", Action::ShowTodo(false), !s.show_todo),
+                        check_item(&app, "azmail-menu-normal", Action::ShowTodo(true), s.show_todo),
+                        check_item(&app, "azmail-menu-off", Action::ShowTodo(false), !s.show_todo),
                     ],
                 );
                 return Update::DoNothing;
@@ -968,15 +975,30 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 s.notice = match &s.sync {
                     SyncState::Running {
                         status, percent, ..
-                    } => format!("Send/Receive: {status} ({percent:.0}%)."),
-                    SyncState::Done(text) | SyncState::Failed(text) => format!("Last Send/Receive: {text}"),
-                    SyncState::Idle => String::from("Nothing is being sent or received."),
+                    } => t_args(
+                        "azmail-progress",
+                        &[
+                            ("status", Arg::from(t_label(status))),
+                            ("percent", Arg::from(format!("{percent:.0}"))),
+                        ],
+                    ),
+                    SyncState::Done(text) | SyncState::Failed(text) => {
+                        t_args("azmail-progress-last", &[("text", Arg::from(t_label(text)))])
+                    }
+                    SyncState::Idle => t("azmail-nothing-running"),
                 };
             }
             Action::FolderProperties => {
                 let unread = s.view.iter().filter(|e| !s.flags.is_read(e)).count();
-                let folder = current_folder_label(s).unwrap_or_else(|| String::from("No folder"));
-                s.notice = format!("{folder}: {} items, {unread} unread.", s.entries.len());
+                let folder = current_folder_label(s).unwrap_or_else(|| t("azmail-no-folder"));
+                s.notice = t_args(
+                    "azmail-folder-facts",
+                    &[
+                        ("folder", Arg::from(folder)),
+                        ("items", Arg::from(s.entries.len())),
+                        ("unread", Arg::from(unread)),
+                    ],
+                );
             }
             Action::ShowNavigation(on) => {
                 s.nav_collapsed = !on;
@@ -999,20 +1021,20 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
 // ==== Menus (a ribbon button's ▾) ====
 
 /// A menu entry running `action`.
-fn menu_item(app: &RefAny, label: &str, action: Action) -> MenuItem {
-    MenuItem::String(StringMenuItem::create(label).with_callback(action_ref(app, action), on_action))
+fn menu_item(app: &RefAny, text: &str, action: Action) -> MenuItem {
+    MenuItem::String(StringMenuItem::create(label(text)).with_callback(action_ref(app, action), on_action))
 }
 
 /// A menu entry with a check mark (the state it is in).
-fn check_item(app: &RefAny, label: &str, action: Action, checked: bool) -> MenuItem {
-    let mut item = StringMenuItem::create(label).with_callback(action_ref(app, action), on_action);
+fn check_item(app: &RefAny, text: &str, action: Action, checked: bool) -> MenuItem {
+    let mut item = StringMenuItem::create(label(text)).with_callback(action_ref(app, action), on_action);
     item.icon = OptionMenuItemIcon::Some(MenuItemIcon::Checkbox(checked));
     MenuItem::String(item)
 }
 
 /// A menu entry AzMail has not got: greyed.
-fn greyed_item(label: &str) -> MenuItem {
-    let mut item = StringMenuItem::create(label);
+fn greyed_item(text: &str) -> MenuItem {
+    let mut item = StringMenuItem::create(label(text));
     item.menu_item_state = MenuItemState::Greyed;
     MenuItem::String(item)
 }
@@ -1046,8 +1068,9 @@ fn leave_backstage(s: &mut MailApp) {
 /// split button, Quick Steps a list gallery, Find a Contact a combo box. What AzMail cannot do
 /// (it receives read-only) says why in the status bar, or is greyed with its reason.
 pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
-    let button = |icon: &str, label: &str, action: Action| {
-        RibbonButton::create(icon, label)
+    // The pieces take keys of the resources (appkit's label).
+    let button = |icon: &str, text: &str, action: Action| {
+        RibbonButton::create(icon, label(text))
             .with_on_click(action_ref(app, action), on_action as ButtonOnClickCallbackType)
     };
     let big = |icon: &str, label: &str, action: Action| {
@@ -1066,53 +1089,53 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
         RibbonItem::SmallButton(button(icon, label, action).with_toggled(on))
     };
     // A command AzMail has not got: greyed, its reason the tooltip.
-    let off = |icon: &str, label: &str, why: &str| {
-        RibbonButton::create(icon, label).with_disabled(why)
+    let off = |icon: &str, text: &str, why: &str| {
+        RibbonButton::create(icon, label(text)).with_disabled(label(why))
     };
     let syncing = matches!(s.sync, SyncState::Running { .. });
 
     // Home: New | Delete | Respond | Quick Steps | Move | Tags | Find.
     let quick_steps: Vec<RibbonGalleryCell> = QUICK_STEPS
         .iter()
-        .map(|(icon, label, _)| RibbonGalleryCell::create(Dom::create_icon(*icon), *label))
+        .map(|(icon, text, _)| RibbonGalleryCell::create(Dom::create_icon(*icon), label(text)))
         .collect();
     let quick_steps = RibbonGallery::create(quick_steps)
         .with_columns(2)
         .with_on_select(app.clone(), on_quick_step as RibbonGalleryOnSelectCallbackType);
-    let follow_up = button("flag", "Follow Up", Action::ToggleFlag).with_on_arrow_click(
+    let follow_up = button("flag", "azmail-cmd-follow-up", Action::ToggleFlag).with_on_arrow_click(
         action_ref(app, Action::FollowUpMenu),
         on_action as ButtonOnClickCallbackType,
     );
-    let home = RibbonTab::create("Home")
+    let home = RibbonTab::create(label("azmail-tab-home"))
         .with_group(
-            RibbonGroup::create("New")
-                .with_item(big("mail", "New E-mail", Action::NewMail))
-                .with_item(big_menu("description", "New Items", Action::NewItemsMenu)),
+            RibbonGroup::create(label("azmail-group-new"))
+                .with_item(big("mail", "azmail-cmd-new-mail", Action::NewMail))
+                .with_item(big_menu("description", "azmail-cmd-new-items", Action::NewItemsMenu)),
         )
         .with_group(
             // An Azlin account's Junk, Delete and Archive change its drive's folders; an IMAP
             // account's say why they cannot (it receives read-only).
-            RibbonGroup::create("Delete")
-                .with_item(small("visibility_off", "Ignore", Action::Notice(READ_ONLY)))
-                .with_item(small_menu("cleaning_services", "Clean Up", Action::Notice(READ_ONLY)))
-                .with_item(small_menu("report", "Junk", Action::Junk))
-                .with_item(big("delete", "Delete", Action::Delete))
-                .with_item(big("archive", "Archive", Action::Archive)),
+            RibbonGroup::create(label("azmail-group-delete"))
+                .with_item(small("visibility_off", "azmail-cmd-ignore", Action::Notice(READ_ONLY)))
+                .with_item(small_menu("cleaning_services", "azmail-cmd-clean-up", Action::Notice(READ_ONLY)))
+                .with_item(small_menu("report", "azmail-cmd-junk", Action::Junk))
+                .with_item(big("delete", "azmail-cmd-delete", Action::Delete))
+                .with_item(big("archive", "azmail-cmd-archive", Action::Archive)),
         )
         .with_group(
-            RibbonGroup::create("Respond")
-                .with_item(big("reply", "Reply", Action::Reply))
-                .with_item(big("reply_all", "Reply All", Action::ReplyAll))
-                .with_item(big("forward", "Forward", Action::Forward))
+            RibbonGroup::create(label("azmail-group-respond"))
+                .with_item(big("reply", "azmail-cmd-reply", Action::Reply))
+                .with_item(big("reply_all", "azmail-cmd-reply-all", Action::ReplyAll))
+                .with_item(big("forward", "azmail-cmd-forward", Action::Forward))
                 .with_item(small(
                     "calendar_month",
-                    "Meeting",
-                    Action::Notice("Meetings are AzCalendar's: plan one there."),
+                    "azmail-cmd-meeting",
+                    Action::Notice("azmail-notice-meetings"),
                 ))
-                .with_item(small_menu("more_horiz", "More", Action::MoreRespondMenu)),
+                .with_item(small_menu("more_horiz", "azmail-cmd-more", Action::MoreRespondMenu)),
         )
         .with_group(
-            RibbonGroup::create("Quick Steps")
+            RibbonGroup::create(label("azmail-group-quick-steps"))
                 .with_item(RibbonItem::Gallery(quick_steps))
                 .with_launcher(
                     action_ref(app, Action::Notice(QUICK_STEPS_FIXED)),
@@ -1120,124 +1143,124 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
                 ),
         )
         .with_group(
-            RibbonGroup::create("Move")
-                .with_item(big_menu("drive_file_move", "Move", Action::Move))
-                .with_item(big_menu("rule", "Rules", Action::Notice(READ_ONLY))),
+            RibbonGroup::create(label("azmail-group-move"))
+                .with_item(big_menu("drive_file_move", "azmail-cmd-move", Action::Move))
+                .with_item(big_menu("rule", "azmail-cmd-rules", Action::Notice(READ_ONLY))),
         )
         .with_group(
-            RibbonGroup::create("Tags")
-                .with_item(big("mark_email_unread", "Unread/ Read", Action::ToggleRead))
+            RibbonGroup::create(label("azmail-group-tags"))
+                .with_item(big("mark_email_unread", "azmail-cmd-unread-read", Action::ToggleRead))
                 .with_item(big_menu(
                     "label",
-                    "Categorize",
-                    Action::Notice("Categories come with two-way sync."),
+                    "azmail-cmd-categorize",
+                    Action::Notice("azmail-notice-categories"),
                 ))
                 .with_item(RibbonItem::LargeButton(follow_up)),
         )
         .with_group(
-            RibbonGroup::create("Find")
+            RibbonGroup::create(label("azmail-group-find"))
                 .with_item(RibbonItem::Combo(find_contact(s, app)))
-                .with_item(small("contacts", "Address Book", Action::AddressBook))
-                .with_item(small_menu("filter_list", "Filter E-mail", Action::FilterMenu)),
+                .with_item(small("contacts", "azmail-cmd-address-book", Action::AddressBook))
+                .with_item(small_menu("filter_list", "azmail-cmd-filter", Action::FilterMenu)),
         );
 
     // Send / Receive: Send & Receive | Download | Server.
-    let mut cancel_all = button("cancel", "Cancel All", Action::CancelSendReceive);
+    let mut cancel_all = button("cancel", "azmail-cmd-cancel-all", Action::CancelSendReceive);
     if !syncing {
-        cancel_all = cancel_all.with_disabled("Nothing is being sent or received.");
+        cancel_all = cancel_all.with_disabled(label("azmail-nothing-running"));
     }
-    let send_receive = RibbonTab::create("Send / Receive")
+    let send_receive = RibbonTab::create(label("azmail-tab-send-receive"))
         .with_group(
-            RibbonGroup::create("Send & Receive")
-                .with_item(big("sync", "Send/Receive All Folders", Action::SendReceive))
-                .with_item(small("refresh", "Update Folder", Action::SendReceive))
-                .with_item(small("send", "Send All", Action::SendReceive))
-                .with_item(small_menu("folder", "Send/Receive Groups", Action::SendReceiveGroupsMenu)),
+            RibbonGroup::create(label("azmail-group-send-receive"))
+                .with_item(big("sync", "azmail-cmd-send-receive-all", Action::SendReceive))
+                .with_item(small("refresh", "azmail-cmd-update-folder", Action::SendReceive))
+                .with_item(small("send", "azmail-cmd-send-all", Action::SendReceive))
+                .with_item(small_menu("folder", "azmail-cmd-send-receive-groups", Action::SendReceiveGroupsMenu)),
         )
         .with_group(
-            RibbonGroup::create("Download")
-                .with_item(big("hourglass_empty", "Show Progress", Action::ShowProgress))
+            RibbonGroup::create(label("azmail-group-download"))
+                .with_item(big("hourglass_empty", "azmail-cmd-show-progress", Action::ShowProgress))
                 .with_item(RibbonItem::LargeButton(cancel_all)),
         )
         .with_group(
-            RibbonGroup::create("Server")
-                .with_item(RibbonItem::LargeButton(off("download", "Download Headers", WHOLE_MESSAGES)))
+            RibbonGroup::create(label("azmail-group-server"))
+                .with_item(RibbonItem::LargeButton(off("download", "azmail-cmd-download-headers", WHOLE_MESSAGES)))
                 .with_item(RibbonItem::SmallButton(
-                    off("download_done", "Mark to Download", WHOLE_MESSAGES).with_arrow(RibbonArrow::Menu),
+                    off("download_done", "azmail-cmd-mark-download", WHOLE_MESSAGES).with_arrow(RibbonArrow::Menu),
                 ))
                 .with_item(RibbonItem::SmallButton(
-                    off("file_download_off", "Unmark to Download", WHOLE_MESSAGES)
+                    off("file_download_off", "azmail-cmd-unmark-download", WHOLE_MESSAGES)
                         .with_arrow(RibbonArrow::Menu),
                 ))
                 .with_item(RibbonItem::SmallButton(
-                    off("task_alt", "Process Marked Headers", WHOLE_MESSAGES).with_arrow(RibbonArrow::Menu),
+                    off("task_alt", "azmail-cmd-process-headers", WHOLE_MESSAGES).with_arrow(RibbonArrow::Menu),
                 )),
         );
 
     // Folder: New | Actions | Clean Up | Properties.
-    let folder = RibbonTab::create("Folder")
+    let folder = RibbonTab::create(label("azmail-tab-folder"))
         .with_group(
-            RibbonGroup::create("New")
-                .with_item(RibbonItem::LargeButton(off("create_new_folder", "New Folder", READ_ONLY)))
-                .with_item(RibbonItem::LargeButton(off("saved_search", "New Search Folder", READ_ONLY))),
+            RibbonGroup::create(label("azmail-group-new"))
+                .with_item(RibbonItem::LargeButton(off("create_new_folder", "azmail-cmd-new-folder", READ_ONLY)))
+                .with_item(RibbonItem::LargeButton(off("saved_search", "azmail-cmd-new-search-folder", READ_ONLY))),
         )
         .with_group(
-            RibbonGroup::create("Actions")
+            RibbonGroup::create(label("azmail-group-actions"))
                 .with_item(RibbonItem::LargeButton(off(
                     "drive_file_rename_outline",
-                    "Rename Folder",
+                    "azmail-cmd-rename-folder",
                     READ_ONLY,
                 )))
-                .with_item(RibbonItem::SmallButton(off("file_copy", "Copy Folder", READ_ONLY)))
-                .with_item(RibbonItem::SmallButton(off("drive_file_move", "Move Folder", READ_ONLY)))
-                .with_item(RibbonItem::SmallButton(off("folder_delete", "Delete Folder", READ_ONLY))),
+                .with_item(RibbonItem::SmallButton(off("file_copy", "azmail-cmd-copy-folder", READ_ONLY)))
+                .with_item(RibbonItem::SmallButton(off("drive_file_move", "azmail-cmd-move-folder", READ_ONLY)))
+                .with_item(RibbonItem::SmallButton(off("folder_delete", "azmail-cmd-delete-folder", READ_ONLY))),
         )
         .with_group(
-            RibbonGroup::create("Clean Up")
-                .with_item(big("mark_email_read", "Mark All as Read", Action::MarkAllRead))
-                .with_item(RibbonItem::LargeButton(off("rule", "Run Rules Now", READ_ONLY)))
+            RibbonGroup::create(label("azmail-group-clean-up"))
+                .with_item(big("mark_email_read", "azmail-cmd-mark-all-read", Action::MarkAllRead))
+                .with_item(RibbonItem::LargeButton(off("rule", "azmail-cmd-run-rules", READ_ONLY)))
                 .with_item(RibbonItem::LargeButton(
-                    off("cleaning_services", "Clean Up Folder", READ_ONLY).with_arrow(RibbonArrow::Menu),
+                    off("cleaning_services", "azmail-cmd-clean-up-folder", READ_ONLY).with_arrow(RibbonArrow::Menu),
                 ))
-                .with_item(RibbonItem::LargeButton(off("delete_sweep", "Delete All", READ_ONLY))),
+                .with_item(RibbonItem::LargeButton(off("delete_sweep", "azmail-cmd-delete-all", READ_ONLY))),
         )
         .with_group(
-            RibbonGroup::create("Properties")
-                .with_item(big("info", "Folder Properties", Action::FolderProperties)),
+            RibbonGroup::create(label("azmail-group-properties"))
+                .with_item(big("info", "azmail-cmd-folder-properties", Action::FolderProperties)),
         );
 
     // View: Arrangement | Layout | Message.
-    let view = RibbonTab::create("View")
+    let view = RibbonTab::create(label("azmail-tab-view"))
         .with_group(
-            RibbonGroup::create("Arrangement")
+            RibbonGroup::create(label("azmail-group-arrangement"))
                 .with_item(RibbonItem::LargeButton(
                     button(
                         "calendar_month",
-                        "Date",
-                        Action::Notice("Messages are arranged by date."),
+                        "azmail-cmd-date",
+                        Action::Notice("azmail-notice-by-date"),
                     )
                     .with_toggled(true),
                 ))
-                .with_item(toggle("swap_vert", "Reverse Sort", Action::ReverseSort, !s.newest_first))
+                .with_item(toggle("swap_vert", "azmail-cmd-reverse-sort", Action::ReverseSort, !s.newest_first))
                 .with_item(toggle(
                     "filter_list",
-                    "Unread Only",
+                    "azmail-cmd-unread-only",
                     Action::FilterUnread(s.scope != 1),
                     s.scope == 1,
                 )),
         )
         .with_group(
-            RibbonGroup::create("Layout")
-                .with_item(big_menu("view_sidebar", "Navigation Pane", Action::NavigationPaneMenu))
-                .with_item(big_menu("chrome_reader_mode", "Reading Pane", Action::ReadingPaneMenu))
-                .with_item(big_menu("checklist", "To-Do Bar", Action::TodoBarMenu)),
+            RibbonGroup::create(label("azmail-group-layout"))
+                .with_item(big_menu("view_sidebar", "azmail-cmd-navigation-pane", Action::NavigationPaneMenu))
+                .with_item(big_menu("chrome_reader_mode", "azmail-cmd-reading-pane", Action::ReadingPaneMenu))
+                .with_item(big_menu("checklist", "azmail-cmd-todo-bar", Action::TodoBarMenu)),
         )
         .with_group(
-            RibbonGroup::create("Message")
-                .with_item(toggle("notes", "Plain Text", Action::PlainText, s.plain_text)),
+            RibbonGroup::create(label("azmail-group-message"))
+                .with_item(toggle("notes", "azmail-cmd-plain-text", Action::PlainText, s.plain_text)),
         );
     let mut ribbon = Ribbon::create(vec![home, send_receive, folder, view])
-        .with_app_button(RibbonAppButton::create("File").with_on_click(
+        .with_app_button(RibbonAppButton::create(label("azmail-tab-file")).with_on_click(
             action_ref(app, Action::OpenFile),
             on_action as ButtonOnClickCallbackType,
         ))
@@ -1270,8 +1293,8 @@ fn find_contact(s: &MailApp, app: &RefAny) -> ComboBox {
     let names: Vec<AzString> = names.into_iter().map(AzString::from).collect();
     RibbonStyle::create_default()
         .styled_combo_box(names, "", 150)
-        .with_placeholder("Find a Contact")
-        .with_accessibility_name("Find a Contact")
+        .with_placeholder(label("azmail-find-contact"))
+        .with_accessibility_name(label("azmail-find-contact"))
         .with_on_select(app.clone(), on_find_contact as ComboBoxOnSelectCallbackType)
 }
 
@@ -1319,11 +1342,17 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
     let unread = s.view.iter().filter(|e| !s.flags.is_read(e)).count();
     let mut segments = Vec::new();
     if !s.search.is_empty() || s.scope == 1 {
-        segments.push(StatusBarSegment::create("Filter applied"));
+        segments.push(StatusBarSegment::create(label("azmail-filter-applied")));
     }
-    segments.push(StatusBarSegment::create(format!("Items: {}", s.view.len())));
+    segments.push(StatusBarSegment::create(t_args(
+        "azmail-status-items",
+        &[("count", Arg::from(s.view.len()))],
+    )));
     if unread > 0 {
-        segments.push(StatusBarSegment::create(format!("Unread: {unread}")));
+        segments.push(StatusBarSegment::create(t_args(
+            "azmail-status-unread",
+            &[("count", Arg::from(unread))],
+        )));
     }
     if !s.notice.is_empty() {
         segments.push(StatusBarSegment::create(s.notice.as_str()));
@@ -1331,13 +1360,22 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
     let (label, kind) = match &s.sync {
         SyncState::Running {
             status, percent, ..
-        } => (format!("{status} ({percent:.0}%)"), StatusBarSyncKind::Syncing),
+        } => (
+            t_args(
+                "azmail-status-syncing",
+                &[
+                    ("status", Arg::from(t_label(status))),
+                    ("percent", Arg::from(format!("{percent:.0}"))),
+                ],
+            ),
+            StatusBarSyncKind::Syncing,
+        ),
         // Without an account nothing is connected (Local Folders' Outbox went out: the
         // notice says how).
-        _ if s.accounts.is_empty() => (String::from("No account"), StatusBarSyncKind::Offline),
+        _ if s.accounts.is_empty() => (t("azmail-no-account"), StatusBarSyncKind::Offline),
         // Outlook 2010: "All folders are up to date." beside "Connected to ...".
         SyncState::Done(_) => (up_to_date(s), StatusBarSyncKind::Connected),
-        SyncState::Failed(text) => (text.clone(), StatusBarSyncKind::Error),
+        SyncState::Failed(text) => (t_label(text), StatusBarSyncKind::Error),
         SyncState::Idle => (up_to_date(s), StatusBarSyncKind::Connected),
     };
     // Outlook's zoom at the right end: the reading pane's, `-` / `+` by ten, the slider over the
@@ -1360,16 +1398,16 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
 fn up_to_date(s: &MailApp) -> String {
     match s.current_account() {
         Some(account) => match &account.azlin {
-            Some(link) => format!(
-                "All folders are up to date.   Connected to the Azlin drive {}",
-                link.drive_id
+            Some(link) => t_args(
+                "azmail-up-to-date-azlin",
+                &[("drive", Arg::from(link.drive_id.as_str()))],
             ),
-            None => format!(
-                "All folders are up to date.   Connected to {}",
-                account.imap.host
+            None => t_args(
+                "azmail-up-to-date-server",
+                &[("server", Arg::from(account.imap.host.as_str()))],
             ),
         },
-        None => String::from("All folders are up to date."),
+        None => t("azmail-up-to-date"),
     }
 }
 
@@ -1386,8 +1424,8 @@ fn todo_bar(s: &MailApp, app: &RefAny) -> Dom {
         .collect();
     ToDoBar::create(s.calendar.0, s.calendar.1, s.calendar.2)
         .with_today(s.today.0, s.today.1, s.today.2)
-        .with_appointments_empty("No upcoming appointments.")
-        .with_task_line("Type a new task", s.task_text.as_str())
+        .with_appointments_empty(label("azmail-todo-no-appointments"))
+        .with_task_line(label("azmail-todo-new-task"), s.task_text.as_str())
         .with_tasks(tasks)
         .with_on_pick(app.clone(), on_todo_event as ToDoBarOnEventCallbackType)
         .with_on_task(app.clone(), on_todo_event as ToDoBarOnEventCallbackType)
@@ -1470,7 +1508,7 @@ extern "C" fn on_tasks_saved(mut app: RefAny, mut reply: RefAny, _info: Callback
         return Update::DoNothing;
     };
     with_app(&mut app, |s, _| {
-        s.notice = format!("The task could not be saved: {error}");
+        s.notice = t_args("azmail-task-not-saved", &[("why", Arg::from(t_label(&error)))]);
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
@@ -1541,7 +1579,7 @@ fn mailbox_group(s: &MailApp, i: usize, name: &str) -> ShellNavigationGroup {
 /// Tasks).
 fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
     let mut pane = ShellNavigationPane::create()
-        .with_label("Mail")
+        .with_label(label("azmail-module-mail"))
         .with_header(favorites_hint())
         .with_trees_only(true)
         .with_active_module(s.module)
@@ -1554,7 +1592,7 @@ fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
     }
     // Local Folders: the group after the accounts' (`MailApp::local_index`).
     if s.local_visible() {
-        pane = pane.with_group(mailbox_group(s, s.local_index(), listing::LOCAL_FOLDERS));
+        pane = pane.with_group(mailbox_group(s, s.local_index(), &listing::local_folders()));
     }
 
     let unread: usize = s.current.and_then(|i| s.folders.get(i)).map_or(0, |list| {
@@ -1563,14 +1601,14 @@ fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
             .map(|f| f.unread)
             .sum()
     });
-    let mut mail = ShellNavigationModule::create("Mail", "mail");
+    let mut mail = ShellNavigationModule::create(label("azmail-module-mail"), "mail");
     if unread > 0 {
         mail = mail.with_badge(unread.to_string());
     }
     pane.with_module(mail)
-        .with_module(ShellNavigationModule::create("Calendar", "calendar_month"))
-        .with_module(ShellNavigationModule::create("Contacts", "contacts"))
-        .with_module(ShellNavigationModule::create("Tasks", "task_alt"))
+        .with_module(ShellNavigationModule::create(label("azmail-module-calendar"), "calendar_month"))
+        .with_module(ShellNavigationModule::create(label("azmail-module-contacts"), "contacts"))
+        .with_module(ShellNavigationModule::create(label("azmail-module-tasks"), "task_alt"))
         .dom()
         .with_id(ids::FOLDER_PANE)
 }
@@ -1583,7 +1621,7 @@ fn favorites_hint() -> Dom {
              border-bottom: 1px dashed system:separator;",
         )
         .with_child(
-            Dom::create_span_with_text("Drag Your Favorite Folders Here")
+            Dom::create_span_with_text(label("azmail-favorites-hint"))
                 .with_css("font-size: 12px; color: system:secondary-text;"),
         )
 }
@@ -1651,14 +1689,10 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
     }
     if s.accounts.is_empty() && !s.shows_local() {
         // The real window, empty: one calm line and the way in (as File > Info > Add Account).
-        return ShellEmptyState::create("No account yet")
+        return ShellEmptyState::create(label("azmail-no-account-yet"))
             .with_icon("inbox")
-            .with_detail(
-                "Add an e-mail account to receive mail. AzMail keeps a copy of every folder as \
-                 files on this computer. Writing needs no account: a new message is sent from \
-                 this computer, and Local Folders keep what you write.",
-            )
-            .with_action_label("Add Account\u{2026}")
+            .with_detail(label("azmail-no-account-detail"))
+            .with_action_label(label("azmail-add-account"))
             .with_on_action(
                 action_ref(app, Action::AddAccount),
                 on_action as ButtonOnClickCallbackType,
@@ -1679,20 +1713,20 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         .iter()
         .enumerate()
         .filter_map(|(offset, row)| match row {
-            ListRow::Group(group) => Some(SummaryRow::create_group(group.label())),
+            ListRow::Group(group) => Some(SummaryRow::create_group(t(&group.message_id()))),
             ListRow::Message(uid) => {
                 let entry = s.view.iter().find(|e| e.uid == *uid)?;
                 let who = if outgoing {
-                    format!("To: {}", display_name(&entry.to))
+                    t_args("azmail-list-to", &[("name", Arg::from(display_name(&entry.to)))])
                 } else if entry.from.is_empty() {
-                    String::from("(no sender)")
+                    t("azmail-no-sender")
                 } else {
                     display_name(&entry.from)
                 };
                 let subject = if entry.subject.is_empty() {
-                    "(no subject)"
+                    t("azmail-no-subject")
                 } else {
-                    entry.subject.as_str()
+                    entry.subject.clone()
                 };
                 let read = s.flags.is_read(entry);
                 let icon = match role {
@@ -1713,22 +1747,22 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
             }
         })
         .collect();
-    let folder = current_folder_label(s).unwrap_or_else(|| String::from("Mail"));
+    let folder = current_folder_label(s).unwrap_or_else(|| t("azmail-module-mail"));
     SummaryList::create(rows)
         .with_window(first, total)
         .with_row_height(ROW_HEIGHT)
         .with_search(s.search.as_str())
-        .with_search_placeholder(format!("Search {folder}"))
+        .with_search_placeholder(t_args("azmail-search-folder", &[("folder", Arg::from(folder))]))
         .with_sort(
-            "Arrange By:",
-            "Date",
+            label("azmail-arrange-by"),
+            label("azmail-cmd-date"),
             s.newest_first,
         )
-        .with_sort_direction_label(if s.newest_first {
-            "Newest on top"
+        .with_sort_direction_label(label(if s.newest_first {
+            "azmail-newest-on-top"
         } else {
-            "Oldest on top"
-        })
+            "azmail-oldest-on-top"
+        }))
         .with_on_select(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_open(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_flag(app.clone(), on_list_event as SummaryListOnEventCallbackType)
@@ -1743,13 +1777,13 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
 /// Calendar, Contacts and Tasks are other apps.
 fn module_placeholder(module: usize) -> Dom {
     let (title, detail, icon) = match module {
-        1 => ("Calendar", "Appointments live in AzCalendar.", "calendar_month"),
-        2 => ("Contacts", "The address book is not part of AzMail yet.", "contacts"),
-        _ => ("Tasks", "Tasks of this run are in the To-Do bar.", "task_alt"),
+        1 => ("azmail-module-calendar", "azmail-module-calendar-detail", "calendar_month"),
+        2 => ("azmail-module-contacts", "azmail-module-contacts-detail", "contacts"),
+        _ => ("azmail-module-tasks", "azmail-module-tasks-detail", "task_alt"),
     };
-    ShellEmptyState::create(title)
+    ShellEmptyState::create(label(title))
         .with_icon(icon)
-        .with_detail(detail)
+        .with_detail(label(detail))
         .dom()
 }
 
@@ -1797,7 +1831,7 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
             }
             SummaryListEventKind::Delete => delete_messages(s, &mut info, app),
             SummaryListEventKind::Sort => {
-                s.notice = String::from("Messages are arranged by date.");
+                s.notice = t("azmail-notice-by-date");
             }
             SummaryListEventKind::SortDirection => {
                 s.newest_first = !s.newest_first;
@@ -1844,14 +1878,14 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         return Dom::create_div();
     }
     let Some(open) = &s.open else {
-        return ShellEmptyState::create("Select an item to read")
+        return ShellEmptyState::create(label("azmail-select-item"))
             .with_icon("mail")
-            .with_detail("Click a message in the list to see it here.")
+            .with_detail(label("azmail-select-item-detail"))
             .dom();
     };
     let view = open.view.clone().unwrap_or_default();
     let subject = if view.subject.is_empty() {
-        String::from("(no subject)")
+        t("azmail-no-subject")
     } else {
         view.subject.clone()
     };
@@ -1868,12 +1902,12 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
     let sent = message::short_date_in(date_source, &chrono::Local);
     let mut pane = ReadingPane::create(subject.as_str(), sender.as_str())
         .with_date(sent.as_str())
-        .with_field("Sent", sent.as_str());
+        .with_field(label("azmail-field-sent"), sent.as_str());
     if !view.to.is_empty() {
-        pane = pane.with_field("To", view.to.as_str());
+        pane = pane.with_field(label("azmail-field-to"), view.to.as_str());
     }
     if !view.cc.is_empty() {
-        pane = pane.with_field("Cc", view.cc.as_str());
+        pane = pane.with_field(label("azmail-field-cc"), view.cc.as_str());
     }
     if !view.attachments.is_empty() {
         let names: Vec<AzString> = view
@@ -1892,24 +1926,24 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
     let name = display_name(&sender);
     // The PIM apps' avatar initials (DEDUP_EDITORS B24).
     let initials = azul_pim::initials::initials(&name);
-    pane = pane.with_people(vec![AzString::from(initials)], format!("See more about: {name}."));
+    pane = pane.with_people(
+        vec![AzString::from(initials)],
+        t_args("azmail-see-more-about", &[("name", Arg::from(name))]),
+    );
     let html = open.sanitized.as_ref().filter(|_| !s.plain_text);
     if let Some(sanitized) = html {
         if sanitized.blocked_images > 0 && !open.pictures {
             // What the pre-pass found on the web ("3 pictures and 1 font"), else "some
             // pictures" (pictures that are not on the web).
             let held_back = match sanitized.remote.summary() {
-                summary if summary.is_empty() => String::from("some pictures"),
+                summary if summary.is_empty() => t("azmail-some-pictures"),
                 summary => summary,
             };
-            let text = format!(
-                "Click here to download pictures. To help protect your privacy, AzMail \
-                 prevented automatic download of {held_back} in this message."
-            );
+            let text = t_args("azmail-pictures-held", &[("held", Arg::from(held_back))]);
             pane = pane.with_info_bar(
                 InfoBar::create(text.as_str())
                     .with_icon("info")
-                    .with_action("Download pictures"),
+                    .with_action(label("azmail-download-pictures")),
             );
         }
     }
@@ -1974,7 +2008,10 @@ fn plain_body(text: &str, zoom: f32) -> Dom {
     }
     if lines.len() > MAX_LINES {
         body.add_child(
-            Dom::create_span_with_text(format!("({} more lines)", lines.len() - MAX_LINES))
+            Dom::create_span_with_text(t_args(
+                "azmail-more-lines",
+                &[("count", Arg::from(lines.len() - MAX_LINES))],
+            ))
                 .with_css("font-size: 12px; margin-top: 8px;"),
         );
     }
@@ -1985,8 +2022,9 @@ fn plain_body(text: &str, zoom: f32) -> Dom {
 fn html_body(sanitized: &html::Sanitized) -> Dom {
     match Xml::from_str(sanitized.xhtml.as_str()) {
         ResultXmlXmlError::Ok(xml) => Dom::create_from_parsed_xml(xml),
-        ResultXmlXmlError::Err(e) => Dom::create_span_with_text(format!(
-            "The HTML part could not be shown: {e:?}"
+        ResultXmlXmlError::Err(e) => Dom::create_span_with_text(t_args(
+            "azmail-html-not-shown",
+            &[("why", Arg::from(format!("{e:?}")))],
         ))
         .with_css(ERROR_LINE),
     }
@@ -1997,7 +2035,10 @@ extern "C" fn on_reading_event(mut data: RefAny, mut info: CallbackInfo, event: 
         match event.kind {
             ReadingPaneEventKind::LoadImages => load_pictures(s, &mut info, &app),
             ReadingPaneEventKind::Attachment => {
-                s.notice = format!("{} is in the message file; saving attachments comes next.", event.text.as_str());
+                s.notice = t_args(
+                    "azmail-attachment-later",
+                    &[("name", Arg::from(event.text.as_str()))],
+                );
             }
             ReadingPaneEventKind::Sender | ReadingPaneEventKind::People => {
                 return Update::DoNothing;
