@@ -1187,7 +1187,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
         )
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_info(AccessibilityInfo {
-            role: AccessibilityRole::CheckButton,
+            role: AccessibilityRole::Switch,
             accessibility_name: sw_name,
             states: azul_core::a11y::AccessibilityStateVec::from_vec(alloc::vec![
                 if switch_checked {

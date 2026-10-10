@@ -407,6 +407,11 @@ pub enum AccessibilityRole {
     /// `AccessibilityInfo::row_index` / `column_index`. APPENDED at the end
     /// for ABI stability.
     GridCell,
+    /// Represents an on/off switch (WAI-ARIA `switch`): a two-state control
+    /// a screen reader announces as "switch, on", where a `CheckButton` is a
+    /// check box. Pair it with `CheckedTrue` / `CheckedFalse`. APPENDED at the
+    /// end for ABI stability.
+    Switch,
 }
 
 impl_option!(

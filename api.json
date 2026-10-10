@@ -29813,7 +29813,8 @@
                                 "Nothing": {},
                                 "Unknown": {},
                                 "Grid": {},
-                                "GridCell": {}
+                                "GridCell": {},
+                                "Switch": {}
                             }
                         ],
                         "repr": "C"

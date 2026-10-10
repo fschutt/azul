@@ -368,6 +368,7 @@ fn traits_for(element: &azul_layout::managers::a11y_snapshot::A11yElement) -> u6
         traits |= match element.role {
             AccessibilityRole::PushButton
             | AccessibilityRole::CheckButton
+            | AccessibilityRole::Switch
             | AccessibilityRole::RadioButton
             | AccessibilityRole::SplitButton
             | AccessibilityRole::ButtonDropdown

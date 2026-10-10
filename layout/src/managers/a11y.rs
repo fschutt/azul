@@ -2305,6 +2305,7 @@ impl A11yManager {
             AccessibilityRole::Nothing => Role::GenericContainer,
             AccessibilityRole::Grid => Role::Grid,
             AccessibilityRole::GridCell => Role::GridCell,
+            AccessibilityRole::Switch => Role::Switch,
         }
     }
 }
@@ -2982,6 +2983,7 @@ mod autotest_generated {
             (AccessibilityRole::Nothing, Role::GenericContainer),
             (AccessibilityRole::Grid, Role::Grid),
             (AccessibilityRole::GridCell, Role::GridCell),
+            (AccessibilityRole::Switch, Role::Switch),
         ];
         for (role, expected) in cases {
             assert_eq!(A11yManager::map_role(&role), expected, "{role:?}");

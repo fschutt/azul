@@ -343,6 +343,7 @@ fn class_name_for(element: &azul_layout::managers::a11y_snapshot::A11yElement) -
         | AccessibilityRole::ButtonDropdown
         | AccessibilityRole::ButtonMenu => "android.widget.Button",
         AccessibilityRole::CheckButton => "android.widget.CheckBox",
+        AccessibilityRole::Switch => "android.widget.Switch",
         AccessibilityRole::RadioButton => "android.widget.RadioButton",
         AccessibilityRole::Link | AccessibilityRole::StaticText => "android.widget.TextView",
         AccessibilityRole::Text => "android.widget.EditText",

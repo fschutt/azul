@@ -1899,7 +1899,9 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
 
         if matches!(
             role,
-            AccessibilityRole::CheckButton | AccessibilityRole::RadioButton
+            AccessibilityRole::CheckButton
+                | AccessibilityRole::RadioButton
+                | AccessibilityRole::Switch
         ) {
             let states = info.states.as_ref();
             let declares_checked = states.iter().any(|s| {

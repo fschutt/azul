@@ -4294,6 +4294,7 @@ impl NodeData {
                 AccessibilityRole::PushButton  // Button
                 | AccessibilityRole::Link
                 | AccessibilityRole::CheckButton  // Checkbox
+                | AccessibilityRole::Switch
                 | AccessibilityRole::RadioButton  // Radio
                 | AccessibilityRole::MenuItem
                 | AccessibilityRole::PageTab  // Tab
