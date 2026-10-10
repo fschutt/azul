@@ -164,6 +164,15 @@ impl WebViewTransform {
         (self.sx.hypot(self.shy), self.shx.hypot(self.sy))
     }
 
+    /// How far the page is turned, in degrees, clockwise on screen (y
+    /// down, as CSS `rotate()`): the angle of the page's own x axis. With
+    /// [`Self::zoom`] and the corner [`Self::to_window`] maps `(0, 0)` to,
+    /// it is what a native view that turns is given (a skew is not kept).
+    #[must_use]
+    pub fn rotation_degrees(&self) -> f32 {
+        self.shy.atan2(self.sx).to_degrees()
+    }
+
     /// The page point `p` (CSS px from its top-left corner) on screen, for
     /// a page placed at `rect`.
     #[must_use]
