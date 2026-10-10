@@ -1097,7 +1097,7 @@ fn listable(drive: &dyn Drive, prefix: &str) -> bool {
 fn record(states: &mut SyncStates, report: &SyncReport, moved: &BTreeSet<String>) {
     let now = crate::now();
     let cloud_only: BTreeSet<&str> = report.cloud_only.iter().map(String::as_str).collect();
-    let mut files = match &report.remote {
+    let mut files: BTreeMap<String, FileRecord> = match &report.remote {
         Some(remote) => remote
             .files
             .iter()
