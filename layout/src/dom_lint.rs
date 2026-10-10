@@ -1315,6 +1315,144 @@ mod semantic_and_a11y_lint_tests {
         azul_core::diagnostics::clear();
     }
 
+    /// The recorded a11y findings (every lint tag starts `[azul][a11y`).
+    fn a11y_lines() -> Vec<String> {
+        azul_core::diagnostics::recorded()
+            .into_iter()
+            .filter(|m| m.contains("[azul][a11y"))
+            .collect()
+    }
+
+    /// A widget named on its built DOM (`.dom().with_accessibility_name(..)`,
+    /// a row helper naming its control by the row's label) IS named. Only the
+    /// finished DOM can tell, so nothing may be printed while it is built.
+    #[cfg(feature = "widgets")]
+    #[test]
+    fn a_check_box_named_after_it_is_built_prints_no_accessibility_warning() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let page = styled(
+            Dom::create_body().with_child(
+                crate::widgets::check_box::CheckBox::create(true)
+                    .dom()
+                    .with_accessibility_name("Remember me")
+                    .with_id("a11y17-named-check".into()),
+            ),
+        );
+        warn_interactive_without_accessibility(&page);
+        warn_a11y_shape(&page);
+        assert!(a11y_lines().is_empty(), "a named check box: {:?}", a11y_lines());
+        azul_core::diagnostics::clear();
+    }
+
+    /// An unnamed widget is ONE finding however often the app builds it, and
+    /// the finding says which node it is: the widget, its id, its classes.
+    #[cfg(feature = "widgets")]
+    #[test]
+    fn an_unnamed_check_box_is_one_finding_that_names_the_node() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let page = || {
+            styled(
+                Dom::create_body().with_child(
+                    crate::widgets::check_box::CheckBox::create(false)
+                        .dom()
+                        .with_id("a11y17-unnamed-check".into()),
+                ),
+            )
+        };
+        warn_a11y_shape(&page());
+        warn_a11y_shape(&page());
+        let lines = a11y_lines();
+        assert_eq!(lines.len(), 1, "one unnamed check box, built twice: {lines:?}");
+        assert!(
+            lines[0].contains("#a11y17-unnamed-check") && lines[0].contains("Checkbox"),
+            "the finding names the widget and its id: {lines:?}"
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    fn toolbar(buttons: Vec<Dom>) -> Dom {
+        let mut info = azul_core::a11y::AccessibilityInfo::default();
+        info.role = azul_core::a11y::AccessibilityRole::Toolbar;
+        info.accessibility_name = Some(azul_css::AzString::from("Formatting")).into();
+        Dom::create_div()
+            .with_id("a11y17-toolbar".into())
+            .with_accessibility_info(info)
+            .with_children(buttons.into())
+    }
+
+    /// A composite widget - a toolbar, a menu bar, a tab list, a list box,
+    /// a tree, a grid - is ONE stop in the Tab order and the arrow keys move
+    /// inside it (`widgets::roving`). A toolbar that makes every button a Tab
+    /// stop makes a keyboard user Tab through all of them.
+    #[test]
+    fn a_toolbar_with_a_tab_stop_per_button_is_reported() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let every_button_a_stop = toolbar(vec![
+            Dom::create_button_no_a11y("Bold".into()),
+            Dom::create_button_no_a11y("Italic".into()),
+            Dom::create_button_no_a11y("Underline".into()),
+        ]);
+        warn_composite_navigation(&styled(Dom::create_body().with_child(every_button_a_stop)));
+        let lines = a11y_lines();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("[azul][a11y-nav]") && lines[0].contains("#a11y17-toolbar"),
+            "{lines:?}"
+        );
+
+        azul_core::diagnostics::clear();
+        let roving = toolbar(vec![
+            Dom::create_button_no_a11y("Bold".into()).with_tab_index(azul_core::dom::TabIndex::Auto),
+            Dom::create_button_no_a11y("Italic".into())
+                .with_tab_index(azul_core::dom::TabIndex::NoKeyboardFocus),
+            Dom::create_button_no_a11y("Underline".into())
+                .with_tab_index(azul_core::dom::TabIndex::NoKeyboardFocus),
+        ]);
+        warn_composite_navigation(&styled(Dom::create_body().with_child(roving)));
+        assert!(a11y_lines().is_empty(), "a roving toolbar: {:?}", a11y_lines());
+        azul_core::diagnostics::clear();
+    }
+
+    fn tile_grid(css: &str) -> Dom {
+        let mut grid = Dom::create_div().with_id("a11y17-grid".into()).with_css(css);
+        for k in 0..6 {
+            grid = grid.with_child(
+                Dom::create_div()
+                    .with_tab_index(azul_core::dom::TabIndex::NoKeyboardFocus)
+                    .with_accessibility_name(format!("tile {k}")),
+            );
+        }
+        grid
+    }
+
+    /// In a grid of focusable tiles the arrow keys must move along its rows
+    /// and columns: `spatial-navigation-function: grid`. The default picks
+    /// the nearest tile by distance, which jumps diagonally.
+    #[test]
+    fn a_grid_of_focusable_tiles_without_grid_navigation_is_reported() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        warn_composite_navigation(&styled(Dom::create_body().with_child(tile_grid(
+            "display: grid; grid-template-columns: 1fr 1fr 1fr;",
+        ))));
+        let lines = a11y_lines();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("spatial-navigation-function: grid") && lines[0].contains("#a11y17-grid"),
+            "{lines:?}"
+        );
+
+        azul_core::diagnostics::clear();
+        warn_composite_navigation(&styled(Dom::create_body().with_child(tile_grid(
+            "display: grid; grid-template-columns: 1fr 1fr 1fr; spatial-navigation-function: grid;",
+        ))));
+        assert!(a11y_lines().is_empty(), "{:?}", a11y_lines());
+        azul_core::diagnostics::clear();
+    }
+
     extern "C" fn noop_cb(
         _: azul_core::refany::RefAny,
         _: crate::callbacks::CallbackInfo,
