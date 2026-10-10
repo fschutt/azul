@@ -89,3 +89,8 @@ kit-key-up = Up
 kit-key-down = Down
 kit-key-left = Left
 kit-key-right = Right
+
+## Numbers
+
+# The separator of a big number's groups of three digits.
+kit-number-group-separator = ,

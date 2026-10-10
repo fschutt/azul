@@ -248,6 +248,29 @@ pub fn app_word(app: &str, what: &str, fallback: &str) -> String {
     }
 }
 
+/// `n` with its digits grouped by threes as the language of the layout pass groups them
+/// (`kit-number-group-separator`: 1,234,567 in English, 1.234.567 in German). Fluent formats a
+/// number without grouping, so a count shown big is handed to a message as this text (and as
+/// the number, for the plural form).
+#[must_use]
+pub fn grouped(n: u64) -> String {
+    let separator = t("kit-number-group-separator");
+    let separator = if separator == "kit-number-group-separator" {
+        String::from(",")
+    } else {
+        separator
+    };
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 * separator.len());
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push_str(&separator);
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// `text`'s letters and digits in lower case; `hyphens`: a hyphen for each run of others.
 fn slug(text: &str, hyphens: bool) -> String {
     let mut slug = String::new();
