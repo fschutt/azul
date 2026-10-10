@@ -32,6 +32,12 @@ pub const EMPTY_FOLDER: AzString = AzString::from_const_str("__azdrive_empty_fol
 pub const FOLDER_VIEW: AzString = AzString::from_const_str("__azdrive_folder_view");
 /// The icon layouts' grid (azul's IconGrid); its items are `__azdrive_icon_grid-<index>`.
 pub const ICON_GRID: AzString = AzString::from_const_str("__azdrive_icon_grid");
+/// The search's results: their column header (Name, Folder, Match, Date modified, Size).
+pub const FIND_HEADER: AzString = AzString::from_const_str("__azdrive_find_header");
+/// The note over a cloud drive's results: searched by name, slower.
+pub const FIND_NOTE: AzString = AzString::from_const_str("__azdrive_find_note");
+/// "Searching..." / "No items match your search." where the results would be.
+pub const FIND_EMPTY: AzString = AzString::from_const_str("__azdrive_find_empty");
 
 /// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
 /// Refresh, the search box).
@@ -248,6 +254,10 @@ pub const SIDE_SECTION_CLASS: AzString = AzString::from_const_str("__azdrive_sid
 pub const SIDE_SELECTED_CLASS: AzString = AzString::from_const_str("__azdrive_side_selected");
 /// A step of the path bar.
 pub const CRUMB_CLASS: AzString = AzString::from_const_str("__azdrive_crumb");
+/// A search result's Folder cell (where it is).
+pub const FIND_FOLDER_CLASS: AzString = AzString::from_const_str("__azdrive_find_folder");
+/// A search result's Match cell (the line its contents matched on).
+pub const FIND_MATCH_CLASS: AzString = AzString::from_const_str("__azdrive_find_match");
 
 /// The folder view's class for its layout: `__azdrive_layout_<name>` (the scripts read which
 /// layout is showing from it).

@@ -62,7 +62,7 @@ pub struct DeveloperShell {
 impl DeveloperShell {
     /// A shell of the activity bar, the side bar and the editor.
     #[must_use]
-    pub fn create(activity_bar: Dom, side_bar: Dom, editor: Dom) -> Self {
+    pub const fn create(activity_bar: Dom, side_bar: Dom, editor: Dom) -> Self {
         Self {
             activity_bar,
             side_bar,
@@ -111,7 +111,7 @@ impl DeveloperShell {
 
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div(), Dom::create_div(), Dom::create_div());
         core::mem::swap(&mut s, self);
         s

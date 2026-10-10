@@ -49,9 +49,11 @@ mod state {
     }
 }
 
-/// Publish the app's theme choice: every window built from now on starts in
-/// it, and every window's next DOM rebuild adopts it. `App::create` calls this
-/// with `AppConfig::theme`; `CallbackInfo::set_theme` with the new name.
+/// Publish the app's theme choice: every window built from now on starts in it,
+/// and every window's next DOM rebuild adopts it.
+///
+/// `App::create` calls this with `AppConfig::theme`; `CallbackInfo::set_theme`
+/// with the new name.
 ///
 /// `AZ_THEME` outranks the choice ([`app_theme`]). Logs what the choice, as
 /// the environment resolves it, cannot honour as written: a mode word or a
@@ -88,11 +90,12 @@ pub fn app_theme() -> AzString {
     resolve_app_theme(None)
 }
 
-/// THE app-theme decision with the environment applied:
-/// `AZ_THEME` > `choice` > [`DEFAULT_APP_THEME`]
-/// (`azul_css::theme_chain::resolve_theme_head`). [`app_theme`] asks it about
-/// the app's published choice; a host that keeps its own choice per window
-/// (the E2E runner) asks it directly, so the environment outranks it too.
+/// THE app-theme decision with the environment applied: `AZ_THEME` > `choice` >
+/// [`DEFAULT_APP_THEME`] (`azul_css::theme_chain::resolve_theme_head`).
+///
+/// [`app_theme`] asks it about the app's published choice; a host that keeps
+/// its own choice per window (the E2E runner) asks it directly, so the
+/// environment outranks it too.
 #[must_use]
 pub fn resolve_app_theme(choice: Option<&str>) -> AzString {
     let env = azul_css::theme_chain::theme_env().theme.as_deref();

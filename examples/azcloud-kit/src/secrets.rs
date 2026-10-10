@@ -19,6 +19,7 @@
 
 use std::{collections::BTreeMap, path::PathBuf};
 
+use azul_storage::keyring::{KeyringError, KeyringStore};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -135,5 +136,24 @@ impl FileSecrets {
             write_json(&self.path, &file, true)?;
         }
         Ok(had)
+    }
+}
+
+/// The secrets file as azul-storage's keyring: the command line keeps an encrypted drive's
+/// keys here (the drive key, this device's member key), under the names the apps use in the OS
+/// keyring. The errors name the file, never a secret.
+impl KeyringStore for FileSecrets {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        FileSecrets::get(self, key).map_err(|e| KeyringError::Failed(e.to_string()))
+    }
+
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        FileSecrets::set(self, key, secret).map_err(|e| KeyringError::Failed(e.to_string()))
+    }
+
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        self.remove(key)
+            .map(|_| ())
+            .map_err(|e| KeyringError::Failed(e.to_string()))
     }
 }

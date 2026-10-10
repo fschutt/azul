@@ -493,10 +493,10 @@ pub fn plan_columns(
         // bisect between the even share and the whole flow.
         let needs = |h: f32| fill_columns(&atoms, h).len();
         let mut lo = total / count as f32;
-        let mut hi = total;
-        if needs(lo) <= count {
-            hi = lo;
+        let hi = if needs(lo) <= count {
+            lo
         } else {
+            let mut hi = total;
             for _ in 0..48 {
                 if hi - lo <= FIT_EPS {
                     break;
@@ -508,7 +508,8 @@ pub fn plan_columns(
                     lo = mid;
                 }
             }
-        }
+            hi
+        };
         cap.map_or(hi, |cap| hi.min(cap))
     };
 

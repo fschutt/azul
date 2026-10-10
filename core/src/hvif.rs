@@ -158,7 +158,7 @@ pub enum HvifLineCap {
 }
 
 /// What a shape does to its paths before painting them.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HvifTransformer {
     /// Another transform.
     Affine(HvifAffine),
@@ -332,7 +332,7 @@ fn lod(byte: u8) -> f32 {
     f32::from(byte) / 63.75
 }
 
-fn line_join(v: u8) -> HvifLineJoin {
+const fn line_join(v: u8) -> HvifLineJoin {
     match v {
         1 => HvifLineJoin::MiterRevert,
         2 => HvifLineJoin::Round,
@@ -342,7 +342,7 @@ fn line_join(v: u8) -> HvifLineJoin {
     }
 }
 
-fn line_cap(v: u8) -> HvifLineCap {
+const fn line_cap(v: u8) -> HvifLineCap {
     match v {
         1 => HvifLineCap::Square,
         2 => HvifLineCap::Round,

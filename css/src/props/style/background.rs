@@ -60,15 +60,17 @@ pub enum ExtendMode {
 // -- Main Background Content Type --
 
 /// The image id a `builtin(<name>)` layer names (`azul-builtin:<name>`): a
-/// texture compiled into the library, which every window has registered under
-/// that id from the start (`azul_layout::texture`), so it composes like any
-/// `url(..)` image - a layer of a `background` list, repeated, positioned,
-/// over a colour.
+/// texture compiled into the library.
+///
+/// Every window has it registered under that id from the start
+/// (`azul_layout::texture`), so it composes like any `url(..)` image - a layer
+/// of a `background` list, repeated, positioned, over a colour.
 pub const BUILTIN_IMAGE_PREFIX: &str = "azul-builtin:";
 
-/// The textures `builtin(<name>)` draws: `vellum` (black-and-white parchment
-/// grain, opaque) and `vellum-overlay` (the same grain as black ink at a low
-/// alpha, to lay over any colour). Any other name is transparent.
+/// The textures `builtin(<name>)` draws; any other name is transparent.
+///
+/// `vellum` is black-and-white parchment grain, opaque; `vellum-overlay` is the
+/// same grain as black ink at a low alpha, to lay over any colour.
 pub const BUILTIN_IMAGES: &[&str] = &["vellum", "vellum-overlay"];
 
 /// A single CSS background layer: a solid color, image URL, or gradient.
@@ -146,10 +148,10 @@ impl PrintAsCssValue for StyleBackgroundContent {
                 };
                 format!("{}({})", prefix, cg.print_as_css_value())
             }
-            Self::Image(id) => match id.as_str().strip_prefix(BUILTIN_IMAGE_PREFIX) {
-                Some(name) => format!("builtin({name})"),
-                None => format!("url(\"{}\")", id.as_str()),
-            },
+            Self::Image(id) => id.as_str().strip_prefix(BUILTIN_IMAGE_PREFIX).map_or_else(
+                || format!("url(\"{}\")", id.as_str()),
+                |name| format!("builtin({name})"),
+            ),
             Self::Color(c) => c.to_hash(),
             Self::SystemColor(s) => s.as_css_str().to_string(),
         }
@@ -340,7 +342,7 @@ fn interpolate_background_layer(
         return Some(from.clone());
     }
     match (from, to) {
-        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate_premultiplied(b, t))),
+        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate_premultiplied(*b, t))),
         (B::LinearGradient(a), B::LinearGradient(b)) => {
             interpolate_linear_gradient(a, b, t).map(B::LinearGradient)
         }
@@ -472,7 +474,7 @@ fn interpolate_stop_colour(
 ) -> Option<ColorOrSystem> {
     match (from, to) {
         (ColorOrSystem::Color(a), ColorOrSystem::Color(b)) => {
-            Some(ColorOrSystem::Color(a.interpolate_premultiplied(&b, t)))
+            Some(ColorOrSystem::Color(a.interpolate_premultiplied(b, t)))
         }
         _ => None,
     }
@@ -800,12 +802,13 @@ impl ResolvedLinearGradient {
 }
 
 /// Cut `(offset, color)` stops (offsets never decreasing, as
-/// [`LinearGradient::resolve_in_box`] gives them) to the gradient line
-/// itself, `0.0..=1.0`, for a renderer that only samples the line: at an end
-/// the stops reach past, the color there is interpolated with
-/// `lerp(from, to, t)` and the stops beyond are dropped; before the first
-/// stop and after the last the line keeps that stop's color. Hard stops (two
-/// at one offset) are kept.
+/// [`LinearGradient::resolve_in_box`] gives them) to the gradient line itself,
+/// `0.0..=1.0`, for a renderer that only samples the line.
+///
+/// At an end the stops reach past, the color there is interpolated with
+/// `lerp(from, to, t)` and the stops beyond are dropped; before the first stop
+/// and after the last the line keeps that stop's color. Hard stops (two at one
+/// offset) are kept.
 #[must_use]
 pub fn color_stops_on_the_line<C: Copy>(
     stops: &[(f32, C)],
@@ -1449,12 +1452,13 @@ impl PrintAsCssValue for StyleBackgroundRepeatVec {
     }
 }
 
-/// One layer's `background-clip` (CSS Backgrounds 3 s3.7): the box the layer
-/// is painted within - the border box (the initial value), the padding box or
-/// the content box. The property is a list, one box per layer
-/// ([`StyleBackgroundClipVec`]): a gradient on the border box under a face on
-/// the padding box shows only through a transparent border, which is how a
-/// metal edge is cut.
+/// One layer's `background-clip` (CSS Backgrounds 3 s3.7): the box the layer is
+/// painted within.
+///
+/// The border box (the initial value), the padding box or the content box. The
+/// property is a list, one box per layer ([`StyleBackgroundClipVec`]): a
+/// gradient on the border box under a face on the padding box shows only
+/// through a transparent border, which is how a metal edge is cut.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -2201,10 +2205,11 @@ pub mod parser {
         Ok((rest, boxes.last().copied()))
     }
 
-    /// Parses the `background` shorthand's layer list into its layers and,
-    /// when any layer names a box, the `background-clip` list that goes with
-    /// them (a layer that names none takes the initial `border-box`). A layer
-    /// is an image, a gradient or (the last one) a colour, with an optional
+    /// Parses the `background` shorthand's layer list into its layers and, when
+    /// any layer names a box, the `background-clip` list that goes with them.
+    ///
+    /// A layer that names none takes the initial `border-box`. A layer is an
+    /// image, a gradient or (the last one) a colour, with an optional
     /// `<visual-box>`. Both lists are in paint order, the bottom layer first
     /// (see [`parse_style_background_content_multiple`]).
     ///

@@ -1053,14 +1053,14 @@ const LEAF_EDGE_DARK: [ColorU; 4] = [
 /// night twin. Pair it with a 1px border.
 #[must_use]
 pub(crate) fn leaf_edge() -> Vec<CssPropertyWithConditions> {
-    let [t, r, b, l] = LEAF_EDGE_LIGHT;
-    let [dt, dr, db, dl] = LEAF_EDGE_DARK;
-    let mut v = Vec::with_capacity(8);
-    v.extend(super::decl::themed_border_top_color(t, dt));
-    v.extend(super::decl::themed_border_right_color(r, dr));
-    v.extend(super::decl::themed_border_bottom_color(b, db));
-    v.extend(super::decl::themed_border_left_color(l, dl));
-    v
+    let [top, right, bottom, left] = LEAF_EDGE_LIGHT;
+    let [dark_top, dark_right, dark_bottom, dark_left] = LEAF_EDGE_DARK;
+    let mut props = Vec::with_capacity(8);
+    props.extend(super::decl::themed_border_top_color(top, dark_top));
+    props.extend(super::decl::themed_border_right_color(right, dark_right));
+    props.extend(super::decl::themed_border_bottom_color(bottom, dark_bottom));
+    props.extend(super::decl::themed_border_left_color(left, dark_left));
+    props
 }
 
 const EB_GARAMOND_STR: AzString = AzString::from_const_str("EB Garamond");
@@ -4854,24 +4854,16 @@ pub fn search_field(field: Dom, clear: Dom) -> Dom {
 // ==== text input kinds (invalid look) ====
 
 /// The border of a text field whose value the user edited into an INVALID
-/// state (`type=email` / `type=url` syntax, `pattern`): flora's warm brick
-/// red, which sits with its paper-and-ink palette where the flat theme's
-/// signal red would glare. Light mode.
-pub const INVALID_RING: ColorU = ColorU {
-    r: 192,
-    g: 57,
-    b: 43,
-    a: 255,
-};
+/// state (`type=email` / `type=url` syntax, `pattern`): the clay stone
+/// ([`STONE_CLAY`]) flora's error lines, danger commands and alerts are cut
+/// from - one red for "wrong", which sits with the paper-and-ink palette
+/// where the flat theme's signal red would glare (6.8:1 on the field
+/// paper). Light mode.
+pub const INVALID_RING: ColorU = STONE_CLAY.stone;
 
-/// [`INVALID_RING`] in the dark theme: a lighter coral that keeps the warmth
-/// and still reads on a dark field.
-pub const DARK_INVALID_RING: ColorU = ColorU {
-    r: 232,
-    g: 132,
-    b: 122,
-    a: 255,
-};
+/// [`INVALID_RING`] in the dark theme: the clay's glow, as every clay ink
+/// at night (5.2:1 on the night field).
+pub const DARK_INVALID_RING: ColorU = STONE_CLAY.glow;
 
 /// The four border colours of the invalid look, for the light (`dark ==
 /// false`) or the dark theme. `text_input.rs` writes them as an OVERRIDE on
@@ -4887,6 +4879,31 @@ pub fn text_input_invalid_ring(dark: bool) -> Vec<CssProperty> {
         CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner }),
         CssProperty::const_border_left_color(StyleBorderLeftColor { inner }),
     ]
+}
+
+#[cfg(test)]
+mod invalid_ring_tests {
+    use super::*;
+
+    /// flora says "wrong" in ONE colour: an invalid field's ring is the clay
+    /// its error lines, danger commands and alerts are cut from (#7E4A42),
+    /// lifted to the clay's glow at night (#B3837A) - not a brick red of its
+    /// own next to them.
+    #[test]
+    fn a_flora_fields_invalid_ring_is_the_clay_of_floras_errors() {
+        for (dark, inner) in [(false, STONE_CLAY.stone), (true, STONE_CLAY.glow)] {
+            assert_eq!(
+                text_input_invalid_ring(dark),
+                vec![
+                    CssProperty::const_border_top_color(StyleBorderTopColor { inner }),
+                    CssProperty::const_border_right_color(StyleBorderRightColor { inner }),
+                    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner }),
+                    CssProperty::const_border_left_color(StyleBorderLeftColor { inner }),
+                ],
+                "dark {dark}"
+            );
+        }
+    }
 }
 
 // ==== datetime-local ====
@@ -6174,9 +6191,10 @@ fn chrome_leaf(v: &mut Vec<CssPropertyWithConditions>) {
 //
 // A flora ribbon is flora's toolbar strip (`--fl-strip`, closed along its foot
 // by the 2px rule of metal) over a leaf (`--fl-sur`) that holds the groups,
-// each ruled off from the next by a `--fl-sep` hairline and captioned in soft
-// ink (`--fl-soft1`). Its tab row is Firefox's (Australis) in flora's metal
-// ("the Australis tab" below): the unselected tabs are flora's nav tabs
+// each ruled off from the next by a `--fl-sep` hairline and captioned in
+// flora's capitals in soft ink (`--fl-soft1`). Its tab row is Firefox's
+// (Australis) in flora's metal ("the Australis tab" below): the unselected
+// tabs are flora's nav tabs
 // (`.nav-links a`), soft ink on the strip lifting to the hover face and the
 // house ink under the pointer; the selected tab is the sunken accent stone
 // (`.nav-links a.active`: `--fl-gem-sunken` under the sunken rig) in a
@@ -6241,8 +6259,18 @@ pub(crate) fn ribbon_style(
     chrome_part(&mut s.group_style, &e, |v| {
         v.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
     });
+    // A caption is its group's title (`.fl-label`): flora's capitals in the
+    // label ink - on the caption's own face and size (the ribbon's system UI
+    // face, which a flora window sets in EB Garamond), so the ribbon keeps
+    // flat's metrics; the fit walk measures captions as capitals.
     let e = s.resolved_group_label_style();
     chrome_part(&mut s.group_label_style, &e, |v| {
+        v.extend(caps(CAPS_TITLE).into_iter().filter(|p| {
+            !matches!(
+                p.property.get_type(),
+                CssPropertyType::FontFamily | CssPropertyType::FontSize
+            )
+        }));
         v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     });
     let e = s.resolved_launcher_button_style();
@@ -8173,7 +8201,7 @@ pub fn ribbon_file_menu(m: crate::widgets::ribbon_file_menu::RibbonFileMenu) -> 
 /// A font declaration pair: the chrome size and flora's hand - Garamond
 /// (`--font-serif` / `--font-caps`, the bundled EB Garamond first), the face
 /// every flora surface writes in; what a shell's content inherits.
-fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
+const fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
     [
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             px,
@@ -9597,12 +9625,15 @@ pub fn date_repeat_picker(e: crate::widgets::date_repeat_picker::DateRepeatPicke
 
 // ==== data_table ====
 //
-// A flora data table is a ledger on the field paper: rows a --fl-sep
-// hairline apart with the surface tone on every other one, the column
-// titles semibold on the strip (a sorted column's title in the accent, its
-// glow at night), the filter row in the field tone with the label ink for
-// its placeholder, selected rows on the accent's soft wash (the accent
-// itself at night), the cursor's cell in the accent outline, scroll bars of
+// A flora data table is a ledger on the field paper, as flora's list view
+// is: rows a --fl-sep hairline apart with flora.css's table stripe
+// (`--fl-strip`) on every other one - the surface tone at night, where the
+// strip token sits two steps off the night paper - the column titles in
+// flora's capitals in the intro ink on the raised paper face (a sorted
+// column's title in the accent, its glow at night), the filter row in the
+// field tone with the label ink for its placeholder, selected rows flora's
+// selection (the accent's soft wash in its deep tone; the accent itself in
+// the paper ink at night), the cursor's cell in the accent outline, scroll bars of
 // the quiet ink on the surface. At night every surface and ink takes its
 // night value.
 
@@ -9617,9 +9648,12 @@ pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
     table.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     table.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
 
-    let mut header = alloc::vec![decl::semibold()];
-    header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
-    header.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut header = caps(CAPS_LABEL);
+    header.extend(decl::themed_layers(
+        alloc::vec![RAISED_FACE_LIGHT],
+        alloc::vec![RAISED_FACE_DARK],
+    ));
+    header.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
     header.extend(decl::border_right(1));
     header.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
     header.extend(decl::border_bottom(1));
@@ -9636,6 +9670,9 @@ pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
     cell.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
     let mut row = decl::border_bottom(1).to_vec();
     row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut row_selected = decl::themed_fill(LIGHT_SOFT, DARK_ACC).to_vec();
+    row_selected.extend(decl::themed_ink(LIGHT_DEEP, DARK_ON_ACC));
 
     let mut cursor = decl::border(2).to_vec();
     cursor.extend(decl::themed_border_color(LIGHT_ACC, DARK_GLOW));
@@ -9662,8 +9699,8 @@ pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
         filter_empty: decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec(),
         cell,
         row,
-        row_alternate: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
-        row_selected: decl::themed_fill(LIGHT_SOFT, DARK_ACC).to_vec(),
+        row_alternate: decl::themed_fill(LIGHT_STRIP, DARK_SUR).to_vec(),
+        row_selected,
         cursor,
         editor,
         caret: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
@@ -10470,7 +10507,7 @@ mod flora16_look_tests {
                     })
             })
             .map(|p| p.property.clone())
-            .last()
+            .next_back()
     }
 
     fn in_capitals(props: &[CssPropertyWithConditions]) -> bool {

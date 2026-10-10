@@ -44,10 +44,21 @@ chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["
 getrandom = "0.2"
 base64 = "0.22"
 zeroize = { version = "1.8", features = ["alloc"] }
+# A paid checkout's period tokens (period.rs): RFC 9474 blind RSA (SHA-384, PSS, randomized) -
+# the issuer's SPKI PEM key, the PSS check of a finished token, the blinding arithmetic. No new
+# crates: AzMail's rsa 0.9 (+pem) and the num-bigint-dig it is built on (Cargo.lock has both).
+rsa = { version = "0.9", features = ["pem"] }
+num-bigint-dig = { version = "0.8", default-features = false }
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+
+[features]
+default = []
+# Encrypted drives (encryption.rs): azul-storage's AZL1 objects, the device's keys, the join
+# code's key seal. Off until the drive index (the encrypted metadata repository) is in.
+encryption = ["azul-storage/encryption"]
 
 [lib]
 name = "azcloud_kit"

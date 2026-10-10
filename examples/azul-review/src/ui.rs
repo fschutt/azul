@@ -243,7 +243,13 @@ fn finder_row(
             format!(
                 "font-size: 14px; color: {};{}",
                 if selected { "system:accent-text" } else { icon_color },
-                if selected { " @theme(flora) { color: system:selection-text; }" } else { "" },
+                // Under flora a glyph is flora's small-icon ink (a multicolour Haiku icon keeps
+                // its own colours whatever the ink).
+                if selected {
+                    " @theme(flora) { color: system:selection-text; }"
+                } else {
+                    " @theme(flora) { color: system:icon; }"
+                },
             )
             .as_str(),
         ),

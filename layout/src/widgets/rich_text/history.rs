@@ -47,7 +47,7 @@ impl Default for RichTextHistory {
 impl RichTextHistory {
     /// An empty history keeping up to 200 steps.
     #[must_use]
-    pub fn create() -> Self {
+    pub const fn create() -> Self {
         Self {
             undo_stack: RichTextDocVec::from_vec(Vec::new()),
             redo_stack: RichTextDocVec::from_vec(Vec::new()),
@@ -79,7 +79,7 @@ impl RichTextHistory {
 
     /// Ends the current group: the next step is a step of its own (the
     /// caret moved, a command ran).
-    pub fn break_group(&mut self) {
+    pub const fn break_group(&mut self) {
         self.group = RichEditGroup::None;
     }
 

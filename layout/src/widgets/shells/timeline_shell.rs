@@ -74,7 +74,13 @@ pub struct TimelineShell {
 impl TimelineShell {
     /// A shell of the four monitors' panes and the timeline.
     #[must_use]
-    pub fn create(media: Dom, source: Dom, program: Dom, inspector: Dom, timeline: Dom) -> Self {
+    pub const fn create(
+        media: Dom,
+        source: Dom,
+        program: Dom,
+        inspector: Dom,
+        timeline: Dom,
+    ) -> Self {
         Self {
             menu_bar: OptionDom::None,
             media,
@@ -125,7 +131,7 @@ impl TimelineShell {
 
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(
             Dom::create_div(),
             Dom::create_div(),

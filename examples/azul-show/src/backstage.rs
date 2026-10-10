@@ -137,7 +137,7 @@ fn theme_card(app: &RefAny, st: &AppState, index: usize, name: &str) -> Dom {
     // The theme's accents under its title slide (as PowerPoint's New shows
     // them): the grounds of the paper variants alone look alike.
     let colors = &deck.theme.colors;
-    let mut accents = Dom::create_div().with_css("display: flex; flex-direction: row; height: 6px;");
+    let mut accents = render::content(Dom::create_div().with_css("display: flex; flex-direction: row; height: 6px;"));
     for c in [colors.accent, colors.accent2, colors.accent3, colors.title] {
         accents.add_child(Dom::create_div().with_css(format!("flex-grow: 1; background: {};", render::css_color(c))));
     }

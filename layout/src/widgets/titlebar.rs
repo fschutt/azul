@@ -1005,7 +1005,7 @@ impl TabsInTitlebar {
     /// software controls after the last one on Linux; nothing on Windows,
     /// whose caption stays above the window's content.
     #[must_use]
-    pub fn platform() -> Self {
+    pub const fn platform() -> Self {
         let controls = if DEFAULT_CONTROLS_OVER_CONTENT {
             DEFAULT_BUTTON_AREA_WIDTH
         } else {

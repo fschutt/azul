@@ -27,6 +27,16 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
     POST /v1/checkout/<id>/pay {"card_number"}      200 the test provider: 4242 4242 4242 4242
                                                     approves (the drive is made), others decline
     GET /v1/pay/<id>                                200 the payment page (HTML)
+    GET /v1/tokens/keys                             200 the period tokens' issuer keys: one per
+                                                    tier, of this year (SPKI PEM)
+    POST /v1/tokens/issue {"checkout_id",           200 one blind signature per blinded message,
+        "issue_key", "blinded": ["<base64>"]}       up to the checkout's months in all (400
+                                                    issue_key_required, 403 issue_key_wrong, 404
+                                                    no_such_checkout, 409 not_paid /
+                                                    already_issued)
+    POST /v1/drives/<id>/redeem {"tier", "year",    200 the drive's period a month longer (400
+        "nonce", "signature", "randomizer"}         bad_token / wrong_tier, 409 token_used); the
+        Authorization: Bearer <drive token>         drive token is checked, not spent
 
   With fake payment providers (`--providers`, `set_providers`; CHECKOUT-PLAN §3.11, §4.2 - see
   "The fake payment providers" below for their pages and webhooks):
@@ -47,11 +57,15 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
   base64 of the X25519 public key the app made for it; the approved checkout's sign-up is sealed
   to it (X25519 + HKDF-SHA256 "azlin-claim-v1" + ChaCha20-Poly1305, the checkout id as associated
   data), so only that app opens it - however late it asks, from another process, after a
-  restart. The plaintext `signup` of earlier token servers is gone.
+  restart. The plaintext `signup` of earlier token servers is gone. The sealed sign-up carries
+  `period_tokens: {"checkout_id", "months", "issue_key"}` (AZLINSEC17 F24): the checkout's months
+  as blind-signed period tokens (RFC 9474, scripts/azlin_period.py), issued only against that key
+  (the mock keeps its hash) - the checkout id alone issues nothing.
 
   Errors are {"error": "<code>", "message": "<sentence>"} with azlin-token's codes (no_such_drive,
   unauthorized, token_reuse, credentials_revoked, bad_tier, no_such_checkout, claim_key_required,
-  bad_claim_key, not_found). Ids look like the real ones: drives d_<base32>, buckets d-<base32>,
+  bad_claim_key, issue_key_required, issue_key_wrong, not_paid, already_issued, bad_token,
+  wrong_tier, token_used, not_found). Ids look like the real ones: drives d_<base32>, buckets d-<base32>,
   tokens dt_<family>.<generation>.<random>. The S3 credentials are the S3 server's one key with
   a session token and an expiry --ttl seconds ahead (the real token server: 12 hours, derived per
   drive).
@@ -94,6 +108,7 @@ sys.path.insert(0, os.path.join(REPO, 'examples', 'azul-drive', 'scripts'))
 sys.path.insert(0, HERE)
 
 import azlin_claim  # noqa: E402
+import azlin_period  # noqa: E402
 import s3_server  # noqa: E402
 
 # The tiers azlin-token knows (tiers.rs): id, bytes, cents a month, cents a year; a sign-up
@@ -316,6 +331,10 @@ class TokenState:
         self.base_url = ''
         # Seconds an approved checkout keeps its sealed sign-up (a test may shorten it).
         self.sealed_keep = SEALED_KEEP_SECS
+        # The period tokens' issuer key (one test key for every tier and year) and the hashes of
+        # the redeemed tokens' messages.
+        self.issuer = (azlin_period.MOCK_N, azlin_period.MOCK_E, azlin_period.MOCK_D)
+        self.redeemed = set()
         # The fake payment providers offered (none: no payment options, the v1 checkout).
         self.providers = []
         # Checkout ids by their provider reference (what the providers see).
@@ -791,12 +810,19 @@ class TokenState:
                 return checkout['status']
             tier = checkout['tier']
         bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
+        # The key the period tokens are issued against, sealed with the drive (F24); the
+        # checkout keeps its hash only.
+        issue_key, issue_key_hash = azlin_period.new_issue_key()
+        bundle['period_tokens'] = {'checkout_id': checkout_id, 'months': checkout['months'],
+                                   'issue_key': issue_key}
         sealed = azlin_claim.seal(json.dumps(bundle).encode('utf-8'), checkout['claim_key'],
                                   checkout_id)
         with self.lock:
             checkout['status'] = 'approved'
             checkout['sealed_signup'] = sealed
             checkout['approved_at'] = time.time()
+            checkout['issue_key_hash'] = issue_key_hash
+            checkout['tokens_issued'] = 0
         return 'approved'
 
     def decline(self, checkout_id, reason):
@@ -806,6 +832,94 @@ class TokenState:
                 checkout['status'] = 'declined'
                 checkout['reason'] = reason
             return checkout['status']
+
+    def issuer_keys(self):
+        """GET /v1/tokens/keys (blind.rs `keys`): the issuer key of every tier, this year."""
+        n, e, _ = self.issuer
+        year = time.gmtime().tm_year
+        pem = azlin_period.public_key_pem(n, e)
+        return {'keys': [{'tier': tier, 'year': year, 'key_id': '%s/%d' % (tier, year),
+                          'public_key_pem': pem} for tier, _, _, _ in TIER_LADDER]}
+
+    def issue(self, body):
+        """POST /v1/tokens/issue (blind.rs `issue`): blind signatures of a paid checkout's period
+        tokens, against the issue key of its sealed sign-up, up to its months in all."""
+        checkout_id = body.get('checkout_id')
+        if not isinstance(checkout_id, str):
+            raise ApiError(400, 'bad_request', 'checkout_id required')
+        blinded = [b for b in (body.get('blinded') or []) if isinstance(b, str)]
+        if not 1 <= len(blinded) <= azlin_period.MAX_BLINDED:
+            raise ApiError(400, 'bad_request', '1 to 24 blinded messages')
+        issue_key = body.get('issue_key')
+        if not isinstance(issue_key, str):
+            raise ApiError(400, 'issue_key_required',
+                           'issue_key required: period_tokens.issue_key of the sealed signup')
+        n, _, d = self.issuer
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            if checkout['status'] != 'approved':
+                raise ApiError(409, 'not_paid', 'the checkout is not approved')
+            if not azlin_period.issue_key_ok(checkout.get('issue_key_hash'), issue_key):
+                raise ApiError(403, 'issue_key_wrong', "not this checkout's issue key")
+            issued, months = checkout['tokens_issued'], checkout['months']
+            if issued + len(blinded) > months:
+                raise ApiError(409, 'already_issued',
+                               '%d of %d tokens already issued' % (issued, months))
+            try:
+                signatures = [azlin_period.blind_sign(n, d, b) for b in blinded]
+            except ValueError as e:
+                raise ApiError(400, 'bad_request', 'blind sign: %s' % e)
+            checkout['tokens_issued'] = issued + len(signatures)
+            tier = checkout['tier']
+        year = time.gmtime().tm_year
+        return {'tier': tier, 'key_id': '%s/%d' % (tier, year),
+                'public_key_pem': azlin_period.public_key_pem(n, self.issuer[1]),
+                'blind_signatures': signatures}
+
+    def authenticate(self, drive_id, bearer):
+        """drives.rs `authenticate`: the drive and its family's CURRENT token, not spent (a
+        rotated one is a reuse: the family is revoked). The caller holds the lock."""
+        drive = self.drives.get(drive_id)
+        if drive is None:
+            raise ApiError(404, 'no_such_drive', 'unknown drive')
+        if not bearer or not bearer.startswith('dt_'):
+            raise ApiError(401, 'unauthorized', 'a drive token is required')
+        state = self.families.get(bearer[3:].split('.')[0])
+        if state is None or state['drive'] != drive_id:
+            raise ApiError(401, 'unauthorized', 'unknown token')
+        if state['revoked']:
+            raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
+        digest = token_hash(bearer)
+        if digest == state['current']:
+            return drive
+        if digest in state['used']:
+            state['revoked'] = 'reuse'
+            raise ApiError(401, 'token_reuse',
+                           'an old token was reused: the device must sign in again')
+        raise ApiError(401, 'unauthorized', 'unknown token')
+
+    def redeem(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/redeem (blind.rs `redeem`): one period token, one month more."""
+        n, e, _ = self.issuer
+        with self.lock:
+            drive = self.authenticate(drive_id, bearer)
+            token = {key: body.get(key) for key in ('tier', 'year', 'nonce', 'signature',
+                                                    'randomizer')}
+            if token['tier'] != drive['tier']:
+                raise ApiError(400, 'wrong_tier', 'the token is for another tier')
+            if not isinstance(token['year'], int) or not isinstance(token['nonce'], str) \
+                    or not azlin_period.verify(n, e, token):
+                raise ApiError(400, 'bad_token', 'the token signature does not verify')
+            used = hashlib.sha256(azlin_period.token_message(
+                token['tier'], token['year'], token['nonce']).encode('utf-8')).hexdigest()
+            if used in self.redeemed:
+                raise ApiError(409, 'token_used', 'this token was already redeemed')
+            self.redeemed.add(used)
+            tomorrow = (int(time.time()) // 86400 + 1) * 86400
+            drive['period_until'] = max(drive['period_until'], tomorrow) + 30 * 86400
+            return {'period_until': rfc3339(drive['period_until'])}
 
     def refresh(self, drive_id, bearer):
         with self.lock:
@@ -1007,6 +1121,16 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
                 and segments[3] == 'credentials':
             self.body()
             self.answer(200, state.refresh(segments[2], self.bearer()))
+            return
+        if self.command == 'GET' and segments == ['v1', 'tokens', 'keys']:
+            self.answer(200, state.issuer_keys())
+            return
+        if self.command == 'POST' and segments == ['v1', 'tokens', 'issue']:
+            self.answer(200, state.issue(self.body() or {}))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'redeem':
+            self.answer(200, state.redeem(segments[2], self.bearer(), self.body() or {}))
             return
         raise ApiError(404, 'not_found', 'no route for %s /%s' % (self.command, path))
 

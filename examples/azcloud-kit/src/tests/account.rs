@@ -186,6 +186,7 @@ fn a_join_code_round_trips_hides_its_token_and_refuses_what_is_not_one() {
         member: String::from("m_laptop"),
         name: String::from("Ann's drive"),
         token_url: String::from("http://127.0.0.1:8081"),
+        key_seal: None,
     };
     let text = code.encode();
     assert!(text.starts_with(JOIN_PREFIX));
@@ -208,6 +209,29 @@ fn a_join_code_round_trips_hides_its_token_and_refuses_what_is_not_one() {
     let mut bad = code.clone();
     bad.drive_id = String::from("../x");
     assert!(JoinCode::decode(&bad.encode()).is_err());
+}
+
+#[test]
+fn a_join_code_carries_its_key_seal_hidden_and_a_code_without_one_reads_as_before() {
+    let code = JoinCode {
+        drive_id: String::from("d_k3f9"),
+        drive_token: String::from("dt_m.0.sesame"),
+        member: String::from("m_laptop"),
+        name: String::from("Ann's drive"),
+        token_url: String::from("http://127.0.0.1:8081"),
+        key_seal: Some("7e".repeat(32)),
+    };
+    let back = JoinCode::decode(&code.encode()).unwrap();
+    assert_eq!(back, code);
+    assert!(!format!("{code:?}").contains("7e7e"), "{code:?}");
+    // The JSON of a code without a seal has no such field: an older reader takes it.
+    let plain = JoinCode {
+        key_seal: None,
+        ..code
+    };
+    let json: Value = serde_json::to_value(&plain).unwrap();
+    assert!(json.get("key_seal").is_none(), "{json}");
+    assert_eq!(JoinCode::decode(&plain.encode()).unwrap().key_seal, None);
 }
 
 #[test]

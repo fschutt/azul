@@ -783,14 +783,20 @@ fn spring_progress(spring: SpringCurve, t: f64) -> f64 {
     if t >= 1.0 {
         return 1.0;
     }
-    let k = f64::from(spring.stiffness);
-    let c = f64::from(spring.damping);
-    let m = f64::from(spring.mass);
-    if !(k > 0.0 && m > 0.0 && c > 0.0) || !(k.is_finite() && m.is_finite() && c.is_finite()) {
+    let stiffness = f64::from(spring.stiffness);
+    let damping = f64::from(spring.damping);
+    let mass = f64::from(spring.mass);
+    if !(stiffness > 0.0
+        && mass > 0.0
+        && damping > 0.0
+        && stiffness.is_finite()
+        && mass.is_finite()
+        && damping.is_finite())
+    {
         return t;
     }
-    let w0 = (k / m).sqrt();
-    let zeta = c / (2.0 * (k * m).sqrt());
+    let w0 = (stiffness / mass).sqrt();
+    let zeta = damping / (2.0 * (stiffness * mass).sqrt());
     if zeta < 1.0 - 1e-6 {
         // Under-damped: a decaying oscillation about the target.
         let ratio = (1.0 - zeta * zeta).sqrt();

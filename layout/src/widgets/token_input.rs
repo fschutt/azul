@@ -34,7 +34,9 @@
 //! KEYBOARD: the field is ONE Tab stop, the entry. Enter commits the
 //! highlighted suggestion or the typed text, Tab commits the typed text
 //! (and leaves when there is none), `,` / `;` commit what is before them,
-//! Down / Up move the highlight, Escape hides the list, Backspace in an
+//! Down / Up move the highlight, Escape hides the list (and its highlight:
+//! Enter then commits the typed text, a second Escape is not the field's,
+//! Down / Up show the list again), Backspace in an
 //! empty entry removes the last chip, Left in an empty entry goes to the
 //! chips: Left / Right walk them (Right past the last returns to the
 //! entry), Delete / Backspace remove the focused one, Enter / Space press
@@ -142,13 +144,13 @@ impl TokenInputState {
     }
 
     /// The highlighted suggestion (its place among the ones shown).
-    pub fn set_active(&mut self, active: usize) {
+    pub const fn set_active(&mut self, active: usize) {
         self.active = OptionUsize::Some(active);
     }
 
     /// [`Self::set_active`] for the builder chain.
     #[must_use]
-    pub fn with_active(mut self, active: usize) -> Self {
+    pub const fn with_active(mut self, active: usize) -> Self {
         self.set_active(active);
         self
     }
@@ -738,7 +740,7 @@ pub(crate) fn look_for(theme: OptionUiTheme) -> TokenInputLook {
 // ---- the base: the widget's structure, in every theme ----
 
 /// A row or column gap, px.
-fn gap(px: isize, column: bool) -> CssPropertyWithConditions {
+const fn gap(px: isize, column: bool) -> CssPropertyWithConditions {
     use azul_css::props::{
         layout::{LayoutColumnGap, LayoutRowGap},
         property::{LayoutColumnGapValue, LayoutRowGapValue},
@@ -837,6 +839,9 @@ struct TokenShared {
     state: TokenInputState,
     shown: Vec<AzString>,
     allow_duplicates: bool,
+    /// Escape hid the list (an override no rebuild has taken back yet):
+    /// nothing shows, so nothing is highlighted.
+    dismissed: bool,
 }
 
 /// A chip's (or a suggestion's) payload: its index (among the tokens, or
@@ -877,9 +882,12 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
         state: state.clone(),
         shown: shown.clone(),
         allow_duplicates,
+        dismissed: false,
     });
 
     // The field: a chip per token, then the entry.
+    let on_remove: ChipOnRemoveCallbackType = on_chip_remove;
+    let on_click: ChipOnClickCallbackType = on_chip_click;
     let mut in_field: Vec<Dom> = Vec::with_capacity(state.tokens.len() + 1);
     for (index, token) in state.tokens.as_ref().iter().enumerate() {
         let data = RefAny::new(TokenData {
@@ -888,8 +896,8 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
         });
         let mut chip = Chip::create(token.clone())
             .with_removable(true)
-            .with_on_remove(data.clone(), on_chip_remove as ChipOnRemoveCallbackType)
-            .with_on_click(data.clone(), on_chip_click as ChipOnClickCallbackType);
+            .with_on_remove(data.clone(), on_remove)
+            .with_on_click(data.clone(), on_click);
         if let Some(t) = theme {
             chip = chip.with_theme(t);
         }
@@ -912,11 +920,13 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
         in_field.push(chip);
     }
 
+    let on_text: TextInputOnTextInputCallbackType = on_entry_text;
+    let on_key: TextInputOnVirtualKeyDownCallbackType = on_entry_key;
     let mut entry = TextInput::create()
         .with_text(state.text)
         .with_accessibility_name(accessibility_name.clone())
-        .with_on_text_input(shared.clone(), on_entry_text as TextInputOnTextInputCallbackType)
-        .with_on_virtual_key_down(shared.clone(), on_entry_key as TextInputOnVirtualKeyDownCallbackType);
+        .with_on_text_input(shared.clone(), on_text)
+        .with_on_virtual_key_down(shared.clone(), on_key);
     if !placeholder.as_str().is_empty() {
         entry = entry.with_placeholder(placeholder);
     }
@@ -1028,11 +1038,20 @@ fn emit(shared: &mut RefAny, mut info: CallbackInfo, event: TokenInputEvent) -> 
         None => Update::DoNothing,
     };
     if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
-        if let Some(list) = list_of(&info, info.get_hit_node()) {
-            info.override_css_property(list, CssProperty::initial(CssPropertyType::Display));
-        }
+        show_list_again(shared, &mut info);
     }
     update
+}
+
+/// Takes a list Escape hid back ([`EntryKey::Dismiss`]): the override goes
+/// (`initial` removes it), the list shows what the DOM was built with.
+fn show_list_again(shared: &mut RefAny, info: &mut CallbackInfo) {
+    if let Some(list) = list_of(info, info.get_hit_node()) {
+        info.override_css_property(list, CssProperty::initial(CssPropertyType::Display));
+    }
+    if let Some(mut s) = shared.downcast_mut::<TokenShared>() {
+        s.dismissed = false;
+    }
 }
 
 /// The list of suggestions of the token input `node` is in, if it shows one.
@@ -1191,10 +1210,14 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
     };
     let modified = ks.shift_down() || ks.ctrl_down() || ks.alt_down() || ks.super_down();
     let text = state.get_text();
-    let Some((tokens, shown, active)) = data
-        .downcast_ref::<TokenShared>()
-        .map(|s| (s.state.tokens.len(), s.shown.len(), s.state.active.into_option()))
-    else {
+    let Some((tokens, shown, active, dismissed)) = data.downcast_ref::<TokenShared>().map(|s| {
+        (
+            s.state.tokens.len(),
+            s.shown.len(),
+            s.state.active.into_option(),
+            s.dismissed,
+        )
+    }) else {
         return pass;
     };
     let container = info.get_hit_node();
@@ -1202,6 +1225,21 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
         update,
         valid: TextInputValid::No,
     };
+    // A list Escape hid shows nothing, so nothing is highlighted: Enter
+    // commits the typed text and Escape is not the list's (Chrome's
+    // `<input list>`). Down / Up open it again from its first / last
+    // suggestion (the ARIA combobox).
+    let reopen = dismissed && !modified && matches!(key, VirtualKeyCode::Down | VirtualKeyCode::Up);
+    let (shown, active) = if reopen {
+        (shown, None)
+    } else if dismissed {
+        (0, None)
+    } else {
+        (shown, active)
+    };
+    if reopen && shown > 0 {
+        show_list_again(&mut data, &mut info);
+    }
     let event = match entry_key(key, text.trim().is_empty(), tokens, shown, active, modified) {
         EntryKey::Pass => return pass,
         EntryKey::CommitText => {
@@ -1240,6 +1278,9 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
             // outranks every later rebuild.
             if let Some(list) = list_of(&info, container) {
                 info.set_css_property(list, CssProperty::const_display(LayoutDisplay::None));
+            }
+            if let Some(mut s) = data.downcast_mut::<TokenShared>() {
+                s.dismissed = true;
             }
             return taken(Update::DoNothing);
         }
@@ -1828,6 +1869,74 @@ mod token_input_tests {
         assert!(
             display_writes(&changes).is_empty(),
             "no rebuild is coming: a dismissal stands ({changes:?})"
+        );
+    }
+
+    /// Whether the handler vetoed the key (the text input's default and the
+    /// window's - a dialog's Escape - never see it).
+    fn swallowed(changes: &[crate::callbacks::CallbackChange]) -> bool {
+        changes
+            .iter()
+            .any(|c| matches!(c, crate::callbacks::CallbackChange::PreventDefault))
+    }
+
+    /// "al" typed, the first suggestion highlighted, the list showing.
+    fn highlighted_field(log: &Log) -> (StyledDom, NodeId, NodeId) {
+        let state = TokenInputState::create(sv(&["alice@x.org", "bob@y.org"]))
+            .with_text(s("al"))
+            .with_active(0);
+        let styled = StyledDom::create_from_dom(field(log).with_state(state).with_theme(UiTheme::Flat).dom());
+        let field_node = kids(&styled, NodeId::new(0))[0];
+        let entry = kids(&styled, field_node)[2];
+        let list = kids(&styled, NodeId::new(0))[1];
+        assert!(has_class_at(&styled, list, LIST_CLASS));
+        (styled, entry, list)
+    }
+
+    /// Chrome's `<input list>`: Escape closes the suggestions, and Enter then
+    /// takes what is typed - never a suggestion the user can no longer see; a
+    /// second Escape is not the list's any more (a dialog's Escape gets it).
+    #[test]
+    fn after_escape_hides_the_list_enter_commits_the_typed_text_and_a_second_escape_passes() {
+        let log = log();
+        let (styled, entry, list) = highlighted_field(&log);
+        let (_, changes) = rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
+        assert_eq!(
+            display_writes(&changes),
+            vec![(list, CssProperty::const_display(LayoutDisplay::None))],
+            "the first Escape hides the list"
+        );
+        assert!(swallowed(&changes), "the first Escape is the list's");
+
+        let (_, changes) = rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
+        assert!(display_writes(&changes).is_empty(), "nothing left to hide: {changes:?}");
+        assert!(!swallowed(&changes), "the second Escape goes on to the window: {changes:?}");
+
+        rv::press(&styled, id(entry), K::Return, &[]).expect("the entry's key handler");
+        assert_eq!(
+            logged(&log),
+            vec![String::from("Add 2 al | alice@x.org,bob@y.org,al |  | None")],
+            "Enter commits what is typed, not the hidden highlight"
+        );
+    }
+
+    /// The ARIA combobox: Down on a list Escape hid shows it again, from its
+    /// first suggestion (the highlight went with the list).
+    #[test]
+    fn down_brings_a_list_escape_hid_back_from_its_first_suggestion() {
+        let log = log();
+        let (styled, entry, list) = highlighted_field(&log);
+        rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
+        let (_, changes) = rv::press(&styled, id(entry), K::Down, &[]).expect("the entry's key handler");
+        assert_eq!(
+            logged(&log),
+            vec![String::from("Navigate 0  | alice@x.org,bob@y.org | al | Some(0)")]
+        );
+        assert!(
+            display_writes(&changes)
+                .iter()
+                .any(|(n, p)| *n == list && *p == CssProperty::initial(CssPropertyType::Display)),
+            "the list shows again: {changes:?}"
         );
     }
 

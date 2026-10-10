@@ -105,7 +105,7 @@ pub struct Waveform {
 impl Waveform {
     /// A waveform of `peaks`, at `position_s` of `duration_s`.
     #[must_use]
-    pub fn create(peaks: azul_css::F32Vec, position_s: f64, duration_s: f64) -> Self {
+    pub const fn create(peaks: azul_css::F32Vec, position_s: f64, duration_s: f64) -> Self {
         Self {
             position_s,
             duration_s,
@@ -161,7 +161,7 @@ impl Waveform {
 
     /// Replaces `self` with an empty waveform and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(azul_css::F32Vec::from_const_slice(&[]), 0.0, 0.0);
         core::mem::swap(&mut s, self);
         s

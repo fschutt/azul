@@ -34,7 +34,8 @@ use alloc::{format, string::String, vec::Vec};
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeType},
     events::SyntheticEvent,
-    geom::LogicalRect,
+    events::{KeyModifiers, MouseButton},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     task::Instant,
     webview::{
         create_webview_event, WebViewCommand, WebViewConfig, WebViewEvent, WebViewLoadError,
@@ -101,6 +102,162 @@ impl WebViewPlacement {
     }
 }
 
+/// How a web view's page maps into its placement
+/// ([`WebViewOp::Transform`]): the page's own size and the linear part of
+/// the CSS transforms above its box.
+///
+/// A placement's `rect` is the bounding box of the page's box under the
+/// whole map, so the map's translation follows from it: the backend gets
+/// the size and the linear part here, and [`Self::to_window`] /
+/// [`Self::to_page`] put the two together. An upright scale
+/// ([`Self::is_axis_aligned`]) is what a native view shows exactly - at
+/// `rect`, zoomed by [`Self::zoom`]; a turn or a skew only a backend that
+/// can transform its view (or draws the page itself) shows as such.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct WebViewTransform {
+    /// The page's own size: its content box, in CSS px - what it lays out
+    /// at, whatever the transform.
+    pub size: LogicalSize,
+    /// The linear part of the page-to-window map, row-vector convention:
+    /// `x' = x * sx + y * shx`, `y' = x * shy + y * sy`.
+    pub sx: f32,
+    pub shy: f32,
+    pub shx: f32,
+    pub sy: f32,
+}
+
+impl WebViewTransform {
+    /// How close to zero a coefficient counts as zero (a quarter turn's
+    /// cosine is not exactly zero in `f32`).
+    const EPSILON: f32 = 1e-5;
+
+    /// A page of `size` shown at its size, upright.
+    #[must_use]
+    pub const fn untransformed(size: LogicalSize) -> Self {
+        Self {
+            size,
+            sx: 1.0,
+            shy: 0.0,
+            shx: 0.0,
+            sy: 1.0,
+        }
+    }
+
+    /// Shown at its own size, upright: its placement says all.
+    #[must_use]
+    pub fn is_untransformed(&self) -> bool {
+        self.is_axis_aligned()
+            && (self.sx - 1.0).abs() < Self::EPSILON
+            && (self.sy - 1.0).abs() < Self::EPSILON
+    }
+
+    /// Upright - a scale, no turn, no skew.
+    #[must_use]
+    pub fn is_axis_aligned(&self) -> bool {
+        self.shx.abs() < Self::EPSILON && self.shy.abs() < Self::EPSILON
+    }
+
+    /// How much the page is magnified along its own x and y: the lengths
+    /// the map gives its unit vectors.
+    #[must_use]
+    pub fn zoom(&self) -> (f32, f32) {
+        (self.sx.hypot(self.shy), self.shx.hypot(self.sy))
+    }
+
+    /// How far the page is turned, in degrees, clockwise on screen (y
+    /// down, as CSS `rotate()`): the angle of the page's own x axis. With
+    /// [`Self::zoom`] and the corner [`Self::to_window`] maps `(0, 0)` to,
+    /// it is what a native view that turns is given (a skew is not kept).
+    #[must_use]
+    pub fn rotation_degrees(&self) -> f32 {
+        self.shy.atan2(self.sx).to_degrees()
+    }
+
+    /// The page point `p` (CSS px from its top-left corner) on screen, for
+    /// a page placed at `rect`.
+    #[must_use]
+    pub fn to_window(&self, rect: LogicalRect, p: LogicalPosition) -> LogicalPosition {
+        let origin = self.origin(rect);
+        LogicalPosition::new(
+            p.x.mul_add(self.sx, p.y * self.shx) + origin.x,
+            p.x.mul_add(self.shy, p.y * self.sy) + origin.y,
+        )
+    }
+
+    /// The page point at window point `p`, for a page placed at `rect`;
+    /// `None` for a map that flattens the page (nothing of it can be hit).
+    #[must_use]
+    pub fn to_page(&self, rect: LogicalRect, p: LogicalPosition) -> Option<LogicalPosition> {
+        let det = self.sx.mul_add(self.sy, -(self.shx * self.shy));
+        if det.abs() < Self::EPSILON {
+            return None;
+        }
+        let origin = self.origin(rect);
+        let (x, y) = (p.x - origin.x, p.y - origin.y);
+        Some(LogicalPosition::new(
+            self.sy.mul_add(x, -(self.shx * y)) / det,
+            self.sx.mul_add(y, -(self.shy * x)) / det,
+        ))
+    }
+
+    /// Where the page's top-left corner lands: the translation that puts
+    /// the bounds of its mapped box at `rect`.
+    fn origin(&self, rect: LogicalRect) -> LogicalPosition {
+        let (w, h) = (self.size.width, self.size.height);
+        // The mapped corners' x and y: (0, 0), (w, 0), (0, h), (w, h).
+        let across = [0.0, w * self.sx, h * self.shx, w.mul_add(self.sx, h * self.shx)];
+        let down = [0.0, w * self.shy, h * self.sy, w.mul_add(self.shy, h * self.sy)];
+        let left = across.iter().copied().fold(f32::INFINITY, f32::min);
+        let top = down.iter().copied().fold(f32::INFINITY, f32::min);
+        LogicalPosition::new(rect.origin.x - left, rect.origin.y - top)
+    }
+}
+
+/// What the pointer did, as the shell reports it to
+/// `LayoutWindow::route_webview_pointer`.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum WebViewPointer {
+    /// It moved.
+    Move,
+    /// A button went down (`pressed`) or up.
+    Button { button: MouseButton, pressed: bool },
+    /// A wheel or a touchpad scrolled by `delta` (logical px; positive `y`
+    /// scrolls the content up, as a wheel turned towards the user does).
+    Wheel { delta: LogicalPosition },
+}
+
+/// Input for a composited web view's page ([`WebViewOp::Input`]); points
+/// are in page CSS px from its top-left corner.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WebViewInput {
+    /// The pointer moved to `at`.
+    PointerMove { at: LogicalPosition },
+    /// A button went down (`pressed`) or up at `at`.
+    PointerButton {
+        at: LogicalPosition,
+        button: MouseButton,
+        pressed: bool,
+    },
+    /// A wheel or a touchpad scrolled by `delta` at `at`.
+    Wheel {
+        at: LogicalPosition,
+        delta: LogicalPosition,
+    },
+    /// The pointer left the page (to something above it, or off it).
+    PointerLeave,
+    /// A key went down (`pressed`) or up, in the shell's own codes - only
+    /// the backend of the same shell reads them (a keysym and a hardware
+    /// keycode on Linux) - with the modifiers held.
+    Key {
+        native_key: u32,
+        native_scan: u32,
+        pressed: bool,
+        modifiers: KeyModifiers,
+    },
+    /// The page got (`true`) or lost the keyboard focus.
+    Focus(bool),
+}
+
 /// What a window's web view backend must do, in queue order
 /// ([`WebViewManager::take_ops`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +280,16 @@ pub enum WebViewOp {
         id: WebViewId,
         placement: WebViewPlacement,
     },
+    /// How the page maps into its placement changed: a transform above it
+    /// came, changed or went (an untransformed one again). Never sent for a
+    /// view that was never transformed.
+    Transform {
+        id: WebViewId,
+        transform: WebViewTransform,
+    },
+    /// Input aimed at a composited view's page (a native view takes its
+    /// input itself).
+    Input { id: WebViewId, input: WebViewInput },
     /// Its node unmounted: destroy the native view.
     Destroy { id: WebViewId },
 }
@@ -137,6 +304,8 @@ impl WebViewOp {
             | Self::Reload { id }
             | Self::GoBack { id }
             | Self::Place { id, .. }
+            | Self::Transform { id, .. }
+            | Self::Input { id, .. }
             | Self::Destroy { id } => *id,
         }
     }
@@ -186,6 +355,9 @@ pub struct MountedWebView {
     pub loading: bool,
     /// Where the backend was last told it is.
     pub placement: WebViewPlacement,
+    /// The transform the backend was last told of; `None` while it shows
+    /// untransformed (it never heard one, or the last one it heard said so).
+    pub transform: Option<WebViewTransform>,
     /// The last [`MAX_NAVIGATION_RECORDS`] navigations it was asked about.
     pub navigations: Vec<WebViewNavigationRecord>,
     /// The last event it reported: what a callback at its node reads.
@@ -199,6 +371,10 @@ pub struct MountedWebView {
 pub enum WebViewPlatform {
     /// The shell has a backend: views are created through the op queue.
     Backend,
+    /// The shell has a backend that renders each page offscreen: the
+    /// window draws its frames (`LayoutWindow::set_webview_frame`) and
+    /// routes its input to it (`WebViewOp::Input`).
+    Composited,
     /// No backend: every web view shows this reason instead of a page.
     Absent(AzString),
     /// No backend, and the reason is the probe's (a missing system library,
@@ -236,6 +412,12 @@ pub struct WebViewManager {
     /// Reports the debug server simulated, for the shell to deliver like a
     /// backend's.
     simulated: Vec<WebViewReport>,
+    /// The composited view the pointer was last routed to.
+    pointer_over: Option<WebViewId>,
+    /// The composited view a press went to, until its release.
+    pointer_capture: Option<WebViewId>,
+    /// The composited view with the keyboard focus, as last told.
+    focused: Option<WebViewId>,
 }
 
 impl WebViewManager {
@@ -253,7 +435,13 @@ impl WebViewManager {
     /// Whether a backend creates the views.
     #[must_use]
     pub const fn has_backend(&self) -> bool {
-        matches!(self.platform, WebViewPlatform::Backend)
+        matches!(self.platform, WebViewPlatform::Backend | WebViewPlatform::Composited)
+    }
+
+    /// Whether the window draws the pages and routes their input.
+    #[must_use]
+    pub const fn is_composited(&self) -> bool {
+        matches!(self.platform, WebViewPlatform::Composited)
     }
 
     /// Why this window shows no page in a web view; `None` with a backend.
@@ -261,7 +449,7 @@ impl WebViewManager {
     #[must_use]
     pub fn unavailable_reason(&self) -> Option<AzString> {
         match &self.platform {
-            WebViewPlatform::Backend => None,
+            WebViewPlatform::Backend | WebViewPlatform::Composited => None,
             WebViewPlatform::Absent(reason) => Some(reason.clone()),
             WebViewPlatform::Probe(probe) => Some(probe()),
         }
@@ -315,7 +503,7 @@ impl WebViewManager {
 
     /// Whether the shell has anything to do: queued ops or simulated reports.
     #[must_use]
-    pub fn has_pending_work(&self) -> bool {
+    pub const fn has_pending_work(&self) -> bool {
         !self.ops.is_empty() || !self.simulated.is_empty()
     }
 
@@ -368,6 +556,7 @@ impl WebViewManager {
                 title: AzString::from_const_str(""),
                 loading: false,
                 placement: WebViewPlacement::HIDDEN,
+                transform: None,
                 navigations: Vec::new(),
                 last_event: None,
                 known: absent.is_none(),
@@ -389,25 +578,35 @@ impl WebViewManager {
 
     /// Place every view where the display lists put it this frame
     /// (`crate::headless::painted_webviews`); a view not among them is
-    /// hidden. Only a CHANGED placement is queued for the backend.
+    /// hidden. Only a CHANGED placement is queued for the backend, and a
+    /// view's transform only when it changed - none for a view that was
+    /// never transformed; a hidden view keeps the last one.
     pub fn sync_placements(&mut self, painted: &[PaintedWebView]) {
         if !self.has_backend() {
             return;
         }
         for view in &mut self.views {
-            let placement = painted
-                .iter()
-                .find(|p| {
-                    p.dom_id == view.node.dom
-                        && view.node.node.into_crate_internal() == Some(p.node_id)
-                })
-                .map_or(WebViewPlacement::HIDDEN, WebViewPlacement::of);
+            let found = painted.iter().find(|p| {
+                p.dom_id == view.node.dom
+                    && view.node.node.into_crate_internal() == Some(p.node_id)
+            });
+            let placement = found.map_or(WebViewPlacement::HIDDEN, WebViewPlacement::of);
             if placement != view.placement {
                 view.placement = placement;
                 self.ops.push(WebViewOp::Place {
                     id: view.id,
                     placement,
                 });
+            }
+            if let Some(p) = found {
+                let transform = (!p.transform.is_untransformed()).then_some(p.transform);
+                if transform != view.transform {
+                    view.transform = transform;
+                    self.ops.push(WebViewOp::Transform {
+                        id: view.id,
+                        transform: p.transform,
+                    });
+                }
             }
         }
     }
@@ -431,6 +630,117 @@ impl WebViewManager {
             WebViewCommand::GoBack => WebViewOp::GoBack { id },
         });
         true
+    }
+
+    /// Route a pointer `event` at window point `at` to the composited page
+    /// it is aimed at: the page whose node is the topmost under the pointer
+    /// (`target`: that node and the hit test's point in its content box -
+    /// the page point), or the page a press went to, until its release
+    /// (the page point then from its placement and transform). A page the
+    /// pointer moved off hears it leave. Returns whether a page took it;
+    /// always `false` in a window that does not composite.
+    pub fn route_pointer(
+        &mut self,
+        target: Option<(DomNodeId, LogicalPosition)>,
+        at: LogicalPosition,
+        event: WebViewPointer,
+    ) -> bool {
+        if !self.is_composited() {
+            return false;
+        }
+        let hit = target.and_then(|(node, point)| self.view_at(node).map(|v| (v.id, point)));
+        let aimed = match (self.pointer_capture, hit) {
+            (Some(captured), Some((id, point))) if id == captured => Some((id, point)),
+            (Some(captured), _) => self.get(captured).and_then(|view| {
+                let transform = view
+                    .transform
+                    .unwrap_or_else(|| WebViewTransform::untransformed(view.placement.rect.size));
+                transform
+                    .to_page(view.placement.rect, at)
+                    .map(|point| (captured, point))
+            }),
+            (None, hit) => hit,
+        };
+        let aimed_id = aimed.map(|(id, _)| id);
+        if let Some(left) = self.pointer_over.filter(|over| Some(*over) != aimed_id) {
+            self.ops.push(WebViewOp::Input {
+                id: left,
+                input: WebViewInput::PointerLeave,
+            });
+        }
+        self.pointer_over = aimed_id;
+        let Some((id, at)) = aimed else {
+            return false;
+        };
+        let input = match event {
+            WebViewPointer::Move => WebViewInput::PointerMove { at },
+            WebViewPointer::Button { button, pressed } => {
+                self.pointer_capture = pressed.then_some(id);
+                WebViewInput::PointerButton {
+                    at,
+                    button,
+                    pressed,
+                }
+            }
+            WebViewPointer::Wheel { delta } => WebViewInput::Wheel { at, delta },
+        };
+        self.ops.push(WebViewOp::Input { id, input });
+        true
+    }
+
+    /// Route a key to the composited page whose node has the keyboard
+    /// focus (`focused`). Returns whether a page took it; always `false` in
+    /// a window that does not composite.
+    pub fn route_key(
+        &mut self,
+        focused: Option<DomNodeId>,
+        native_key: u32,
+        native_scan: u32,
+        pressed: bool,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        if !self.is_composited() {
+            return false;
+        }
+        let Some(id) = focused.and_then(|node| self.view_at(node)).map(|v| v.id) else {
+            return false;
+        };
+        self.ops.push(WebViewOp::Input {
+            id,
+            input: WebViewInput::Key {
+                native_key,
+                native_scan,
+                pressed,
+                modifiers,
+            },
+        });
+        true
+    }
+
+    /// Tell the composited pages the keyboard focus moved (`focused`: the
+    /// node that has it now): the page that had it hears it lose it, the
+    /// page that has it now hears it come. Nothing when it did not move.
+    pub fn sync_focus(&mut self, focused: Option<DomNodeId>) {
+        if !self.is_composited() {
+            return;
+        }
+        let now = focused.and_then(|node| self.view_at(node)).map(|v| v.id);
+        if now == self.focused {
+            return;
+        }
+        if let Some(old) = self.focused {
+            self.ops.push(WebViewOp::Input {
+                id: old,
+                input: WebViewInput::Focus(false),
+            });
+        }
+        if let Some(new) = now {
+            self.ops.push(WebViewOp::Input {
+                id: new,
+                input: WebViewInput::Focus(true),
+            });
+        }
+        self.focused = now;
     }
 
     /// A report the debug server simulated (`simulate_webview_*`): delivered
@@ -545,6 +855,15 @@ impl WebViewManager {
         if known && !created_unseen {
             self.ops.push(WebViewOp::Destroy { id });
         }
+        for routed in [
+            &mut self.pointer_over,
+            &mut self.pointer_capture,
+            &mut self.focused,
+        ] {
+            if *routed == Some(id) {
+                *routed = None;
+            }
+        }
     }
 }
 
@@ -595,6 +914,11 @@ pub struct RecordedWebView {
     pub config: WebViewConfig,
     /// Where it was last placed.
     pub placement: WebViewPlacement,
+    /// The last transform it was told of (`None` before any).
+    pub transform: Option<WebViewTransform>,
+    /// The last [`MAX_NAVIGATION_RECORDS`] inputs routed to its page,
+    /// oldest first.
+    pub inputs: Vec<WebViewInput>,
     /// The pages it went to, oldest first; the last is the current one.
     pub history: Vec<AzString>,
     /// Requests reported and not answered yet: (handle, page, a step back).
@@ -629,6 +953,8 @@ impl WebViewRecorder {
                     id: *id,
                     config: *config,
                     placement: WebViewPlacement::HIDDEN,
+                    transform: None,
+                    inputs: Vec::new(),
                     history: Vec::new(),
                     pending: Vec::new(),
                 });
@@ -656,6 +982,19 @@ impl WebViewRecorder {
                     view.placement = *placement;
                 }
             }
+            WebViewOp::Transform { id, transform } => {
+                if let Some(view) = self.views.iter_mut().find(|v| v.id == *id) {
+                    view.transform = Some(*transform);
+                }
+            }
+            WebViewOp::Input { id, input } => {
+                if let Some(view) = self.views.iter_mut().find(|v| v.id == *id) {
+                    if view.inputs.len() >= MAX_NAVIGATION_RECORDS {
+                        view.inputs.remove(0);
+                    }
+                    view.inputs.push(input.clone());
+                }
+            }
             WebViewOp::Destroy { id } => self.views.retain(|v| v.id != *id),
         }
     }
@@ -675,7 +1014,7 @@ impl WebViewRecorder {
             return;
         }
         if back {
-            let _ = view.history.pop();
+            drop(view.history.pop());
         } else {
             view.history.push(url);
         }
@@ -742,7 +1081,7 @@ pub fn insert_unavailable_fallback(dom: &mut Dom, reason: &str) -> bool {
             return true;
         }
         let mut inserted = false;
-        for child in dom.children.iter_mut() {
+        for child in &mut dom.children {
             inserted |= walk(child, text);
         }
         inserted

@@ -13,6 +13,7 @@ members = [
     "examples/azul-storage", # azul-storage: the Drive trait (LocalDrive, S3Drive) AzDrive and AzMail share
     "examples/azcloud-kit", # azcloud-kit: the Azlin cloud client of the desktop apps and the azcloud CLI (token server, account, bucket, sync, links)
     "examples/azul-pay", # azul-pay: the checkout's client half - the provider registry, the offer filter, the pills, the surfaces, the navigation bridge, the checkout state machine
+    "examples/azul-search", # azul-search: the one fast search (ripgrep's ignore / grep-searcher): names, contents, filters; AzDrive's search box, AzCode's find in files
     "examples/azul-drive", # AzDrive: Explorer-like browser of Home and S3 drives (azul-storage)
     "examples/azul-mail", # AzMail: IMAP sync to files (mail/<folder>/...), folder and message view
     "examples/azul-shells", # AzShells: the eleven app shells (S1..S11) with placeholder content, a picker, the headless E2E

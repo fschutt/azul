@@ -43,6 +43,7 @@
 //! [`MoneyLocale`], [`MoneyInputError`].
 
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_core::{
     callbacks::Update,
@@ -360,7 +361,7 @@ impl MoneyLocale {
     /// The grouping separator as a `char`, `None` when the locale does not
     /// group.
     #[must_use]
-    pub(crate) fn group(&self) -> Option<char> {
+    pub(crate) const fn group(&self) -> Option<char> {
         if self.group_separator == 0 {
             None
         } else {
@@ -785,10 +786,7 @@ pub(crate) fn format_money(
     let mut number = group_digits(&alloc::format!("{whole}"), locale.group());
     if minor > 0 {
         number.push(locale.decimal());
-        number.push_str(&alloc::format!(
-            "{fraction:0width$}",
-            width = minor as usize
-        ));
+        let _ = write!(number, "{fraction:0width$}", width = minor as usize);
     }
 
     let mut out = String::with_capacity(number.len() + 8);
@@ -822,7 +820,7 @@ pub(crate) fn format_money(
 
 /// `amount` against the state's rules: `Negative` when negatives are off,
 /// `BelowMin` / `AboveMax` outside the bounds, `None` otherwise.
-pub(crate) fn check_amount(amount: i64, state: &MoneyInputState) -> MoneyInputError {
+pub(crate) const fn check_amount(amount: i64, state: &MoneyInputState) -> MoneyInputError {
     if amount < 0 && !state.allow_negative {
         return MoneyInputError::Negative;
     }
@@ -1076,63 +1074,63 @@ impl MoneyInput {
     }
 
     /// The amount in minor units (`None`: empty).
-    pub fn set_amount(&mut self, amount: OptionI64) {
+    pub const fn set_amount(&mut self, amount: OptionI64) {
         self.money_state.inner.amount = amount;
     }
 
     /// [`Self::set_amount`] for the builder chain.
     #[must_use]
-    pub fn with_amount(mut self, amount: OptionI64) -> Self {
+    pub const fn with_amount(mut self, amount: OptionI64) -> Self {
         self.set_amount(amount);
         self
     }
 
     /// How the amount is written (separators, the currency's side).
-    pub fn set_locale(&mut self, locale: MoneyLocale) {
+    pub const fn set_locale(&mut self, locale: MoneyLocale) {
         self.locale = locale;
     }
 
     /// [`Self::set_locale`] for the builder chain.
     #[must_use]
-    pub fn with_locale(mut self, locale: MoneyLocale) -> Self {
+    pub const fn with_locale(mut self, locale: MoneyLocale) -> Self {
         self.set_locale(locale);
         self
     }
 
     /// The smallest amount the app accepts, in minor units (reported as
     /// `BelowMin`, never refused while typing).
-    pub fn set_min(&mut self, min: i64) {
+    pub const fn set_min(&mut self, min: i64) {
         self.money_state.inner.min = OptionI64::Some(min);
     }
 
     /// [`Self::set_min`] for the builder chain.
     #[must_use]
-    pub fn with_min(mut self, min: i64) -> Self {
+    pub const fn with_min(mut self, min: i64) -> Self {
         self.set_min(min);
         self
     }
 
     /// The largest amount the app accepts, in minor units (reported as
     /// `AboveMax`).
-    pub fn set_max(&mut self, max: i64) {
+    pub const fn set_max(&mut self, max: i64) {
         self.money_state.inner.max = OptionI64::Some(max);
     }
 
     /// [`Self::set_max`] for the builder chain.
     #[must_use]
-    pub fn with_max(mut self, max: i64) -> Self {
+    pub const fn with_max(mut self, max: i64) -> Self {
         self.set_max(max);
         self
     }
 
     /// Whether a negative amount may be typed (default: yes).
-    pub fn set_allow_negative(&mut self, allow_negative: bool) {
+    pub const fn set_allow_negative(&mut self, allow_negative: bool) {
         self.money_state.inner.allow_negative = allow_negative;
     }
 
     /// [`Self::set_allow_negative`] for the builder chain.
     #[must_use]
-    pub fn with_allow_negative(mut self, allow_negative: bool) -> Self {
+    pub const fn with_allow_negative(mut self, allow_negative: bool) -> Self {
         self.set_allow_negative(allow_negative);
         self
     }
@@ -1150,13 +1148,13 @@ impl MoneyInput {
     }
 
     /// Show the currency code beside the field (default on).
-    pub fn set_show_currency(&mut self, show_currency: bool) {
+    pub const fn set_show_currency(&mut self, show_currency: bool) {
         self.show_currency = show_currency;
     }
 
     /// [`Self::set_show_currency`] for the builder chain.
     #[must_use]
-    pub fn with_show_currency(mut self, show_currency: bool) -> Self {
+    pub const fn with_show_currency(mut self, show_currency: bool) -> Self {
         self.set_show_currency(show_currency);
         self
     }

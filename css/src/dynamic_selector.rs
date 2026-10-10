@@ -827,9 +827,10 @@ pub enum ThemeCondition {
 }
 
 /// The dark / light MODE a rule applies in (`@theme(dark)`,
-/// `@media (prefers-color-scheme: dark)`), matched against
-/// [`DynamicSelectorContext::mode`]. A mode, not a theme: every app theme
-/// (`ThemeCondition`) comes in both modes.
+/// `@media (prefers-color-scheme: dark)`).
+///
+/// Matched against [`DynamicSelectorContext::mode`]. A mode, not a theme: every
+/// app theme (`ThemeCondition`) comes in both modes.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModeCondition {
@@ -915,10 +916,12 @@ fn chain_names<S: AsRef<str>>(chain: &[S]) -> impl Iterator<Item = &str> + '_ {
 }
 
 /// The STRUCTURAL theme of `chain`: its first compiled-in theme, spin-offs
-/// counted (`flora` for `[flora:abc, flat]`). The one compiled-in theme
-/// whose blocks are live, and the one a widget builds its DOM shape for
-/// (§7.1: "the DOM shape comes from the highest-ranked compiled-in theme in
-/// the chain"). `None` for a chain naming no compiled-in theme.
+/// counted (`flora` for `[flora:abc, flat]`).
+///
+/// The one compiled-in theme whose blocks are live, and the one a widget builds
+/// its DOM shape for (§7.1: "the DOM shape comes from the highest-ranked
+/// compiled-in theme in the chain"). `None` for a chain naming no compiled-in
+/// theme.
 #[must_use]
 pub fn structural_app_theme<S: AsRef<str>>(chain: &[S]) -> Option<&str> {
     chain_names(chain).find(|name| is_compiled_in_app_theme(name))
@@ -988,14 +991,14 @@ pub fn app_theme_chain(name: &str) -> StringVec {
     StringVec::from_vec(expand_app_theme_chain(name).names)
 }
 
-/// [`app_theme_chain`] with the warnings building it produced (a mode word or
-/// a malformed name, a `fallback:` cycle), for the one place a theme choice
-/// is reported (`azul_core::app_theme::set_app_theme`).
+/// [`app_theme_chain`] with the warnings building it produced (a mode word or a
+/// malformed name, a `fallback:` cycle).
 ///
-/// A theme's `fallback:` list comes from the installed rice's file headers
+/// It serves the one place a theme choice is reported
+/// (`azul_core::app_theme::set_app_theme`). A theme's `fallback:` list comes
+/// from the installed rice's file headers
 /// ([`crate::rice::installed_fallback_of`], memoized there): nothing without
-/// rice, so headless and test contexts expand to the prefixes plus the
-/// default.
+/// rice, so headless and test contexts expand to the prefixes plus the default.
 #[must_use]
 pub fn expand_app_theme_chain(name: &str) -> crate::theme_chain::ThemeChain {
     #[cfg(feature = "parser")]
@@ -1065,15 +1068,16 @@ pub fn mode_pinned_by_env() -> Option<DarkLightMode> {
     crate::theme_chain::theme_env().mode
 }
 
-/// `color` with a `system:` keyword token
-/// ([`crate::props::basic::color::SystemColorRef::to_color_token`]) replaced
-/// by the colour the keyword stands for under `ctx`; any other colour comes
-/// back unchanged.
+/// `color` with a `system:` keyword token replaced by the colour the keyword
+/// stands for under `ctx`; any other colour comes back unchanged.
+///
+/// The token is the one
+/// [`crate::props::basic::color::SystemColorRef::to_color_token`] makes.
 ///
 /// THE resolution primitive for the colour properties whose value is a bare
 /// `ColorU` (`color`, `border-*-color`, `caret-color`, ...); readers reach it
-/// through [`ResolveSystemColors`], called with the cascade's own context, so
-/// a keyword follows the theme the cascade evaluated. Without a context (no
+/// through [`ResolveSystemColors`], called with the cascade's own context, so a
+/// keyword follows the theme the cascade evaluated. Without a context (no
 /// window yet) the keyword takes its light default, which is what the
 /// no-context cascade assumes for everything else.
 #[must_use]
@@ -1707,8 +1711,8 @@ impl DynamicSelectorContext {
     }
 
     /// This context under the app theme `name` (`AppConfig::with_theme`,
-    /// `CallbackInfo::set_theme`): its [`Self::theme_chain`] becomes
-    /// [`app_theme_chain`]`(name)`. The colour scheme is untouched.
+    /// `CallbackInfo::set_theme`): its [`Self::theme_chain`] becomes the chain
+    /// [`app_theme_chain`] expands `name` to. The colour scheme is untouched.
     #[must_use]
     pub fn with_app_theme(&self, name: &str) -> Self {
         let mut ctx = self.clone();

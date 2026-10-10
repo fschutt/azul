@@ -13,7 +13,7 @@ use azul_storage::{
     config::keyring_key,
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
     testing::TempDir,
-    Drive, DriveError, HttpReply, ListRequest, Method, Transport,
+    Drive, DriveError, HttpReply, ListRequest, Method, Precondition, Transport,
 };
 
 use super::{bundle, empty_listing, header, json, Fake, Shared, TOKEN};
@@ -420,4 +420,38 @@ fn two_sessions_over_one_keyring_and_one_lock_race_a_refresh_and_neither_ends_wi
         // Twelve hours on, both run out again.
         now.store(EXPIRES + round * 12 * 3600 - 600, Ordering::SeqCst);
     }
+}
+
+#[test]
+fn an_azlin_drive_writes_conditionally_and_streams_through_its_bucket() {
+    let dir = TempDir::new("azcloud-drive");
+    let fake = cloud(None);
+    let (drive, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir);
+    drive
+        .put_if("data/ab/object", b"sealed", &Precondition::Absent)
+        .unwrap();
+    let put = fake
+        .calls()
+        .into_iter()
+        .filter(|c| c.method == Method::Put)
+        .last()
+        .expect("a conditional PUT");
+    assert_eq!(header(&put, "if-none-match"), Some("*"));
+    assert_eq!(put.body, b"sealed");
+
+    assert_eq!(
+        drive
+            .put_from("data/cd/object", &mut &b"streamed"[..])
+            .unwrap(),
+        8
+    );
+    let put = fake
+        .calls()
+        .into_iter()
+        .filter(|c| c.method == Method::Put)
+        .last()
+        .unwrap();
+    assert!(put.url.ends_with("/data/cd/object"), "{}", put.url);
+    assert_eq!(put.body, b"streamed");
+    assert_eq!(refreshes(&fake), 0);
 }

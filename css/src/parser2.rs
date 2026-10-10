@@ -2044,7 +2044,7 @@ fn new_from_str_inner<'a>(
                     }
                     nesting_stack.push(NestingLevel {
                         paths: parent_paths,
-                        declarations: Default::default(),
+                        declarations: BTreeMap::default(),
                         depth: block_nesting,
                         invalid: false,
                     });
@@ -2456,13 +2456,17 @@ fn var_declaration(names: &[&str], default_value: CssProperty) -> CssDeclaration
     })
 }
 
+/// A `var()` chain: the variable names in order and the innermost literal
+/// fallback.
+type VarChain<'a> = (Vec<&'a str>, Option<&'a str>);
+
 /// A value that IS a `var()` call, peeled through fallbacks that are
 /// themselves `var()` calls: `var(--a, var(--b, 1px))` ->
 /// `(["a", "b"], Some("1px"))`, `var(--a)` -> `(["a"], None)`. `None` when
 /// the value is not a `var()` call; an error for a malformed one.
 fn parse_var_chain(
     unparsed_css_value: &str,
-) -> Option<Result<(Vec<&str>, Option<&str>), CssParseErrorInner<'_>>> {
+) -> Option<Result<VarChain<'_>, CssParseErrorInner<'_>>> {
     let (first, mut fallback) = match check_if_value_is_css_var(unparsed_css_value)? {
         Ok(found) => found,
         Err(e) => return Some(Err(e)),
@@ -2575,12 +2579,12 @@ fn check_if_value_is_css_env(
 /// static): the top and bottom padding read the inset, left and right are
 /// 8px. `None` when no component is an `env()` call.
 ///
-/// Which longhands a component feeds: the value expands twice more, with
-/// two different lengths in the component's place (an `env()` value is a
-/// length), and the longhands that change are its own. Such a longhand must
-/// BE the component - the cascade swaps its whole value for the live length
-/// - so an `env()` inside a compound value (a shadow's offset) refuses the
-/// declaration instead of half-applying it.
+/// Which longhands a component feeds: the value expands twice more, with two
+/// different lengths in the component's place (an `env()` value is a length),
+/// and the longhands that change are its own. Such a longhand must BE the
+/// component (the cascade swaps its whole value for the live length), so an
+/// `env()` inside a compound value (a shadow's offset) refuses the declaration
+/// instead of half-applying it.
 fn expand_env_components(
     key: CombinedCssPropertyType,
     value: &str,
@@ -2693,10 +2697,10 @@ fn check_if_value_is_css_var(
     let (_, brace_contents) = parse_parentheses(trimmed, &["var"]).ok()?;
 
     // value is a CSS variable, i.e. var(--main-bg-color)
-    Some(match parse_css_variable_brace_contents(brace_contents) {
-        Some(found) => Ok(found),
-        None => Err(DynamicCssParseError::InvalidBraceContents(brace_contents).into()),
-    })
+    Some(
+        parse_css_variable_brace_contents(brace_contents)
+            .ok_or_else(|| DynamicCssParseError::InvalidBraceContents(brace_contents).into()),
+    )
 }
 
 /// Parses the brace contents of a css var, i.e.:

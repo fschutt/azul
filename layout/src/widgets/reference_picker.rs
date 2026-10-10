@@ -246,7 +246,7 @@ impl Default for ReferencePicker {
 impl ReferencePicker {
     /// A picker over `items`, filtering them itself, nothing typed.
     #[must_use]
-    pub fn create(items: ReferencePickerItemVec) -> Self {
+    pub const fn create(items: ReferencePickerItemVec) -> Self {
         Self {
             items,
             query: AzString::from_const_str(""),

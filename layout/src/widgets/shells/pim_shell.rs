@@ -60,7 +60,7 @@ pub struct PimShell {
 impl PimShell {
     /// A shell of the three panes, nothing else.
     #[must_use]
-    pub fn create(navigation: Dom, list: Dom, reading: Dom) -> Self {
+    pub const fn create(navigation: Dom, list: Dom, reading: Dom) -> Self {
         Self {
             navigation,
             list,
@@ -122,7 +122,7 @@ impl PimShell {
 
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div(), Dom::create_div(), Dom::create_div());
         core::mem::swap(&mut s, self);
         s

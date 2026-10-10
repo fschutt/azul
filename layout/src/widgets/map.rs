@@ -2349,14 +2349,17 @@ fn declutter_labels<L: core::borrow::Borrow<TileLabel>>(
             w * cos.abs() + h * sin.abs(),
             w * sin.abs() + h * cos.abs(),
         );
-        let r = (x - bw * 0.5 - 2.0, y - bh * 0.5 - 2.0, x + bw * 0.5 + 2.0, y + bh * 0.5 + 2.0);
-        if r.2 < -margin || r.0 > width + margin || r.3 < -margin || r.1 > height + margin {
+        let rect = (x - bw * 0.5 - 2.0, y - bh * 0.5 - 2.0, x + bw * 0.5 + 2.0, y + bh * 0.5 + 2.0);
+        if rect.2 < -margin
+            || rect.0 > width + margin
+            || rect.3 < -margin
+            || rect.1 > height + margin
+        {
             continue;
         }
-        if taken
-            .iter()
-            .any(|t| r.0 < t.2 && t.0 < r.2 && r.1 < t.3 && t.1 < r.3)
-        {
+        if taken.iter().any(|other| {
+            rect.0 < other.2 && other.0 < rect.2 && rect.1 < other.3 && other.1 < rect.3
+        }) {
             continue;
         }
         if shown
@@ -2365,7 +2368,7 @@ fn declutter_labels<L: core::borrow::Borrow<TileLabel>>(
         {
             continue;
         }
-        taken.push(r);
+        taken.push(rect);
         shown.push((label.text.as_str(), x, y));
         out.push(index);
     }

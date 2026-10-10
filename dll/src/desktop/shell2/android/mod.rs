@@ -46,6 +46,9 @@ use crate::{
 
 pub mod accessibility;
 pub mod clipboard;
+/// `<webview>`: `android.webkit.WebView`s through the `AzulWebView` bridge.
+#[cfg(feature = "jni")]
+mod webview;
 
 #[cfg(feature = "android-activity")]
 use android_activity::{
@@ -185,6 +188,10 @@ pub struct AndroidWindow {
     /// that remains. `touch_pan_last` is re-seeded on a transfer so the
     /// hand-over is not read as a jump.
     pan_pointer_id: Option<i32>,
+    /// The window's `<webview>`s (`webview::AndroidWebViews`, through the
+    /// `AzulWebView` bridge), made at the first one.
+    #[cfg(feature = "jni")]
+    webviews: Option<webview::AndroidWebViews>,
 }
 
 impl AndroidWindow {
@@ -216,6 +223,12 @@ impl AndroidWindow {
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
+        // `<webview>`s are `android.webkit.WebView`s (`webview`); without
+        // the Java bridge a window says it has none (the default).
+        #[cfg(feature = "jni")]
+        layout_window
+            .webviews
+            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
         // THE ENGINE DRAWS THE SELECTION HANDLES HERE (U2-a). Android has no
         // handle API for a custom view: `TextView`'s `Editor` draws the
         // teardrops for itself and for nobody else, and `NativeTextBridge`
@@ -268,6 +281,8 @@ impl AndroidWindow {
             touch_pan_last: None,
             primary_pointer_id: None,
             pan_pointer_id: None,
+            #[cfg(feature = "jni")]
+            webviews: None,
         })
     }
 
@@ -556,6 +571,26 @@ impl PlatformWindow for AndroidWindow {
     /// by the application.
     fn handle_begin_interactive_move(&mut self) {}
 
+    /// `android.webkit.WebView`s (`webview::AndroidWebViews`), made at the
+    /// first call.
+    #[cfg(feature = "jni")]
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        let views = self
+            .webviews
+            .get_or_insert_with(|| webview::AndroidWebViews::new(scale));
+        views.set_scale(scale);
+        Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
+
     fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
         let dispatched = set_pointer_capture(locked);
         locked && dispatched
@@ -827,6 +862,19 @@ pub fn android_main(app: AndroidApp) {
             window.needs_rerender = true;
         }
 
+        // `<webview>`s: what the Java WebViews reported (their callbacks wake
+        // this loop) runs the views' callbacks; the ops of the last frames go
+        // to the bridge. Only while a web view exists or is owed something.
+        let webviews_busy = window.common.layout_window.as_ref().is_some_and(|lw| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        });
+        if webviews_busy
+            && PlatformWindow::pump_webviews(&mut window)
+                != azul_core::events::ProcessEventResult::DoNothing
+        {
+            window.needs_rerender = true;
+        }
+
         // Accessibility actions arrive off-loop: TalkBack calls
         // `AccessibilityNodeProvider.performAction` on the Java UI thread, which
         // only QUEUES the action (mutating the LayoutWindow from there would
@@ -1084,6 +1132,8 @@ pub fn android_main(app: AndroidApp) {
         // has nothing new to post.
         if frame_dirty {
             let _ = render_frame(&mut window);
+            // Where this frame put the `<webview>`s.
+            let _ = crate::desktop::shell2::common::webview::sync(&mut window);
         }
     }
 

@@ -95,6 +95,6 @@ fn an_hvif_icon_sized_by_a_stylesheet_takes_the_size_of_its_text() {
     assert!(green.len() > 20, "the green arrow is drawn: {} pixels", green.len());
     let max_x = green.iter().map(|p| p.0).max().unwrap_or(0);
     let max_y = green.iter().map(|p| p.1).max().unwrap_or(0);
-    assert!(max_x <= 16 && max_x >= 10, "within its 16 px box: x up to {max_x}");
+    assert!((10..=16).contains(&max_x), "within its 16 px box: x up to {max_x}");
     assert!(max_y <= 16, "within its 16 px box: y up to {max_y}");
 }

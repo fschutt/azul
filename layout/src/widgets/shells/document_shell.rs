@@ -58,7 +58,7 @@ pub struct DocumentShell {
 impl DocumentShell {
     /// A shell around `document`, nothing else.
     #[must_use]
-    pub fn create(document: Dom) -> Self {
+    pub const fn create(document: Dom) -> Self {
         Self {
             navigation: OptionDom::None,
             document,
@@ -118,7 +118,7 @@ impl DocumentShell {
 
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div());
         core::mem::swap(&mut s, self);
         s

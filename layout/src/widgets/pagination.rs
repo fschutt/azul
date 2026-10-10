@@ -391,11 +391,12 @@ fn build_button_dark_twins(
 /// One button's full style: the light face, then its dark twins. The flat
 /// theme's resting button.
 pub(crate) fn button_style(
-    active: bool,
-    disabled: bool,
+    face: PageFace,
     is_first: bool,
     is_last: bool,
 ) -> CssPropertyWithConditionsVec {
+    let active = face == PageFace::Current;
+    let disabled = face == PageFace::Disabled;
     let mut v = build_button_style(active, disabled, is_first, is_last).into_library_owned_vec();
     v.extend(build_button_dark_twins(active, disabled, is_first));
     CssPropertyWithConditionsVec::from_vec(v)

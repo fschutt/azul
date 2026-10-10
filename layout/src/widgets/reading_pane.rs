@@ -633,6 +633,7 @@ pub(crate) fn build(pane: ReadingPane, look: &ReadingPaneLook) -> Dom {
                 label,
                 data: shared.clone(),
                 on_click: cb,
+                trailing_icon: "",
             },
             theme,
         )
@@ -668,11 +669,10 @@ pub(crate) fn build(pane: ReadingPane, look: &ReadingPaneLook) -> Dom {
     // the pane has that hook.
     if let Some(mut bar) = info_bar.into_option() {
         if has_load_images {
+            let on_click: ButtonOnClickCallbackType = on_load_images_click;
             bar.on_action = Some(ButtonOnClick {
                 refany: shared.clone(),
-                callback: ButtonOnClickCallback::from(
-                    on_load_images_click as ButtonOnClickCallbackType,
-                ),
+                callback: ButtonOnClickCallback::from(on_click),
             })
             .into();
         }
@@ -719,6 +719,7 @@ pub(crate) fn build(pane: ReadingPane, look: &ReadingPaneLook) -> Dom {
 
     // The attachments: a chip each.
     if !attachments.as_ref().is_empty() {
+        let on_click: ChipOnClickCallbackType = on_attachment_click;
         let chips: Vec<Dom> = attachments
             .as_ref()
             .iter()
@@ -730,7 +731,7 @@ pub(crate) fn build(pane: ReadingPane, look: &ReadingPaneLook) -> Dom {
                         name: name.clone(),
                         shared: shared.clone(),
                     }),
-                    on_attachment_click as ChipOnClickCallbackType,
+                    on_click,
                 );
                 if let Some(theme) = theme {
                     chip = chip.with_theme(theme);

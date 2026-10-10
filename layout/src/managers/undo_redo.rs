@@ -658,15 +658,17 @@ impl crate::window::LayoutWindow {
         let new_content = self
             .undo_redo_manager
             .get_content_snapshot(operation.changeset.id)
-            .map(|snap| snap.pre.clone())
-            .unwrap_or_else(|| {
-                vec![InlineContent::Text(StyledRun {
-                    text: Arc::from(operation.pre_state.text_content.as_str()),
-                    style: Arc::new(StyleProperties::default()),
-                    logical_start_byte: 0,
-                    source_node_id: None,
-                })]
-            });
+            .map_or_else(
+                || {
+                    vec![InlineContent::Text(StyledRun {
+                        text: Arc::from(operation.pre_state.text_content.as_str()),
+                        style: Arc::new(StyleProperties::default()),
+                        logical_start_byte: 0,
+                        source_node_id: None,
+                    })]
+                },
+                |snap| snap.pre.clone(),
+            );
         // MWA-C-undo_redo keying: the STACK is keyed by the HOST (`target`),
         // the CONTENT by the node the edit re-shaped (`pre_state.node_id`,
         // the caret's IFC owner). Restoring a paragraph's snapshot into the

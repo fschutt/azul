@@ -159,7 +159,7 @@ pub(crate) static PANE_VALUE_BASE: &[CssPropertyWithConditions] = &[
 impl DetailsPane {
     /// A pane for `title`, with no icon, subtitle or properties.
     #[must_use]
-    pub fn create(title: AzString) -> Self {
+    pub const fn create(title: AzString) -> Self {
         Self {
             icon: AzString::from_const_str(""),
             title,
@@ -232,7 +232,7 @@ impl DetailsPane {
 
     /// Replaces `self` with an empty pane and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s

@@ -49,6 +49,7 @@ pub mod key;
 pub mod keyring;
 pub mod local;
 pub mod manifest;
+pub mod meta;
 pub mod ops;
 pub mod s3;
 pub mod scoped;
@@ -91,7 +92,12 @@ pub mod crypto;
 #[cfg(feature = "encryption")]
 pub mod encrypted;
 #[cfg(feature = "encryption")]
-pub use encrypted::{EncryptedDrive, MemoryIndex, NameIndex};
+pub use encrypted::{
+    open_encrypted, AutoEncrypted, EncryptedDrive, IndexProvider, MemoryIndex, NameIndex,
+};
+/// A plaintext drive's files moved into its encrypted namespace, resumably.
+#[cfg(feature = "encryption")]
+pub mod migrate;
 
 use std::{fmt, io::Read, path::PathBuf};
 

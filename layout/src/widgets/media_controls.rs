@@ -143,7 +143,7 @@ pub struct MediaControls {
 impl MediaControls {
     /// Previous, play (or pause when `playing`), next; no volume, no toggles.
     #[must_use]
-    pub fn create(playing: bool) -> Self {
+    pub const fn create(playing: bool) -> Self {
         Self {
             on_action: OptionMediaControlsOnAction::None,
             accessibility_name: OptionString::None,
@@ -158,19 +158,19 @@ impl MediaControls {
     }
 
     /// A volume slider at `volume` (`0.0..=1.0`; negative hides it).
-    pub fn set_volume(&mut self, volume: f32) {
+    pub const fn set_volume(&mut self, volume: f32) {
         self.volume = volume;
     }
 
     /// [`Self::set_volume`] for the builder chain.
     #[must_use]
-    pub fn with_volume(mut self, volume: f32) -> Self {
+    pub const fn with_volume(mut self, volume: f32) -> Self {
         self.set_volume(volume);
         self
     }
 
     /// The shuffle and repeat toggles, in these states.
-    pub fn set_shuffle_repeat(&mut self, shuffle: bool, repeat: MediaRepeat) {
+    pub const fn set_shuffle_repeat(&mut self, shuffle: bool, repeat: MediaRepeat) {
         self.show_shuffle_repeat = true;
         self.shuffle = shuffle;
         self.repeat = repeat;
@@ -178,19 +178,19 @@ impl MediaControls {
 
     /// [`Self::set_shuffle_repeat`] for the builder chain.
     #[must_use]
-    pub fn with_shuffle_repeat(mut self, shuffle: bool, repeat: MediaRepeat) -> Self {
+    pub const fn with_shuffle_repeat(mut self, shuffle: bool, repeat: MediaRepeat) -> Self {
         self.set_shuffle_repeat(shuffle, repeat);
         self
     }
 
     /// Back 15 s / forward 30 s around play / pause (a podcast).
-    pub fn set_show_skip(&mut self, show: bool) {
+    pub const fn set_show_skip(&mut self, show: bool) {
         self.show_skip = show;
     }
 
     /// [`Self::set_show_skip`] for the builder chain.
     #[must_use]
-    pub fn with_show_skip(mut self, show: bool) -> Self {
+    pub const fn with_show_skip(mut self, show: bool) -> Self {
         self.set_show_skip(show);
         self
     }
@@ -240,7 +240,7 @@ impl MediaControls {
 
     /// Replaces `self` with paused controls and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
         s
@@ -294,7 +294,7 @@ struct ActionData {
 }
 
 /// Tells the app `event`.
-fn fire(mut shared: RefAny, info: &mut CallbackInfo, event: MediaControlsEvent) -> Update {
+fn fire(mut shared: RefAny, info: &CallbackInfo, event: MediaControlsEvent) -> Update {
     let Some(mut s) = shared.downcast_mut::<ControlsShared>() else {
         return Update::DoNothing;
     };
@@ -309,21 +309,21 @@ fn fire(mut shared: RefAny, info: &mut CallbackInfo, event: MediaControlsEvent) 
 
 /// A control button was clicked.
 #[must_use]
-pub extern "C" fn on_media_button(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_media_button(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some((shared, action)) = data
         .downcast_ref::<ActionData>()
         .map(|d| (d.shared.clone(), d.action))
     else {
         return Update::DoNothing;
     };
-    fire(shared, &mut info, MediaControlsEvent { value: 0.0, action })
+    fire(shared, &info, MediaControlsEvent { value: 0.0, action })
 }
 
 /// The volume slider moved.
 #[must_use]
 pub extern "C" fn on_media_volume(
     data: RefAny,
-    mut info: CallbackInfo,
+    info: CallbackInfo,
     state: crate::widgets::slider::SliderState,
 ) -> Update {
     let span = state.max - state.min;
@@ -334,7 +334,7 @@ pub extern "C" fn on_media_volume(
     };
     fire(
         data,
-        &mut info,
+        &info,
         MediaControlsEvent {
             value,
             action: MediaControlsAction::Volume,
@@ -397,12 +397,13 @@ pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
         if let Some(on) = toggled {
             b = b.with_toggled(on);
         }
+        let on_click: ButtonOnClickCallbackType = on_media_button;
         b.set_on_click(
             RefAny::new(ActionData {
                 shared: shared.clone(),
                 action,
             }),
-            on_media_button as ButtonOnClickCallbackType,
+            on_click,
         );
         if let Some(t) = theme.into_option() {
             b = b.with_theme(t);
@@ -468,12 +469,10 @@ pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
         ));
     }
     if volume >= 0.0 {
+        let on_change: SliderOnValueChangeCallbackType = on_media_volume;
         let mut slider = Slider::create(volume.clamp(0.0, 1.0) * 100.0, 0.0, 100.0)
             .with_accessibility_name("Volume")
-            .with_on_value_change(
-                shared.clone(),
-                on_media_volume as SliderOnValueChangeCallbackType,
-            );
+            .with_on_value_change(shared.clone(), on_change);
         if let Some(t) = theme.into_option() {
             slider = slider.with_theme(t);
         }

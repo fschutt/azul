@@ -780,6 +780,12 @@ jobs:
           cargo test -p azul-pay --features fake-providers --no-fail-fast 2>&1 | tee azul-pay-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-pay-tests.txt
 
+      - name: Run azul-search tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-search --no-fail-fast 2>&1 | tee azul-search-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-search-tests.txt
+
       - name: Run azul-termkit tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi

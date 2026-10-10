@@ -1444,12 +1444,14 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
 ) -> Result<(LayoutTree, ReconciliationResult)> {
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
-    let mut recon_result = ReconciliationResult::default();
-    recon_result.css_relayout = css_dirty
-        .iter()
-        .filter(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None)
-        .map(|(node, _)| *node)
-        .collect();
+    let mut recon_result = ReconciliationResult {
+        css_relayout: css_dirty
+            .iter()
+            .filter(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None)
+            .map(|(node, _)| *node)
+            .collect(),
+        ..Default::default()
+    };
     // A viewport SIZE change invalidates every VIEWPORT-DEPENDENT computed
     // size — and nothing else. The old code dropped the ENTIRE cached tree
     // here (`old_tree = None`), which made every node reconcile as brand-new
@@ -1662,7 +1664,7 @@ enum TableParent {
 }
 
 impl TableParent {
-    fn of(display: LayoutDisplay) -> Option<Self> {
+    const fn of(display: LayoutDisplay) -> Option<Self> {
         match display {
             LayoutDisplay::Table | LayoutDisplay::InlineTable => Some(Self::Table),
             LayoutDisplay::TableRowGroup
@@ -3079,7 +3081,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     // 2.2 10.5): its used height is only a placeholder until its content is
     // laid out, never a height its children's percentages resolve against.
     let height_is_auto = super::sizing::height_is_auto_for_children(
-        &node.formatting_context,
+        node.formatting_context,
         warm.computed_style.height.as_ref(),
         cb.height.is_definite(),
     );
@@ -4227,6 +4229,12 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     if layout_result.scrollbar_reflow_needed {
         *reflow_needed_for_scrollbars = true;
     }
+    // Whether the pass that reflow runs has to lay this node out again: a
+    // scrollbar in its in-flow subtree (here), its own (Phase 3) or one under
+    // an out-of-flow child (Phase 7) asked for it, so what this visit computes
+    // is the layout from BEFORE that gutter - never to be served from the
+    // cache (see the store at the end).
+    let mut superseded_by_reflow = layout_result.scrollbar_reflow_needed;
 
     // If layout_formatting_context adjusted this node's used_size (e.g.
     // layout_flex_grid auto-applying box-sizing:border-box on the root),
@@ -4376,6 +4384,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         && check_scrollbar_change(tree, node_index, &scrollbar_info, skip_scrollbar_check)
     {
         *reflow_needed_for_scrollbars = true;
+        superseded_by_reflow = true;
     }
 
     let merged_scrollbar_info = scrollbar_info;
@@ -4463,6 +4472,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // Phase 7: Process out-of-flow children (absolute/fixed). The node's own
     // used size is resolved by now, so the abs-pos containing block is
     // definite regardless of the constraint this node was measured under.
+    let mut out_of_flow_reflow = false;
     process_out_of_flow_children(
         ctx,
         tree,
@@ -4472,9 +4482,13 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         &layout_result.output.static_positions,
         &super::geometry::ContainingBlock::definite(inner_size_after_scrollbars),
         calculated_positions,
-        reflow_needed_for_scrollbars,
+        &mut out_of_flow_reflow,
         float_cache,
     )?;
+    if out_of_flow_reflow {
+        *reflow_needed_for_scrollbars = true;
+        superseded_by_reflow = true;
+    }
 
     // === STORE RESULT IN PER-NODE CACHE (Taffy-inspired 9+1 slot cache) ===
     // Store both the full layout entry and a sizing measurement entry.
@@ -4482,6 +4496,23 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     // Fragment passes never store (NG rule, same as the hit-side gate above:
     // fragment geometry would poison the continuous cache).
     if fragment.is_none() && node_index < ctx.cache_map.entries.len() {
+        // ...nor does a visit whose layout the scrollbar reflow replaces, and
+        // it drops what an earlier one stored: the subtree no longer holds
+        // that. The pass that reserves the gutter has to REACH the box that
+        // asked for it, and a cache hit on the way served the layout from
+        // before the gutter instead. A layout hit of the box itself (its own
+        // key, or a cached parent's content box as large as the box - a
+        // full-width box in the body) brought back the content measured at
+        // the full width and the horizontal bar decided from it, while the
+        // children were laid out again inside the gutter; a size hit of an
+        // ancestor laid nothing out again at all. Not cached, the box and
+        // every ancestor it reported to are laid out again (their siblings
+        // still hit), the box inside its gutter (CSS 2.2 §11.1.1), and its
+        // bars are decided from what overflows THAT layout.
+        if superseded_by_reflow {
+            ctx.cache_map.get_mut(node_index).clear();
+            return Ok(());
+        }
         let warm_ref = tree.warm(LayoutNodeId::new(node_index));
         let baseline = warm_ref.and_then(|n| n.baseline);
         let escaped_top = warm_ref.and_then(|n| n.escaped_top_margin);

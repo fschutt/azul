@@ -195,7 +195,7 @@ impl ColumnAccumulator {
 
     /// Raise the column's min-/max-content to at least `min` / `max` (a
     /// spanning cell's share, or a measurement made elsewhere).
-    pub fn raise(&mut self, min: f32, max: f32) {
+    pub const fn raise(&mut self, min: f32, max: f32) {
         self.min = self.min.max(min);
         self.content_max = self.content_max.max(max);
     }
@@ -203,7 +203,7 @@ impl ColumnAccumulator {
     /// The column's constraint (CSS Tables 3 3.8: a constrained column's
     /// max-content is its fixed width, never below its min-content).
     #[must_use]
-    pub fn finish(self) -> ColumnConstraint {
+    pub const fn finish(self) -> ColumnConstraint {
         let min = self.min.max(0.0);
         match self.fixed_max {
             Some(fixed) => ColumnConstraint {

@@ -90,7 +90,7 @@ pub struct CanvasShell {
 impl CanvasShell {
     /// A shell around `canvas`, nothing else.
     #[must_use]
-    pub fn create(canvas: Dom) -> Self {
+    pub const fn create(canvas: Dom) -> Self {
         Self {
             menu_bar: OptionDom::None,
             tool_options: OptionDom::None,
@@ -215,7 +215,7 @@ impl CanvasShell {
 
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div());
         core::mem::swap(&mut s, self);
         s

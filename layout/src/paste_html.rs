@@ -55,6 +55,9 @@ const DROPPED: &[&str] = &[
 
 /// The four formats a pasted text carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+// The four formats are independent of each other, field for field the
+// `FormatOverrides` they become.
+#[allow(clippy::struct_excessive_bools)]
 pub struct PastedFormats {
     pub bold: bool,
     pub italic: bool,
@@ -119,7 +122,7 @@ pub fn sanitize_html(html: &str) -> Option<PastedFragment> {
 impl PastedFragment {
     /// Nothing to insert.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 

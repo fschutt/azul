@@ -93,13 +93,15 @@ use super::*;
 /// block's height while the root's own height is auto).
 /// `constraints.containing_block_size` is the root's OWN containing block: a
 /// quarter of it made `body > img { width: 25% }` a quarter of the window.
-pub(super) fn atomic_inline_containing_block(constraints: &LayoutConstraints<'_>) -> LogicalSize {
+pub(super) const fn atomic_inline_containing_block(
+    constraints: &LayoutConstraints<'_>,
+) -> LogicalSize {
     constraints.available_size
 }
 
 /// What an IFC's atomic inlines are measured against, as
 /// `CachedInlineContent::atomics_measured_against` records it.
-pub(super) fn atomic_inline_measure_key(
+pub(super) const fn atomic_inline_measure_key(
     constraints: &LayoutConstraints<'_>,
 ) -> (LogicalSize, Text3AvailableSpace) {
     (

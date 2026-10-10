@@ -269,7 +269,7 @@ fn absolute(path: &Path) -> PathBuf {
 
 /// Makes `dir` and its parents; on Unix the last one readable by this user
 /// only.
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     if dir.is_dir() {
         return Ok(());
     }

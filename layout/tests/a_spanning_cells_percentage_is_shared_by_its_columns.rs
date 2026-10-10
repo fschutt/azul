@@ -1,8 +1,8 @@
 //! A spanning cell's percentage is shared by its columns.
 //!
 //! CSS Tables 3 3.8 (and every browser): a cell spanning several columns
-//! with a percentage `width` gives that percentage to the columns it spans
-//! - what their own percentages leave of it, to the columns without one,
+//! with a percentage `width` gives that percentage to the columns it spans -
+//! what their own percentages leave of it, to the columns without one,
 //! in proportion to their max-content (equally when they have none).
 //! `table_width::distribute_spanning_cell` spread a spanning cell's min-
 //! and max-content and a FIXED width, and dropped a percentage: `<td

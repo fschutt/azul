@@ -91,7 +91,7 @@ fn assert_both_lines_paint_inside_the_cell(glyphs: &[(f32, f32)], which: &str) {
     );
     for &(x, y) in glyphs {
         assert!(
-            x >= PADDING && x < WIDTH && y > 0.0 && y < HEIGHT,
+            (PADDING..WIDTH).contains(&x) && y > 0.0 && y < HEIGHT,
             "{which}: glyph at ({x}, {y}) lies outside the padded cell or the window"
         );
     }

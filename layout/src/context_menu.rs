@@ -33,7 +33,11 @@ use crate::{managers::hover::InputPointId, window::LayoutWindow};
 /// way. Command + click is not a secondary click anywhere (on macOS it
 /// extends a selection).
 #[must_use]
-pub fn is_secondary_press(platform: &Platform, button: MouseButton, control_held: bool) -> bool {
+pub const fn is_secondary_press(
+    platform: &Platform,
+    button: MouseButton,
+    control_held: bool,
+) -> bool {
     match button {
         MouseButton::Right => true,
         MouseButton::Left => control_held && matches!(platform, Platform::MacOs),

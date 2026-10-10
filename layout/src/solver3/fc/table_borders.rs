@@ -669,10 +669,8 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
                 );
                 [none; 4]
             },
-            |node| {
-                let (top, right, bottom, left) = get_border_info(ctx, node, source);
-                [top, right, bottom, left]
-            },
+            // (top, right, bottom, left), in that order.
+            |node| get_border_info(ctx, node, source).into(),
         )
     };
 
@@ -760,7 +758,7 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
 
     // Vertical edges: row `r`, column line `c` (0 = the table's start: its
     // left in ltr, its right in rtl).
-    for r in 0..rows {
+    for (r, row_side) in row_sides.iter().enumerate().take(rows) {
         for c in 0..=cols {
             let before = if c > 0 { owner(r, c - 1) } else { None };
             let after = if c < cols { owner(r, c) } else { None };
@@ -776,7 +774,7 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
             }
             if c == 0 || c == cols {
                 let side = if c == 0 { start_side } else { end_side };
-                participants.push(row_sides[r][side]);
+                participants.push(row_side[side]);
                 if let Some(g) = group_of(r).and_then(|g| group_sides.get(&g)) {
                     participants.push(g[side]);
                 }

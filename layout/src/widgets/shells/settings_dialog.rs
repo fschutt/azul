@@ -98,7 +98,7 @@ pub struct ShellSettingChoice {
 impl ShellSettingChoice {
     /// Option `selected` of `options`.
     #[must_use]
-    pub fn create(options: StringVec, selected: usize) -> Self {
+    pub const fn create(options: StringVec, selected: usize) -> Self {
         Self { options, selected }
     }
 }
@@ -120,7 +120,7 @@ pub struct ShellSettingNumber {
 impl ShellSettingNumber {
     /// `value` in `min..=max`, without a unit.
     #[must_use]
-    pub fn create(value: f32, min: f32, max: f32) -> Self {
+    pub const fn create(value: f32, min: f32, max: f32) -> Self {
         Self {
             unit: AzString::from_const_str(""),
             value,
@@ -485,7 +485,7 @@ pub struct ShellSettingsEvent {
 impl ShellSettingsEvent {
     /// An event of `kind` at `index`.
     #[must_use]
-    pub fn create(kind: ShellSettingsEventKind, index: usize) -> Self {
+    pub const fn create(kind: ShellSettingsEventKind, index: usize) -> Self {
         Self {
             value: ShellSettingValue::Toggle(false),
             text: AzString::from_const_str(""),
@@ -1154,28 +1154,31 @@ fn control(
     };
     match &s.value {
         ShellSettingValue::Toggle(b) => {
+            let on_toggle: SwitchOnToggleCallbackType = on_switch;
             let mut w = Switch::create(*b)
                 .with_accessibility_name(label)
-                .with_on_toggle(data, on_switch as SwitchOnToggleCallbackType);
+                .with_on_toggle(data, on_toggle);
             if let Some(t) = inner {
                 w = w.with_theme(t);
             }
             w.dom()
         }
         ShellSettingValue::Choice(c) => {
+            let on_change: DropDownOnChoiceChangeCallbackType = on_choice;
             let mut w = DropDown::new(c.options.clone())
                 .with_selected(c.selected)
                 .with_accessibility_name(label)
-                .with_on_choice_change(data, on_choice as DropDownOnChoiceChangeCallbackType);
+                .with_on_choice_change(data, on_change);
             if let Some(t) = inner {
                 w = w.with_theme(t);
             }
             w.dom()
         }
         ShellSettingValue::Number(n) => {
+            let on_change: NumberInputOnValueChangeCallbackType = on_number;
             let mut w = NumberInput::create(n.value)
                 .with_accessibility_name(label)
-                .with_on_value_change(data, on_number as NumberInputOnValueChangeCallbackType);
+                .with_on_value_change(data, on_change);
             w.number_input_state.inner.min = n.min;
             w.number_input_state.inner.max = n.max;
             if let Some(t) = inner {
@@ -1184,38 +1187,42 @@ fn control(
             with_unit(w.dom(), n.unit.clone())
         }
         ShellSettingValue::Text(text) => {
+            let on_input: TextInputOnTextInputCallbackType = on_text;
             let mut w = TextInput::create()
                 .with_text(text.clone())
                 .with_accessibility_name(label)
-                .with_on_text_input(data, on_text as TextInputOnTextInputCallbackType);
+                .with_on_text_input(data, on_input);
             if let Some(t) = inner {
                 w = w.with_theme(t);
             }
             w.dom()
         }
         ShellSettingValue::Path(path) => {
+            let on_change: PathInputOnChangeCallbackType = on_path;
             let mut w = PathInput::create(path.clone())
                 .with_accessibility_name(label)
-                .with_on_change(data, on_path as PathInputOnChangeCallbackType);
+                .with_on_change(data, on_change);
             if let Some(t) = inner {
                 w = w.with_theme(t);
             }
             w.dom()
         }
         ShellSettingValue::Color(c) => {
+            let on_change: ColorInputOnValueChangeCallbackType = on_color;
             let mut w = ColorInput::create(*c)
                 .with_accessibility_name(label)
-                .with_on_value_change(data, on_color as ColorInputOnValueChangeCallbackType);
+                .with_on_value_change(data, on_change);
             if let Some(t) = inner {
                 w = w.with_theme(t);
             }
             w.dom()
         }
         ShellSettingValue::Shortcut(sc) => {
+            let on_record: ShortcutRecorderOnEventCallbackType = on_shortcut;
             let mut w = ShortcutRecorder::create()
                 .with_accessibility_name(label)
                 .with_recording(recording)
-                .with_on_event(data, on_shortcut as ShortcutRecorderOnEventCallbackType);
+                .with_on_event(data, on_record);
             if sc.has_hotkey {
                 w = w.with_hotkey(sc.hotkey);
             }
@@ -1225,9 +1232,10 @@ fn control(
             w.dom()
         }
         ShellSettingValue::Slider(n) => {
+            let on_change: SliderOnValueChangeCallbackType = on_slider;
             let mut w = Slider::create(n.value, n.min, n.max)
                 .with_accessibility_name(label)
-                .with_on_value_change(data, on_slider as SliderOnValueChangeCallbackType);
+                .with_on_value_change(data, on_change);
             if let Some(t) = inner {
                 w = w.with_theme(t);
             }
@@ -1239,10 +1247,11 @@ fn control(
             )
         }
         ShellSettingValue::Radio(c) => {
+            let on_change: RadioGroupOnChangeCallbackType = on_radio;
             let mut w = RadioGroup::create(c.options.clone())
                 .with_selected_index(c.selected)
                 .with_accessibility_name(label)
-                .with_on_change(data, on_radio as RadioGroupOnChangeCallbackType);
+                .with_on_change(data, on_change);
             if let Some(t) = inner {
                 w = w.with_theme(t);
             }
@@ -1357,7 +1366,7 @@ fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKi
     let mut items: Vec<Dom> = alloc::vec![button(
         &dialog.restore_label,
         ButtonType::Default,
-        Some(on_restore as Cb)
+        Some(on_restore)
     )];
     if dialog.restart_pending {
         items.push(
@@ -1371,17 +1380,18 @@ fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKi
         items.push(button(
             &dialog.ok_label,
             ButtonType::Primary,
-            Some(on_ok as Cb),
+            Some(on_ok),
         ));
         items.push(button(
             &dialog.cancel_label,
             ButtonType::Default,
-            Some(on_cancel as Cb),
+            Some(on_cancel),
         ));
+        let apply: Cb = on_apply;
         items.push(button(
             &dialog.apply_label,
             ButtonType::Default,
-            dialog.is_dirty().then_some(on_apply as Cb),
+            dialog.is_dirty().then_some(apply),
         ));
     }
     Dom::create_div()
@@ -1474,6 +1484,8 @@ pub(crate) fn build(dialog: ShellSettingsDialog) -> Dom {
         on_event: dialog.on_event.clone(),
         active_category: dialog.active_category,
     });
+    let on_pick: super::settings_layout::ShellSettingsLayoutOnCategoryCallbackType = on_category;
+    let on_query: super::settings_layout::ShellSettingsLayoutOnSearchCallbackType = on_search;
     let mut layout = ShellSettingsLayout::create(dialog.categories.clone())
         .with_category_icons(dialog.category_icons.clone())
         .with_category_badges(StringVec::from_vec(badges))
@@ -1481,14 +1493,8 @@ pub(crate) fn build(dialog: ShellSettingsDialog) -> Dom {
         .with_search(dialog.search.clone())
         .with_active_category(dialog.active_category)
         .with_footer(buttons(&dialog, inner, &look))
-        .with_on_category(
-            shared.clone(),
-            on_category as super::settings_layout::ShellSettingsLayoutOnCategoryCallbackType,
-        )
-        .with_on_search(
-            shared,
-            on_search as super::settings_layout::ShellSettingsLayoutOnSearchCallbackType,
-        );
+        .with_on_category(shared.clone(), on_pick)
+        .with_on_search(shared, on_query);
     if let Some(t) = inner {
         layout = layout.with_theme(t);
     }

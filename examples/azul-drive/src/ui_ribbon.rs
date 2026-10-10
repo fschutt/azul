@@ -19,6 +19,8 @@
 //!        Options   [Options]
 //! Computer: Location [Properties][Open]  Network [Add drive][Add folder as drive]
 //!        [Remove drive]  System [Refresh][Options]
+//! Search (Search Tools, while a search is open): Options [File contents] Hidden items /
+//!        Skip ignored files  Close [Close search]
 //! ```
 //!
 //! Every control runs its [`Action`] or is greyed with the reason it cannot run now
@@ -65,6 +67,8 @@ pub(crate) enum RibbonTabKind {
     View,
     /// This PC's tab (Windows 8's "Computer"): the drives.
     Computer,
+    /// Windows 8's Search tab (Search Tools), while a search of a folder is open.
+    Search,
 }
 
 impl RibbonTabKind {
@@ -74,23 +78,34 @@ impl RibbonTabKind {
             RibbonTabKind::Share => "Share",
             RibbonTabKind::View => "View",
             RibbonTabKind::Computer => "Computer",
+            RibbonTabKind::Search => "Search",
         }
     }
 }
 
 /// The tabs a place shows, as Explorer 8 shows them: a folder (and Quick access) Home, Share and
-/// View; This PC Computer and View.
-pub(crate) fn tabs_of(place: &Place) -> &'static [RibbonTabKind] {
+/// View - and Search while a search of the folder is open (`searching`); This PC Computer and
+/// View.
+pub(crate) fn tabs_of(place: &Place, searching: bool) -> &'static [RibbonTabKind] {
     match place {
         Place::ThisPc => &[RibbonTabKind::Computer, RibbonTabKind::View],
+        Place::Folder { .. } if searching => &[
+            RibbonTabKind::Home,
+            RibbonTabKind::Share,
+            RibbonTabKind::View,
+            RibbonTabKind::Search,
+        ],
         _ => &[RibbonTabKind::Home, RibbonTabKind::Share, RibbonTabKind::View],
     }
 }
 
 /// The index of the tab the ribbon shows: the one chosen last where the place has it (View
 /// stays View from a folder to This PC), else the place's first.
-pub(crate) fn active_index(place: &Place, chosen: RibbonTabKind) -> usize {
-    tabs_of(place).iter().position(|t| *t == chosen).unwrap_or(0)
+pub(crate) fn active_index(place: &Place, searching: bool, chosen: RibbonTabKind) -> usize {
+    tabs_of(place, searching)
+        .iter()
+        .position(|t| *t == chosen)
+        .unwrap_or(0)
 }
 
 // ==== The controls ====
@@ -467,6 +482,49 @@ fn computer_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
         ))
 }
 
+// ==== Search (Search Tools) ====
+
+/// Windows 8's Search tab while a search is open: whether the files' contents are read too
+/// (greyed on a cloud drive, which is searched by name), hidden items, whether what .gitignore
+/// files name is passed over - each change searches again -, and Close search.
+fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
+    let settings = &s.settings;
+    RibbonTab::create(AzString::from(RibbonTabKind::Search.label()))
+        .with_group(group(
+            "Options",
+            vec![
+                large(
+                    button(
+                        s,
+                        app,
+                        "find_in_page",
+                        "File contents",
+                        Action::Toggle(Toggle::SearchContents),
+                    )
+                    .with_toggled(settings.search_contents),
+                ),
+                small(toggle_button(
+                    app,
+                    "visibility",
+                    "Hidden items",
+                    Toggle::HiddenItems,
+                    settings.show_hidden,
+                )),
+                small(toggle_button(
+                    app,
+                    "filter_alt",
+                    "Skip ignored files",
+                    Toggle::SearchIgnoreFiles,
+                    settings.search_ignore_files,
+                )),
+            ],
+        ))
+        .with_group(group(
+            "Close",
+            vec![large(button(s, app, "search_off", "Close search", Action::CloseSearch))],
+        ))
+}
+
 // ==== File: Windows 8's File menu ====
 
 /// The File menu's commands, in Windows 8's order (their positions are the menu's events).
@@ -652,18 +710,20 @@ extern "C" fn on_file_menu(
 
 /// The ribbon for the open place; the tab strip is the window's title bar.
 pub(crate) fn ribbon(s: &DriveState, app: &RefAny) -> Dom {
-    let tabs: Vec<RibbonTab> = tabs_of(&s.place)
+    let searching = s.find.is_some();
+    let tabs: Vec<RibbonTab> = tabs_of(&s.place, searching)
         .iter()
         .map(|tab| match tab {
             RibbonTabKind::Home => home_tab(s, app),
             RibbonTabKind::Share => share_tab(s, app),
             RibbonTabKind::View => view_tab(s, app),
             RibbonTabKind::Computer => computer_tab(s, app),
+            RibbonTabKind::Search => search_tab(s, app),
         })
         .collect();
     Ribbon::create(tabs)
         .with_app_button(RibbonAppButton::create(AzString::from("File")).with_menu(file_menu(s, app)))
-        .with_active_tab(active_index(&s.place, s.ribbon_tab))
+        .with_active_tab(active_index(&s.place, searching, s.ribbon_tab))
         .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
         // No title row over the ribbon: its tabs are the title bar.
         .with_tabs_in_titlebar(azul_appkit::ui::tabs_in_titlebar())
@@ -675,7 +735,7 @@ extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize)
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return Update::DoNothing;
     };
-    let Some(tab) = tabs_of(&s.place).get(index).copied() else {
+    let Some(tab) = tabs_of(&s.place, s.find.is_some()).get(index).copied() else {
         return Update::DoNothing;
     };
     s.ribbon_tab = tab;
@@ -692,14 +752,14 @@ mod tests {
     fn a_folder_shows_home_share_view_and_this_pc_shows_computer_and_view() {
         let folder = Place::folder("home", "Documents/");
         assert_eq!(
-            tabs_of(&folder),
+            tabs_of(&folder, false),
             &[RibbonTabKind::Home, RibbonTabKind::Share, RibbonTabKind::View]
         );
         assert_eq!(
-            tabs_of(&Place::ThisPc),
+            tabs_of(&Place::ThisPc, false),
             &[RibbonTabKind::Computer, RibbonTabKind::View]
         );
-        assert_eq!(tabs_of(&Place::QuickAccess)[0], RibbonTabKind::Home);
+        assert_eq!(tabs_of(&Place::QuickAccess, false)[0], RibbonTabKind::Home);
     }
 
     /// The tab chosen last stays where the place has it (View from a folder to This PC) and
@@ -707,9 +767,33 @@ mod tests {
     #[test]
     fn the_chosen_tab_stays_where_the_place_has_it() {
         let folder = Place::folder("home", "");
-        assert_eq!(active_index(&folder, RibbonTabKind::View), 2);
-        assert_eq!(active_index(&Place::ThisPc, RibbonTabKind::View), 1);
-        assert_eq!(active_index(&Place::ThisPc, RibbonTabKind::Share), 0);
-        assert_eq!(active_index(&folder, RibbonTabKind::Computer), 0);
+        assert_eq!(active_index(&folder, false, RibbonTabKind::View), 2);
+        assert_eq!(active_index(&Place::ThisPc, false, RibbonTabKind::View), 1);
+        assert_eq!(active_index(&Place::ThisPc, false, RibbonTabKind::Share), 0);
+        assert_eq!(active_index(&folder, false, RibbonTabKind::Computer), 0);
+    }
+
+    /// While a search of a folder is open, Windows 8's Search tab (Search Tools) follows View;
+    /// it goes with the search, and the place's first tab shows again.
+    #[test]
+    fn a_search_adds_the_search_tab_after_view() {
+        let folder = Place::folder("home", "Documents/");
+        assert_eq!(
+            tabs_of(&folder, true),
+            &[
+                RibbonTabKind::Home,
+                RibbonTabKind::Share,
+                RibbonTabKind::View,
+                RibbonTabKind::Search
+            ]
+        );
+        assert_eq!(active_index(&folder, true, RibbonTabKind::Search), 3);
+        assert_eq!(active_index(&folder, false, RibbonTabKind::Search), 0);
+        assert_eq!(RibbonTabKind::Search.label(), "Search");
+        assert_eq!(
+            tabs_of(&Place::ThisPc, true),
+            &[RibbonTabKind::Computer, RibbonTabKind::View],
+            "This PC is not searched"
+        );
     }
 }

@@ -5206,26 +5206,18 @@ fn render_image(
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
             return;
         }
-        // An `<img src>` nobody supplied - the XML loaders' placeholder, a
-        // `NullImage` whose tag is the src - is a picture that is not there,
-        // so nothing is drawn: WebRender draws nothing for it either (a
-        // `NullImage` has no pixels to upload). It stays in the display list
-        // for a renderer that resolves srcs itself (printpdf's HTML bridge).
-        // The grey below is for an image that EXISTS without CPU pixels (a GL
-        // texture's copy, the frontpage `opengl` shot).
-        DecodedImage::NullImage { tag, .. } if !tag.is_empty() => return,
-        DecodedImage::NullImage { .. } => {
-            let gray = Rgba8::new(200, 200, 200, 255);
-            // The placeholder stands in for the image, so it takes the image's
-            // shape: a `border-radius` on the <img> has to round the grey too,
-            // or a rounded surface shows square grey corners poking out past
-            // its own border (the frontpage `opengl` shot, whose GL callback
-            // has no GPU to run on and so is all placeholder).
-            let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
-            agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
-            return;
-        }
-        DecodedImage::Gl(_) => return,
+        // A `NullImage` has no pixels, so nothing is drawn - as WebRender
+        // draws nothing for it (no pixels to upload) and a browser's `<img>`
+        // without a picture, `<video>` without a frame or blank `<canvas>`
+        // shows the box's own background. Both kinds: an `<img src>` nobody
+        // supplied (the XML loaders' placeholder, its tag the src; it stays
+        // in the display list for a renderer that resolves srcs itself,
+        // printpdf's HTML bridge), and an app's "nothing to show yet" without
+        // a tag (a remote video tile before its first frame, an empty
+        // monitor, a render callback's fallback, a GL texture's CPU copy).
+        // The grey placeholders above are for pixels that exist but cannot be
+        // read here.
+        DecodedImage::NullImage { .. } | DecodedImage::Gl(_) => return,
     };
 
     // Area/bilinear blit: each destination pixel takes the value
@@ -9791,6 +9783,35 @@ mod autotest_generated {
         let before = snap(&p);
         run_list(&dl, &mut p, 1.0).expect("must render");
         assert_eq!(before, p.data(), "alpha=0 source pixels must not blend");
+    }
+
+    /// An app's "nothing to show yet" - an image node holding a null image
+    /// without a src (AzMeet's remote tile before its first frame,
+    /// AzVideocut's empty monitor, a canvas callback's fallback) - paints
+    /// nothing, as WebRender does (a null image has no pixels to upload) and
+    /// as a browser's `<video>` or `<canvas>` with no frame yet: the box's own
+    /// background shows. The CPU renderer alone painted a flat #C8C8C8 tile.
+    #[test]
+    fn a_null_image_with_nothing_to_show_yet_paints_nothing() {
+        for radius in [0.0, 6.0] {
+            let dl = DisplayList {
+                items: vec![DisplayListItem::Image {
+                    bounds: wrect(0.0, 0.0, 6.0, 6.0),
+                    image: ImageRef::null_image(2, 2, RawImageFormat::RGBA8, Vec::new()),
+                    border_radius: BorderRadius {
+                        top_left: radius,
+                        top_right: radius,
+                        bottom_left: radius,
+                        bottom_right: radius,
+                    },
+                }],
+                ..Default::default()
+            };
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            run_list(&dl, &mut p, 1.0).expect("must render");
+            assert_eq!(before, p.data(), "radius {radius}: nothing is painted");
+        }
     }
 
     // ==================================================================

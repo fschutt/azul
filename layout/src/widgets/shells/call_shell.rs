@@ -121,7 +121,7 @@ pub struct CallShell {
 impl CallShell {
     /// A shell of the tiles and the controls bar.
     #[must_use]
-    pub fn create(tiles: DomVec, controls: Dom) -> Self {
+    pub const fn create(tiles: DomVec, controls: Dom) -> Self {
         Self {
             header: OptionDom::None,
             tiles,
@@ -222,7 +222,7 @@ impl CallShell {
 
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(DomVec::from_const_slice(&[]), Dom::create_div());
         core::mem::swap(&mut s, self);
         s

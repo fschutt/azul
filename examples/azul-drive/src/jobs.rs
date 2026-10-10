@@ -22,9 +22,9 @@ use std::{
 };
 
 use azcloud_kit::{
-    pending::{self, Claimed, Polled},
+    pending::{self, Claimed, Finished, PendingTokens, Polled},
     Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, OptionsQuery, PendingCheckout,
-    SharedKeyring, Tiers, TokenServer,
+    PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenServer,
 };
 use azul_pay::{Choice, Created, Look, SurfaceKind};
 use azul::{
@@ -40,6 +40,7 @@ use azul_storage::{
 use crate::{
     browse::{self, Entry},
     fileops::{self, Plan, Progress, SourceItem, TransferKind, TransferReport},
+    find::{self, FindEnd, FindPhase},
     listing::{self, Stat},
     preview::{self, PreviewKind},
     TreeKey, USER_AGENT,
@@ -283,15 +284,23 @@ pub(crate) enum Job {
         cancel: Arc<AtomicBool>,
     },
     /// The background claims: the keyring's unfinished checkouts asked about every few seconds
-    /// (each at its own token server, else `token_url`) until none is left or an hour is gone.
+    /// (each at its own token server, else `token_url`) until none is left or an hour is gone;
+    /// a claimed one's period tokens issued into `store`.
     Claims {
         keyring: SharedKeyring,
         token_url: Option<String>,
+        store: PeriodTokenStore,
     },
-    /// A claimed checkout taken off the keyring's list (its drive is in the drives file).
-    ForgetCheckout {
+    /// A claimed checkout whose drive `drive_id` is in the drives file: without a `grant` it
+    /// leaves the keyring's list; with one it stays there (its issue key with its claim secret)
+    /// until its period tokens are issued at `token_url` and kept in `store`.
+    FinishCheckout {
         keyring: SharedKeyring,
-        checkout_id: String,
+        store: PeriodTokenStore,
+        checkout: PendingCheckout,
+        drive_id: String,
+        grant: Option<PeriodTokens>,
+        token_url: String,
     },
     /// The settings file written (through a LocalDrive on the config folder).
     SaveSettings {
@@ -305,6 +314,29 @@ pub(crate) enum Job {
         items: Vec<(String, Option<u64>)>,
         max_px: u32,
     },
+    /// The search box's search of a folder on this computer and every folder below it
+    /// (azul-search): its results streamed in batches ([`Outcome::Searched`]) until it ends or
+    /// `cancel` is set. It starts [`find::DEBOUNCE_MS`] after the key that asked for it.
+    Find {
+        serial: u64,
+        request: azul_search::Request,
+        /// The drive's key of the searched folder: the results' keys start with it.
+        prefix: String,
+        cancel: Arc<AtomicBool>,
+    },
+    /// The search box's search of a cloud drive's folder: the names of a recursive listing,
+    /// page by page.
+    FindRemote {
+        serial: u64,
+        drive: Arc<dyn Drive>,
+        prefix: String,
+        pattern: azul_search::Pattern,
+        show_hidden: bool,
+        cancel: Arc<AtomicBool>,
+    },
+    /// An encrypted drive's keys, recovery or files moved into the encryption.
+    #[cfg(feature = "encryption")]
+    Encryption(crate::encryption::EncryptionJob),
 }
 
 /// What a job answers, on the UI thread.
@@ -428,10 +460,13 @@ pub(crate) enum Outcome {
     CheckoutDropped { checkout_id: String, why: String },
     /// The background claims ended: what kept them from asking, if anything.
     ClaimsDone { problem: Option<String> },
-    /// A claimed checkout off the keyring's list (`false`: another window took it off).
-    CheckoutForgotten {
+    /// A claimed checkout finished: `Ok(None)` off the keyring's list (no period tokens to
+    /// issue), `Ok(Some(..))` what became of its period tokens, `Err` the list could not be
+    /// changed. `from_claims`: a message of the background claims, which still run.
+    CheckoutFinished {
         checkout_id: String,
-        result: Result<bool, String>,
+        result: Result<Option<Finished>, String>,
+        from_claims: bool,
     },
     SettingsSaved {
         result: Result<(), DriveError>,
@@ -443,6 +478,18 @@ pub(crate) enum Outcome {
     },
     /// The thumbnails job ended.
     ThumbnailsDone,
+    /// A batch of the search box's results; `end` with the last one.
+    Searched {
+        serial: u64,
+        batch: Vec<find::Found>,
+        phase: FindPhase,
+        /// Files read (a cloud drive: keys listed) so far.
+        searched: usize,
+        end: Option<FindEnd>,
+    },
+    /// What an encryption job found.
+    #[cfg(feature = "encryption")]
+    Encryption(crate::encryption::EncryptionOutcome),
 }
 
 /// A thread's start data: the job, taken out once.
@@ -990,6 +1037,187 @@ fn undo_create(drive: &dyn Drive, key: &str) -> Result<(), DriveError> {
     }
 }
 
+// ==== The search box's search ====
+
+/// A search's results on their way to the window: handed over as soon as a first screen's worth
+/// is in, then every [`listing::BATCH_MS`] - a batch rebuilds the window - and when a walk
+/// begins (the status line says which).
+struct FindBatch {
+    serial: u64,
+    items: Vec<find::Found>,
+    phase: FindPhase,
+    searched: usize,
+    last: Instant,
+    sent_first: bool,
+}
+
+impl FindBatch {
+    fn new(serial: u64) -> FindBatch {
+        FindBatch {
+            serial,
+            items: Vec::new(),
+            phase: FindPhase::Waiting,
+            searched: 0,
+            last: Instant::now(),
+            sent_first: false,
+        }
+    }
+
+    fn outcome(&mut self, end: Option<FindEnd>) -> Outcome {
+        self.last = Instant::now();
+        Outcome::Searched {
+            serial: self.serial,
+            batch: std::mem::take(&mut self.items),
+            phase: self.phase,
+            searched: self.searched,
+            end,
+        }
+    }
+
+    /// Hands the results over when they are due.
+    fn tick(&mut self, emit: &mut dyn FnMut(Outcome)) {
+        let due = !self.items.is_empty()
+            && (self.last.elapsed() >= Duration::from_millis(listing::BATCH_MS)
+                || (!self.sent_first && self.items.len() >= find::FIRST_BATCH));
+        if due {
+            self.sent_first = true;
+            let outcome = self.outcome(None);
+            emit(outcome);
+        }
+    }
+
+    fn push(&mut self, found: find::Found, emit: &mut dyn FnMut(Outcome)) {
+        self.items.push(found);
+        self.tick(emit);
+    }
+
+    /// A walk begins: what was found so far goes along.
+    fn phase(&mut self, phase: FindPhase, emit: &mut dyn FnMut(Outcome)) {
+        self.phase = phase;
+        let outcome = self.outcome(None);
+        emit(outcome);
+    }
+
+    /// The last batch, with how the search ended.
+    fn finish(mut self, end: FindEnd) -> Outcome {
+        self.outcome(Some(end))
+    }
+}
+
+/// Waits [`find::DEBOUNCE_MS`] for the typing to pause, in short steps: `false` when the search
+/// was stopped meanwhile (another key came).
+fn debounce(cancel: &AtomicBool) -> bool {
+    for _ in 0..find::DEBOUNCE_MS / 10 {
+        if cancel.load(Ordering::Relaxed) {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    !cancel.load(Ordering::Relaxed)
+}
+
+/// The search box's search of a folder on this computer and every folder below it
+/// (azul-search: the names, then the contents when asked): its results in batches through
+/// `emit` as the rows of the drive (keys under `prefix`), the last batch in the answer.
+pub(crate) fn run_find(
+    serial: u64,
+    request: &azul_search::Request,
+    prefix: &str,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(Outcome),
+) -> Outcome {
+    let mut batch = FindBatch::new(serial);
+    let result = azul_search::search(request, cancel, &mut |event| match event {
+        azul_search::Event::Phase(azul_search::Phase::Names) => {
+            batch.phase(FindPhase::Names, &mut *emit);
+        }
+        azul_search::Event::Phase(azul_search::Phase::Contents) => {
+            batch.phase(FindPhase::Contents, &mut *emit);
+        }
+        azul_search::Event::Name(hit) => batch.push(find::found_name(prefix, hit), &mut *emit),
+        azul_search::Event::Content(hit) => {
+            batch.push(find::found_content(prefix, hit), &mut *emit);
+        }
+        azul_search::Event::Progress(progress) => {
+            batch.searched = progress.searched;
+            batch.tick(&mut *emit);
+        }
+    });
+    let end = match result {
+        Ok(summary) => FindEnd {
+            limited: summary.limited,
+            error: None,
+        },
+        Err(e) => FindEnd {
+            limited: false,
+            error: Some(e.to_string()),
+        },
+    };
+    batch.finish(end)
+}
+
+/// The search box's search of a cloud drive's folder `prefix`: the names of its recursive
+/// listing, page by page (slower than a folder on this computer; no contents - the files would
+/// have to be downloaded), at most [`find::FIND_MAX`]; a set `cancel` ends it between pages.
+pub(crate) fn run_find_remote(
+    serial: u64,
+    drive: &dyn Drive,
+    prefix: &str,
+    pattern: &azul_search::Pattern,
+    show_hidden: bool,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(Outcome),
+) -> Outcome {
+    let mut batch = FindBatch::new(serial);
+    let matcher = match azul_search::NameMatcher::new(pattern) {
+        Ok(matcher) => matcher,
+        Err(e) => {
+            return batch.finish(FindEnd {
+                limited: false,
+                error: Some(e.to_string()),
+            })
+        }
+    };
+    batch.phase(FindPhase::Names, emit);
+    let mut seen = std::collections::HashSet::new();
+    let mut found = 0;
+    let mut next: Option<String> = None;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return batch.finish(FindEnd::default());
+        }
+        let mut request = ListRequest::recursive(prefix).with_max_keys(SCAN_PAGE);
+        if let Some(token) = next.take() {
+            request = request.with_continuation(token);
+        }
+        let page = match drive.list(&request) {
+            Ok(page) => page,
+            Err(e) => {
+                return batch.finish(FindEnd {
+                    limited: false,
+                    error: Some(e.to_string()),
+                })
+            }
+        };
+        batch.searched += page.objects.len();
+        for item in find::remote_names(&page, prefix, &matcher, show_hidden, &mut seen) {
+            if found == find::FIND_MAX {
+                return batch.finish(FindEnd {
+                    limited: true,
+                    error: None,
+                });
+            }
+            found += 1;
+            batch.push(item, emit);
+        }
+        batch.tick(emit);
+        match page.next {
+            Some(token) => next = Some(token),
+            None => return batch.finish(FindEnd::default()),
+        }
+    }
+}
+
 /// Seconds between two questions about a checkout's payment.
 const PAYMENT_POLL_SECS: u64 = 3;
 /// How long the dialog waits for a payment before it gives up (the payment page stays valid).
@@ -1169,10 +1397,14 @@ fn await_payment(
 /// own token server (else `token_url`), every few seconds until none is left or an hour is gone
 /// (the next start asks again). The list is read anew every round (another window adds to it).
 /// A paid one's drive and a dropped one go to the window at once; a drive claimed here is not
-/// reported again while the window takes its checkout off the list.
+/// reported again while the window finishes its checkout. A checkout whose drive is saved and
+/// whose period tokens are not issued yet (AZLINSEC17 F24) is not asked about again: its tokens
+/// are issued with the issue key it keeps ([`pending::finish`]) - the sealed sign-up may be
+/// gone by now.
 fn claim_pending(
     keyring: &SharedKeyring,
     token_url: Option<&str>,
+    store: &PeriodTokenStore,
     sender: &mut ThreadSender,
 ) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
@@ -1182,7 +1414,7 @@ fn claim_pending(
         let open: Vec<PendingCheckout> = match pending::list(keyring) {
             Ok(checkouts) => checkouts
                 .into_iter()
-                .filter(|c| !reported.contains(&c.checkout_id))
+                .filter(|c| c.period.is_some() || !reported.contains(&c.checkout_id))
                 .collect(),
             Err(e) => {
                 // A system without a keyring kept no checkout either: nothing to say then.
@@ -1211,6 +1443,21 @@ fn claim_pending(
                 continue;
             };
             asked += 1;
+            if let Some(owed) = &checkout.period {
+                let finished = pending::finish(&server, keyring, store, &checkout, owed);
+                // A try that failed is tried again next round, quietly.
+                if !matches!(finished, Finished::Kept(_)) {
+                    send(
+                        sender,
+                        Outcome::CheckoutFinished {
+                            checkout_id: checkout.checkout_id.clone(),
+                            result: Ok(Some(finished)),
+                            from_claims: true,
+                        },
+                    );
+                }
+                continue;
+            }
             match pending::poll(&server, keyring, &checkout) {
                 Polled::Claimed(claimed) => {
                     reported.push(checkout.checkout_id.clone());
@@ -1246,6 +1493,43 @@ fn claim_pending(
         }
         std::thread::sleep(Duration::from_secs(CLAIM_POLL_SECS));
     }
+}
+
+/// The claimed `checkout`'s drive `drive_id` is in the drives file (AZDRIVE-INTEGRATION §4):
+/// without a `grant` its checkout leaves the keyring's list; with one the list keeps its issue
+/// key with its claim secret ([`pending::claimed`]) and its period tokens are issued at
+/// `token_url` and kept in `store` - only then does it leave the list ([`pending::finish`]).
+fn finish_checkout(
+    keyring: &SharedKeyring,
+    store: &PeriodTokenStore,
+    checkout: &PendingCheckout,
+    drive_id: &str,
+    grant: Option<&PeriodTokens>,
+    token_url: &str,
+) -> Outcome {
+    let checkout_id = checkout.checkout_id.clone();
+    let outcome = |result| Outcome::CheckoutFinished {
+        checkout_id: checkout_id.clone(),
+        result,
+        from_claims: false,
+    };
+    if let Err(e) = pending::claimed(keyring, &checkout.checkout_id, drive_id, grant) {
+        return outcome(Err(e.to_string()));
+    }
+    let Some(grant) = grant else {
+        return outcome(Ok(None));
+    };
+    let owed = PendingTokens {
+        drive_id: drive_id.to_string(),
+        months: grant.months,
+        issue_key: grant.issue_key.clone(),
+    };
+    let transport = AzulTransport::new(USER_AGENT);
+    let finished = match TokenServer::new(token_url, &transport) {
+        Ok(server) => pending::finish(&server, keyring, store, checkout, &owed),
+        Err(e) => Finished::Kept(e.to_string()),
+    };
+    outcome(Ok(Some(finished)))
 }
 
 fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
@@ -1562,16 +1846,26 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             cancel,
         } => await_payment(serial, &checkout, &token_url, &keyring, &cancel),
-        Job::Claims { keyring, token_url } => {
-            claim_pending(&keyring, token_url.as_deref(), sender)
-        }
-        Job::ForgetCheckout {
+        Job::Claims {
             keyring,
-            checkout_id,
-        } => Outcome::CheckoutForgotten {
-            result: pending::remove(&keyring, &checkout_id).map_err(|e| e.to_string()),
-            checkout_id,
-        },
+            token_url,
+            store,
+        } => claim_pending(&keyring, token_url.as_deref(), &store, sender),
+        Job::FinishCheckout {
+            keyring,
+            store,
+            checkout,
+            drive_id,
+            grant,
+            token_url,
+        } => finish_checkout(
+            &keyring,
+            &store,
+            &checkout,
+            &drive_id,
+            grant.as_ref(),
+            &token_url,
+        ),
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },
@@ -1597,6 +1891,42 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             }
             Outcome::ThumbnailsDone
         }
+        Job::Find {
+            serial,
+            request,
+            prefix,
+            cancel,
+        } => {
+            if !debounce(&cancel) {
+                return FindBatch::new(serial).finish(FindEnd::default());
+            }
+            let mut emit = |outcome: Outcome| send(sender, outcome);
+            run_find(serial, &request, &prefix, &cancel, &mut emit)
+        }
+        Job::FindRemote {
+            serial,
+            drive,
+            prefix,
+            pattern,
+            show_hidden,
+            cancel,
+        } => {
+            if !debounce(&cancel) {
+                return FindBatch::new(serial).finish(FindEnd::default());
+            }
+            let mut emit = |outcome: Outcome| send(sender, outcome);
+            run_find_remote(
+                serial,
+                &*drive,
+                &prefix,
+                &pattern,
+                show_hidden,
+                &cancel,
+                &mut emit,
+            )
+        }
+        #[cfg(feature = "encryption")]
+        Job::Encryption(job) => Outcome::Encryption(crate::encryption::run(job)),
     }
 }
 
@@ -1790,6 +2120,118 @@ mod tests {
         assert_eq!(count_items(dir.path(), "", true), Some(7));
         assert_eq!(count_items(dir.path(), "sub-0/", false), Some(0));
         assert_eq!(count_items(dir.path(), "gone/", false), None);
+    }
+
+    /// Every result the search box's search handed over, its batches' and its answer's.
+    fn searched(outcomes: &[Outcome]) -> Vec<&crate::find::Found> {
+        outcomes
+            .iter()
+            .flat_map(|o| match o {
+                Outcome::Searched { batch, .. } => batch.iter().collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// The search box searches the open folder and every folder below it: the names first,
+    /// then the files whose contents match ("File contents" on), each a row with the drive's
+    /// key, a content match with its line; the answer says it ended.
+    #[test]
+    fn a_find_streams_the_names_below_the_folder_then_the_files_whose_contents_match() {
+        let dir = TempDir::new("azdrive-find");
+        fs::create_dir_all(dir.path().join("Docs/deep/er")).expect("folders");
+        fs::write(dir.path().join("Docs/deep/er/needle-report.txt"), b"nothing\n").expect("a file");
+        fs::write(dir.path().join("Docs/plan.md"), b"one\nthe needle line\n").expect("a file");
+        fs::write(dir.path().join("Docs/other.txt"), b"nothing\n").expect("a file");
+        let request = crate::find::local_request(
+            dir.path().join("Docs"),
+            "needle",
+            true,
+            false,
+            true,
+            false,
+        );
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_find(7, &request, "Docs/", &cancel, &mut |o| outcomes.push(o));
+        outcomes.push(last);
+        let found = searched(&outcomes);
+        let keys: Vec<&str> = found.iter().map(|f| f.entry.key.as_str()).collect();
+        assert_eq!(keys, vec!["Docs/deep/er/needle-report.txt", "Docs/plan.md"], "names first");
+        let line = found[1].line.as_ref().expect("the matching line");
+        assert_eq!((line.line, &line.text[line.start..line.end]), (2, "needle"));
+        assert!(matches!(
+            outcomes.last(),
+            Some(Outcome::Searched { serial: 7, end: Some(end), .. })
+                if end.error.is_none() && !end.limited
+        ));
+    }
+
+    /// A search cancelled (a new key, Escape, another folder) hands over nothing.
+    #[test]
+    fn a_cancelled_find_hands_over_nothing() {
+        let dir = folder_with(20, 2);
+        let request = crate::find::local_request(
+            dir.path().to_path_buf(),
+            "file",
+            false,
+            false,
+            true,
+            true,
+        );
+        let cancel = AtomicBool::new(true);
+        let mut outcomes = Vec::new();
+        let last = run_find(3, &request, "", &cancel, &mut |o| outcomes.push(o));
+        outcomes.push(last);
+        assert!(searched(&outcomes).is_empty());
+    }
+
+    /// A cloud drive is searched by name over a recursive listing, page by page (here a folder
+    /// on disk seen through the Drive trait alone); a pattern that does not compile ends the
+    /// search with why.
+    #[test]
+    fn a_cloud_drive_is_searched_by_name_over_its_listing() {
+        use azul_search::Pattern;
+
+        let dir = TempDir::new("azdrive-find-remote");
+        fs::create_dir_all(dir.path().join("Docs/deep")).expect("folders");
+        fs::write(dir.path().join("Docs/deep/report.txt"), b"x").expect("a file");
+        fs::write(dir.path().join("Docs/notes.txt"), b"x").expect("a file");
+        fs::write(dir.path().join("elsewhere-report.txt"), b"x").expect("a file");
+        let drive = LocalDrive::without_manifest(dir.path().to_path_buf());
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_find_remote(
+            9,
+            &drive,
+            "Docs/",
+            &Pattern::literal("report"),
+            false,
+            &cancel,
+            &mut |o| outcomes.push(o),
+        );
+        outcomes.push(last);
+        let keys: Vec<&str> = searched(&outcomes)
+            .iter()
+            .map(|f| f.entry.key.as_str())
+            .collect();
+        assert_eq!(keys, vec!["Docs/deep/report.txt"]);
+        let bad = run_find_remote(
+            10,
+            &drive,
+            "",
+            &Pattern::regex("("),
+            false,
+            &cancel,
+            &mut |_| {},
+        );
+        assert!(matches!(
+            bad,
+            Outcome::Searched {
+                end: Some(crate::find::FindEnd { error: Some(_), .. }),
+                ..
+            }
+        ));
     }
 
     /// A tree node lists its folders (sorted without case) and counts its items with one

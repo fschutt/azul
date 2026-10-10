@@ -273,7 +273,7 @@ use azul_core::{
 };
 use azul_css::corety::OptionU32;
 use azul_layout::{
-    managers::hover::InputPointId,
+    managers::{hover::InputPointId, webview::WebViewPointer},
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions},
     ScrollbarDragState,
@@ -947,6 +947,10 @@ pub struct WaylandWindow {
     /// Dynamic selector context for evaluating conditional CSS properties
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
+
+    /// The window's `<webview>`s (`linux::webview::WpeWebViews`), made at
+    /// the first one: an app without a web view never loads WPE WebKit.
+    webviews: Option<super::webview::WpeWebViews>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1537,6 +1541,24 @@ fn apply_input_region_from_shape(
 }
 
 impl PlatformWindow for WaylandWindow {
+    /// WPE WebKit, composited (`linux::webview`), made at the first call.
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        let views = self
+            .webviews
+            .get_or_insert_with(|| super::webview::WpeWebViews::new(scale));
+        views.set_scale(scale);
+        Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
+
     /// `handle_key` forwards every key to a focus-taking `active_popup` (the
     /// `xdg_popup` grab) before the shared pass sees it, so the shared
     /// mailbox forwarding must not deliver it a second time. (A list popup's
@@ -2309,6 +2331,7 @@ impl WaylandWindow {
                 };
                 ctx
             },
+            webviews: None,
         };
 
         // Initialize the accessibility adapter (open the AT-SPI connection via
@@ -3637,6 +3660,14 @@ impl WaylandWindow {
         // Get keysym (symbolic key identifier)
         let keysym = unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, xkb_keycode) };
 
+        // A composited `<webview>` page with the keyboard focus takes the
+        // key as a keysym (no input method or key repeat inside the page
+        // yet), and the window's own key handling does not see it.
+        if PlatformWindow::route_webview_key(self, keysym, xkb_keycode, is_pressed) {
+            self.discard_input_delta("wayland.handle_key.webview");
+            return;
+        }
+
         // Translate keysym to VirtualKeyCode through the SHARED xkb table
         // (`x11::events::keysym_to_virtual_keycode`). `None` means "this keysym
         // has no virtual key" — it must stay None all the way down: inventing a
@@ -4557,6 +4588,10 @@ impl WaylandWindow {
         // Update hit test for hover effects
         self.update_hit_test(logical_pos);
 
+        // A composited `<webview>` page under the pointer (or holding it
+        // since a press) follows it.
+        let _ = PlatformWindow::route_webview_pointer(self, logical_pos, WebViewPointer::Move);
+
         // Update cursor based on CSS cursor properties
         // This is done BEFORE callbacks so callbacks can override the cursor
         if let Some(layout_window) = self.common.layout_window.as_ref() {
@@ -4737,6 +4772,17 @@ impl WaylandWindow {
         // LeftMouseUp — drags and text selections died mid-gesture.
         set_mouse_button_down(self.common.mouse_state_mut(), mouse_button, is_down);
         self.pointer_state.button_down = if is_down { Some(mouse_button) } else { None };
+
+        // A composited `<webview>` page under the pointer (the last motion's
+        // hit test) gets the button too.
+        let _ = PlatformWindow::route_webview_pointer(
+            self,
+            position,
+            WebViewPointer::Button {
+                button: mouse_button,
+                pressed: is_down,
+            },
+        );
 
         // Record input sample for gesture detection
         let button_state = match mouse_button {
@@ -5120,6 +5166,16 @@ impl WaylandWindow {
         };
         if let Some(pos) = hover_pos {
             self.update_hit_test(pos);
+            // A composited `<webview>` page under the pointer scrolls itself
+            // (its delta: positive y scrolls the content up; this one is
+            // the other way round, as X11's).
+            let _ = PlatformWindow::route_webview_pointer(
+                self,
+                pos,
+                WebViewPointer::Wheel {
+                    delta: LogicalPosition::new(-delta_x, -delta_y),
+                },
+            );
         }
 
         // Queue scroll input for the physics timer instead of directly setting offsets.

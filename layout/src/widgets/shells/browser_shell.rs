@@ -84,7 +84,7 @@ pub struct BrowserShell {
 impl BrowserShell {
     /// A shell of the address bar, the tree and the content, nothing else.
     #[must_use]
-    pub fn create(address_bar: Dom, tree: Dom, content: Dom) -> Self {
+    pub const fn create(address_bar: Dom, tree: Dom, content: Dom) -> Self {
         Self {
             ribbon: OptionDom::None,
             address_bar,
@@ -185,7 +185,7 @@ impl BrowserShell {
 
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div(), Dom::create_div(), Dom::create_div());
         core::mem::swap(&mut s, self);
         s

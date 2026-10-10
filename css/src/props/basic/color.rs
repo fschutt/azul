@@ -565,16 +565,16 @@ impl ColorU {
     /// plain mix of the channels drags it toward transparent's black). Two
     /// colours of one alpha mix exactly as [`Self::interpolate`] mixes them.
     #[must_use]
-    pub(crate) fn interpolate_premultiplied(&self, other: &Self, t: f32) -> Self {
+    pub(crate) fn interpolate_premultiplied(self, other: Self, t: f32) -> Self {
         if self.a == other.a {
-            return self.interpolate(other, t);
+            return self.interpolate(&other, t);
         }
         let (a0, a1) = (f32::from(self.a), f32::from(other.a));
         let a = a0 + (a1 - a0) * t;
         if a.is_nan() || a <= 0.0 {
             // Nothing is shown (or `t` is not a number): the end that has
             // no alpha.
-            return if t < 0.5 { *self } else { *other };
+            return if t < 0.5 { self } else { other };
         }
         let channel = |c0: u8, c1: u8| {
             let (p0, p1) = (f32::from(c0) * a0, f32::from(c1) * a1);
@@ -927,11 +927,9 @@ impl ColorU {
     /// token itself is a transparent placeholder, so its hex would print a
     /// colour that does not read back as the one the style names.
     #[must_use]
-    pub(crate) fn to_css_value(&self) -> String {
-        match SystemColorRef::from_color_token(*self) {
-            Some(system) => String::from(system.as_css_str()),
-            None => self.to_hash(),
-        }
+    pub(crate) fn to_css_value(self) -> String {
+        SystemColorRef::from_color_token(self)
+            .map_or_else(|| self.to_hash(), |system| String::from(system.as_css_str()))
     }
 
     /// The colour as CSS writes it, lower case: `#rrggbb`, or `#rrggbbaa`
@@ -1611,6 +1609,11 @@ pub enum SystemColorRef {
     /// Selected TEXT, as opposed to a selected row or item
     /// (`system:text-selection-background`)
     TextSelectionBackground,
+    // --- APPENDED 2026-10-10 (discriminant 24) ---
+    /// The ink of a monochrome (symbolic) icon: a toolbar's, a list's, a
+    /// sidebar's glyph (`system:icon`). The desktop's secondary label colour
+    /// where the platform names no icon ink; flora's `--fl-icon` under flora.
+    Icon,
 }
 
 /// The ink `system:accent-text` paints on `accent`: the platform's own
@@ -1651,7 +1654,7 @@ const SYSTEM_COLOR_TOKEN_G: u8 = 0x59;
 
 impl SystemColorRef {
     /// Every reference, in declaration (= discriminant) order.
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::Text,
         Self::Background,
         Self::Accent,
@@ -1676,6 +1679,7 @@ impl SystemColorRef {
         Self::ControlBackground,
         Self::PlaceholderText,
         Self::TextSelectionBackground,
+        Self::Icon,
     ];
 
     /// The slot of `colors` this reference names - `None` when the platform
@@ -1707,6 +1711,7 @@ impl SystemColorRef {
             Self::ControlBackground => colors.control_background,
             Self::PlaceholderText => colors.placeholder_text,
             Self::TextSelectionBackground => colors.text_selection_background,
+            Self::Icon => colors.icon,
         }
     }
 
@@ -1726,13 +1731,17 @@ impl SystemColorRef {
     ///
     /// `system:accent-text` is the one keyword resolved as a PAIR: it is the
     /// ink that sits on `system:accent`, so it must read on it
-    /// ([`readable_accent_ink`]).
+    /// ([`readable_accent_ink`]). `system:icon` left empty is the palette's
+    /// own secondary label colour: no desktop names an icon ink.
     #[must_use]
     pub fn resolve_for_theme(&self, colors: &crate::system::SystemColors, dark: bool) -> ColorU {
-        let own = self
-            .get(colors)
-            .into_option()
-            .unwrap_or_else(|| self.fallback(dark));
+        let own = self.get(colors).into_option().unwrap_or_else(|| {
+            if matches!(self, Self::Icon) {
+                Self::SecondaryText.resolve_for_theme(colors, dark)
+            } else {
+                self.fallback(dark)
+            }
+        });
         match self {
             Self::AccentText => {
                 readable_accent_ink(Self::Accent.resolve_for_theme(colors, dark), own)
@@ -1751,6 +1760,9 @@ impl SystemColorRef {
     /// with none - still reads as one coherent theme: label colours are
     /// translucent black / white, surfaces are neutral greys.
     #[must_use]
+    // A palette table, one row per role and mode: roles that share a colour
+    // today stay separate rows, so changing one does not drag the other along.
+    #[allow(clippy::match_same_arms)]
     pub const fn fallback(&self, dark: bool) -> ColorU {
         const fn c(r: u8, g: u8, b: u8, a: u8) -> ColorU {
             ColorU { r, g, b, a }
@@ -1769,8 +1781,8 @@ impl SystemColorRef {
             (Self::WindowBackground, true) => c(50, 50, 50, 255),
             (Self::SelectionBackground, false) => c(0, 100, 225, 255),
             (Self::SelectionBackground, true) => c(0, 88, 208, 255),
-            (Self::SecondaryText, false) => c(0, 0, 0, 128),
-            (Self::SecondaryText, true) => c(255, 255, 255, 140),
+            (Self::SecondaryText | Self::Icon, false) => c(0, 0, 0, 128),
+            (Self::SecondaryText | Self::Icon, true) => c(255, 255, 255, 140),
             (Self::TertiaryText, false) => c(0, 0, 0, 66),
             (Self::TertiaryText, true) => c(255, 255, 255, 64),
             (Self::DisabledText | Self::PlaceholderText, false) => c(0, 0, 0, 64),
@@ -1825,6 +1837,7 @@ impl SystemColorRef {
             Self::ControlBackground => "system:control-background",
             Self::PlaceholderText => "system:placeholder-text",
             Self::TextSelectionBackground => "system:text-selection-background",
+            Self::Icon => "system:icon",
         }
     }
 
@@ -1905,15 +1918,16 @@ impl SystemColorRef {
             21 => Some(Self::ControlBackground),
             22 => Some(Self::PlaceholderText),
             23 => Some(Self::TextSelectionBackground),
+            24 => Some(Self::Icon),
             _ => None,
         }
     }
 }
 
-/// `currentColor` packed into a [`ColorU`]: the element's own cascaded
-/// `color`, for a colour value the ENGINE writes that has to follow it (an
-/// icon's `flood()`, which paints monochrome artwork in the text colour).
+/// `currentColor` packed into a [`ColorU`]: the element's own cascaded `color`,
+/// for a colour value the ENGINE writes that has to follow it.
 ///
+/// An icon's `flood()`, for one, paints monochrome artwork in the text colour.
 /// Same reserved space as [`SystemColorRef::to_color_token`] (`'S' 'Y'`,
 /// alpha 0) with an index no `SystemColorRef` uses, so
 /// [`crate::dynamic_selector::resolve_system_color_token`] passes it through
@@ -2151,11 +2165,13 @@ pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParse
     parse_css_color(input).map(ColorOrSystem::Color)
 }
 
-/// [`parse_color_or_system`] for a property whose value holds a bare
-/// [`ColorU`] (`color`, `border-*-color`, `caret-color`, the shadows, ...;
-/// see [`SystemColorRef::to_color_token`]): a `system:` keyword comes back as
-/// its token, which the layout getters resolve against the theme the cascade
-/// evaluated. EVERY colour parser of such a property goes through here.
+/// [`parse_color_or_system`] for a property whose value holds a bare [`ColorU`]
+/// (`color`, `border-*-color`, `caret-color`, the shadows, ...).
+///
+/// A `system:` keyword comes back as its token (see
+/// [`SystemColorRef::to_color_token`]), which the layout getters resolve
+/// against the theme the cascade evaluated. EVERY colour parser of such a
+/// property goes through here.
 #[cfg(feature = "parser")]
 /// # Errors
 ///
@@ -2708,6 +2724,7 @@ mod tests {
             control_background: OptionColorU::None,
             placeholder_text: OptionColorU::None,
             text_selection_background: OptionColorU::None,
+            icon: OptionColorU::None,
         };
 
         // Test resolution of system colors

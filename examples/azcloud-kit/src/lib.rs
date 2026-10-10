@@ -15,6 +15,9 @@
 //!   token server seals to it and the app opens however late it asks.
 //! - [`pending`]: the checkouts this device has no drive of yet - one keyring entry that
 //!   outlives the app - polled into their drives (after "Stop waiting", at the next start).
+//! - [`period`]: a paid checkout's months as blind-signed period tokens (RFC 9474) - blinded
+//!   here, issued against the sealed sign-up's issue key, finalized, kept per drive until each
+//!   buys the drive a month.
 //! - [`session`]: what an app keeps in the OS keyring for an Azlin drive (the drive token and
 //!   the current credentials, one JSON text that azul-storage also reads as plain
 //!   credentials).
@@ -51,6 +54,9 @@
 //!   content-addressed BLAKE3 blobs, a local index per folder, a three-way merge per file, the
 //!   Azlin tree (the data root and `~/.azlin`) with what never leaves the computer.
 //! - [`share`]: presigned links, lockdown and restore.
+//! - `encryption` (feature `encryption`): the drive encrypted on this device - its keys in the
+//!   keyring, the join code's key seal for a second device, the recovery code, the files
+//!   through azul-storage's `EncryptedDrive` with the index an `IndexProvider` opens.
 //! - [`error`]: [`CloudError`], what went wrong, telling a drive token to sign in again for
 //!   from everything else.
 //!
@@ -64,10 +70,13 @@ pub mod bucket;
 pub mod bundle;
 pub mod claim;
 pub mod drive;
+#[cfg(feature = "encryption")]
+pub mod encryption;
 pub mod endpoints;
 pub mod error;
 pub mod lock;
 pub mod pending;
+pub mod period;
 pub mod secrets;
 pub mod session;
 pub mod settings;
@@ -84,20 +93,22 @@ mod tests;
 
 pub use account::{Account, JoinCode};
 pub use bucket::Bucket;
-pub use bundle::DriveBundle;
+pub use bundle::{DriveBundle, PeriodTokens};
 pub use claim::{ClaimError, ClaimKey};
 pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
-pub use pending::{PendingCheckout, Polled};
+pub use pending::{Finished, PendingCheckout, PendingTokens, Polled};
+pub use period::{issue_tokens, Issuer, IssuerKey, PeriodToken, PeriodTokenStore};
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    Checkout, CheckoutStatus, CheckoutVia, OptionsQuery, Tier, Tiers, TokenError, TokenServer,
+    BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, OptionsQuery, RecoveryLockdown, Tier,
+    Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 

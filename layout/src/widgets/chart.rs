@@ -60,6 +60,7 @@
 //! [`ChartSelection`].
 
 use alloc::{format, string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
@@ -485,7 +486,7 @@ impl Chart {
     /// An empty `kind` chart of `width` x `height` px, with gridlines and a
     /// legend.
     #[must_use]
-    pub fn create(kind: ChartKind, width: f32, height: f32) -> Self {
+    pub const fn create(kind: ChartKind, width: f32, height: f32) -> Self {
         Self {
             series: ChartSeriesVec::from_const_slice(&[]),
             categories: StringVec::from_const_slice(&[]),
@@ -725,7 +726,7 @@ impl Chart {
 
     /// Replaces `self` with an empty line chart and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(ChartKind::Line, DEFAULT_WIDTH, DEFAULT_HEIGHT);
         core::mem::swap(&mut s, self);
         s
@@ -864,7 +865,7 @@ impl PlotFrame {
             return ((x + 0.5) * f64::from(self.band())) as f32;
         }
         let span = self.x_max - self.x_min;
-        if !(span.abs() > 0.0) {
+        if span == 0.0 || span.is_nan() {
             return self.width / 2.0;
         }
         ((x - self.x_min) / span * f64::from(self.width)) as f32
@@ -874,7 +875,7 @@ impl PlotFrame {
     #[must_use]
     pub(crate) fn px_y(&self, y: f64) -> f32 {
         let span = self.y_max - self.y_min;
-        if !(span.abs() > 0.0) {
+        if span == 0.0 || span.is_nan() {
             return self.height / 2.0;
         }
         (f64::from(self.height) * (1.0 - (y - self.y_min) / span)) as f32
@@ -1007,11 +1008,11 @@ pub(crate) fn thin_scatter(points: &[ChartPoint], frame: &PlotFrame, cell: f32) 
         if !(x >= 0.0 && y >= 0.0 && x <= frame.width && y <= frame.height) {
             continue;
         }
-        let c = ((x / cell) as usize).min(cols - 1);
-        let r = ((y / cell) as usize).min(rows - 1);
-        let k = r * cols + c;
-        if !taken[k] {
-            taken[k] = true;
+        let col = ((x / cell) as usize).min(cols - 1);
+        let row = ((y / cell) as usize).min(rows - 1);
+        let slot = row * cols + col;
+        if !taken[slot] {
+            taken[slot] = true;
             out.push(i);
         }
     }
@@ -1470,7 +1471,7 @@ mod math_tests {
         assert_eq!(format_value(1234.0), "1,234");
         assert_eq!(format_value(-1_234_567.0), "-1,234,567");
         assert_eq!(format_value(1234.5), "1,234.5");
-        assert_eq!(format_value(3.14159), "3.14");
+        assert_eq!(format_value(5.43219), "5.43");
         assert_eq!(format_value(0.000_123_46), "0.0001235");
         assert_eq!(format_value(0.0), "0");
         assert_eq!(format_value(f64::NAN), "-");
@@ -1847,6 +1848,8 @@ pub(crate) fn bar_rects(
     let mut out: Vec<Vec<BarRect>> = series.iter().map(|_| Vec::new()).collect();
 
     if kind == ChartKind::StackedBar {
+        // min/max, not clamp: a NaN band still gets a MAX_BAR_PX bar.
+        #[allow(clippy::manual_clamp)]
         let bar_w = (band * 0.8).min(MAX_BAR_PX).max(1.0);
         let mut pos = alloc::vec![0.0f64; bands];
         let mut neg = alloc::vec![0.0f64; bands];
@@ -1914,6 +1917,8 @@ pub(crate) fn bar_rects(
     }
 
     let n = series.len().max(1) as f32;
+    // min/max, not clamp: a NaN band still gets a MAX_BAR_PX bar.
+    #[allow(clippy::manual_clamp)]
     let bar_w = ((band * 0.8 - (n - 1.0) * SURFACE_GAP_PX) / n)
         .min(MAX_BAR_PX)
         .max(1.0);
@@ -2317,11 +2322,7 @@ fn summary_text(chart: &Chart) -> String {
         let values = pie_values(chart);
         let slices = pie_slices(&values);
         let total: f64 = slices.iter().map(|s| s.value).sum();
-        out.push_str(&format!(
-            "{} of {} categories",
-            chart.kind.noun(),
-            values.len()
-        ));
+        let _ = write!(out, "{} of {} categories", chart.kind.noun(), values.len());
         for s in slices.iter().filter(|s| s.value > 0.0) {
             let name = if s.other {
                 String::from("Other")
@@ -2333,49 +2334,44 @@ fn summary_text(chart: &Chart) -> String {
             } else {
                 0.0
             };
-            out.push_str(&format!(
-                ". {name}: {} ({share:.0}%)",
-                format_value(s.value)
-            ));
+            let _ = write!(out, ". {name}: {} ({share:.0}%)", format_value(s.value));
         }
         out.push('.');
         return out;
     }
-    out.push_str(&format!("{} of {} series", chart.kind.noun(), series.len()));
+    let _ = write!(out, "{} of {} series", chart.kind.noun(), series.len());
     let bands = band_count(chart);
     if bands > 0 {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             " over {bands} categories, {} to {}",
             category_name(categories, 0),
             category_name(categories, bands - 1)
-        ));
+        );
     } else if let Some((lo, hi)) = x_extent(chart) {
-        out.push_str(&format!(
-            ", x from {} to {}",
-            format_value(lo),
-            format_value(hi)
-        ));
+        let _ = write!(out, ", x from {} to {}", format_value(lo), format_value(hi));
     }
     for s in series.iter().take(PALETTE_LEN) {
         let points = s.points.as_slice();
-        out.push_str(&format!(". {}: ", s.name.as_str()));
+        let _ = write!(out, ". {}: ", s.name.as_str());
         match y_stats(points) {
             Some((lo, hi, _, n, last)) => {
-                out.push_str(&format!(
+                let _ = write!(
+                    out,
                     "{} points, lowest {}, highest {}",
                     format_value(n as f64),
                     format_value(lo),
                     format_value(hi)
-                ));
+                );
                 if matches!(chart.kind, ChartKind::Line | ChartKind::Area) {
-                    out.push_str(&format!(", last {}", format_value(last)));
+                    let _ = write!(out, ", last {}", format_value(last));
                 }
             }
             None => out.push_str("no values"),
         }
     }
     if series.len() > PALETTE_LEN {
-        out.push_str(&format!(". And {} more series", series.len() - PALETTE_LEN));
+        let _ = write!(out, ". And {} more series", series.len() - PALETTE_LEN);
     }
     out.push('.');
     out
@@ -2540,12 +2536,12 @@ pub(crate) fn over_plot() -> Vec<CssPropertyWithConditions> {
 }
 
 /// `text-align: <align>`.
-fn text_align(align: azul_css::props::style::StyleTextAlign) -> Decl {
+const fn text_align(align: azul_css::props::style::StyleTextAlign) -> Decl {
     crate::widgets::themes::decl::simple(CssProperty::const_text_align(align))
 }
 
 /// Hidden until the pointer or the keys show it.
-fn hidden() -> Decl {
+const fn hidden() -> Decl {
     crate::widgets::themes::decl::simple(CssProperty::const_opacity(StyleOpacity::const_new(0)))
 }
 
@@ -3214,13 +3210,14 @@ impl ChartState {
                     let Some(i) = found else {
                         continue;
                     };
-                    let p = pts[i];
-                    if !(p.x.is_finite() && p.y.is_finite()) {
+                    let point = pts[i];
+                    if !(point.x.is_finite() && point.y.is_finite()) {
                         continue;
                     }
-                    let d = (self.frame.px_x(p.x) - x).hypot(self.frame.px_y(p.y) - y);
-                    if best.is_none_or(|b| d < b.0) {
-                        best = Some((d, s, i));
+                    let dist =
+                        (self.frame.px_x(point.x) - x).hypot(self.frame.px_y(point.y) - y);
+                    if best.is_none_or(|prev| dist < prev.0) {
+                        best = Some((dist, s, i));
                     }
                 }
                 best.map(|(_, s, i)| (s, i))
@@ -3228,9 +3225,11 @@ impl ChartState {
             ChartKind::Scatter => {
                 let mut best: Option<(f32, usize, usize)> = None;
                 for (s, ser) in self.series.iter().enumerate() {
-                    if let Some((i, d)) = nearest_in_px(ser.points.as_slice(), &self.frame, x, y) {
-                        if d <= HOVER_REACH_PX && best.is_none_or(|b| d < b.0) {
-                            best = Some((d, s, i));
+                    if let Some((i, dist)) =
+                        nearest_in_px(ser.points.as_slice(), &self.frame, x, y)
+                    {
+                        if dist <= HOVER_REACH_PX && best.is_none_or(|prev| dist < prev.0) {
+                            best = Some((dist, s, i));
                         }
                     }
                 }
@@ -3238,36 +3237,36 @@ impl ChartState {
             }
             ChartKind::Bar | ChartKind::StackedBar => {
                 let mut best: Option<(f32, usize, usize)> = None;
-                for r in self.bars.iter().flatten() {
-                    if x < r.x0 - 1.0 || x > r.x1 + 1.0 {
+                for bar in self.bars.iter().flatten() {
+                    if x < bar.x0 - 1.0 || x > bar.x1 + 1.0 {
                         continue;
                     }
-                    let d = if y < r.top {
-                        r.top - y
-                    } else if y > r.bottom {
-                        y - r.bottom
+                    let dist = if y < bar.top {
+                        bar.top - y
+                    } else if y > bar.bottom {
+                        y - bar.bottom
                     } else {
                         0.0
                     };
-                    if best.is_none_or(|b| d < b.0) {
-                        best = Some((d, r.series, r.index));
+                    if best.is_none_or(|prev| dist < prev.0) {
+                        best = Some((dist, bar.series, bar.index));
                     }
                 }
                 best.map(|(_, s, i)| (s, i))
             }
             ChartKind::Pie | ChartKind::Donut => {
                 let (dx, dy) = (x - self.pie.cx, y - self.pie.cy);
-                let r = dx.hypot(dy);
-                if r > self.pie.r_out || r < self.pie.r_in {
+                let radius = dx.hypot(dy);
+                if radius > self.pie.r_out || radius < self.pie.r_in {
                     return None;
                 }
-                let mut a = dx.atan2(-dy);
-                if a < 0.0 {
-                    a += core::f32::consts::TAU;
+                let mut angle = dx.atan2(-dy);
+                if angle < 0.0 {
+                    angle += core::f32::consts::TAU;
                 }
                 self.slices
                     .iter()
-                    .find(|s| a >= s.start && a < s.end)
+                    .find(|s| angle >= s.start && angle < s.end)
                     .map(|s| (0, s.index))
             }
         }
@@ -3383,6 +3382,7 @@ impl ChartState {
     /// points, Up / Down the series, Home / End jump to the ends; the first
     /// key shows the first point.
     #[must_use]
+    #[allow(clippy::option_option)] // `Some(next)` is the new `hovered`, itself an Option
     pub(crate) fn step(&self, key: VirtualKeyCode) -> Option<Option<(usize, usize)>> {
         use VirtualKeyCode as K;
         let count = if self.kind.is_round() {
@@ -3451,7 +3451,7 @@ pub(crate) fn tooltip_place(x: f32, y: f32, text: &str, plot_width: f32) -> (f32
 }
 
 /// `opacity: 1` or `0`.
-fn opacity(shown: bool) -> CssProperty {
+const fn opacity(shown: bool) -> CssProperty {
     CssProperty::const_opacity(StyleOpacity::const_new(if shown { 100 } else { 0 }))
 }
 

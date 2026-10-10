@@ -721,9 +721,10 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
     let header: Option<Dom> = match style {
         WizardLayoutStyle::Rail => {
             // The rail: the stepper, a click on a step asking the app.
+            let on_step: StepperOnStepChangeCallbackType = on_rail_step;
             let mut rail = Stepper::create(steps.clone())
                 .with_current_step(current_step)
-                .with_on_step_change(shared.clone(), on_rail_step as StepperOnStepChangeCallbackType);
+                .with_on_step_change(shared.clone(), on_step);
             if let Some(theme) = theme {
                 rail = rail.with_theme(theme);
             }
@@ -796,20 +797,23 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
                 .with_css_props(part(WIZARD_LAYOUT_SPACER_BASE, &[])),
         );
     }
+    let back: ButtonOnClickCallbackType = on_back;
     buttons.push(button(
         back_label,
         ButtonType::Default,
-        (current_step > 0 && can_go_back).then_some(on_back as ButtonOnClickCallbackType),
+        (current_step > 0 && can_go_back).then_some(back),
         AzString::from_const_str(if current_step == 0 {
             FIRST_STEP_REASON
         } else {
             BACK_HELD_REASON
         }),
     ));
+    let finish: ButtonOnClickCallbackType = on_finish;
+    let next: ButtonOnClickCallbackType = on_next;
     let (forward_label, forward) = if last {
-        (finish_label, on_finish as ButtonOnClickCallbackType)
+        (finish_label, finish)
     } else {
-        (next_label, on_next as ButtonOnClickCallbackType)
+        (next_label, next)
     };
     // Held without the app's reason, Next still says why.
     let next_reason = if blocked_reason.as_str().is_empty() {
@@ -834,12 +838,10 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         let mut side: Vec<Dom> = Vec::with_capacity(count + 1);
         side.extend(glyph(&look.side_icon));
         for (i, label) in steps.as_ref().iter().enumerate() {
-            let mark = if i < current_step {
-                "\u{2713}"
-            } else if i == current_step {
-                "\u{25CF}"
-            } else {
-                "\u{25CB}"
+            let mark = match i.cmp(&current_step) {
+                core::cmp::Ordering::Less => "\u{2713}",
+                core::cmp::Ordering::Equal => "\u{25CF}",
+                core::cmp::Ordering::Greater => "\u{25CB}",
             };
             let base = part(WIZARD_LAYOUT_SIDE_STEP_BASE, &look.side_step);
             let css = if i == current_step {

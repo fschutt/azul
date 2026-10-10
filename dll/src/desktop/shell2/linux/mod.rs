@@ -62,6 +62,10 @@ pub mod x11;
 pub mod webview;
 #[cfg(test)]
 mod webview_test;
+/// WPE WebKit's libraries and functions, loaded with dlopen.
+pub mod wpe;
+/// The thread WPE WebKit runs on.
+mod wpe_thread;
 
 use std::{cell::RefCell, sync::Arc};
 
@@ -135,6 +139,37 @@ impl LinuxWindow {
             #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => {
                 let _ = PlatformWindow::confirm_app_close(w, "wayland.app_close");
+            }
+        }
+    }
+
+    /// One turn of the window's `<webview>`s (`common::webview::pump`):
+    /// placements, ops and input to the `azul-webview` thread, its reports
+    /// to the views' callbacks, its frames into the display list. Only while
+    /// a web view exists or is owed something - an app without one pays
+    /// nothing. A repaint or rebuild it asks for is requested here.
+    pub fn pump_webviews(&mut self) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        let busy = |lw: &azul_layout::window::LayoutWindow| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        };
+        match self {
+            LinuxWindow::X11(w) => {
+                if w.common.layout_window.as_ref().is_some_and(busy)
+                    && PlatformWindow::pump_webviews(w)
+                        != azul_core::events::ProcessEventResult::DoNothing
+                {
+                    w.request_redraw();
+                }
+            }
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(w) => {
+                if w.common.layout_window.as_ref().is_some_and(busy)
+                    && PlatformWindow::pump_webviews(w)
+                        != azul_core::events::ProcessEventResult::DoNothing
+                {
+                    w.request_redraw();
+                }
             }
         }
     }

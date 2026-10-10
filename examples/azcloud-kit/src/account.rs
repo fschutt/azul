@@ -335,6 +335,11 @@ pub struct JoinCode {
     /// The token server the code came from (the joining device uses its own
     /// configured one, and says so when they differ).
     pub token_url: String,
+    /// For an encrypted drive: the secret of the one-time key the inviting device
+    /// sealed the drive key to (64 hex digits; azul-storage's `crypto::device`
+    /// invite). With it the joining device gets the drive key once. A secret too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_seal: Option<String>,
 }
 
 impl std::fmt::Debug for JoinCode {
@@ -345,6 +350,7 @@ impl std::fmt::Debug for JoinCode {
             .field("member", &self.member)
             .field("name", &self.name)
             .field("token_url", &self.token_url)
+            .field("key_seal", &self.key_seal.as_ref().map(|_| "<hidden>"))
             .finish()
     }
 }
@@ -401,6 +407,9 @@ pub struct Account {
     token_url: String,
     transports: TransportFactory,
     record: DriveRecord,
+    /// The S3 endpoint this run asks instead of the drive's (`--s3-url`), for the calls that
+    /// reach the bucket directly ([`Account::with_s3_endpoint`]).
+    s3_endpoint: Option<String>,
 }
 
 impl std::fmt::Debug for Account {
@@ -439,6 +448,7 @@ impl Account {
             token_url: base,
             transports,
             record: grant.record,
+            s3_endpoint: None,
         })
     }
 
@@ -474,6 +484,7 @@ impl Account {
             token_url: base,
             transports,
             record: grant.record,
+            s3_endpoint: None,
         })
     }
 
@@ -505,12 +516,31 @@ impl Account {
             token_url: base_of(token_url),
             transports,
             record,
+            s3_endpoint: None,
         })
     }
 
     #[must_use]
     pub fn record(&self) -> &DriveRecord {
         &self.record
+    }
+
+    /// Reaches the bucket at `endpoint` instead of the drive's own (a configured `--s3-url`;
+    /// `None` keeps the drive's).
+    #[must_use]
+    pub fn with_s3_endpoint(mut self, endpoint: Option<&str>) -> Account {
+        self.s3_endpoint = endpoint
+            .map(|url| url.trim().trim_end_matches('/').to_string())
+            .filter(|url| !url.is_empty());
+        self
+    }
+
+    /// The S3 endpoint the bucket is reached at: the configured one, else the drive's.
+    #[must_use]
+    pub fn s3_endpoint(&self) -> &str {
+        self.s3_endpoint
+            .as_deref()
+            .unwrap_or(self.record.endpoint.as_str())
     }
 
     #[must_use]
@@ -659,6 +689,7 @@ impl Account {
             member: answer["member"].as_str().unwrap_or("member").to_string(),
             name: self.record.name.clone(),
             token_url: self.token_url.clone(),
+            key_seal: None,
         })
     }
 

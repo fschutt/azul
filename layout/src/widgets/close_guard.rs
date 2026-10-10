@@ -437,22 +437,21 @@ fn build(guard: CloseGuard) -> Dom {
     let mut children: Vec<Dom> = Vec::with_capacity(2);
     children.push(content);
     if asking {
+        let answer_cb: StandardDialogOnEventCallbackType = on_answer;
+        let close_cb: ModalOnCloseCallbackType = on_modal_close;
         let mut message = MessageBox::create(MessageBoxKind::Question, question, text)
             .with_buttons(
                 StringVec::from_vec(alloc::vec![save_label, discard_label, cancel_label]),
                 0,
             )
-            .with_on_event(
-                shared.clone(),
-                on_answer as StandardDialogOnEventCallbackType,
-            );
+            .with_on_event(shared.clone(), answer_cb);
         if let Some(t) = theme {
             message = message.with_theme(t);
         }
         let mut modal = Modal::create(message.dom())
             .with_title(title)
             .with_open(true)
-            .with_on_close(shared.clone(), on_modal_close as ModalOnCloseCallbackType);
+            .with_on_close(shared.clone(), close_cb);
         if let Some(t) = theme {
             modal = modal.with_theme(t);
         }

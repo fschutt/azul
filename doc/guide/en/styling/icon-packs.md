@@ -112,6 +112,14 @@ rules still come first, and a lookup without a window (`lookup`,
 `has_icon`) passes a conditional pack by. The Azlin apps get this pack
 from `azul-icons-haiku` through azul-appkit.
 
+Colour: a full-colour icon (HVIF, an image, a multicoloured SVG) keeps its
+own colours; only a monochrome glyph - an icon-font glyph, a Material
+fallback - follows the `color` it is given. Under flora the Haiku icons
+keep Haiku's colours (they are the point of the pack), and an app tints its
+monochrome glyphs with `system:icon`, the theme's small-icon ink (flora's
+`--fl-icon`; on the desktop the secondary text colour), rather than with
+`system:accent`, which marks a selection.
+
 An icon spec can be a fallback list (`ios:open_menu,kde:three-lines,menu`).
 Bare entries follow the lookup order above. A `pack:name` entry is looked
 up only in that pack.

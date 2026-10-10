@@ -579,13 +579,13 @@ impl Button {
     }
 
     /// Makes this a toggle button, on or off (see [`Self::toggled`]).
-    pub fn set_toggled(&mut self, toggled: bool) {
+    pub const fn set_toggled(&mut self, toggled: bool) {
         self.toggled = OptionBool::Some(toggled);
     }
 
     /// Builder method: makes this a toggle button, on or off.
     #[must_use]
-    pub fn with_toggled(mut self, toggled: bool) -> Self {
+    pub const fn with_toggled(mut self, toggled: bool) -> Self {
         self.set_toggled(toggled);
         self
     }
@@ -805,14 +805,21 @@ pub(crate) struct DataLink {
     pub data: RefAny,
     /// Called on a click.
     pub on_click: ButtonOnClickCallbackType,
+    /// The icon after the label (a sort direction's arrow), `""` for none.
+    pub trailing_icon: &'static str,
 }
 
 impl DataLink {
     /// The link button, pinned to `theme`.
     fn button(self, theme: crate::widgets::themes::UiTheme) -> Button {
-        Button::with_type(self.label, ButtonType::Link)
+        let b = Button::with_type(self.label, ButtonType::Link)
             .with_on_click(self.data, self.on_click)
-            .with_theme(theme)
+            .with_theme(theme);
+        if self.trailing_icon.is_empty() {
+            b
+        } else {
+            b.with_trailing_icon(AzString::from_const_str(self.trailing_icon))
+        }
     }
 }
 

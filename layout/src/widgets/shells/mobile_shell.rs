@@ -163,7 +163,7 @@ impl_vec_mut!(ShellBottomTab, ShellBottomTabVec);
 impl ShellBottomTab {
     /// A tab with `label` and `icon`, no badge.
     #[must_use]
-    pub fn create(label: AzString, icon: AzString) -> Self {
+    pub const fn create(label: AzString, icon: AzString) -> Self {
         Self {
             label,
             icon,

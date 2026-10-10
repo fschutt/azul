@@ -391,6 +391,9 @@ const fn peak_rss_bytes() -> u64 {
 
 /// One open element of the document loader's arena ([`FastDomSink`]).
 #[derive(Debug, Clone, Copy)]
+// Each flag records which of the sink's counters this element raised, so
+// `close_element` lowers exactly those again.
+#[allow(clippy::struct_excessive_bools)]
 struct FastOpen {
     /// In the arena (not inside the `<head>`, not an element that draws
     /// nothing).
@@ -599,6 +602,9 @@ fn open_fast_node(
     }
 }
 
+/// A start tag: its name and its `(name, value)` attributes.
+type StartTag = (String, Vec<(String, String)>);
+
 /// The strict loaders' tokenizer (`xmlparser`: an XML syntax error is an
 /// error) feeding the one tree construction, [`html::TreeBuilder`], which
 /// both strict loaders and the lenient ones share - so the two loaders build
@@ -610,7 +616,7 @@ fn feed_xml_tokens(
     tokenizer: Tokenizer<'_>,
     builder: &mut html::TreeBuilder,
     sink: &mut dyn html::TreeSink,
-) -> Result<Option<(String, Vec<(String, String)>)>, XmlError> {
+) -> Result<Option<StartTag>, XmlError> {
     use xmlparser::{ElementEnd, Token};
 
     // A namespace prefix is part of the name: `<user:card/>` is the `card`
@@ -625,7 +631,7 @@ fn feed_xml_tokens(
         }
     }
 
-    let mut start: Option<(String, Vec<(String, String)>)> = None;
+    let mut start: Option<StartTag> = None;
     for token in tokenizer {
         let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
         match token {

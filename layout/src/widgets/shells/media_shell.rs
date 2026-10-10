@@ -53,7 +53,7 @@ pub struct MediaShell {
 impl MediaShell {
     /// A shell of the sidebar, the content and the now-playing bar.
     #[must_use]
-    pub fn create(sidebar: Dom, content: Dom, now_playing: Dom) -> Self {
+    pub const fn create(sidebar: Dom, content: Dom, now_playing: Dom) -> Self {
         Self {
             sidebar: OptionDom::Some(sidebar),
             content,
@@ -84,7 +84,7 @@ impl MediaShell {
 
     /// Replaces `self` with an empty shell and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div(), Dom::create_div(), Dom::create_div());
         core::mem::swap(&mut s, self);
         s

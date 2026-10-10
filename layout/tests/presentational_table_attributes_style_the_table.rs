@@ -147,12 +147,12 @@ fn align_center_centers_the_table_and_align_right_floats_it() {
 
 #[test]
 fn align_and_valign_on_a_cell_align_its_content() {
-    let lw = body(&format!(
+    let lw = body(
         "<table id=\"t\" width=\"300\" cellspacing=\"0\" cellpadding=\"0\"><tr>\
          <td align=\"right\" valign=\"bottom\">x</td>\
          <td style=\"width: 100px\"><i style=\"display: inline-block; width: 10px; height: 100px\"></i></td>\
-         </tr></table>"
-    ));
+         </tr></table>",
+    );
     let t = rect(&lw, "t");
     let runs = glyph_runs(&lw);
     let x = runs

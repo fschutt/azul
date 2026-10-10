@@ -3526,7 +3526,7 @@ impl Ribbon {
     /// The width the ribbon is laid out in, px (see
     /// [`Self::available_width`]); 0 or a width that is not a number: the
     /// window's.
-    pub fn set_available_width(&mut self, width: f32) {
+    pub const fn set_available_width(&mut self, width: f32) {
         self.available_width = if width.is_finite() {
             width.max(0.0)
         } else {
@@ -3536,7 +3536,7 @@ impl Ribbon {
 
     /// [`Self::set_available_width`] for the builder chain.
     #[must_use]
-    pub fn with_available_width(mut self, width: f32) -> Self {
+    pub const fn with_available_width(mut self, width: f32) -> Self {
         self.set_available_width(width);
         self
     }
@@ -5075,7 +5075,10 @@ fn gallery_dom(
                             on_select: on_select.clone(),
                             auto_select,
                             in_panel,
-                            selected_style: s.resolved_gallery_cell_selected_style(),
+                            selected_style: merged_style(
+                                &cell_base,
+                                &s.resolved_gallery_cell_selected_style(),
+                            ),
                             base_style: cell_base.clone(),
                         }),
                     }]
@@ -5339,6 +5342,20 @@ const fn advance_milli_em(c: char) -> u32 {
 fn text_px(text: &str, font_px: f32) -> f32 {
     let milli: u64 = text.chars().map(|c| u64::from(advance_milli_em(c))).sum();
     milli as f32 / 1000.0 * font_px * TEXT_WIDTH_FACTOR
+}
+
+/// The tracking of a group caption in flora's capitals
+/// (`themes::flora::CAPS_TITLE`), in em.
+const CAPTION_CAPS_TRACKING_EM: f32 = 0.12;
+
+/// A group caption's width in the wider of the two looks, flora's capitals:
+/// every letter its capital's advance, tracked by
+/// [`CAPTION_CAPS_TRACKING_EM`]. Capitals are never narrower than flat's
+/// mixed case, so one measure still serves both looks.
+fn caption_px(caption: &str) -> f32 {
+    let capitals: String = caption.chars().flat_map(char::to_uppercase).collect();
+    let tracking = caption.chars().count() as f32 * CAPTION_CAPS_TRACKING_EM * CAPTION_FONT_PX;
+    text_px(&capitals, CAPTION_FONT_PX) + tracking
 }
 
 /// A button label's width.
@@ -5605,7 +5622,7 @@ fn group_px(group: &RibbonGroup, scale: GroupScale) -> f32 {
     } else {
         0.0
     };
-    let caption = text_px(group.label.as_str(), CAPTION_FONT_PX) + launcher;
+    let caption = caption_px(group.label.as_str()) + launcher;
     let width = GROUP_FRAME_PX + items.max(caption);
     if group.fills_space {
         width.max(FILL_GROUP_MIN_PX)
@@ -5845,9 +5862,10 @@ fn collapsed_group_dom(
 ) -> Dom {
     let shared = RefAny::new(GroupPopupShared { pending: None });
     let mut button = collapsed_button(&group);
+    let on_click: ButtonOnClickCallbackType = on_ribbon_group_button_click;
     button.on_click = OptionButtonOnClick::Some(super::button::ButtonOnClick::create(
         shared.clone(),
-        on_ribbon_group_button_click as ButtonOnClickCallbackType,
+        on_click,
     ));
     let mut button = expand_ribbon_button(button, true, s, theme);
     button
@@ -5979,13 +5997,14 @@ fn deferred_item(item: RibbonItem, shared: &RefAny) -> RibbonItem {
             let on_select =
                 core::mem::replace(&mut gallery.on_select, OptionRibbonGalleryOnSelect::None);
             if let Some(on_select) = on_select.into_option() {
+                let in_popup: RibbonGalleryOnSelectCallbackType = on_ribbon_group_popup_select;
                 gallery.on_select =
                     OptionRibbonGalleryOnSelect::Some(RibbonGalleryOnSelect::create(
                         RefAny::new(PopupSelect {
                             shared: shared.clone(),
                             on_select,
                         }),
-                        on_ribbon_group_popup_select as RibbonGalleryOnSelectCallbackType,
+                        in_popup,
                     ));
             }
             RibbonItem::Gallery(gallery)
@@ -6002,12 +6021,13 @@ fn deferred_button(mut rb: RibbonButton, shared: &RefAny) -> RibbonButton {
     }
     let on_click = core::mem::replace(&mut rb.on_click, OptionButtonOnClick::None);
     if let Some(on_click) = on_click.into_option() {
+        let in_popup: ButtonOnClickCallbackType = on_ribbon_group_popup_command;
         rb.on_click = OptionButtonOnClick::Some(super::button::ButtonOnClick::create(
             RefAny::new(PopupCommand {
                 shared: shared.clone(),
                 on_click,
             }),
-            on_ribbon_group_popup_command as ButtonOnClickCallbackType,
+            in_popup,
         ));
     }
     rb
@@ -6561,7 +6581,10 @@ struct GalleryCellClickData {
     auto_select: bool,
     /// Cells in the expansion panel also close the panel when picked.
     in_panel: bool,
+    /// A picked cell's whole style, as the gallery builds it (the base and
+    /// the picked overlay, with their dark twins and pointer states).
     selected_style: CssPropertyWithConditionsVec,
+    /// Every other cell's whole style.
     base_style: CssPropertyWithConditionsVec,
 }
 
@@ -6581,6 +6604,9 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
     // Default behavior: move the highlight to the clicked cell immediately,
     // so the gallery feels live even if the app does not re-render. The hit
     // node may be the cell's preview or label, so resolve the cell by class.
+    // Every cell takes the style it would be BUILT with (`set_node_style`):
+    // the cascade picks the mode's face and the pointer states, now and
+    // after a light / dark switch - a pinned value would outrank them.
     let cell = ancestor_with_class(&info, hit, GALLERY_CELL_CLASS).unwrap_or(hit);
     if auto_select {
         if let Some(strip) = info.get_parent(cell) {
@@ -6591,11 +6617,7 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
                 } else {
                     &base_style
                 };
-                for prop in style.as_ref() {
-                    if prop.apply_if.as_ref().is_empty() {
-                        info.set_css_property(cell_node, prop.property.clone());
-                    }
-                }
+                info.set_node_style(cell_node, style.clone().into());
                 sibling = info.get_next_sibling(cell_node);
             }
         }
@@ -9288,6 +9310,138 @@ mod flora_tests {
             app_region(node(&plain, "__azul-native-ribbon-tabbar")),
             None,
             "a ribbon under its own title row moves nothing"
+        );
+    }
+
+    /// A group's caption is its title - flora.css's `.fl-label`: Garamond
+    /// capitals in the label ink (the face is the ribbon's system UI face,
+    /// Garamond in a flora window) - and the fit walk measures the
+    /// group at least as wide as those capitals (it measured the mixed-case
+    /// caption, so a flora group whose caption is its widest part overflowed
+    /// the width it was given).
+    #[test]
+    fn a_flora_group_caption_is_floras_title_in_capitals_and_the_group_is_measured_wide_enough() {
+        use azul_css::props::style::text::StyleTextTransform;
+
+        let dom = ribbon(UiTheme::Flora);
+        let caption = node(&dom, "__azul-native-ribbon-group-label");
+        assert!(
+            matches!(
+                tc::resolve(caption, CssPropertyType::TextTransform, false, None),
+                Some(P::TextTransform(v)) if v.get_property() == Some(&StyleTextTransform::Uppercase)
+            ),
+            "the caption is set in capitals"
+        );
+        assert!(
+            tc::resolve(caption, CssPropertyType::LetterSpacing, false, None).is_some()
+                && tc::resolve(caption, CssPropertyType::FontWeight, false, None).is_some(),
+            "flora's capitals are bold and tracked out"
+        );
+        assert_eq!(tc::text_color(caption, false), Some(flora::LIGHT_SOFT1));
+        assert_eq!(tc::text_color(caption, true), Some(flora::DARK_SOFT1));
+
+        // A group whose caption is wider than its one small button.
+        let caption = "Arrange and organise";
+        let group = RibbonGroup::new(caption.into()).with_item(RibbonItem::SmallButton(
+            RibbonButton::new("format_bold".into(), "".into()),
+        ));
+        let capitals = text_px(&caption.to_uppercase(), CAPTION_FONT_PX)
+            + caption.chars().count() as f32 * 0.12 * CAPTION_FONT_PX;
+        assert!(
+            group_px(&group, GroupScale::FULL) >= GROUP_FRAME_PX + capitals,
+            "{} < {}",
+            group_px(&group, GroupScale::FULL),
+            GROUP_FRAME_PX + capitals
+        );
+    }
+
+    /// The last resting `background` of `style` by day or at night (`dark`):
+    /// unconditional or under that mode only, no pointer state.
+    fn resting_fill(style: &azul_css::css::Css, dark: bool) -> Option<ColorU> {
+        use azul_css::dynamic_selector::ModeCondition;
+        style
+            .iter_inline_properties()
+            .filter(|(p, conditions)| {
+                p.get_type() == CssPropertyType::BackgroundContent
+                    && conditions.as_ref().iter().all(|c| match c {
+                        DynamicSelector::Mode(ModeCondition::Dark) => dark,
+                        DynamicSelector::Mode(ModeCondition::Light) => !dark,
+                        _ => false,
+                    })
+            })
+            .map(|(p, _)| p.clone())
+            .last()
+            .and_then(|p| tc::bg_color(&p))
+    }
+
+    /// A click on a gallery cell restyles the strip as a rebuild would build
+    /// it - night faces and pointer states included. It used to pin each
+    /// cell's DAY values as overrides, which outrank the dark twins and the
+    /// hover: at night the picked cell kept the day's soft wash under the
+    /// night ink.
+    #[test]
+    fn a_gallery_click_restyles_its_cells_with_their_night_faces_and_hover() {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+
+        use crate::callbacks::CallbackChange;
+
+        let styled = StyledDom::create_from_dom(ribbon(UiTheme::Flora));
+        let cells: Vec<NodeId> = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| {
+                n.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, Class(name) if name.as_str() == GALLERY_CELL_CLASS))
+            })
+            .map(|(i, _)| NodeId::new(i))
+            .collect();
+        // The strip's cells come first (the expansion panel's after them):
+        // cell 1 is the picked one, a click picks cell 0.
+        let (first, picked_before) = (cells[0], cells[1]);
+        let id = |n: NodeId| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        };
+        let (_, changes) = crate::widgets::roving::test_support::fire(
+            &styled,
+            id(first),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("a gallery cell takes clicks");
+        assert!(
+            !changes.iter().any(|c| matches!(
+                c,
+                CallbackChange::ChangeNodeCssProperties { .. }
+                    | CallbackChange::OverrideNodeCssProperties { .. }
+            )),
+            "the restyle pins no value: {changes:?}"
+        );
+        let style_of = |node: NodeId| {
+            changes.iter().find_map(|c| match c {
+                CallbackChange::SetNodeStyle { node_id, style, .. } if *node_id == node => {
+                    Some(style.clone())
+                }
+                _ => None,
+            })
+        };
+        let picked = style_of(first).expect("the clicked cell is restyled");
+        assert_eq!(resting_fill(&picked, false), Some(flora::LIGHT_SOFT), "picked, by day");
+        assert_eq!(resting_fill(&picked, true), Some(flora::DARK_HT), "picked, at night");
+        let left = style_of(picked_before).expect("the cell picked before is restyled");
+        assert_eq!(resting_fill(&left, true), Some(ColorU::TRANSPARENT), "no longer picked");
+        assert!(
+            left.iter_inline_properties().any(|(_, conditions)| conditions
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))),
+            "the cell keeps its hover"
         );
     }
 }

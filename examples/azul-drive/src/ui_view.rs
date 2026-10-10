@@ -44,7 +44,7 @@ use crate::{
     look,
     model::{self, ViewLayout},
     preview::{self, PreviewKind},
-    save_settings, ui_panes, with_state, ColumnDrag, DriveState, Message,
+    save_settings, ui_find, ui_panes, with_state, ColumnDrag, DriveState, Message,
 };
 
 // ==== Shared pieces ====
@@ -104,7 +104,7 @@ fn in_the_cloud(s: &DriveState, entry: &Entry) -> bool {
 
 /// The paint of an item ([`crate::look`]): at rest (a wash under the pointer), selected,
 /// focused, cut (faded) - each state after the one before, so it wins.
-fn item_paint(s: &DriveState, entry: &Entry) -> String {
+pub(crate) fn item_paint(s: &DriveState, entry: &Entry) -> String {
     paint(s, entry, false)
 }
 
@@ -167,10 +167,10 @@ extern "C" fn on_dismiss(mut data: RefAny, mut info: CallbackInfo) -> Update {
 pub(crate) fn uses_icon_grid(s: &DriveState) -> bool {
     matches!(s.place, Place::Folder { .. })
         && matches!(
-            s.settings.layout,
+            s.view_layout(),
             ViewLayout::ExtraLargeIcons | ViewLayout::LargeIcons | ViewLayout::MediumIcons
         )
-        && s.settings.group_by == model::GroupBy::None
+        && s.view_grouping() == model::GroupBy::None
         && !s.settings.item_checkboxes
         && s.renaming.is_none()
         && !s.visible_entries().is_empty()
@@ -540,7 +540,7 @@ fn item_parts(data: &mut RefAny) -> Option<(RefAny, String, bool)> {
 /// An item takes clicks, a double-click, the right button, a drag and (a
 /// folder) a drop. An item being renamed does not drag: a drag in its field
 /// selects text.
-fn interactive(s: &DriveState, app: &RefAny, entry: &Entry, dom: Dom) -> Dom {
+pub(crate) fn interactive(s: &DriveState, app: &RefAny, entry: &Entry, dom: Dom) -> Dom {
     let data = item_ref(app, entry);
     let renaming = s.renaming.as_ref().is_some_and(|r| r.key == entry.key);
     let mut dom = dom
@@ -669,7 +669,7 @@ extern "C" fn on_item_check(mut data: RefAny, mut info: CallbackInfo, _state: Ch
     })
 }
 
-fn check_box(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
+pub(crate) fn check_box(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     CheckBox::create(s.selection.contains(&entry.key))
         .with_on_toggle(item_ref(app, entry), on_item_check as CheckBoxOnToggleCallbackType)
         .dom()
@@ -768,7 +768,7 @@ extern "C" fn on_rename_mounted(_data: RefAny, mut info: CallbackInfo) -> Update
 }
 
 /// An item's icon and name (or the rename field), in a row.
-fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f32) -> Dom {
+pub(crate) fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f32) -> Dom {
     let icon = Dom::create_icon(AzString::from(icon_for(entry))).with_css(format!(
         "font-size: {icon_px}px; margin-right: 6px; flex-shrink: 0; {}",
         icon_colour(entry)
@@ -1064,7 +1064,7 @@ fn content_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
 
 /// What the Size column says: a file's size once its stat is in, a folder's item count once it
 /// is counted (one `read_dir`, no stat per item), else nothing yet.
-fn size_text(s: &DriveState, entry: &Entry) -> String {
+pub(crate) fn size_text(s: &DriveState, entry: &Entry) -> String {
     if entry.is_folder {
         return s
             .counts
@@ -1241,14 +1241,14 @@ pub(crate) struct FolderModel<'a> {
 
 /// [`FolderModel`] of the open folder in a view `width` px wide.
 pub(crate) fn folder_model(s: &DriveState, width: f32) -> FolderModel<'_> {
-    let layout = s.settings.layout;
+    let layout = s.view_layout();
     let visible = s.visible_entries();
-    let grouped = s.settings.group_by != model::GroupBy::None;
+    let grouped = s.view_grouping() != model::GroupBy::None;
     let (order, groups) = if grouped {
         let now = actions::now_secs() as i64;
         let mut order = Vec::with_capacity(visible.len());
         let mut groups = Vec::new();
-        for g in model::group_entries(&visible, s.settings.group_by, now) {
+        for g in model::group_entries(&visible, s.view_grouping(), now) {
             groups.push((g.label, g.entries.len()));
             order.extend(g.entries);
         }
@@ -1304,7 +1304,7 @@ fn view_height(s: &DriveState) -> f32 {
 pub(crate) fn items_in_view(s: &DriveState) -> Range<usize> {
     if uses_icon_grid(s) {
         let (width, height) = s.content_estimate();
-        let layout = s.settings.layout;
+        let layout = s.view_layout();
         let columns = ((width / layout.cell_width()).floor().max(1.0)) as usize;
         let rows = ((height / (layout.icon_px() + 40.0)).ceil() as usize)
             .max(1)
@@ -1321,12 +1321,12 @@ pub(crate) fn items_in_view(s: &DriveState) -> Range<usize> {
 /// The items of the folder view in its shown order (grouped: group after group), as
 /// [`items_in_view`] counts positions.
 pub(crate) fn shown_order(s: &DriveState) -> Vec<&Entry> {
-    if s.settings.group_by == model::GroupBy::None {
+    if s.view_grouping() == model::GroupBy::None {
         return s.visible_entries();
     }
     let visible = s.visible_entries();
     let now = actions::now_secs() as i64;
-    model::group_entries(&visible, s.settings.group_by, now)
+    model::group_entries(&visible, s.view_grouping(), now)
         .into_iter()
         .flat_map(|g| g.entries)
         .collect()
@@ -1362,7 +1362,7 @@ extern "C" fn folder_lines(mut data: RefAny, info: VirtualViewCallbackInfo) -> V
         guard.view_scroll.1 = size.height;
     }
     let s = &*guard;
-    let layout = s.settings.layout;
+    let layout = s.view_layout();
     // A Details view is as wide as its columns (it scrolls across in the view's host).
     let width = if layout == ViewLayout::Details {
         size.width.max(details_width(s))
@@ -1392,6 +1392,9 @@ extern "C" fn folder_lines(mut data: RefAny, info: VirtualViewCallbackInfo) -> V
 
 /// The Details columns' width, the check boxes' column with them.
 fn details_width(s: &DriveState) -> f32 {
+    if s.find.is_some() {
+        return ui_find::width(s);
+    }
     let checks = if s.settings.item_checkboxes { 28.0 } else { 0.0 };
     s.settings.columns.columns.iter().map(|c| c.width + 8.0).sum::<f32>() + checks
 }
@@ -1405,9 +1408,13 @@ fn line_dom(s: &DriveState, app: &RefAny, model: &FolderModel<'_>, index: usize)
             group_header(s, app, &label, count)
         }
         Line::Items { start, end } => {
-            let layout = s.settings.layout;
+            let layout = s.view_layout();
             let items = &model.order[start..end];
             match layout {
+                // A search's result: its folder and the line it matched on.
+                ViewLayout::Details if s.find.is_some() => {
+                    ui_find::row(s, app, items[0], start % 2 == 1)
+                }
                 ViewLayout::Details => details_row(s, app, items[0], start % 2 == 1),
                 ViewLayout::Content => content_row(s, app, items[0]),
                 _ => {
@@ -1576,6 +1583,32 @@ pub(crate) fn reveal_item(info: &mut CallbackInfo, s: &mut DriveState, key: &str
 /// The open folder in its layout, grouped or not: the Details header over a virtual view of
 /// the lines (only the lines in view and a screen either side are ever built).
 fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
+    if let Some(find) = s.find.as_ref().filter(|f| f.rows.is_empty()) {
+        // No result (yet): the search says what it does, or what it looked at.
+        let (title, detail) = find.empty_text();
+        let mut empty = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+        if find.remote {
+            empty.add_child(ui_find::cloud_note());
+        }
+        if find.running() {
+            empty.add_child(
+                Dom::create_div()
+                    .with_id(ids::FIND_EMPTY)
+                    .with_css("padding: 16px; opacity: 0.7;")
+                    .with_child(Dom::create_span_with_text(AzString::from(title))),
+            );
+        } else {
+            empty.add_child(
+                ShellEmptyState::create(AzString::from(title))
+                    .with_icon(AzString::from("search_off"))
+                    .with_detail(AzString::from(detail))
+                    .dom()
+                    .with_id(ids::FIND_EMPTY),
+            );
+        }
+        return empty;
+    }
     if s.visible_entries().is_empty() {
         if s.loading || !s.listing_done {
             return Dom::create_div()
@@ -1609,7 +1642,7 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
             .dom()
             .with_id(ids::EMPTY_FOLDER);
     }
-    let layout = s.settings.layout;
+    let layout = s.view_layout();
     let mut view = Dom::create_div()
         .with_id(ids::FOLDER_VIEW)
         .with_class(ids::layout_class(layout))
@@ -1622,8 +1655,16 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
         } else {
             String::from("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         });
-    if layout == ViewLayout::Details {
-        view.add_child(details_header(s, app));
+    match &s.find {
+        // A cloud drive's results are marked: searched by name, slower.
+        Some(find) => {
+            if find.remote {
+                view.add_child(ui_find::cloud_note());
+            }
+            view.add_child(ui_find::header(s));
+        }
+        None if layout == ViewLayout::Details => view.add_child(details_header(s, app)),
+        None => {}
     }
     let rows = RefAny::new(FolderRowsRef { app: app.clone() });
     view.add_child(
@@ -1684,7 +1725,7 @@ extern "C" fn grid_item(mut data: RefAny, index: usize) -> IconGridItem {
 /// (fetched when opened), Explorer's pointer (click, Ctrl / Shift, the rubber band, a drag
 /// out) and keyboard. Its selection is the app's (by position in the visible order).
 fn icon_grid(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
-    let layout = s.settings.layout;
+    let layout = s.view_layout();
     let show_hidden = s.settings.show_hidden;
     let order: Vec<usize> = s
         .entries
