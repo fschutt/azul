@@ -92,6 +92,45 @@ impl PeriodTokens {
     }
 }
 
+/// What a paid drive's sealed sign-up carries to claim a token family of one's own on another
+/// computer (`POST /v1/drives/{id}/claim {"ticket"}`, SRV17): the ticket - a secret - and how
+/// many pick-ups it takes, for how many days after the first. `Debug` shows no ticket.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ClaimTicket {
+    pub ticket: String,
+    pub max: u32,
+    pub window_days: u32,
+}
+
+impl fmt::Debug for ClaimTicket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClaimTicket")
+            .field("ticket", &"<hidden>")
+            .field("max", &self.max)
+            .field("window_days", &self.window_days)
+            .finish()
+    }
+}
+
+impl ClaimTicket {
+    /// The sign-up's `claim` object; `None` without a ticket (a drive from before the tickets,
+    /// a development sign-up).
+    fn from_value(value: &Value) -> Option<ClaimTicket> {
+        let ticket = value["ticket"].as_str()?.trim().to_string();
+        let number = |key: &str| {
+            value[key]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or(0)
+        };
+        (!ticket.is_empty()).then(|| ClaimTicket {
+            ticket,
+            max: number("max"),
+            window_days: number("window_days"),
+        })
+    }
+}
+
 /// A drive as the token server describes it. `Debug` never shows a secret.
 #[derive(Clone, PartialEq, Eq)]
 pub struct DriveBundle {
@@ -118,6 +157,9 @@ pub struct DriveBundle {
     pub period_tokens: Option<PeriodTokens>,
     /// The drive is banned (ban contract v1): the credentials work until its end.
     pub ban: Option<Ban>,
+    /// A paid drive's claim ticket (only in its sealed sign-up): another computer that picks
+    /// the drive up claims a token family of its own with it.
+    pub claim: Option<ClaimTicket>,
 }
 
 /// The direct node URLs of `nodes` (each one's `url`, else its `public_url`) and then the
@@ -147,6 +189,7 @@ impl fmt::Debug for DriveBundle {
             .field("tier", &self.tier)
             .field("period_tokens", &self.period_tokens)
             .field("ban", &self.ban)
+            .field("claim", &self.claim)
             .finish_non_exhaustive()
     }
 }
@@ -218,6 +261,7 @@ impl DriveBundle {
                 .unwrap_or_default(),
             period_tokens: PeriodTokens::from_value(&value["period_tokens"]),
             ban: Ban::of(value),
+            claim: ClaimTicket::from_value(&value["claim"]),
         })
     }
 

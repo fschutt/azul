@@ -6,7 +6,8 @@
 //!   "Keep this; AzDrive picks up your drive once the money arrived.", and the CLAIM CODE
 //!   (azcloud-kit's AZK1: the checkout id and the claim key's secret) as text and QR code - what
 //!   another computer picks the drive up with when this one is lost (Add drive > "Pick up a paid
-//!   drive with a claim code");
+//!   drive with a claim code": that computer claims a token family of its own with the sealed
+//!   sign-up's ticket, azcloud-kit's `pending::poll`);
 //! - **the slip** posted with the cash: the operator's address, the amount in words and digits,
 //!   the activation code as text and QR code and "Put this slip and exactly <amount> in cash in
 //!   the envelope." - no secret of the drive.

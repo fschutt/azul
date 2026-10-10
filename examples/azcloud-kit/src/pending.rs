@@ -72,6 +72,10 @@ pub struct PendingCheckout {
     /// shows); `None` for one picked up by its claim code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cash: Option<CashKept>,
+    /// Picked up by its claim code on this computer (not bought here): its drive is claimed as
+    /// a token family of this computer's own ([`poll`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub picked_up: bool,
 }
 
 /// What a cash checkout's slip prints (cash contract v1): the amount, the activation code, the
@@ -104,6 +108,7 @@ impl fmt::Debug for PendingCheckout {
             .field("period", &self.period)
             .field("method", &self.method)
             .field("cash", &self.cash)
+            .field("picked_up", &self.picked_up)
             .finish()
     }
 }
@@ -161,6 +166,7 @@ impl PendingCheckout {
             period: None,
             method: String::new(),
             cash: None,
+            picked_up: false,
         }
     }
 
@@ -341,23 +347,35 @@ pub fn poll(
     };
     match server.checkout_status(&checkout.checkout_id, &claim) {
         Ok(CheckoutStatus::Pending) => Polled::Pending,
-        Ok(CheckoutStatus::Approved(bundle)) => match shared.keep_new_drive(&bundle) {
-            Ok((session, already)) => {
-                // A checkout picked up by its claim code learns its tier here: its period
-                // tokens are issued for it. Quietly: the next claim tries again.
-                if checkout.tier.is_empty() {
-                    if let Some(tier) = bundle.tier.as_deref() {
-                        let _ = set_tier(shared, &checkout.checkout_id, tier);
-                    }
+        Ok(CheckoutStatus::Approved(bundle)) => {
+            let kept = if checkout.picked_up {
+                keep_picked_up(server, shared, checkout, *bundle)
+            } else {
+                match shared.keep_new_drive(&bundle) {
+                    Ok((session, already)) => Ok((*bundle, session, already)),
+                    Err(e) => Err(Polled::Kept(format!(
+                        "the new drive's session could not be kept: {e}"
+                    ))),
                 }
-                Polled::Claimed(Box::new(Claimed {
-                    bundle: *bundle,
-                    session,
-                    already,
-                }))
+            };
+            match kept {
+                Ok((bundle, session, already)) => {
+                    // A checkout picked up by its claim code learns its tier here: its period
+                    // tokens are issued for it. Quietly: the next claim tries again.
+                    if checkout.tier.is_empty() {
+                        if let Some(tier) = bundle.tier.as_deref() {
+                            let _ = set_tier(shared, &checkout.checkout_id, tier);
+                        }
+                    }
+                    Polled::Claimed(Box::new(Claimed {
+                        bundle,
+                        session,
+                        already,
+                    }))
+                }
+                Err(polled) => polled,
             }
-            Err(e) => Polled::Kept(format!("the new drive's session could not be kept: {e}")),
-        },
+        }
         Ok(CheckoutStatus::Declined(why)) => drop_it(
             shared,
             checkout,
@@ -388,6 +406,56 @@ fn set_tier(shared: &SharedKeyring, checkout_id: &str, tier: &str) -> CloudResul
     checkout.tier = tier.trim().to_string();
     let text = text_of(checkouts)?;
     shared.set(PENDING_KEY, &text)
+}
+
+/// The drive of `checkout`, picked up here by its claim code: a token family of this computer's
+/// own, claimed with the sealed sign-up's ticket (`POST /v1/drives/{id}/claim`), so the buyer's
+/// computer and this one never spend one family's tokens - under the drive's keyring lock, and
+/// once (a session the keyring has for the drive is kept as it is). A drive from before the
+/// tickets (no ticket, or 401) keeps the sealed drive token; one picked up as often as it may be
+/// (409 `claims_used`, 410 `claim_expired`) is taken off the list. The drive (its token the
+/// claimed one), the keyring's text of its session, whether the keyring had it.
+fn keep_picked_up(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+    mut bundle: DriveBundle,
+) -> Result<(DriveBundle, String, bool), Polled> {
+    let key = azul_storage::config::keyring_key(bundle.drive_id());
+    let not_kept =
+        |e: CloudError| Polled::Kept(format!("the new drive's session could not be kept: {e}"));
+    let _lock = shared.lock(&key).map_err(not_kept)?;
+    if let Some(text) = shared.get(&key).map_err(not_kept)? {
+        let ours = crate::session::AzlinSession::from_keyring_secret(&text)
+            .is_ok_and(|session| session.drive_id == bundle.drive_id());
+        if ours {
+            return Ok((bundle, text, true));
+        }
+    }
+    if let Some(ticket) = bundle.claim.as_ref().map(|c| c.ticket.clone()) {
+        match server.claim_drive(bundle.drive_id(), &ticket) {
+            Ok(family) => bundle.drive_token = family.drive_token,
+            // A drive from before the tickets: the sealed drive token is its only one.
+            Err(TokenError::Refused { status: 401, .. }) => {}
+            Err(TokenError::Refused { code, message, .. })
+                if code == "claims_used" || code == "claim_expired" =>
+            {
+                let why = if message.is_empty() { code } else { message };
+                return Err(drop_it(
+                    shared,
+                    checkout,
+                    format!("the drive cannot be picked up here any more: {why}"),
+                ));
+            }
+            Err(TokenError::Connect(why)) => {
+                return Err(Polled::Kept(format!("no answer from the token server: {why}")))
+            }
+            Err(e) => return Err(Polled::Kept(format!("the drive was not picked up: {e}"))),
+        }
+    }
+    let text = bundle.session().to_keyring_secret();
+    shared.set(&key, &text).map_err(not_kept)?;
+    Ok((bundle, text, false))
 }
 
 /// Takes `checkout` off the list because of `why`.

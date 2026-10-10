@@ -1417,7 +1417,7 @@ azdrive-cash-orders = Cash orders
 
 azdrive-add-drive-paid-cash-by = A drive paid in cash by post is picked up with the claim code on the buyer's copy: type it as the copy prints it, or scan its QR code. AzDrive asks for the drive now and then once a day until the money arrived.
 azdrive-add-claim-code = The claim code
-azdrive-add-use-code-only-when = Use the code only when the computer that bought the drive is lost: two computers that pick up one drive lock each other out of it.
+azdrive-add-claim-own-key = Each computer that picks the drive up with the code gets a key of its own (three at most, within 30 days of the first pick-up); the computer that bought it keeps its own.
 azdrive-add-storage-azdrive-azmail-every = Storage for AzDrive, AzMail and every Azlin app, paid monthly or yearly. The first month is free.
 azdrive-add-every-file-compressed-encrypted = Every file is compressed and encrypted on this computer before it leaves it, and a tier counts the bytes stored: what compresses well - text, documents, mail - takes less of it than its size.
 azdrive-add-loading-storage-tiers = Loading the storage tiers ...

@@ -131,6 +131,8 @@ pub(crate) enum Job {
         /// The folder on this computer, for a local drive.
         dir: Option<PathBuf>,
         prefix: String,
+        /// The listing asks the drive again (F5, after a change: [`ListRequest::refreshed`]).
+        refresh: bool,
         serial: u64,
         cancel: Arc<AtomicBool>,
     },
@@ -1015,19 +1017,29 @@ fn scan_dir(
 
 /// The scan of a bucket's folder: page after page, each page a batch, until the last page or a
 /// set `cancel`.
+/// The scan's request for a page of `prefix` (after `continuation`): a refresh's first page asks
+/// the drive again ([`ListRequest::refreshed`]: an encrypted drive's index pulls before it
+/// answers), the next pages continue from what that read.
+fn scan_request(prefix: &str, continuation: Option<String>, refresh: bool) -> ListRequest {
+    let request = ListRequest::folder(prefix).with_max_keys(SCAN_PAGE);
+    match continuation {
+        Some(token) => request.with_continuation(token),
+        None if refresh => request.refreshed(),
+        None => request,
+    }
+}
+
 fn scan_bucket(
     drive: &dyn Drive,
     prefix: &str,
+    refresh: bool,
     serial: u64,
     cancel: &AtomicBool,
     emit: &mut dyn FnMut(Outcome),
 ) -> Outcome {
     let mut next: Option<String> = None;
     loop {
-        let mut request = ListRequest::folder(prefix).with_max_keys(SCAN_PAGE);
-        if let Some(token) = next.take() {
-            request = request.with_continuation(token);
-        }
+        let request = scan_request(prefix, next.take(), refresh);
         let page = match drive.list(&request) {
             Ok(page) => page,
             Err(e) => {
@@ -2165,6 +2177,14 @@ fn start_checkout(
     let claim = ClaimKey::generate().map_err(|e| e.to_string())?;
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let (checkout, answer) = match via {
+        // Cash by post: the method alone (the token server takes it with or without payment
+        // options).
+        Some(via) if via.surface == SurfaceKind::Paper => {
+            let (checkout, answer) = server
+                .checkout_cash(tier, months, &via.country, via.consent, &claim)
+                .map_err(|e| e.to_string())?;
+            (checkout, Some(answer))
+        }
         None => (
             server
                 .checkout(tier, months, azcloud_kit::token::DEFAULT_METHOD, &claim)
@@ -2541,13 +2561,14 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drive,
             dir,
             prefix,
+            refresh,
             serial,
             cancel,
         } => {
             let mut emit = |outcome: Outcome| send(sender, outcome);
             match dir {
                 Some(dir) => scan_dir(&dir, &prefix, serial, &cancel, &mut emit),
-                None => scan_bucket(&*drive, &prefix, serial, &cancel, &mut emit),
+                None => scan_bucket(&*drive, &prefix, refresh, serial, &cancel, &mut emit),
             }
         }
         Job::Stat { root, keys, serial } => Outcome::Stats {
@@ -3111,6 +3132,20 @@ mod tests {
     use azul_storage::testing::TempDir;
 
     use super::*;
+
+    /// F5 asks the drive again: a refresh's first page is a `refreshed` listing (an encrypted
+    /// drive's index pulls first, so a node that refuses shows); its next pages, and a listing
+    /// that opens a folder, are not.
+    #[test]
+    fn the_first_page_of_a_refresh_asks_the_drive_again() {
+        let first = scan_request("docs/", None, true);
+        assert!(first.refresh);
+        assert_eq!((first.prefix.as_str(), first.max_keys), ("docs/", SCAN_PAGE));
+        let next = scan_request("docs/", Some(String::from("t2")), true);
+        assert!(!next.refresh);
+        assert_eq!(next.continuation.as_deref(), Some("t2"));
+        assert!(!scan_request("docs/", None, false).refresh);
+    }
 
     /// A folder with `files` empty files and `folders` subfolders.
     fn folder_with(files: usize, folders: usize) -> TempDir {

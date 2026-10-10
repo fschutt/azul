@@ -25,6 +25,8 @@
 //! |                                       | (status banned, ban_reason, ban_until; past the   |
 //! |                                       | end 403 drive_banned)                             |
 //! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
+//! | `POST /v1/drives/{id}/claim`          | a picked-up paid drive's own token family, by the |
+//! |                                       | sealed sign-up's ticket (3 within 30 days)        |
 //! | `POST /v1/drives/{id}/lockdown`       | every other device, key and link revoked at once  |
 //! |                                       | (or by the recovery key: a fresh nonce, 48 h)     |
 //! | `POST /v1/drives/{id}/lockdown/cancel`| a pending recovery-key lockdown called off        |
@@ -178,6 +180,15 @@ pub struct Tiers {
 }
 
 impl Tiers {
+    /// Whether the token server takes cash by post (its methods name `cash`: it has its cash key
+    /// and the operator's address; cash contract v1).
+    #[must_use]
+    pub fn takes_cash(&self) -> bool {
+        self.methods
+            .iter()
+            .any(|m| m.trim() == crate::cash::CASH_METHOD)
+    }
+
     /// Reads the answer of `GET /v1/tiers`.
     pub fn parse(text: &str) -> Result<Tiers, TokenError> {
         let value: Value = serde_json::from_str(text)
@@ -333,6 +344,27 @@ impl fmt::Debug for RecoveryLockdown {
 /// The member a recovery-key lockdown adds while it is pending: the device that holds the
 /// recovery code, the owner's when the 48 hours are over.
 pub const RECOVERY_MEMBER: &str = "recovery-pending";
+
+/// What `POST /v1/drives/{id}/claim` answers: a token family of the claiming computer's own.
+/// `Debug` shows no token.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ClaimedFamily {
+    /// `owner`.
+    pub member: String,
+    pub drive_token: String,
+    /// The pick-ups the ticket still takes.
+    pub claims_left: Option<u32>,
+}
+
+impl fmt::Debug for ClaimedFamily {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClaimedFamily")
+            .field("member", &self.member)
+            .field("drive_token", &"<hidden>")
+            .field("claims_left", &self.claims_left)
+            .finish()
+    }
+}
 
 /// A drive as the token server keeps it ([`TokenServer::drive_status`]).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -869,6 +901,71 @@ impl<'a> TokenServer<'a> {
             return Err(TokenError::Protocol(String::from("the checkout has no id")));
         }
         Ok((checkout, value))
+    }
+
+    /// A cash checkout of `tier` for `months` months (cash contract v1): `POST /v1/checkout
+    /// {"method": "cash"}` with the VAT country and the order's consent, its sign-up sealed to
+    /// `claim` - no provider, no surface: the token server answers the activation code, the
+    /// address to post the cash to and the checkout's end, all in the answer for azul-pay to
+    /// read. 400 `cash_unavailable` from a server that takes no cash.
+    ///
+    /// # Errors
+    ///
+    /// No answer, a refusal, or an answer without a checkout id.
+    pub fn checkout_cash(
+        &self,
+        tier: &str,
+        months: u32,
+        vat_country: &str,
+        withdrawal_consent: bool,
+        claim: &ClaimKey,
+    ) -> Result<(Checkout, Value), TokenError> {
+        let body = json!({
+            "tier": tier.trim(),
+            "months": months,
+            "method": crate::cash::CASH_METHOD,
+            "vat_country": vat_country.trim().to_ascii_uppercase(),
+            "withdrawal_consent": withdrawal_consent,
+            "claim_key": claim.public_base64(),
+        });
+        let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
+        let checkout = checkout_of(&value, months);
+        if checkout.checkout_id.is_empty() {
+            return Err(TokenError::Protocol(String::from("the checkout has no id")));
+        }
+        Ok((checkout, value))
+    }
+
+    /// A token family of this computer's own for the paid drive `drive_id`, claimed with its
+    /// sealed sign-up's `ticket` (`POST /v1/drives/{id}/claim {"ticket"}`, no drive token): what
+    /// a computer that picks the drive up by its claim code spends, so it and the buyer's
+    /// computer never share a family.
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusal: 401 another ticket (or a drive from before the tickets), 409
+    /// `claims_used`, 410 `claim_expired`, 403 `drive_banned`; no answer.
+    pub fn claim_drive(&self, drive_id: &str, ticket: &str) -> Result<ClaimedFamily, TokenError> {
+        let path = format!("/v1/drives/{}/claim", check_id(drive_id)?);
+        let body = json!({ "ticket": ticket.trim() });
+        let value = self.call(Method::Post, &path, None, Some(&body))?;
+        let drive_token = value["drive_token"]
+            .as_str()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if drive_token.is_empty() {
+            return Err(TokenError::Protocol(String::from(
+                "the claim answered no drive token",
+            )));
+        }
+        Ok(ClaimedFamily {
+            member: value["member"].as_str().unwrap_or("owner").to_string(),
+            drive_token,
+            claims_left: value["claims_left"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok()),
+        })
     }
 
     /// The checkout `checkout_id` on another surface (`POST /v1/checkout/{id}/surface`, the

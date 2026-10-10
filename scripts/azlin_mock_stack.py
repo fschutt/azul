@@ -32,13 +32,17 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     expired
     POST /v1/checkout/<id>/pay {"card_number"}      200 the test provider: 4242 4242 4242 4242
                                                     approves (the drive is made), others decline
-    POST /v1/checkout {"tier", "months",            201 cash by post (cash contract v1):
-                       "method": "cash",            awaiting_cash with its amount, currency, the
-                       "claim_key"}                 activation code AZC1-... (scripts/
-                                                    azlin_cash.py, MAC'd with the test key
+    POST /v1/checkout {"tier", "months",            201 cash by post (cash contract v1; 400
+                       "method": "cash",            cash_unavailable after set_cash(False), and
+                       "claim_key"}                 GET /v1/tiers lists cash only while it is
+                                                    taken): awaiting_cash with its amount,
+                                                    currency, the activation code AZC1-...
+                                                    (scripts/azlin_cash.py: the id's 16 bytes,
+                                                    MAC'd with the token server's test key
                                                     azlin_cash.MOCK_KEY), the address to post to
                                                     and an end 60 days on; its poll answers
-                                                    awaiting_cash until the operator's switch -
+                                                    awaiting_cash (the code, the address and the
+                                                    end again) until the operator's switch -
                                                     activate_cash(id): approved, the drive sealed
                                                     to its claim key; reject_cash(id, reason):
                                                     rejected with the reason - and expired after
@@ -118,6 +122,15 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     48 h, a `recovery-pending` family (401 a bad
                                                     signature, 409 nonce_used, 400
                                                     no_recovery_key)
+    POST /v1/drives/<id>/claim {"ticket"}, NO       201 {"member": "owner", "drive_token",
+        token                                       "claims_left"}: a paid drive picked up on
+                                                    another computer gets a token family of its
+                                                    own by the ticket its sealed sign-up carries
+                                                    ("claim": {"ticket", "max": 3,
+                                                    "window_days": 30}); 401 another ticket or a
+                                                    drive without one, 409 claims_used after
+                                                    three, 410 claim_expired 30 days after the
+                                                    first, 403 drive_banned
     POST /v1/drives/<id>/lockdown/cancel            200 {"cancelled": true}: signed by one of the
         {"nonce", "signature", "key_id"?}, NO       drive's recovery keys over
         token (F12)                                 lockdown-cancel:<drive>:<nonce> (403
@@ -267,6 +280,10 @@ RECOVERY_CHALLENGE_SECS = 300
 RECOVERY_RATE_LIMIT = 20
 RECOVERY_RATE_WINDOW_SECS = 600
 LOCKDOWN_DELETE_PAUSE_SECS = 24 * 3600
+# A paid drive's pick-ups by its claim ticket (SRV17): at most this many, within this long of the
+# first.
+CLAIMS_MAX = 3
+CLAIM_WINDOW_SECS = 30 * 86400
 # Cash by post (cash contract v1): how long a cash checkout waits for its letter, and the address
 # its slip names - a made-up test operator's.
 CASH_KEEP_SECS = 60 * 86400
@@ -415,14 +432,15 @@ def page(title, body):
             % (html.escape(title), html.escape(title), body))
 
 
-def tier_list():
-    """GET /v1/tiers as azlin-token answers it (tiers.rs `ladder`)."""
+def tier_list(cash=False):
+    """GET /v1/tiers as azlin-token answers it (tiers.rs `ladder`): `cash` among the methods only
+    where the server takes cash by post."""
     return {
         'tiers': [{'id': tier, 'quota_bytes': quota, 'price_cents_month': month,
                    'price_cents_year': year, 'currency': 'EUR', 'first_month_free': True,
                    'prepay_months': PREPAY_MONTHS}
                   for tier, quota, month, year in TIER_LADDER],
-        'methods': METHODS,
+        'methods': METHODS + (['cash'] if cash else []),
         'legal': {
             'withdrawal_consent': 'I agree that the service starts immediately and acknowledge '
                                   'that I lose my right of withdrawal once the service has begun.',
@@ -521,8 +539,16 @@ class TokenState:
         # The lookup challenges' MAC key, and the recovery routes' rate windows per address.
         self.challenge_secret = secrets.token_bytes(32)
         self.rate = {}
-        # The key cash checkouts' activation codes are MAC'd with (a test key).
+        # The key cash checkouts' activation codes are MAC'd with (the token server's test key);
+        # cash by post is taken while it is set (set_cash): without it, as a token server whose
+        # configuration names no cash key or address, 400 cash_unavailable.
         self.cash_key = azlin_cash.MOCK_KEY
+
+    def set_cash(self, on):
+        """The operator's configuration (a test's switch): cash by post taken (the test key, the
+        test operator's address) or not."""
+        with self.lock:
+            self.cash_key = azlin_cash.MOCK_KEY if on else None
 
     def oauth_token(self, provider, form):
         """The fake OAuth token endpoint (see the module documentation): (status, answer)."""
@@ -732,6 +758,8 @@ class TokenState:
         months = body.get('months', 1)
         if months not in PREPAY_MONTHS:
             raise ApiError(400, 'bad_months', 'prepay 1, 3, 6, 12 or 24 months')
+        if self.cash_key is None:
+            raise ApiError(400, 'cash_unavailable', 'this server takes no cash by post')
         provider = body.get('provider')
         if provider is not None:
             if provider != 'cash' or 'cash' not in self.providers:
@@ -1139,6 +1167,14 @@ class TokenState:
                 out['reason'] = checkout['reason']
             if checkout.get('provider'):
                 out['settles'] = 'days' if checkout['method'] == 'sepa_debit' else 'instant'
+            # Cash by post: its end; while it awaits the cash the code and the address again
+            # (an app that lost its page prints it anew).
+            if checkout.get('method') == 'cash':
+                out['expires_at'] = rfc3339(checkout['expires_at'])
+                if checkout['status'] == 'awaiting_cash' and self.cash_key is not None:
+                    out['activation_code'] = checkout['activation_code']
+                    out['mail_to'] = {'name': CASH_MAIL_TO['name'],
+                                      'lines': list(CASH_MAIL_TO['lines'])}
             return out
 
     def pay(self, checkout_id, body):
@@ -1172,6 +1208,14 @@ class TokenState:
         issue_key, issue_key_hash = azlin_period.new_issue_key()
         bundle['period_tokens'] = {'checkout_id': checkout_id, 'months': checkout['months'],
                                    'issue_key': issue_key}
+        # Each pick-up of the paid drive claims a token family of its own with this ticket
+        # (SRV17's drive_claims): three within 30 days of the first; the drive keeps its hash.
+        ticket = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('ascii').rstrip('=')
+        bundle['claim'] = {'ticket': ticket, 'max': CLAIMS_MAX,
+                           'window_days': CLAIM_WINDOW_SECS // 86400}
+        with self.lock:
+            self.drives[bundle['drive']['id']]['claim'] = {
+                'ticket_hash': token_hash(ticket), 'claims': 0, 'until': None}
         sealed = azlin_claim.seal(json.dumps(bundle).encode('utf-8'), checkout['claim_key'],
                                   checkout_id)
         with self.lock:
@@ -1436,6 +1480,39 @@ class TokenState:
                 family['member'] = 'owner'
         drive['lockdown_pending_until'] = None
         drive['lockdown_completed'] = now
+
+    def claim(self, drive_id, body):
+        """POST /v1/drives/<id>/claim {"ticket"} (drives.rs `claim`, no drive token): a token
+        family of the claiming computer's own for a paid drive, by the ticket of its sealed
+        sign-up - 201 {member, drive_token, claims_left}; 401 another ticket or a drive without
+        one (a development sign-up, a drive from before the tickets), 403 drive_banned, 409
+        claims_used after three, 410 claim_expired 30 days after the first."""
+        ticket = body.get('ticket')
+        with self.lock:
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            claim = drive.get('claim')
+            if not claim or not isinstance(ticket, str) or not ticket \
+                    or not hmac.compare_digest(token_hash(ticket), claim['ticket_hash']):
+                raise ApiError(401, 'unauthorized', 'unknown claim ticket')
+            ban = drive.get('ban')
+            if ban:
+                raise ApiError(403, 'drive_banned', 'this drive is banned',
+                               {'ban_reason': ban['reason'], 'ban_until': rfc3339(ban['until'])})
+            if claim['claims'] >= CLAIMS_MAX:
+                raise ApiError(409, 'claims_used',
+                               'this drive was picked up %d times already' % CLAIMS_MAX)
+            now = self.now()
+            if claim['until'] is not None and now >= claim['until']:
+                raise ApiError(410, 'claim_expired',
+                               'the pick-ups of this drive ended 30 days after the first')
+            claim['claims'] += 1
+            if claim['until'] is None:
+                claim['until'] = now // 86400 * 86400 + CLAIM_WINDOW_SECS
+            token = self.new_family(drive_id, 'owner')
+            return {'member': 'owner', 'drive_token': token,
+                    'claims_left': CLAIMS_MAX - claim['claims']}
 
     def add_member(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/members (a grant): a token family for another device."""
@@ -2021,7 +2098,7 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if self.command == 'GET' and segments == ['v1', 'tiers']:
-            self.answer(200, tier_list())
+            self.answer(200, tier_list(cash=state.cash_key is not None))
             return
         if self.command == 'POST' and segments == ['v1', 'drives']:
             body = self.body()
@@ -2086,6 +2163,10 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         if self.command == 'GET' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'restore':
             self.answer(200, state.restore_status(segments[2], self.bearer(), segments[4]))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'claim':
+            self.answer(201, state.claim(segments[2], self.body() or {}))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'members':

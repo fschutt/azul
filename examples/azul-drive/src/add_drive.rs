@@ -661,6 +661,22 @@ impl AddDialog {
         self.pill_provider = Some(index);
     }
 
+    /// Cash by post beside the payment page or the pills: the token server's tier list says it
+    /// takes cash (`GET /v1/tiers`' methods) and no pill offers it; `None` otherwise.
+    #[must_use]
+    pub(crate) fn cash_choice(&self) -> Option<Choice> {
+        if self.pills().iter().any(|p| p.method == Method::Cash) {
+            return None;
+        }
+        let TiersState::Loaded(tiers) = &self.tiers else {
+            return None;
+        };
+        if !tiers.takes_cash() {
+            return None;
+        }
+        azul_pay::cash::choice(&self.pill_context())
+    }
+
     /// What the order button starts: the chosen pill's provider and method.
     #[must_use]
     pub(crate) fn choice(&self) -> Option<Choice> {

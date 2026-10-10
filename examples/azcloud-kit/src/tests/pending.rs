@@ -43,6 +43,7 @@ fn checkout(id: &str, claim: &ClaimKey) -> PendingCheckout {
         period: None,
         method: String::new(),
         cash: None,
+        picked_up: false,
     }
 }
 

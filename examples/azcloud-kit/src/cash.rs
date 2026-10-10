@@ -1,10 +1,11 @@
 //! Cash by post (cash contract v1) on the app's side: the two codes a cash checkout puts on
 //! paper.
 //!
-//! - The ACTIVATION CODE (`AZC1-...`, the token server's): the base32 (RFC 4648, upper case, no
-//!   padding, blocks of four joined by `-`) of the checkout id's bytes, the amount in cents (u32,
-//!   big endian), the currency (three ASCII letters) and the first ten bytes of
-//!   HMAC-SHA256(the server's cash key, what comes before). It goes on the slip posted with the
+//! - The ACTIVATION CODE (`AZC1-...`, the token server's, azlin-token's cash.rs): the base32
+//!   (RFC 4648, upper case, no padding, blocks of four joined by `-`) of the checkout id's 16
+//!   random bytes (the base32 behind `ck_`, not the id's ASCII), the amount in cents (u32, big
+//!   endian), the currency (three ASCII letters) and the first ten bytes of HMAC-SHA256(the
+//!   server's cash key, what comes before): 33 bytes, 53 characters. It goes on the slip posted with the
 //!   cash; the operator's AzCtl reads it back and checks the MAC. The app checks that the code
 //!   it prints is its checkout's, for its amount and currency ([`ActivationCode::check`]): a
 //!   slip for another amount would have the operator take the wrong money.
@@ -16,10 +17,10 @@
 //!
 //!   Whoever reads the claim code learns the checkout id and can open its sealed sign-up while
 //!   the token server keeps it (30 days after the payment): the drive's id, its bucket, its
-//!   temporary S3 credentials, its drive token and its period tokens' issue key - the drive,
-//!   as the buyer's device has it. Spending that drive token after the buyer's device rotated
-//!   it is a reuse, which revokes the buyer's token family too. Before the payment and after
-//!   the 30 days it shows the checkout's status only.
+//!   temporary S3 credentials, its first drive token, its period tokens' issue key and its claim
+//!   ticket - with which a computer claims a token family of its own (`POST /v1/drives/{id}/
+//!   claim`, three pick-ups within 30 days of the first): the drive, as a device of its owner.
+//!   Before the payment and after the 30 days it shows the checkout's status only.
 
 use std::fmt;
 
@@ -39,6 +40,23 @@ pub const ACTIVATION_MAC_LEN: usize = 10;
 pub const CASH_METHOD: &str = "cash";
 /// The bytes of a claim secret.
 const SECRET_LEN: usize = 32;
+/// The random bytes behind a checkout id's `ck_` (26 base32 characters).
+const ID_BYTES: usize = 16;
+/// The bytes of an activation code: the id's, the amount, the currency, the MAC.
+const ACTIVATION_BYTES: usize = ID_BYTES + 4 + 3 + ACTIVATION_MAC_LEN;
+
+/// The 16 bytes behind `ck_<26 base32>` (the token server's ids), written as the server writes
+/// them (lower case); `None` for an id of another form.
+fn id_bytes(checkout_id: &str) -> Option<[u8; ID_BYTES]> {
+    let text = checkout_id.trim().strip_prefix("ck_")?;
+    let bytes: [u8; ID_BYTES] = base32::decode(text)?.try_into().ok()?;
+    (base32::encode(&bytes).to_ascii_lowercase() == text).then_some(bytes)
+}
+
+/// The checkout id of its 16 bytes: `ck_` and their base32 in lower case.
+fn id_of(bytes: &[u8]) -> String {
+    format!("ck_{}", base32::encode(bytes).to_ascii_lowercase())
+}
 /// The bytes of a claim code's check value.
 const CHECK_LEN: usize = 4;
 
@@ -102,28 +120,23 @@ impl ActivationCode {
     ///
     /// # Errors
     ///
-    /// [`CashError::Malformed`] for anything but an `AZC1` code with a checkout id, an amount,
-    /// a currency and a MAC.
+    /// [`CashError::Malformed`] for anything but an `AZC1` code of 33 bytes: a checkout id's 16,
+    /// an amount, a currency and a MAC.
     pub fn parse(text: &str) -> Result<ActivationCode, CashError> {
         const WHAT: &str = "an activation code (AZC1-...)";
         let bytes = code_bytes(text, ACTIVATION_PREFIX, WHAT)?;
-        let fixed = 4 + 3 + ACTIVATION_MAC_LEN;
-        if bytes.len() <= fixed {
+        if bytes.len() != ACTIVATION_BYTES {
             return Err(CashError::Malformed(WHAT));
         }
-        let (id, rest) = bytes.split_at(bytes.len() - fixed);
+        let (id, rest) = bytes.split_at(ID_BYTES);
         let (amount, rest) = rest.split_at(4);
         let (currency, mac) = rest.split_at(3);
-        let checkout_id = std::str::from_utf8(id).map_err(|_| CashError::Malformed(WHAT))?;
         let currency = std::str::from_utf8(currency).map_err(|_| CashError::Malformed(WHAT))?;
-        let id_ok = checkout_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-        if !id_ok || !currency.bytes().all(|b| b.is_ascii_uppercase()) {
+        if !currency.bytes().all(|b| b.is_ascii_uppercase()) {
             return Err(CashError::Malformed(WHAT));
         }
         Ok(ActivationCode {
-            checkout_id: checkout_id.to_string(),
+            checkout_id: id_of(id),
             amount_cents: u32::from_be_bytes([amount[0], amount[1], amount[2], amount[3]]),
             currency: currency.to_string(),
             mac: mac.to_vec(),
@@ -133,7 +146,7 @@ impl ActivationCode {
     /// The code as the token server writes it (`AZC1-` and blocks of four).
     #[must_use]
     pub fn to_text(&self) -> String {
-        let mut bytes = self.checkout_id.as_bytes().to_vec();
+        let mut bytes = id_bytes(&self.checkout_id).unwrap_or_default().to_vec();
         bytes.extend_from_slice(&self.amount_cents.to_be_bytes());
         bytes.extend_from_slice(self.currency.as_bytes());
         bytes.extend_from_slice(&self.mac);
@@ -280,6 +293,8 @@ impl ClaimCode {
     pub fn pending(&self, token_url: &str, name: &str) -> PendingCheckout {
         let mut kept = PendingCheckout::new(&self.checkout_id, &self.claim, "", token_url, name);
         kept.method = CASH_METHOD.to_string();
+        // Its drive is claimed as a token family of this computer's own.
+        kept.picked_up = true;
         kept
     }
 }

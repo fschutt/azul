@@ -6,6 +6,7 @@ mod ban;
 mod bucket;
 mod cash;
 mod claim;
+mod claim_ticket;
 mod cloud_drive;
 mod drive;
 #[cfg(feature = "encryption")]

@@ -114,7 +114,7 @@ mod tests;
 
 pub use account::{Account, JoinCode};
 pub use bucket::Bucket;
-pub use bundle::{DriveBundle, PeriodTokens};
+pub use bundle::{ClaimTicket, DriveBundle, PeriodTokens};
 pub use cash::{ActivationCode, CashError, ClaimCode};
 pub use claim::{ClaimError, ClaimKey};
 pub use drive::AzlinDrive;
@@ -134,8 +134,8 @@ pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    Ban, BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, DriveStatus, FoundDrive,
-    IssueAnswer, OptionsQuery, RecoveryKeyInfo, RecoveryLockdown, Tier, Tiers, TokenError,
+    Ban, BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, ClaimedFamily, DriveStatus,
+    FoundDrive, IssueAnswer, OptionsQuery, RecoveryKeyInfo, RecoveryLockdown, Tier, Tiers, TokenError,
     TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};

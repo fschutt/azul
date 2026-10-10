@@ -176,6 +176,10 @@ pub struct ListRequest {
     pub continuation: Option<String>,
     /// Entries (objects and folders) per page; 0 means [`DEFAULT_PAGE_SIZE`].
     pub max_keys: u32,
+    /// Ask the bucket again (a user's refresh, F5): a drive that answers listings from a copy
+    /// - an encrypted drive's index - reads the bucket first, its poll time aside. A plain
+    /// bucket lists from the bucket anyway.
+    pub refresh: bool,
 }
 
 impl ListRequest {
@@ -187,6 +191,7 @@ impl ListRequest {
             delimiter: Some(DELIMITER.to_string()),
             continuation: None,
             max_keys: DEFAULT_PAGE_SIZE,
+            refresh: false,
         }
     }
 
@@ -198,6 +203,7 @@ impl ListRequest {
             delimiter: None,
             continuation: None,
             max_keys: DEFAULT_PAGE_SIZE,
+            refresh: false,
         }
     }
 
@@ -210,6 +216,13 @@ impl ListRequest {
     #[must_use]
     pub fn with_continuation(mut self, token: impl Into<String>) -> Self {
         self.continuation = Some(token.into());
+        self
+    }
+
+    /// The listing asks the bucket again ([`ListRequest::refresh`]).
+    #[must_use]
+    pub fn refreshed(mut self) -> Self {
+        self.refresh = true;
         self
     }
 

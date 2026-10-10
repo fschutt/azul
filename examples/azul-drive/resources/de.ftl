@@ -1415,7 +1415,7 @@ azdrive-cash-orders = Barzahlungen
 
 azdrive-add-drive-paid-cash-by = Ein per Post bar bezahltes Laufwerk wird mit dem Abholcode auf der Kopie des Käufers abgeholt: Tippe ihn so ein, wie die Kopie ihn druckt, oder füge den Text ihres QR-Codes ein.
 azdrive-add-claim-code = Der Abholcode
-azdrive-add-use-code-only-when = Verwende den Code nur, wenn der Computer, der das Laufwerk gekauft hat, verloren ist: Zwei Computer, die ein Laufwerk abholen, teilen es sich wie zwei Geräte des Käufers.
+azdrive-add-claim-own-key = Jeder Computer, der das Laufwerk mit dem Code abholt, bekommt einen eigenen Schlüssel (höchstens drei, innerhalb von 30 Tagen nach der ersten Abholung); der Computer, der es gekauft hat, behält seinen.
 azdrive-add-storage-azdrive-azmail-every = Speicher für AzDrive, AzMail und jede Azlin-App, monatlich oder jährlich bezahlt. Der erste Monat ist kostenlos.
 azdrive-add-every-file-compressed-encrypted = Jede Datei wird auf diesem Computer komprimiert und verschlüsselt, bevor sie ihn verlässt, und eine Stufe zählt die gespeicherten Bytes: Mit 1,6-facher Komprimierung passen in 100 GB etwa 160 GB deiner Dateien.
 azdrive-add-loading-storage-tiers = Die Speicherstufen werden geladen …

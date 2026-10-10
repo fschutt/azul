@@ -20527,6 +20527,30 @@
                                     }
                                 ],
                                 "fn_body": "object.webview_reload(node)"
+                            },
+                            "translate": {
+                                "doc": [
+                                    "The message `message_id` of the app's Fluent resources (`AppConfig::fluent_locales`) in",
+                                    "this window's active locale - the one [`Self::set_locale`] chose, else the system's -",
+                                    "with `args`: what the layout pass does for an `AzString::tr` text of the DOM, for text",
+                                    "that is no DOM (a notification's title and body, a native dialog's words). The message",
+                                    "id itself when no resource has the message, or the app registered none."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "message_id": "String"
+                                    },
+                                    {
+                                        "args": "FluentArgKVVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.translate(message_id, args).into()"
                             }
                         },
                         "repr": "C"
