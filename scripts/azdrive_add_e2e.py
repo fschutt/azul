@@ -558,6 +558,11 @@ def new_drive_encrypted(app, drive_id):
     return finish_new_drive_sheet(app, drive_id)
 
 
+def bucket_of(stack, drive_id):
+    """The bucket of the drive `drive_id` at the mock."""
+    return stack.token.state.drives[drive_id]["bucket"]
+
+
 def bucket_holds_ciphertext_only(stack, bucket, names):
     """An encrypted drive's bucket: the encryption's own keys (.azlin/: the keys, the drive
     index; data/: the objects under random ids) - no file's name, no plaintext."""
@@ -819,7 +824,9 @@ def run(args, logs):
         if tested != "ok":
             raise Failure("Test connection said %s: %s" % (tested, dialog.win.texts()))
         dialog.win.until('"Connection OK"', lambda: dialog.shows("Connection OK"))
-        calls = [(r["method"], r["op"], r["query"].get("max-keys")) for r in stack.s3.requests()]
+        # (The Azlin drives' buckets may be asked for their space meanwhile: not this one.)
+        calls = [(r["method"], r["op"], r["query"].get("max-keys")) for r in stack.s3.requests()
+                 if r.get("bucket") == BUCKET]
         if calls != [("GET", "ListObjectsV2", "1")]:
             raise Failure("Test connection made %r, not one ListObjectsV2 with max-keys=1"
                           % calls)
@@ -1017,10 +1024,24 @@ def run(args, logs):
             raise Failure("the token server made %s" % stack.token.state.drives.get(paid))
         app.after("the paid drive's bucket", "AZDRIVE_LISTED", r"%s / 0" % re.escape(paid),
                   lambda: app.click(selector=side_drive(paid)))
+        # Its space as its node counts it (SRV17: HeadBucket's x-azlin-used-bytes and
+        # x-azlin-quota-bytes - the stored bytes, the tier's quota), no estimate.
+        counted = app.until("the node's count of %s" % paid, lambda: app.printed(
+            "AZDRIVE_SPACE", r"%s \d+ \d+" % re.escape(paid)))[-1].split()
+        quota = stack.token.state.drives[paid]["quota_bytes"]
+        used = int(counted[1])
+        if int(counted[2]) != quota or not 0 < used <= stack.s3.store.stored_bytes(bucket_of(
+                stack, paid)) + (1 << 20):
+            raise Failure("the node's count %r is not the bucket's (quota %d)" % (counted, quota))
+        available = "%d GB available" % ((quota - used + 500_000_000) // 1_000_000_000)
+        app.until("the status line's space, as the node counts it", lambda: app.shows(available))
+        if app.shows("about " + available):
+            raise Failure("the node's count is shown as an estimate")
         app.screenshot(os.path.join(out, "6-claimed.png"))
         log("6b. Buy -> Stop waiting -> AzDrive closed -> paid -> AzDrive started: %s arrived at "
             "the start under the name typed, its session in the keyring, its period tokens "
-            "kept, its checkout off the keyring's list, its bucket listed" % paid)
+            "kept, its checkout off the keyring's list, its bucket listed, its space as its node "
+            "counts it (HeadBucket: %d stored bytes of %d)" % (paid, used, quota))
 
         # 6c. While AzDrive runs, its daily look at the periods (every few seconds in this run:
         # AZDRIVE_PERIOD_CHECK_SECS) finds the drive's period nearly over and buys a month.
@@ -1040,7 +1061,9 @@ def run(args, logs):
                              {"x-azlin-error": "read_only_unpaid"})
         problem = app.after("the refused listing", "AZDRIVE_PROBLEM",
                             r"%s read_only_unpaid \S+" % re.escape(paid), lambda: app.key("f5"))
-        refused = [r for r in stack.s3.requests() if r.get("bucket") == bucket][-1]
+        # (A HeadBucket - the usage line's count, asked in the background - is no listing.)
+        refused = [r for r in stack.s3.requests()
+                   if r.get("bucket") == bucket and r.get("method") != "HEAD"][-1]
         if problem.split()[-1] != refused.get("request_id"):
             raise Failure("the error ID %r is not the node's request ID %r"
                           % (problem.split()[-1], refused.get("request_id")))

@@ -7,7 +7,8 @@
 /// A drive's space: stored bytes against the quota, the files' size before compression.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Usage {
-    /// Stored bytes (the storage nodes' count, else the drive index's sum of its objects).
+    /// Stored bytes: the storage node's count (HeadBucket's `x-azlin-used-bytes`), else the
+    /// drive index's sum of its objects ([`Self::estimate`]). Never the files' plaintext size.
     pub used: u64,
     /// The quota, of stored bytes.
     pub quota: u64,
@@ -30,6 +31,9 @@ pub enum Level {
 
 /// From this share of the quota on, a drive is nearly full.
 pub const NEARLY_FULL_PERCENT: u64 = 90;
+
+/// What an estimate's lines add ([`Usage::estimate`]).
+const ESTIMATED: &str = "estimated on this computer";
 
 /// Bytes as the tiers are sold (decimal): `512 MB`, `62 GB`, `1.6 TB`.
 #[must_use]
@@ -62,7 +66,16 @@ impl Usage {
     /// "38 GB available" (an estimate: "about 38 GB available").
     #[must_use]
     pub fn available_text(&self) -> String {
-        format!("{} available", size_text(self.available()))
+        format!("{}{} available", self.about(), size_text(self.available()))
+    }
+
+    /// "about " before an estimate's figures.
+    fn about(&self) -> &'static str {
+        if self.estimate {
+            "about "
+        } else {
+            ""
+        }
     }
 
     /// How full the drive is by its stored bytes (a quota of 0 - not known - is never full).
@@ -81,11 +94,15 @@ impl Usage {
     }
 
     /// "62 GB used of 100 GB, your files are 99 GB before compression" (the second part when the
-    /// original size is known and bigger than what is stored).
+    /// original size is known and bigger than what is stored); an estimate: "about 62 GB used
+    /// of 100 GB (estimated on this computer), ...".
     #[must_use]
     pub fn text(&self) -> String {
         let used = size_text(self.used);
-        let mut text = format!("{used} used of {}", size_text(self.quota));
+        let mut text = format!("{}{used} used of {}", self.about(), size_text(self.quota));
+        if self.estimate {
+            text.push_str(&format!(" ({ESTIMATED})"));
+        }
         if let Some(original) = self.original.filter(|o| *o > self.used) {
             let original = size_text(original);
             if original != used {
@@ -99,9 +116,15 @@ impl Usage {
     #[must_use]
     pub fn warning(&self) -> Option<String> {
         let counted = format!(
-            "{} of {} used, counted after compression",
+            "{}{} of {} used, counted after compression{}",
+            self.about(),
             size_text(self.used),
-            size_text(self.quota)
+            size_text(self.quota),
+            if self.estimate {
+                format!(", {ESTIMATED}")
+            } else {
+                String::new()
+            }
         );
         match self.level() {
             Level::Fine => None,

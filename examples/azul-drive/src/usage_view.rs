@@ -1,32 +1,77 @@
 //! An Azlin drive's space in AzDrive. The quota counts STORED bytes - what arrives at the storage
 //! nodes, compressed and encrypted on this computer first - so the status line's "38 GB
 //! available" and the details pane's "62 GB used of 100 GB, your files are 99 GB before
-//! compression" come from the token server's count of stored bytes (azcloud-kit's
-//! `DriveStatus`, seen by the periods' look) and, as extra information, the drive index's sum of
-//! the files' sizes (an encrypted drive's totals, asked for at most every
-//! [`TOTALS_EVERY_SECS`]). A drive nearly full or full says so once a run.
+//! compression" take "used" from what the drive's node counts: its HeadBucket answer
+//! (`x-azlin-used-bytes`, `x-azlin-quota-bytes`, SRV17; asked at most every
+//! [`SPACE_EVERY_SECS`]), else the token server's drive status (the periods' look). The drive
+//! index's totals (an encrypted drive's, asked for at most every [`TOTALS_EVERY_SECS`]) give the
+//! files' size before compression - extra information, never the space used - and, only while
+//! no server said its count, their objects' stored bytes as an ESTIMATE (the lines say so). A
+//! drive nearly full or full says so once a run.
+
+use std::sync::Arc;
 
 use azcloud_kit::{
     usage::{Level, Usage},
     DriveStatus,
 };
+use azul::prelude::*;
 use azul_storage::BucketSpace;
 
-use crate::DriveState;
+use crate::{jobs::Job, spawn, DriveState};
 
 /// How long a drive's totals (its files' size before compression) are good for.
 pub(crate) const TOTALS_EVERY_SECS: u64 = 1800;
 
-/// What AzDrive knows of a drive's space.
+/// How long the node's count of a drive's stored bytes is good for.
+pub(crate) const SPACE_EVERY_SECS: u64 = 60;
+
+/// What AzDrive knows of a drive's space, by where it came from; [`DriveUsage::usage`] makes
+/// the lines' figures of it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct DriveUsage {
-    pub usage: Usage,
-    /// `usage.used` is the token server's count (else the drive index's sum of its objects).
-    pub server_counted: bool,
-    /// When the drive index's totals came, in seconds since 1970.
+    /// The drive's node's count (HeadBucket): what the quota counts.
+    pub node: BucketSpace,
+    /// The token server's quota and count of stored bytes (its drive status).
+    pub server: BucketSpace,
+    /// The drive index's sum of the files' sizes: their size before compression.
+    pub original: Option<u64>,
+    /// The drive index's sum of its objects' stored sizes: this computer's estimate, for while
+    /// no server counted.
+    pub estimated: Option<u64>,
+    /// When the drive index's totals were asked for, in seconds since 1970.
     pub totals_at: Option<u64>,
+    /// When the node was asked for its count.
+    pub space_at: Option<u64>,
     /// The nearly-full or full warning was said this run.
     pub warned: bool,
+}
+
+impl DriveUsage {
+    /// The space as the lines show it: the node's count, else the token server's, else the
+    /// estimate; the quota the node's, else the token server's.
+    #[must_use]
+    pub(crate) fn usage(&self) -> Usage {
+        let counted = self.node.used_bytes.or(self.server.used_bytes);
+        Usage {
+            used: counted.or(self.estimated).unwrap_or(0),
+            quota: self
+                .node
+                .quota_bytes
+                .or(self.server.quota_bytes)
+                .unwrap_or(0),
+            original: self.original,
+            estimate: counted.is_none() && self.estimated.is_some(),
+        }
+    }
+}
+
+/// What came in replaces what was known; what it does not say stays.
+fn merged(known: BucketSpace, new: BucketSpace) -> BucketSpace {
+    BucketSpace {
+        used_bytes: new.used_bytes.or(known.used_bytes),
+        quota_bytes: new.quota_bytes.or(known.quota_bytes),
+    }
 }
 
 /// `previous` with what the token server said of the drive: its quota and its stored bytes.
@@ -35,15 +80,15 @@ pub(crate) fn merge_status(
     previous: Option<DriveUsage>,
     status: &DriveStatus,
 ) -> Option<DriveUsage> {
-    let Some(quota) = status.quota_bytes else {
-        return previous;
+    let said = BucketSpace {
+        used_bytes: status.used_bytes,
+        quota_bytes: status.quota_bytes,
     };
-    let mut seen = previous.unwrap_or_default();
-    seen.usage.quota = quota;
-    if let Some(used) = status.used_bytes {
-        seen.usage.used = used;
-        seen.server_counted = true;
+    if said == BucketSpace::default() {
+        return previous;
     }
+    let mut seen = previous.unwrap_or_default();
+    seen.server = merged(seen.server, said);
     Some(seen)
 }
 
@@ -51,20 +96,16 @@ pub(crate) fn merge_status(
 /// bytes and the quota, which every other count gives way to.
 #[must_use]
 pub(crate) fn merge_space(previous: Option<DriveUsage>, space: &BucketSpace) -> Option<DriveUsage> {
-    let _ = space;
-    previous
-}
-
-impl DriveUsage {
-    /// The space as the lines show it.
-    #[must_use]
-    pub(crate) fn usage(&self) -> Usage {
-        self.usage
+    if *space == BucketSpace::default() {
+        return previous;
     }
+    let mut seen = previous.unwrap_or_default();
+    seen.node = merged(seen.node, *space);
+    Some(seen)
 }
 
 /// `previous` with the drive index's totals at `now`: the files' size before compression, and
-/// - while the token server has not counted - their objects' stored bytes.
+/// their objects' stored bytes (the estimate while no server counted).
 #[must_use]
 pub(crate) fn merge_totals(
     previous: Option<DriveUsage>,
@@ -73,10 +114,8 @@ pub(crate) fn merge_totals(
     now: u64,
 ) -> Option<DriveUsage> {
     let mut seen = previous.unwrap_or_default();
-    seen.usage.original = Some(original_bytes);
-    if !seen.server_counted {
-        seen.usage.used = stored_bytes;
-    }
+    seen.original = Some(original_bytes);
+    seen.estimated = Some(stored_bytes);
     seen.totals_at = Some(now);
     Some(seen)
 }
@@ -89,22 +128,28 @@ pub(crate) fn totals_due(usage: Option<&DriveUsage>, now: u64) -> bool {
         .map_or(true, |at| now.saturating_sub(at) >= TOTALS_EVERY_SECS)
 }
 
-/// The status line's part: "38 GB available" (of the quota, in stored bytes).
+/// Whether the node's count is due again.
+#[must_use]
+pub(crate) fn space_due(usage: Option<&DriveUsage>, now: u64) -> bool {
+    usage
+        .and_then(|u| u.space_at)
+        .map_or(true, |at| now.saturating_sub(at) >= SPACE_EVERY_SECS)
+}
+
+/// The status line's part: "38 GB available" (of the quota, in stored bytes; an estimate:
+/// "about 38 GB available").
 #[must_use]
 pub(crate) fn available_part(usage: &DriveUsage) -> Option<String> {
     let usage = usage.usage();
     (usage.quota > 0).then(|| usage.available_text())
 }
 
-/// The token server's word on the Azlin drive `azlin_id` (the periods' look): its quota and its
-/// stored bytes; a drive nearly full or full says so once a run.
-pub(crate) fn status_seen(s: &mut DriveState, azlin_id: &str, status: &DriveStatus) {
-    let previous = s.usage.get(azlin_id).copied();
-    let Some(mut seen) = merge_status(previous, status) else {
-        return;
-    };
-    if seen.usage.level() != Level::Fine && !seen.warned {
-        if let Some(warning) = seen.usage.warning() {
+/// `seen` is the space of the Azlin drive `azlin_id` now: a drive nearly full or full says so
+/// once a run.
+fn store(s: &mut DriveState, azlin_id: &str, mut seen: DriveUsage) {
+    let usage = seen.usage();
+    if usage.level() != Level::Fine && !seen.warned {
+        if let Some(warning) = usage.warning() {
             let name = s.drive_name(&crate::browse::Place::folder(
                 &slot_id_of(s, azlin_id).unwrap_or_else(|| azlin_id.to_string()),
                 "",
@@ -117,11 +162,62 @@ pub(crate) fn status_seen(s: &mut DriveState, azlin_id: &str, status: &DriveStat
     s.usage.insert(azlin_id.to_string(), seen);
 }
 
+/// The token server's word on the Azlin drive `azlin_id` (the periods' look): its quota and its
+/// stored bytes.
+pub(crate) fn status_seen(s: &mut DriveState, azlin_id: &str, status: &DriveStatus) {
+    let previous = s.usage.get(azlin_id).copied();
+    if let Some(seen) = merge_status(previous, status) {
+        store(s, azlin_id, seen);
+    }
+}
+
 /// The drive index's totals of the Azlin drive `azlin_id` arrived.
 pub(crate) fn totals_seen(s: &mut DriveState, azlin_id: &str, original: u64, stored: u64, now: u64) {
     let previous = s.usage.get(azlin_id).copied();
     if let Some(seen) = merge_totals(previous, original, stored, now) {
-        s.usage.insert(azlin_id.to_string(), seen);
+        store(s, azlin_id, seen);
+    }
+}
+
+/// The node's count of the Azlin drive `azlin_id` arrived (`AZDRIVE_SPACE <drive> <used>
+/// <quota>`, `-` for what it did not say).
+pub(crate) fn space_seen(s: &mut DriveState, azlin_id: &str, space: &BucketSpace) {
+    let said = |n: Option<u64>| n.map_or_else(|| String::from("-"), |n| n.to_string());
+    println!(
+        "AZDRIVE_SPACE {azlin_id} {} {}",
+        said(space.used_bytes),
+        said(space.quota_bytes)
+    );
+    let previous = s.usage.get(azlin_id).copied();
+    if let Some(seen) = merge_space(previous, space) {
+        store(s, azlin_id, seen);
+    }
+}
+
+/// Asks the node of every opened Azlin drive whose count is due what it stores (one HeadBucket
+/// each, in the background): after a listing and at the periods' look.
+pub(crate) fn request_space(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let now = azul_storage::time::now_unix();
+    let due: Vec<(String, Arc<azcloud_kit::AzlinDrive>)> = s
+        .slots
+        .iter()
+        .filter_map(|slot| {
+            let (azlin_id, _) = slot.entry.azlin()?;
+            let azlin = slot.azlin.clone()?;
+            space_due(s.usage.get(azlin_id), now).then(|| (azlin_id.to_string(), azlin))
+        })
+        .collect();
+    for (azlin_id, azlin) in due {
+        // Asked once: a second listing before the answer does not ask again.
+        let previous = s.usage.get(&azlin_id).copied().unwrap_or_default();
+        s.usage.insert(
+            azlin_id.clone(),
+            DriveUsage {
+                space_at: Some(now),
+                ..previous
+            },
+        );
+        spawn(info, app, s, Job::BucketSpace { azlin_id, azlin });
     }
 }
 
@@ -157,15 +253,15 @@ mod tests {
     #[test]
     fn the_space_left_is_the_quota_less_the_stored_bytes_the_server_counted() {
         let seen = merge_status(None, &status(Some(100 * GB), Some(62 * GB))).unwrap();
-        assert_eq!((seen.usage.quota, seen.usage.used), (100 * GB, 62 * GB));
-        assert!(seen.server_counted);
+        assert_eq!((seen.usage().quota, seen.usage().used), (100 * GB, 62 * GB));
+        assert!(!seen.usage().estimate);
         assert_eq!(available_part(&seen).as_deref(), Some("38 GB available"));
         // The index's totals add the original size; they never replace the server's count.
         let seen = merge_totals(Some(seen), 99 * GB, 61 * GB, 1_000).unwrap();
-        assert_eq!(seen.usage.used, 62 * GB);
-        assert_eq!(seen.usage.original, Some(99 * GB));
+        assert_eq!(seen.usage().used, 62 * GB);
+        assert_eq!(seen.usage().original, Some(99 * GB));
         assert_eq!(
-            seen.usage.text(),
+            seen.usage().text(),
             "62 GB used of 100 GB, your files are 99 GB before compression"
         );
         assert!(!totals_due(Some(&seen), 1_000 + TOTALS_EVERY_SECS - 1));
@@ -226,6 +322,14 @@ mod tests {
         assert_eq!(available_part(&seen).as_deref(), Some("79 GB available"));
         // A server that never said its quota: nothing to show yet.
         assert_eq!(merge_status(None, &status(None, None)), None);
+        assert_eq!(merge_space(None, &BucketSpace::default()), None);
         assert!(totals_due(None, 0));
+        assert!(space_due(None, 0));
+        let asked = DriveUsage {
+            space_at: Some(10),
+            ..DriveUsage::default()
+        };
+        assert!(!space_due(Some(&asked), 10 + SPACE_EVERY_SECS - 1));
+        assert!(space_due(Some(&asked), 10 + SPACE_EVERY_SECS));
     }
 }

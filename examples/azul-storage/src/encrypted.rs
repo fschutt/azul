@@ -743,7 +743,9 @@ pub struct Totals {
     pub files: u64,
     /// The files' size before compression.
     pub original_bytes: u64,
-    /// Their objects' bytes in the bucket (compressed and encrypted): what the quota counts.
+    /// Their objects' bytes in the bucket (compressed and encrypted) as this device's index
+    /// records them: an ESTIMATE of the quota's count, for when the node does not say its own
+    /// ([`crate::S3Drive::space`] is the figure).
     pub stored_bytes: u64,
 }
 
@@ -1085,8 +1087,10 @@ impl<D: Drive> EncryptedDrive<D> {
 
     /// What the drive's index holds: its files, their size before compression and their
     /// objects' bytes in the bucket (an object two paths name - a copy - counted once). The
-    /// quota counts stored bytes: [`Totals::stored_bytes`] is what the files take of it (the
-    /// index's own objects aside). Walks the whole index: call it from a worker thread.
+    /// quota counts stored bytes as the drive's node counts them ([`crate::S3Drive::space`]);
+    /// [`Totals::stored_bytes`] is only this device's estimate of that (the index's own objects
+    /// aside), the original size only extra information. Walks the whole index: call it from a
+    /// worker thread.
     pub fn totals(&self) -> Result<Totals, DriveError> {
         let mut totals = Totals::default();
         let mut seen: HashSet<ObjectId> = HashSet::new();

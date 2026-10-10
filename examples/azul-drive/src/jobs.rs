@@ -374,6 +374,12 @@ pub(crate) enum Job {
     /// An encrypted drive's keys, recovery or files moved into the encryption.
     #[cfg(feature = "encryption")]
     Encryption(crate::encryption::EncryptionJob),
+    /// What the node of the Azlin drive `azlin_id` counts of its bucket (one HeadBucket): the
+    /// usage line's stored bytes and quota.
+    BucketSpace {
+        azlin_id: String,
+        azlin: Arc<azcloud_kit::AzlinDrive>,
+    },
     /// A voucher `code` at `token_url`: on `drive` (its id, under its keyring lock) the days it
     /// adds ([`Outcome::VoucherRedeemed`]); without one a new drive of `tier` (empty: the
     /// voucher's own), its session into the keyring like a test drive's ([`Outcome::Bought`] for
@@ -615,6 +621,11 @@ pub(crate) enum Outcome {
     /// The listing `serial` (of the drive in view) met a storage or token server error, as
     /// the user sees it ([`crate::problems`]); a message of a scan that still ends.
     DriveProblem { serial: u64, problem: UserError },
+    /// The node's count of the Azlin drive `azlin_id` (or why there is none).
+    BucketSpace {
+        azlin_id: String,
+        result: Result<azul_storage::BucketSpace, String>,
+    },
     /// A voucher on `drive_id`: the days it added and the period's new end (seconds since
     /// 1970), or why not.
     VoucherRedeemed {
@@ -2897,6 +2908,10 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         }
         #[cfg(feature = "encryption")]
         Job::Encryption(job) => Outcome::Encryption(crate::encryption::run(job)),
+        Job::BucketSpace { azlin_id, azlin } => Outcome::BucketSpace {
+            result: azlin.space().map_err(|e| e.to_string()),
+            azlin_id,
+        },
         Job::RedeemVoucher {
             serial,
             token_url,

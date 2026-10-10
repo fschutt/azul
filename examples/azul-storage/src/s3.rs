@@ -581,7 +581,19 @@ impl S3Drive {
     ///
     /// The bucket's refusal or no answer, as every request's.
     pub fn space(&self) -> Result<BucketSpace, DriveError> {
-        Ok(BucketSpace::default())
+        let reply = self.request(Method::Head, None, Vec::new(), Vec::new(), Vec::new(), "")?;
+        if !reply.is_success() {
+            return Err(failure(&reply, None));
+        }
+        let number = |name: &str| {
+            reply
+                .header(name)
+                .and_then(|value| value.trim().parse::<u64>().ok())
+        };
+        Ok(BucketSpace {
+            used_bytes: number(USED_BYTES_HEADER),
+            quota_bytes: number(QUOTA_BYTES_HEADER),
+        })
     }
 
     /// The host the requests to `endpoint` go to.

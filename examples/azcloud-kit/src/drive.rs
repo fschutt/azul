@@ -28,8 +28,8 @@ use std::{
 use azul_storage::{
     config::{keyring_key, DriveEntry},
     time::now_unix,
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition, S3Drive,
-    ServiceError, Transport,
+    BucketSpace, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
+    S3Drive, ServiceError, Transport,
 };
 
 use crate::{
@@ -344,6 +344,17 @@ impl AzlinDrive {
             self.refresh(&mut current, Some(refused))?;
         }
         self.opened(&mut current)
+    }
+
+    /// What the drive's node counts of its bucket (one HeadBucket, SRV17): the stored bytes -
+    /// what the quota counts - and the quota of the drive's tier ([`S3Drive::space`]); `None`
+    /// what an older node does not say.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's refusal or no answer.
+    pub fn space(&self) -> Result<BucketSpace, DriveError> {
+        self.with_bucket(S3Drive::space)
     }
 
     /// Runs `call` on the bucket; when the bucket refuses the credentials, refreshes them and

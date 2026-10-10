@@ -589,12 +589,13 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                 }
                 // An Azlin drive's space: its stored bytes against the quota, the files' size
                 // before compression as extra information.
-                if let Some(seen) = crate::usage_view::usage_of_slot(s, &slot.entry.id)
-                    .filter(|seen| seen.usage.quota > 0)
+                if let Some(usage) = crate::usage_view::usage_of_slot(s, &slot.entry.id)
+                    .map(crate::usage_view::DriveUsage::usage)
+                    .filter(|usage| usage.quota > 0)
                 {
                     pane = pane.with_property(
                         AzString::from("Space used"),
-                        AzString::from(seen.usage.text()),
+                        AzString::from(usage.text()),
                     );
                 }
                 match &slot.entry.location {

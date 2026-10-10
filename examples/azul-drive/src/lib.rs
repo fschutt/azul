@@ -82,7 +82,8 @@
 //! <until>`, `AZDRIVE_PROBLEM <drive id> <code> <request id>`, `AZDRIVE_PROBLEM_GONE <drive
 //! id>`, `AZDRIVE_LOCKDOWN_PENDING <drive id> <until>`, `AZDRIVE_LOCKDOWN_CANCELLED <drive id>`,
 //! `AZDRIVE_VOUCHER [new] <drive id> [<days>]`, `AZDRIVE_RECOVERY_KEY <drive id>`,
-//! `AZDRIVE_RECOVERY_LOCKDOWN <drive id>`,
+//! `AZDRIVE_RECOVERY_LOCKDOWN <drive id>`, `AZDRIVE_SPACE <drive id> <used> <quota>` (the
+//! node's HeadBucket count of stored bytes, `-` what it did not say),
 //! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
 //! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
 //! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
@@ -299,8 +300,8 @@ pub(crate) struct Slot {
     /// keys, and its decision to take again after the keys changed.
     #[cfg(feature = "encryption")]
     pub auto: Option<Arc<azul_storage::AutoEncrypted>>,
-    /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked").
-    #[cfg(feature = "encryption")]
+    /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked"), its node's
+    /// count of stored bytes (HeadBucket).
     pub azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
     /// An Azlin drive's AZL1 objects kept on this computer, below its encryption: a synced
     /// encrypted drive's "encrypted local copies".
@@ -316,7 +317,6 @@ impl Slot {
             drive: None,
             #[cfg(feature = "encryption")]
             auto: None,
-            #[cfg(feature = "encryption")]
             azlin: None,
             #[cfg(feature = "encryption")]
             objects: None,
@@ -378,10 +378,7 @@ impl Slot {
             // the nodes before its first refresh.
             .with_nodes_file(&nodes_file(&self.entry.id)),
             );
-            #[cfg(feature = "encryption")]
-            {
-                self.azlin = Some(concrete.clone());
-            }
+            self.azlin = Some(concrete.clone());
             let azlin: Arc<dyn Drive> = concrete;
             // Plain or encrypted: the first call (a worker thread) decides.
             #[cfg(feature = "encryption")]
@@ -2223,6 +2220,8 @@ fn scanned(
         actions::request_sort_stats(info, app, s);
     }
     actions::request_view_work(info, app, s);
+    // An Azlin drive's space as its node counts it (at most every SPACE_EVERY_SECS).
+    usage_view::request_space(info, app, s);
 }
 
 pub(crate) extern "C" fn on_job_done(
@@ -2523,6 +2522,8 @@ pub(crate) extern "C" fn on_job_done(
         } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
         Outcome::PeriodsRedeemed { results } => {
             periods::periods_redeemed(&mut info, s, results);
+            // Each drive's space as its node counts it.
+            usage_view::request_space(&mut info, &handle, s);
             // An encrypted drive's files' size before compression, for its usage line.
             #[cfg(feature = "encryption")]
             encryption::request_totals(&mut info, &handle, s);
@@ -2620,6 +2621,11 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::DriveProblem { serial, problem } => {
             problems::drive_problem(&mut info, s, serial, problem);
         }
+        Outcome::BucketSpace { azlin_id, result } => match result {
+            Ok(space) => usage_view::space_seen(s, &azlin_id, &space),
+            // Quiet: the line keeps what it knew; the next listing asks again.
+            Err(why) => eprintln!("AZDRIVE_SPACE_UNKNOWN {azlin_id}: {why}"),
+        },
         Outcome::VoucherRedeemed { drive_id, result } => {
             vouchers::redeemed(s, &drive_id, result);
         }
