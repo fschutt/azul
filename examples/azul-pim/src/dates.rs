@@ -343,6 +343,61 @@ mod tests {
         assert_eq!(date_group(day(2026, 9, 26), monday), DateGroup::LastWeek);
     }
 
+    /// The value of `id` in a Fluent resource of single-line messages (`id = value`).
+    fn message<'a>(resource: &'a str, id: &str) -> Option<&'a str> {
+        resource.lines().find_map(|line| {
+            let (name, value) = line.split_once(" = ")?;
+            (name == id).then_some(value)
+        })
+    }
+
+    /// The date words are azul-appkit's messages (the apps say them in the window's language):
+    /// each message the English the words here have, and a German one.
+    #[test]
+    fn the_date_words_are_the_kits_messages_in_english_and_german() {
+        let en = include_str!("../../azul-appkit/resources/en.ftl");
+        let de = include_str!("../../azul-appkit/resources/de.ftl");
+        let groups = [
+            DateGroup::Today,
+            DateGroup::Yesterday,
+            DateGroup::LastWeek,
+            DateGroup::TwoWeeksAgo,
+            DateGroup::ThreeWeeksAgo,
+            DateGroup::LastMonth,
+            DateGroup::Older,
+        ];
+        let mut pairs: Vec<(String, String)> =
+            groups.iter().map(|g| (g.message_id(), g.label())).collect();
+        for day in WEEKDAYS {
+            pairs.push((
+                weekday_message_id(day).to_string(),
+                weekday_name(day).to_string(),
+            ));
+            pairs.push((
+                weekday_short_message_id(day).to_string(),
+                weekday_short(day).to_string(),
+            ));
+            assert_eq!(
+                DateGroup::Weekday(day).message_id(),
+                weekday_message_id(day)
+            );
+        }
+        for month in 1..=12 {
+            pairs.push((
+                month_message_id(month).to_string(),
+                month_name(month).to_string(),
+            ));
+        }
+        for (id, english) in pairs {
+            assert_eq!(message(en, &id), Some(english.as_str()), "{id} in English");
+            assert!(
+                message(de, &id).is_some_and(|v| !v.is_empty()),
+                "{id} in German"
+            );
+        }
+        assert_eq!(message(de, &DateGroup::Today.message_id()), Some("Heute"));
+    }
+
     #[test]
     fn the_group_labels_are_outlooks() {
         assert_eq!(DateGroup::Today.label(), "Today");
