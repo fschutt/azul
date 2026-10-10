@@ -46,8 +46,7 @@ use azul_appkit::l10n::{self, t, t_args, Arg};
 use azul_pay::{
     bridge::{clean_name, CardBrand},
     machine::{Chip, Page},
-    offer::amount_text,
-    pills, Event as PayEvent, Method, SecretUrl, State as PayState, SurfaceKind,
+    Event as PayEvent, Method, SecretUrl, State as PayState, SurfaceKind,
 };
 use azul_storage::{
     catalog::{FieldKind, FieldSpec, ServiceSpec},
@@ -57,7 +56,7 @@ use azul_storage::{
 use crate::{
     add_drive::{source_groups, AddDialog, AddPage, BuyStep, OfferState, TiersState, COUNTRIES},
     add_flow::{self, AddEvent},
-    ids, look,
+    ids, look, pay_words,
     sign_in::{self, SignInSettings, SignInStep},
     with_state, DriveState, Popup,
 };
@@ -416,13 +415,12 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
                 .iter()
                 .enumerate()
                 .map(|(index, tier)| {
-                    let price = tier
-                        .price_text(d.yearly)
+                    let price = pay_words::tier_price(tier, d.yearly)
                         .unwrap_or_else(|| t("azdrive-add-price-on-request"));
                     tile(
                         app,
                         "cloud",
-                        &tier.quota_text(),
+                        &pay_words::quota(tier),
                         &price,
                         AddEvent::Tier(index),
                         index == d.tier,
@@ -672,8 +670,8 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
             tile(
                 app,
                 pill.method.icon(),
-                pill.method.label(),
-                &pills::via(pill.provider(offer)),
+                &pay_words::method(pill.method),
+                &pay_words::via(pill.provider(offer)),
                 AddEvent::Pill(pill.method),
                 selected,
                 "width: 146px; box-sizing: border-box; margin: 0px 8px 8px 0px;",
@@ -690,7 +688,7 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
         let names: Vec<AzString> = pill
             .providers
             .iter()
-            .map(|&i| AzString::from(pills::via(&offer.providers[i])))
+            .map(|&i| AzString::from(pay_words::via(&offer.providers[i])))
             .collect();
         let at = pill
             .providers
@@ -713,7 +711,7 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
         );
     }
     if let Some(price) = &offer.price {
-        parts.push(note(&price.text()).with_id(ids::ADD_PRICE));
+        parts.push(note(&pay_words::price(price)).with_id(ids::ADD_PRICE));
     }
     let consent = offer
         .legal
@@ -749,10 +747,10 @@ fn payment(d: &AddDialog, app: &RefAny) -> Vec<Dom> {
 /// The amount the order costs: the offer's price, else the tier's.
 fn amount(d: &AddDialog) -> String {
     match d.offer().and_then(|o| o.price.as_ref()) {
-        Some(price) => format!("{} {}", price.currency, amount_text(price.amount_cents)),
+        Some(price) => l10n::money(price.amount_cents, &price.currency),
         None => d
             .chosen_tier()
-            .and_then(|t| t.price_text(d.yearly))
+            .and_then(|t| pay_words::tier_price(t, d.yearly))
             .unwrap_or_default(),
     }
 }
@@ -786,10 +784,12 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
             .with_child(pay_webview(app, &checkout.surface.url, height)),
     );
     let what = match d.chosen_tier() {
-        Some(tier) => format!(
-            "{}, {}",
-            tier.quota_text(),
-            if d.yearly { "12 months" } else { "1 month" }
+        Some(tier) => t_args(
+            "azdrive-pay-what",
+            &[
+                ("quota", Arg::from(pay_words::quota(tier))),
+                ("months", Arg::from(if d.yearly { 12_u32 } else { 1 })),
+            ],
         ),
         None => String::new(),
     };
@@ -813,7 +813,10 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
         };
         row.push(button(
             app,
-            &format!("Pay {}", amount(d)),
+            &t_args(
+                "azdrive-pay-pay-amount",
+                &[("amount", Arg::from(amount(d)))],
+            ),
             ButtonType::Primary,
             AddEvent::PayConfirm,
             ids::PAY_CONFIRM,
@@ -823,8 +826,8 @@ fn pay_popover(d: &AddDialog, app: &RefAny) -> Option<Dom> {
     parts.push(buttons(row));
     let title = format!(
         "{} {}",
-        checkout.choice.method.method.label(),
-        pills::via(&checkout.choice.provider)
+        pay_words::method(checkout.choice.method.method),
+        pay_words::via(&checkout.choice.provider)
     );
     let content = Dom::create_div()
         .with_id(ids::PAY_POPOVER)
@@ -877,7 +880,7 @@ fn chip_dom(chip: &Chip) -> Dom {
                 )
                 .with_child(Dom::create_span_with_text(AzString::from(format!(
                     " - {}",
-                    chip.what
+                    pay_words::chip_page(chip.page, chip.provider)
                 )))),
             Dom::create_span_with_text(AzString::from(second))
                 .with_css("font-size: 11px; opacity: 0.8;"),

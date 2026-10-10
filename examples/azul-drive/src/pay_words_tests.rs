@@ -69,8 +69,15 @@ fn buy_storage_says_its_prices_and_payments_in_the_windows_language() {
         pay_words::tier_price(&tier, false).as_deref(),
         Some("EUR 0.99 a month")
     );
-    assert_eq!(pay_words::price(&price()), price().text(), "azul-pay's own words");
-    assert_eq!(pay_words::method(Method::SepaDebit), Method::SepaDebit.label());
+    assert_eq!(
+        pay_words::price(&price()),
+        price().text(),
+        "azul-pay's own words"
+    );
+    assert_eq!(
+        pay_words::method(Method::SepaDebit),
+        Method::SepaDebit.label()
+    );
     assert_eq!(
         pay_words::chip_page(ChipPage::CardFields, "Stripe"),
         ChipPage::CardFields.text("Stripe")

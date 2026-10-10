@@ -31,7 +31,7 @@ use azul_appkit::{
     l10n::{label, t, t_args, Arg},
     pieces::{block, text},
 };
-use azul_pay::{cash::amount_in_words, offer::amount_text, CashSlip};
+use azul_pay::{cash::amount_in_words, CashSlip};
 
 use crate::{
     actions::now_secs, add_drive::DEFAULT_CLOUD_NAME, ids, look, paper::Paper, with_state,
@@ -115,10 +115,10 @@ impl Letter {
         }
     }
 
-    /// `EUR 9.90`.
+    /// `EUR 9.90` (`9,90 EUR` in German).
     #[must_use]
     pub(crate) fn amount_text(&self) -> String {
-        format!("{} {}", self.currency, amount_text(self.amount_cents))
+        azul_appkit::l10n::money(self.amount_cents, &self.currency)
     }
 
     /// `nine euros and ninety cents`.

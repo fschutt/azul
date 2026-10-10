@@ -208,6 +208,7 @@ pub mod listing;
 mod look;
 pub mod model;
 mod paper;
+mod pay_words;
 #[cfg(test)]
 mod pay_words_tests;
 pub mod preview;

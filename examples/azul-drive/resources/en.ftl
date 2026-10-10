@@ -1589,3 +1589,56 @@ azdrive-keys-not-findable-yet = A computer that never had "{ $name }" cannot fin
 azdrive-contacts-err-finds-no-drive = The code the shares give back finds no drive: its findable key is not registered (a drive set up before findable keys). Recover from the drive's menu on a computer that lists it.
 azdrive-contacts-err-several-drives = The code the shares give back belongs to several drives: recover from the drive's menu instead.
 azdrive-contacts-recover-a-drive-title = Recover a drive with trusted contacts
+
+## Buy storage: the payment's words (methods, providers, notices, prices)
+
+azdrive-pay-method-sepa-debit = Direct debit
+azdrive-pay-method-card = Card
+azdrive-pay-method-apple-pay = Apple Pay
+azdrive-pay-method-paypal = PayPal
+azdrive-pay-method-wero = Wero
+azdrive-pay-method-bank-transfer = Bank transfer
+azdrive-pay-method-voucher = Voucher
+azdrive-pay-method-cash = Cash by post
+azdrive-pay-via = via { $provider }
+azdrive-pay-via-sold-by = via { $provider } - sold by { $seller }
+azdrive-pay-chip-card-fields = card fields by { $provider }
+azdrive-pay-chip-debit-fields = direct debit fields by { $provider }
+azdrive-pay-chip-fields = payment fields by { $provider }
+azdrive-pay-chip-page = payment page of { $provider }
+azdrive-pay-notice-consent = Tick the box above to order: the service starts as soon as the payment is confirmed.
+azdrive-pay-notice-no-surface = This payment method cannot be shown on this computer. Choose another one.
+azdrive-pay-notice-blocked = The payment page tried to open { $host }; it was blocked. Use "Open in browser instead" to go on in your browser.
+azdrive-pay-notice-left-for-browser = { $host } opens in your browser: finish the payment there.
+azdrive-pay-notice-browser-opened = Finish the payment in your browser ({ $host }). The drive appears here as soon as the payment is confirmed - also after a restart.
+azdrive-pay-notice-try-another = The payment was not confirmed three times. Try another payment method.
+azdrive-pay-notice-fields-incomplete = Fill in the payment details first.
+azdrive-pay-notice-load-failed = The payment page of { $host } did not load; trying another way.
+azdrive-pay-notice-provider-unavailable = { $provider } is not reachable. Try another payment method.
+azdrive-pay-notice-cancelled = The payment was cancelled; nothing was charged.
+azdrive-pay-notice-settles-in-days = We'll add the drive when your bank confirms. You can close AzDrive.
+azdrive-pay-notice-stopped-waiting = Stopped waiting. A payment made now still brings the drive: it is asked for in the background, and again at the next start.
+azdrive-pay-notice-declined = The payment did not go through: { $why }
+azdrive-pay-notice-no-browser = This payment cannot be opened in the browser.
+azdrive-pay-notice-surface-refused = The payment could not be moved to the browser: { $why }
+azdrive-pay-notice-waiting-for-letter = Waiting for your letter: postal cash takes a while, AzDrive checks once a day. Nothing else tells you - look here again in a few days.
+azdrive-pay-price-incl-vat = { $amount }, incl. { $rate } % VAT ({ $vat })
+azdrive-pay-price-plus-vat = { $amount }, plus { $rate } % VAT ({ $vat })
+azdrive-pay-a-month = { $price } a month
+azdrive-pay-a-year = { $price } a year
+azdrive-pay-what = { $quota }, { $months ->
+    [one] 1 month
+   *[other] { $months } months
+ }
+azdrive-pay-pay-amount = Pay { $amount }
+azdrive-pay-no-payment = No payment arrived within an hour. The checkout is kept: a payment made later still brings the drive, at the next start at the latest.
+azdrive-pay-no-payment-last = No payment arrived within an hour (last: { $last }). The checkout is kept: a payment made later still brings the drive, at the next start at the latest.
+azdrive-pay-checkout-ended = The checkout ended: { $why }.
+azdrive-pay-other-window = Another AzDrive window finished this checkout.
+azdrive-pay-checkouts-unread = The unfinished checkouts could not be read from the keyring: { $why }
+azdrive-pay-claims-no-server = Unfinished checkouts wait in the keyring, but no Azlin token server is set to ask about them.
+azdrive-add-connection-ok-empty = Connection OK: the source answered; it is empty.
+azdrive-add-connection-ok = Connection OK: the source answered and lists its files.
+azdrive-add-checkout-only = This token server sells drives through a checkout only: it makes no test drives. Use Buy.
+azdrive-add-days-not-drive = The token server answered with days for a drive, not with a new drive.
+azdrive-pay-err-no-surface = the answer has no surface

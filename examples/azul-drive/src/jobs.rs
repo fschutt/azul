@@ -29,7 +29,7 @@ use azcloud_kit::{
     PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
     TokenServer, UserError, VoucherRedeemed,
 };
-use azul_appkit::l10n::Text;
+use azul_appkit::l10n::{Phrase, Text};
 use azul_pay::{CashSlip, Choice, Created, Look, SurfaceKind};
 use azul::{
     image::{ImageRef, RawImage},
@@ -578,7 +578,7 @@ pub(crate) enum Outcome {
         result: Result<(), String>,
     },
     /// The wait for a payment ended without a drive: why (empty: "Stop waiting" said it).
-    PaymentEnded { serial: u64, why: String },
+    PaymentEnded { serial: u64, why: Text },
     /// A paid checkout's drive, its session in the keyring: from the dialog's wait (`serial`)
     /// or from the background claims (`None`: a message of a job that still runs).
     Claimed {
@@ -590,7 +590,7 @@ pub(crate) enum Outcome {
     /// token server no longer has it): why - to be said once. A job that still runs.
     CheckoutDropped { checkout_id: String, why: String },
     /// The background claims ended: what kept them from asking, if anything.
-    ClaimsDone { problem: Option<String> },
+    ClaimsDone { problem: Option<Text> },
     /// A claimed checkout finished: `Ok(None)` off the keyring's list (no period tokens to
     /// issue), `Ok(Some(..))` what became of its period tokens, `Err` the list could not be
     /// changed. `from_claims`: a message of the background claims, which still run.
@@ -2258,7 +2258,7 @@ fn switch_surface(
         .map_err(|e| e.to_string())?;
     let surface = answer
         .get("surface")
-        .ok_or_else(|| String::from("the answer has no surface"))?;
+        .ok_or_else(|| String::from("azdrive-pay-err-no-surface"))?;
     azul_pay::Surface::parse(surface, choice, look).map_err(|e| e.to_string())
 }
 
@@ -2291,7 +2291,7 @@ fn await_payment(
         Err(e) => {
             return Outcome::PaymentEnded {
                 serial,
-                why: e.to_string(),
+                why: Text::plain(e.to_string()),
             }
         }
     };
@@ -2304,24 +2304,20 @@ fn await_payment(
                 // "Stop waiting" said why, and the background claims take over.
                 return Outcome::PaymentEnded {
                     serial,
-                    why: String::new(),
+                    why: Text::default(),
                 };
             }
             std::thread::sleep(Duration::from_millis(250));
         }
         if started.elapsed() > Duration::from_secs(PAYMENT_WAIT_SECS) {
-            let problem = if last_problem.is_empty() {
-                String::new()
+            let why = if last_problem.is_empty() {
+                Text::key("azdrive-pay-no-payment")
             } else {
-                format!(" (last: {last_problem})")
+                Phrase::new("azdrive-pay-no-payment-last")
+                    .arg("last", last_problem.as_str())
+                    .into()
             };
-            return Outcome::PaymentEnded {
-                serial,
-                why: format!(
-                    "No payment arrived within an hour{problem}. The checkout is kept: a payment \
-                     made later still brings the drive, at the next start at the latest."
-                ),
-            };
+            return Outcome::PaymentEnded { serial, why };
         }
         match pending::poll(&server, keyring, checkout) {
             Polled::Pending => {}
@@ -2336,13 +2332,15 @@ fn await_payment(
             Polled::Dropped(why) => {
                 return Outcome::PaymentEnded {
                     serial,
-                    why: format!("The checkout ended: {why}."),
+                    why: Phrase::new("azdrive-pay-checkout-ended")
+                        .arg("why", why.as_str())
+                        .into(),
                 }
             }
             Polled::Settled => {
                 return Outcome::PaymentEnded {
                     serial,
-                    why: String::from("Another AzDrive window finished this checkout."),
+                    why: Text::key("azdrive-pay-other-window"),
                 }
             }
         }
@@ -2400,7 +2398,9 @@ fn claim_pending(
                 );
                 return Outcome::ClaimsDone {
                     problem: (!no_keyring).then(|| {
-                        format!("The unfinished checkouts could not be read from the keyring: {e}")
+                        Phrase::new("azdrive-pay-checkouts-unread")
+                            .arg("why", e.to_string())
+                            .into()
                     }),
                 };
             }
@@ -2464,10 +2464,7 @@ fn claim_pending(
         }
         if asked == 0 {
             return Outcome::ClaimsDone {
-                problem: Some(String::from(
-                    "Unfinished checkouts wait in the keyring, but no Azlin token server is set \
-                     to ask about them.",
-                )),
+                problem: Some(Text::key("azdrive-pay-claims-no-server")),
             };
         }
         if started.elapsed() > Duration::from_secs(CLAIM_WAIT_SECS) {
@@ -2741,9 +2738,9 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 .and_then(|drive| drive.list(&ListRequest::folder("").with_max_keys(1)))
                 .map(|page| {
                     if page.folders.is_empty() && page.objects.is_empty() {
-                        String::from("Connection OK: the source answered; it is empty.")
+                        String::from("azdrive-add-connection-ok-empty")
                     } else {
-                        String::from("Connection OK: the source answered and lists its files.")
+                        String::from("azdrive-add-connection-ok")
                     }
                 });
             Outcome::Tested { serial, result }
@@ -2785,10 +2782,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 .and_then(|server| server.create_dev_drive(&name, &tier))
                 .map_err(|e| {
                     if e.is_checkout_only() {
-                        String::from(
-                            "This token server sells drives through a checkout only: it makes \
-                             no test drives. Use Buy.",
-                        )
+                        String::from("azdrive-add-checkout-only")
                     } else {
                         e.to_string()
                     }
@@ -3089,9 +3083,7 @@ fn redeem_voucher(
                 },
             })
         }
-        Ok(VoucherRedeemed::Extended { .. }) => Err(String::from(
-            "The token server answered with days for a drive, not with a new drive.",
-        )),
+        Ok(VoucherRedeemed::Extended { .. }) => Err(String::from("azdrive-add-days-not-drive")),
         Err(e) => Err(e.to_string()),
     };
     Outcome::Bought { serial, result }

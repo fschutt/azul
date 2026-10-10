@@ -48,7 +48,7 @@ use azul::{
         AuthSessionStatus, Url,
     },
 };
-use azul_appkit::l10n::{self, t, t_args, Arg, Phrase};
+use azul_appkit::l10n::{self, t, t_args, Arg, Phrase, Text};
 use azul_pay::{
     machine::Notice,
     offer::{Offer, OfferContext},
@@ -1015,7 +1015,7 @@ fn run_effect(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, effect:
                 println!("AZDRIVE_PAY_BLOCKED {host}");
             }
             if let Some(d) = dialog(s) {
-                d.notice = notice.text();
+                d.notice = crate::pay_words::notice(&notice);
             }
         }
         // Cash by post: the two pages are offered (the dialog shows them), the order joins the
@@ -1146,7 +1146,7 @@ pub(crate) fn surface_answered(
     }
     let event = match result {
         Ok(surface) => Event::Switched(surface),
-        Err(why) => Event::SwitchFailed(why),
+        Err(why) => Event::SwitchFailed(l10n::t_label(&why)),
     };
     let _ = pay(info, app, s, event);
 }
@@ -1210,7 +1210,7 @@ pub(crate) fn checkout_started(
                     (None, None) => Event::CreateFailed(t("azdrive-add-no-surface")),
                 }
             }
-            Err(why) => Event::CreateFailed(why),
+            Err(why) => Event::CreateFailed(l10n::t_label(&why)),
         };
         let _ = pay(info, app, s, event);
         return;
@@ -1295,12 +1295,13 @@ pub(crate) fn payment_ended(
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    why: String,
+    why: Text,
 ) {
     if why.is_empty() {
         start_claims(info, app, s);
         return;
     }
+    let said = l10n::t_text(&why);
     let waiting = match dialog_of(s, serial) {
         Some(d) => {
             d.step = BuyStep::Idle;
@@ -1313,10 +1314,10 @@ pub(crate) fn payment_ended(
     };
     if waiting {
         // The machine's checkout ended: a new order may follow.
-        let _ = pay(info, app, s, Event::Declined(why.clone()));
+        let _ = pay(info, app, s, Event::Declined(said.clone()));
     }
     if let Some(d) = dialog_of(s, serial) {
-        d.notice = why;
+        d.notice = said;
     }
 }
 
@@ -1558,7 +1559,7 @@ pub(crate) fn picked_up_answered(
 }
 
 /// The background claims ended.
-pub(crate) fn claims_done(s: &mut DriveState, problem: Option<String>) {
+pub(crate) fn claims_done(s: &mut DriveState, problem: Option<Text>) {
     s.claiming = false;
     if let Some(problem) = problem {
         s.warn(problem);

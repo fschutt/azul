@@ -558,17 +558,17 @@ impl AddDialog {
     #[must_use]
     pub(crate) fn buy_label(&self) -> String {
         match self.chosen_tier() {
-            Some(tier) => match tier.price_text(self.yearly) {
+            Some(tier) => match crate::pay_words::tier_price(tier, self.yearly) {
                 Some(price) => t_args(
                     "azdrive-add-buy-tier-price",
                     &[
-                        ("quota", Arg::from(tier.quota_text())),
+                        ("quota", Arg::from(crate::pay_words::quota(tier))),
                         ("price", Arg::from(price)),
                     ],
                 ),
                 None => t_args(
                     "azdrive-add-buy-tier",
-                    &[("quota", Arg::from(tier.quota_text()))],
+                    &[("quota", Arg::from(crate::pay_words::quota(tier)))],
                 ),
             },
             None => t("azdrive-add-buy"),

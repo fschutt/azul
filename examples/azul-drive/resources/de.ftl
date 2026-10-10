@@ -1504,7 +1504,7 @@ azdrive-add-pay-not-prepared = Die Zahlung konnte nicht vorbereitet werden: { $w
 azdrive-add-pay-page-open = Die Zahlungsseite ist in deinem Browser geöffnet. Das Laufwerk erscheint hier, sobald die Zahlung durch ist.
 azdrive-add-pay-page-open-yourself = Öffne diese Zahlungsseite in deinem Browser: { $page }. Das Laufwerk erscheint hier, sobald die Zahlung durch ist.
 azdrive-add-stopped-waiting-for = Das Warten auf die Zahlung der Bestellung { $checkout } wurde beendet. Eine jetzt geleistete Zahlung bringt das Laufwerk trotzdem: AzDrive fragt im Hintergrund nach und erneut beim nächsten Start.
-azdrive-add-stopped-waiting = Nicht mehr warten.
+azdrive-add-stopped-waiting = Warten beendet.
 azdrive-add-not-made = Das neue Laufwerk konnte nicht erstellt werden: { $why }
 azdrive-add-unsaved = { $problem } Das Laufwerk funktioniert, bis AzDrive geschlossen wird; seine Sitzung liegt im Schlüsselbund.
 azdrive-add-unsaved-again = { $problem } Das Laufwerk funktioniert, bis AzDrive geschlossen wird; seine Sitzung liegt im Schlüsselbund, und AzDrive fügt es beim nächsten Start erneut hinzu.
@@ -1587,3 +1587,56 @@ azdrive-keys-not-findable-yet = Ein Computer, der „{ $name }“ nie hatte, kan
 azdrive-contacts-err-finds-no-drive = Der Code, den die Anteile zurückgeben, findet kein Laufwerk: Sein Suchschlüssel ist nicht registriert (ein Laufwerk, das vor den Suchschlüsseln eingerichtet wurde). Stelle es über das Menü des Laufwerks auf einem Computer wieder her, der es anzeigt.
 azdrive-contacts-err-several-drives = Der Code, den die Anteile zurückgeben, gehört zu mehreren Laufwerken: Stelle stattdessen über das Menü des Laufwerks wieder her.
 azdrive-contacts-recover-a-drive-title = Laufwerk mit vertrauenswürdigen Kontakten wiederherstellen
+
+## Buy storage: the payment's words (methods, providers, notices, prices)
+
+azdrive-pay-method-sepa-debit = Lastschrift
+azdrive-pay-method-card = Karte
+azdrive-pay-method-apple-pay = Apple Pay
+azdrive-pay-method-paypal = PayPal
+azdrive-pay-method-wero = Wero
+azdrive-pay-method-bank-transfer = Überweisung
+azdrive-pay-method-voucher = Gutschein
+azdrive-pay-method-cash = Bargeld per Post
+azdrive-pay-via = über { $provider }
+azdrive-pay-via-sold-by = über { $provider } – verkauft von { $seller }
+azdrive-pay-chip-card-fields = Kartenfelder von { $provider }
+azdrive-pay-chip-debit-fields = Lastschriftfelder von { $provider }
+azdrive-pay-chip-fields = Zahlungsfelder von { $provider }
+azdrive-pay-chip-page = Zahlungsseite von { $provider }
+azdrive-pay-notice-consent = Setze oben das Häkchen, um zu bestellen: Der Dienst beginnt, sobald die Zahlung bestätigt ist.
+azdrive-pay-notice-no-surface = Diese Zahlungsart kann auf diesem Computer nicht angezeigt werden. Wähle eine andere.
+azdrive-pay-notice-blocked = Die Zahlungsseite wollte { $host } öffnen; das wurde blockiert. Verwende „Stattdessen im Browser öffnen“, um in deinem Browser weiterzumachen.
+azdrive-pay-notice-left-for-browser = { $host } wird in deinem Browser geöffnet: Schließe die Zahlung dort ab.
+azdrive-pay-notice-browser-opened = Schließe die Zahlung in deinem Browser ab ({ $host }). Das Laufwerk erscheint hier, sobald die Zahlung bestätigt ist – auch nach einem Neustart.
+azdrive-pay-notice-try-another = Die Zahlung wurde dreimal nicht bestätigt. Versuche eine andere Zahlungsart.
+azdrive-pay-notice-fields-incomplete = Fülle zuerst die Zahlungsdaten aus.
+azdrive-pay-notice-load-failed = Die Zahlungsseite von { $host } wurde nicht geladen; ein anderer Weg wird versucht.
+azdrive-pay-notice-provider-unavailable = { $provider } ist nicht erreichbar. Versuche eine andere Zahlungsart.
+azdrive-pay-notice-cancelled = Die Zahlung wurde abgebrochen; es wurde nichts berechnet.
+azdrive-pay-notice-settles-in-days = Wir fügen das Laufwerk hinzu, sobald deine Bank bestätigt. Du kannst AzDrive schließen.
+azdrive-pay-notice-stopped-waiting = Warten beendet. Eine jetzt geleistete Zahlung bringt das Laufwerk trotzdem: Es wird im Hintergrund danach gefragt und erneut beim nächsten Start.
+azdrive-pay-notice-declined = Die Zahlung ist nicht durchgegangen: { $why }
+azdrive-pay-notice-no-browser = Diese Zahlung kann nicht im Browser geöffnet werden.
+azdrive-pay-notice-surface-refused = Die Zahlung konnte nicht in den Browser verlegt werden: { $why }
+azdrive-pay-notice-waiting-for-letter = Warten auf deinen Brief: Bargeld per Post braucht eine Weile, AzDrive sieht einmal am Tag nach. Sonst sagt dir nichts Bescheid – schau in ein paar Tagen wieder hier nach.
+azdrive-pay-price-incl-vat = { $amount }, inkl. { $rate } % MwSt. ({ $vat })
+azdrive-pay-price-plus-vat = { $amount }, zzgl. { $rate } % MwSt. ({ $vat })
+azdrive-pay-a-month = { $price } im Monat
+azdrive-pay-a-year = { $price } im Jahr
+azdrive-pay-what = { $quota }, { $months ->
+    [one] 1 Monat
+   *[other] { $months } Monate
+ }
+azdrive-pay-pay-amount = { $amount } bezahlen
+azdrive-pay-no-payment = Innerhalb einer Stunde ist keine Zahlung eingegangen. Die Bestellung bleibt erhalten: Eine spätere Zahlung bringt das Laufwerk trotzdem, spätestens beim nächsten Start.
+azdrive-pay-no-payment-last = Innerhalb einer Stunde ist keine Zahlung eingegangen (zuletzt: { $last }). Die Bestellung bleibt erhalten: Eine spätere Zahlung bringt das Laufwerk trotzdem, spätestens beim nächsten Start.
+azdrive-pay-checkout-ended = Die Bestellung wurde beendet: { $why }.
+azdrive-pay-other-window = Ein anderes AzDrive-Fenster hat diese Bestellung abgeschlossen.
+azdrive-pay-checkouts-unread = Die offenen Bestellungen konnten nicht aus dem Schlüsselbund gelesen werden: { $why }
+azdrive-pay-claims-no-server = Im Schlüsselbund warten offene Bestellungen, aber es ist kein Azlin-Tokenserver eingestellt, um danach zu fragen.
+azdrive-add-connection-ok-empty = Verbindung OK: Die Quelle hat geantwortet; sie ist leer.
+azdrive-add-connection-ok = Verbindung OK: Die Quelle hat geantwortet und listet ihre Dateien auf.
+azdrive-add-checkout-only = Dieser Tokenserver verkauft Laufwerke nur über eine Bestellung: Er erstellt keine Testlaufwerke. Verwende „Kaufen“.
+azdrive-add-days-not-drive = Der Tokenserver hat mit Tagen für ein Laufwerk geantwortet, nicht mit einem neuen Laufwerk.
+azdrive-pay-err-no-surface = die Antwort enthält keine Oberfläche
