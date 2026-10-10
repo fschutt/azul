@@ -130,17 +130,23 @@ pub struct Found {
     pub line: Option<FoundLine>,
 }
 
-/// A row of a result whose key is `key` (its size and date unknown until the rows in view are
-/// stat'ed, as a scanned row's).
-fn result_row(key: String, name: String, is_folder: bool) -> Entry {
+/// A row of a result whose key is `key`, with the size and date the search read with it (a row
+/// whose stat failed knows neither, and the rows in view get theirs as a scanned row does).
+fn result_row(
+    key: String,
+    name: String,
+    is_folder: bool,
+    size: Option<u64>,
+    modified: Option<u64>,
+) -> Entry {
     Entry {
         key,
         name,
         is_folder,
-        size: None,
-        modified: None,
+        size: if is_folder { None } else { size },
+        modified,
         etag: None,
-        known: false,
+        known: modified.is_some(),
     }
 }
 
@@ -148,7 +154,13 @@ fn result_row(key: String, name: String, is_folder: bool) -> Entry {
 #[must_use]
 pub fn found_name(prefix: &str, hit: NameHit) -> Found {
     Found {
-        entry: result_row(format!("{prefix}{}", hit.path), hit.name, hit.is_dir),
+        entry: result_row(
+            format!("{prefix}{}", hit.path),
+            hit.name,
+            hit.is_dir,
+            hit.size,
+            hit.modified,
+        ),
         line: None,
     }
 }
@@ -172,7 +184,7 @@ pub fn found_content(prefix: &str, hit: ContentHit) -> Found {
         }
     });
     Found {
-        entry: result_row(key, name, false),
+        entry: result_row(key, name, false, hit.size, hit.modified),
         line,
     }
 }
@@ -212,7 +224,8 @@ pub fn remote_names(
             let name = key::last_segment(folder);
             if matcher.find(name, folder).is_some() {
                 let mut entry =
-                    result_row(format!("{prefix}{folder}/"), name.to_string(), true);
+                    result_row(format!("{prefix}{folder}/"), name.to_string(), true, None, None);
+                // A bucket's folder is a common prefix: it has no date to learn.
                 entry.known = true;
                 found.push(Found { entry, line: None });
             }
