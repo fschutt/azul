@@ -150,6 +150,23 @@ fn the_helper_answers_capabilities_list_and_fetch_as_git_asks() {
     assert!(commits.contains(&head));
 }
 
+/// git 2.39 asks `option object-format` without a value (checked with a stand-in helper and
+/// the real `git clone`); it gives up on anything but `ok`.
+#[test]
+fn the_helper_says_ok_to_the_object_format_option_git_sends_without_a_value() {
+    let mut repo = drive();
+    let mut output = Vec::new();
+    serve(
+        &mut repo,
+        Cursor::new("option object-format\nlist\n\n"),
+        &mut output,
+        &mut |_: &[u8]| Ok(()),
+    )
+    .unwrap();
+    let text = String::from_utf8(output).unwrap();
+    assert!(text.starts_with("ok\n:object-format sha256\n"), "{text}");
+}
+
 #[test]
 fn a_drive_key_file_holds_64_hex_digits() {
     let key = key_from_hex(&format!("{}\n", "0a".repeat(32))).unwrap();
