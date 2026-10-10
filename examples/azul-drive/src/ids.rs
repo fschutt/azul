@@ -443,3 +443,45 @@ pub fn share_paper(row: usize, what: &str) -> AzString {
 }
 /// "Unlock with the recovery code": the code's box.
 pub const UNLOCK_CODE: AzString = AzString::from_const_str("__azdrive_unlock_code");
+/// Recovering a drive this computer never had: Options > Drives' doors, the kit's code and
+/// Find, a found drive's Lock down (by its place in the list), a pending recovery's Finish.
+pub const KIT_RECOVER: AzString = AzString::from_const_str("__azdrive_kit_recover");
+pub const CONTACTS_RECOVER_NEW: AzString = AzString::from_const_str("__azdrive_contacts_recover_new");
+pub const KIT_RECOVER_CODE: AzString = AzString::from_const_str("__azdrive_kit_recover_code");
+pub const KIT_RECOVER_FIND: AzString = AzString::from_const_str("__azdrive_kit_recover_find");
+#[must_use]
+pub fn kit_recover_lockdown(index: usize) -> AzString {
+    AzString::from(format!("__azdrive_kit_recover_lockdown_{index}"))
+}
+#[must_use]
+pub fn recovery_finish(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_recovery_finish_{}", id_part(drive_id)))
+}
+/// A drive's recovery keys in Options > Drives: the block, Check, Add another recovery code,
+/// Make the kit find it, a key's Remove; the code typed to sign a change, and its OK.
+#[must_use]
+pub fn recovery_keys(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_recovery_keys_{}", id_part(drive_id)))
+}
+#[must_use]
+pub fn recovery_keys_check(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_recovery_keys_check_{}", id_part(drive_id)))
+}
+#[must_use]
+pub fn recovery_keys_add(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_recovery_keys_add_{}", id_part(drive_id)))
+}
+#[must_use]
+pub fn recovery_keys_findable(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_recovery_keys_findable_{}", id_part(drive_id)))
+}
+#[must_use]
+pub fn recovery_key_remove(drive_id: &str, key_id: &str) -> AzString {
+    AzString::from(format!(
+        "__azdrive_recovery_key_remove_{}_{}",
+        id_part(drive_id),
+        id_part(key_id)
+    ))
+}
+pub const RECOVERY_SIGN_CODE: AzString = AzString::from_const_str("__azdrive_recovery_sign_code");
+pub const RECOVERY_SIGN_OK: AzString = AzString::from_const_str("__azdrive_recovery_sign_ok");

@@ -350,6 +350,9 @@ pub(crate) struct Sheet {
     pub after_rotation: bool,
     /// What the emergency kit's last button did (printed, saved, why not).
     pub kit_note: String,
+    /// The sheet of a further recovery code (a second kit): it only closes when its groups are
+    /// typed back - the drive was set up long ago.
+    pub extra: bool,
 }
 
 /// A group of a recovery code as people type it: no spaces or dashes, upper case, `O` for 0,
@@ -388,7 +391,15 @@ impl Sheet {
             error: String::new(),
             after_rotation: false,
             kit_note: String::new(),
+            extra: false,
         }
+    }
+
+    /// The sheet of a further recovery code (a second kit).
+    #[must_use]
+    pub(crate) fn extra(mut self) -> Sheet {
+        self.extra = true;
+        self
     }
 
     /// The sheet of a key rotation's new code.
@@ -467,6 +478,8 @@ pub(crate) enum Dialog {
     },
     /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
     Contacts(crate::recovery_contacts::Page),
+    /// The drive's recovery keys: the kit's lookup, a second kit, a key removed.
+    Keys(crate::recovery_keys::Page),
 }
 
 impl Dialog {
@@ -675,6 +688,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
         ),
         Dialog::Drill { .. } => crate::recovery::drill_parts(dialog, s, app),
         Dialog::Contacts(page) => crate::recovery_contacts::dialog_parts(page, s, app),
+        Dialog::Keys(page) => crate::recovery_keys::dialog_parts(page, s, app),
         Dialog::OfferReencrypt { drive_id } => (
             String::from("Re-encrypt every file?"),
             column(vec![
@@ -706,6 +720,12 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
 
 /// The drive's `AutoEncrypted`, opening the drive first; `None` (with a message) when it cannot
 /// be opened yet.
+/// [`auto_of`] for the recovery modules: the drive's `AutoEncrypted`, opened first; `None`
+/// (with a message) when it cannot be opened yet.
+pub(crate) fn auto_for(s: &mut DriveState, drive_id: &str) -> Option<Arc<AutoEncrypted>> {
+    auto_of(s, drive_id)
+}
+
 fn auto_of(s: &mut DriveState, drive_id: &str) -> Option<Arc<AutoEncrypted>> {
     let index = s.slot_index(drive_id)?;
     if s.slots[index].locked() {
@@ -949,6 +969,14 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
             return;
         }
         let drive_id = sheet.drive_id.clone();
+        if sheet.extra {
+            // A second kit: its key is at the token server already; nothing else to set up.
+            crate::recovery::forget_print_copies();
+            println!("AZDRIVE_RECOVERY_CODE_VERIFIED {drive_id}");
+            s.popup = None;
+            s.success("The second recovery code works: keep its kit apart from the first.");
+            return;
+        }
         let code = RecoveryCode::parse(&sheet.code);
         // The sheet closes: Print's copies of the kit go; the setup's check is kept.
         crate::recovery::forget_print_copies();
@@ -1086,6 +1114,9 @@ pub(crate) enum EncryptionJob {
         public_key: String,
         token_url: String,
         keyring: azcloud_kit::SharedKeyring,
+        /// The code's findable key (its public half) and the drive key that signs its
+        /// registration: a computer that never had the drive finds it by it.
+        findable: Option<(String, azcloud_kit::RecoveryKey)>,
     },
     /// "Lock down with the recovery code": the lockdown signed with the drive's recovery key,
     /// no drive token sent; the pending family's token kept as this computer's session.
@@ -1118,6 +1149,8 @@ pub(crate) enum EncryptionJob {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
     },
+    /// A task of the recovery keys (the lookup, a second kit, a removal).
+    Keys(crate::recovery_keys::KeysJob),
 }
 
 /// What a rotation brings back to the UI thread.
@@ -1161,6 +1194,8 @@ pub(crate) enum EncryptionOutcome {
     RecoveryKeyRegistered {
         drive_id: String,
         result: Result<(), String>,
+        /// The findable key's registration: its public half, or why not.
+        findable: Option<Result<String, String>>,
     },
     /// The recovery-key lockdown pending until then (seconds since 1970), or why not.
     LockedDown {
@@ -1191,6 +1226,8 @@ pub(crate) enum EncryptionOutcome {
         drive_id: String,
         result: Result<u32, String>,
     },
+    /// What a task of the recovery keys found.
+    Keys(crate::recovery_keys::KeysDone),
 }
 
 /// Runs on a worker thread.
@@ -1366,19 +1403,44 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             public_key,
             token_url,
             keyring,
+            findable,
         } => {
             let transport = AzulTransport::new(crate::USER_AGENT);
-            let result = TokenServer::new(&token_url, &transport)
-                .map_err(|e| e.to_string())
-                .and_then(|server| {
+            let server = TokenServer::new(&token_url, &transport).map_err(|e| e.to_string());
+            let result = server.as_ref().map_err(Clone::clone).and_then(|server| {
+                keyring
+                    .with_drive_token(&drive_id, |token| {
+                        server.set_recovery_key(&drive_id, token, &public_key)
+                    })
+                    .map_err(|e| e.to_string())
+                    .and_then(|answer| answer.map_err(|e| e.to_string()))
+            });
+            // Then the code's findable key, signed by the drive key just registered.
+            let findable = match (&result, &server, findable) {
+                (Ok(()), Ok(server), Some((public, signer))) => Some(
                     keyring
                         .with_drive_token(&drive_id, |token| {
-                            server.set_recovery_key(&drive_id, token, &public_key)
+                            server.add_recovery_key(
+                                &drive_id,
+                                token,
+                                &public,
+                                crate::recovery_health::FINDABLE_LABEL,
+                                |message| Ok(signer.sign_base64(message)),
+                            )
                         })
                         .map_err(|e| e.to_string())
-                        .and_then(|answer| answer.map_err(|e| e.to_string()))
-                });
-            EncryptionOutcome::RecoveryKeyRegistered { drive_id, result }
+                        .and_then(|answer| {
+                            answer.map_err(|e| crate::recovery_keys::token_text(&e))
+                        })
+                        .map(|_| public),
+                ),
+                _ => None,
+            };
+            EncryptionOutcome::RecoveryKeyRegistered {
+                drive_id,
+                result,
+                findable,
+            }
         }
         EncryptionJob::RecoveryLockdown {
             drive_id,
@@ -1431,6 +1493,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 .map_err(|e| e.to_string());
             EncryptionOutcome::DevicesCounted { drive_id, result }
         }
+        EncryptionJob::Keys(job) => EncryptionOutcome::Keys(crate::recovery_keys::run(job)),
     }
 }
 
@@ -1464,6 +1527,10 @@ fn register_recovery_key(
         public_key: recovery_key_of(code, drive_id).public_base64(),
         token_url,
         keyring: s.keyring.clone(),
+        findable: Some((
+            crate::recovery_keys::findable_key_of(code).public_base64(),
+            recovery_key_of(code, drive_id),
+        )),
     };
     spawn(info, app, s, Job::Encryption(job));
 }
@@ -1480,8 +1547,17 @@ pub(crate) fn recovery_lockdown(
     let transport = AzulTransport::new(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let key = recovery_key_of(code, drive_id);
+    let findable = crate::recovery_keys::findable_key_of(code);
     let pending = server
         .recovery_lockdown(drive_id, |message| Ok(key.sign_base64(message)))
+        .or_else(|e| {
+            // Not the drive key: the code's findable key (a second kit registers only that).
+            if matches!(e, TokenError::Refused { status: 401, .. }) {
+                server.recovery_lockdown(drive_id, |message| Ok(findable.sign_base64(message)))
+            } else {
+                Err(e)
+            }
+        })
         .map_err(|e| match &e {
             TokenError::Refused { status: 401, .. } => String::from(
                 "That recovery code does not match the drive's recovery key.",
@@ -1641,8 +1717,33 @@ pub(crate) fn on_outcome(
                 )),
             }
         }
-        EncryptionOutcome::RecoveryKeyRegistered { drive_id, result } => match result {
-            Ok(()) => println!("AZDRIVE_RECOVERY_KEY {drive_id}"),
+        EncryptionOutcome::RecoveryKeyRegistered {
+            drive_id,
+            result,
+            findable,
+        } => match result {
+            Ok(()) => {
+                println!("AZDRIVE_RECOVERY_KEY {drive_id}");
+                match findable {
+                    Some(Ok(public)) => {
+                        println!("AZDRIVE_RECOVERY_FINDABLE {drive_id}");
+                        crate::recovery_health::state_mut(
+                            &mut s.settings.recovery.drives,
+                            &drive_id,
+                        )
+                        .findable_key = Some(public);
+                        crate::save_settings(info, app, s);
+                    }
+                    Some(Err(why)) => {
+                        let name = drive_name(s, &drive_id);
+                        s.warn(format!(
+                            "A computer that never had \"{name}\" cannot find it from its kit \
+                             yet ({why}): Options > Drives > Make the kit find it."
+                        ));
+                    }
+                    None => {}
+                }
+            }
             Err(why) => {
                 let name = drive_name(s, &drive_id);
                 s.warn(format!(
@@ -1694,6 +1795,7 @@ pub(crate) fn on_outcome(
         EncryptionOutcome::DevicesCounted { drive_id, result } => {
             crate::recovery::devices_counted(info, app, s, &drive_id, result);
         }
+        EncryptionOutcome::Keys(done) => crate::recovery_keys::on_done(info, app, s, done),
     }
 }
 
