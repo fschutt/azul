@@ -26,6 +26,7 @@ mod sync_remote;
 mod sync_rules;
 mod token;
 mod transport;
+mod user_errors;
 mod voucher;
 
 use std::sync::{Arc, Mutex};

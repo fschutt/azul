@@ -353,6 +353,49 @@ fn an_s3_error_answer_is_a_readable_service_error() {
 }
 
 #[test]
+fn an_azlin_error_answer_keeps_its_code_its_retry_after_and_its_request_id() {
+    // An Azlin node's answer (D33): the S3 error, its own code in `x-azlin-error`, how long to
+    // wait in `Retry-After`, the request ID in `x-amz-request-id` (also in the body).
+    let fake = Fake::default();
+    fake.answer(
+        503,
+        &[
+            ("x-azlin-error", "maintenance"),
+            ("Retry-After", "30"),
+            ("x-amz-request-id", "n2-81723"),
+        ],
+        "<Error><Code>ServiceUnavailable</Code><Message>upgrading</Message></Error>",
+    );
+    // A body without a RequestId: the header names it.
+    match local_drive(&fake).list(&ListRequest::folder("")) {
+        Err(DriveError::Service(e)) => {
+            assert_eq!((e.status, e.code.as_str()), (503, "ServiceUnavailable"));
+            assert_eq!(e.azlin_error.as_deref(), Some("maintenance"));
+            assert_eq!(e.retry_after, Some(30));
+            assert_eq!(e.request_id.as_deref(), Some("n2-81723"));
+            let text = DriveError::Service(e).to_string();
+            assert!(text.contains("x-azlin-error maintenance"), "{text}");
+        }
+        other => panic!("expected a service error, got {other:?}"),
+    }
+    // Another service: none of it, and a Retry-After that is a date is no number of seconds.
+    fake.answer(
+        503,
+        &[("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT")],
+        "<Error><Code>SlowDown</Code><Message>slow down</Message>\
+         <RequestId>4442587FB7D0A2F9</RequestId></Error>",
+    );
+    match local_drive(&fake).list(&ListRequest::folder("")) {
+        Err(DriveError::Service(e)) => {
+            assert_eq!(e.azlin_error, None);
+            assert_eq!(e.retry_after, None);
+            assert_eq!(e.request_id.as_deref(), Some("4442587FB7D0A2F9"));
+        }
+        other => panic!("expected a service error, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_transport_failure_is_a_transport_error() {
     let fake = Fake::default();
     fake.fail("Connection failed: http://127.0.0.1:9000");
