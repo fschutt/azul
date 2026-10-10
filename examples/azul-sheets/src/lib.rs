@@ -39,6 +39,8 @@ mod format_dialog;
 pub mod functions;
 pub mod ids;
 pub mod ironcalc_engine;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod ops;
 pub mod refs;
