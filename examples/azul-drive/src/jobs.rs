@@ -23,8 +23,8 @@ use std::{
 
 use azcloud_kit::{
     pending::{self, Claimed, Finished, PendingTokens, Polled},
-    Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, OptionsQuery, PendingCheckout,
-    PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenServer,
+    redeem_due, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, OptionsQuery,
+    PendingCheckout, PeriodTokenStore, PeriodTokens, Redeemed, SharedKeyring, Tiers, TokenServer,
 };
 use azul_pay::{Choice, Created, Look, SurfaceKind};
 use azul::{
@@ -302,6 +302,14 @@ pub(crate) enum Job {
         grant: Option<PeriodTokens>,
         token_url: String,
     },
+    /// The Azlin drives `drives` (each one's id and token server) whose periods near their ends
+    /// get their next month from a period token kept in `store` - each under its drive's
+    /// keyring lock, with its newest drive token ([`azcloud_kit::redeem_due`]).
+    RedeemPeriods {
+        keyring: SharedKeyring,
+        store: PeriodTokenStore,
+        drives: Vec<(String, String)>,
+    },
     /// The settings file written (through a LocalDrive on the config folder).
     SaveSettings {
         drive: LocalDrive,
@@ -468,6 +476,8 @@ pub(crate) enum Outcome {
         result: Result<Option<Finished>, String>,
         from_claims: bool,
     },
+    /// What the redemption of each drive's period tokens did (drive id, outcome).
+    PeriodsRedeemed { results: Vec<(String, Redeemed)> },
     SettingsSaved {
         result: Result<(), DriveError>,
     },
@@ -1495,6 +1505,29 @@ fn claim_pending(
     }
 }
 
+/// Each of `drives` (its id and token server) whose period nears its end gets its next month
+/// from a period token kept in `store` ([`redeem_due`]: under the drive's keyring lock, with its
+/// newest drive token; a drive without kept tokens asks nothing).
+fn redeem_periods(
+    keyring: &SharedKeyring,
+    store: &PeriodTokenStore,
+    drives: &[(String, String)],
+) -> Outcome {
+    let transport = AzulTransport::new(USER_AGENT);
+    let now = crate::actions::now_secs();
+    let results = drives
+        .iter()
+        .filter_map(|(drive_id, token_url)| {
+            let server = TokenServer::new(token_url, &transport).ok()?;
+            Some((
+                drive_id.clone(),
+                redeem_due(&server, keyring, store, drive_id, now),
+            ))
+        })
+        .collect();
+    Outcome::PeriodsRedeemed { results }
+}
+
 /// The claimed `checkout`'s drive `drive_id` is in the drives file (AZDRIVE-INTEGRATION §4):
 /// without a `grant` its checkout leaves the keyring's list; with one the list keeps its issue
 /// key with its claim secret ([`pending::claimed`]) and its period tokens are issued at
@@ -1866,6 +1899,11 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             grant.as_ref(),
             &token_url,
         ),
+        Job::RedeemPeriods {
+            keyring,
+            store,
+            drives,
+        } => redeem_periods(&keyring, &store, &drives),
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },
