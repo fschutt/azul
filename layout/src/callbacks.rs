@@ -1881,7 +1881,7 @@ impl CallbackInfo {
             }
         }
         #[cfg(not(feature = "fluent"))]
-        let _ = args;
+        drop(args);
         message_id
     }
 

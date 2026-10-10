@@ -1021,3 +1021,5 @@ mod a_facts_row_in_a_card_keeps_its_words;
 mod an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width;
 #[path = "a_letter_spaced_line_is_aligned_by_its_spaced_width.rs"]
 mod a_letter_spaced_line_is_aligned_by_its_spaced_width;
+#[path = "a_clipped_or_covered_scroll_box_takes_no_pointer.rs"]
+mod a_clipped_or_covered_scroll_box_takes_no_pointer;

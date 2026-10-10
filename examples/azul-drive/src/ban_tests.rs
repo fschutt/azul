@@ -108,6 +108,7 @@ fn copy_everything_plans_the_whole_drive_into_a_folder_named_after_it() {
         &prefix,
         false,
         TransferKind::Download,
+        "Copy",
     )
     .unwrap();
     let mut targets: Vec<&str> = plan.files.iter().map(|f| f.target_key.as_str()).collect();
