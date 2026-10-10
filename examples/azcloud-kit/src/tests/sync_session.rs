@@ -23,7 +23,7 @@ use crate::{
         local::path_of,
         objects::ObjectCache,
         session::{
-            is_read_only, AutoDownload, FileRecord, FileState, LocalCopies, Resolution,
+            is_read_only, AutoDownload, FileRecord, FileState, LocalCopies, Pass, Resolution,
             SyncSession, SyncSetup, SyncStates,
         },
         HeldConflict, SyncEvent,
@@ -690,4 +690,121 @@ fn index_of(store: &S3Bucket) -> serde_json::Value {
 /// `deleted`, so a plain text search finds its name there).
 fn lists(index: &serde_json::Value, key: &str) -> bool {
     index["files"].get(key).is_some()
+}
+
+// ==== A limit for big transfers (a metered network) ====
+
+/// `p`'s pairing in a session whose passes hold transfers over `limit` bytes back.
+fn limited(p: &Paired, name: &str, store: &Arc<S3Bucket>, limit: u64) -> SyncSession {
+    let remote: Arc<dyn RemoteStore> = store.clone();
+    SyncSession::plain(
+        p.session.setup().clone(),
+        p.state.path().to_path_buf(),
+        name,
+        remote,
+    )
+    .with_transfer_limit(Some(limit))
+}
+
+fn pass_of(session: &SyncSession) -> Pass {
+    let stop = AtomicBool::new(false);
+    session.pass(&stop, &mut |_| {}).unwrap()
+}
+
+/// A file of `MB + 1` bytes: over a 1 MB limit.
+fn big(fill: u8) -> Vec<u8> {
+    vec![fill; (MB + 1) as usize]
+}
+
+#[test]
+fn a_limited_pass_sends_small_files_and_keeps_big_ones_here_for_a_free_pass() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    a.write("notes.txt", b"small");
+    a.write("video.mp4", &big(7));
+    let pass = pass_of(&limited(&a, "dev-a", &store, MB));
+    assert_eq!(pass.held, vec![String::from("video.mp4")]);
+    assert!(pass.states.files.contains_key("notes.txt"), "the small file went up");
+    assert!(!pass.states.files.contains_key("video.mp4"), "the big one did not");
+    assert!(lists(&index_of(&store), "notes.txt"));
+    assert!(!lists(&index_of(&store), "video.mp4"));
+    // A change of the small file goes up on the limited network too.
+    a.write("notes.txt", b"small, changed");
+    let pass = pass_of(&limited(&a, "dev-a", &store, MB));
+    assert_eq!(pass.held, vec![String::from("video.mp4")], "still waiting");
+    assert_eq!(pass.report.as_ref().map(|r| r.files_up), Some(1));
+    // A free network: the next pass sends it.
+    let (states, _) = a.pass();
+    assert_eq!(states.state_of("video.mp4"), Some(FileState::OnDevice));
+    assert!(lists(&index_of(&store), "video.mp4"));
+}
+
+#[test]
+fn a_limited_pass_brings_small_files_down_and_leaves_big_ones_on_the_drive_for_a_free_pass() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |s| s.auto_download = AutoDownload::Everything);
+    a.write("notes.txt", b"small");
+    a.write("video.mp4", &big(7));
+    a.pass();
+    let pass = pass_of(&limited(&b, "dev-b", &store, MB));
+    assert_eq!(pass.held, vec![String::from("video.mp4")]);
+    assert_eq!(b.read("notes.txt").as_deref(), Some(&b"small"[..]));
+    assert!(b.read("video.mp4").is_none(), "held back on the drive");
+    assert_eq!(
+        pass.states.state_of("video.mp4"),
+        Some(FileState::CloudOnly),
+        "its row says it is not here yet"
+    );
+    let (states, _) = b.pass();
+    assert_eq!(b.read("video.mp4"), Some(big(7)), "a free pass brings it");
+    assert_eq!(states.state_of("video.mp4"), Some(FileState::OnDevice));
+    // A new version of a big file on the drive waits there too; this device keeps the one it
+    // has, and sends nothing of it back.
+    a.write("video.mp4", &big(8));
+    a.pass();
+    let pass = pass_of(&limited(&b, "dev-b", &store, MB));
+    assert_eq!(pass.held, vec![String::from("video.mp4")]);
+    assert_eq!(b.read("video.mp4"), Some(big(7)), "the old version stays");
+    let (states, _) = b.pass();
+    assert_eq!(b.read("video.mp4"), Some(big(8)));
+    assert_eq!(states.state_of("video.mp4"), Some(FileState::OnDevice));
+    a.pass();
+    assert_eq!(a.read("video.mp4"), Some(big(8)), "the old version never went back up");
+}
+
+#[test]
+fn a_limited_pass_leaves_a_big_pinned_file_in_the_cloud_for_a_free_pass() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |s| s.auto_download = AutoDownload::Nothing);
+    a.write("video.mp4", &big(7));
+    a.write("small.txt", b"small");
+    a.pass();
+    b.pass();
+    b.session
+        .pin(&[String::from("video.mp4"), String::from("small.txt")], true)
+        .unwrap();
+    let pass = pass_of(&limited(&b, "dev-b", &store, MB));
+    assert_eq!(pass.held, vec![String::from("video.mp4")]);
+    assert_eq!(pass.fetched, vec![String::from("small.txt")], "the small pin came");
+    assert!(b.read("video.mp4").is_none());
+    let pass = pass_of(&b.session);
+    assert!(pass.held.is_empty());
+    assert_eq!(pass.fetched, vec![String::from("video.mp4")]);
+    assert_eq!(b.read("video.mp4"), Some(big(7)));
+}
+
+#[test]
+fn a_pairing_kept_before_the_metered_setting_reads_it_as_off() {
+    let folder = TempDir::new("azcloud-session-metered-setting");
+    let mut setup = setup_of(&folder);
+    assert!(!setup.sync_on_metered, "big files wait on a metered network by default");
+    let text = serde_json::to_string(&setup).unwrap();
+    let older = text.replace(",\"sync_on_metered\":false", "");
+    assert!(!older.contains("sync_on_metered"), "{older}");
+    assert_eq!(serde_json::from_str::<SyncSetup>(&older).unwrap(), setup);
+    setup.sync_on_metered = true;
+    let text = serde_json::to_string(&setup).unwrap();
+    assert_eq!(serde_json::from_str::<SyncSetup>(&text).unwrap(), setup);
 }

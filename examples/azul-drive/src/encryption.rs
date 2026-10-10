@@ -21,17 +21,19 @@
 //!   compromise: every file into a new object with a new key, in the background, resumably.
 //!
 //! In the background: the RECOMPRESSION PASS (azul-storage's `recompress`). A timer looks once
-//! a minute; when the computer has been idle for five minutes on mains power (azul's
-//! `PowerState`), the first open encrypted drive's files are written again, smaller, on a
-//! worker thread, and the pass stops at the first input or when the power cord goes. Its state
-//! sits beside the migration's, so the next idle minute continues where it stopped.
+//! a minute; when the computer has been idle for five minutes on mains power and on a network
+//! that costs nothing (azul's `PowerState` and `NetworkState`: not metered, not Low Data
+//! Mode), the first open encrypted drive's files are written again, smaller, on a worker
+//! thread, and the pass stops at the first input, when the power cord goes or when the network
+//! starts to cost. Its state sits beside the migration's, so the next idle minute continues
+//! where it stopped.
 //!
-//! The same timer keeps the drive index small. In an idle minute on mains power, before the
-//! pass, an encrypted drive whose index was not maintained from this computer in the last six
-//! hours gets one maintenance round (azul-storage's `MetaIndexProvider::maintain`). The round
-//! runs under the bucket's lease, so only one computer runs it at a time. It folds the index's
-//! packs into one, writes a checkpoint and deletes what was retired a day ago. One thing runs
-//! at a time: the round or the pass.
+//! The same timer keeps the drive index small. In such a minute (idle, on mains, on a free
+//! network), before the pass, an encrypted drive whose index was not maintained from this
+//! computer in the last six hours gets one maintenance round (azul-storage's
+//! `MetaIndexProvider::maintain`). The round runs under the bucket's lease, so only one
+//! computer runs it at a time. It folds the index's packs into one, writes a checkpoint and
+//! deletes what was retired a day ago. One thing runs at a time: the round or the pass.
 
 use std::{
     collections::BTreeMap,
@@ -49,7 +51,7 @@ use azul::{
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
-    window::PowerState,
+    window::{NetworkState, PowerState},
 };
 use azcloud_kit::{TokenError, TokenServer};
 use azul_storage::{
@@ -188,10 +190,17 @@ const RECOMPRESS_CHECK_MS: u64 = 60_000;
 /// One pass at a time.
 static RECOMPRESSING: AtomicBool = AtomicBool::new(false);
 
-/// Whether the pass may run: idle long enough, on mains power. A platform azul cannot read
-/// answers "on battery, just used" ([`PowerState::query`]), so the pass waits there.
+/// Whether the pass may run now ([`recompress_allowed`] of the power and the network now).
 fn idle_on_mains() -> bool {
-    PowerState::query().is_idle_on_mains(RECOMPRESS_IDLE_SECS)
+    recompress_allowed(PowerState::query(), NetworkState::query())
+}
+
+/// Whether the pass may run on `power` and `network`: idle long enough, on mains power, and on
+/// a network that costs the user nothing - the pass rewrites every file of the drive. A
+/// platform azul cannot read answers "on battery, just used" ([`PowerState::query`]), so the
+/// pass waits there; a network it cannot read counts as free ([`NetworkState::query`]).
+fn recompress_allowed(power: PowerState, network: NetworkState) -> bool {
+    power.is_idle_on_mains(RECOMPRESS_IDLE_SECS) && network.allows_background_transfer()
 }
 
 /// Starts the one timer that starts the pass and the drive index's maintenance rounds (from
@@ -1779,6 +1788,8 @@ extern "C" fn on_recovery_lockdown(mut data: RefAny, mut info: CallbackInfo) -> 
 
 #[cfg(test)]
 mod tests {
+    use azul::window::NetworkKind;
+
     use super::*;
 
     /// An encrypted drive's search index (the plain text of its files) lives in the drive's own
@@ -1847,6 +1858,33 @@ mod tests {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         assert!(!Sheet::new("d_1", code.to_text()).after_rotation);
         assert!(Sheet::new("d_1", code.to_text()).after_rotation().after_rotation);
+    }
+
+    #[test]
+    fn the_recompression_pass_waits_for_a_network_that_costs_nothing() {
+        let idle = PowerState {
+            on_mains: true,
+            idle_secs: RECOMPRESS_IDLE_SECS,
+        };
+        let on = |kind, metered, constrained| {
+            recompress_allowed(
+                idle,
+                NetworkState {
+                    kind,
+                    connected: true,
+                    metered,
+                    constrained,
+                },
+            )
+        };
+        assert!(on(NetworkKind::Wired, false, false));
+        assert!(!on(NetworkKind::Cellular, true, false), "a phone's hotspot");
+        assert!(!on(NetworkKind::WiFi, false, true), "Low Data Mode");
+        let busy = PowerState {
+            on_mains: true,
+            idle_secs: 0,
+        };
+        assert!(!recompress_allowed(busy, NetworkState::headless()), "used a moment ago");
     }
 
     #[test]

@@ -17,6 +17,7 @@ use azcloud_kit::sync::{
     session::{AutoDownload, FileRecord, FileState, SyncSetup, SyncStates},
     HeldConflict,
 };
+use azul::window::{NetworkKind, NetworkState};
 use azul_storage::{
     testing::TempDir, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
     Precondition,
@@ -43,11 +44,11 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
     let mut states = SyncStates::default();
     let mut paired = setup();
     assert_eq!(
-        sync_view::status_text(&paired, &states, None, true, false),
+        sync_view::status_text(&paired, &states, None, true, false, false),
         "Not synced yet"
     );
     states.last_pass = Some(1);
-    assert_eq!(sync_view::status_text(&paired, &states, None, true, false), "Up to date");
+    assert_eq!(sync_view::status_text(&paired, &states, None, true, false, false), "Up to date");
     let running = Running {
         cancel: Arc::new(AtomicBool::new(false)),
         progress: PassProgress {
@@ -58,7 +59,7 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
             moving: None,
         },
     };
-    let syncing = sync_view::status_text(&paired, &states, Some(&running), true, false);
+    let syncing = sync_view::status_text(&paired, &states, Some(&running), true, false, false);
     assert!(syncing.starts_with("Syncing 12 files ("), "{syncing}");
     assert!(syncing.contains("340"), "{syncing}");
     states.files.insert(
@@ -75,23 +76,23 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
         },
     );
     assert_eq!(
-        sync_view::status_text(&paired, &states, None, true, false),
+        sync_view::status_text(&paired, &states, None, true, false, false),
         "Waiting for you: 1 conflict"
     );
     // An Azlin drive is read-only when its token server says so (its drive status), not
     // because a write was refused; another drive when it refuses writes.
     states.read_only = true;
     assert_ne!(
-        sync_view::status_text(&paired, &states, None, true, false),
+        sync_view::status_text(&paired, &states, None, true, false, false),
         "Read-only (payment due)"
     );
     assert_eq!(
-        sync_view::status_text(&paired, &states, None, true, true),
+        sync_view::status_text(&paired, &states, None, true, true, false),
         "Read-only (payment due)"
     );
-    assert_eq!(sync_view::status_text(&paired, &states, None, false, false), "Read-only");
+    assert_eq!(sync_view::status_text(&paired, &states, None, false, false, false), "Read-only");
     paired.paused = true;
-    assert_eq!(sync_view::status_text(&paired, &states, None, true, false), "Paused");
+    assert_eq!(sync_view::status_text(&paired, &states, None, true, false, false), "Paused");
 }
 
 /// The store the window and the search share: a synced folder's file through a drive on this
@@ -726,7 +727,7 @@ fn the_guards_pauses_say_themselves_and_ask_in_azdrives_words() {
         changes: 12,
         files: vec![String::from("docs/a.txt")],
     });
-    let text = sync_view::status_text(&paired, &states, None, false, false);
+    let text = sync_view::status_text(&paired, &states, None, false, false, false);
     assert!(text.starts_with("Uploads paused"), "{text}");
     states.burst = None;
     let asked = MassDelete {
@@ -736,14 +737,14 @@ fn the_guards_pauses_say_themselves_and_ask_in_azdrives_words() {
         keys: vec![String::from("keep/0.txt")],
     };
     states.mass_delete = Some(asked.clone());
-    let text = sync_view::status_text(&paired, &states, None, false, false);
+    let text = sync_view::status_text(&paired, &states, None, false, false, false);
     assert!(text.starts_with("Waiting for you"), "{text}");
     let question = sync_view::mass_delete_text(&asked);
     assert!(question.contains("14"), "{question}");
     assert!(!question.contains("--allow"), "{question}");
     states.mass_delete = None;
     states.newer_format = vec![String::from("teleport")];
-    let text = sync_view::status_text(&paired, &states, None, false, false);
+    let text = sync_view::status_text(&paired, &states, None, false, false, false);
     assert!(text.contains("update the app"), "{text}");
 }
 
@@ -787,4 +788,142 @@ fn a_rename_through_a_job_moves_the_synced_copy() {
             ..
         })
     ));
+}
+
+// ==== A metered network ====
+
+fn network(kind: NetworkKind, metered: bool, constrained: bool) -> NetworkState {
+    NetworkState {
+        kind,
+        connected: true,
+        metered,
+        constrained,
+    }
+}
+
+/// What a pass answered.
+fn done_of(outcome: &Outcome) -> sync_jobs::PassDone {
+    match outcome {
+        Outcome::Sync(SyncOutcome::Passed { result, .. }) => result.clone().expect("the pass ran"),
+        _ => panic!("not a pass's answer"),
+    }
+}
+
+#[test]
+fn a_metered_or_low_data_network_holds_back_files_over_the_auto_download_size() {
+    let mut paired = setup();
+    let wifi = network(NetworkKind::WiFi, false, false);
+    let hotspot = network(NetworkKind::Cellular, true, false);
+    let low_data = network(NetworkKind::WiFi, false, true);
+    assert_eq!(sync_view::network_hold(Some(&wifi), &paired), None);
+    assert_eq!(
+        sync_view::network_hold(None, &paired),
+        None,
+        "not read yet: as a free network"
+    );
+    assert_eq!(
+        sync_view::network_hold(Some(&hotspot), &paired),
+        Some(25 * MB),
+        "the default auto-download size"
+    );
+    assert_eq!(sync_view::network_hold(Some(&low_data), &paired), Some(25 * MB));
+    paired.auto_download = AutoDownload::NewUnder(4);
+    assert_eq!(sync_view::network_hold(Some(&hotspot), &paired), Some(4 * MB));
+    paired.auto_download = AutoDownload::Everything;
+    assert_eq!(
+        sync_view::network_hold(Some(&hotspot), &paired),
+        Some(25 * MB),
+        "another choice: the default's size"
+    );
+    let offline = NetworkState {
+        connected: false,
+        ..hotspot
+    };
+    assert_eq!(
+        sync_view::network_hold(Some(&offline), &paired),
+        None,
+        "offline: the pass says why it failed"
+    );
+    paired.sync_on_metered = true;
+    assert_eq!(
+        sync_view::network_hold(Some(&hotspot), &paired),
+        None,
+        "Sync anyway on this network"
+    );
+}
+
+#[test]
+fn the_status_line_says_paused_metered_network_while_big_transfers_wait() {
+    let mut states = SyncStates::default();
+    states.last_pass = Some(1);
+    let mut paired = setup();
+    assert_eq!(
+        sync_view::status_text(&paired, &states, None, true, false, true),
+        "Paused (metered network)"
+    );
+    assert_eq!(
+        sync_view::status_text(&paired, &states, None, true, false, false),
+        "Up to date"
+    );
+    // While a pass of the small files runs, the line still says why the big ones wait.
+    let running = Running {
+        cancel: Arc::new(AtomicBool::new(false)),
+        progress: PassProgress {
+            files_done: 0,
+            files_total: 2,
+            ..PassProgress::default()
+        },
+    };
+    assert_eq!(
+        sync_view::status_text(&paired, &states, Some(&running), true, false, true),
+        "Paused (metered network)"
+    );
+    // What the user has to act on says so first.
+    assert_eq!(
+        sync_view::status_text(&paired, &states, None, true, true, true),
+        "Read-only (payment due)"
+    );
+    paired.paused = true;
+    assert_eq!(
+        sync_view::status_text(&paired, &states, None, true, false, true),
+        "Paused"
+    );
+}
+
+#[test]
+fn a_pass_on_a_metered_network_sends_small_files_and_keeps_big_ones_for_a_free_network() {
+    let drive: Arc<dyn Drive> = Arc::new(MemDrive::default());
+    let a = Device::new("metered-a", &drive, AutoDownload::NewUnder(1));
+    a.write("small.txt", b"small");
+    a.write("big.bin", &vec![7u8; (MB + 1) as usize]);
+    let mut work = a.work();
+    let hotspot = network(NetworkKind::Cellular, true, false);
+    work.transfer_limit = sync_view::network_hold(Some(&hotspot), &work.setup);
+    assert_eq!(work.transfer_limit, Some(MB));
+    let answer = sync_jobs::run(
+        SyncJob::Pass {
+            work,
+            cancel: Arc::new(AtomicBool::new(false)),
+        },
+        &mut |_| {},
+    );
+    let done = done_of(&answer);
+    assert_eq!((done.up, done.held), (1, 1), "{done:?}");
+    assert_eq!(
+        states_of(&answer).state_of("small.txt"),
+        Some(FileState::OnDevice)
+    );
+    assert_eq!(
+        states_of(&answer).state_of("big.bin"),
+        None,
+        "not on the drive yet"
+    );
+    // A free network: the next pass sends it.
+    let (_, answer) = a.pass();
+    let done = done_of(&answer);
+    assert_eq!((done.up, done.held), (1, 0), "{done:?}");
+    assert_eq!(
+        states_of(&answer).state_of("big.bin"),
+        Some(FileState::OnDevice)
+    );
 }

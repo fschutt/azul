@@ -81,7 +81,11 @@ node layout, AzDrive's stdout markers and the files on disk:
         drive's own listing shows the sync index's files (not only its hidden `.azlin`); a
         cloud-only row deleted asks "Delete from the drive?" and the next pass deletes it there;
         an Azlin drive synced from the start whose token server says it takes no writes says
-        "Read-only (payment due)". `--sync-only` runs step 25 alone.
+        "Read-only (payment due)"; a metered network (the headless network file
+        AZ_NETWORK_STATE_FILE: "cellular metered") says "Paused (metered network)", a 26 MB file
+        waits while a small one goes up, "Sync anyway on this network" (Options > Drives > Sync,
+        kept in view.json) sends it, a Low Data Mode Wi-Fi pauses too, a free Wi-Fi syncs.
+        `--sync-only` runs step 25 alone.
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
@@ -1284,6 +1288,39 @@ def other_device_writes(s3_root, key, data, device="e2e-desktop", bucket=SYNC_BU
     os.replace(tmp, path)
 
 
+def write_network(path, words):
+    """The headless network azul reads (AZ_NETWORK_STATE_FILE, at every query): words such as
+    "cellular metered", "wifi constrained" or "wifi"."""
+    tmp = path + ".e2e-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(words + "\n")
+    os.replace(tmp, path)
+
+
+def last_status(app, drive_id):
+    """What drive `drive_id`'s status line said last (AZDRIVE_SYNC_STATUS), or None."""
+    said = app.printed("AZDRIVE_SYNC_STATUS", re.escape(drive_id) + r" .*")
+    return said[-1].split(" ", 1)[1] if said else None
+
+
+def settled(status):
+    """Whether a status line says the drive synced: no pause for the network, no pass running."""
+    return bool(status) and "metered" not in status and not status.startswith("Syncing")
+
+
+def synced_setting(view, drive_id, name):
+    """A synced drive's setting `name` as the view settings file keeps it (None: not there)."""
+    try:
+        with open(view, "r", encoding="utf-8") as f:
+            settings = json.load(f)
+    except (OSError, ValueError):
+        return None
+    for setup in settings.get("synced", []):
+        if setup.get("drive_id") == drive_id:
+            return setup.get(name)
+    return None
+
+
 def read_file(path):
     try:
         with open(path, "rb") as f:
@@ -1327,7 +1364,10 @@ def sync_step(args, logs, binary, out):
         "--dialogs", "inline",
         "--cache-dir", os.path.join(base, "cache"),
     ]
-    env = {"AZ_KEYRING_FILE": keyring, "AZDRIVE_SYNC_POLL": "2", "AZCLOUD_DEVICE": SYNC_DEVICE}
+    # The headless network azul reads at every query (no file yet: wired and free).
+    network_file = os.path.join(base, "network.txt")
+    env = {"AZ_KEYRING_FILE": keyring, "AZDRIVE_SYNC_POLL": "2", "AZCLOUD_DEVICE": SYNC_DEVICE,
+           "AZ_NETWORK_STATE_FILE": network_file}
     app = Drive("azdrive-sync", binary, switches, args.debug_port, logs, args.timeout,
                 extra_env=env)
     folder = os.path.join(home, "AzDrive", SYNC_NAME)
@@ -1624,6 +1664,86 @@ def sync_step(args, logs, binary, out):
         app.until("sent with the next pass", lambda: sync_index(
             s3_root, paid_bucket).get("files", {}).get("p0.txt", {}).get("hash") == mine)
         log("25j. These changes are mine: the next pass sent them")
+
+        # 25k. A metered network (azul's NetworkState, switched through the headless network
+        # file AZ_NETWORK_STATE_FILE, read at every query): "Paused (metered network)"; a file
+        # over the drive's auto-download size (25 MB) waits here while a small one goes up;
+        # "Sync anyway on this network" (Options > Drives > Sync, kept in the view settings)
+        # sends it; a Low Data Mode network pauses too; a free network again: up to date.
+        app.after("the sync drive's own listing", "AZDRIVE_LISTED",
+                  re.escape(SYNC_DRIVE) + r" / \d+", lambda: app.click(selector=row))
+        write_network(network_file, "cellular metered")
+        app.until("the metered network read", lambda: app.printed(
+            "AZDRIVE_NETWORK", r"Cellular connected=true metered=true constrained=false"))
+        app.until("Paused (metered network)", lambda: last_status(app, SYNC_DRIVE)
+                  == "Paused (metered network)")
+        app.until("the status line says it", lambda: "Paused (metered network)" in status())
+        app.until("the drive's row has its glyph", lambda: app.has(
+            "#__azdrive_side_sync_" + SYNC_DRIVE))
+        app.screenshot(os.path.join(out, "25-sync-metered.png"))
+        film = os.path.join(folder, "film.bin")
+        frame = b"a long film shot on a metered network, frame by frame. "
+        with open(film, "wb") as f:
+            f.write(frame * (26 * 1024 * 1024 // len(frame) + 1))
+        memo = os.path.join(folder, "memo.txt")
+        with open(memo, "wb") as f:
+            f.write(b"a small memo, sent on a metered network\n")
+        app.until("the small file went up", lambda: "memo.txt" in sync_index(s3_root).get(
+            "files", {}))
+        app.until("a pass held the big one back", lambda: any(
+            "held=1" in line for line in app.printed(
+                "AZDRIVE_SYNC_DONE", re.escape(SYNC_DRIVE) + r" .*")))
+        if "film.bin" in sync_index(s3_root).get("files", {}):
+            raise Failure("the big file went up on a metered network")
+        if last_status(app, SYNC_DRIVE) != "Paused (metered network)":
+            raise Failure("the status line says %r" % last_status(app, SYNC_DRIVE))
+        log("25k. a metered network: \"Paused (metered network)\"; memo.txt went up, film.bin "
+            "(26 MB, over the auto-download size) waited")
+
+        # Sync anyway on this network: the big file goes up now; the setting is kept.
+        app.tab("View")
+        app.ribbon("Options")
+        app.until("the Options", lambda: app.has("#" + I("settings")))
+        app.click_exact("Drives")
+        anyway = "#__azdrive_sync_metered_" + SYNC_DRIVE
+        app.until("Sync anyway on this network", lambda: app.has(anyway))
+        app.op("scroll_into_view", selector=anyway, block="center", behavior="instant")
+        app.frame(2)
+        app.screenshot(os.path.join(out, "25-sync-anyway.png"))
+        app.after("Sync anyway on this network", "AZDRIVE_SYNC_SETTING",
+                  re.escape(SYNC_DRIVE) + r" sync_on_metered true",
+                  lambda: app.click(selector=anyway))
+        app.until("kept with the sync settings",
+                  lambda: synced_setting(view, SYNC_DRIVE, "sync_on_metered") is True)
+        app.until("the big file went up", lambda: "film.bin" in sync_index(s3_root).get(
+            "files", {}))
+        app.until("no longer paused", lambda: settled(last_status(app, SYNC_DRIVE)))
+        # Unticked: the metered network holds big files back again.
+        app.after("Sync anyway off again", "AZDRIVE_SYNC_SETTING",
+                  re.escape(SYNC_DRIVE) + r" sync_on_metered false",
+                  lambda: app.click(selector=anyway))
+        app.until("paused again", lambda: last_status(app, SYNC_DRIVE)
+                  == "Paused (metered network)")
+        app.until("kept off", lambda: synced_setting(view, SYNC_DRIVE, "sync_on_metered")
+                  is False)
+        app.key("escape")
+        app.until("the Options closed", lambda: not app.has("#" + I("settings")))
+        log("25l. Sync anyway on this network: film.bin went up at once (the setting kept in "
+            "view.json); unticked, the drive pauses its big files again")
+
+        # A Wi-Fi in Low Data Mode pauses too; a free network: up to date.
+        write_network(network_file, "wifi constrained")
+        app.until("the low-data network read", lambda: app.printed(
+            "AZDRIVE_NETWORK", r"WiFi connected=true metered=false constrained=true"))
+        app.until("still paused", lambda: last_status(app, SYNC_DRIVE)
+                  == "Paused (metered network)")
+        write_network(network_file, "wifi")
+        app.until("the free network read", lambda: app.printed(
+            "AZDRIVE_NETWORK", r"WiFi connected=true metered=false constrained=false"))
+        app.until("synced on a free network", lambda: settled(last_status(app, SYNC_DRIVE)))
+        app.until("the status line says it", lambda: "metered" not in status())
+        log("25m. a Low Data Mode Wi-Fi paused the big files too; on a free Wi-Fi the drive is "
+            "up to date")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):

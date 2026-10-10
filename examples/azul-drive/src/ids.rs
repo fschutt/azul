@@ -230,6 +230,13 @@ pub fn restore_button(drive_id: &str) -> AzString {
     AzString::from(format!("__azdrive_restore_{}", id_part(drive_id)))
 }
 
+/// Options > Drives > Sync's "Sync anyway on this network" of a synced drive:
+/// `__azdrive_sync_metered_<id>`.
+#[must_use]
+pub fn sync_on_metered(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_sync_metered_{}", id_part(drive_id)))
+}
+
 /// Options > Drives' "Redeem a voucher" of a drive: `__azdrive_voucher_<id>`.
 #[must_use]
 pub fn voucher_button(drive_id: &str) -> AzString {

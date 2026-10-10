@@ -3170,6 +3170,9 @@ pub fn start() {
     // The title bar shows the ribbon's tabs: the title is what the system's window list names
     // the window by - the open place's path.
     window.window_state.title = AzString::from(window_title(&state));
+    // azul's network monitor starts now, so it has read the network by the first sync pass at
+    // the window's start (a metered one holds big files back).
+    let _ = azul::window::NetworkState::query();
     let app = App::create(RefAny::new(state), config);
     app.run(window);
 }

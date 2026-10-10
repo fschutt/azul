@@ -303,6 +303,10 @@ pub struct SyncReport {
     /// A mass delete held for the user ([`RunHooks::hold_mass_delete`]): nothing changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mass_delete: Option<MassDelete>,
+    /// The files whose transfer [`RunHooks::transfer_limit`] held back, either way: their
+    /// versions stay where they are, and the next run without the limit moves them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub held_back: Vec<String>,
 }
 
 impl SyncReport {
@@ -410,6 +414,9 @@ pub struct RunHooks<'a> {
     /// A plan that would delete most of the folder here or there changes nothing and waits for
     /// the user (the report's `mass_delete`) instead of failing.
     pub hold_mass_delete: bool,
+    /// Files over this many bytes wait for a run without the limit, either way (an app on a
+    /// metered network): the report's `held_back`. `None`: no limit.
+    pub transfer_limit: Option<u64>,
 }
 
 impl RunHooks<'_> {
@@ -1584,6 +1591,32 @@ fn on_demand(
     held
 }
 
+/// Takes the transfers over `limit` bytes out of the plan ([`RunHooks::transfer_limit`]): the
+/// upload of a file bigger than that here, the download of one bigger than that on the drive.
+/// Both sides keep their versions and the base its last synced one, so the next run without the
+/// limit plans them again - as the burst guard's pause holds uploads back. Their keys.
+fn hold_big(
+    actions: &mut Vec<Action>,
+    scan: &Scan,
+    remote: &RemoteIndex,
+    limit: u64,
+) -> Vec<String> {
+    let mut held = Vec::new();
+    actions.retain(|action| {
+        let bytes = match action {
+            Action::Upload { key } => scan.files.get(key).map(|f| f.blob_size),
+            Action::Download { key } => remote.files.get(key).map(|f| f.size),
+            _ => None,
+        };
+        let waits = bytes.is_some_and(|bytes| bytes > limit);
+        if waits {
+            held.push(action.key().to_string());
+        }
+        !waits
+    });
+    held
+}
+
 /// What the plan moves: files and bytes up and down.
 fn planned(
     actions: &[Action],
@@ -1776,6 +1809,9 @@ fn run<R: SyncRemote + ?Sized>(
         if pause.is_some() {
             // Only what the drive changed comes here; nothing goes up.
             actions.retain(|a| !guard::sends(a));
+        }
+        if let Some(limit) = hooks.transfer_limit {
+            report.held_back = hold_big(&mut actions, &scan, &remote, limit);
         }
         if attempt == 1 {
             hooks.tell(planned(&actions, &scan, &remote));
