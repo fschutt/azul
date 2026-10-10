@@ -20,7 +20,10 @@ use azul_css::{css::Css, props::basic::pixel::DEFAULT_FONT_SIZE, system::SystemS
 use azul_layout::callbacks::CallbackInfo;
 
 use crate::{
-    desktop::{menu::MenuWindowData, shell2::common::debug_server::LogCategory},
+    desktop::{
+        menu::{MenuPicks, MenuWindowData},
+        shell2::common::debug_server::LogCategory,
+    },
     log_debug,
 };
 
@@ -28,8 +31,9 @@ use crate::{
 #[derive(Debug, Clone)]
 struct MenuItemCallbackData {
     menu_item: StringMenuItem,
-    menu_window_data: RefAny,
     item_index: usize,
+    /// The mailbox of the window that opened the menu: the item runs there.
+    picks: MenuPicks,
 }
 
 /// Data structure for submenu hover callbacks
@@ -42,9 +46,11 @@ struct SubmenuCallbackData {
 
 /// Callback invoked when a menu item is clicked
 ///
-/// This:
-/// 1. Invokes the menu item's original callback (if present)
-/// 2. Closes the menu window
+/// The item's own callback does NOT run here: this is the MENU's window, which closes now,
+/// and whatever the callback did to "the window" - a text it sets, the title, a timer, a
+/// thread, a rebuild - would land on the menu and die with it. The pick goes to the window
+/// that opened the menu ([`MenuPicks`]), which runs it as its own, as a native menu's item
+/// runs (`PlatformWindow::run_menu_picks`). Then the menu closes.
 extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let callback_data = match data.downcast_ref::<MenuItemCallbackData>() {
         Some(d) => d,
@@ -57,38 +63,18 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
         }
     };
 
-    // Invoke the menu item's callback if present
     if let Some(menu_callback) = callback_data.menu_item.callback.as_option() {
-        // Convert CoreCallback to actual function pointer using safe wrapper
-        let callback = azul_layout::callbacks::Callback::from_core(menu_callback.callback.clone());
-
-        // Invoke with the menu item's data
-        let callback_data_refany = menu_callback.refany.clone();
-        let result = callback.invoke(callback_data_refany, info);
-
+        callback_data.picks.post(menu_callback.clone());
         log_debug!(
             LogCategory::General,
-            "[menu_item_click_callback] Invoked callback for menu item '{}' (index {})",
+            "[menu_item_click_callback] Picked menu item '{}' (index {}): it runs in the window \
+             that opened the menu",
             callback_data.menu_item.label.as_str(),
             callback_data.item_index
         );
-
-        // Close the menu window
-        let mut state = info.get_current_window_state().clone();
-        state.flags.close_requested = true;
-        info.modify_window_state(state);
-
-        // A menu item's action typically mutates the SHARED app state, and this menu
-        // window is closing — a plain RefreshDom would only re-layout the doomed menu
-        // window and be lost. Escalate to RefreshDomAllWindows so the parent window
-        // (and any siblings) re-layout to reflect the change.
-        return match result {
-            Update::RefreshDom | Update::RefreshDomAllWindows => Update::RefreshDomAllWindows,
-            Update::DoNothing => Update::DoNothing,
-        };
     }
 
-    // No callback attached, just close the menu
+    // Close the menu window
     let mut state = info.get_current_window_state().clone();
     state.flags.close_requested = true;
     info.modify_window_state(state);
@@ -196,6 +182,9 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
         Some(item_rect),
         None, // No cursor position for submenu
         parent_id,
+        // A pick in the submenu runs where this menu's picks run: in the window that
+        // opened the chain.
+        parent_menu_data.picks.clone(),
     );
 
     // Create the submenu window
@@ -217,12 +206,16 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
 /// Returns a `Dom` with component CSS pushed via `.add_component_css()`
 /// (deferred cascade). Use this in `LayoutCallbackType` callbacks which
 /// return `Dom` instead of `StyledDom`.
+///
+/// `picks` is the mailbox of the window that opened the menu: an item picked in this DOM
+/// runs there ([`MenuPicks`]).
 pub fn create_menu_dom_with_css(
     menu: &Menu,
     system_style: &SystemStyle,
     menu_window_data: RefAny,
+    picks: &MenuPicks,
 ) -> Dom {
-    let mut dom = create_menu_dom(menu, &menu_window_data);
+    let mut dom = create_menu_dom(menu, &menu_window_data, picks);
     let css = system_style.create_menu_stylesheet();
     dom.add_component_css(css);
     dom
@@ -233,10 +226,11 @@ pub fn create_menu_dom_with_css(
 /// # Arguments
 /// * `menu` - Menu structure to render
 /// * `menu_window_data` - MenuWindowData RefAny for callbacks
+/// * `picks` - where the items picked in it go (the window that opened the menu)
 ///
 /// # Returns
 /// DOM tree for the menu (unstyled but with callbacks)
-fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
+fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny, picks: &MenuPicks) -> Dom {
     // Container for all menu items
     let mut container =
         Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
@@ -289,7 +283,7 @@ fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
 
     // Render each menu item with its index for identification
     for (idx, item) in menu.items.as_slice().iter().enumerate() {
-        let item_dom = create_menu_item_dom(item, idx, menu_window_data, icon_column);
+        let item_dom = create_menu_item_dom(item, idx, menu_window_data, picks, icon_column);
         container = container.with_child(item_dom);
     }
 
@@ -302,6 +296,7 @@ fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
 /// * `item` - Menu item to render
 /// * `idx` - Index of this item in the menu (for identification)
 /// * `menu_window_data` - MenuWindowData RefAny for callbacks
+/// * `picks` - where the item goes when it is picked
 ///
 /// # Returns
 /// DOM node for this menu item
@@ -309,11 +304,12 @@ fn create_menu_item_dom(
     item: &MenuItem,
     idx: usize,
     menu_window_data: &RefAny,
+    picks: &MenuPicks,
     icon_column: bool,
 ) -> Dom {
     match item {
         MenuItem::String(string_item) => {
-            create_string_menu_item_dom(string_item, idx, menu_window_data, icon_column)
+            create_string_menu_item_dom(string_item, idx, menu_window_data, picks, icon_column)
         }
         MenuItem::Separator => create_separator_dom(),
         MenuItem::BreakLine => {
@@ -339,12 +335,13 @@ fn create_menu_item_dom(
 /// ```
 ///
 /// Callbacks:
-/// - MouseDown: Invoke item's callback (if not disabled)
+/// - MouseDown: Hand the item's callback to the window that opened the menu (if not disabled)
 /// - MouseOver: Show submenu if has children
 fn create_string_menu_item_dom(
     item: &StringMenuItem,
     idx: usize,
     menu_window_data: &RefAny,
+    picks: &MenuPicks,
     icon_column: bool,
 ) -> Dom {
     let mut classes = vec![IdOrClass::Class("menu-item".into())];
@@ -445,13 +442,12 @@ fn create_string_menu_item_dom(
     if !is_disabled {
         let mut callbacks = Vec::new();
 
-        // Click callback: Invoke menu item action
+        // Click callback: the item's action, for the window that opened the menu
         if item.callback.as_option().is_some() {
-            // Create callback data containing both the original callback and menu data
             let callback_data = MenuItemCallbackData {
                 menu_item: item.clone(),
-                menu_window_data: menu_window_data.clone(),
                 item_index: idx,
+                picks: picks.clone(),
             };
 
             callbacks.push(CoreCallbackData {
@@ -1430,6 +1426,7 @@ mod menu_metrics_tests {
             menu_window_id: None,
             child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
             open_submenu: Arc::new(std::sync::Mutex::new(None)),
+            picks: MenuPicks::default(),
         })
     }
 
@@ -1475,7 +1472,11 @@ mod menu_metrics_tests {
     /// left of every item" from the live run.
     #[test]
     fn a_menu_with_no_icons_reserves_no_icon_column() {
-        let dom = create_menu_dom(&menu_of(vec![plain("Cut"), plain("Copy")]), &window_data());
+        let dom = create_menu_dom(
+            &menu_of(vec![plain("Cut"), plain("Copy")]),
+            &window_data(),
+            &MenuPicks::default(),
+        );
         let item = &dom.children.as_ref()[0];
         assert_eq!(
             item.children.as_ref().len(),
@@ -1493,6 +1494,7 @@ mod menu_metrics_tests {
         let dom = create_menu_dom(
             &menu_of(vec![with_checkbox("Bold", true), plain("Italic")]),
             &window_data(),
+            &MenuPicks::default(),
         );
         for (idx, item) in dom.children.as_ref().iter().enumerate() {
             assert_eq!(
