@@ -114,6 +114,8 @@ pub mod fileops;
 pub mod find;
 #[cfg(test)]
 mod find_tests;
+#[cfg(test)]
+mod sync_tests;
 mod ids;
 /// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
 #[cfg(feature = "encryption")]
