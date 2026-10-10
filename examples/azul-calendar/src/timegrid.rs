@@ -25,6 +25,7 @@ use azul::{
     widgets::{ButtonType, CheckBoxState, OnTextInputReturn, TextInputState, TextInputValid},
     window::TransientWindowConfig,
 };
+use azul_appkit::l10n::{label, t_args, Arg};
 use chrono::{NaiveDate, NaiveTime};
 
 use crate::{
@@ -43,8 +44,7 @@ const GUTTER_PX: u32 = 56;
 /// new draft (on some systems the popover's own window reports the click first).
 const DISMISSING_PRESS: std::time::Duration = std::time::Duration::from_millis(250);
 /// What the popover's "Add AzMeet link" line says once it is ticked.
-const WILL_MINT: &str = "A new AzMeet link is made when you save. It works offline too: the \
-                         meeting server gets it as soon as it answers.";
+const WILL_MINT: &str = "azcalendar-meet-will-mint";
 /// How long after a zoom step the zoom is saved: one write a second at most, not one per step.
 const ZOOM_SAVE_DELAY_MS: u64 = 1000;
 
@@ -139,7 +139,7 @@ pub(crate) fn time_grid(s: &CalState, app: &RefAny) -> Dom {
                     "{gutter} padding: 2px 6px 2px 0px; font-size: 11px; {SECONDARY} \
                      text-align: right; box-sizing: border-box;"
                 ))
-                .with_child(Dom::create_span_with_text("All day")),
+                .with_child(Dom::create_span_with_text(label("azcalendar-all-day"))),
         );
     let mut hours = Dom::create_div().with_css(gutter.as_str());
     for h in 0..24 {
@@ -243,7 +243,10 @@ fn all_day_cell(s: &CalState, index: usize, date: NaiveDate, app: &RefAny) -> Do
             app,
             &e.id,
             o.first,
-            format!("{}, all day", e.title),
+            t_args(
+                "azcalendar-event-all-day",
+                &[("title", Arg::from(&e.title))],
+            ),
         ));
     }
     cell
@@ -333,7 +336,7 @@ fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, ap
     // button) gets that line; a shorter one - an hour at the default zoom has two lines - puts
     // the button at the end of its last line, which gives way.
     let join = e.meeting.as_ref().filter(|m| !m.pending).map(|_| {
-        Button::create("Join meeting")
+        Button::create(label("azcalendar-join-meeting"))
             .with_on_click(
                 RefAny::new(EventRef {
                     app: app.clone(),
@@ -375,7 +378,7 @@ fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, ap
     if let Some(m) = &e.meeting {
         if m.pending {
             dom.add_child(
-                Dom::create_span_with_text("AzMeet link waits for the server").with_css(format!(
+                Dom::create_span_with_text(label("azcalendar-meet-link-waits")).with_css(format!(
                     "{CLIPPED_LINE} font-size: 11px; font-style: italic;"
                 )),
             );
@@ -425,8 +428,9 @@ fn draft_block(s: &CalState, draft: DraftShown, app: &RefAny) -> Dom {
     let top = week::y_of_minute(draft.start as f32, hour);
     let minutes = draft.end.saturating_sub(draft.start) as f32;
     let height = week::y_of_minute(minutes, hour).max(week::MIN_BLOCK_PX);
+    let untitled = azul_appkit::l10n::t(UNTITLED);
     let title = if draft.title.trim().is_empty() {
-        UNTITLED
+        untitled.as_str()
     } else {
         draft.title.as_str()
     };
@@ -493,7 +497,7 @@ fn popover_panel(d: &Draft, app: &RefAny) -> Dom {
         .with_child(
             TextInput::create()
                 .with_text(d.title.as_str())
-                .with_placeholder("Add title")
+                .with_placeholder(label("azcalendar-add-title"))
                 .with_on_text_input(app.clone(), on_draft_title)
                 .with_on_virtual_key_down(app.clone(), on_draft_title_key)
                 .dom()
@@ -512,21 +516,21 @@ fn popover_panel(d: &Draft, app: &RefAny) -> Dom {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 16px;")
             .with_child(
-                Button::create("More options")
+                Button::create(label("azcalendar-more-options"))
                     .with_on_click(app.clone(), on_draft_more)
                     .dom()
                     .with_id(ids::DRAFT_MORE)
                     .with_css("margin-right: auto;"),
             )
             .with_child(
-                Button::create("Cancel")
+                Button::create(label("kit-button-cancel"))
                     .with_on_click(app.clone(), on_draft_cancel)
                     .dom()
                     .with_id(ids::DRAFT_CANCEL)
                     .with_css("margin-right: 8px;"),
             )
             .with_child(
-                Button::with_type("Save", ButtonType::Primary)
+                Button::with_type(label("azcalendar-save"), ButtonType::Primary)
                     .with_on_click(app.clone(), on_draft_save)
                     .dom()
                     .with_id(ids::DRAFT_SAVE),
@@ -543,12 +547,12 @@ fn meet_toggle(d: &Draft, app: &RefAny) -> Dom {
             .with_child(
                 CheckBox::create(d.add_meet)
                     .with_on_toggle(app.clone(), on_draft_meet_toggled)
-                    .with_accessibility_name("Add AzMeet link")
+                    .with_accessibility_name(label("azcalendar-add-meet-link"))
                     .dom()
                     .with_id(ids::DRAFT_MEET),
             )
             .with_child(
-                Dom::create_span_with_text("Add AzMeet link")
+                Dom::create_span_with_text(label("azcalendar-add-meet-link"))
                     .with_css("margin-left: 8px; cursor: pointer;")
                     .with_callback(
                         EventFilter::Hover(HoverEventFilter::Click),
@@ -559,7 +563,7 @@ fn meet_toggle(d: &Draft, app: &RefAny) -> Dom {
     );
     if d.add_meet {
         part.add_child(
-            Dom::create_span_with_text(WILL_MINT)
+            Dom::create_span_with_text(label(WILL_MINT))
                 .with_css("font-size: 12px; color: system:secondary-text; margin-top: 4px;"),
         );
     }
@@ -1022,7 +1026,7 @@ fn save_draft(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     };
     d.error.clear();
     let title = if d.title.trim().is_empty() {
-        UNTITLED.to_string()
+        azul_appkit::l10n::t(UNTITLED)
     } else {
         d.title.trim().to_string()
     };
@@ -1052,8 +1056,11 @@ fn save_draft(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     match s.store_event(event) {
         Ok(_) => {
             s.notice = match &meeting {
-                Some(m) => format!("Saved \"{title}\" with the AzMeet link {}", m.link),
-                None => format!("Saved \"{title}\"."),
+                Some(m) => t_args(
+                    "azcalendar-saved-with-link",
+                    &[("title", Arg::from(&title)), ("link", Arg::from(&m.link))],
+                ),
+                None => t_args("azcalendar-saved-event", &[("title", Arg::from(&title))]),
             };
             s.draft = None;
             reveal(s, info, date, start);

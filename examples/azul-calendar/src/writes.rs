@@ -15,6 +15,7 @@ use azul::{
 };
 use azul_appkit::{
     files::{FileJob, FileOutcome},
+    l10n::{t_args, Arg},
     ui as kit,
 };
 use azul_pim::write_queue::Write;
@@ -133,17 +134,29 @@ extern "C" fn on_writes_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
                 Some(Ok(None)) => crate::chrome::report(
                     s,
                     true,
-                    format!("Could not read {}: there is no such file.", path.display()),
+                    t_args(
+                        "azcalendar-read-no-file",
+                        &[("path", Arg::from(path.display().to_string()))],
+                    ),
                 ),
                 Some(Err(e)) => crate::chrome::report(
                     s,
                     true,
-                    format!("Could not read {}: {e}", path.display()),
+                    t_args(
+                        "azcalendar-read-failed-why",
+                        &[
+                            ("path", Arg::from(path.display().to_string())),
+                            ("why", Arg::from(e.to_string())),
+                        ],
+                    ),
                 ),
                 None => crate::chrome::report(
                     s,
                     true,
-                    format!("Could not read {}.", path.display()),
+                    t_args(
+                        "azcalendar-read-failed",
+                        &[("path", Arg::from(path.display().to_string()))],
+                    ),
                 ),
             }
             refresh = true;
@@ -175,9 +188,15 @@ extern "C" fn on_writes_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
                 );
             }
             if let Some((write, why)) = failed.first() {
-                s.notice = format!(
-                    "Could not write {}: {why}. It is tried again in a moment.",
-                    root.join(write.key()).display()
+                s.notice = t_args(
+                    "azcalendar-write-failed",
+                    &[
+                        (
+                            "path",
+                            Arg::from(root.join(write.key()).display().to_string()),
+                        ),
+                        ("why", Arg::from(why)),
+                    ],
                 );
                 refresh = true;
             }
@@ -198,9 +217,9 @@ extern "C" fn on_writes_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         } else {
             // Not lost without a word: the window stays, says so, and closes on the next try.
             s.close_despite_failures = true;
-            s.notice = format!(
-                "{} change(s) could not be written. Close the window again to quit without them.",
-                s.write_failures()
+            s.notice = t_args(
+                "azcalendar-changes-not-written",
+                &[("count", Arg::from(s.write_failures()))],
             );
             refresh = true;
         }

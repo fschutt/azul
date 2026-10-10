@@ -33,7 +33,7 @@ use azul::{
 };
 use azul_appkit::{
     args::LanguagePref,
-    l10n::{label, t, t_args, t_label, Arg},
+    l10n::{label, t, t_args, t_text, Arg},
     pieces::{self, flex_row},
     ribbon::callback_button,
 };
@@ -466,7 +466,10 @@ fn sync_status(s: &CalState) -> String {
         (n, true) => t_args("azcalendar-sync-sending", &[("count", Arg::from(n))]),
         (n, false) => t_args(
             "azcalendar-sync-waiting",
-            &[("count", Arg::from(n)), ("why", Arg::from(t_label(&s.sync_error)))],
+            &[
+                ("count", Arg::from(n)),
+                ("why", Arg::from(t_text(&s.sync_error))),
+            ],
         ),
     }
 }

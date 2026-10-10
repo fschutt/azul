@@ -402,7 +402,7 @@ pub fn job(
                         }
                         Item {
                             title: if e.title.trim().is_empty() {
-                                String::from(UNTITLED)
+                                azul_appkit::l10n::t(UNTITLED)
                             } else {
                                 e.title.clone()
                             },
@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(page.title, "October 2026");
         assert!(!page.days[0].in_month && page.days[3].in_month);
         // The other month's day prints its event too, an untitled one as "(No title)".
-        assert_eq!(page.days[1].items[0].title, UNTITLED);
+        assert_eq!(page.days[1].items[0].title, "(No title)");
         let wednesday = page.days.iter().find(|day| day.date == wed()).unwrap();
         assert_eq!(wednesday.items[0].short_line(), "09:30 Standup");
         assert_eq!(wednesday.items[0].times(), "09:30 - 10:00");

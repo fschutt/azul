@@ -181,3 +181,47 @@ azcalendar-print-not-saved = Der Ausdruck wurde nicht gespeichert.
 azcalendar-print-notes = Notizen
 azcalendar-print-saved = { $name } gespeichert ({ $what }).
 azcalendar-print-printed = Gedruckt am { $day } - AzCalendar
+
+## The week, meetings, files and reminders
+
+azcalendar-meet-will-mint = Beim Speichern wird ein neuer AzMeet-Link erstellt. Das geht auch offline: Der Meeting-Server bekommt ihn, sobald er antwortet.
+azcalendar-event-all-day = { $title }, ganztägig
+azcalendar-join-meeting = Meeting beitreten
+azcalendar-meet-link-waits = Der AzMeet-Link wartet auf den Server
+azcalendar-add-title = Titel hinzufügen
+azcalendar-more-options = Weitere Optionen
+azcalendar-add-meet-link = AzMeet-Link hinzufügen
+azcalendar-saved-with-link = „{ $title }“ mit dem AzMeet-Link { $link } gespeichert
+azcalendar-saved-event = „{ $title }“ gespeichert.
+azcalendar-meet-unreadable = Der Meeting-Server hat eine Antwort geschickt, die AzCalendar nicht lesen kann ({ $why }).
+azcalendar-meet-wrong-link = Der Meeting-Server hat einen Link geschickt, der nicht der AzMeet-Raum ist, den er erstellt hat: { $link }
+azcalendar-meet-own-room = Der Meeting-Server unter { $server } hat einen eigenen Raum erstellt, statt den hier erstellten Link zu registrieren; er braucht ein Update, um in AzCalendar erstellte Links zu registrieren.
+azcalendar-meet-unreachable = Der Meeting-Server unter { $server } ist nicht erreichbar: { $why }
+azcalendar-meet-rate-limited = Zu viele neue Meetings aus diesem Netzwerk; versuche es in ein paar Minuten noch einmal.
+azcalendar-meet-answered-with = Der Meeting-Server hat mit { $status } geantwortet: { $message }
+azcalendar-meet-answered = Der Meeting-Server hat mit { $status } geantwortet.
+azcalendar-meet-timed-out = Zeitüberschreitung
+azcalendar-meet-no-answer = keine Antwort
+azcalendar-read-no-file = { $path } konnte nicht gelesen werden: Diese Datei gibt es nicht.
+azcalendar-read-failed-why = { $path } konnte nicht gelesen werden: { $why }
+azcalendar-read-failed = { $path } konnte nicht gelesen werden.
+azcalendar-write-failed = { $path } konnte nicht geschrieben werden: { $why }. Es wird gleich noch einmal versucht.
+azcalendar-changes-not-written = { $count ->
+    [one] 1 Änderung konnte nicht geschrieben werden. Schließe das Fenster noch einmal, um ohne sie zu beenden.
+   *[other] { $count } Änderungen konnten nicht geschrieben werden. Schließe das Fenster noch einmal, um ohne sie zu beenden.
+ }
+azcalendar-untitled = (Kein Titel)
+azcalendar-menu-open = Öffnen und Exportieren…
+azcalendar-menu-print = Drucken…
+azcalendar-menu-calendars = Kalender…
+azcalendar-menu-view = Ansicht
+azcalendar-menu-go-to-today = Gehe zu Heute
+azcalendar-menu-settings = Einstellungen
+azcalendar-menu-meeting-server = Meeting-Server…
+azcalendar-reminder-on = Erinnerung: { $title } ist am { $day }{ $place }.
+azcalendar-reminder-at = Erinnerung: { $title } beginnt um { $time }{ $place }.
+azcalendar-reminder-day-at = Erinnerung: { $title } beginnt am { $day } um { $time }{ $place }.
+azcalendar-program-missing = { $path } existiert nicht
+azcalendar-program-folder-unknown = der Ordner des AzCalendar-Programms ist unbekannt
+azcalendar-opening-azmeet = AzMeet wird für „{ $title }“ geöffnet…
+azcalendar-azmeet-not-started = AzMeet konnte nicht gestartet werden ({ $why }), daher wurde der Meeting-Link kopiert: { $link }

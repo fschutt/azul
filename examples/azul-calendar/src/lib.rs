@@ -143,8 +143,8 @@ const REMINDER_TICK_MS: u64 = 20_000;
 /// The main window's id, and the editor window's (what a script routes a request by).
 pub(crate) const MAIN_WINDOW_ID: &str = "azcalendar";
 pub(crate) const EDITOR_WINDOW_ID: &str = "azcalendar-editor";
-/// What an event without a title is called.
-pub(crate) const UNTITLED: &str = "(No title)";
+/// What an event without a title is called (a key: its title is said in the window's language).
+pub(crate) const UNTITLED: &str = "azcalendar-untitled";
 
 // Light and dark: the page follows the mode the window is in, like the widgets on it. Surfaces,
 // text and rules are `system:` colours, resolved in whichever mode the window is in (the shell
@@ -282,9 +282,9 @@ pub(crate) struct CalState {
     pub(crate) syncing: BTreeSet<String>,
     /// Events whose link the meeting server refused, with what it said: not sent again until
     /// "Sync meeting links now" or a new meeting server.
-    pub(crate) sync_refused: BTreeMap<String, String>,
+    pub(crate) sync_refused: BTreeMap<String, azul_appkit::l10n::Text>,
     /// Why the last registration did not happen (empty once one did).
-    pub(crate) sync_error: String,
+    pub(crate) sync_error: azul_appkit::l10n::Text,
     /// How often pending links are sent again, in milliseconds.
     pub(crate) sync_every_ms: u64,
     /// The timers that send pending links again and look for reminders run.
@@ -688,9 +688,9 @@ extern "C" fn on_main_close_requested(mut data: RefAny, mut info: CallbackInfo) 
         }
         store::MainClose::Tell => {
             s.close_despite_failures = true;
-            s.notice = format!(
-                "{failures} change(s) could not be written. Close the window again to quit \
-                 without them."
+            s.notice = azul_appkit::l10n::t_args(
+                "azcalendar-changes-not-written",
+                &[("count", azul_appkit::l10n::Arg::from(failures))],
             );
             info.prevent_window_close();
             Update::RefreshDom
@@ -700,40 +700,41 @@ extern "C" fn on_main_close_requested(mut data: RefAny, mut info: CallbackInfo) 
 
 /// The menu bar (the native one on macOS): Calendar, View, Settings.
 fn menu_bar(data: &RefAny) -> Menu {
-    let item = |label: &str, callback: CallbackType| {
-        MenuItem::string(StringMenuItem::create(label).with_callback(data.clone(), callback))
+    use azul_appkit::l10n::label;
+    let item = |text: &str, callback: CallbackType| {
+        MenuItem::string(StringMenuItem::create(label(text)).with_callback(data.clone(), callback))
     };
-    let menu = |label: &str, items: Vec<MenuItem>| {
-        MenuItem::string(StringMenuItem::create(label).with_children(items))
+    let menu = |text: &str, items: Vec<MenuItem>| {
+        MenuItem::string(StringMenuItem::create(label(text)).with_children(items))
     };
     Menu::create(vec![
         menu(
-            "Calendar",
+            "azcalendar-module-calendar",
             vec![
-                item("New Appointment", editor_ui::on_new_appointment),
-                item("New Meeting", editor_ui::on_new_meeting),
-                item("Open & Export\u{2026}", chrome::on_open_page),
-                item("Print\u{2026}", chrome::on_print_page),
-                item("Calendars\u{2026}", chrome::on_calendars_page),
+                item("azcalendar-new-appointment", editor_ui::on_new_appointment),
+                item("azcalendar-new-meeting", editor_ui::on_new_meeting),
+                item("azcalendar-menu-open", chrome::on_open_page),
+                item("azcalendar-menu-print", chrome::on_print_page),
+                item("azcalendar-menu-calendars", chrome::on_calendars_page),
             ],
         ),
         menu(
-            "View",
+            "azcalendar-menu-view",
             vec![
-                item("Day", chrome::on_view_day),
-                item("Work Week", chrome::on_view_work_week),
-                item("Week", chrome::on_view_week),
-                item("Month", chrome::on_view_month),
-                item("Schedule View", chrome::on_view_schedule),
-                item("List", chrome::on_view_agenda),
-                item("Go To Today", chrome::on_today),
+                item("azcalendar-view-day", chrome::on_view_day),
+                item("azcalendar-view-work-week", chrome::on_view_work_week),
+                item("azcalendar-view-week", chrome::on_view_week),
+                item("azcalendar-view-month", chrome::on_view_month),
+                item("azcalendar-view-schedule", chrome::on_view_schedule),
+                item("azcalendar-view-list", chrome::on_view_agenda),
+                item("azcalendar-menu-go-to-today", chrome::on_today),
             ],
         ),
         menu(
-            "Settings",
+            "azcalendar-menu-settings",
             vec![
-                item("Meeting server\u{2026}", chrome::on_options_page),
-                item("Sync meeting links now", on_sync_now),
+                item("azcalendar-menu-meeting-server", chrome::on_options_page),
+                item("azcalendar-sync-meeting-links-now", on_sync_now),
             ],
         ),
     ])
@@ -860,23 +861,28 @@ extern "C" fn on_reminder_tick(mut data: RefAny, _info: TimerCallbackInfo) -> Ti
 pub(crate) fn reminder_text(s: &CalState) -> Option<String> {
     let (id, day) = s.reminder.as_ref()?;
     let e = s.events.iter().find(|e| &e.id == id)?;
-    let when = if e.all_day {
-        format!("is on {}", day.format("%A %-d %B"))
-    } else if *day == s.today {
-        format!("starts at {}", e.start.format("%H:%M"))
-    } else {
-        format!(
-            "starts {} at {}",
-            day.format("%A %-d %B"),
-            e.start.format("%H:%M")
-        )
-    };
+    use azul_appkit::l10n::{t_args, Arg, DateStyle};
     let place = if e.location.is_empty() {
         String::new()
     } else {
         format!(" ({})", e.location)
     };
-    Some(format!("Reminder: {} {when}{place}.", e.title))
+    let said_day = day_text(DateStyle::WeekdayDayMonth, *day);
+    let time = e.start.format("%H:%M").to_string();
+    let (key, args) = if e.all_day {
+        ("azcalendar-reminder-on", vec![("day", Arg::from(said_day))])
+    } else if *day == s.today {
+        ("azcalendar-reminder-at", vec![("time", Arg::from(time))])
+    } else {
+        (
+            "azcalendar-reminder-day-at",
+            vec![("day", Arg::from(said_day)), ("time", Arg::from(time))],
+        )
+    };
+    let mut args = args;
+    args.push(("title", Arg::from(&e.title)));
+    args.push(("place", Arg::from(place)));
+    Some(t_args(key, &args))
 }
 
 pub(crate) extern "C" fn on_dismiss_reminder(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -978,9 +984,10 @@ extern "C" fn sync_thread(mut init: RefAny, _sender: ThreadSender, _receiver: Th
         );
 }
 
+/// Why the server was not reached: a key of AzCalendar's words, or the connection's own words.
 fn http_error_text(e: &HttpError) -> String {
     match e {
-        HttpError::Timeout => String::from("timed out"),
+        HttpError::Timeout => String::from("azcalendar-meet-timed-out"),
         HttpError::InvalidUrl(s)
         | HttpError::ConnectionFailed(s)
         | HttpError::TlsError(s)
@@ -996,9 +1003,12 @@ fn register_outcome(
     server: &str,
     room_id: &str,
     result: RefAny,
-) -> Result<Meeting, (Option<u16>, String)> {
+) -> Result<Meeting, (Option<u16>, azul_appkit::l10n::Text)> {
     let Some(answer) = HttpGetResult::downcast(result).into_option() else {
-        return Err((None, meeting::mint_failure(server, None, "no answer")));
+        return Err((
+            None,
+            meeting::mint_failure(server, None, "azcalendar-meet-no-answer"),
+        ));
     };
     match answer.result.into_result() {
         Ok(response) => {
@@ -1076,7 +1086,7 @@ extern "C" fn on_registered(mut data: RefAny, _info: CallbackInfo, result: RefAn
             eprintln!("[azcalendar] {server} registered {link}; {key} is rewritten");
             let _ = s.store_event(event);
             s.announce_on_landing(&key, format!("AZCAL_SYNCED {link}"));
-            s.sync_error.clear();
+            s.sync_error = azul_appkit::l10n::Text::default();
         }
         Err((status, message)) => {
             eprintln!("[azcalendar] azlin://meet/{room_id} not registered: {message}");
@@ -1180,7 +1190,13 @@ fn launch_azmeet(program: &Path, meet: &Meeting) -> std::io::Result<Child> {
     if !program.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("{} does not exist", program.display()),
+            azul_appkit::l10n::t_args(
+                "azcalendar-program-missing",
+                &[(
+                    "path",
+                    azul_appkit::l10n::Arg::from(program.display().to_string()),
+                )],
+            ),
         ));
     }
     Command::new(program)
@@ -1221,7 +1237,7 @@ pub(crate) extern "C" fn on_join_meeting(mut data: RefAny, mut info: CallbackInf
         Some(program) => launch_azmeet(&program, &meet),
         None => Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            "the AzCalendar program's folder is unknown",
+            azul_appkit::l10n::t("azcalendar-program-folder-unknown"),
         )),
     };
     match launched {
@@ -1232,7 +1248,10 @@ pub(crate) extern "C" fn on_join_meeting(mut data: RefAny, mut info: CallbackInf
                 meet.link,
                 child.id()
             );
-            s.notice = format!("Opening AzMeet for \"{title}\"...");
+            s.notice = azul_appkit::l10n::t_args(
+                "azcalendar-opening-azmeet",
+                &[("title", azul_appkit::l10n::Arg::from(&title))],
+            );
             s.launched.push(child);
         }
         Err(e) => {
@@ -1242,9 +1261,12 @@ pub(crate) extern "C" fn on_join_meeting(mut data: RefAny, mut info: CallbackInf
                 html: azul::option::OptionString::None,
             });
             eprintln!("[azcalendar] AzMeet not started ({e}); link copied");
-            s.notice = format!(
-                "AzMeet could not be started ({e}), so the meeting link was copied: {}",
-                meet.link
+            s.notice = azul_appkit::l10n::t_args(
+                "azcalendar-azmeet-not-started",
+                &[
+                    ("why", azul_appkit::l10n::Arg::from(e.to_string())),
+                    ("link", azul_appkit::l10n::Arg::from(&meet.link)),
+                ],
             );
         }
     }
@@ -1428,7 +1450,7 @@ pub fn start() {
         zoom_save_queued: false,
         syncing: BTreeSet::new(),
         sync_refused: BTreeMap::new(),
-        sync_error: String::new(),
+        sync_error: azul_appkit::l10n::Text::default(),
         sync_every_ms: sync_seconds.saturating_mul(1000),
         timers_started: false,
         server_error: String::new(),

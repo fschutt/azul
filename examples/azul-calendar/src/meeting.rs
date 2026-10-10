@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
+use azul_appkit::l10n::{Arg, Phrase, Text};
 use chrono::{DateTime, NaiveDate, NaiveTime, SecondsFormat, TimeDelta, TimeZone, Utc};
 use serde::Deserialize;
 
@@ -205,9 +206,10 @@ struct RoomAnswer {
 
 /// The meeting `server` minted, read from its answer to `POST /rooms`. The link must name the
 /// room the server minted, by its id; it is kept as `azlin://meet/<room id>`.
-pub fn minted_meeting(server: &str, body: &str) -> Result<Meeting, String> {
-    let answer: RoomAnswer = serde_json::from_str(body)
-        .map_err(|e| format!("The meeting server sent an answer AzCalendar cannot read ({e})."))?;
+pub fn minted_meeting(server: &str, body: &str) -> Result<Meeting, Text> {
+    let answer: RoomAnswer = serde_json::from_str(body).map_err(|e| {
+        Text::from(Phrase::new("azcalendar-meet-unreadable").arg("why", e.to_string()))
+    })?;
     let link = answer
         .link
         .filter(|link| !link.trim().is_empty())
@@ -223,24 +225,23 @@ pub fn minted_meeting(server: &str, body: &str) -> Result<Meeting, String> {
             ends_at: answer.ends_at.unwrap_or_default(),
             pending: false,
         }),
-        _ => Err(format!(
-            "The meeting server sent a link that is not the AzMeet room it made: {link}"
-        )),
+        _ => Err(Phrase::new("azcalendar-meet-wrong-link")
+            .arg("link", link)
+            .into()),
     }
 }
 
 /// The meeting `server` registered for the room `room_id`, read from its answer. The answer must
 /// be that room: a server that makes rooms of its own and ignores the one sent (one from before
 /// links made in the app) is refused.
-pub fn registered_meeting(server: &str, room_id: &str, body: &str) -> Result<Meeting, String> {
+pub fn registered_meeting(server: &str, room_id: &str, body: &str) -> Result<Meeting, Text> {
     let meeting = minted_meeting(server, body)?;
     if room_id_of(&meeting).as_deref() == Some(room_id) {
         Ok(meeting)
     } else {
-        Err(format!(
-            "The meeting server at {server} made a room of its own instead of registering the \
-             link made here; it needs an update to register links made in AzCalendar."
-        ))
+        Err(Phrase::new("azcalendar-meet-own-room")
+            .arg("server", server)
+            .into())
     }
 }
 
@@ -255,23 +256,36 @@ pub fn sync_again(status: Option<u16>) -> bool {
 }
 
 /// What the user reads when `POST /rooms` failed: `status` and `body` of the server's answer, or
-/// (`status` is `None`) why the server could not be reached.
-pub fn mint_failure(server: &str, status: Option<u16>, body: &str) -> String {
+/// (`status` is `None`) why the server could not be reached (a key of AzCalendar's words, or
+/// the connection's own words).
+pub fn mint_failure(server: &str, status: Option<u16>, body: &str) -> Text {
     let Some(status) = status else {
-        return format!("The meeting server at {server} is unreachable: {body}");
+        let why = if azul_appkit::l10n::is_key(body) {
+            Arg::word(body, body)
+        } else {
+            Arg::from(body)
+        };
+        return Phrase::new("azcalendar-meet-unreachable")
+            .arg("server", server)
+            .arg("why", why)
+            .into();
     };
+    let status = u32::from(status);
     if status == 429 {
-        return String::from(
-            "Too many new meetings from this network; try again in a few minutes.",
-        );
+        return Text::key("azcalendar-meet-rate-limited");
     }
     let message = serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|json| Some(json.get("message")?.as_str()?.trim().to_string()))
         .filter(|message| !message.is_empty());
     match message {
-        Some(message) => format!("The meeting server answered {status}: {message}"),
-        None => format!("The meeting server answered {status}."),
+        Some(message) => Phrase::new("azcalendar-meet-answered-with")
+            .arg("status", status)
+            .arg("message", message)
+            .into(),
+        None => Phrase::new("azcalendar-meet-answered")
+            .arg("status", status)
+            .into(),
     }
 }
 
@@ -637,6 +651,14 @@ mod tests {
 
     #[test]
     fn a_failed_mint_says_what_the_server_said_or_why_it_was_not_reached() {
+        crate::l10n::in_english();
+        let mint_failure = |server: &str, status: Option<u16>, body: &str| {
+            azul_appkit::l10n::t_text(&super::mint_failure(server, status, body))
+        };
+        assert_eq!(
+            mint_failure(SERVER, None, "azcalendar-meet-timed-out"),
+            "The meeting server at http://127.0.0.1:8787 is unreachable: timed out"
+        );
         assert_eq!(
             mint_failure(SERVER, None, "connection refused"),
             "The meeting server at http://127.0.0.1:8787 is unreachable: connection refused"

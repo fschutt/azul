@@ -181,3 +181,47 @@ azcalendar-print-not-saved = The printout was not saved.
 azcalendar-print-notes = Notes
 azcalendar-print-saved = Saved { $name } ({ $what }).
 azcalendar-print-printed = Printed { $day } - AzCalendar
+
+## The week, meetings, files and reminders
+
+azcalendar-meet-will-mint = A new AzMeet link is made when you save. It works offline too: the meeting server gets it as soon as it answers.
+azcalendar-event-all-day = { $title }, all day
+azcalendar-join-meeting = Join meeting
+azcalendar-meet-link-waits = AzMeet link waits for the server
+azcalendar-add-title = Add title
+azcalendar-more-options = More options
+azcalendar-add-meet-link = Add AzMeet link
+azcalendar-saved-with-link = Saved "{ $title }" with the AzMeet link { $link }
+azcalendar-saved-event = Saved "{ $title }".
+azcalendar-meet-unreadable = The meeting server sent an answer AzCalendar cannot read ({ $why }).
+azcalendar-meet-wrong-link = The meeting server sent a link that is not the AzMeet room it made: { $link }
+azcalendar-meet-own-room = The meeting server at { $server } made a room of its own instead of registering the link made here; it needs an update to register links made in AzCalendar.
+azcalendar-meet-unreachable = The meeting server at { $server } is unreachable: { $why }
+azcalendar-meet-rate-limited = Too many new meetings from this network; try again in a few minutes.
+azcalendar-meet-answered-with = The meeting server answered { $status }: { $message }
+azcalendar-meet-answered = The meeting server answered { $status }.
+azcalendar-meet-timed-out = timed out
+azcalendar-meet-no-answer = no answer
+azcalendar-read-no-file = Could not read { $path }: there is no such file.
+azcalendar-read-failed-why = Could not read { $path }: { $why }
+azcalendar-read-failed = Could not read { $path }.
+azcalendar-write-failed = Could not write { $path }: { $why }. It is tried again in a moment.
+azcalendar-changes-not-written = { $count ->
+    [one] 1 change could not be written. Close the window again to quit without it.
+   *[other] { $count } changes could not be written. Close the window again to quit without them.
+ }
+azcalendar-untitled = (No title)
+azcalendar-menu-open = Open & Export…
+azcalendar-menu-print = Print…
+azcalendar-menu-calendars = Calendars…
+azcalendar-menu-view = View
+azcalendar-menu-go-to-today = Go To Today
+azcalendar-menu-settings = Settings
+azcalendar-menu-meeting-server = Meeting server…
+azcalendar-reminder-on = Reminder: { $title } is on { $day }{ $place }.
+azcalendar-reminder-at = Reminder: { $title } starts at { $time }{ $place }.
+azcalendar-reminder-day-at = Reminder: { $title } starts { $day } at { $time }{ $place }.
+azcalendar-program-missing = { $path } does not exist
+azcalendar-program-folder-unknown = the AzCalendar program's folder is unknown
+azcalendar-opening-azmeet = Opening AzMeet for "{ $title }"…
+azcalendar-azmeet-not-started = AzMeet could not be started ({ $why }), so the meeting link was copied: { $link }
