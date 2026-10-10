@@ -1019,6 +1019,18 @@ fn scan_dir(
 
 /// The scan of a bucket's folder: page after page, each page a batch, until the last page or a
 /// set `cancel`.
+/// The scan's request for a page of `prefix` (after `continuation`): a refresh's first page asks
+/// the drive again ([`ListRequest::refreshed`]: an encrypted drive's index pulls before it
+/// answers), the next pages continue from what that read.
+fn scan_request(prefix: &str, continuation: Option<String>, refresh: bool) -> ListRequest {
+    let _ = refresh;
+    let request = ListRequest::folder(prefix).with_max_keys(SCAN_PAGE);
+    match continuation {
+        Some(token) => request.with_continuation(token),
+        None => request,
+    }
+}
+
 fn scan_bucket(
     drive: &dyn Drive,
     prefix: &str,
@@ -3123,6 +3135,20 @@ mod tests {
     use azul_storage::testing::TempDir;
 
     use super::*;
+
+    /// F5 asks the drive again: a refresh's first page is a `refreshed` listing (an encrypted
+    /// drive's index pulls first, so a node that refuses shows); its next pages, and a listing
+    /// that opens a folder, are not.
+    #[test]
+    fn the_first_page_of_a_refresh_asks_the_drive_again() {
+        let first = scan_request("docs/", None, true);
+        assert!(first.refresh);
+        assert_eq!((first.prefix.as_str(), first.max_keys), ("docs/", SCAN_PAGE));
+        let next = scan_request("docs/", Some(String::from("t2")), true);
+        assert!(!next.refresh);
+        assert_eq!(next.continuation.as_deref(), Some("t2"));
+        assert!(!scan_request("docs/", None, false).refresh);
+    }
 
     /// A folder with `files` empty files and `folders` subfolders.
     fn folder_with(files: usize, folders: usize) -> TempDir {
