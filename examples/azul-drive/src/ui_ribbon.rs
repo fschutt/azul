@@ -792,8 +792,9 @@ mod tests {
         assert_eq!(RibbonTabKind::Search.label(), "Search");
         assert_eq!(
             tabs_of(&Place::ThisPc, true),
-            &[RibbonTabKind::Computer, RibbonTabKind::View],
-            "This PC is not searched"
+            &[RibbonTabKind::Computer, RibbonTabKind::View, RibbonTabKind::Search],
+            "This PC searches every drive on this computer"
         );
+        assert_eq!(active_index(&Place::ThisPc, true, RibbonTabKind::Search), 2);
     }
 }

@@ -1890,10 +1890,11 @@ mod tests {
         let request = crate::find::local_request(
             dir.path().join("Docs"),
             "needle",
-            true,
             false,
-            true,
-            false,
+            &crate::find::FindOptions {
+                contents: true,
+                ..crate::find::FindOptions::default()
+            },
         );
         let cancel = AtomicBool::new(false);
         let mut outcomes = Vec::new();
@@ -1918,10 +1919,8 @@ mod tests {
         let request = crate::find::local_request(
             dir.path().to_path_buf(),
             "file",
-            false,
-            false,
             true,
-            true,
+            &crate::find::FindOptions::default(),
         );
         let cancel = AtomicBool::new(true);
         let mut outcomes = Vec::new();
@@ -1945,12 +1944,13 @@ mod tests {
         let drive = LocalDrive::without_manifest(dir.path().to_path_buf());
         let cancel = AtomicBool::new(false);
         let mut outcomes = Vec::new();
+        let every_folder = crate::find::FindOptions::default();
         let last = run_find_remote(
             9,
             &drive,
             "Docs/",
             &Pattern::literal("report"),
-            false,
+            &every_folder,
             &cancel,
             &mut |o| outcomes.push(o),
         );
@@ -1960,12 +1960,30 @@ mod tests {
             .map(|f| f.entry.key.as_str())
             .collect();
         assert_eq!(keys, vec!["Docs/deep/report.txt"]);
+        // The folder alone: its own listing, not the deep report.
+        let mut here = Vec::new();
+        let this_folder = crate::find::FindOptions {
+            subfolders: false,
+            ..crate::find::FindOptions::default()
+        };
+        let last = run_find_remote(
+            11,
+            &drive,
+            "",
+            &Pattern::literal("report"),
+            &this_folder,
+            &cancel,
+            &mut |o| here.push(o),
+        );
+        here.push(last);
+        let keys: Vec<&str> = searched(&here).iter().map(|f| f.entry.key.as_str()).collect();
+        assert_eq!(keys, vec!["elsewhere-report.txt"]);
         let bad = run_find_remote(
             10,
             &drive,
             "",
             &Pattern::regex("("),
-            false,
+            &every_folder,
             &cancel,
             &mut |_| {},
         );
