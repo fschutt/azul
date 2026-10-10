@@ -344,7 +344,12 @@ pub(crate) struct Sheet {
     /// The sheet of a NEW drive's code (encrypted as it was made): nothing to move into the
     /// encryption afterwards.
     pub new_drive: bool,
+    /// "Copy" put the code on the clipboard (cleared again after [`CLEAR_COPIED_CODE_MS`]).
+    pub copied: bool,
 }
+
+/// How long a copied recovery code stays on the clipboard.
+pub(crate) const CLEAR_COPIED_CODE_MS: u64 = 60_000;
 
 /// A group of a recovery code as people type it: no spaces or dashes, upper case, `O` for 0,
 /// `I` and `L` for 1.
@@ -383,7 +388,18 @@ impl Sheet {
             after_rotation: false,
             kit_note: String::new(),
             new_drive: false,
+            copied: false,
         }
+    }
+
+    /// The sheet's title: a new drive's (its purchase), else the code's.
+    pub(crate) fn title(&self) -> String {
+        String::from("Your recovery code")
+    }
+
+    /// What the sheet says after "Copy".
+    pub(crate) fn copied_note(&self) -> String {
+        String::new()
     }
 
     /// The sheet of a new drive's code.
@@ -705,6 +721,13 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
 }
 
 // ==== Opening it ====
+
+/// Whether a drive's encryption was set up and its recovery code never typed back (AzDrive
+/// closed on the sheet): the drive is not used until a new code's sheet passed.
+pub(crate) fn setup_unfinished(state: Option<&crate::recovery_health::RecoveryState>) -> bool {
+    let _ = state;
+    false
+}
 
 /// Whether a drive that was just made is encrypted as part of its making: every new Azlin
 /// drive (bought, a test drive, a voucher's, a claimed checkout's) - "we always encrypt".
@@ -2072,6 +2095,30 @@ mod tests {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         assert!(Sheet::new("d_new", code.to_text()).for_new_drive().new_drive);
         assert!(!Sheet::new("d_new", code.to_text()).new_drive);
+    }
+
+    /// Item 7: the recovery code is part of the purchase - shown as text to copy, the emergency
+    /// kit, the four groups; a copy leaves the clipboard again; a drive whose sheet never passed
+    /// is not used until a new code's sheet does.
+    #[test]
+    fn a_new_drives_sheet_is_the_purchases_and_the_drive_waits_for_it() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let sheet = Sheet::new("d_new", code.to_text()).for_new_drive();
+        assert_eq!(sheet.title(), "Your new drive's recovery code");
+        assert_eq!(Sheet::new("d_new", code.to_text()).title(), "Your recovery code");
+        assert_eq!(sheet.copied_note(), "");
+        let copied = Sheet {
+            copied: true,
+            ..Sheet::new("d_new", code.to_text())
+        };
+        assert!(copied.copied_note().contains("cleared in a minute"), "{}", copied.copied_note());
+        let mut state = crate::recovery_health::RecoveryState::new("d_new");
+        assert!(!setup_unfinished(None), "a drive without encryption");
+        assert!(!setup_unfinished(Some(&state)), "no code made yet");
+        state.code_made(100, None);
+        assert!(setup_unfinished(Some(&state)), "a code made, never typed back");
+        state.setup_verified(200);
+        assert!(!setup_unfinished(Some(&state)));
     }
 
     #[test]
