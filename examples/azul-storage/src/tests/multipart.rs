@@ -363,3 +363,29 @@ fn of_two_devices_racing_on_if_none_match_exactly_one_wins() {
         assert!(s3.uploads().is_empty(), "the losers' parts are aborted");
     }
 }
+
+#[test]
+fn a_sweep_aborts_the_unfinished_uploads_that_are_stale_or_whose_file_is_gone() {
+    let tmp = TempDir::new("multipart-sweep");
+    let resume = tmp.path().join("resume");
+    let (gone, _) = file_with(&tmp, "gone.bin", 4, 9);
+    let (kept, _) = file_with(&tmp, "kept.bin", 4, 10);
+    let s3 = FakeBucket::new();
+    s3.take_parts(Some(0));
+    let drive = drive_on(&s3, Some(&resume), NOW);
+    assert!(drive.put_file("gone.bin", &gone, &no_progress).is_err());
+    assert!(drive.put_file("kept.bin", &kept, &no_progress).is_err());
+    assert_eq!(state_files(&resume).len(), 2, "both are remembered");
+    std::fs::remove_file(&gone).unwrap();
+    assert_eq!(drive.abort_stale_uploads(), 1, "the one whose file is gone");
+    assert_eq!(state_files(&resume).len(), 1);
+    assert_eq!(s3.uploads().len(), 1, "the other one can still resume");
+    let later = drive_on(&s3, Some(&resume), NOW + STALE_AFTER_SECS + 1);
+    assert_eq!(
+        later.abort_stale_uploads(),
+        1,
+        "and once it is stale, that one too"
+    );
+    assert!(state_files(&resume).is_empty());
+    assert!(s3.uploads().is_empty());
+}
