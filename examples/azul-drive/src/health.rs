@@ -41,38 +41,90 @@ pub(crate) const INDEX_MIN: u8 = 50;
 /// The small transfers a pass of the sync moves at once at `health`.
 #[must_use]
 pub(crate) fn transfers(health: u8) -> usize {
-    let _ = health;
-    4
+    if health >= FULL_SPEED {
+        4
+    } else if health >= GENTLE {
+        2
+    } else {
+        1
+    }
 }
 
 /// Whether the recompression pass and the drive index's upkeep may run at `health`.
 #[must_use]
 pub(crate) fn recompress_allowed(health: u8) -> bool {
-    let _ = health;
-    true
+    health >= RECOMPRESS_MIN
 }
 
 /// Whether the search index may catch up in the background at `health` (`None`: not read
 /// yet - as a healthy computer).
 #[must_use]
 pub(crate) fn index_allowed(health: Option<u8>) -> bool {
-    let _ = health;
-    true
+    health.is_none_or(|health| health >= INDEX_MIN)
 }
 
 /// The marker's words after `AZDRIVE_CLIENT_HEALTH`: the number and what it decides.
 #[must_use]
 pub(crate) fn marker(health: u8) -> String {
-    let _ = health;
-    String::new()
+    let word = |allowed: bool| if allowed { "allowed" } else { "held" };
+    format!(
+        "{health} transfers={} recompress={} index={}",
+        transfers(health),
+        word(recompress_allowed(health)),
+        word(index_allowed(Some(health)))
+    )
 }
 
 /// The Options' line about this computer, in the window's language: its power, what holds the
 /// sync back, and the sync's pace ("This computer: on battery, 23% - syncing gently").
 #[must_use]
 pub(crate) fn line(device: &Device) -> String {
-    let _ = (device, Thermal::Nominal, Arg::from(0_u64));
-    l10n::t("azdrive-sync-health")
+    let mut state = vec![if device.on_mains {
+        l10n::t("azdrive-sync-health-mains")
+    } else {
+        match device.battery_percent {
+            Some(percent) => l10n::t_args(
+                "azdrive-sync-health-battery-level",
+                &[("percent", Arg::from(u64::from(percent)))],
+            ),
+            None => l10n::t("azdrive-sync-health-battery"),
+        }
+    }];
+    if device.low_power_mode {
+        state.push(l10n::t("azdrive-sync-health-low-power"));
+    }
+    if matches!(device.thermal, Thermal::Serious | Thermal::Critical) {
+        state.push(l10n::t("azdrive-sync-health-hot"));
+    }
+    if !device.connected {
+        state.push(l10n::t("azdrive-sync-health-offline"));
+    } else {
+        if device.hotspot {
+            state.push(l10n::t("azdrive-sync-health-hotspot"));
+        } else if device.metered {
+            state.push(l10n::t("azdrive-sync-health-metered"));
+        }
+        if device.constrained {
+            state.push(l10n::t("azdrive-sync-health-low-data"));
+        }
+    }
+    let health = client_health(device);
+    let pace = if health == 0 {
+        l10n::t("azdrive-sync-health-waits")
+    } else if health >= FULL_SPEED {
+        l10n::t("azdrive-sync-health-full")
+    } else if health >= GENTLE {
+        l10n::t("azdrive-sync-health-gentle")
+    } else {
+        l10n::t("azdrive-sync-health-slow")
+    };
+    l10n::t_args(
+        "azdrive-sync-health",
+        &[
+            ("state", Arg::from(state.join(", "))),
+            ("pace", Arg::from(pace)),
+        ],
+    )
 }
 
 /// The device now, from azul's readings.

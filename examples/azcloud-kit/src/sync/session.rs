@@ -632,8 +632,8 @@ impl SyncSession {
     /// app on a weak computer (on battery, hot, in Low Power Mode: AzDrive's client health)
     /// syncs gently. A big file goes alone either way.
     #[must_use]
-    pub fn with_parallel(self, transfers: usize) -> SyncSession {
-        let _ = transfers;
+    pub fn with_parallel(mut self, transfers: usize) -> SyncSession {
+        self.parallel = Some(transfers.max(1));
         self
     }
 
@@ -671,7 +671,11 @@ impl SyncSession {
     }
 
     fn options(&self) -> CloudResult<SyncOptions> {
-        SyncOptions::new(&self.setup.prefix, &self.setup.drive_id, &self.device)
+        let mut opts = SyncOptions::new(&self.setup.prefix, &self.setup.drive_id, &self.device)?;
+        if let Some(parallel) = self.parallel {
+            opts.parallel = parallel;
+        }
+        Ok(opts)
     }
 
     fn root(&self) -> LocalRoot {

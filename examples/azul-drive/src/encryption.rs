@@ -23,7 +23,8 @@
 //! In the background: the RECOMPRESSION PASS (azul-storage's `recompress`). A timer looks once
 //! a minute; when the computer has been idle for five minutes on mains power and on a network
 //! that costs nothing (azul's `PowerState` and `NetworkState`: not metered, not Low Data
-//! Mode), the first open encrypted drive's files are written again, smaller, on a worker
+//! Mode), and it is healthy (its client health 85 or more: not in Low Power Mode, not hot -
+//! `crate::health`), the first open encrypted drive's files are written again, smaller, on a worker
 //! thread, and the pass stops at the first input, when the power cord goes or when the network
 //! starts to cost. Its state sits beside the migration's, so the next idle minute continues
 //! where it stopped.
@@ -50,11 +51,14 @@ use azul::{
     str::String as AzString,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
-    sensor::{NetworkState, PowerState},
+    sensor::{BatteryState, NetworkState, PowerState},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
 };
 use azcloud_kit::{TokenError, TokenServer};
-use azul_appkit::l10n::{t, t_args, t_label, Arg, Phrase, Text};
+use azul_appkit::{
+    client_health::{client_health, Device},
+    l10n::{t, t_args, t_label, Arg, Phrase, Text},
+};
 use azul_storage::{
     azul_keyring::AzulKeyring,
     azul_transport::AzulTransport,
@@ -191,9 +195,16 @@ const RECOMPRESS_CHECK_MS: u64 = 60_000;
 /// One pass at a time.
 static RECOMPRESSING: AtomicBool = AtomicBool::new(false);
 
-/// Whether the pass may run now ([`recompress_allowed`] of the power and the network now).
-fn idle_on_mains() -> bool {
-    recompress_allowed(PowerState::query(), NetworkState::query(), 100)
+/// Whether the pass (and the drive index's upkeep) may run now: [`recompress_allowed`] of the
+/// power, the network and the computer's client health now.
+fn recompress_may_run() -> bool {
+    let (power, battery, network) = (
+        PowerState::query(),
+        BatteryState::query(),
+        NetworkState::query(),
+    );
+    let health = client_health(&Device::of_azul(&power, &battery, &network));
+    recompress_allowed(power, network, health)
 }
 
 /// Whether the pass may run on `power` and `network` at the computer's client `health`: idle
@@ -203,8 +214,9 @@ fn idle_on_mains() -> bool {
 /// ([`PowerState::query`]), so the pass waits there; a network it cannot read counts as free
 /// ([`NetworkState::query`]).
 fn recompress_allowed(power: PowerState, network: NetworkState, health: u8) -> bool {
-    let _ = health;
-    power.is_idle_on_mains(RECOMPRESS_IDLE_SECS) && network.allows_background_transfer()
+    power.is_idle_on_mains(RECOMPRESS_IDLE_SECS)
+        && network.allows_background_transfer()
+        && crate::health::recompress_allowed(health)
 }
 
 /// Starts the one timer that starts the pass and the drive index's maintenance rounds (from
@@ -232,7 +244,7 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
             return TimerCallbackReturn::continue_and_refresh_dom();
         }
     }
-    if RECOMPRESSING.load(Ordering::SeqCst) || !idle_on_mains() {
+    if RECOMPRESSING.load(Ordering::SeqCst) || !recompress_may_run() {
         return TimerCallbackReturn::continue_unchanged();
     }
     let mut callback_info = info.callback_info;

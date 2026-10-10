@@ -1811,7 +1811,8 @@ def sync_step(args, logs, binary, out):
                   re.escape(SYNC_DRIVE) + r" / \d+", lambda: app.click(selector=row))
         write_network(network_file, "cellular metered")
         app.until("the metered network read", lambda: app.printed(
-            "AZDRIVE_NETWORK", r"Cellular connected=true metered=true constrained=false"))
+            "AZDRIVE_NETWORK",
+            r"Cellular connected=true metered=true constrained=false hotspot=false"))
         app.until("Paused (metered network)", lambda: last_status(app, SYNC_DRIVE)
                   == "azdrive-sync-status-metered")
         app.until("the status line says it", lambda: "Paused (metered network)" in status())
@@ -1871,12 +1872,14 @@ def sync_step(args, logs, binary, out):
         # A Wi-Fi in Low Data Mode pauses too; a free network: up to date.
         write_network(network_file, "wifi constrained")
         app.until("the low-data network read", lambda: app.printed(
-            "AZDRIVE_NETWORK", r"WiFi connected=true metered=false constrained=true"))
+            "AZDRIVE_NETWORK",
+            r"WiFi connected=true metered=false constrained=true hotspot=false"))
         app.until("still paused", lambda: last_status(app, SYNC_DRIVE)
                   == "azdrive-sync-status-metered")
         write_network(network_file, "wifi")
         app.until("the free network read", lambda: app.printed(
-            "AZDRIVE_NETWORK", r"WiFi connected=true metered=false constrained=false"))
+            "AZDRIVE_NETWORK",
+            r"WiFi connected=true metered=false constrained=false hotspot=false"))
         app.until("synced on a free network", lambda: settled(last_status(app, SYNC_DRIVE)))
         app.until("the status line says it", lambda: "metered" not in status())
         log("25m. a Low Data Mode Wi-Fi paused the big files too; on a free Wi-Fi the drive is "

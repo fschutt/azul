@@ -62,7 +62,7 @@ use azul::{
 };
 
 use azul_appkit::{
-    client_health::Device,
+    client_health::{client_health, Device},
     l10n::{self, t, t_phrase, t_text, Phrase, Text},
 };
 
@@ -262,8 +262,16 @@ pub(crate) fn network_hold(network: Option<&NetworkState>, setup: &SyncSetup) ->
 /// and before the computer was read.
 #[must_use]
 pub(crate) fn health_hold(device: Option<&Device>, setup: &SyncSetup) -> Option<u64> {
-    let _ = (device, setup);
-    None
+    let mut device = *device?;
+    if !device.connected {
+        return None;
+    }
+    if setup.sync_on_metered {
+        device.metered = false;
+        device.constrained = false;
+        device.hotspot = false;
+    }
+    (client_health(&device) < crate::health::GENTLE).then(|| under_mb(setup).saturating_mul(MB))
 }
 
 /// The limit a pass of `setup`'s drive runs with: the smaller of the network's
@@ -274,8 +282,10 @@ pub(crate) fn transfer_hold(
     device: Option<&Device>,
     setup: &SyncSetup,
 ) -> Option<u64> {
-    let _ = device;
-    network_hold(network, setup)
+    match (network_hold(network, setup), health_hold(device, setup)) {
+        (Some(network), Some(computer)) => Some(network.min(computer)),
+        (network, computer) => network.or(computer),
+    }
 }
 
 /// A file state's icon (a Material name of the icon set).
@@ -1506,6 +1516,14 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
     }
     if rows.is_empty() {
         rows.push(line("azdrive-sync-none"));
+    } else if let Some(device) = s.sync_view.device.as_ref() {
+        // The one place the computer's health shows: what holds the sync back, and its pace.
+        rows.insert(
+            0,
+            Dom::create_span_with_text(AzString::from(crate::health::line(device)))
+                .with_css("font-size: 12px; opacity: 0.75; padding: 6px 0px;")
+                .with_id(ids::SYNC_HEALTH),
+        );
     }
     Dom::create_div()
         .with_id(ids::SYNC_OPTIONS)
