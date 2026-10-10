@@ -16633,6 +16633,27 @@ impl LayoutWindow {
 
         // The language the window's text is in: a screen reader's voice.
         let language = self.active_language();
+        // The keys among the strings nodes declare, in that language.
+        #[cfg(feature = "fluent")]
+        let localizer = self.fluent_localizer.as_ref();
+        #[cfg(feature = "fluent")]
+        let has_translations = localizer.is_some();
+        #[cfg(not(feature = "fluent"))]
+        let has_translations = false;
+        let translate_key = |key: &str| -> String {
+            #[cfg(feature = "fluent")]
+            if let Some(localizer) = localizer {
+                return localizer
+                    .translate(
+                        azul_css::AzString::from(language.id.as_str()),
+                        azul_css::AzString::from(key),
+                        crate::fmt::FmtArgVec::new(),
+                    )
+                    .as_str()
+                    .to_string();
+            }
+            key.to_string()
+        };
         // Every virtual view's dom and the view hosting it: its content is
         // read at the view's place.
         let mut nested_dom_hosts = BTreeMap::new();
@@ -16661,6 +16682,8 @@ impl LayoutWindow {
             nested_dom_hosts: &nested_dom_hosts,
             language: language.id.as_str(),
             language_is_rtl: language.is_rtl,
+            translate: has_translations
+                .then_some(crate::managers::a11y::A11yTranslate(&translate_key)),
         };
         // A refused update keeps the last good state parked/delivered and the
         // next pass resends the whole tree; `last_rejection` records why (the

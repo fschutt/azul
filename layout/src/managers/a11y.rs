@@ -511,6 +511,38 @@ impl A11yRetainedTree {
     }
 }
 
+/// Translates an `AzString::tr` key into the window's language (the app's
+/// Fluent resources). The tree reads every string a node DECLARES - an
+/// accessible name, a description, an `aria-label` - through it: the DOM's
+/// translation pass translates text nodes only, and a screen reader read the
+/// key itself.
+#[cfg(feature = "a11y")]
+#[derive(Clone, Copy)]
+pub struct A11yTranslate<'a>(pub &'a dyn Fn(&str) -> String);
+
+#[cfg(feature = "a11y")]
+impl core::fmt::Debug for A11yTranslate<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("A11yTranslate")
+    }
+}
+
+/// The strings a node declares for assistive technology, translated: they
+/// win over its text content (ARIA accname puts `aria-label` before the
+/// content), so an icon button named "Search" does not read its glyph.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Default)]
+struct DeclaredStrings {
+    /// `aria-label`, else the `AccessibilityInfo` name, else `alt` / `title`.
+    name: Option<String>,
+    /// The `AccessibilityInfo` description, else `title` / `alt`.
+    description: Option<String>,
+    /// The `AccessibilityInfo` value, else the `value` attribute.
+    value: Option<String>,
+    /// The `placeholder` attribute.
+    placeholder: Option<String>,
+}
+
 /// One frame's inputs to the accessibility tree: everything a node's
 /// content, its place and the focus are built from.
 #[cfg(feature = "a11y")]
@@ -535,6 +567,9 @@ pub struct A11yTreeInputs<'a> {
     pub language: &'a str,
     /// Whether that language is written right to left.
     pub language_is_rtl: bool,
+    /// Translates the keys among the strings nodes declare (`None`: the
+    /// window has no translations, a key is read as it is).
+    pub translate: Option<A11yTranslate<'a>>,
 }
 
 /// What one accessibility pass did ([`A11yManager::refresh`]) - the cost
@@ -971,6 +1006,7 @@ impl A11yManager {
             nested_dom_hosts: &no_hosts,
             language: "",
             language_is_rtl: false,
+            translate: None,
         };
         let mut retained = A11yRetainedTree::default();
         drop(Self::rebuild_retained(&mut retained, root_id, &inputs));
@@ -1130,6 +1166,7 @@ impl A11yManager {
                     scroll_info,
                     text_override,
                     cursor.as_ref(),
+                    inputs.language,
                 );
 
                 order.push(a11y_node_id);
@@ -1152,6 +1189,7 @@ impl A11yManager {
                             text_override,
                             cursor.as_ref(),
                             inputs.hidpi_factor,
+                            inputs.translate,
                         )
                     },
                 );
@@ -1467,10 +1505,13 @@ impl A11yManager {
         scroll_info: Option<(LogicalPosition, f32, f32)>,
         text_override: Option<&String>,
         cursor: Option<&CursorA11yInfo>,
+        language: &str,
     ) -> u64 {
         use core::hash::Hash;
 
         let mut h = azul_core::hash::DefaultHasher::new();
+        // A declared key reads in the window's language: a switch rebuilds.
+        language.hash(&mut h);
         node_data.node_type.hash(&mut h);
         node_data.attributes().as_ref().hash(&mut h);
         node_data.flags.hash(&mut h);
@@ -1541,8 +1582,10 @@ impl A11yManager {
         text_override: Option<&String>,
         cursor: Option<&CursorA11yInfo>,
         hidpi_factor: f32,
+        translate: Option<A11yTranslate<'_>>,
     ) -> Node {
         let a11y_info_ref = node_data.get_accessibility_info();
+        let declared = Self::declared_strings(node_data, translate);
         let mut node = if let Some((layout_node, abs_pos)) = layout_info {
             Self::build_node(
                 node_data,
@@ -1666,14 +1709,68 @@ impl A11yManager {
                         },
                     });
                 }
-            } else if !has_non_text_children {
-                // Only promote text when there are NO interactive children.
-                // Otherwise VoiceOver reads the label instead of navigating children.
+            } else if !has_non_text_children && declared.name.is_none() {
+                // Only promote text when there are NO interactive children
+                // (otherwise VoiceOver reads the label instead of navigating
+                // the children) and the node declares no name of its own.
                 node.set_label(text_content.as_str());
             }
         }
 
+        if let Some(name) = &declared.name {
+            node.set_label(name.as_str());
+        }
+        if let Some(description) = &declared.description {
+            node.set_description(description.as_str());
+        }
+        // An edited field's value is its text, set above.
+        let edited = node_data.is_contenteditable()
+            || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input);
+        if let Some(value) = declared.value.as_ref().filter(|_| !edited) {
+            node.set_value(value.as_str());
+        }
+        if let Some(placeholder) = &declared.placeholder {
+            node.set_placeholder(placeholder.as_str());
+        }
+
         node
+    }
+
+    /// What `node_data` declares for assistive technology
+    /// ([`DeclaredStrings`]), each key translated with `translate`. The same
+    /// precedence `build_node` applies, which this restates once the text
+    /// content is known.
+    fn declared_strings(node_data: &NodeData, translate: Option<A11yTranslate<'_>>) -> DeclaredStrings {
+        let text = |s: &AzString| -> String {
+            match translate {
+                Some(t) if s.is_localizable() => (t.0)(s.as_str()),
+                _ => s.as_str().to_string(),
+            }
+        };
+        let mut out = DeclaredStrings::default();
+        if let Some(info) = node_data.get_accessibility_info() {
+            out.name = info.accessibility_name.as_option().map(|s| text(s));
+            out.description = info.description.as_option().map(|s| text(s));
+            out.value = info.accessibility_value.as_option().map(|s| text(s));
+        }
+        let mut aria_label = None;
+        let mut alt_or_title = None;
+        for attr in node_data.attributes().as_ref() {
+            match attr {
+                azul_core::dom::AttributeType::AriaLabel(s) => aria_label = Some(text(s)),
+                azul_core::dom::AttributeType::Alt(s) | azul_core::dom::AttributeType::Title(s) => {
+                    out.description = Some(text(s));
+                    if alt_or_title.is_none() {
+                        alt_or_title = Some(text(s));
+                    }
+                }
+                azul_core::dom::AttributeType::Placeholder(s) => out.placeholder = Some(text(s)),
+                azul_core::dom::AttributeType::Value(s) => out.value = Some(text(s)),
+                _ => {}
+            }
+        }
+        out.name = aria_label.or(out.name).or(alt_or_title);
+        out
     }
 
     /// A box's bounds as a screen reader draws them: its padding box (the
@@ -4218,6 +4315,7 @@ mod retained_tree_tests {
             nested_dom_hosts: &BTreeMap::new(),
             language: "",
             language_is_rtl: false,
+            translate: None,
         };
         let _ = m.refresh(&inputs);
         m.take_pending()
@@ -4314,6 +4412,7 @@ mod retained_tree_tests {
             nested_dom_hosts: hosts,
             language: "",
             language_is_rtl: false,
+            translate: None,
         }
     }
 
