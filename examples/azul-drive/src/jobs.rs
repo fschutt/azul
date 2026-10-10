@@ -124,6 +124,8 @@ pub(crate) enum Job {
         /// The folder on this computer, for a local drive.
         dir: Option<PathBuf>,
         prefix: String,
+        /// The listing asks the drive again (F5, after a change: [`ListRequest::refreshed`]).
+        refresh: bool,
         serial: u64,
         cancel: Arc<AtomicBool>,
     },
@@ -1023,10 +1025,10 @@ fn scan_dir(
 /// the drive again ([`ListRequest::refreshed`]: an encrypted drive's index pulls before it
 /// answers), the next pages continue from what that read.
 fn scan_request(prefix: &str, continuation: Option<String>, refresh: bool) -> ListRequest {
-    let _ = refresh;
     let request = ListRequest::folder(prefix).with_max_keys(SCAN_PAGE);
     match continuation {
         Some(token) => request.with_continuation(token),
+        None if refresh => request.refreshed(),
         None => request,
     }
 }
@@ -1034,16 +1036,14 @@ fn scan_request(prefix: &str, continuation: Option<String>, refresh: bool) -> Li
 fn scan_bucket(
     drive: &dyn Drive,
     prefix: &str,
+    refresh: bool,
     serial: u64,
     cancel: &AtomicBool,
     emit: &mut dyn FnMut(Outcome),
 ) -> Outcome {
     let mut next: Option<String> = None;
     loop {
-        let mut request = ListRequest::folder(prefix).with_max_keys(SCAN_PAGE);
-        if let Some(token) = next.take() {
-            request = request.with_continuation(token);
-        }
+        let request = scan_request(prefix, next.take(), refresh);
         let page = match drive.list(&request) {
             Ok(page) => page,
             Err(e) => {
@@ -2560,13 +2560,14 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drive,
             dir,
             prefix,
+            refresh,
             serial,
             cancel,
         } => {
             let mut emit = |outcome: Outcome| send(sender, outcome);
             match dir {
                 Some(dir) => scan_dir(&dir, &prefix, serial, &cancel, &mut emit),
-                None => scan_bucket(&*drive, &prefix, serial, &cancel, &mut emit),
+                None => scan_bucket(&*drive, &prefix, refresh, serial, &cancel, &mut emit),
             }
         }
         Job::Stat { root, keys, serial } => Outcome::Stats {

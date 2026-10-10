@@ -1266,6 +1266,8 @@ pub(crate) fn start_listing(
             drive,
             dir,
             prefix,
+            // Read again (F5, a change): an encrypted drive's index asks its bucket first.
+            refresh,
             serial,
             cancel,
         },

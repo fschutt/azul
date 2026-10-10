@@ -1474,18 +1474,25 @@ def run(args, logs):
             "look bought it a month with its kept token" % paid)
 
         # 6d. The drive's node answers "read-only, unpaid" (x-azlin-error): AzDrive says it in
-        # the table's words with the request ID as the error ID, and notifies once.
+        # the table's words with the request ID as the error ID, and notifies once. The drive is
+        # encrypted: its names come from the drive index, and F5 asks the bucket again (the
+        # index pulls at once, its poll time aside) - the node's refusal of that read is what
+        # AzDrive says.
         bucket = stack.token.state.drives[paid]["bucket"]
         stack.s3.fail_bucket(bucket, 403, "AccessDenied", "the drive takes no writes",
                              {"x-azlin-error": "read_only_unpaid"})
         problem = app.after("the refused listing", "AZDRIVE_PROBLEM",
                             r"%s read_only_unpaid \S+" % re.escape(paid), lambda: app.key("f5"))
-        # (A HeadBucket - the usage line's count, asked in the background - is no listing.)
-        refused = [r for r in stack.s3.requests()
-                   if r.get("bucket") == bucket and r.get("method") != "HEAD"][-1]
-        if problem.split()[-1] != refused.get("request_id"):
-            raise Failure("the error ID %r is not the node's request ID %r"
-                          % (problem.split()[-1], refused.get("request_id")))
+        # The node's refusals of the drive's reads - the index's pull starts with a HeadObject
+        # of its manifest; a HeadBucket (the usage line's count, asked in the background, no
+        # key) is none: the error ID is one of their request IDs.
+        refusals = {r.get("request_id"): r for r in stack.s3.requests()
+                    if r.get("bucket") == bucket and r.get("status") == 403
+                    and (r.get("key") or r.get("method") != "HEAD")}
+        refused = refusals.get(problem.split()[-1])
+        if refused is None:
+            raise Failure("the error ID %r is none of the node's request IDs %r"
+                          % (problem.split()[-1], sorted(refusals)))
         app.until("the table's text with the error ID", lambda: app.shows(
             "Your last payment didn't go through") and app.shows(
             "Error ID: %s" % refused.get("request_id")))
