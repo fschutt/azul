@@ -159,7 +159,14 @@ fn a_date_is_written_as_the_language_writes_it() {
     assert_eq!(day(DateStyle::DayShortMonth), "30 Sep");
     // A range's first day in its month: "28 - 30 September".
     assert_eq!(day(DateStyle::DayOnly), "30");
+    // A day not of this year, short and long: AzTasks' due dates and its day headings.
+    assert_eq!(day(DateStyle::ShortDateYear), "Wed 30 Sep 2026");
+    assert_eq!(day(DateStyle::WeekdayDate), "Wednesday 30 September 2026");
+    assert_eq!(t("kit-date-tomorrow"), "Tomorrow");
     set_locale("de-DE");
+    assert_eq!(day(DateStyle::ShortDateYear), "Mi. 30. Sept. 2026");
+    assert_eq!(day(DateStyle::WeekdayDate), "Mittwoch, 30. September 2026");
+    assert_eq!(t("kit-date-tomorrow"), "Morgen");
     assert_eq!(day(DateStyle::DayLong), "Mittwoch, 30. September 2026");
     assert_eq!(day(DateStyle::WeekdayDayMonth), "Mittwoch, 30. September");
     assert_eq!(day(DateStyle::ShortWeekdayDay), "Mi. 30.");
