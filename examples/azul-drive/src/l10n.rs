@@ -78,6 +78,17 @@ pub(crate) fn token_error_text(e: &TokenError) -> Text {
     UserError::from_token_error(e).map_or_else(|| Text::plain(e.to_string()), |u| error_text(&u))
 }
 
+/// A worker thread's reason: a key of the resources (its own words), or an error's words as they
+/// are.
+#[must_use]
+pub(crate) fn said(why: &str) -> Text {
+    if l10n::is_key(why) {
+        Text::key(why)
+    } else {
+        Text::plain(why)
+    }
+}
+
 /// The words of AzDrive in English on this thread (a test of words the window says).
 #[cfg(test)]
 pub(crate) fn in_english() {

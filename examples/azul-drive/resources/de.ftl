@@ -1199,3 +1199,98 @@ azdrive-contacts-held-none = Keine. Wenn dich jemand bittet, sein vertrauenswür
 azdrive-contacts-be-contact = Vertrauenswürdiger Kontakt von jemandem werden…
 azdrive-contacts-take = Anteil annehmen…
 azdrive-contacts-help = Bei einer Wiederherstellung helfen…
+
+## Encrypted drives
+
+azdrive-enc-err-no-key = dieser Computer hat keinen Schlüssel für das Laufwerk
+azdrive-enc-err-no-index = dieser Build von AzDrive hat keinen Laufwerksindex, um verschlüsselte Laufwerke zu öffnen
+azdrive-enc-err-device-no-key = Dieses Gerät hat keinen Schlüssel für das Laufwerk.
+azdrive-enc-err-made-later = Das Laufwerk wurde nach diesem Zeitpunkt erstellt.
+azdrive-enc-err-code-mismatch = Dieser Wiederherstellungscode passt nicht zum Wiederherstellungsschlüssel des Laufwerks.
+azdrive-enc-err-no-recovery-key = Das Laufwerk hat keinen Wiederherstellungsschlüssel bei seinem Tokenserver (sein Wiederherstellungsblatt wurde erstellt, bevor AzDrive einen registriert hat).
+azdrive-enc-groups-and = { $rest } und { $last }
+azdrive-enc-confirm-title = „{ $name }“ verschlüsseln?
+azdrive-enc-confirm-1 = Seine Dateien werden auf diesem Computer verschlüsselt, bevor sie ihn verlassen: Azlin speichert Chiffretext unter zufälligen Namen, ohne die Namen oder Ordner der Dateien.
+azdrive-enc-confirm-2 = Dieser Computer bewahrt den Schlüssel des Laufwerks in seinem Schlüsselbund auf. Andere Computer bekommen ihn mit einem Beitrittscode von einem, der ihn hat.
+azdrive-enc-confirm-3 = Du bekommst einen WIEDERHERSTELLUNGSCODE: den einzigen Weg zurück, wenn jeder Computer mit dem Schlüssel verloren ist. Azlin kann ihn nicht zurücksetzen.
+azdrive-enc-confirm-4 = Dann werden die Dateien des Laufwerks in die Verschlüsselung verschoben. Das läuft im Hintergrund und macht dort weiter, wo es aufgehört hat, falls AzDrive geschlossen wird.
+azdrive-enc-encrypt = Verschlüsseln
+azdrive-enc-hide = Ausblenden
+azdrive-enc-sheet-what = Schreib ihn auf oder drucke ihn aus und bewahre ihn getrennt von diesem Computer auf. Er wird nirgends gespeichert: Dies ist das einzige Mal, dass er angezeigt wird.
+azdrive-enc-sheet-check = Um zu prüfen, dass du ihn hast, tippe die Gruppen { $groups } des Codes ein:
+azdrive-enc-group = Gruppe { $n }
+azdrive-enc-written-down = Ich habe ihn aufgeschrieben
+azdrive-enc-sheet-title = Dein Wiederherstellungscode
+azdrive-enc-unlock-what = Dieser Computer hat keinen Schlüssel für dieses Laufwerk. Tippe seinen Wiederherstellungscode ein (Groß- oder Kleinschreibung, mit oder ohne Bindestriche), um den Schlüssel hier zu behalten.
+azdrive-enc-unlock = Entsperren
+azdrive-enc-unlock-title = „{ $name }“ entsperren
+azdrive-enc-lockdown-what = Von einem Computer aus, der das Laufwerk verloren hat (seine Geräte wurden übernommen), sperrt der Wiederherstellungscode es: 48 Stunden lang nimmt es keine Schreibvorgänge an, in denen ein Gerät des Besitzers abbrechen kann; dann verliert jedes andere Gerät und jeder Schlüssel das Laufwerk, und dieser Computer behält es.
+azdrive-enc-lock-down = Sperren
+azdrive-enc-lockdown-title = „{ $name }“ mit dem Wiederherstellungscode sperren
+azdrive-enc-rotate-title = Neue Schlüssel für „{ $name }“?
+azdrive-enc-rotate-when = Verwende das, wenn ein Computer, ein Telefon oder ein Schlüssel dieses Laufwerks in fremden Händen sein könnte.
+azdrive-enc-rotate-1 = 1. Das Laufwerk wird gesperrt: Jeder andere Computer, jeder Schlüssel und jeder freigegebene Link verliert sofort den Zugriff.
+azdrive-enc-rotate-2 = 2. Das Laufwerk bekommt einen neuen Schlüssel, und du bekommst einen NEUEN WIEDERHERSTELLUNGSCODE. Der alte Code funktioniert nicht mehr.
+azdrive-enc-rotate-3 = 3. Deine anderen Computer treten mit einem neuen Beitrittscode von diesem erneut bei; Links werden erneut freigegeben; eingehende E-Mails bekommen einen neuen Ablageschlüssel.
+azdrive-enc-rotate-then = Danach wird empfohlen, jede Datei neu zu verschlüsseln: Dann öffnet sich nichts im Laufwerk mehr mit dem alten Schlüssel.
+azdrive-enc-rotate-button = Sperren und die Schlüssel ändern
+azdrive-enc-reencrypt-title = Jede Datei neu verschlüsseln?
+azdrive-enc-reencrypt-why = Empfohlen nach einer Kompromittierung. Die Dateien von „{ $name }“ liegen jetzt unter dem neuen Schlüssel, aber jede Datei hat noch ihren eigenen alten Dateischlüssel: Wer die Daten des Laufwerks und seinen alten Schlüssel vor der Sperrung kopiert hat, könnte diese Kopien lesen.
+azdrive-enc-reencrypt-how = Das Neuverschlüsseln schreibt jede Datei mit neuen Schlüsseln neu. Es läuft im Hintergrund und macht dort weiter, wo es aufgehört hat, falls AzDrive geschlossen wird.
+azdrive-enc-reencrypt-button = Alles neu verschlüsseln
+azdrive-enc-only-azlin = Nur ein Azlin-Laufwerk kann verschlüsselt werden.
+azdrive-enc-only-azlin-lockdown = Nur ein Azlin-Laufwerk kann gesperrt werden.
+azdrive-enc-rotating-title = Die Schlüssel des Laufwerks werden geändert
+azdrive-enc-rotating = Das Laufwerk wird gesperrt, dann werden sein neuer Schlüssel und sein Wiederherstellungscode erstellt…
+azdrive-enc-reencrypting = Die Dateien von „{ $name }“ werden im Hintergrund neu verschlüsselt.
+azdrive-enc-encrypting-title = Das Laufwerk wird verschlüsselt
+azdrive-enc-encrypting = Die Schlüssel des Laufwerks werden erstellt (der Schutz des Wiederherstellungscodes dauert ein paar Sekunden)…
+azdrive-enc-groups-wrong = Die Gruppen { $groups } stimmen nicht alle mit dem Code überein. Sieh nach, was du aufgeschrieben hast: Die Einrichtung ist fertig, wenn sie stimmen.
+azdrive-enc-migrating-title = Die Dateien werden in die Verschlüsselung verschoben
+azdrive-enc-migrating = Die Dateien von „{ $name }“ werden verschlüsselt. Du kannst das ausblenden: Es läuft im Hintergrund weiter und macht dort weiter, wo es aufgehört hat, falls AzDrive geschlossen wird.
+azdrive-enc-unlocking-title = Das Laufwerk wird entsperrt
+azdrive-enc-unlocking = Der Schlüssel des Laufwerks wird mit dem Wiederherstellungscode geöffnet…
+azdrive-enc-not-encrypted = Das Laufwerk wurde nicht verschlüsselt
+azdrive-enc-unlocked = „{ $name }“ ist auf diesem Computer entsperrt.
+azdrive-enc-not-unlocked = Das Laufwerk wurde nicht entsperrt
+azdrive-enc-migrated = { $count ->
+        [one] Eine Datei
+       *[other] { $count } Dateien
+    } von „{ $name }“ { $count ->
+        [one] ist
+       *[other] sind
+    } verschlüsselt{ $skipped ->
+        [0] { "" }
+        [one] ; eine blieb, wie sie war (anderer Inhalt unter ihrem Namen oder ein Name, den ein verschlüsseltes Laufwerk nicht annimmt)
+       *[other] ; { $skipped } blieben, wie sie waren (anderer Inhalt unter ihren Namen oder Namen, die ein verschlüsseltes Laufwerk nicht annimmt)
+    }.
+azdrive-enc-migrated-changed = Einige haben sich inzwischen geändert: „Verschlüsseln“ verschiebt sie erneut.
+azdrive-enc-migrate-stopped = Das Verschieben der Dateien von „{ $name }“ in die Verschlüsselung wurde angehalten: { $why }. Es macht beim nächsten Mal dort weiter, wo es aufgehört hat.
+azdrive-enc-rotated = „{ $name }“ ist gesperrt und hat neue Schlüssel: { $members } andere Computer und Einladungen entfernt, { $links } freigegebene Links widerrufen.
+azdrive-enc-rotated-mail = Eingehende E-Mails haben einen neuen Ablageschlüssel: Gib ihn deinem Mail-Worker (AzMail oder azcloud mail-drop).
+azdrive-enc-not-rotated = Die Schlüssel wurden nicht geändert
+azdrive-enc-not-rotated-why = { $why }. Eine angehaltene Schlüsseländerung macht dort weiter, wo sie aufgehört hat, wenn du es auf diesem Computer erneut versuchst.
+azdrive-enc-reencrypted = { $count ->
+        [one] Eine Datei
+       *[other] { $count } Dateien
+    } von „{ $name }“ { $count ->
+        [one] hat
+       *[other] haben
+    } neue Schlüssel: Nichts im Laufwerk öffnet sich mehr mit dem alten Schlüssel.
+azdrive-enc-reencrypt-damaged = { $count ->
+        [one] Eine beschädigte Datei blieb,
+       *[other] { $count } beschädigte Dateien blieben,
+    } wie sie waren.
+azdrive-enc-reencrypt-stopped = Das Neuverschlüsseln von „{ $name }“ wurde angehalten: { $why }. Es macht beim nächsten Mal dort weiter, wo es aufgehört hat.
+azdrive-enc-key-not-registered = Der Wiederherstellungscode von „{ $name }“ konnte nicht für eine Sperrung registriert werden ({ $why }): Er entsperrt die Dateien des Laufwerks weiterhin.
+azdrive-enc-locked-title = „{ $name }“ ist gesperrt
+azdrive-enc-locked = Die Sperrung mit dem Wiederherstellungscode ist{ $until ->
+        [none] { "" }
+       *[other] { " " }bis { $until }
+    } ausstehend: Das Laufwerk nimmt keine Schreibvorgänge an, und ein Gerät des Besitzers kann sie noch abbrechen. Dann verliert jedes andere Gerät und jeder Schlüssel das Laufwerk, und dieser Computer behält es.
+azdrive-enc-not-locked = Das Laufwerk wurde nicht gesperrt
+azdrive-enc-checking-title = Der Wiederherstellungscode wird geprüft
+azdrive-enc-checking = Der Wiederherstellungsschlüssel des Laufwerks wird mit dem Code geöffnet (ein paar Sekunden)…
+azdrive-enc-lockdown-bad-code = Das ist kein Wiederherstellungscode (26 Buchstaben und Ziffern in fünf Gruppen), oder der Tokenserver des Laufwerks ist nicht bekannt.
+azdrive-enc-locking-title = Das Laufwerk wird gesperrt
+azdrive-enc-locking = Die Sperrung wird mit dem Wiederherstellungscode signiert…

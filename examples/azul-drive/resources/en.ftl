@@ -1201,3 +1201,98 @@ azdrive-contacts-held-none = None. When someone asks you to be their trusted con
 azdrive-contacts-be-contact = Be someone's trusted contact…
 azdrive-contacts-take = Take a share…
 azdrive-contacts-help = Help with a recovery…
+
+## Encrypted drives
+
+azdrive-enc-err-no-key = this computer has no key for the drive
+azdrive-enc-err-no-index = this build of AzDrive has no drive index to open encrypted drives with
+azdrive-enc-err-device-no-key = This device has no key for the drive.
+azdrive-enc-err-made-later = The drive was made after that time.
+azdrive-enc-err-code-mismatch = That recovery code does not match the drive's recovery key.
+azdrive-enc-err-no-recovery-key = The drive has no recovery key at its token server (its recovery sheet was made before AzDrive registered one).
+azdrive-enc-groups-and = { $rest } and { $last }
+azdrive-enc-confirm-title = Encrypt "{ $name }"?
+azdrive-enc-confirm-1 = Its files are encrypted on this computer before they leave it: Azlin stores ciphertext under random names, without the files' names or folders.
+azdrive-enc-confirm-2 = This computer keeps the drive's key in its keyring. Other computers get it with a join code from one that has it.
+azdrive-enc-confirm-3 = You get a RECOVERY CODE: the only way back in when every computer with the key is lost. Azlin cannot reset it.
+azdrive-enc-confirm-4 = Then the drive's files move into the encryption. It runs in the background and continues where it stopped if AzDrive closes.
+azdrive-enc-encrypt = Encrypt
+azdrive-enc-hide = Hide
+azdrive-enc-sheet-what = Write it down, or print it, and keep it apart from this computer. It is stored nowhere: this is the one time it shows.
+azdrive-enc-sheet-check = To check that you have it, type groups { $groups } of the code:
+azdrive-enc-group = Group { $n }
+azdrive-enc-written-down = I have written it down
+azdrive-enc-sheet-title = Your recovery code
+azdrive-enc-unlock-what = This computer has no key for this drive. Type its recovery code (any case, with or without dashes) to keep the key here.
+azdrive-enc-unlock = Unlock
+azdrive-enc-unlock-title = Unlock "{ $name }"
+azdrive-enc-lockdown-what = From a computer that lost the drive (its devices were taken over), the recovery code locks it down: it takes no writes for 48 hours, during which a device of the owner may cancel; then every other device and key loses the drive and this computer keeps it.
+azdrive-enc-lock-down = Lock down
+azdrive-enc-lockdown-title = Lock "{ $name }" down with the recovery code
+azdrive-enc-rotate-title = New keys for "{ $name }"?
+azdrive-enc-rotate-when = Use this when a computer, a phone or a key of this drive may be in someone else's hands.
+azdrive-enc-rotate-1 = 1. The drive is locked down: every other computer, every key and every shared link loses access at once.
+azdrive-enc-rotate-2 = 2. The drive gets a new key, and you get a NEW RECOVERY CODE. The old code stops working.
+azdrive-enc-rotate-3 = 3. Your other computers join again with a new join code from this one; links are shared again; incoming mail gets a new drop key.
+azdrive-enc-rotate-then = Then re-encrypting every file is recommended: afterwards nothing in the drive opens with the old key.
+azdrive-enc-rotate-button = Lock down and change the keys
+azdrive-enc-reencrypt-title = Re-encrypt every file?
+azdrive-enc-reencrypt-why = Recommended after a compromise. The files of "{ $name }" are under the new key now, but each file still has its own old file key: whoever copied the drive's data and its old key before the lockdown could read those copies.
+azdrive-enc-reencrypt-how = Re-encrypting writes every file anew with new keys. It runs in the background and continues where it stopped if AzDrive closes.
+azdrive-enc-reencrypt-button = Re-encrypt everything
+azdrive-enc-only-azlin = Only an Azlin drive can be encrypted.
+azdrive-enc-only-azlin-lockdown = Only an Azlin drive can be locked down.
+azdrive-enc-rotating-title = Changing the drive's keys
+azdrive-enc-rotating = Locking the drive down, then making its new key and recovery code…
+azdrive-enc-reencrypting = The files of "{ $name }" are being re-encrypted in the background.
+azdrive-enc-encrypting-title = Encrypting the drive
+azdrive-enc-encrypting = Making the drive's keys (the recovery code's protection takes a few seconds)…
+azdrive-enc-groups-wrong = Groups { $groups } are not all the code's. Look at what you wrote down: the setup finishes when they are.
+azdrive-enc-migrating-title = Moving the files into the encryption
+azdrive-enc-migrating = The files of "{ $name }" are being encrypted. You can hide this: it continues in the background, and where it stopped if AzDrive closes.
+azdrive-enc-unlocking-title = Unlocking the drive
+azdrive-enc-unlocking = Opening the drive's key with the recovery code…
+azdrive-enc-not-encrypted = The drive was not encrypted
+azdrive-enc-unlocked = "{ $name }" is unlocked on this computer.
+azdrive-enc-not-unlocked = The drive was not unlocked
+azdrive-enc-migrated = { $count ->
+        [one] One file
+       *[other] { $count } files
+    } of "{ $name }" { $count ->
+        [one] is
+       *[other] are
+    } encrypted{ $skipped ->
+        [0] { "" }
+        [one] ; one left as it was (other contents under its name, or a name an encrypted drive cannot take)
+       *[other] ; { $skipped } left as they were (other contents under their names, or names an encrypted drive cannot take)
+    }.
+azdrive-enc-migrated-changed = Some changed meanwhile: "Encrypt" again moves them.
+azdrive-enc-migrate-stopped = Moving the files of "{ $name }" into the encryption stopped: { $why }. It continues where it stopped the next time.
+azdrive-enc-rotated = "{ $name }" is locked down and has new keys: { $members } other computers and invites removed, { $links } shared links revoked.
+azdrive-enc-rotated-mail = Incoming mail has a new drop key: give it to your mail Worker (AzMail, or azcloud mail-drop).
+azdrive-enc-not-rotated = The keys were not changed
+azdrive-enc-not-rotated-why = { $why }. A rotation that stopped continues where it stopped when you try again on this computer.
+azdrive-enc-reencrypted = { $count ->
+        [one] One file
+       *[other] { $count } files
+    } of "{ $name }" { $count ->
+        [one] has
+       *[other] have
+    } new keys: nothing in the drive opens with the old key any more.
+azdrive-enc-reencrypt-damaged = { $count ->
+        [one] One damaged file was
+       *[other] { $count } damaged files were
+    } left as they were.
+azdrive-enc-reencrypt-stopped = Re-encrypting "{ $name }" stopped: { $why }. It continues where it stopped the next time.
+azdrive-enc-key-not-registered = The recovery code of "{ $name }" could not be registered for a lockdown ({ $why }): it still unlocks the drive's files.
+azdrive-enc-locked-title = "{ $name }" is locked down
+azdrive-enc-locked = The lockdown with the recovery code is pending{ $until ->
+        [none] { "" }
+       *[other] { " " }until { $until }
+    }: the drive takes no writes, and a device of the owner may still cancel it. Then every other device and key loses the drive, and this computer keeps it.
+azdrive-enc-not-locked = The drive was not locked down
+azdrive-enc-checking-title = Checking the recovery code
+azdrive-enc-checking = Opening the drive's recovery key with the code (a few seconds)…
+azdrive-enc-lockdown-bad-code = That is not a recovery code (26 letters and digits, in five groups), or the drive's token server is not known.
+azdrive-enc-locking-title = Locking the drive down
+azdrive-enc-locking = Signing the lockdown with the recovery code…

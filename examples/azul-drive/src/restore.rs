@@ -232,7 +232,7 @@ pub(crate) fn run(
     let as_of = i64::try_from(as_of).map_err(|_| Text::key("azdrive-restore-out-of-range"))?;
     if let Some(restore) = encrypted {
         if let Some(result) = restore(as_of) {
-            return result.map(Restored::Files).map_err(Text::from);
+            return result.map(Restored::Files).map_err(|why| crate::l10n::said(&why));
         }
     }
     let transport = AzulTransport::new(USER_AGENT);

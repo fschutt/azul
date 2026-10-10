@@ -831,7 +831,7 @@ pub(crate) fn bucket_answered(
         Err(why) => {
             s.popup = Some(Popup::Encryption(Dialog::Message {
                 title: t("azdrive-drill-not-checked"),
-                text: why,
+                text: t_label(&why),
             }));
         }
     }
@@ -1012,7 +1012,7 @@ pub(crate) fn devices_counted(
             state_mut(&mut s.settings.recovery.drives, drive_id).other_devices = count;
             save_settings(info, app, s);
         }
-        Err(why) => s.error(Phrase::new("azdrive-devices-not-counted").arg("why", why)),
+        Err(why) => s.error(Phrase::new("azdrive-devices-not-counted").arg("why", t_label(&why))),
     }
 }
 
