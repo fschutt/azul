@@ -773,6 +773,121 @@ fn a_thread_a_modals_answer_starts_writes_back_after_the_modal_closed() {
     );
 }
 
+/// The menu item [`start_work_from_a_menu_item`] was picked.
+static MENU_ITEM_PICKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The thread it started has written back.
+static MENU_WORK_WRITTEN_BACK: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn menu_work_on_a_thread(
+    _init: RefAny,
+    mut sender: azul_layout::thread::ThreadSender,
+    _receiver: azul_core::task::ThreadReceiver,
+) {
+    // Work that outlasts the pick: the menu is gone before it ends (AzDrive's search waits for
+    // the typing to pause first).
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let _sent = sender.send(azul_layout::thread::ThreadReceiveMsg::WriteBack(
+        azul_layout::thread::ThreadWriteBackMsg::new(
+            menu_work_written_back as azul_layout::thread::WriteBackCallbackType,
+            RefAny::new(()),
+        ),
+    ));
+}
+
+extern "C" fn menu_work_written_back(
+    _data: RefAny,
+    _back: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    MENU_WORK_WRITTEN_BACK.store(true, Ordering::SeqCst);
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// A menu item's callback that leaves the app's work to a thread: AzDrive's Saved searches
+/// (the search it runs again), its Refine menus (the search with the new choice).
+extern "C" fn start_work_from_a_menu_item(
+    data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    MENU_ITEM_PICKED.store(true, Ordering::SeqCst);
+    info.add_thread(
+        azul_core::task::ThreadId::unique(),
+        azul_layout::thread::Thread::create(
+            RefAny::new(()),
+            data.clone(),
+            menu_work_on_a_thread as azul_layout::thread::ThreadCallbackType,
+        ),
+    );
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// A thread a menu item's callback starts is the menu's OWNER's, as a modal's is: the item's
+/// callback runs in the menu's own window (headless, and the X11 / Wayland fallback), which
+/// closes as the item is picked, and the window that owns the menu dropped the closed menu
+/// with its threads - their answers never came. AzDrive's Saved searches ran the saved search
+/// from the menu and it never reported (E2E step 23, 2026-10-10): the folder's listing, a
+/// thread of a few milliseconds, answered before the menu was dropped; the search, which waits
+/// for the typing to pause, did not.
+#[test]
+fn a_thread_a_menu_items_callback_starts_writes_back_after_the_menu_closed() {
+    use azul_core::{
+        events::MouseButton,
+        menu::{Menu, MenuItem, StringMenuItem},
+    };
+
+    MENU_ITEM_PICKED.store(false, Ordering::SeqCst);
+    MENU_WORK_WRITTEN_BACK.store(false, Ordering::SeqCst);
+    let mut window = settled_window();
+    let menu = Menu::create(
+        vec![MenuItem::String(
+            StringMenuItem::create("Search again".into())
+                .with_callback(RefAny::new(()), start_work_from_a_menu_item as usize),
+        )]
+        .into(),
+    );
+    window.show_menu_from_callback(&menu, LogicalPosition::new(20.0, 10.0), None);
+    window.pump_children();
+    assert_eq!(window.children.len(), 1, "harness: the menu is open");
+
+    // The middle of the first item: below the frame's line and padding, half an item down.
+    let metrics =
+        crate::desktop::menu_renderer::MenuMetrics::from_system_style(&window.common.system_style);
+    let x = metrics.border_width + metrics.pad_h + 8.0;
+    let y = metrics.border_width + metrics.frame_pad_v + metrics.item_height / 2.0;
+    step(&mut window.children[0], HeadlessEvent::MouseMove { x, y });
+    step(
+        &mut window.children[0],
+        HeadlessEvent::MouseDown {
+            button: MouseButton::Left,
+        },
+    );
+    step(
+        &mut window.children[0],
+        HeadlessEvent::MouseUp {
+            button: MouseButton::Left,
+        },
+    );
+    assert!(
+        MENU_ITEM_PICKED.load(Ordering::SeqCst),
+        "harness: the press picked the menu's item"
+    );
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !MENU_WORK_WRITTEN_BACK.load(Ordering::SeqCst) && std::time::Instant::now() < end {
+        window.pump_children();
+        window.pump_once(true);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        window.children.is_empty(),
+        "harness: the menu closed when its item was picked"
+    );
+    assert!(
+        MENU_WORK_WRITTEN_BACK.load(Ordering::SeqCst),
+        "the thread the menu item's callback started wrote back after the menu closed"
+    );
+}
+
 /// E2E-C, AzReview: every `<transient-window>` is a `WindowType::Menu` window
 /// (`transient::popup_window_state` - borderless, on top, parent-owned), and
 /// the headless owner took every Menu-type child for a window-based MENU: an
