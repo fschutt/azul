@@ -348,6 +348,21 @@ pub fn unlock(
     if let Some(key) = load_drive_key(keyring, drive)? {
         return Ok(Some(key));
     }
+    let Some(drive_key) = key_from_wrap(bucket, keyring, drive)? else {
+        return Ok(None);
+    };
+    store_drive_key(keyring, drive, &drive_key)?;
+    Ok(Some(drive_key))
+}
+
+/// The drive key this device's member wrap in the bucket holds, opened with its member
+/// secret. `None` without a member secret or a wrap, and when the index's policy no longer
+/// names this device: the policy decides, whatever key file the bucket still holds.
+fn key_from_wrap(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<Option<DriveKey>, DriveError> {
     let Some(secret) = load_member_secret(keyring, drive)? else {
         return Ok(None);
     };
@@ -359,13 +374,35 @@ pub fn unlock(
     };
     let file = member_key_file(&member).map_err(|e| e.for_key(drive))?;
     let drive_key = wrap.open(drive, &secret).map_err(|e| e.for_key(&file))?;
-    // The policy decides: a device it no longer names stays out, whatever key file the
-    // bucket still holds.
     if !is_member(bucket, &drive_key, &member)? {
         return Ok(None);
     }
-    store_drive_key(keyring, drive, &drive_key)?;
     Ok(Some(drive_key))
+}
+
+/// A device that missed a key rotation catches up. When its member wrap in the bucket holds
+/// another drive key than its keyring does (the rotating device sealed the new key to the
+/// members it kept), that key becomes the keyring's drive key. Returns the new key and the
+/// one before it, for the rotation's window
+/// ([`crate::encrypted::IndexProvider::open_index_in_window`]). `None` when the wrap holds
+/// the keyring's key, or when there is no wrap: a rotation that removed this device leaves
+/// it nothing to catch up from (it needs an invite or the recovery code).
+pub fn catch_up(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<Option<(DriveKey, DriveKey)>, DriveError> {
+    let Some(previous) = load_drive_key(keyring, drive)? else {
+        return Ok(None);
+    };
+    let Some(current) = key_from_wrap(bucket, keyring, drive)? else {
+        return Ok(None);
+    };
+    if current == previous {
+        return Ok(None);
+    }
+    store_drive_key(keyring, drive, &current)?;
+    Ok(Some((current, previous)))
 }
 
 /// Seals `drive_key` to a new one-time key for a join code: the wrap goes into the bucket as
