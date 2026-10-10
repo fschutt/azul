@@ -21,7 +21,7 @@ use crate::{
     CloudResult,
 };
 
-const PREFIX: &str = "e2e/sync/";
+pub(super) const PREFIX: &str = "e2e/sync/";
 
 /// One device: its folder and its state folder.
 pub(super) struct Device {

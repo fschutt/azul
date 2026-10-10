@@ -22,6 +22,7 @@ mod settings;
 mod share;
 mod state;
 mod sync;
+mod sync_format;
 mod sync_guard;
 mod sync_local;
 mod sync_merge;
