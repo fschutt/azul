@@ -3,8 +3,8 @@
 //! own.
 
 use crate::l10n::{
-    app_word, decimal, grouped, is_key, keep, money, named, named_key, set_locale, sources, t,
-    t_args, t_phrase, Arg, Phrase,
+    app_word, date_text, decimal, grouped, is_key, keep, money, named, named_key, set_locale,
+    sources, t, t_args, t_phrase, Arg, DateStyle, Phrase,
 };
 
 #[test]
@@ -137,4 +137,31 @@ fn a_word_argument_is_said_when_its_phrase_is_shown() {
         named_key("AzDrive", "reason", "it is the drive's root"),
         "azdrive-reason-it-is-the-drive-s-root"
     );
+}
+
+/// A date as the window's language writes it, its names the kit's words: Wednesday, 30
+/// September 2026 in English, Mittwoch, 30. September 2026 in German (a calendar's header, a
+/// list's day, a column's head).
+#[test]
+fn a_date_is_written_as_the_language_writes_it() {
+    keep(&sources(&[]));
+    // Wednesday (the third day from Monday), 30 September 2026.
+    let day = |style| date_text(style, 2026, 9, 30, 2);
+    set_locale("en-US");
+    assert_eq!(day(DateStyle::DayLong), "Wednesday, 30 September 2026");
+    assert_eq!(day(DateStyle::MonthYear), "September 2026");
+    assert_eq!(day(DateStyle::Date), "30 September 2026");
+    assert_eq!(day(DateStyle::DayMonth), "30 September");
+    assert_eq!(day(DateStyle::WeekdayDayMonth), "Wednesday 30 September");
+    assert_eq!(day(DateStyle::Weekday), "Wednesday");
+    assert_eq!(day(DateStyle::ShortWeekdayDay), "Wed 30");
+    assert_eq!(day(DateStyle::ShortDate), "Wed 30 Sep");
+    assert_eq!(day(DateStyle::DayShortMonth), "30 Sep");
+    set_locale("de-DE");
+    assert_eq!(day(DateStyle::DayLong), "Mittwoch, 30. September 2026");
+    assert_eq!(day(DateStyle::WeekdayDayMonth), "Mittwoch, 30. September");
+    assert_eq!(day(DateStyle::ShortWeekdayDay), "Mi. 30.");
+    assert_eq!(day(DateStyle::ShortDate), "Mi. 30. Sept.");
+    assert_eq!(date_text(DateStyle::MonthYear, 2026, 3, 1, 6), "März 2026");
+    set_locale("en-US");
 }
