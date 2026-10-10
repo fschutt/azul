@@ -3,6 +3,9 @@
 
 mod bucket;
 mod cache;
+/// The encrypted drive over the drive index (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod index;
 mod merge;
 mod objects;
 mod pack;

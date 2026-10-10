@@ -70,12 +70,19 @@
 //!   compaction, garbage collection.
 //! - [`tree`], [`merge`]: folders as trees, changes, the three-way merge (D52 conflicts);
 //!   [`shard`]: huge folders in hidden fan-out subtrees.
-//! - [`repo`]: one device's drive index ([`MetaRepo`]): commit, pull, merge, restore.
+//! - [`repo`]: one device's drive index ([`MetaRepo`]): commit, pull, merge, restore; kept
+//!   on disk and read lazily ([`RepoOptions`]).
+//! - `index`, `pointer` (feature `encryption`): the encrypted drive's `NameIndex` over the
+//!   repository (`MetaIndex`, `open_encrypted_drive`) and its pointer files.
 
 pub mod bucket;
+#[cfg(feature = "encryption")]
+pub mod index;
 pub mod merge;
 pub mod objects;
 pub mod pack;
+#[cfg(feature = "encryption")]
+pub mod pointer;
 pub mod repo;
 pub mod seal;
 pub mod shard;
@@ -90,6 +97,8 @@ pub use bucket::{
 pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
+#[cfg(feature = "encryption")]
+pub use index::{open_encrypted_drive, MetaIndex};
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions};
 pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;

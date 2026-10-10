@@ -401,7 +401,7 @@ impl Local {
 }
 
 /// The drive's head as the state names it.
-fn remote_head(state: &RepoState) -> Result<Option<ObjectId>, MetaError> {
+pub(super) fn remote_head(state: &RepoState) -> Result<Option<ObjectId>, MetaError> {
     match state.refs.get(MAIN) {
         None => Ok(None),
         Some(hex) => ObjectId::from_hex(hex).map(Some).ok_or_else(|| MetaError::Corrupt {
@@ -527,7 +527,7 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
     }
 
     /// Writes the state to the cache folder (when there is one).
-    fn save(&self) {
+    pub(super) fn save(&self) {
         let Some(dir) = &self.local.cache else {
             return;
         };
@@ -606,6 +606,16 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         Ok(report.changed || moved)
     }
 
+    /// Makes what reading the entry at `path` needs local: the trees on the
+    /// way and, for a file, its blob. In a full copy nothing is read.
+    pub fn ensure_entry(&mut self, path: &str) -> Result<(), MetaError> {
+        let Some(root) = self.root()? else {
+            return Ok(());
+        };
+        let packs = self.store.packs();
+        self.local.ensure_entry(&root, path, &packs)
+    }
+
     /// Reads every pack whole (a lazy copy becomes a full one).
     pub fn fetch_all(&mut self) -> Result<(), MetaError> {
         let packs = self.store.packs();
@@ -623,7 +633,7 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         self.local.ensure_folder(&root, path, files, &packs)
     }
 
-    fn signature(&self) -> Signature {
+    pub(super) fn signature(&self) -> Signature {
         let now = i64::try_from(self.store.now()).unwrap_or(0);
         Signature {
             name: self.device_name.clone(),

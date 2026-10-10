@@ -129,6 +129,8 @@ struct MemoryState {
     objects: BTreeMap<String, (Vec<u8>, Version)>,
     next_version: u64,
     counts: RequestCounts,
+    /// The keys of the whole reads, in order.
+    whole_reads: Vec<String>,
     /// Runs before the next `replace` of the key (then removed).
     before_replace: BTreeMap<String, Hook>,
 }
@@ -164,6 +166,12 @@ impl MemoryBucket {
         self.lock().counts
     }
 
+    /// The keys every whole read (not a ranged one) asked for, in order.
+    #[must_use]
+    pub fn whole_reads(&self) -> Vec<String> {
+        self.lock().whole_reads.clone()
+    }
+
     /// Every object: key and bytes, in key order.
     #[must_use]
     pub fn objects(&self) -> Vec<(String, Vec<u8>)> {
@@ -196,6 +204,7 @@ impl Bucket for MemoryBucket {
     fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
         let mut state = self.lock();
         state.counts.reads += 1;
+        state.whole_reads.push(key.to_string());
         Ok(state.objects.get(key).cloned())
     }
 
@@ -326,6 +335,7 @@ impl Drive for MemoryBucket {
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
         let mut state = self.lock();
         state.counts.reads += 1;
+        state.whole_reads.push(key.to_string());
         state
             .objects
             .get(key)
