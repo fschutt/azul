@@ -127,7 +127,7 @@ pub use database::DatabaseDrive;
 pub use local::LocalDrive;
 #[cfg(feature = "opendal")]
 pub use opendal_drive::OpendalDrive;
-pub use s3::{Credentials, S3Config, S3Drive};
+pub use s3::{BucketSpace, Credentials, S3Config, S3Drive};
 pub use scoped::ScopedDrive;
 pub use transport::{HttpCall, HttpReply, Method, Transport};
 

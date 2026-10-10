@@ -11,6 +11,7 @@ fn the_usage_line_counts_stored_bytes_and_shows_the_original_size_as_extra_infor
         used: 62 * GB,
         quota: 100 * GB,
         original: Some(99 * GB),
+        estimate: false,
     };
     assert_eq!(
         usage.text(),
@@ -37,6 +38,7 @@ fn a_drive_is_nearly_full_by_its_stored_bytes_not_its_files_size() {
         used: 80 * GB,
         quota: 100 * GB,
         original: Some(120 * GB),
+        estimate: false,
     };
     assert_eq!(fine.level(), Level::Fine);
     assert_eq!(fine.warning(), None);
@@ -54,6 +56,36 @@ fn a_drive_is_nearly_full_by_its_stored_bytes_not_its_files_size() {
     assert_eq!(full.level(), Level::Full);
     assert_eq!(full.available(), 0);
     assert!(full.warning().unwrap().contains("full"));
+}
+
+/// The nodes did not say what they count (an old node, another S3): the drive index's sum of
+/// its objects stands in, and the line says it is an estimate.
+#[test]
+fn a_usage_this_device_estimated_says_so() {
+    let usage = Usage {
+        used: 62 * GB,
+        quota: 100 * GB,
+        original: Some(99 * GB),
+        estimate: true,
+    };
+    assert_eq!(
+        usage.text(),
+        "about 62 GB used of 100 GB (estimated on this computer), your files are 99 GB before \
+         compression"
+    );
+    assert_eq!(usage.available_text(), "about 38 GB available");
+    let counted = Usage {
+        estimate: false,
+        ..usage
+    };
+    assert_eq!(counted.available_text(), "38 GB available");
+    let nearly = Usage {
+        used: 93 * GB,
+        ..usage
+    };
+    let warning = nearly.warning().unwrap();
+    assert!(warning.contains("about 93 GB of 100 GB"), "{warning}");
+    assert!(warning.contains("estimated on this computer"), "{warning}");
 }
 
 #[test]

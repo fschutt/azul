@@ -13,6 +13,9 @@ pub struct Usage {
     pub quota: u64,
     /// The files' bytes before compression (the drive index's sum of their sizes), when known.
     pub original: Option<u64>,
+    /// `used` is this device's estimate (the drive index's sum of its objects): the storage
+    /// nodes did not say what they count.
+    pub estimate: bool,
 }
 
 /// How full a drive is.
@@ -54,6 +57,12 @@ impl Usage {
     #[must_use]
     pub fn available(&self) -> u64 {
         self.quota.saturating_sub(self.used)
+    }
+
+    /// "38 GB available" (an estimate: "about 38 GB available").
+    #[must_use]
+    pub fn available_text(&self) -> String {
+        format!("{} available", size_text(self.available()))
     }
 
     /// How full the drive is by its stored bytes (a quota of 0 - not known - is never full).

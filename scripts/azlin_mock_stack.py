@@ -1790,6 +1790,13 @@ def self_test():
         assert client.refresh(drive_id, member['drive_token'])[0] == 401, 'the member is out'
         assert client.refresh(drive_id, owner)[0] == 401, "the caller's old family is out"
         assert client.refresh(drive_id, locked['drive_token'])[0] == 200, 'its new one works'
+        # SRV17: the drive's node answers HeadBucket with its stored bytes and the tier's quota.
+        s3 = s3_server.Client(stack.s3_url, ACCESS_KEY, SECRET_KEY, REGION)
+        state.s3.store.write(drive['bucket'], 'data/x', b'0123456789')
+        status, headers, _ = s3.request('HEAD', drive['bucket'], '')
+        assert status == 200 and headers.get('x-azlin-used-bytes') == '10', (status, headers)
+        assert headers.get('x-azlin-quota-bytes') == str(drive['quota_bytes']), headers
+        print('ok: HeadBucket names the stored bytes and the quota of the drive\'s tier')
         # By the recovery key.
         _, bundle, _ = client.signup('self-test-recovery')
         drive_id, owner = bundle['drive']['id'], bundle['drive_token']

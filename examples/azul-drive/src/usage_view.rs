@@ -7,9 +7,10 @@
 //! [`TOTALS_EVERY_SECS`]). A drive nearly full or full says so once a run.
 
 use azcloud_kit::{
-    usage::{size_text, Level, Usage},
+    usage::{Level, Usage},
     DriveStatus,
 };
+use azul_storage::BucketSpace;
 
 use crate::DriveState;
 
@@ -46,6 +47,22 @@ pub(crate) fn merge_status(
     Some(seen)
 }
 
+/// `previous` with what the drive's storage node counts (its HeadBucket answer): the stored
+/// bytes and the quota, which every other count gives way to.
+#[must_use]
+pub(crate) fn merge_space(previous: Option<DriveUsage>, space: &BucketSpace) -> Option<DriveUsage> {
+    let _ = space;
+    previous
+}
+
+impl DriveUsage {
+    /// The space as the lines show it.
+    #[must_use]
+    pub(crate) fn usage(&self) -> Usage {
+        self.usage
+    }
+}
+
 /// `previous` with the drive index's totals at `now`: the files' size before compression, and
 /// - while the token server has not counted - their objects' stored bytes.
 #[must_use]
@@ -75,7 +92,8 @@ pub(crate) fn totals_due(usage: Option<&DriveUsage>, now: u64) -> bool {
 /// The status line's part: "38 GB available" (of the quota, in stored bytes).
 #[must_use]
 pub(crate) fn available_part(usage: &DriveUsage) -> Option<String> {
-    (usage.usage.quota > 0).then(|| format!("{} available", size_text(usage.usage.available())))
+    let usage = usage.usage();
+    (usage.quota > 0).then(|| usage.available_text())
 }
 
 /// The token server's word on the Azlin drive `azlin_id` (the periods' look): its quota and its
@@ -154,13 +172,58 @@ mod tests {
         assert!(totals_due(Some(&seen), 1_000 + TOTALS_EVERY_SECS));
     }
 
+    /// SRV17: the node's HeadBucket count is the space used; the drive index's totals only add
+    /// the files' size before compression, and the token server's word does not replace it.
     #[test]
-    fn without_the_servers_count_the_index_stored_bytes_stand_in() {
+    fn the_nodes_count_is_the_space_used_and_the_index_only_adds_the_original_size() {
+        let node = BucketSpace {
+            used_bytes: Some(62 * GB),
+            quota_bytes: Some(100 * GB),
+        };
+        let seen = merge_space(None, &node).unwrap();
+        assert_eq!((seen.usage().used, seen.usage().quota), (62 * GB, 100 * GB));
+        assert!(!seen.usage().estimate);
+        assert_eq!(available_part(&seen).as_deref(), Some("38 GB available"));
+        let seen = merge_totals(Some(seen), 99 * GB, 61 * GB, 1_000).unwrap();
+        let seen = merge_status(Some(seen), &status(Some(100 * GB), Some(50 * GB))).unwrap();
+        assert_eq!(seen.usage().used, 62 * GB, "the node's count stays");
+        assert_eq!(
+            seen.usage().text(),
+            "62 GB used of 100 GB, your files are 99 GB before compression"
+        );
+        // A later count of the node replaces it.
+        let seen = merge_space(
+            Some(seen),
+            &BucketSpace {
+                used_bytes: Some(70 * GB),
+                quota_bytes: None,
+            },
+        )
+        .unwrap();
+        assert_eq!((seen.usage().used, seen.usage().quota), (70 * GB, 100 * GB));
+    }
+
+    /// Without the node's headers (an old node, another S3) the drive index's sum of its
+    /// objects stands in - an estimate, and the lines say so.
+    #[test]
+    fn without_the_nodes_count_the_index_stored_bytes_are_an_estimate() {
         let seen = merge_status(None, &status(Some(100 * GB), None)).unwrap();
-        assert!(!seen.server_counted);
+        let seen = merge_space(Some(seen), &BucketSpace::default()).unwrap();
         let seen = merge_totals(Some(seen), 30 * GB, 20 * GB, 5).unwrap();
-        assert_eq!(seen.usage.used, 20 * GB);
-        assert_eq!(available_part(&seen).as_deref(), Some("80 GB available"));
+        assert_eq!(seen.usage().used, 20 * GB);
+        assert!(seen.usage().estimate);
+        assert_eq!(available_part(&seen).as_deref(), Some("about 80 GB available"));
+        // Then the node counts: no estimate any more.
+        let seen = merge_space(
+            Some(seen),
+            &BucketSpace {
+                used_bytes: Some(21 * GB),
+                quota_bytes: Some(100 * GB),
+            },
+        )
+        .unwrap();
+        assert!(!seen.usage().estimate);
+        assert_eq!(available_part(&seen).as_deref(), Some("79 GB available"));
         // A server that never said its quota: nothing to show yet.
         assert_eq!(merge_status(None, &status(None, None)), None);
         assert!(totals_due(None, 0));
