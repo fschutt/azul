@@ -1070,7 +1070,10 @@ def run(args, logs):
                   lambda: app.ribbon("Save search"))
         focus_search_box(app)
         app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
-        app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
+        # The keys go back to the listing (Escape leaves the search box focused, where
+        # Backspace edits the text): a row selected, then Backspace goes up.
+        app.after("up to Home", "AZDRIVE_PLACE", r"home /",
+                  lambda: (select_item(app, "plan.md"), app.key("backspace")))
         focus_search_box(app)
         app.after("another search in Home", "AZDRIVE_SEARCHED", r"\d+ contents needle",
                   lambda: (app.must("text_input", text="needle"), app.frame(2)))
