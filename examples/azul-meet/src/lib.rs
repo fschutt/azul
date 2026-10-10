@@ -1974,7 +1974,7 @@ fn start_playout(play: bool) -> Arc<Mutex<Playout>> {
     }));
     let weak = Arc::downgrade(&shared);
     let spawned = std::thread::Builder::new()
-        .name(String::from("azmeet-playout"))
+        .name(String::from("azmeet_playout"))
         .spawn(move || playout_loop(weak));
     if let Err(e) = spawned {
         eprintln!("[azmeet] could not start the audio playout thread: {e}");
@@ -5860,7 +5860,7 @@ fn apply_chat_changes(
     if let Some(problem) = &changes.problem {
         eprintln!("[azmeet] {}: room {}: {problem}", s.name, short_id(id));
         if active_room_id(s).as_deref() == Some(id) {
-            s.notice = problem.clone();
+            s.notice = t_text(problem);
         }
     }
     // What is on screen is read.

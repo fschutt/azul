@@ -205,3 +205,33 @@ azmeet-server-saved = saved on the start screen
 azmeet-server-built-in = built in (AZMEET_DEFAULT_WORKER)
 azmeet-server-silent = The meeting server at { $server } ({ $from }) does not answer ({ $why }). AzMeet asks again every { $seconds } seconds; Retry asks now, or type another one and press Enter.
 azmeet-no-network = No network link, so nobody can be reached: { $why }
+
+## AzMeet: rooms, identity, times
+
+azmeet-identity-keyring = kept in the system keyring
+azmeet-identity-file = kept in { $path } (--identity-file)
+azmeet-identity-session = for this run only: the system keyring { $why }
+azmeet-server-silent-short = The meeting server does not answer.
+azmeet-room-ended = This room has ended, or the link is wrong.
+azmeet-message-too-long = That message is too long for the meeting server.
+azmeet-link-wrong-room = This link does not open this room: ask for the link again.
+azmeet-room-not-encrypted = This room was made by an older AzMeet and is not end-to-end encrypted, so this AzMeet does not join it.
+azmeet-room-full = This room is full.
+azmeet-another-room = The meeting server sent another room than this one.
+azmeet-too-many-requests = Too many requests from this network; AzMeet tries again in a moment.
+azmeet-server-refused = The meeting server answered { $status }.
+azmeet-server-refused-code = The meeting server answered { $status } ({ $code }).
+azmeet-span-min = { $min } min
+azmeet-span-h = { $h } h
+azmeet-span-h-min = { $h } h { $min } min
+azmeet-span-days = { $days ->
+    [one] { $days } day
+   *[other] { $days } days
+ }
+azmeet-starts-in = starts in { $span }
+azmeet-started-ago = started { $ago } ago, ends in { $left }
+azmeet-ended-ago = ended { $ago } ago
+azmeet-shortcuts-call = Call
+azmeet-shortcut-mic = Mute or unmute the microphone
+azmeet-shortcut-camera = Start or stop the camera
+azmeet-room-old = This room was made by an older AzMeet and is not end-to-end encrypted, so this AzMeet does not use it.

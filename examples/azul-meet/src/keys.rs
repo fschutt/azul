@@ -25,8 +25,8 @@ pub enum Key {
 /// AzMeet's own shortcuts, as the settings list them ("Mod" is Cmd on macOS, Ctrl elsewhere);
 /// the kit lists its window keys after them.
 pub const SHORTCUTS: [Shortcut; 2] = [
-    Shortcut::new("Call", "Mod+D", "Mute or unmute the microphone"),
-    Shortcut::new("Call", "Mod+E", "Start or stop the camera"),
+    Shortcut::new("azmeet-shortcuts-call", "Mod+D", "azmeet-shortcut-mic"),
+    Shortcut::new("azmeet-shortcuts-call", "Mod+E", "azmeet-shortcut-camera"),
 ];
 
 /// What `key` does; `primary`: the platform's shortcut modifier is held

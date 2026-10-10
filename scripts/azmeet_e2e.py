@@ -468,7 +468,7 @@ def app_flags(worker, name, relay="off", extra=()):
     pattern for the devices, and the statistics panel open (the "Video from ..." lines this
     script reads)."""
     flags = ["--worker", worker, "--name", name, "--relay", relay, "--test-tone", "--test-pattern",
-             "--panel", "statistics"]
+             "--panel", "statistics", "--language", "en"]
     flags.extend(extra)
     return flags
 

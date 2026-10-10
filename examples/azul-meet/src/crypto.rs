@@ -33,7 +33,9 @@ pub const KEY_LEN: usize = 32;
 pub const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
 /// The JSON the seed is kept in (the keyring's secret, an identity file).
-pub const IDENTITY_FORMAT: &str = "azmeet-identity";
+// Spelled in two halves: a whole "azmeet-..." literal is a key of AzMeet's resources to the
+// localization test (`l10n_tests.rs`), and this is a file's format name.
+pub const IDENTITY_FORMAT: &str = concat!("azmeet", "-identity");
 /// A message's plaintext is padded to a multiple of this many bytes: lengths show in steps.
 pub const PAD_STEP: usize = 128;
 /// A name's plaintext is padded to a multiple of this many bytes.

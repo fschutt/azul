@@ -205,3 +205,33 @@ azmeet-server-saved = auf dem Startbildschirm gespeichert
 azmeet-server-built-in = eingebaut (AZMEET_DEFAULT_WORKER)
 azmeet-server-silent = Der Besprechungsserver unter { $server } ({ $from }) antwortet nicht ({ $why }). AzMeet fragt alle { $seconds } Sekunden erneut; „Erneut versuchen“ fragt sofort, oder gib einen anderen ein und drücke die Eingabetaste.
 azmeet-no-network = Keine Netzwerkverbindung, daher ist niemand erreichbar: { $why }
+
+## AzMeet: rooms, identity, times
+
+azmeet-identity-keyring = im Systemschlüsselbund aufbewahrt
+azmeet-identity-file = in { $path } aufbewahrt (--identity-file)
+azmeet-identity-session = nur für diesen Lauf: Der Systemschlüsselbund { $why }
+azmeet-server-silent-short = Der Besprechungsserver antwortet nicht.
+azmeet-room-ended = Dieser Raum ist beendet, oder der Link ist falsch.
+azmeet-message-too-long = Diese Nachricht ist zu lang für den Besprechungsserver.
+azmeet-link-wrong-room = Dieser Link öffnet diesen Raum nicht: Frag noch einmal nach dem Link.
+azmeet-room-not-encrypted = Dieser Raum wurde von einem älteren AzMeet erstellt und ist nicht Ende-zu-Ende-verschlüsselt, daher tritt dieses AzMeet ihm nicht bei.
+azmeet-room-full = Dieser Raum ist voll.
+azmeet-another-room = Der Besprechungsserver hat einen anderen Raum als diesen gesendet.
+azmeet-too-many-requests = Zu viele Anfragen aus diesem Netzwerk; AzMeet versucht es gleich noch einmal.
+azmeet-server-refused = Der Besprechungsserver antwortete { $status }.
+azmeet-server-refused-code = Der Besprechungsserver antwortete { $status } ({ $code }).
+azmeet-span-min = { $min } Min.
+azmeet-span-h = { $h } Std.
+azmeet-span-h-min = { $h } Std. { $min } Min.
+azmeet-span-days = { $days ->
+    [one] { $days } Tag
+   *[other] { $days } Tagen
+ }
+azmeet-starts-in = beginnt in { $span }
+azmeet-started-ago = begann vor { $ago }, endet in { $left }
+azmeet-ended-ago = endete vor { $ago }
+azmeet-shortcuts-call = Anruf
+azmeet-shortcut-mic = Das Mikrofon stumm- oder lautschalten
+azmeet-shortcut-camera = Die Kamera starten oder beenden
+azmeet-room-old = Dieser Raum wurde von einem älteren AzMeet erstellt und ist nicht Ende-zu-Ende-verschlüsselt, daher nutzt dieses AzMeet ihn nicht.

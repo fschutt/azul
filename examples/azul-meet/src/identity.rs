@@ -3,9 +3,12 @@
 //! passwords; the answer arrives as the window's `KeyringResult` event), or - with
 //! `--identity-file <path>` (`AZMEET_IDENTITY_FILE`), for tests and unattended machines - a file
 //! made with mode 0600, or nowhere: a seed for this run only, when the keyring cannot keep one.
-//! The file side is plain `std::fs`; no azul types.
+//! The file side is plain `std::fs`; no azul types (the words are keys of AzMeet's resources,
+//! `azul_appkit::l10n`).
 
 use std::path::Path;
+
+use azul_appkit::l10n::{t, t_args, t_text, Arg, Text};
 
 use crate::crypto::Identity;
 
@@ -20,8 +23,8 @@ pub enum Source {
     Keyring,
     /// An identity file (`--identity-file`).
     File(String),
-    /// Nowhere: this run only (why: the keyring's answer).
-    Session(String),
+    /// Nowhere: this run only (why: the keyring's answer, words the window says).
+    Session(Text),
 }
 
 impl Source {
@@ -35,13 +38,13 @@ impl Source {
         }
     }
 
-    /// What the settings say about it.
+    /// What the settings say about it, in the window's language.
     #[must_use]
     pub fn describe(&self) -> String {
         match self {
-            Source::Keyring => String::from("kept in the system keyring"),
-            Source::File(path) => format!("kept in {path} (--identity-file)"),
-            Source::Session(why) => format!("for this run only: the system keyring {why}"),
+            Source::Keyring => t("azmeet-identity-keyring"),
+            Source::File(path) => t_args("azmeet-identity-file", &[("path", Arg::from(path))]),
+            Source::Session(why) => t_args("azmeet-identity-session", &[("why", Arg::from(t_text(why)))]),
         }
     }
 }
@@ -113,8 +116,11 @@ mod tests {
     fn the_source_says_where_the_seed_lives() {
         assert_eq!(Source::Keyring.word(), "keyring");
         assert_eq!(Source::File(String::from("/tmp/x")).word(), "file");
-        assert!(Source::Session(String::from("is unavailable"))
-            .describe()
-            .contains("this run only"));
+        crate::l10n::in_english();
+        let why = Text::from(azul_appkit::l10n::Phrase::new("azmeet-keyring-is").arg("state", "unavailable"));
+        assert_eq!(
+            Source::Session(why).describe(),
+            "for this run only: the system keyring is unavailable"
+        );
     }
 }

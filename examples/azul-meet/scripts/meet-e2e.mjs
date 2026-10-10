@@ -206,6 +206,8 @@ export function appArgs(worker, name, extra = []) {
     '--test-tone',
     '--test-pattern',
     '--panel', 'statistics',
+    // The words the scripts read are AzMeet's English ones, whatever the system speaks.
+    '--language', 'en',
     ...extra,
   ];
 }

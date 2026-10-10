@@ -147,9 +147,9 @@ def run(args, sequence):
         env[name] = ""
     if args.view == "lobby":
         # An address that never answers: the status line is fixed.
-        flags = ["--worker", "http://127.0.0.1:9"]
+        flags = ["--worker", "http://127.0.0.1:9", "--language", "en"]
     else:
-        flags = ["--worker", args.worker, "--autocreate"]
+        flags = ["--worker", args.worker, "--autocreate", "--language", "en"]
     proc = subprocess.Popen(
         [args.binary] + flags, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
