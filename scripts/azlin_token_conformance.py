@@ -44,15 +44,21 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     a period token and reads the drive (GET /v1/drives/<id>) without revoking the family - the
     new token refreshes after that; a token older than the previous one is a reuse on a read
     too (401 `token_reuse`).
-12. The recovery key (§18.7, AZLINSEC17 F14, scripts/azlin_ed25519.py): a new drive's owner
-    registers an Ed25519 key (POST /v1/drives/<id>/recovery); a lockdown signed with it and no
-    drive token is 202 with `pending_until` and a new family's drive token; the same request
-    again is 409 `nonce_used`, one signed by another key 401; the drive's status names the
-    pending lockdown; the pending family gets no credentials before the 48 hours are over (403
-    `lockdown_pending`: D42, the drive is handed over only when the notice ends - so the
-    recovery wrap, and with the code the drive key, stays out of reach meanwhile); the pending
-    family cannot cancel it (403), the owner can (200), and then there is none to cancel (409
-    `no_pending_lockdown`).
+12. The recovery key (§18.7, AZLINSEC17 F14, scripts/azlin_ed25519.py): the signup answer
+    names `lockdown_pending_until`; a new drive's owner registers its first Ed25519 key on the
+    token alone (POST /v1/drives/<id>/recovery: `ok`, `key_id`), replacing it unsigned is 403
+    `recovery_key_required`; a lockdown signed with it and no drive token is 202 with
+    `pending_until` and a new family's drive token; the same request again is 409 `nonce_used`,
+    one signed by another key 401; the drive's status names the pending lockdown. The pending
+    family (D42): its status is `{"id", "status": "lockdown_pending", "lockdown_pending_until",
+    "you"}` only, and every drive-token route - credentials, members, keys (POST, DELETE), a
+    lockdown by token, recovery, recovery_keys (GET, POST, DELETE), restore and its status,
+    redeem, vouchers/redeem with a drive - is 403 `lockdown_pending` with `pending_until`, the
+    token not rotated. The owner's device lockdown meanwhile is 200 and leaves the pending
+    recovery and its 48 hours alone (F12); a device token cannot cancel it (403
+    `recovery_key_required`), another key's signature is 401, the recovery key's over
+    `lockdown-cancel:<drive>:<nonce>` without a token calls it off (the pending family then
+    401), and then there is none to cancel (409 `no_pending_lockdown`).
 13. Vouchers (AZLINSEC17 F29), with a development server's test codes (`AZLIN-TEST-1M`: a month,
     `AZLIN-TEST-EUR10`: EUR 10, any case, never used up): one without a drive is 201 with a new
     drive's sign-up; one on a drive (its drive token) is 200 with `days_added` (its value pro
@@ -70,9 +76,31 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     the objects it changed, and the prefix is as it was (the one added since gone, outside it
     nothing changed); without `as_of` it is 400 `bad_request`, an unknown request 404.
 
+16. Several recovery keys (D51, F12 option C): a drive signed up with `recovery_pubkey` lists
+    it (GET /v1/drives/<id>/recovery_keys: `key_id`, `label` "recovery code",
+    `recovery_pubkey`, `created_at`, `verified`); adding one needs a current key's signature
+    over `recovery-add:<drive>:<recovery_pubkey>:<nonce>` (403 `recovery_key_required`
+    without, 201 with), a key it has already is 409 `recovery_key_exists`; a lockdown signed by
+    the second key (`key_id`) is 202 and the first calls it off; removing (DELETE
+    .../recovery_keys/<key_id>, `recovery-remove:<drive>:<key_id>:<nonce>`) an unknown key is
+    404 `no_such_key`, unsigned 403, signed 200, the last key 409 `last_recovery_key`; POST
+    .../recovery signed over `recovery:<drive>:<new key>:<nonce>` replaces every key; ten keys
+    at most (409 `too_many_recovery_keys`).
+17. The lookup by recovery key (§18.8): POST /v1/recovery/challenge is `rc1.<expires>.<random>.
+    <mac>` with its expiry; POST /v1/recovery/lookup {"recovery_pubkey", "challenge",
+    "signature" over `recovery-lookup:<challenge>`} names the drives the key belongs to (`drive_id`,
+    `key_id`), none for a key nobody registered; a forged or expired challenge is 401
+    `bad_challenge`, a bad signature 401 `unauthorized`. The mock only: 20 recovery requests per
+    10 minutes per address, then 429 `rate_limited` (against a server it would shut the address
+    out).
+18. The mock only (its clock advanced): the owner's refresh during a recovery-key lockdown names
+    `lockdown_pending_until`; 48 hours later the pending family's first refresh is 200 and hands
+    it the drive, the owner's old devices 401.
+
 Every drive token, claim secret and issue key is secret: none is printed.
 """
 import argparse
+import base64
 import calendar
 import json
 import os
@@ -131,9 +159,10 @@ TEST_ONE_MONTH = 'AZLIN-TEST-1M'
 TEST_EUR10 = 'AZLIN-TEST-EUR10'
 
 
-def run(token_url, s3_url=None, vouchers='auto'):
+def run(token_url, s3_url=None, vouchers='auto', advance=None):
     """`vouchers`: 'auto' (section 13 unless the server takes no test code), 'required' (the
-    mock: never skipped), 'skip'."""
+    mock: never skipped), 'skip'. `advance(secs)`: the mock's clock (sections 17's rate limit and
+    18 run only with it)."""
     suite = Suite()
     client = azlin_client.TokenClient(token_url)
     print('token server %s' % token_url, flush=True)
@@ -206,6 +235,11 @@ def run(token_url, s3_url=None, vouchers='auto'):
                 status == 404 and error_code(value) == 'not_found', '(HTTP %d %r)' % (status, value))
     claim_checks(suite, client)
     recovery_checks(suite, client)
+    registered = recovery_key_checks(suite, client)
+    if registered:
+        lookup_checks(suite, client, registered, mock=advance is not None)
+    if advance is not None:
+        handover_checks(suite, client, advance)
     lockdown_checks(suite, client)
     restore_checks(suite, client, s3_url)
     if vouchers == 'skip':
@@ -345,24 +379,49 @@ def voucher_checks(suite, client, required):
                 '(HTTP %d %r)' % (status, error_code(value)))
 
 
+def canonical_key(public):
+    """An Ed25519 public key as the token server lists it: standard base64 with padding."""
+    raw = base64.b64decode(public + '=' * (-len(public) % 4))
+    return base64.b64encode(raw).decode('ascii')
+
+
+def signed(secret, what, key_id=None, **fields):
+    """`fields` with a fresh nonce and the recovery key's signature over `<what>:<nonce>`."""
+    nonce = os.urandom(16).hex()
+    body = dict(fields, nonce=nonce,
+                signature=azlin_ed25519.sign_b64(secret, ('%s:%s' % (what, nonce)).encode('utf-8')))
+    if key_id:
+        body['key_id'] = key_id
+    return body
+
+
 def recovery_checks(suite, client):
-    """12. A recovery-key lockdown: registered, signed without a drive token, pending, cancelled
-    by the owner."""
+    """12. A recovery-key lockdown: registered, signed without a drive token, pending (the
+    pending family refused everywhere), a device lockdown leaving it alone, cancelled by a
+    recovery key (F12)."""
     status, bundle, text = client.signup('azlin-conformance-recovery')
     if not suite.check('a drive for the recovery key', status == 201 and isinstance(bundle, dict),
                        '(HTTP %d %s)' % (status, text[:120])):
         return
+    suite.check('the signup answer names lockdown_pending_until (none)',
+                'lockdown_pending_until' in bundle
+                and bundle.get('lockdown_pending_until') is None)
     drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
     owner = bundle.get('drive_token') or ''
     path = '/v1/drives/%s' % drive_id
     secret, public = azlin_ed25519.new_key()
     status, value, _ = client.call('POST', path + '/recovery', {'recovery_pubkey': public},
                                    bearer=owner)
-    suite.check("the owner registers the drive's recovery key", status == 200,
+    suite.check("the owner registers the drive's first recovery key on the token alone",
+                status == 200 and (value or {}).get('ok') is True
+                and bool((value or {}).get('key_id')),
                 '(HTTP %d %r)' % (status, error_code(value)))
-    nonce = os.urandom(16).hex()
-    message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
-    request = {'nonce': nonce, 'signature': azlin_ed25519.sign_b64(secret, message)}
+    status, value, _ = client.call('POST', path + '/recovery',
+                                   {'recovery_pubkey': azlin_ed25519.new_key()[1]}, bearer=owner)
+    suite.check('replacing it without a recovery key signature is 403 recovery_key_required',
+                status == 403 and error_code(value) == 'recovery_key_required',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    request = signed(secret, 'lockdown:%s' % drive_id)
     status, value, _ = client.call('POST', path + '/lockdown', request)
     pending_token = (value or {}).get('drive_token') or ''
     suite.check('a lockdown signed with the recovery key, without a drive token, is 202 pending',
@@ -373,36 +432,285 @@ def recovery_checks(suite, client):
                 status == 409 and error_code(value) == 'nonce_used',
                 '(HTTP %d %r)' % (status, error_code(value)))
     other, _ = azlin_ed25519.new_key()
-    nonce = os.urandom(16).hex()
-    message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
     status, value, _ = client.call('POST', path + '/lockdown',
-                                   {'nonce': nonce,
-                                    'signature': azlin_ed25519.sign_b64(other, message)})
+                                   signed(other, 'lockdown:%s' % drive_id))
     suite.check('a lockdown signed by another key is 401', status == 401,
                 '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('GET', path, bearer=owner)
     suite.check("the drive's status names the pending lockdown",
                 status == 200 and unix_of((value or {}).get('lockdown_pending_until')) is not None,
                 '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
+    # D42: the pending family gets nothing before the 48 hours are over.
+    status, value, _ = client.call('GET', path, bearer=pending_token)
+    value = value or {}
+    suite.check("the pending family's status is its lockdown's only",
+                status == 200 and value.get('status') == 'lockdown_pending'
+                and unix_of(value.get('lockdown_pending_until')) is not None
+                and value.get('you') == 'recovery-pending'
+                and 'tier' not in value and 'members' not in value,
+                '(HTTP %d %r)' % (status, sorted(value)))
+    routes = [
+        ('POST', path + '/credentials', {}),
+        ('POST', path + '/members', {}),
+        ('POST', path + '/keys', {}),
+        ('DELETE', path + '/keys/AZKNOTAKEY', {}),
+        ('POST', path + '/lockdown', {}),
+        ('POST', path + '/recovery', {'recovery_pubkey': public}),
+        ('GET', path + '/recovery_keys', None),
+        ('POST', path + '/recovery_keys', {'recovery_pubkey': public}),
+        ('DELETE', path + '/recovery_keys/rk_legacy', {}),
+        ('POST', path + '/restore', {'prefix': '', 'as_of': rfc3339(int(time.time()))}),
+        ('GET', path + '/restore/r_nothing', None),
+        ('POST', path + '/redeem', {}),
+        ('POST', '/v1/vouchers/redeem', {'code': 'AZLIN-TEST-1M', 'drive_id': drive_id}),
+    ]
+    for method, route, body in routes:
+        status, value, _ = client.call(method, route, body, bearer=pending_token)
+        suite.check('the pending family: %s %s is 403 lockdown_pending with pending_until'
+                    % (method, route.replace(drive_id, '<id>')),
+                    status == 403 and error_code(value) == 'lockdown_pending'
+                    and unix_of((value or {}).get('pending_until')) is not None,
+                    '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('POST', path + '/credentials', {}, bearer=pending_token)
-    suite.check('the pending family gets no credentials before the notice ends (403 '
-                'lockdown_pending)',
+    suite.check('the refused token was not rotated: it is refused the same way again',
                 status == 403 and error_code(value) == 'lockdown_pending',
                 '(HTTP %d %r)' % (status, error_code(value)))
-    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=pending_token)
-    suite.check('the pending family cannot cancel its own lockdown (403)', status == 403,
+    # A device's lockdown leaves a pending recovery alone (F12: the recovery key wins).
+    status, value, _ = client.call('POST', path + '/lockdown', {}, bearer=owner)
+    owner = (value or {}).get('drive_token') or owner
+    suite.check("the owner's device lockdown during it is 200 with a new token",
+                status == 200 and bool((value or {}).get('drive_token')),
                 '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/credentials', {}, bearer=pending_token)
+    suite.check('the pending recovery survives the device lockdown',
+                status == 403 and error_code(value) == 'lockdown_pending',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('GET', path, bearer=owner)
+    suite.check('and its 48 hours still run',
+                status == 200 and unix_of((value or {}).get('lockdown_pending_until')) is not None,
+                '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
+    # F12: only a recovery key calls it off - no drive token.
     status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=owner)
-    suite.check('the owner cancels the pending lockdown',
+    suite.check("a device's token cannot cancel it (403 recovery_key_required)",
+                status == 403 and error_code(value) == 'recovery_key_required',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel',
+                                   signed(other, 'lockdown-cancel:%s' % drive_id))
+    suite.check('a cancel signed by another key is 401', status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel',
+                                   signed(secret, 'lockdown-cancel:%s' % drive_id))
+    suite.check('a cancel signed by the recovery key, without a token, calls it off',
                 status == 200 and (value or {}).get('cancelled') is True,
                 '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('GET', path, bearer=owner)
     suite.check('then no lockdown is pending',
                 status == 200 and (value or {}).get('lockdown_pending_until') is None,
                 '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
-    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=owner)
+    status, value, _ = client.call('POST', path + '/credentials', {}, bearer=pending_token)
+    suite.check('and the pending family is gone (401)', status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel',
+                                   signed(secret, 'lockdown-cancel:%s' % drive_id))
     suite.check('nothing left to cancel is 409 no_pending_lockdown',
                 status == 409 and error_code(value) == 'no_pending_lockdown',
+                '(HTTP %d %r)' % (status, error_code(value)))
+
+
+def recovery_key_checks(suite, client):
+    """16. Several recovery keys (D51, F12 option C): listed, each change signed by a current
+    key besides the drive token, never the last one removed, at most ten."""
+    first_secret, first = azlin_ed25519.new_key()
+    status, bundle, text = client.call('POST', '/v1/drives',
+                                       {'name': 'azlin-conformance-keys', 'tier': '100GB',
+                                        'recovery_pubkey': first})
+    if not suite.check('a drive signed up with its recovery key', status == 201
+                       and isinstance(bundle, dict), '(HTTP %d %s)' % (status, text[:120])):
+        return
+    drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
+    owner = bundle.get('drive_token') or ''
+    path = '/v1/drives/%s' % drive_id
+    status, value, _ = client.call('GET', path + '/recovery_keys', bearer=owner)
+    keys = (value or {}).get('keys') or []
+    suite.check("GET recovery_keys lists the sign-up's key, verified, as the recovery code",
+                status == 200 and len(keys) == 1
+                and keys[0].get('recovery_pubkey') == canonical_key(first)
+                and keys[0].get('label') == 'recovery code' and keys[0].get('verified') is True
+                and bool(keys[0].get('key_id')) and 'created_at' in keys[0],
+                '(HTTP %d %r)' % (status, keys))
+    first_id = keys[0].get('key_id') if keys else None
+    second_secret, second = azlin_ed25519.new_key()
+    status, value, _ = client.call('POST', path + '/recovery_keys',
+                                   {'recovery_pubkey': second, 'label': 'second kit'},
+                                   bearer=owner)
+    suite.check('adding a key on the token alone is 403 recovery_key_required',
+                status == 403 and error_code(value) == 'recovery_key_required',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    add = signed(first_secret, 'recovery-add:%s:%s' % (drive_id, second),
+                 recovery_pubkey=second, label='second kit')
+    status, value, _ = client.call('POST', path + '/recovery_keys', add, bearer=owner)
+    second_id = (value or {}).get('key_id')
+    suite.check('adding one signed by a current key is 201 with the key',
+                status == 201 and str(second_id or '').startswith('rk_')
+                and (value or {}).get('label') == 'second kit'
+                and (value or {}).get('recovery_pubkey') == canonical_key(second),
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/recovery_keys', add, bearer=owner)
+    suite.check('the same signed request again is 409 (recovery_key_exists or nonce_used)',
+                status == 409, '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/recovery_keys',
+                                   signed(first_secret, 'recovery-add:%s:%s' % (drive_id, second),
+                                          recovery_pubkey=second), bearer=owner)
+    suite.check('a key the drive has already is 409 recovery_key_exists',
+                status == 409 and error_code(value) == 'recovery_key_exists',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('GET', path + '/recovery_keys', bearer=owner)
+    suite.check('both keys are listed',
+                status == 200 and len((value or {}).get('keys') or []) == 2,
+                '(HTTP %d %r)' % (status, value))
+    status, value, _ = client.call('POST', path + '/lockdown',
+                                   signed(second_secret, 'lockdown:%s' % drive_id,
+                                          key_id=second_id))
+    suite.check('a lockdown signed by the second key is 202 pending', status == 202,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel',
+                                   signed(first_secret, 'lockdown-cancel:%s' % drive_id))
+    suite.check('the first key calls it off', status == 200,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('DELETE', path + '/recovery_keys/rk_nobody',
+                                   signed(first_secret, 'recovery-remove:%s:rk_nobody'
+                                          % drive_id), bearer=owner)
+    suite.check('removing an unknown key is 404 no_such_key',
+                status == 404 and error_code(value) == 'no_such_key',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('DELETE', path + '/recovery_keys/%s' % second_id, {},
+                                   bearer=owner)
+    suite.check('removing one on the token alone is 403 recovery_key_required',
+                status == 403 and error_code(value) == 'recovery_key_required',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('DELETE', path + '/recovery_keys/%s' % second_id,
+                                   signed(first_secret, 'recovery-remove:%s:%s'
+                                          % (drive_id, second_id)), bearer=owner)
+    suite.check('removing the second key signed by the first is 200',
+                status == 200 and (value or {}).get('removed') == second_id,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('DELETE', path + '/recovery_keys/%s' % first_id,
+                                   signed(first_secret, 'recovery-remove:%s:%s'
+                                          % (drive_id, first_id)), bearer=owner)
+    suite.check("the drive's last key stays: 409 last_recovery_key",
+                status == 409 and error_code(value) == 'last_recovery_key',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    third_secret, third = azlin_ed25519.new_key()
+    status, value, _ = client.call('POST', path + '/recovery',
+                                   signed(first_secret, 'recovery:%s:%s' % (drive_id, third),
+                                          recovery_pubkey=third), bearer=owner)
+    suite.check('POST recovery signed by a current key replaces every key',
+                status == 200 and (value or {}).get('ok') is True
+                and bool((value or {}).get('key_id')),
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('GET', path + '/recovery_keys', bearer=owner)
+    keys = (value or {}).get('keys') or []
+    suite.check('then the new key is the only one',
+                status == 200 and [k.get('recovery_pubkey') for k in keys]
+                == [canonical_key(third)], '(HTTP %d %r)' % (status, keys))
+    added = 1
+    for _ in range(9):
+        _, public = azlin_ed25519.new_key()
+        status, value, _ = client.call('POST', path + '/recovery_keys',
+                                       signed(third_secret, 'recovery-add:%s:%s'
+                                              % (drive_id, public), recovery_pubkey=public),
+                                       bearer=owner)
+        added += status == 201
+    _, public = azlin_ed25519.new_key()
+    status, value, _ = client.call('POST', path + '/recovery_keys',
+                                   signed(third_secret, 'recovery-add:%s:%s' % (drive_id, public),
+                                          recovery_pubkey=public), bearer=owner)
+    suite.check('ten keys at most: the eleventh is 409 too_many_recovery_keys',
+                added == 10 and status == 409 and error_code(value) == 'too_many_recovery_keys',
+                '(%d added, HTTP %d %r)' % (added, status, error_code(value)))
+    return drive_id, third_secret, third
+
+
+def lookup_checks(suite, client, registered, mock):
+    """17. The lookup by recovery key (§18.8): a computer that never had the drive finds its id
+    from the kit's code - a challenge, signed - and nobody else learns whose a key is."""
+    drive_id, secret, public = registered
+    status, value, _ = client.call('POST', '/v1/recovery/challenge', {})
+    challenge = (value or {}).get('challenge') or ''
+    suite.check('POST /v1/recovery/challenge is 200 with an rc1 challenge and its expiry',
+                status == 200 and challenge.startswith('rc1.') and len(challenge.split('.')) == 4
+                and unix_of((value or {}).get('expires_at')) is not None,
+                '(HTTP %d %r)' % (status, value))
+
+    def lookup(key_secret, key_public, text):
+        sig = azlin_ed25519.sign_b64(key_secret, ('recovery-lookup:%s' % text).encode('utf-8'))
+        return client.call('POST', '/v1/recovery/lookup',
+                           {'recovery_pubkey': key_public, 'challenge': text, 'signature': sig})
+
+    status, value, _ = lookup(secret, public, challenge)
+    drives = (value or {}).get('drives') or []
+    suite.check("a lookup signed by a drive's recovery key names the drive and the key",
+                status == 200 and any(d.get('drive_id') == drive_id
+                                      and str(d.get('key_id') or '').startswith('rk_')
+                                      for d in drives),
+                '(HTTP %d %r)' % (status, error_code(value)))
+    stranger_secret, stranger = azlin_ed25519.new_key()
+    status, value, _ = lookup(stranger_secret, stranger, challenge)
+    suite.check("an unregistered key's lookup is 200 with no drive",
+                status == 200 and (value or {}).get('drives') == [],
+                '(HTTP %d %r)' % (status, value))
+    forged = challenge[:-4] + ('AAAA' if not challenge.endswith('AAAA') else 'BBBB')
+    status, value, _ = lookup(secret, public, forged)
+    suite.check('a forged challenge is 401 bad_challenge',
+                status == 401 and error_code(value) == 'bad_challenge',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = lookup(secret, public, 'rc1.1.x.y')
+    suite.check('an expired one too', status == 401 and error_code(value) == 'bad_challenge',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', '/v1/recovery/lookup',
+                                   {'recovery_pubkey': public, 'challenge': challenge,
+                                    'signature': azlin_ed25519.sign_b64(stranger_secret,
+                                                                        b'something else')})
+    suite.check('a bad signature is 401 unauthorized',
+                status == 401 and error_code(value) == 'unauthorized',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    if not mock:
+        print('skipped: the lookup rate limit (it would shut this address out for 10 minutes)',
+              flush=True)
+        return
+    # Six recovery requests so far from this address; the window takes 20.
+    statuses = [client.call('POST', '/v1/recovery/challenge', {})[0] for _ in range(21)]
+    suite.check('the mock: 20 recovery requests per 10 minutes per address, then 429',
+                statuses == [200] * 14 + [429] * 7, '(%r)' % statuses)
+
+
+def handover_checks(suite, client, advance):
+    """18. (the mock, its clock advanced) The first refresh after the 48 hours hands the drive
+    over: 200 for the pending family, the owner's devices refused."""
+    secret, public = azlin_ed25519.new_key()
+    status, bundle, _ = client.call('POST', '/v1/drives', {'name': 'azlin-conformance-handover',
+                                                           'recovery_pubkey': public})
+    if not suite.check('a drive for the hand-over', status == 201):
+        return
+    drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
+    owner = bundle.get('drive_token') or ''
+    path = '/v1/drives/%s' % drive_id
+    status, value, _ = client.call('POST', path + '/lockdown', signed(secret, 'lockdown:%s'
+                                                                      % drive_id))
+    pending_token = (value or {}).get('drive_token') or ''
+    status, value, _ = client.refresh(drive_id, owner)
+    owner = (value or {}).get('drive_token') or owner
+    suite.check("the owner's refresh during it names lockdown_pending_until",
+                status == 200 and unix_of((value or {}).get('lockdown_pending_until')) is not None,
+                '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
+    advance(48 * 3600 + 60)
+    status, value, _ = client.refresh(drive_id, pending_token)
+    suite.check('48 hours later the pending family\'s refresh hands it the drive (200)',
+                status == 200 and bool((value or {}).get('credentials'))
+                and (value or {}).get('lockdown_pending_until') is None,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.refresh(drive_id, owner)
+    suite.check("and the owner's old devices are refused (401)", status == 401,
                 '(HTTP %d %r)' % (status, error_code(value)))
 
 
@@ -590,7 +898,8 @@ def main():
         stack = azlin_mock_stack.start(root)
         try:
             failures = run(stack.token_url,
-                           vouchers='skip' if args.skip_vouchers else 'required')
+                           vouchers='skip' if args.skip_vouchers else 'required',
+                           advance=stack.token.state.advance)
         finally:
             stack.stop()
     else:
