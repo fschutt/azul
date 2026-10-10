@@ -35,6 +35,8 @@ fn a_resource_names_its_messages_and_a_broken_one_says_so() {
 #[test]
 fn the_keys_of_a_source_are_its_literals_with_the_apps_prefix_outside_its_tests() {
     let source = r#"
+        #[cfg(test)]
+        mod outline_tests;
         let a = tr("kit-a");
         let b = t_args("kit-b", &[("count", Arg::Int(2))]);
         let id = "__kit_title";
