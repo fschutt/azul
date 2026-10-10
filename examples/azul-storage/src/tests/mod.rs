@@ -63,3 +63,6 @@ pub(crate) use crate::testing::TempDir;
 /// Shamir's secret sharing over GF(256) (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod shamir;
+/// Trusted contacts: a recovery code's shares, sealed and printed (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod contacts;

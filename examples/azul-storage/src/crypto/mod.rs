@@ -36,6 +36,7 @@
 
 pub mod azl1;
 pub mod codec;
+pub mod contacts;
 pub mod device;
 pub mod drops;
 pub mod keys;
