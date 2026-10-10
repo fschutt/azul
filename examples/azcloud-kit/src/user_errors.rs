@@ -135,6 +135,13 @@ impl Code {
         Code::ALL.into_iter().find(|code| code.as_str() == text)
     }
 
+    /// Its message in the Fluent resources ([`fluent_source`]): `azlin-error-<code>`, the
+    /// code's underscores as hyphens (`azlin-error-read-only-unpaid`).
+    #[must_use]
+    pub fn message_id(self) -> String {
+        format!("azlin-error-{}", self.as_str().replace('_', "-"))
+    }
+
     /// Its row of [`ROWS`].
     #[must_use]
     pub fn row(self) -> &'static Row {
@@ -154,6 +161,10 @@ pub struct Row {
     pub en: &'static str,
     pub de: &'static str,
 }
+
+/// The Fluent message of the error ID's label (`Error ID: { $id }`), shown after an error's
+/// message when it has an error ID ([`UserError::error_id`]).
+pub const ID_LABEL_MESSAGE: &str = "azlin-id-label";
 
 /// The table (D33), one row per [`Code`].
 pub const ROWS: &[Row] = &[
@@ -401,7 +412,9 @@ impl UserError {
         matches!(self.class(), Class::ReAuth | Class::ReadOnly)
     }
 
-    /// The text in `lang`, the error ID (the request ID) at its end when there is one.
+    /// The text in `lang`, the error ID (the request ID) at its end when there is one - for
+    /// a terminal; an app's window says [`Self::message_id`] with [`Self::fluent_args`] and
+    /// the error ID through the engine's localization in the window's locale.
     #[must_use]
     pub fn message(&self, lang: Lang) -> String {
         let row = self.code.row();
@@ -410,10 +423,32 @@ impl UserError {
             Lang::De => row.de,
         };
         let mut message = text.replace("{detail}", self.detail.trim());
-        if let Some(id) = self.request_id.as_deref().filter(|id| !id.trim().is_empty()) {
-            let _ = write!(message, " {}: {}", lang.error_id(), id.trim());
+        if let Some(id) = self.error_id() {
+            let _ = write!(message, " {}: {id}", lang.error_id());
         }
         message
+    }
+
+    /// Its message in the Fluent resources ([`Code::message_id`]).
+    #[must_use]
+    pub fn message_id(&self) -> String {
+        self.code.message_id()
+    }
+
+    /// The arguments of its message: `detail` (what went wrong, for [`Code::Other`]).
+    #[must_use]
+    pub fn fluent_args(&self) -> Vec<(&'static str, String)> {
+        vec![("detail", self.detail.trim().to_string())]
+    }
+
+    /// The error ID (the request ID support traces), when there is one: the `id` of
+    /// [`ID_LABEL_MESSAGE`].
+    #[must_use]
+    pub fn error_id(&self) -> Option<&str> {
+        self.request_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
     }
 }
 
@@ -425,8 +460,10 @@ fn busy_or_other(status: u16) -> Code {
     }
 }
 
-/// The table in `lang` as a Fluent resource: `azlin-error-<code> = <text>` per row (`{detail}`
-/// as `{ $detail }`), then the error ID's label (`azlin-id-label = Error ID: { $id }`).
+/// The table in `lang` as a Fluent resource: [`Code::message_id`] `= <text>` per row
+/// (`{detail}` as `{ $detail }`), then the error ID's label ([`ID_LABEL_MESSAGE`] `= Error ID:
+/// { $id }`) - what an app gives the engine (`AppConfig::fluent_locales`) under the language's
+/// tag, `en` and `de`.
 #[must_use]
 pub fn fluent_source(lang: Lang) -> String {
     let mut out = String::from("# The errors users see (azcloud-kit user_errors).\n");
@@ -437,11 +474,11 @@ pub fn fluent_source(lang: Lang) -> String {
         };
         let _ = writeln!(
             out,
-            "azlin-error-{} = {}",
-            row.code.as_str().replace('_', "-"),
+            "{} = {}",
+            row.code.message_id(),
             text.replace("{detail}", "{ $detail }")
         );
     }
-    let _ = writeln!(out, "azlin-id-label = {}: {{ $id }}", lang.error_id());
+    let _ = writeln!(out, "{ID_LABEL_MESSAGE} = {}: {{ $id }}", lang.error_id());
     out
 }
