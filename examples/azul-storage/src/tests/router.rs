@@ -169,3 +169,81 @@ fn a_transport_cannot_connect_by_address_unless_it_says_so() {
     };
     assert!(!transport.fallback_addresses("n2.example.test", &[String::from("192.0.2.7")]));
 }
+
+/// Asks for a probe of another key at another endpoint before it sends the request: what an iroh
+/// lane does before a node's first request (any answer means the pipe works).
+struct Probing {
+    probes: Mutex<Vec<HttpCall>>,
+}
+
+impl Router for Probing {
+    fn send(
+        &self,
+        request: &Routed<'_>,
+        transport: &dyn Transport,
+    ) -> Result<HttpReply, DriveError> {
+        let probe = request.probe_for(OTHER, ".azlin/probe")?;
+        self.probes.lock().unwrap().push(probe);
+        transport
+            .send(&request.signed_for(HOME)?)
+            .map_err(DriveError::Transport)
+    }
+}
+
+#[test]
+fn a_router_can_sign_a_head_of_another_key_for_any_endpoint_as_a_probe() {
+    let s3 = FakeBucket::new();
+    s3.write("a.txt", b"alpha");
+    let router = Arc::new(Probing {
+        probes: Mutex::new(Vec::new()),
+    });
+    let drive = S3Drive::new(
+        S3Config {
+            endpoint: HOME.to_string(),
+            region: String::from("us-east-1"),
+            bucket: BUCKET.to_string(),
+            path_style: true,
+        },
+        Credentials::new("AKIDTEST", "test-secret"),
+        Box::new(Hosts {
+            dead: Vec::new(),
+            s3: s3.clone(),
+            calls: Arc::new(Mutex::new(Vec::new())),
+        }),
+    )
+    .unwrap()
+    .with_clock(|| 1_791_590_400)
+    .with_router(router.clone());
+    assert_eq!(drive.get("a.txt").unwrap(), b"alpha");
+    let probes = router.probes.lock().unwrap().clone();
+    assert_eq!(probes.len(), 1);
+    let probe = &probes[0];
+    assert_eq!(probe.method, Method::Head);
+    assert!(
+        probe
+            .url
+            .starts_with(&format!("{OTHER}/{BUCKET}/.azlin/probe")),
+        "{}",
+        probe.url
+    );
+    assert!(probe.body.is_empty());
+    assert!(
+        authorization(probe).contains("AKIDTEST"),
+        "signed with the drive's credentials"
+    );
+}
+
+#[test]
+fn a_transport_error_says_whether_the_name_did_not_resolve() {
+    use crate::transport::{is_dns_failure, DNS_FAILED};
+    assert!(is_dns_failure(&format!(
+        "{DNS_FAILED}: https://n2.example.test/d-1/a.txt"
+    )));
+    // What the system resolvers and the HTTP clients say without the marker.
+    assert!(is_dns_failure(
+        "failed to lookup address information: nodename nor servname provided"
+    ));
+    assert!(is_dns_failure("dns error: no record found"));
+    assert!(!is_dns_failure("connection refused"));
+    assert!(!is_dns_failure("timed out"));
+}
