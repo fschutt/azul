@@ -147,3 +147,13 @@ kit-month-short-sep = Sept.
 kit-month-short-oct = Okt.
 kit-month-short-nov = Nov.
 kit-month-short-dec = Dez.
+# The date styles of l10n::date_text: the names are the words above, the numbers as they are.
+kit-date-style-day-long = { $weekday }, { $day }. { $month } { $year }
+kit-date-style-month-year = { $month } { $year }
+kit-date-style-date = { $day }. { $month } { $year }
+kit-date-style-day-month = { $day }. { $month }
+kit-date-style-weekday-day-month = { $weekday }, { $day }. { $month }
+kit-date-style-weekday = { $weekday }
+kit-date-style-short-weekday-day = { $wd }. { $day }.
+kit-date-style-short-date = { $wd }. { $day }. { $mon }
+kit-date-style-day-short-month = { $day }. { $mon }

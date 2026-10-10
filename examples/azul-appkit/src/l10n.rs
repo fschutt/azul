@@ -330,6 +330,91 @@ pub fn money(cents: u64, currency: &str) -> String {
     }
 }
 
+/// How a date is written ([`date_text`]): the styles the apps' views, lists and headers use, a
+/// message of the kit's each (`kit-date-style-*`), the names the kit's words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DateStyle {
+    /// Wednesday, 30 September 2026.
+    DayLong,
+    /// September 2026.
+    MonthYear,
+    /// 30 September 2026.
+    Date,
+    /// 30 September.
+    DayMonth,
+    /// Wednesday 30 September.
+    WeekdayDayMonth,
+    /// Wednesday.
+    Weekday,
+    /// Wed 30.
+    ShortWeekdayDay,
+    /// Wed 30 Sep.
+    ShortDate,
+    /// 30 Sep.
+    DayShortMonth,
+}
+
+impl DateStyle {
+    fn key(self) -> &'static str {
+        match self {
+            DateStyle::DayLong => "kit-date-style-day-long",
+            DateStyle::MonthYear => "kit-date-style-month-year",
+            DateStyle::Date => "kit-date-style-date",
+            DateStyle::DayMonth => "kit-date-style-day-month",
+            DateStyle::WeekdayDayMonth => "kit-date-style-weekday-day-month",
+            DateStyle::Weekday => "kit-date-style-weekday",
+            DateStyle::ShortWeekdayDay => "kit-date-style-short-weekday-day",
+            DateStyle::ShortDate => "kit-date-style-short-date",
+            DateStyle::DayShortMonth => "kit-date-style-day-short-month",
+        }
+    }
+}
+
+/// The weekdays' and months' words of the kit's resources (azul-pim names the same ids:
+/// `dates::weekday_message_id`, `month_message_id`, `month_short_message_id`).
+const WEEKDAYS: [&str; 7] = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+];
+const MONTHS: [&str; 12] = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+];
+
+/// The date `year`-`month`-`day` (`weekday` from Monday: 0 to 6) in `style`, as the language of
+/// the layout pass writes it: `Wednesday, 30 September 2026`, `Mittwoch, 30. September 2026`.
+#[must_use]
+pub fn date_text(style: DateStyle, year: i32, month: u32, day: u32, weekday: u32) -> String {
+    let weekday = WEEKDAYS[(weekday % 7) as usize];
+    let month_name = MONTHS[(month.clamp(1, 12) - 1) as usize];
+    t_args(
+        style.key(),
+        &[
+            ("weekday", Arg::from(t(&format!("kit-weekday-{weekday}")))),
+            ("wd", Arg::from(t(&format!("kit-weekday-short-{}", &weekday[..3])))),
+            ("day", Arg::from(day)),
+            ("month", Arg::from(t(&format!("kit-month-{month_name}")))),
+            ("mon", Arg::from(t(&format!("kit-month-short-{}", &month_name[..3])))),
+            ("year", Arg::from(year)),
+        ],
+    )
+}
+
 /// `text`'s letters and digits in lower case; `hyphens`: a hyphen for each run of others.
 fn slug(text: &str, hyphens: bool) -> String {
     let mut slug = String::new();
