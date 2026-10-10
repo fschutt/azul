@@ -59,8 +59,16 @@ pub const CATEGORY_WIDTH: &str = "180px";
 pub const LABEL_WIDTH: &str = "160px";
 
 /// A settings row: a label column and the control (Outlook's "Color scheme: [Silver]").
+///
+/// The label names the control for a screen reader, the way `<label for>` does: without it a
+/// check box in a row is announced as "check box" and nothing else.
 #[must_use]
 pub fn row(label_text: &str, control: Dom) -> Dom {
+    let control = if label_text.is_empty() {
+        control
+    } else {
+        control.with_accessibility_name(label(label_text))
+    };
     Dom::create_div()
         .with_class("appkit-row")
         .with_css(
