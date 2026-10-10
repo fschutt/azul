@@ -2,12 +2,12 @@
 //! objects (`mail/<Folder>/<name>.eml`, the markers under `mail/.state/`) go through the
 //! encryption when the drive is encrypted. Plain Rust, no azul types: the keyring comes in.
 //!
-//! With the feature `encryption` (off until the drive index - the bucket's encrypted metadata
-//! repository - is in) the bucket is wrapped in azul-storage's `AutoEncrypted`: the first call
-//! decides whether the drive is encrypted (this computer keeps its key - AzDrive's entry for the
-//! same drive id, the keyring is shared - or the bucket holds key files); an encrypted one then
-//! needs the drive index, which this build does not have yet, and says so; a plain one is used
-//! as it is. Without the feature the bucket is used as it is, as before.
+//! With the feature `encryption` the bucket is wrapped in azul-storage's `AutoEncrypted`: the
+//! first call decides whether the drive is encrypted (this computer keeps its key - AzDrive's
+//! entry for the same drive id, the keyring is shared - or the bucket holds key files); an
+//! encrypted one then goes through the drive index (the bucket's encrypted metadata
+//! repository); a plain one is used as it is. Without the feature the bucket is used as it is,
+//! as before.
 
 use std::sync::Arc;
 
@@ -17,10 +17,12 @@ use azul_storage::{keyring::KeyringStore, Drive, DriveError, Transport};
 
 use crate::azlin::AzlinSession;
 
-/// The provider of encrypted drives' indexes: `None` until the drive index is in.
+/// The provider of encrypted drives' indexes: the drive's encrypted metadata repository
+/// (azul-storage's `meta` module), this process's copy of it in memory (read anew on every
+/// start; AzDrive keeps its copy on disk).
 #[cfg(feature = "encryption")]
 fn index_provider() -> Option<Arc<dyn IndexProvider>> {
-    None
+    Some(Arc::new(azul_storage::meta::MetaIndexProvider::new("AzMail")))
 }
 
 /// `bucket`, the Azlin drive `drive_id`'s, as the mail's drive.

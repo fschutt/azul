@@ -102,7 +102,7 @@ pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
-pub use index::{open_encrypted_drive, MetaIndex};
+pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions};
 pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;

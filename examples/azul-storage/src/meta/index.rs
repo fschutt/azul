@@ -27,6 +27,7 @@ use std::{
 
 use super::{
     bucket::{Bucket, DriveBucket},
+    hex,
     objects::{Commit, Mode, ObjectId},
     pack::PackWriter,
     pointer,
@@ -39,10 +40,11 @@ use super::{
 };
 use crate::{
     crypto::{DriveKey, ObjectId as DataId},
-    encrypted::{EncryptedDrive, IndexChange, IndexEntry, IndexPage, NameIndex},
+    encrypted::{EncryptedDrive, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex},
     key::folder_of,
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
 };
+use sha2::{Digest, Sha256};
 
 /// Reads poll the bucket at most this often by default (seconds).
 pub const DEFAULT_POLL_SECS: u64 = 5;
@@ -463,6 +465,41 @@ fn page_of(found: Vec<(String, IndexEntry)>, request: &ListRequest) -> IndexPage
     page
 }
 
+/// The drive index of the bucket `inner`: opened, or created for a bucket
+/// without one (and opened when another device created it in the same moment).
+fn open_or_create<D: Drive + ?Sized + 'static>(
+    inner: &Arc<D>,
+    drive_key: &DriveKey,
+    device_id: &str,
+    device_name: &str,
+    options: &RepoOptions,
+) -> Result<MetaRepo<DriveBucket<Arc<D>>, DriveKey>, DriveError> {
+    let open = || {
+        MetaRepo::open_with(
+            DriveBucket::new(Arc::clone(inner)),
+            drive_key.clone(),
+            device_id,
+            device_name,
+            options,
+        )
+    };
+    match open() {
+        Ok(repo) => Ok(repo),
+        Err(MetaError::NoRepository) => match MetaRepo::create_with(
+            DriveBucket::new(Arc::clone(inner)),
+            drive_key.clone(),
+            device_id,
+            device_name,
+            options,
+        ) {
+            Ok(repo) => Ok(repo),
+            Err(MetaError::RepositoryExists) => open().map_err(to_drive),
+            Err(e) => Err(to_drive(e)),
+        },
+        Err(e) => Err(to_drive(e)),
+    }
+}
+
 /// An encrypted drive over `inner` whose index is the bucket's metadata
 /// repository: opened (or created, for a bucket without one) with the drive
 /// key, kept in `cache_dir` between runs, read lazily when `lazy`.
@@ -476,30 +513,81 @@ pub fn open_encrypted_drive<D: Drive + 'static>(
     lazy: bool,
 ) -> Result<EncryptedDrive<Arc<D>>, DriveError> {
     let options = RepoOptions { cache_dir, lazy };
-    let bucket = DriveBucket::new(Arc::clone(&inner));
-    let repo = match MetaRepo::open_with(bucket, drive_key.clone(), device_id, device_name, &options) {
-        Ok(repo) => repo,
-        Err(MetaError::NoRepository) => MetaRepo::create_with(
-            DriveBucket::new(Arc::clone(&inner)),
-            drive_key.clone(),
-            device_id,
-            device_name,
-            &options,
-        )
-        .or_else(|e| match e {
-            // Another device created it in the same moment.
-            MetaError::RepositoryExists => MetaRepo::open_with(
-                DriveBucket::new(Arc::clone(&inner)),
-                drive_key.clone(),
-                device_id,
-                device_name,
-                &options,
-            ),
-            other => Err(other),
-        })
-        .map_err(to_drive)?,
-        Err(e) => return Err(to_drive(e)),
-    };
+    let repo = open_or_create(&inner, &drive_key, device_id, device_name, &options)?;
     let index: Arc<dyn NameIndex> = Arc::new(MetaIndex::new(repo));
     Ok(EncryptedDrive::new(inner, drive_key, index))
+}
+
+/// The apps' [`IndexProvider`]: an encrypted drive's index is its bucket's
+/// metadata repository, this device's copy of it kept in
+/// `<cache root>/<drive>` (a hash of the drive's id) when there is a cache root.
+pub struct MetaIndexProvider {
+    device_name: String,
+    cache_root: Option<PathBuf>,
+    lazy: bool,
+}
+
+impl MetaIndexProvider {
+    /// `device_name` names this device in conflict copies ("report (conflict,
+    /// <device>).docx") and commits.
+    #[must_use]
+    pub fn new(device_name: &str) -> Self {
+        MetaIndexProvider {
+            device_name: device_name.to_string(),
+            cache_root: None,
+            lazy: false,
+        }
+    }
+
+    /// Keeps the drives' copies under `root` between runs (`None`: in memory).
+    #[must_use]
+    pub fn with_cache_root(mut self, root: Option<PathBuf>) -> Self {
+        self.cache_root = root;
+        self
+    }
+
+    /// Reads the drives' packs lazily (C6).
+    #[must_use]
+    pub fn with_lazy(mut self, lazy: bool) -> Self {
+        self.lazy = lazy;
+        self
+    }
+
+    /// This device's id in the drives' logs and leases: kept in `<cache
+    /// root>/device-id` (made once); a new one per run without a cache root.
+    fn device_id(&self) -> String {
+        let Some(root) = &self.cache_root else {
+            return crate::ids::new_uuid();
+        };
+        let file = root.join("device-id");
+        if let Ok(text) = std::fs::read_to_string(&file) {
+            let id = text.trim();
+            if crate::ids::is_uuid(id) {
+                return id.to_string();
+            }
+        }
+        let id = crate::ids::new_uuid();
+        let _ = std::fs::create_dir_all(root);
+        let _ = crate::local::write_atomically(&file, id.as_bytes());
+        id
+    }
+}
+
+impl IndexProvider for MetaIndexProvider {
+    fn open_index(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        let options = RepoOptions {
+            cache_dir: self
+                .cache_root
+                .as_ref()
+                .map(|root| root.join(hex(&Sha256::digest(drive.as_bytes())[..16]))),
+            lazy: self.lazy,
+        };
+        let repo = open_or_create(&bucket, drive_key, &self.device_id(), &self.device_name, &options)?;
+        Ok(Arc::new(MetaIndex::new(repo)))
+    }
 }

@@ -2,12 +2,13 @@
 
 use std::sync::Arc;
 
+use super::TempDir;
 use crate::{
     crypto::DriveKey,
-    encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, NameIndex},
+    encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex},
     meta::{
-        merge::keep_both, open_encrypted_drive, pointer, MemoryBucket, MetaIndex, MetaRepo,
-        RepoOptions,
+        merge::keep_both, open_encrypted_drive, pointer, MemoryBucket, MetaIndex, MetaIndexProvider,
+        MetaRepo, RepoOptions,
     },
     Drive, DriveError, ListRequest, Precondition,
 };
@@ -244,4 +245,33 @@ fn an_encrypted_drive_opens_over_a_bucket_with_or_without_an_index() {
     let second =
         open_encrypted_drive(Arc::clone(&bucket), key, "phone", "Phone", None, true).unwrap();
     assert_eq!(second.get("a.txt").unwrap(), b"a");
+}
+
+#[test]
+fn the_provider_opens_a_drives_index_and_keeps_this_devices_copy_and_id() {
+    let dir = TempDir::new("meta-provider");
+    let provider = MetaIndexProvider::new("Laptop").with_cache_root(Some(dir.path().to_path_buf()));
+    let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    let key = DriveKey::generate().unwrap();
+    let index = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
+    drive.put("a.txt", b"a").unwrap();
+    let id = std::fs::read_to_string(dir.path().join("device-id")).unwrap();
+
+    let again = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    assert!(again.get("a.txt").unwrap().is_some());
+    assert_eq!(std::fs::read_to_string(dir.path().join("device-id")).unwrap(), id);
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name != "device-id")
+        .collect();
+    // One drive's copy, its folder named by a hash of the drive's id.
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert_eq!(names[0].len(), 32);
+    assert!(names[0].bytes().all(|b| b.is_ascii_hexdigit()));
 }
