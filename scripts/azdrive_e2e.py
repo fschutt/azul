@@ -52,7 +52,11 @@ node layout, AzDrive's stdout markers and the files on disk:
         the status line's count; a click selects it by its key), the Search tab's File contents
         searches again with the files' contents, Escape in the box closes the search (the
         folder's rows are back), "zebra-quartz" finds the file whose third line holds it (the
-        Match column shows the line), Escape again.
+        Match column shows the line), Escape again;
+    22. the Search tab's "Index this drive" (azul-search-index, in the run's --cache-dir): a
+        word only a Word document holds finds nothing by the walk (a zip is binary to it); with
+        the Home drive indexed (AZDRIVE_INDEXED, the status line's "Indexed:") the same search
+        finds the document, its line from its text; turned off, the index's folder is gone.
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
@@ -75,6 +79,7 @@ Every key_down has its key_up (the E2E key_up rule).
 
 import argparse
 import glob
+import zipfile
 import os
 import re
 import shutil
@@ -402,6 +407,17 @@ def run(args, logs):
         f.write(b"# Plan\n\nthe zebra-quartz line\n")
     with open(os.path.join(home, "Find", "other.txt"), "wb") as f:
         f.write(b"nothing either\n")
+    # Step 22's index: a Word document (a zip of XML, deflated: binary to the walk) holding a
+    # word no other file holds.
+    with zipfile.ZipFile(os.path.join(home, "Find", "Minutes.docx"), "w",
+                         zipfile.ZIP_DEFLATED) as docx:
+        docx.writestr("[Content_Types].xml", "<Types/>")
+        docx.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.'
+            'openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Narwhal '
+            'tusk minutes</w:t></w:r></w:p></w:body></w:document>')
+    cache = os.path.join(logs, "cache")
     # Every setting is a switch (src/args.rs); only the engine's AZ_BACKEND / AZ_DEBUG are
     # variables (the shared driver sets them).
     switches = [
@@ -411,6 +427,7 @@ def run(args, logs):
         "--data-dir", os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
         "--drives", os.path.join(logs, "config", "drives.json"),
         "--dialogs", "inline",
+        "--cache-dir", cache,  # a cloud drive's last listing, the drives' indexes
     ]
     app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout)
     docs = os.path.join(home, "Documents")
@@ -965,11 +982,43 @@ def run(args, logs):
             "the Search tab, \"1 item found\", selected by its key); File contents searched "
             "again; Escape closed it; \"zebra-quartz\" found plan.md by its third line; Escape")
 
+        # 22. "Index this drive": the Home drive's full-text index reads what the walk cannot.
+        focus_search_box(app)
+        app.after("a word only a Word document holds, without an index", "AZDRIVE_SEARCHED",
+                  r"0 contents narwhal",
+                  lambda: (app.must("text_input", text="narwhal"), app.frame(2)))
+        app.until("nothing found by the walk", lambda: "No items match" in status())
+        app.tab("Search")
+        app.after("Index this drive", "AZDRIVE_INDEXED", r"home \d+ \d+ \d+",
+                  lambda: app.ribbon("Index this drive"))
+        app.until("the status line names the index", lambda: "Indexed:" in status())
+        focus_search_box(app)
+        app.after("Escape closes the search", "AZDRIVE_SEARCH_CLOSED", r".*",
+                  lambda: app.key("escape"))
+        app.after("the same word, the index asked first", "AZDRIVE_SEARCHED",
+                  r"1 contents narwhal",
+                  lambda: (app.must("text_input", text="narwhal"), app.frame(2)))
+        app.until("the Word document", lambda: "Minutes.docx" in item_names(app))
+        app.until("its line from its text", lambda: "Narwhal" in texts_in_view(app))
+        app.screenshot(os.path.join(out, "22-search-index.png"))
+        app.tab("Search")
+        app.after("Index this drive off", "AZDRIVE_INDEX_REMOVED", r"home",
+                  lambda: app.ribbon("Index this drive"))
+        index_dir = os.path.join(cache, "index")
+        if os.path.isdir(index_dir) and os.listdir(index_dir):
+            raise Failure("the index's folder stays after Index this drive was turned off: %s"
+                          % os.listdir(index_dir))
+        focus_search_box(app)
+        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        log("22. Index this drive: \"narwhal\" (in Find/Minutes.docx only) found nothing by the "
+            "walk; the Home drive indexed (\"Indexed:\" on the status line), the same search "
+            "found the Word document with its line; turned off, the index's folder went")
+
         log("PASS: AzDrive browsed, laid out, sorted, selected, renamed, created, copied, "
             "resolved a conflict, deleted and undid, walked the history, toggled the panes, "
             "showed Properties and the Options, took the editing keys, walked its source list, "
-            "its breadcrumb and its File menu, opened 3,000 files at once, and searched a folder "
-            "and every folder below it by name and by contents")
+            "its breadcrumb and its File menu, opened 3,000 files at once, searched a folder "
+            "and every folder below it by name and by contents, and indexed a drive")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
