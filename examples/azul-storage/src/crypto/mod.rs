@@ -40,6 +40,7 @@ pub mod contacts;
 pub mod device;
 pub mod drops;
 pub mod keys;
+pub mod passkey;
 pub mod share;
 pub mod shamir;
 
