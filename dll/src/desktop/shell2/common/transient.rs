@@ -1358,6 +1358,26 @@ pub fn dismiss_on_escape(
     any
 }
 
+/// The parent side: this window is going away (its own parent's rebuild dropped it, its user
+/// or its app closed it). Every popup it opened goes with it: the manager closes them all
+/// ([`TransientWindowManager::close_all`]) and each popup's mailbox is told to close. A popup's
+/// own popup is hoisted into the root window's children (headless `pump_children`, the
+/// registries elsewhere), so nothing else would ever close it - the parent closed without
+/// laying out a DOM that no longer holds it, and its mailbox was never written. Returns whether
+/// a mailbox was told: the caller wakes every window so the popups read it.
+///
+/// [`TransientWindowManager::close_all`]: azul_layout::transient::TransientWindowManager::close_all
+pub fn close_parent(lw: &mut LayoutWindow) -> bool {
+    let _ = lw.transient_windows.close_all();
+    let mut told = false;
+    for surface in lw.transient_windows.take_closed_surfaces() {
+        if let OptionRefAny::Some(m) = surface {
+            told |= write(&m, |d| d.closed = true);
+        }
+    }
+    told
+}
+
 /// The parent side: a fresh mouse press landed in the parent while popups
 /// with `dismiss=outside` are open — that press is, by construction, outside
 /// them. Dismisses those popups; returns whether any were.

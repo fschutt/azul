@@ -3334,6 +3334,9 @@ impl X11Window {
 
     /// Destroy the X11 window, free the ARGB colormap, and close the display.
     pub fn close(&mut self) {
+        // The popups this window opened close with it (a popup's own popup has
+        // no other parent to close it).
+        PlatformWindow::close_transient_windows(self);
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.
@@ -5355,6 +5358,9 @@ impl X11Window {
                     // ConfigureNotify's regenerate_now does in this handler).
                     let outcome = self.run_close_protocol("x11.wm_delete_window");
                     if outcome.confirmed {
+                        // The loop drops the window without close(): the
+                        // popups it opened are told here.
+                        PlatformWindow::close_transient_windows(self);
                         self.is_open = false;
                     } else {
                         log_debug!(
