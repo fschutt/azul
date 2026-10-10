@@ -730,15 +730,18 @@ impl Account {
         }))
     }
 
-    /// Cancels a pending recovery-key lockdown.
+    /// Cancels a pending recovery-key lockdown with the recovery code (F12, "the recovery code
+    /// always wins": the code's key signs the cancel; a device token alone cancels nothing).
+    /// `recovery_code` is the code's 16 bytes.
     ///
     /// # Errors
     ///
-    /// The server's refusal (none pending) or no answer.
-    pub fn lockdown_cancel(&self) -> CloudResult<Value> {
-        let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
-        let token = self.drive_token()?;
-        self.server(|server| server.lockdown_cancel(&self.record.id, &token))
+    /// The server's refusal (none pending, another code) or no answer.
+    pub fn lockdown_cancel(&self, recovery_code: &[u8]) -> CloudResult<Value> {
+        let key = crate::recovery::RecoveryKey::derive(recovery_code, &self.record.id);
+        self.server(|server| {
+            server.lockdown_cancel_signed(&self.record.id, |message| Ok(key.sign_base64(message)))
+        })
     }
 
     /// Queues a restore of `prefix` as it was at `as_of` (RFC 3339).

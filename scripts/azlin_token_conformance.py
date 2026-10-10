@@ -50,9 +50,14 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     again is 409 `nonce_used`, one signed by another key 401; the drive's status names the
     pending lockdown; the pending family gets no credentials before the 48 hours are over (403
     `lockdown_pending`: D42, the drive is handed over only when the notice ends - so the
-    recovery wrap, and with the code the drive key, stays out of reach meanwhile); the pending
-    family cannot cancel it (403), the owner can (200), and then there is none to cancel (409
-    `no_pending_lockdown`).
+    recovery wrap, and with the code the drive key, stays out of reach meanwhile). F12, "the
+    recovery code always wins": a cancel needs the recovery key's signature over
+    `lockdown-cancel:<drive>:<nonce>` - a device's drive token alone is 401, another key's
+    signature 401 -; a device's own lockdown meanwhile leaves the pending recovery as it is (the
+    status still names it, the pending family still waits: 403 `lockdown_pending`); the signed
+    cancel is 200, the same request again 409 `nonce_used`, and then there is none to cancel
+    (409 `no_pending_lockdown`). Replacing the recovery key needs the CURRENT key's signature
+    over `recovery:<drive>:<new key>:<nonce>` (without it 401); then the old key signs nothing.
 13. Vouchers (AZLINSEC17 F29), with a development server's test codes (`AZLIN-TEST-1M`: a month,
     `AZLIN-TEST-EUR10`: EUR 10, any case, never used up): one without a drive is 201 with a new
     drive's sign-up; one on a drive (its drive token) is 200 with `days_added` (its value pro
@@ -69,6 +74,23 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     with a `request_id` and `queued`; GET /v1/drives/<id>/restore/<request> reaches `done` with
     the objects it changed, and the prefix is as it was (the one added since gone, outside it
     nothing changed); without `as_of` it is 400 `bad_request`, an unknown request 404.
+16. Cash by post (cash contract v1, scripts/azlin_cash.py): POST /v1/checkout {"method": "cash"}
+    without a claim key is 400 `claim_key_required`; with one it is 201 `awaiting_cash` with its
+    amount, its currency, the address to post the cash to and an end 60 days on; its activation
+    code is `AZC1-` and upper-case base32 in blocks of four without padding, holding the checkout
+    id, the amount (u32 BE) and the currency, then ten bytes of HMAC-SHA256 by the server's cash
+    key (checked with the mock's key or `--cash-key`); its poll answers `awaiting_cash` with no
+    sealed sign-up; the claim code (AZK1) of the checkout id and the claim secret reads back.
+    With the operator's switches (`--mock`: the mock's stand-ins for AzCtl): activated it is
+    `approved` and the claim code alone opens its sealed sign-up to the drive; rejected it is
+    `rejected` with the reason; one nobody activated is `expired` after 60 days.
+17. A ban with a grace period (ban contract v1, `--mock`: the operator's switch): before the ban a
+    public link (a presigned GET) of the drive reads; banned, its status is `banned` with
+    `ban_reason` and `ban_until` and read-only, its credentials are handed out with the same
+    fields, a write and a delete are refused 403 with `x-azlin-error: drive_banned`, reads and
+    listings go on, its public links are refused at once, a grant (a member family) is 403
+    `drive_banned`; past the end (the mock's clock advanced) its credentials and its status are
+    refused 403 `drive_banned` (with the reason and the end) and its bucket refuses reads too.
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -84,6 +106,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import azlin_cash  # noqa: E402
 import azlin_claim  # noqa: E402
 import azlin_client  # noqa: E402
 import azlin_ed25519  # noqa: E402
@@ -131,9 +154,30 @@ TEST_ONE_MONTH = 'AZLIN-TEST-1M'
 TEST_EUR10 = 'AZLIN-TEST-EUR10'
 
 
-def run(token_url, s3_url=None, vouchers='auto'):
+class MockOperator:
+    """The operator's switches of the mock token server (its AzCtl's stand-ins): a cash
+    checkout activated or rejected, a drive banned, the server's clock moved on."""
+
+    def __init__(self, state):
+        self.state = state
+
+    def activate_cash(self, checkout_id):
+        return self.state.activate_cash(checkout_id)
+
+    def reject_cash(self, checkout_id, reason):
+        return self.state.reject_cash(checkout_id, reason)
+
+    def ban(self, drive_id, reason, grace_secs):
+        return self.state.ban(drive_id, reason, grace_secs)
+
+    def advance(self, secs):
+        self.state.advance(secs)
+
+
+def run(token_url, s3_url=None, vouchers='auto', operator=None, cash_key=None):
     """`vouchers`: 'auto' (section 13 unless the server takes no test code), 'required' (the
-    mock: never skipped), 'skip'."""
+    mock: never skipped), 'skip'. `operator`: the operator's switches (sections 16 and 17 need
+    them; the mock's: MockOperator); `cash_key`: the server's cash key, for the MAC check."""
     suite = Suite()
     client = azlin_client.TokenClient(token_url)
     print('token server %s' % token_url, flush=True)
@@ -212,7 +256,193 @@ def run(token_url, s3_url=None, vouchers='auto'):
         print('skipped: vouchers (--skip-vouchers)', flush=True)
     else:
         voucher_checks(suite, client, required=vouchers == 'required')
+    cash_checks(suite, client, operator, cash_key)
+    ban_checks(suite, client, operator, s3_url)
     return suite.failures
+
+
+def cash_checks(suite, client, operator, cash_key):
+    """16. Cash by post: the checkout, its activation code, its poll, the claim code - and with
+    the operator's switches its activation, a rejection, the end of one nobody paid."""
+    order = {'tier': '100GB', 'months': 12, 'method': 'cash'}
+    status, value, _ = client.call('POST', '/v1/checkout', order)
+    suite.check('a cash checkout without a claim key is 400 claim_key_required',
+                status == 400 and error_code(value) == 'claim_key_required',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    secret, claim_key = azlin_claim.new_claim_key()
+    started = time.time()
+    status, value, text = client.call('POST', '/v1/checkout', dict(order, claim_key=claim_key))
+    value = value or {}
+    checkout_id = value.get('checkout_id') or ''
+    amount = value.get('amount_cents')
+    currency = str(value.get('currency') or '')
+    if not suite.check('a cash checkout is 201 awaiting the cash, with its amount and currency',
+                       status == 201 and bool(checkout_id)
+                       and value.get('status') == 'awaiting_cash'
+                       and isinstance(amount, int) and amount > 0
+                       and re.match(r'^[A-Z]{3}$', currency) is not None,
+                       '(HTTP %d %s)' % (status, text[:200])):
+        return
+    code = str(value.get('activation_code') or '')
+    suite.check('its activation code is AZC1- and upper-case base32 in blocks of four',
+                azlin_cash.SHAPE.match(code) is not None, '(%r)' % code[:24])
+    try:
+        parsed = azlin_cash.parse_activation_code(code)
+    except ValueError as e:
+        parsed = None
+        suite.check('its activation code reads back', False, '(%s)' % e)
+    if parsed is not None:
+        suite.check('the activation code holds the checkout id, the amount and the currency',
+                    (parsed['checkout_id'], parsed['amount_cents'], parsed['currency'])
+                    == (checkout_id, amount, currency),
+                    '(%r %r %r)' % (parsed['checkout_id'], parsed['amount_cents'],
+                                    parsed['currency']))
+        if cash_key:
+            suite.check("its MAC is ten bytes of HMAC-SHA256 by the server's cash key",
+                        len(parsed['mac']) == azlin_cash.MAC_LEN
+                        and azlin_cash.verify(parsed, cash_key))
+        else:
+            print('skipped: the activation code\'s MAC (no --cash-key)', flush=True)
+    mail_to = value.get('mail_to') or {}
+    lines = mail_to.get('lines')
+    suite.check('it names the address to post the cash to',
+                bool(str(mail_to.get('name') or '').strip()) and isinstance(lines, list)
+                and len(lines) >= 1 and all(isinstance(l, str) and l.strip() for l in lines),
+                '(%r)' % sorted(mail_to))
+    expires = unix_of(value.get('expires_at'))
+    suite.check('it ends 60 days after it was made',
+                expires is not None and abs(expires - (started + 60 * 86400)) < 86400,
+                '(%r)' % value.get('expires_at'))
+    path = '/v1/checkout/' + checkout_id
+    status, polled, _ = client.call('GET', path)
+    polled = polled or {}
+    suite.check('its poll answers awaiting_cash without a sealed sign-up',
+                status == 200 and polled.get('status') == 'awaiting_cash'
+                and 'sealed_signup' not in polled,
+                '(HTTP %d %r)' % (status, polled.get('status')))
+    claim_code = azlin_claim.claim_code(checkout_id, secret)
+    suite.check('the claim code (AZK1) reads back to the checkout id and the claim secret',
+                azlin_claim.parse_claim_code(claim_code) == (checkout_id, secret))
+    if operator is None:
+        print("skipped: a cash checkout activated, rejected and ended (the operator's switches: "
+              "--mock)", flush=True)
+        return
+    operator.activate_cash(checkout_id)
+    status, polled, _ = client.call('GET', path)
+    polled = polled or {}
+    sealed = polled.get('sealed_signup') or ''
+    suite.check('activated by the operator it is approved with a sealed sign-up',
+                status == 200 and polled.get('status') == 'approved' and bool(sealed),
+                '(HTTP %d %r)' % (status, polled.get('status')))
+    picked_id, picked_secret = azlin_claim.parse_claim_code(claim_code)
+    try:
+        bundle = json.loads(azlin_claim.open_sealed(sealed, picked_secret, picked_id))
+        drive_id = (bundle.get('drive') or {}).get('id') or ''
+        suite.check('the claim code alone opens its sealed sign-up to the drive',
+                    drive_id.startswith('d_'), '(drive %r)' % drive_id)
+    except ValueError as e:
+        suite.check('the claim code alone opens its sealed sign-up to the drive', False,
+                    '(%s)' % e)
+    reason = 'the envelope held less than the amount'
+    _, other_key = azlin_claim.new_claim_key()
+    _, second, _ = client.call('POST', '/v1/checkout', dict(order, claim_key=other_key))
+    second_id = (second or {}).get('checkout_id') or ''
+    operator.reject_cash(second_id, reason)
+    status, polled, _ = client.call('GET', '/v1/checkout/' + second_id)
+    polled = polled or {}
+    suite.check('rejected by the operator it is rejected with the reason',
+                status == 200 and polled.get('status') == 'rejected'
+                and polled.get('reason') == reason,
+                '(HTTP %d %r %r)' % (status, polled.get('status'), polled.get('reason')))
+    _, third_key = azlin_claim.new_claim_key()
+    _, third, _ = client.call('POST', '/v1/checkout', dict(order, claim_key=third_key))
+    third_id = (third or {}).get('checkout_id') or ''
+    operator.advance(61 * 86400)
+    status, polled, _ = client.call('GET', '/v1/checkout/' + third_id)
+    suite.check('a cash checkout nobody activated is expired after 60 days',
+                status == 200 and (polled or {}).get('status') == 'expired',
+                '(HTTP %d %r)' % (status, (polled or {}).get('status')))
+
+
+def ban_checks(suite, client, operator, s3_url):
+    """17. A ban with a grace period: the status and the credentials say it, writes and links
+    are refused at once, reads go on until the end; then everything is refused."""
+    if operator is None:
+        print("skipped: a ban (the operator's switch: --mock)", flush=True)
+        return
+    status, bundle, text = client.signup('azlin-conformance-ban')
+    if not suite.check('a drive to ban', status == 201 and isinstance(bundle, dict),
+                       '(HTTP %d %s)' % (status, text[:120])):
+        return
+    drive_id = azlin_client.bundle_drive(bundle)[0]
+    token = bundle.get('drive_token') or ''
+    bucket = azlin_client.Bucket(bundle, endpoint=s3_url)
+    bucket.put('ban/kept.txt', b'kept', content_type='text/plain')
+    link = bucket.presigned_get('ban/kept.txt', 600)
+    status, _, body = bucket.fetch(link)
+    suite.check('a public link of the drive reads before the ban',
+                status == 200 and body == b'kept', '(HTTP %d)' % status)
+    reason = 'conformance: spam distribution'
+    operator.ban(drive_id, reason, 48 * 3600)
+    path = '/v1/drives/%s' % drive_id
+    status, info, _ = client.call('GET', path, bearer=token)
+    info = info or {}
+    until = unix_of(info.get('ban_until'))
+    suite.check("the banned drive's status says banned, why and until when",
+                status == 200 and info.get('status') == 'banned'
+                and info.get('ban_reason') == reason and until is not None,
+                '(HTTP %d %r)' % (status, {k: info.get(k) for k in ('status', 'ban_until')}))
+    suite.check('a banned drive is read-only', info.get('read_only') is True,
+                '(%r)' % info.get('read_only'))
+    status, renewed, _ = client.refresh(drive_id, token)
+    renewed = renewed or {}
+    suite.check('its credentials are handed out until the end, with the ban in them',
+                status == 200 and renewed.get('status') == 'banned'
+                and renewed.get('ban_reason') == reason
+                and unix_of(renewed.get('ban_until')) == until,
+                '(HTTP %d %r)' % (status, error_code(renewed) or renewed.get('status')))
+    token = renewed.get('drive_token') or token
+    bucket = azlin_client.Bucket(renewed if renewed.get('credentials') else bundle,
+                                 endpoint=s3_url)
+    st, headers, _ = bucket.request('PUT', 'ban/new.txt', body=b'new',
+                                    headers={'Content-Type': 'text/plain'})
+    suite.check('a write is refused 403 drive_banned',
+                st == 403 and headers.get('x-azlin-error') == 'drive_banned',
+                '(HTTP %d %r)' % (st, headers.get('x-azlin-error')))
+    st, headers, _ = bucket.request('DELETE', 'ban/kept.txt')
+    suite.check('a delete is refused 403 drive_banned',
+                st == 403 and headers.get('x-azlin-error') == 'drive_banned',
+                '(HTTP %d %r)' % (st, headers.get('x-azlin-error')))
+    try:
+        listed = bucket.keys('ban/')
+        got = bucket.get('ban/kept.txt')
+        suite.check('reads and listings go on until the end',
+                    listed == ['ban/kept.txt'] and got == b'kept', '(listed %r)' % listed)
+    except (OSError, RuntimeError) as e:
+        suite.check('reads and listings go on until the end', False, '(%s)' % e)
+    status, _, _ = bucket.fetch(link)
+    suite.check('its public links stop working at once', status == 403, '(HTTP %d)' % status)
+    status, value, _ = client.call('POST', path + '/members', {'member': 'conformance-ban'},
+                                   bearer=token)
+    suite.check('a grant (a member family) is refused 403 drive_banned',
+                status == 403 and error_code(value) == 'drive_banned',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    operator.advance(48 * 3600 + 60)
+    status, value, _ = client.refresh(drive_id, token)
+    value = value or {}
+    suite.check('past the end its credentials are refused 403 drive_banned, with why and when',
+                status == 403 and error_code(value) == 'drive_banned'
+                and value.get('ban_reason') == reason
+                and unix_of(value.get('ban_until')) == until,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('GET', path, bearer=token)
+    suite.check('past the end its status is refused 403 drive_banned',
+                status == 403 and error_code(value) == 'drive_banned',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    st, headers, _ = bucket.request('GET', 'ban/kept.txt')
+    suite.check('past the end its bucket refuses reads too',
+                st == 403 and headers.get('x-azlin-error') == 'drive_banned',
+                '(HTTP %d %r)' % (st, headers.get('x-azlin-error')))
 
 
 def lockdown_checks(suite, client):
@@ -389,21 +619,73 @@ def recovery_checks(suite, client):
                 'lockdown_pending)',
                 status == 403 and error_code(value) == 'lockdown_pending',
                 '(HTTP %d %r)' % (status, error_code(value)))
-    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=pending_token)
-    suite.check('the pending family cannot cancel its own lockdown (403)', status == 403,
-                '(HTTP %d %r)' % (status, error_code(value)))
+    # F12: the recovery key wins. A device's token alone cancels nothing.
     status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=owner)
-    suite.check('the owner cancels the pending lockdown',
+    suite.check("a cancel with a device's drive token and no recovery-key signature is 401",
+                status == 401, '(HTTP %d %r)' % (status, error_code(value)))
+    # A device's own lockdown leaves the pending recovery alone.
+    status, locked, _ = client.call('POST', path + '/lockdown', {}, bearer=owner)
+    owner = (locked or {}).get('drive_token') or owner
+    suite.check("the owner's device lockdown during a pending recovery is 200",
+                status == 200, '(HTTP %d %r)' % (status, error_code(locked)))
+    status, value, _ = client.call('GET', path, bearer=owner)
+    suite.check('the recovery lockdown is still pending after the device lockdown',
+                status == 200 and unix_of((value or {}).get('lockdown_pending_until')) is not None,
+                '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
+    status, value, _ = client.call('POST', path + '/credentials', {}, bearer=pending_token)
+    suite.check('the pending family still waits after the device lockdown (403 '
+                'lockdown_pending)',
+                status == 403 and error_code(value) == 'lockdown_pending',
+                '(HTTP %d %r)' % (status, error_code(value)))
+
+    def cancel_request(key):
+        nonce = os.urandom(16).hex()
+        message = ('lockdown-cancel:%s:%s' % (drive_id, nonce)).encode('utf-8')
+        return {'nonce': nonce, 'signature': azlin_ed25519.sign_b64(key, message)}
+
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', cancel_request(other))
+    suite.check('a cancel signed by another key is 401', status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    request = cancel_request(secret)
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', request)
+    suite.check('a cancel signed with the recovery key cancels the pending lockdown',
                 status == 200 and (value or {}).get('cancelled') is True,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', request)
+    suite.check('the same cancel request again is 409 nonce_used',
+                status == 409 and error_code(value) == 'nonce_used',
                 '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('GET', path, bearer=owner)
     suite.check('then no lockdown is pending',
                 status == 200 and (value or {}).get('lockdown_pending_until') is None,
                 '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
-    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=owner)
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', cancel_request(secret))
     suite.check('nothing left to cancel is 409 no_pending_lockdown',
                 status == 409 and error_code(value) == 'no_pending_lockdown',
                 '(HTTP %d %r)' % (status, error_code(value)))
+
+    # F12 C: the recovery key is replaced only with the current key's signature.
+    new_secret, new_public = azlin_ed25519.new_key()
+    status, value, _ = client.call('POST', path + '/recovery', {'recovery_pubkey': new_public},
+                                   bearer=owner)
+    suite.check('replacing the recovery key without the current key\'s signature is 401',
+                status == 401, '(HTTP %d %r)' % (status, error_code(value)))
+    nonce = os.urandom(16).hex()
+    message = ('recovery:%s:%s:%s' % (drive_id, new_public, nonce)).encode('utf-8')
+    status, value, _ = client.call('POST', path + '/recovery',
+                                   {'recovery_pubkey': new_public, 'nonce': nonce,
+                                    'signature': azlin_ed25519.sign_b64(secret, message)},
+                                   bearer=owner)
+    suite.check('the current key signs its replacement (200)', status == 200,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    nonce = os.urandom(16).hex()
+    message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
+    status, value, _ = client.call('POST', path + '/lockdown',
+                                   {'nonce': nonce,
+                                    'signature': azlin_ed25519.sign_b64(secret, message)})
+    suite.check('the replaced key signs no lockdown any more (401)', status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    del new_secret
 
 
 def claim_checks(suite, client):
@@ -583,19 +865,24 @@ def main():
                         help='start scripts/azlin_mock_stack.py on free ports and check it')
     parser.add_argument('--skip-vouchers', action='store_true',
                         help='skip section 13 (vouchers with the test codes)')
+    parser.add_argument('--cash-key', help="the server's cash key (hex), for the activation "
+                                           "code's MAC check (the mock's is known)")
     args = parser.parse_args()
+    cash_key = bytes.fromhex(args.cash_key) if args.cash_key else None
     if args.mock:
         import azlin_mock_stack  # noqa: PLC0415 - only for --mock
         root = tempfile.mkdtemp(prefix='azlin-conformance-')
         stack = azlin_mock_stack.start(root)
         try:
             failures = run(stack.token_url,
-                           vouchers='skip' if args.skip_vouchers else 'required')
+                           vouchers='skip' if args.skip_vouchers else 'required',
+                           operator=MockOperator(stack.token.state),
+                           cash_key=cash_key or azlin_cash.MOCK_KEY)
         finally:
             stack.stop()
     else:
         failures = run(azlin_client.token_url_from(args.token_url), args.s3_url,
-                       vouchers='skip' if args.skip_vouchers else 'auto')
+                       vouchers='skip' if args.skip_vouchers else 'auto', cash_key=cash_key)
     print('PASS' if failures == 0 else 'FAIL: %d check(s)' % failures, flush=True)
     sys.exit(min(failures, 100))
 

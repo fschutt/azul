@@ -64,6 +64,32 @@ pub struct PendingCheckout {
     /// Claimed - its drive is saved - with period tokens still to issue ([`claimed`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub period: Option<PendingTokens>,
+    /// How it is paid when that changes how it is waited for: `cash` (cash by post: asked once
+    /// a day, [`PendingCheckout::is_cash`]); empty for every other method.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub method: String,
+    /// A cash checkout's slip, to print again (no secret of the drive: what the posted page
+    /// shows); `None` for one picked up by its claim code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cash: Option<CashKept>,
+}
+
+/// What a cash checkout's slip prints (cash contract v1): the amount, the activation code, the
+/// operator's address, the checkout's end.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CashKept {
+    /// The months paid at once (0: not said).
+    #[serde(default)]
+    pub months: u32,
+    pub amount_cents: u64,
+    pub currency: String,
+    pub activation_code: String,
+    pub mail_to_name: String,
+    #[serde(default)]
+    pub mail_to_lines: Vec<String>,
+    /// RFC 3339, as the token server wrote it (empty: none said).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub expires_at: String,
 }
 
 impl fmt::Debug for PendingCheckout {
@@ -76,6 +102,8 @@ impl fmt::Debug for PendingCheckout {
             .field("token_url", &self.token_url)
             .field("name", &self.name)
             .field("period", &self.period)
+            .field("method", &self.method)
+            .field("cash", &self.cash)
             .finish()
     }
 }
@@ -131,7 +159,16 @@ impl PendingCheckout {
             token_url: token_url.trim().trim_end_matches('/').to_string(),
             name: short_name(name),
             period: None,
+            method: String::new(),
+            cash: None,
         }
+    }
+
+    /// A cash checkout (cash by post): its letter takes days or weeks, so it is asked about
+    /// once a day, never in a loop.
+    #[must_use]
+    pub fn is_cash(&self) -> bool {
+        self.method == crate::cash::CASH_METHOD
     }
 
     /// The claim key the checkout named.
@@ -305,11 +342,20 @@ pub fn poll(
     match server.checkout_status(&checkout.checkout_id, &claim) {
         Ok(CheckoutStatus::Pending) => Polled::Pending,
         Ok(CheckoutStatus::Approved(bundle)) => match shared.keep_new_drive(&bundle) {
-            Ok((session, already)) => Polled::Claimed(Box::new(Claimed {
-                bundle: *bundle,
-                session,
-                already,
-            })),
+            Ok((session, already)) => {
+                // A checkout picked up by its claim code learns its tier here: its period
+                // tokens are issued for it. Quietly: the next claim tries again.
+                if checkout.tier.is_empty() {
+                    if let Some(tier) = bundle.tier.as_deref() {
+                        let _ = set_tier(shared, &checkout.checkout_id, tier);
+                    }
+                }
+                Polled::Claimed(Box::new(Claimed {
+                    bundle: *bundle,
+                    session,
+                    already,
+                }))
+            }
             Err(e) => Polled::Kept(format!("the new drive's session could not be kept: {e}")),
         },
         Ok(CheckoutStatus::Declined(why)) => drop_it(
@@ -327,6 +373,21 @@ pub fn poll(
         }
         Err(e) => Polled::Kept(e.to_string()),
     }
+}
+
+/// The tier of the kept checkout `checkout_id`, when it has none yet.
+fn set_tier(shared: &SharedKeyring, checkout_id: &str, tier: &str) -> CloudResult<()> {
+    let _lock = shared.lock(PENDING_KEY)?;
+    let mut checkouts = read(shared)?;
+    let Some(checkout) = checkouts
+        .iter_mut()
+        .find(|c| c.checkout_id == checkout_id && c.tier.is_empty())
+    else {
+        return Ok(());
+    };
+    checkout.tier = tier.trim().to_string();
+    let text = text_of(checkouts)?;
+    shared.set(PENDING_KEY, &text)
 }
 
 /// Takes `checkout` off the list because of `why`.

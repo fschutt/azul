@@ -1403,6 +1403,9 @@ impl WaylandWindow {
         self.common.current_window_state().flags.close_requested
     }
     pub fn close(&mut self) {
+        // The popups this window opened close with it (a popup's own popup has
+        // no other parent to close it).
+        PlatformWindow::close_transient_windows(self);
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.
@@ -9746,6 +9749,11 @@ impl WaylandPopup {
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
         common.gl_context_ptr = None.into();
         common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();
+        // A menu this popup opens REPLACES it (one active popup per window,
+        // `open_menu_popup`), so the item picked there cannot run in this
+        // popup: it runs in the parent, whose subtree the popup shows - the
+        // popup posts to the parent's mailbox (`desktop::menu::MenuPicks`).
+        common.menu_picks = parent.common.menu_picks.clone();
         // A menu is SIZED TO ITS CONTENT, and a Wayland popup has to know its
         // size before it exists: the positioner is created with it and the
         // compositor places and constrains the popup against it. X11 maps
@@ -10682,7 +10690,9 @@ impl PlatformWindow for WaylandPopup {
         anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // A context menu opened from inside a popup: build the menu window
-        // like the parent does and let the parent drain it.
+        // like the parent does and let the parent drain it. It replaces this
+        // popup, so the item picked in it runs in the parent: this popup's
+        // mailbox IS the parent's (`WaylandPopup::new`).
         let options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.resources.system_style.clone(),
@@ -10690,6 +10700,7 @@ impl PlatformWindow for WaylandPopup {
             anchor,
             Some(position),
             None,
+            self.common.menu_picks.clone(),
         );
         self.pending_window_creates.push(options);
     }

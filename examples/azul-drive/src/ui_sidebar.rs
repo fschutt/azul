@@ -1154,6 +1154,10 @@ pub(crate) fn sidebar(s: &DriveState, app: &RefAny) -> Dom {
     if let Some(area) = activity(s, app) {
         column.add_child(area);
     }
+    // Cash by post: the orders waiting for their letters (or why one ended).
+    if let Some(area) = crate::cash::waiting_area(s, app) {
+        column.add_child(area);
+    }
     column.add_child(foot(app));
     column
 }

@@ -204,6 +204,7 @@ fn share_paper(drive_name: &str, made: &Made, secret: &Zeroizing<String>) -> Pap
                 ("day", Arg::from(day)),
             ],
         ),
+        address: Vec::new(),
         text: vec![
             t_args("azdrive-share-one-of-three", &[("drive", Arg::from(drive_name))]),
             t("azdrive-share-keep-safe"),

@@ -330,6 +330,8 @@ impl HttpClient {
     /// and the TLS server name, so the certificate is verified for that name, not for the
     /// address. A host collects up to 16 addresses. Returns false when `address` is no address
     /// (or this build has no HTTP client).
+    // const only in the stub without the `http` feature; the real one locks a mutex.
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn add_fallback_address(&self, host: &str, address: &str) -> bool {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
@@ -358,6 +360,8 @@ impl HttpClient {
     }
 
     /// Forgets the fallback addresses of `host`: its name is looked up only.
+    // const only in the stub without the `http` feature; the real one locks a mutex.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn clear_fallback_addresses(&self, host: &str) {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
         if let Ok(mut known) = self.ptr.fallback.lock() {
@@ -2587,8 +2591,9 @@ mod client_pool_tests {
         }
     }
 
-    /// A one-connection-at-a-time HTTP/1.1 server on localhost answering `ok`; the `Host`
-    /// headers it was sent.
+    /// A keep-alive HTTP/1.1 server on localhost answering `ok`, each connection on a thread of
+    /// its own (a pooled client keeps one connection per host and port open: a server serving
+    /// one connection at a time would never answer the next); the `Host` headers it was sent.
     fn serve_hosts() -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().expect("addr").port();
@@ -2596,40 +2601,39 @@ mod client_pool_tests {
         let seen = Arc::clone(&hosts);
         std::thread::spawn(move || {
             for stream in listener.incoming() {
-                let Ok(mut stream) = stream else { return };
-                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
-                loop {
-                    let mut line = String::new();
-                    let mut ended = false;
-                    loop {
-                        line.clear();
-                        match reader.read_line(&mut line) {
-                            Ok(0) | Err(_) => {
-                                ended = true;
-                                break;
-                            }
-                            Ok(_) if line == "\r\n" => break,
-                            Ok(_) => {
-                                if let Some(host) = line
-                                    .strip_prefix("Host: ")
-                                    .or_else(|| line.strip_prefix("host: "))
-                                {
-                                    seen.lock().unwrap().push(host.trim().to_string());
-                                }
-                            }
-                        }
-                    }
-                    if ended {
-                        break;
-                    }
-                    let reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
-                    if stream.write_all(reply).is_err() {
-                        break;
-                    }
-                }
+                let Ok(stream) = stream else { return };
+                let seen = Arc::clone(&seen);
+                std::thread::spawn(move || answer_hosts(stream, &seen));
             }
         });
         (port, hosts)
+    }
+
+    /// Answers `ok` to every request of one connection, noting its `Host` header.
+    fn answer_hosts(mut stream: std::net::TcpStream, seen: &std::sync::Mutex<Vec<String>>) {
+        let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+        loop {
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) if line == "\r\n" => break,
+                    Ok(_) => {
+                        if let Some(host) = line
+                            .strip_prefix("Host: ")
+                            .or_else(|| line.strip_prefix("host: "))
+                        {
+                            seen.lock().unwrap().push(host.trim().to_string());
+                        }
+                    }
+                }
+            }
+            let reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+            if stream.write_all(reply).is_err() {
+                return;
+            }
+        }
     }
 
     #[test]
@@ -2668,7 +2672,13 @@ mod client_pool_tests {
             client.add_fallback_address("n2.azul.invalid", &format!("127.0.0.1:{port}")),
             "an address may name its port"
         );
-        assert!(http_get_with_config("http://n2.azul.invalid:1/", &request).is_ok());
+        let named = http_get_with_config("http://n2.azul.invalid:1/", &request);
+        assert!(named.is_ok(), "{named:?}");
+        assert_eq!(
+            hosts.lock().unwrap().last().cloned(),
+            Some(String::from("n2.azul.invalid:1")),
+            "the address's port is where it connects; the request names the URL's"
+        );
     }
 
     /// MAIL9: the resumable `http_get` ran the transfer inside the calling

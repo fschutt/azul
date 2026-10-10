@@ -53,6 +53,9 @@ pub(crate) enum AddPage {
     Form,
     /// Buy storage's "I have a voucher": its code, then the new drive it buys.
     Voucher,
+    /// "Pick up a paid drive with a claim code" (cash by post, on another computer than the
+    /// one that bought it): the code, the drive's name.
+    ClaimCode,
 }
 
 /// The tier list of Buy storage.
@@ -138,6 +141,8 @@ pub(crate) struct AddDialog {
     pub look_name: String,
     /// "I have a voucher"'s code, as typed.
     pub voucher_code: String,
+    /// "Pick up a paid drive with a claim code"'s code, as typed (a secret: never printed).
+    pub claim_code: String,
 
     // ---- Connect data source: a consumer cloud's sign-in (`sign_in`) ----
     /// What the form shows of its sign-in.
@@ -150,11 +155,12 @@ pub(crate) struct AddDialog {
 }
 
 /// The surfaces AzDrive can show: the popover's hosted fields, a hosted page in the web view,
-/// the system browser (no native sheet, no native IBAN field yet).
+/// the system browser, paper (cash by post's pages: no native sheet, no native IBAN field yet).
 pub(crate) const PAY_SURFACES: &[SurfaceKind] = &[
     SurfaceKind::PopoverFields,
     SurfaceKind::WebviewPage,
     SurfaceKind::SystemBrowser,
+    SurfaceKind::Paper,
 ];
 
 /// The countries of Buy storage's "Country" choice (ISO alpha-2, the name shown).
@@ -262,6 +268,7 @@ impl fmt::Debug for AddDialog {
             .field("consent", &self.consent)
             .field("pay", &self.pay)
             .field("card_name", &"<hidden>")
+            .field("claim_code", &"<hidden>")
             .field("sign_in", &self.sign_in)
             .field("pending_sign_in", &self.pending_sign_in)
             .field("token_url", &self.token_url)
@@ -299,6 +306,7 @@ impl AddDialog {
             kept: None,
             look_name: String::from("flat-light"),
             voucher_code: String::new(),
+            claim_code: String::new(),
             sign_in: SignInStep::Idle,
             pending_sign_in: None,
             token_url: None,
@@ -346,6 +354,12 @@ impl AddDialog {
         self.notice.clear();
     }
 
+    /// "Pick up a paid drive with a claim code".
+    pub(crate) fn choose_claim_code(&mut self) {
+        self.page = AddPage::ClaimCode;
+        self.notice.clear();
+    }
+
     /// The form of the source `id` at its defaults; `false` (and nothing changes) when this
     /// build cannot open it.
     pub(crate) fn open_service(&mut self, id: &str) -> bool {
@@ -370,7 +384,9 @@ impl AddDialog {
         self.page = match self.page {
             AddPage::Form if self.editing.is_none() => AddPage::Sources,
             AddPage::Form => AddPage::Form,
-            AddPage::Sources | AddPage::Buy | AddPage::Choose => AddPage::Choose,
+            AddPage::Sources | AddPage::Buy | AddPage::Choose | AddPage::ClaimCode => {
+                AddPage::Choose
+            }
             AddPage::Voucher => AddPage::Buy,
         };
         self.error.clear();
@@ -504,7 +520,8 @@ impl AddDialog {
         Ok(())
     }
 
-    /// The page for scripts: `choose`, `buy`, `sources`, `form <source>`.
+    /// The page for scripts: `choose`, `buy`, `sources`, `form <source>`, `voucher`,
+    /// `claim-code`.
     #[must_use]
     pub(crate) fn page_line(&self) -> String {
         match self.page {
@@ -513,6 +530,7 @@ impl AddDialog {
             AddPage::Sources => String::from("sources"),
             AddPage::Form => format!("form {}", self.service.unwrap_or("-")),
             AddPage::Voucher => String::from("voucher"),
+            AddPage::ClaimCode => String::from("claim-code"),
         }
     }
 

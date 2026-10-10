@@ -1992,6 +1992,12 @@ pub fn run(
                     // frames.
                     window.pump_webviews_if_any();
 
+                    // The items picked in this window's window-drawn menus
+                    // run here, as its own (`desktop::menu::MenuPicks`): the
+                    // dispatch above delivered the pick to the MENU and closed
+                    // it; the text, title, timers and threads are this window's.
+                    window.run_menu_picks_from_loop();
+
                     // Process pending window creates (for popup menus, dialogs, etc.)
                     while let Some(pending_create) = window.pending_window_creates.pop() {
                         log_debug!(
@@ -2525,6 +2531,20 @@ fn run_linux_windows(
                 // and must be polled outside of X11/Wayland event processing.
                 #[cfg(feature = "a11y")]
                 window.process_accessibility_actions();
+            }
+        }
+
+        // --- The items picked in window-drawn menus ---
+        // A menu window only POSTS the item the user picked
+        // (`desktop::menu::MenuPicks`); the window that opened the menu runs
+        // it as its own, as a native menu's item runs - the text it sets, the
+        // title, its timers and threads are that window's, not the closing
+        // menu's. After the pass above, which dispatched the pick and closed
+        // the menu: the owner may come before its menu in `window_ids`.
+        for wid in &window_ids {
+            if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
+                let window = unsafe { &mut *win_ptr };
+                window.run_menu_picks();
             }
         }
 

@@ -1172,7 +1172,7 @@ azdrive-contacts-recover-title = „{ $name }“ mit vertrauenswürdigen Kontakt
 azdrive-contacts-rebuilt-what = Deine vertrauenswürdigen Kontakte haben den Wiederherstellungscode von „{ $name }“ zurückgegeben. Die Sperrung damit ist{ $until ->
         [none] { "" }
        *[other] { " " }bis { $until }
-    } ausstehend: Deine anderen Geräte werden benachrichtigt und können sie abbrechen. Dann gehört das Laufwerk diesem Computer: Öffne es mit diesem Code (im Menü des Laufwerks: Mit dem Wiederherstellungscode entsperren).
+    } ausstehend: Deine anderen Geräte werden benachrichtigt, und der Code kann sie abbrechen. Dann gehört das Laufwerk diesem Computer: Öffne es mit diesem Code (im Menü des Laufwerks: Mit dem Wiederherstellungscode entsperren).
 azdrive-contacts-write-it-down = Schreib ihn auf oder bewahre ein neues Notfallkit auf:
 azdrive-contacts-rebuilt-title = Dein Wiederherstellungscode ist zurück
 azdrive-contacts-check-code-first = Dieser Computer kennt den Wiederherstellungsschlüssel des Laufwerks noch nicht: Prüfe den Code zuerst einmal (Optionen > Laufwerke > Testen).
@@ -1302,3 +1302,7 @@ azdrive-err-invalid-name = „{ $name }“ ist kein gültiger Name: { $reason }
 azdrive-err-range = Der angeforderte Bereich liegt außerhalb von „{ $name }“.
 azdrive-err-io = Dateifehler: { $detail }
 azdrive-err-unsupported = Noch nicht unterstützt: { $detail }
+
+## The sync on a metered network
+
+azdrive-sync-status-metered = Angehalten (getaktetes Netzwerk)

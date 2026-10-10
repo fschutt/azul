@@ -1092,6 +1092,12 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                         s.composes[at].status = ComposeStatus::Problem(e.to_string());
                         return Update::RefreshDom;
                     }
+                    // An Azlin account on a banned drive sends nothing (ban contract v1).
+                    if let Some(why) = s.sending_refused(&s.composes[at].account_id) {
+                        println!("AZMAIL_SEND_REFUSED {}", s.composes[at].window_id);
+                        s.composes[at].status = ComposeStatus::Problem(why);
+                        return Update::RefreshDom;
+                    }
                 }
                 // Where it goes: the account's folders - or, written without an account, Local
                 // Folders (sent from this computer: no DKIM key, no sign-in).

@@ -1174,7 +1174,7 @@ azdrive-contacts-recover-title = Recover "{ $name }" with trusted contacts
 azdrive-contacts-rebuilt-what = Your trusted contacts gave back the recovery code of "{ $name }". The lockdown with it is pending{ $until ->
         [none] { "" }
        *[other] { " " }until { $until }
-    }: your other devices are told and may cancel it. Then the drive is this computer's: open it with this code (the drive's menu: Unlock with the recovery code).
+    }: your other devices are told, and the code may cancel it. Then the drive is this computer's: open it with this code (the drive's menu: Unlock with the recovery code).
 azdrive-contacts-write-it-down = Write it down, or keep a new emergency kit:
 azdrive-contacts-rebuilt-title = Your recovery code is back
 azdrive-contacts-check-code-first = This computer does not know the drive's recovery key yet: check the code once first (Options > Drives > Test).
@@ -1304,3 +1304,7 @@ azdrive-err-invalid-name = "{ $name }" is not a valid name: { $reason }
 azdrive-err-range = The requested range is outside "{ $name }".
 azdrive-err-io = File error: { $detail }
 azdrive-err-unsupported = Not supported yet: { $detail }
+
+## The sync on a metered network
+
+azdrive-sync-status-metered = Paused (metered network)

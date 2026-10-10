@@ -26,7 +26,10 @@ use azul_storage::{
 };
 use serde_json::Value;
 
-use crate::{session::AzlinSession, token::TokenError};
+use crate::{
+    session::AzlinSession,
+    token::{Ban, TokenError},
+};
 
 /// A bundle's S3 credentials. `Debug` shows none of them.
 #[derive(Clone, PartialEq, Eq)]
@@ -113,6 +116,8 @@ pub struct DriveBundle {
     pub failover: Vec<String>,
     /// A paid checkout's period tokens' grant (only in its sealed sign-up).
     pub period_tokens: Option<PeriodTokens>,
+    /// The drive is banned (ban contract v1): the credentials work until its end.
+    pub ban: Option<Ban>,
 }
 
 /// The direct node URLs of `nodes` (each one's `url`, else its `public_url`) and then the
@@ -141,6 +146,7 @@ impl fmt::Debug for DriveBundle {
             .field("read_only", &self.read_only)
             .field("tier", &self.tier)
             .field("period_tokens", &self.period_tokens)
+            .field("ban", &self.ban)
             .finish_non_exhaustive()
     }
 }
@@ -211,6 +217,7 @@ impl DriveBundle {
                 })
                 .unwrap_or_default(),
             period_tokens: PeriodTokens::from_value(&value["period_tokens"]),
+            ban: Ban::of(value),
         })
     }
 

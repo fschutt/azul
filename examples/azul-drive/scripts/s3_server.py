@@ -21,6 +21,10 @@ Two backends:
   The kill switches of a transfer E2E: after N parts (``hold_parts_after``,
   ``--hold-parts-after``) or N ranged GETs (``hold_gets_after``, ``--hold-gets-after``) the next
   ones wait until ``release()`` - so the client, or this node, can be killed half way.
+  A presigned URL (SigV4 query signing: a public link, ``Client.presign``) works as a signed
+  request until its ``X-Amz-Expires``. A banned drive's bucket (``ban_bucket``, ban contract
+  v1): until the ban's end its reads and listings go on and every write and presigned link is
+  refused (403 with ``x-azlin-error: drive_banned``); after it every request.
 - ``moto``: moto's ``ThreadedMotoServer`` when the ``moto`` package is installed (a much bigger
   S3; it does not check signatures and keeps no request log here).
 
@@ -281,6 +285,18 @@ class Store:
                 out.append(key)
         out.sort()
         return out
+
+    def stored_bytes(self, bucket):
+        """The bytes the bucket's objects take (what an Azlin node counts for its quota; no
+        unfinished upload, no kept version)."""
+        base = self.bucket_dir(bucket)
+        total = 0
+        for key in self.keys(bucket):
+            try:
+                total += os.path.getsize(os.path.join(base, *key.split("/")))
+            except OSError:
+                pass  # deleted meanwhile
+        return total
 
     def info(self, bucket, key):
         path = self.path(bucket, key)
@@ -568,8 +584,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # -- authentication -----------------------------------------------------------------------
 
+    def authenticate_query(self, raw_path, query_pairs):
+        """A presigned URL: SigV4 in its query (`X-Amz-Credential`, `X-Amz-Date`,
+        `X-Amz-Expires`, `X-Amz-SignedHeaders`, `X-Amz-Signature`), the payload unsigned."""
+        server = self.server
+        query = dict(query_pairs)
+        try:
+            access_key, _date, region, service, _end = query["X-Amz-Credential"].split("/")
+            amz_date = query["X-Amz-Date"]
+            expires = int(query["X-Amz-Expires"])
+            names = query["X-Amz-SignedHeaders"].split(";")
+            signature = query["X-Amz-Signature"]
+        except (KeyError, ValueError):
+            raise S3Error(403, "AccessDenied", "Access Denied (a malformed presigned URL)")
+        if access_key != server.access_key:
+            raise S3Error(403, "InvalidAccessKeyId",
+                          "The AWS Access Key Id you provided does not exist in our records.",
+                          AWSAccessKeyId=access_key)
+        when = parse_amz_date(amz_date)
+        if when is None or not 1 <= expires <= 7 * 86400:
+            raise S3Error(403, "AccessDenied", "Access Denied (a malformed presigned URL)")
+        if time.time() > when + expires:
+            raise S3Error(403, "AccessDenied", "Request has expired")
+        if "host" not in names:
+            raise S3Error(400, "AuthorizationQueryParametersError", "the Host header must be signed")
+        headers = {}
+        for name in names:
+            values = self.headers.get_all(name)
+            if values is None:
+                raise S3Error(403, "SignatureDoesNotMatch",
+                              "the signed header %s is missing from the request" % name)
+            headers[name] = ",".join(values)
+        canonical_uri = uri_encode(urllib.parse.unquote(raw_path), encode_slash=False)
+        pairs = [(k, v) for k, v in query_pairs if k != "X-Amz-Signature"]
+        signed = sign(server.secret_key, amz_date, region, service, self.command, canonical_uri,
+                      pairs, headers, UNSIGNED_PAYLOAD)
+        if not hmac.compare_digest(signed.signature, signature):
+            raise S3Error(403, "SignatureDoesNotMatch",
+                          "The request signature we calculated does not match the signature you "
+                          "provided. Check your key and signing method.")
+        self.presigned = True
+
     def authenticate(self, raw_path, query_pairs, payload_hash):
         server = self.server
+        if self.headers.get("Authorization") is None and \
+                dict(query_pairs).get("X-Amz-Algorithm") == ALGORITHM:
+            self.authenticate_query(raw_path, query_pairs)
+            return
         auth = parse_authorization(self.headers.get("Authorization"))
         if auth is None:
             raise S3Error(403, "AccessDenied", "Access Denied (the request is not signed with SigV4)")
@@ -614,6 +675,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def handle_any(self):
         self.request_id = uuid.uuid4().hex[:16].upper()
         self.status = 0
+        self.presigned = False
         bucket, key, raw_path, query_pairs = self.split_request()
         query = dict(query_pairs)
         record = {
@@ -644,6 +706,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 record["op"] = "Fault"
                 self.fail(S3Error(status, code, message), resource, headers)
                 return
+            ban = self.server.ban_of(bucket)
+            if ban is not None:
+                until, clock = ban
+                closed = until is not None and clock() >= until
+                if closed or self.presigned or self.command in ("PUT", "POST", "DELETE"):
+                    record["op"] = "Banned"
+                    why = ("This drive was closed after its ban." if closed else
+                           "This drive is banned: it takes no writes and serves no links.")
+                    self.fail(S3Error(403, "AccessDenied", why), resource,
+                              {"x-azlin-error": "drive_banned"})
+                    return
             if payload_hash and payload_hash.startswith("STREAMING-"):
                 raise S3Error(501, "NotImplemented", "streaming (chunked) uploads are not supported")
             if payload_hash and payload_hash != UNSIGNED_PAYLOAD and payload_hash != sha256_hex(body):
@@ -683,7 +756,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise S3Error(404, "NoSuchBucket", "The specified bucket does not exist", BucketName=bucket)
         if not key:
             if self.command == "HEAD":
-                self.respond(200)
+                self.respond(200, headers=self.space_headers(bucket))
                 return "HeadBucket"
             if self.command == "GET":
                 if query.get("list-type") != "2":
@@ -751,6 +824,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(204)
             return "DeleteObject"
         raise S3Error(405, "MethodNotAllowed", "The specified method is not allowed.")
+
+    def space_headers(self, bucket):
+        """An Azlin node's HeadBucket headers (SRV17), when the server plays one
+        (`Server.space_quota`): the bytes it stores for the bucket, the quota of its drive's
+        tier (when `space_quota` knows it)."""
+        quota_of = self.server.space_quota
+        if quota_of is None:
+            return {}
+        headers = {"x-azlin-used-bytes": self.server.store.stored_bytes(bucket)}
+        quota = quota_of(bucket)
+        if quota is not None:
+            headers["x-azlin-quota-bytes"] = int(quota)
+        return headers
 
     def multipart(self, bucket, key, query, body):
         """UploadPart, ListParts, CompleteMultipartUpload and AbortMultipartUpload."""
@@ -895,6 +981,11 @@ class Server(http.server.ThreadingHTTPServer):
         # Buckets answering an error to every request (an E2E's switch): bucket -> (status,
         # code, message, extra headers).
         self._faults = {}
+        # Banned drives' buckets (ban contract v1): bucket -> (its end, the clock it is read by).
+        self._bans = {}
+        # An Azlin node's HeadBucket headers (SRV17: x-azlin-used-bytes, x-azlin-quota-bytes):
+        # None for a plain S3, else a bucket's quota of stored bytes (None: not known).
+        self.space_quota = None
         # The kill switches: kind ("parts", "gets") -> how many pass before the rest wait.
         self._holds = {}
         self._counts = {}
@@ -954,6 +1045,22 @@ class Server(http.server.ThreadingHTTPServer):
     def clear_faults(self):
         with self._lock:
             self._faults.clear()
+
+    def ban_bucket(self, bucket, until, now=None):
+        """`bucket` is a banned drive's (ban contract v1): until `until` (seconds since 1970 by
+        the clock `now`, else this computer's; None: no end) its reads and listings go on and
+        every write and presigned link is refused - 403 with `x-azlin-error: drive_banned`;
+        from `until` on every request."""
+        with self._lock:
+            self._bans[bucket] = (until, now or time.time)
+
+    def unban_bucket(self, bucket):
+        with self._lock:
+            self._bans.pop(bucket, None)
+
+    def ban_of(self, bucket):
+        with self._lock:
+            return self._bans.get(bucket)
 
     def fault_of(self, bucket):
         with self._lock:
@@ -1079,6 +1186,36 @@ class Client:
                 ALGORITHM, self.access_key, amz_date[:8], self.region, signed.signed_headers,
                 signed.signature)
         target = canonical_uri + ("?" + canonical_query(query_pairs) if query_pairs else "")
+        return self.send(method, target, host, send, body)
+
+    def presign(self, method, bucket, key, expires=3600, session_token=None, now=None):
+        """A presigned URL of `key` (SigV4 query signing, the Host header signed, the payload
+        unsigned): what a public link is."""
+        amz_date = amz_date_of(time.time() if now is None else now)
+        host = "%s:%d" % (self.host, self.port)
+        canonical_uri = uri_encode("/" + bucket + ("/" + key if key else ""), encode_slash=False)
+        pairs = [("X-Amz-Algorithm", ALGORITHM),
+                 ("X-Amz-Credential", "%s/%s/%s/s3/aws4_request" % (self.access_key, amz_date[:8],
+                                                                   self.region)),
+                 ("X-Amz-Date", amz_date),
+                 ("X-Amz-Expires", str(int(expires))),
+                 ("X-Amz-SignedHeaders", "host")]
+        if session_token:
+            pairs.append(("X-Amz-Security-Token", session_token))
+        signed = sign(self.secret_key, amz_date, self.region, "s3", method, canonical_uri, pairs,
+                      {"host": host}, UNSIGNED_PAYLOAD)
+        pairs.append(("X-Amz-Signature", signed.signature))
+        return "http://%s%s?%s" % (host, canonical_uri, canonical_query(pairs))
+
+    def fetch(self, url, method="GET"):
+        """An unsigned request of `url` on this server (a presigned link): (status, lowercase
+        headers, body)."""
+        parsed = urllib.parse.urlsplit(url)
+        target = parsed.path + ("?" + parsed.query if parsed.query else "")
+        return self.send(method, target, parsed.netloc, {}, b"")
+
+    def send(self, method, target, host, send, body):
+        """One request of `target` with the headers `send`: (status, lowercase headers, body)."""
         connection = http.client.HTTPConnection(self.host, self.port, timeout=10)
         try:
             connection.putrequest(method, target, skip_host=True, skip_accept_encoding=True)

@@ -8062,6 +8062,8 @@ impl MacOSWindow {
             anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu
+            // The item picked in it runs in THIS window (`drain_loop_work`).
+            self.common.menu_picks.clone(),
         );
 
         // Queue window creation request
@@ -9222,6 +9224,19 @@ impl MacOSWindow {
             self.handle_menu_action(tag);
         }
 
+        // The items picked in this window's WINDOW-DRAWN menus (the fallback,
+        // `use_native_context_menus = false`) run here too, as a native item
+        // does above: the menu window only posted the pick
+        // (`desktop::menu::MenuPicks`), so what it does lands on this window.
+        if !self.common.menu_picks.is_empty() {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            if PlatformWindow::run_menu_picks(self)
+                != azul_core::events::ProcessEventResult::DoNothing
+            {
+                self.request_redraw();
+            }
+        }
+
         // `<webview>`s: what WebKit reported (a navigation to decide, a
         // load, a title) runs the views' callbacks, and the placements and
         // ops of the last frames reach WebKit (`common::webview::pump`). Only
@@ -9355,6 +9370,9 @@ impl MacOSWindow {
     }
 
     pub fn close(&mut self) {
+        // The popups this window opened close with it (a popup's own popup has
+        // no other parent to close it).
+        PlatformWindow::close_transient_windows(self);
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.

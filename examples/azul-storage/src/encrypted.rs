@@ -30,7 +30,7 @@
 //!   because the header is written last) and handed to the inner drive's `put_from`.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt,
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
@@ -56,7 +56,7 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredObject {
     pub id: ObjectId,
-    /// The object's bytes in the bucket.
+    /// The object's bytes in the bucket: compressed and encrypted, what the quota counts.
     pub stored_size: u64,
     /// BLAKE3 of the plaintext.
     pub blake3: [u8; 32],
@@ -69,7 +69,8 @@ pub struct StoredObject {
 /// What the index keeps for one path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexEntry {
-    /// The plaintext's bytes (what quotas count); 0 for a folder marker.
+    /// The plaintext's bytes: the file's size before compression (the quota counts its
+    /// object's stored bytes instead); 0 for a folder marker.
     pub size: u64,
     /// Last modified, in seconds since 1970-01-01 UTC.
     pub modified: Option<u64>,
@@ -736,6 +737,18 @@ pub fn read_shared(
     azl1::decrypt(&bytes, &file.object, &file_key).map_err(|e| e.for_key(&key))
 }
 
+/// What an encrypted drive's index holds ([`EncryptedDrive::totals`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Totals {
+    pub files: u64,
+    /// The files' size before compression.
+    pub original_bytes: u64,
+    /// Their objects' bytes in the bucket (compressed and encrypted) as this device's index
+    /// records them: an ESTIMATE of the quota's count, for when the node does not say its own
+    /// ([`crate::S3Drive::space`] is the figure).
+    pub stored_bytes: u64,
+}
+
 /// What [`EncryptedDrive::rewrite`] did.
 pub(crate) enum Rewrite {
     /// The path names the new object now; the old one left the bucket (when nothing else
@@ -1070,6 +1083,28 @@ impl<D: Drive> EncryptedDrive<D> {
             stored_size: object.stored_size,
             wrapped_key,
         })
+    }
+
+    /// What the drive's index holds: its files, their size before compression and their
+    /// objects' bytes in the bucket (an object two paths name - a copy - counted once). The
+    /// quota counts stored bytes as the drive's node counts them ([`crate::S3Drive::space`]);
+    /// [`Totals::stored_bytes`] is only this device's estimate of that (the index's own objects
+    /// aside), the original size only extra information. Walks the whole index: call it from a
+    /// worker thread.
+    pub fn totals(&self) -> Result<Totals, DriveError> {
+        let mut totals = Totals::default();
+        let mut seen: HashSet<ObjectId> = HashSet::new();
+        for (_, entry) in self.all_entries("")? {
+            let Some(object) = entry.object.as_ref() else {
+                continue;
+            };
+            totals.files += 1;
+            totals.original_bytes += entry.size;
+            if seen.insert(object.id) {
+                totals.stored_bytes += object.stored_size;
+            }
+        }
+        Ok(totals)
     }
 
     /// Every entry under `prefix`, across all pages.

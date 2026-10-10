@@ -2152,6 +2152,23 @@ impl Win32Window {
         }
     }
 
+    /// The items picked in the window-drawn menus this window opened run
+    /// here, as its own (`PlatformWindow::run_menu_picks`) - outside any
+    /// window procedure: the run loop calls this once per turn, after the
+    /// dispatch that delivered the pick to the menu and closed it. A rebuild
+    /// they ask for is picked up by the loop's render pass; a close they ask
+    /// for (Quit) goes through WM_CLOSE, as after an input pass.
+    pub(crate) fn run_menu_picks_from_loop(&mut self) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        if self.common.menu_picks.is_empty() {
+            return;
+        }
+        if PlatformWindow::run_menu_picks(self) != ProcessEventResult::DoNothing {
+            self.request_redraw();
+        }
+        self.post_app_close();
+    }
+
     // --- File drag-and-drop (OLE IDropTarget) ------------------------------
     //
     // These three handlers mirror the macOS `NSDraggingDestination` flow
@@ -3551,6 +3568,8 @@ impl Win32Window {
             None,             // No trigger rect for context menus (they spawn at cursor)
             Some(cursor_pos), // Cursor position for menu positioning
             None,             // No parent menu
+            // The item picked in it runs in THIS window (`run_menu_picks_from_loop`).
+            self.common.menu_picks.clone(),
         );
 
         // Queue window creation request for processing in Phase 3 of the event loop
@@ -7098,6 +7117,11 @@ impl Win32Window {
     /// `pub(crate)` because the WM_QUIT exit in `shell2::run` tears its windows
     /// down without a WM_CLOSE/WM_DESTROY ever running.
     pub(crate) fn release_gpu_resources(&mut self) {
+        // Every close path of a Win32 window runs this teardown (WM_CLOSE,
+        // WM_DESTROY, the WM_QUIT exit): the popups this window opened close
+        // with it here too (a popup's own popup has no other parent to close
+        // it). Idempotent, as the rest of this teardown.
+        PlatformWindow::close_transient_windows(self);
         if let RenderMode::Gpu {
             gl_context: hglrc,
             hdc: stored_hdc,
@@ -7738,6 +7762,8 @@ impl Win32Window {
             anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu
+            // The item picked in it runs in THIS window (`run_menu_picks_from_loop`).
+            self.common.menu_picks.clone(),
         );
 
         // Queue window creation request

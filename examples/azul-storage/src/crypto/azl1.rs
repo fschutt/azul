@@ -316,9 +316,9 @@ impl Default for WriteOptions {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectSummary {
     pub object_id: ObjectId,
-    /// The file's bytes (what quotas count).
+    /// The file's bytes (its size before compression).
     pub plaintext_size: u64,
-    /// The object's bytes in the bucket.
+    /// The object's bytes in the bucket (compressed and encrypted: what the quota counts).
     pub object_len: u64,
     pub segment_count: u64,
     /// BLAKE3 of the plaintext.

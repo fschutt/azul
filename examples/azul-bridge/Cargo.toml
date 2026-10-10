@@ -20,7 +20,7 @@ publish = false
 [dependencies]
 # AzMail's mail logic without azul types: the drive's mailbox layout (names, state markers,
 # the folders and their roles), modified UTF-7, and the sending path (outbox, DKIM, route).
-azul-mail-core = { path = "../azul-mail-core" }
+azul-mail-core = { path = "../azul-mail-core", default-features = false }
 # The `Drive` trait WebDAV serves and the mailbox is kept in, the S3 drive, the key checks.
 azul-storage = { path = "../azul-storage" }
 # The bridge's own device account: its state folder, its token family (signup / join), the
@@ -80,7 +80,7 @@ tray = ["dep:azul", "os-keyring"]
 # A temporary folder for the tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
 # The one-connection SMTP sink the sending tests deliver to (azmail_core::testutil).
-azul-mail-core = { path = "../azul-mail-core", features = ["testing"] }
+azul-mail-core = { path = "../azul-mail-core", default-features = false, features = ["testing"] }
 
 [lib]
 name = "azul_bridge"

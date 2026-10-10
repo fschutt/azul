@@ -1717,7 +1717,10 @@ fn os_synced_fields(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuInvocation {
     /// The OS activated the item (menu-bar click, Win32 command id, GNOME
-    /// action); `site` names the backend for the `AZ_VALIDATE` report.
+    /// action) or the user picked it in a window-drawn menu
+    /// ([`PlatformWindow::run_menu_picks`]) - either way outside any input
+    /// pass of this window; `site` names the backend for the `AZ_VALIDATE`
+    /// report.
     Native { site: &'static str },
     /// The shared accelerator dispatch, inside an input pass.
     Accelerator,
@@ -3026,6 +3029,10 @@ pub struct CommonWindowState {
     /// RELEASE is owed to the menus too, so it reaches nothing under the
     /// pointer either (EVENTS7).
     menu_release_owed: bool,
+    /// The items picked in the window-drawn menus this window opened, which this window
+    /// runs as its own ([`PlatformWindow::run_menu_picks`]). Every menu it opens - and their
+    /// submenus - carries a clone (`desktop::menu::show_menu`).
+    pub menu_picks: crate::desktop::menu::MenuPicks,
 }
 
 impl CommonWindowState {
@@ -3366,6 +3373,7 @@ impl CommonWindowState {
             close_unconfirmed: false,
             scripted_animation_clock: super::debug_server::scripted_run_owns_the_clock(),
             menu_release_owed: false,
+            menu_picks: crate::desktop::menu::MenuPicks::default(),
         }
     }
 
@@ -5266,6 +5274,20 @@ pub trait PlatformWindow {
                 thread,
                 owner: None,
             });
+        }
+    }
+
+    /// `<transient-window>`, parent side: this window is going away, so the
+    /// popups it opened go with it (`common::transient::close_parent`) - a
+    /// popup's own popup has no other parent to close it. Every backend's
+    /// close path calls it before the window is gone; idempotent (a second
+    /// call finds nothing open).
+    fn close_transient_windows(&mut self) {
+        let Some(lw) = self.get_layout_window_mut() else {
+            return;
+        };
+        if super::transient::close_parent(lw) {
+            self.request_regeneration_all_windows();
         }
     }
 
@@ -10707,10 +10729,51 @@ pub trait PlatformWindow {
         callback.map(|cb| self.invoke_menu_callback(cb, MenuInvocation::Accelerator))
     }
 
+    /// Run the items the user picked in the window-drawn menus THIS window
+    /// opened (`CommonWindowState::menu_picks`), as this window's own: the
+    /// same [`Self::invoke_menu_callback`] a native menu's item goes through
+    /// (macOS `handle_menu_action`). A window-drawn menu is a window of its
+    /// own that closes as the item is picked, so the item's callback must not
+    /// run in it: what it does to "the window" - a field's text, the title,
+    /// focus, scroll, a timer, a thread, a rebuild - is this window's
+    /// (`desktop::menu::MenuPicks`).
+    ///
+    /// Every backend's loop calls this for every window it drives, after the
+    /// menus' input was dispatched and before it waits: the headless
+    /// `pump_children`, the X11 / Wayland and Win32 loops in `run.rs`, and
+    /// macOS's `drain_loop_work` (its fallback menus). Returns the strongest
+    /// result the picks asked for; the caller asks for the frame.
+    fn run_menu_picks(&mut self) -> ProcessEventResult {
+        let picks = self.get_common_mut().menu_picks.take();
+        let mut result = ProcessEventResult::DoNothing;
+        for callback in picks {
+            result = result.max(self.invoke_menu_callback(
+                callback,
+                MenuInvocation::Native {
+                    site: "menu.window_drawn_pick",
+                },
+            ));
+        }
+        // A popup (a `<transient-window>` that opened the menu) only mirrors
+        // its owner's subtree: a rebuild it owes is every window's, the rule
+        // the event pass applies (`common::transient`).
+        if matches!(
+            result,
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                | ProcessEventResult::ShouldIncrementalRelayout
+                | ProcessEventResult::UpdateHitTesterAndProcessAgain
+        ) && super::transient::mailbox_of(self.get_current_window_state()).is_some()
+        {
+            self.request_regeneration_all_windows();
+        }
+        result
+    }
+
     /// Run a menu item's callback with a full `CallbackInfo` — exactly what
     /// a click on the item does on every backend — and apply what it asked
     /// for (window-state changes, a DOM rebuild). One implementation for the
-    /// native menu handlers (macOS tags, Win32 command ids, GNOME actions)
+    /// native menu handlers (macOS tags, Win32 command ids, GNOME actions),
+    /// the items picked in window-drawn menus ([`Self::run_menu_picks`])
     /// and the shared accelerator dispatch.
     ///
     /// `how` decides who owns the window-state baseline afterwards. A NATIVE

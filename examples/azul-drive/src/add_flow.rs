@@ -112,6 +112,10 @@ pub(crate) enum AddEvent {
     VoucherPage,
     /// The voucher page's Redeem.
     RedeemVoucher,
+    /// "Pick up a paid drive with a claim code" (the first page).
+    ClaimCodePage,
+    /// The claim code page's Pick up.
+    PickUp,
 }
 
 /// The open dialog, if the popup is it.
@@ -252,6 +256,12 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
             }
         }
         AddEvent::RedeemVoucher => redeem_voucher(info, app, s),
+        AddEvent::ClaimCodePage => {
+            if !d.busy() {
+                d.choose_claim_code();
+            }
+        }
+        AddEvent::PickUp => pick_up(info, app, s),
     }
     if let Some(d) = dialog(s) {
         if d.page_line() != page_before {
@@ -1005,6 +1015,9 @@ fn run_effect(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, effect:
                 d.notice = notice.text();
             }
         }
+        // Cash by post: the two pages are offered (the dialog shows them), the order joins the
+        // drive list.
+        Effect::ShowPaper(slip) => crate::cash::posted(s, &slip),
     }
     false
 }
@@ -1185,9 +1198,10 @@ pub(crate) fn checkout_started(
             Ok(started) => {
                 println!("AZDRIVE_CHECKOUT {}", started.checkout.checkout_id);
                 d.kept = Some(started.kept);
-                match started.created {
-                    Some(created) => Event::Created(Box::new(created)),
-                    None => Event::CreateFailed(String::from(
+                match (started.created, started.cash) {
+                    (Some(created), _) => Event::Created(Box::new(created)),
+                    (None, Some(slip)) => Event::Posted(Box::new(slip)),
+                    (None, None) => Event::CreateFailed(String::from(
                         "the token server answered without a payment surface",
                     )),
                 }
@@ -1337,6 +1351,7 @@ pub(crate) fn bought(
     let in_keyring = bought.unsaved.is_none();
     // The session is kept even when the drives file cannot take the entry: the drive token is
     // the only way back into the drive.
+    let drive_id = entry.id.clone();
     add_slot(info, app, s, entry, Some(bought.session), open, in_keyring);
     if let Err(problem) = saved {
         // Said in the window (the dialog closed with the drive).
@@ -1344,6 +1359,11 @@ pub(crate) fn bought(
             "{problem} The drive works until AzDrive closes; its session is in the keyring."
         ));
     }
+    // "We always encrypt": the new drive's keys and recovery sheet are part of its making.
+    #[cfg(feature = "encryption")]
+    crate::encryption::encrypt_new_drive(info, app, s, &drive_id);
+    #[cfg(not(feature = "encryption"))]
+    let _ = drive_id;
 }
 
 // ==== The claims: a paid drive reaches AzDrive however late ====
@@ -1355,9 +1375,12 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
         return;
     }
     s.claiming = true;
+    // The cash orders are asked in this run: their next daily look is a day from now.
+    crate::cash::looked(s);
     let keyring = s.keyring.clone();
     let token_url = s.token.url.clone();
     let store = s.period_tokens.clone();
+    let cash_every = s.cash_looks.every();
     spawn(
         info,
         app,
@@ -1366,6 +1389,7 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             keyring,
             token_url,
             store,
+            cash_every,
         },
     );
 }
@@ -1387,6 +1411,14 @@ pub(crate) fn claimed(
 ) {
     let drive_id = claimed.bundle.drive_id().to_string();
     println!("AZDRIVE_CLAIMED {} {drive_id}", checkout.checkout_id);
+    crate::cash::claimed(s, &checkout.checkout_id);
+    // A checkout picked up by its claim code learns its tier from the sealed sign-up: its
+    // period tokens are issued for it.
+    let mut checkout = checkout.clone();
+    if checkout.tier.is_empty() {
+        checkout.tier = claimed.bundle.tier.clone().unwrap_or_default();
+    }
+    let checkout = &checkout;
     let token_url = if checkout.token_url.is_empty() {
         s.token.url.clone().unwrap_or_default()
     } else {
@@ -1414,6 +1446,10 @@ pub(crate) fn claimed(
                 from_dialog,
                 true,
             );
+            // "We always encrypt": a paid drive's keys and recovery sheet, however late it
+            // arrived (a drive claimed at a start shows the sheet then).
+            #[cfg(feature = "encryption")]
+            crate::encryption::encrypt_new_drive(info, app, s, &drive_id);
             match saved {
                 Ok(()) => true,
                 Err(problem) => {
@@ -1439,11 +1475,87 @@ pub(crate) fn claimed(
     }
 }
 
-/// The background claims took a checkout off the keyring's list: said once.
+/// The background claims took a checkout off the keyring's list: said once - a cash order's end
+/// on the drive list (until it is dismissed) and in the dialog that shows it.
 pub(crate) fn checkout_dropped(s: &mut DriveState, checkout_id: &str, why: &str) {
+    if crate::cash::ended(s, checkout_id, why) {
+        let text = crate::cash::ended_text(why);
+        if let Some(d) = dialog(s) {
+            if d.pay.checkout_id() == Some(checkout_id) {
+                d.pay = PayState::Choosing;
+                d.notice = text.clone();
+            }
+        }
+        s.warn(text);
+        return;
+    }
     s.warn(format!(
         "The checkout {checkout_id} is not waited for any more: {why}."
     ));
+}
+
+// ==== Cash by post: a claim code picked up ====
+
+/// "Pick up a paid drive with a claim code"'s Pick up: the code read (a typo is said), its cash
+/// checkout onto the keyring's list on a worker thread; then the background claims ask for it.
+fn pick_up(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let token_url = s.token.url.clone().unwrap_or_default();
+    let keyring = s.keyring.clone();
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    if d.busy() {
+        return;
+    }
+    match crate::cash::picked_up(&d.claim_code, &token_url, &d.buy_name) {
+        Err(why) => d.notice = why,
+        Ok(checkout) => {
+            d.step = BuyStep::Creating;
+            d.notice = String::from("Picking the drive up\u{2026}");
+            let serial = d.serial;
+            spawn(
+                info,
+                app,
+                s,
+                Job::PickUp {
+                    serial,
+                    checkout,
+                    keyring,
+                },
+            );
+        }
+    }
+}
+
+/// A claim code's checkout is on the keyring's list (or why not): the background claims ask
+/// for its drive now, then once a day.
+pub(crate) fn picked_up_answered(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: u64,
+    checkout: PendingCheckout,
+    result: Result<(), String>,
+) {
+    if let Some(d) = dialog_of(s, serial) {
+        d.step = BuyStep::Idle;
+        d.notice = match &result {
+            Ok(()) => String::from(
+                "Picked up. AzDrive asks for the drive now, then once a day until the money \
+                 arrived: postal cash takes a while.",
+            ),
+            Err(why) => format!("The claim code was not kept: {why}"),
+        };
+        if result.is_ok() {
+            d.claim_code.clear();
+        }
+    }
+    if result.is_err() {
+        return;
+    }
+    println!("AZDRIVE_PICKED_UP {}", checkout.checkout_id);
+    crate::cash::upsert(s, checkout);
+    start_claims(info, app, s);
 }
 
 /// The background claims ended.

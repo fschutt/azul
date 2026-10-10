@@ -120,6 +120,18 @@ impl ClaimKey {
         STANDARD.encode(self.secret.as_bytes())
     }
 
+    /// The secret's 32 bytes (the claim code's). A secret: never print them.
+    pub(crate) fn secret_bytes(&self) -> Zeroizing<[u8; KEY_LEN]> {
+        Zeroizing::new(*self.secret.as_bytes())
+    }
+
+    /// The claim key of the secret `bytes` (a claim code's).
+    pub(crate) fn from_secret_bytes(bytes: [u8; KEY_LEN]) -> ClaimKey {
+        ClaimKey {
+            secret: StaticSecret::from(bytes),
+        }
+    }
+
     /// The public key, as the checkout names it (`claim_key`: standard padded base64).
     #[must_use]
     pub fn public_base64(&self) -> String {

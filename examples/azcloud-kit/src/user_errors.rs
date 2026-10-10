@@ -81,11 +81,14 @@ pub enum Code {
     /// Anything else (`internal`, a code this app does not know yet, an answer that makes no
     /// sense).
     Other,
+    /// The drive is banned (ban contract v1): it takes no writes; its files can be read and
+    /// copied until the ban's end.
+    DriveBanned,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 15] = [
+    pub const ALL: [Code; 16] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -101,6 +104,7 @@ impl Code {
         Code::WrongBlock,
         Code::NewerFormat,
         Code::Other,
+        Code::DriveBanned,
     ];
 
     /// `quota_exceeded`, ...
@@ -122,6 +126,7 @@ impl Code {
             Code::WrongBlock => "wrong_block",
             Code::NewerFormat => "newer_format",
             Code::Other => "other",
+            Code::DriveBanned => "drive_banned",
         }
     }
 
@@ -142,11 +147,12 @@ impl Code {
         format!("azlin-error-{}", self.as_str().replace('_', "-"))
     }
 
-    /// Its row of [`ROWS`].
+    /// Its row of [`ROWS`] (the row of [`Code::Other`] for one without a row).
     #[must_use]
     pub fn row(self) -> &'static Row {
         ROWS.iter()
             .find(|row| row.code == self)
+            .or_else(|| ROWS.iter().find(|row| row.code == Code::Other))
             .unwrap_or(&ROWS[ROWS.len() - 1])
     }
 }
@@ -276,6 +282,15 @@ pub const ROWS: &[Row] = &[
         behaviour: Behaviour::Report,
         en: "Something went wrong: {detail}",
         de: "Etwas ist schiefgelaufen: {detail}",
+    },
+    Row {
+        code: Code::DriveBanned,
+        class: Class::ReadOnly,
+        behaviour: Behaviour::ReadsOnly,
+        en: "This drive was banned: nothing new can be uploaded. Its files can still be read and \
+             copied to this computer until it closes.",
+        de: "Dieses Laufwerk wurde gesperrt: Neues kann nicht hochgeladen werden. Seine Dateien \
+             lassen sich noch lesen und auf diesen Computer kopieren, bis es geschlossen wird.",
     },
 ];
 

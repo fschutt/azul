@@ -10453,6 +10453,88 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "NetworkKind": {
+                        "external": "azul_dll::unified::network::NetworkKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Unknown": {},
+                                "Wired": {},
+                                "WiFi": {},
+                                "Cellular": {},
+                                "Other": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NetworkState": {
+                        "external": "azul_dll::unified::network::NetworkState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "NetworkKind"
+                                },
+                                "connected": {
+                                    "type": "bool"
+                                },
+                                "metered": {
+                                    "type": "bool"
+                                },
+                                "constrained": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "headless": {
+                                "doc": [
+                                    "[`NetworkState::HEADLESS`]."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::network::NetworkState::headless()"
+                            },
+                            "query": {
+                                "doc": [
+                                    "The network state now (see the module documentation)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::network::NetworkState::query()"
+                            }
+                        },
+                        "functions": {
+                            "allows_background_transfer": {
+                                "doc": [
+                                    "Whether big transfers that can wait may run now: connected, neither metered nor",
+                                    "constrained."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.allows_background_transfer()"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },

@@ -317,6 +317,34 @@ pub fn plan_transfer(
         same_drive,
         ..Plan::default()
     };
+    // A folder item of the drive's root ("Copy everything") stands for everything in it.
+    let expanded: Vec<SourceItem>;
+    let items = if items.iter().any(|i| i.is_folder && i.key.is_empty()) {
+        let root = storage_ops::list_folder_all(source, "")?;
+        expanded = root
+            .folders
+            .into_iter()
+            .map(|key| SourceItem {
+                key,
+                is_folder: true,
+                size: None,
+            })
+            .chain(root.objects.into_iter().map(|object| SourceItem {
+                key: object.key,
+                is_folder: false,
+                size: Some(object.size),
+            }))
+            .chain(
+                items
+                    .iter()
+                    .filter(|i| !(i.is_folder && i.key.is_empty()))
+                    .cloned(),
+            )
+            .collect();
+        &expanded[..]
+    } else {
+        items
+    };
     for item in items {
         let name = key::last_segment(&item.key).to_string();
         let parent = parent_of(&item.key);
@@ -901,7 +929,7 @@ mod tests {
         assert!(check_name("what?").is_err());
         assert!(check_name("..").is_err());
         let reason = check_name("a|b").unwrap_err();
-        assert!(reason.contains('|'), "{reason}");
+        assert_eq!(reason.keys(), ["azdrive-name-forbidden-chars"], "{reason}");
     }
 
     #[test]

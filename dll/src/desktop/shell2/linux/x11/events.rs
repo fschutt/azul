@@ -1609,6 +1609,8 @@ impl X11Window {
             None,                  // No trigger rect for context menus
             Some(physical_cursor), // Cursor position (physical px)
             None,                  // No parent menu
+            // The item picked in it runs in THIS window (run.rs, `run_menu_picks`).
+            self.common.menu_picks.clone(),
         );
         // Parent the menu to THIS window so it reuses our X display (single
         // shared event pump) and is positioned relative to us.

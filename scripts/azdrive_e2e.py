@@ -65,8 +65,8 @@ node layout, AzDrive's stdout markers and the files on disk:
         by name; "Index files in the cloud" and "Index this drive" download each file within
         the cap (GetObject at the mock), index its text and keep nothing but the index; the same
         search finds the file from the index; turned off, the index is gone. (An encrypted
-        drive's search - names from its drive index - needs a build with the encryption feature
-        and an encrypted Azlin drive: its unit tests cover it.);
+        drive's search - names from its drive index - is covered by its unit tests; the drives
+        AzDrive makes are encrypted as they are made: scripts/azdrive_add_e2e.py.);
     25. the folder sync, in an AzDrive of its own whose drives file has one S3 drive on the mock
         stack's S3 (scripts/azlin_mock_stack.py; its keys in the headless keyring file, the poll
         every 2 s - $AZDRIVE_SYNC_POLL): Share > Sync with a folder pairs it with AzDrive/<name>
@@ -81,7 +81,19 @@ node layout, AzDrive's stdout markers and the files on disk:
         drive's own listing shows the sync index's files (not only its hidden `.azlin`); a
         cloud-only row deleted asks "Delete from the drive?" and the next pass deletes it there;
         an Azlin drive synced from the start whose token server says it takes no writes says
-        "Read-only (payment due)". `--sync-only` runs step 25 alone.
+        "Read-only (payment due)"; 12 of its files turned random at once pause the uploads
+        (what the drive changes still comes down) until "These changes are mine"; again with
+        other files, "I was hacked..." restores the drive as of before the change, the
+        encrypted copies here wait for a choice (D52) and the drive's version brings each back;
+        a metered network (the headless network file
+        AZ_NETWORK_STATE_FILE: "cellular metered") says "Paused (metered network)", a 26 MB file
+        waits while a small one goes up, "Sync anyway on this network" (Options > Drives > Sync,
+        kept in view.json) sends it, a Low Data Mode Wi-Fi pauses too, a free Wi-Fi syncs.
+        The drives of steps 24 and 25 are made at the mock directly, with no keys: plaintext
+        drives like the ones made before encryption ("we always encrypt" makes every NEW drive
+        encrypted). AzDrive is built with its default features - `encryption` among them - and
+        keeps opening such drives as they are; that old path is what these steps check.
+        `--sync-only` runs step 25 alone.
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
@@ -1285,6 +1297,40 @@ def other_device_writes(s3_root, key, data, device="e2e-desktop", bucket=SYNC_BU
     os.replace(tmp, path)
 
 
+def write_network(path, words):
+    """The headless network azul reads (AZ_NETWORK_STATE_FILE, at every query): words such as
+    "cellular metered", "wifi constrained" or "wifi"."""
+    tmp = path + ".e2e-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(words + "\n")
+    os.replace(tmp, path)
+
+
+def last_status(app, drive_id):
+    """What drive `drive_id`'s status line said last (AZDRIVE_SYNC_STATUS), or None."""
+    said = app.printed("AZDRIVE_SYNC_STATUS", re.escape(drive_id) + r" .*")
+    return said[-1].split(" ", 1)[1] if said else None
+
+
+def settled(status):
+    """Whether a status line (its key form: azdrive-sync-status-...) says the drive synced: no
+    pause for the network, no pass running."""
+    return bool(status) and "metered" not in status and "syncing" not in status
+
+
+def synced_setting(view, drive_id, name):
+    """A synced drive's setting `name` as the view settings file keeps it (None: not there)."""
+    try:
+        with open(view, "r", encoding="utf-8") as f:
+            settings = json.load(f)
+    except (OSError, ValueError):
+        return None
+    for setup in settings.get("synced", []):
+        if setup.get("drive_id") == drive_id:
+            return setup.get(name)
+    return None
+
+
 def read_file(path):
     try:
         with open(path, "rb") as f:
@@ -1329,7 +1375,10 @@ def sync_step(args, logs, binary, out):
         "--dialogs", "inline",
         "--cache-dir", os.path.join(base, "cache"),
     ]
-    env = {"AZ_KEYRING_FILE": keyring, "AZDRIVE_SYNC_POLL": "2", "AZCLOUD_DEVICE": SYNC_DEVICE}
+    # The headless network azul reads at every query (no file yet: wired and free).
+    network_file = os.path.join(base, "network.txt")
+    env = {"AZ_KEYRING_FILE": keyring, "AZDRIVE_SYNC_POLL": "2", "AZCLOUD_DEVICE": SYNC_DEVICE,
+           "AZ_NETWORK_STATE_FILE": network_file}
     app = Drive("azdrive-sync", binary, switches, args.debug_port, logs, args.timeout,
                 extra_env=env)
     folder = os.path.join(home, "AzDrive", SYNC_NAME)
@@ -1562,29 +1611,44 @@ def sync_step(args, logs, binary, out):
             "the drive (cloud only here)")
 
         # 25i. Files turned random at once on the Azlin drive: uploads pause, downloads go on;
-        # I was hacked... -> Restore as of before the change; then "These changes are mine".
+        # the question waits (Decide later), Sync now asks again, "These changes are mine" sends
+        # them.
         paid_bucket = paid["drive"]["location"]["bucket"]
         paid_folder = os.path.join(home, "AzDrive", PAID_NAME)
         os.makedirs(paid_folder, exist_ok=True)
         prose = (b"the quarterly report says the numbers look fine for now " * 40)[:2048]
-        for i in range(12):
-            with open(os.path.join(paid_folder, "p%d.txt" % i), "wb") as f:
-                f.write(prose[:2040] + b"%08d" % i)
-        app.until("the Azlin drive's files uploaded", lambda: all(
-            "p%d.txt" % i in sync_index(s3_root, paid_bucket).get("files", {})
-            for i in range(12)))
-        done = app.count("AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*")
-        app.until("one more pass (the guard learns them)", lambda: app.count(
-            "AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*") > done)
-        time.sleep(1.2)
-        as_of = int(time.time())
-        time.sleep(1.2)
-        for i in range(12):
-            with open(os.path.join(paid_folder, "p%d.txt" % i), "wb") as f:
-                f.write(os.urandom(2048))
-        app.until("uploads paused", lambda: app.printed(
-            "AZDRIVE_SYNC_BURST", re.escape(paid_id) + r" encryption \d+"))
-        app.until("the guard's question", lambda: app.has("#" + I("sync-burst")))
+        paid_row = "#__azdrive_side_drive_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid_id).lower()
+
+        def text_files(stem):
+            """12 text files `<stem><i>.txt` in the Azlin drive's folder, up on the drive, and
+            one more pass (the burst guard learns they are text-like)."""
+            for i in range(12):
+                with open(os.path.join(paid_folder, "%s%d.txt" % (stem, i)), "wb") as f:
+                    f.write(prose[:2040] + b"%08d" % i)
+            app.until("the Azlin drive's %s files uploaded" % stem, lambda: all(
+                "%s%d.txt" % (stem, i) in sync_index(s3_root, paid_bucket).get("files", {})
+                for i in range(12)))
+            done = app.count("AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*")
+            app.until("one more pass (the guard learns them)", lambda: app.count(
+                "AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*") > done)
+
+        def prose_of(i):
+            """The BLAKE3 of the i-th text file's words (what the drive's index names)."""
+            return azlin_blake3.hex_digest(prose[:2040] + b"%08d" % i)
+
+        def turn_random(stem):
+            """The 12 files `<stem><i>.txt` rewritten as random bytes at once (ransomware's
+            work): uploads pause, the question shows."""
+            bursts = app.count("AZDRIVE_SYNC_BURST", re.escape(paid_id) + r" encryption \d+")
+            for i in range(12):
+                with open(os.path.join(paid_folder, "%s%d.txt" % (stem, i)), "wb") as f:
+                    f.write(os.urandom(2048))
+            app.until("uploads paused", lambda: app.count(
+                "AZDRIVE_SYNC_BURST", re.escape(paid_id) + r" encryption \d+") > bursts)
+            app.until("the guard's question", lambda: app.has("#" + I("sync-burst")))
+
+        text_files("p")
+        turn_random("p")
         app.screenshot(os.path.join(out, "25-sync-burst.png"))
         before = sync_index(s3_root, paid_bucket)["files"]["p0.txt"]["hash"]
         other_device_writes(s3_root, "from-desktop.txt", b"while paused\n", bucket=paid_bucket)
@@ -1592,28 +1656,8 @@ def sync_step(args, logs, binary, out):
             os.path.join(paid_folder, "from-desktop.txt")) == b"while paused\n")
         if sync_index(s3_root, paid_bucket)["files"]["p0.txt"]["hash"] != before:
             raise Failure("a paused folder sent its changes")
-        app.after("I was hacked...", "AZDRIVE_SYNC_HACKED", re.escape(paid_id),
-                  lambda: (app.must("click", selector="#" + I("sync-burst-hacked")), app.frame()))
-        app.until("lock down / restore", lambda: app.has("#" + I("sync-hacked")))
-        app.must("click", selector="#" + I("sync-hacked-restore"))
-        app.frame(2)
-        app.until("the restore's time field", lambda: app.has("#__azdrive_restore_time"))
-        app.must("focus_node", selector="#__azdrive_restore_time")
-        app.frame(2)
-        app.key("end")
-        for _ in range(len("1 hour ago")):
-            app.key("backspace", frames=1)
-        app.must("text_input", text=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(as_of)))
-        app.frame(2)
-        app.after("restored as of before the change", "AZDRIVE_RESTORED",
-                  r"%s \S+ objects \d+" % re.escape(paid_id),
-                  lambda: app.must("click", selector="#__azdrive_restore_go"))
-        if app.has("#__azdrive_restore"):
-            app.key("escape")
-        log("25i. 12 files of the Azlin drive turned random: uploads paused (a download came "
-            "on), I was hacked... restored the drive as of before the change")
-        # "These changes are mine": asked again by Sync now, then sent.
-        paid_row = "#__azdrive_side_drive_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid_id).lower()
+        app.click(text="Decide later")
+        app.until("Decide later", lambda: not app.has("#" + I("sync-burst")))
         app.after("the Azlin drive", "AZDRIVE_PLACE", re.escape(paid_id) + r" .*",
                   lambda: app.click(selector=paid_row))
         app.tab("Share")
@@ -1626,7 +1670,148 @@ def sync_step(args, logs, binary, out):
         mine = azlin_blake3.hex_digest(read_file(os.path.join(paid_folder, "p0.txt")))
         app.until("sent with the next pass", lambda: sync_index(
             s3_root, paid_bucket).get("files", {}).get("p0.txt", {}).get("hash") == mine)
-        log("25j. These changes are mine: the next pass sent them")
+        log("25i. 12 files of the Azlin drive turned random: uploads paused (a download came on); "
+            "the question waited, Sync now asked again, These changes are mine sent them")
+
+        # 25j. Again with other files, and this time it was ransomware - on the other computer
+        # too, which sent its encrypted q0.txt: I was hacked... -> Restore as of before the
+        # change. The drive has q0.txt back; the encrypted copies here never went up, and against
+        # the restored drive (its index older than this folder's last pass) each waits for a
+        # choice (D52) instead of overwriting either side; "Take the drive's version" brings
+        # each restored file back here.
+        text_files("q")
+        time.sleep(1.2)
+        as_of = int(time.time())
+        time.sleep(1.2)
+        turn_random("q")
+        other_device_writes(s3_root, "q0.txt", os.urandom(2048), bucket=paid_bucket)
+        app.until("a pass saw the other computer's q0.txt", lambda: app.printed(
+            "AZDRIVE_SYNC_FILE", re.escape(paid_id) + r" conflict q0\.txt"))
+        # That pass held q0.txt as a conflict and told the open question its new list (the 11
+        # files left to send): the dialog changed its height and its buttons slide to their new
+        # place. `app.click` waits until they stand still - a click mid-slide hits nothing.
+        app.until("the guard's question still open", lambda: app.has("#" + I("sync-burst")))
+        app.after("I was hacked...", "AZDRIVE_SYNC_HACKED", re.escape(paid_id),
+                  lambda: app.click(selector="#" + I("sync-burst-hacked")))
+        app.until("lock down / restore", lambda: app.has("#" + I("sync-hacked")))
+        app.click(selector="#" + I("sync-hacked-restore"))
+        app.until("the restore's time field", lambda: app.has("#__azdrive_restore_time"))
+        app.must("focus_node", selector="#__azdrive_restore_time")
+        app.frame(2)
+        app.key("end")
+        for _ in range(len("1 hour ago")):
+            app.key("backspace", frames=1)
+        app.must("text_input", text=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(as_of)))
+        app.frame(2)
+        held = app.count("AZDRIVE_SYNC_FILE", re.escape(paid_id) + r" conflict q1\.txt")
+        app.after("restored as of before the change", "AZDRIVE_RESTORED",
+                  r"%s \S+ objects \d+" % re.escape(paid_id),
+                  lambda: app.click(selector="#__azdrive_restore_go"))
+        if app.has("#__azdrive_restore"):
+            app.key("escape")
+        app.until("the drive has q0.txt back", lambda: sync_index(
+            s3_root, paid_bucket).get("files", {}).get("q0.txt", {}).get("hash") == prose_of(0))
+        app.until("the encrypted copies here wait for a choice", lambda: app.count(
+            "AZDRIVE_SYNC_FILE", re.escape(paid_id) + r" conflict q1\.txt") > held)
+        files = sync_index(s3_root, paid_bucket)["files"]
+        if any(files.get("q%d.txt" % i, {}).get("hash") != prose_of(i) for i in range(12)):
+            raise Failure("an encrypted copy went up over the restored drive")
+        # Each question in turn (the next comes with the pass after an answer): the drive's
+        # restored version over the encrypted copy here. With nothing left to send the pause
+        # ends by itself, and no question is left open for the next steps.
+        for n in range(12):
+            app.until("choice %d of 12" % (n + 1), lambda: app.has("#" + I("sync-conflict")))
+            app.after("Take the drive's version", "AZDRIVE_SYNC_RESOLVED",
+                      re.escape(paid_id) + r" theirs q\d+\.txt",
+                      lambda: app.click(selector="#" + I("sync-take-theirs")))
+        for i in range(12):
+            path = os.path.join(paid_folder, "q%d.txt" % i)
+            app.until("q%d.txt restored here" % i, lambda: read_file(path)
+                      == prose[:2040] + b"%08d" % i)
+        app.until("no question left open", lambda: not app.has("#" + I("sync-conflict")))
+        log("25j. again with other files, and it was ransomware (on the other computer too): I "
+            "was hacked... restored the drive as of before the change; the encrypted copies "
+            "here waited for a choice (D52), and the drive's version brought each file back")
+
+        # 25k. A metered network (azul's NetworkState, switched through the headless network
+        # file AZ_NETWORK_STATE_FILE, read at every query): "Paused (metered network)"; a file
+        # over the drive's auto-download size (25 MB) waits here while a small one goes up;
+        # "Sync anyway on this network" (Options > Drives > Sync, kept in the view settings)
+        # sends it; a Low Data Mode network pauses too; a free network again: up to date.
+        app.after("the sync drive's own listing", "AZDRIVE_LISTED",
+                  re.escape(SYNC_DRIVE) + r" / \d+", lambda: app.click(selector=row))
+        write_network(network_file, "cellular metered")
+        app.until("the metered network read", lambda: app.printed(
+            "AZDRIVE_NETWORK", r"Cellular connected=true metered=true constrained=false"))
+        app.until("Paused (metered network)", lambda: last_status(app, SYNC_DRIVE)
+                  == "azdrive-sync-status-metered")
+        app.until("the status line says it", lambda: "Paused (metered network)" in status())
+        app.until("the drive's row has its glyph", lambda: app.has(
+            "#__azdrive_side_sync_" + SYNC_DRIVE))
+        app.screenshot(os.path.join(out, "25-sync-metered.png"))
+        film = os.path.join(folder, "film.bin")
+        frame = b"a long film shot on a metered network, frame by frame. "
+        with open(film, "wb") as f:
+            f.write(frame * (26 * 1024 * 1024 // len(frame) + 1))
+        memo = os.path.join(folder, "memo.txt")
+        with open(memo, "wb") as f:
+            f.write(b"a small memo, sent on a metered network\n")
+        app.until("the small file went up", lambda: "memo.txt" in sync_index(s3_root).get(
+            "files", {}))
+        app.until("a pass held the big one back", lambda: any(
+            "held=1" in line for line in app.printed(
+                "AZDRIVE_SYNC_DONE", re.escape(SYNC_DRIVE) + r" .*")))
+        if "film.bin" in sync_index(s3_root).get("files", {}):
+            raise Failure("the big file went up on a metered network")
+        if last_status(app, SYNC_DRIVE) != "azdrive-sync-status-metered":
+            raise Failure("the status line says %r" % last_status(app, SYNC_DRIVE))
+        log("25k. a metered network: \"Paused (metered network)\"; memo.txt went up, film.bin "
+            "(26 MB, over the auto-download size) waited")
+
+        # Sync anyway on this network: the big file goes up now; the setting is kept.
+        app.tab("View")
+        app.ribbon("Options")
+        app.until("the Options", lambda: app.has("#" + I("settings")))
+        app.click_exact("Drives")
+        anyway = "#__azdrive_sync_metered_" + SYNC_DRIVE
+        app.until("Sync anyway on this network", lambda: app.has(anyway))
+        app.op("scroll_into_view", selector=anyway, block="center", behavior="instant")
+        app.frame(2)
+        app.screenshot(os.path.join(out, "25-sync-anyway.png"))
+        app.after("Sync anyway on this network", "AZDRIVE_SYNC_SETTING",
+                  re.escape(SYNC_DRIVE) + r" sync_on_metered true",
+                  lambda: app.click(selector=anyway))
+        app.until("kept with the sync settings",
+                  lambda: synced_setting(view, SYNC_DRIVE, "sync_on_metered") is True)
+        app.until("the big file went up", lambda: "film.bin" in sync_index(s3_root).get(
+            "files", {}))
+        app.until("no longer paused", lambda: settled(last_status(app, SYNC_DRIVE)))
+        # Unticked: the metered network holds big files back again.
+        app.after("Sync anyway off again", "AZDRIVE_SYNC_SETTING",
+                  re.escape(SYNC_DRIVE) + r" sync_on_metered false",
+                  lambda: app.click(selector=anyway))
+        app.until("paused again", lambda: last_status(app, SYNC_DRIVE)
+                  == "azdrive-sync-status-metered")
+        app.until("kept off", lambda: synced_setting(view, SYNC_DRIVE, "sync_on_metered")
+                  is False)
+        app.key("escape")
+        app.until("the Options closed", lambda: not app.has("#" + I("settings")))
+        log("25l. Sync anyway on this network: film.bin went up at once (the setting kept in "
+            "view.json); unticked, the drive pauses its big files again")
+
+        # A Wi-Fi in Low Data Mode pauses too; a free network: up to date.
+        write_network(network_file, "wifi constrained")
+        app.until("the low-data network read", lambda: app.printed(
+            "AZDRIVE_NETWORK", r"WiFi connected=true metered=false constrained=true"))
+        app.until("still paused", lambda: last_status(app, SYNC_DRIVE)
+                  == "azdrive-sync-status-metered")
+        write_network(network_file, "wifi")
+        app.until("the free network read", lambda: app.printed(
+            "AZDRIVE_NETWORK", r"WiFi connected=true metered=false constrained=false"))
+        app.until("synced on a free network", lambda: settled(last_status(app, SYNC_DRIVE)))
+        app.until("the status line says it", lambda: "metered" not in status())
+        log("25m. a Low Data Mode Wi-Fi paused the big files too; on a free Wi-Fi the drive is "
+            "up to date")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):

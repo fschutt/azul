@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    sigv4, ByteRange, Credentials, Drive, DriveError, HttpCall, HttpReply, ListRequest, Method,
-    Precondition, S3Config, S3Drive, Transport,
+    sigv4, BucketSpace, ByteRange, Credentials, Drive, DriveError, HttpCall, HttpReply,
+    ListRequest, Method, Precondition, S3Config, S3Drive, Transport,
 };
 
 /// 2013-05-24T00:00:00Z, the date of the S3 reference examples.
@@ -99,6 +99,43 @@ fn header<'a>(call: &'a HttpCall, name: &str) -> Option<&'a str> {
 }
 
 const EMPTY_LISTING: &str = "<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>";
+
+/// SRV17: an Azlin node answers HeadBucket with what it counts of the bucket - the bytes it
+/// stores (what the quota counts) and the quota of the drive's tier; another S3 says neither.
+#[test]
+fn a_head_bucket_reads_the_nodes_count_of_stored_bytes_and_its_quota() {
+    let fake = Fake::default();
+    fake.answer(
+        200,
+        &[
+            ("x-azlin-used-bytes", "62000000000"),
+            ("X-Azlin-Quota-Bytes", " 100000000000 "),
+        ],
+        "",
+    );
+    let space = local_drive(&fake).space().unwrap();
+    assert_eq!(
+        space,
+        BucketSpace {
+            used_bytes: Some(62_000_000_000),
+            quota_bytes: Some(100_000_000_000),
+        }
+    );
+    let call = fake.last();
+    assert_eq!(call.method, Method::Head);
+    assert_eq!(call.url, "http://127.0.0.1:9000/azdrive");
+    assert!(header(&call, "authorization").is_some(), "signed like every request");
+    // Another S3: no such headers (or one that is no number) - nothing counted.
+    fake.answer(200, &[("x-azlin-used-bytes", "lots")], "");
+    assert_eq!(local_drive(&fake).space().unwrap(), BucketSpace::default());
+    // A bucket that refuses: the error.
+    fake.answer(
+        403,
+        &[("content-type", "application/xml")],
+        "<Error><Code>AccessDenied</Code><Message>no</Message></Error>",
+    );
+    assert!(local_drive(&fake).space().is_err());
+}
 
 #[test]
 fn a_path_style_listing_asks_list_objects_v2_under_the_bucket_path() {

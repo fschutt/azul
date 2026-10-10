@@ -11,8 +11,11 @@ data are never read or written: HOME points into the folder, AZLIN_CONFIG is off
   stack    the mock token server and S3 (scripts/azlin_mock_stack.py) in this process, and an
            SMTP sink (scripts/azmail_smtp_sink.py) standing in for the recipients' servers
   setup    `azul-bridge init` (the password printed once), `signup` (a drive of the bridge's own
-           token family), `serve` on free ports with a 1-second IDLE poll; two messages put into
-           mail/Inbox/ the way the customer's Email Worker would (PutObject, Azlin names)
+           token family, ENCRYPTED as it is made - "we always encrypt": its recovery code printed
+           once), `serve` on free ports with a 1-second IDLE poll; two messages put into
+           mail/Inbox/ under their Azlin names. Every step reads and writes the drive THROUGH the
+           bridge (WebDAV: the encryption and the drive index), never the bucket - which at the
+           end holds the encryption's keys only (.azlin/, data/): no name, no text
   imap     imaplib: CAPABILITY, LOGIN (a wrong password refused), LIST (INBOX, the special-use
            folders), SELECT, FETCH (flags, size, envelope, a peeked header, BODY[] - which writes
            the drive's `seen` marker), UID STORE (the `flagged` marker), SEARCH, APPEND to Drafts
@@ -29,12 +32,12 @@ data are never read or written: HOME points into the folder, AZLIN_CONFIG is off
            principal's homes, a vCard 3.0 PUT kept byte for byte as contacts/<uid>.vcf, an
            event PUT under the program's own name read into AzCalendar's calendar/events/<id>.json
            and served back as iCalendar, both deleted
-  encrypted  a second bridge on a drive of its own, encrypted with the azcloud command line
-           (`encrypt`, `mail-drop`: the keys in the bridge's state folder, as a joined device
-           keeps them): a message sealed to the drop key (AZD1, scripts/azlin_drop.py) is put
-           into the bucket's .azlin/drop/ as the mail Worker would; the bridge files it and IMAP
-           reads it back; WebDAV writes and reads a file through the encryption; the bucket holds
-           no mail/ key, no drop, no name and no text in the clear
+  encrypted  a second bridge on a drive of its own (encrypted as `signup` made it; its drop key
+           from the azcloud command line's `mail-drop` over the bridge's state folder): a message
+           sealed to the drop key (AZD1, scripts/azlin_drop.py) is put into the bucket's
+           .azlin/drop/ as the mail Worker would; the bridge files it and IMAP reads it back;
+           WebDAV writes and reads a file through the encryption; the bucket holds no mail/ key,
+           no drop, no name and no text in the clear
   doors    the ports answer nothing but 127.0.0.1 (a connection to this computer's network
            address is refused), an HTTP request on the IMAP port is hung up on
 
@@ -42,10 +45,10 @@ The mock S3 server stores no folder marker objects (keys ending in /), so MKCOL,
 folder and IMAP CREATE / DELETE are left to the unit tests (they run on an in-memory bucket that
 keeps markers, as S3 does).
 
-The binary: --bin, else $AZUL_BRIDGE_BIN, else target/release/azul-bridge of this checkout. The
-encrypted step needs the azcloud command line built with encryption: --azcloud, else
-$AZCLOUD_BIN, else target/release/azcloud (cargo build --release -p azcloud-api --features
-encryption).
+The binary: --bin, else $AZUL_BRIDGE_BIN, else target/release/azul-bridge of this checkout (its
+default features take `encryption`). The encrypted step needs the azcloud command line: --azcloud,
+else $AZCLOUD_BIN, else target/release/azcloud (cargo build --release -p azcloud-api; `encryption`
+is a default feature there too).
 Exit code 0 when every step passed.
 """
 
@@ -64,6 +67,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
+import xml.etree.ElementTree as ElementTree
 from email.message import EmailMessage
 from email.utils import make_msgid
 
@@ -106,8 +111,7 @@ def find_azcloud(explicit):
                       os.path.join(REPO, 'target', 'release', name)):
         if candidate and os.path.isfile(candidate):
             return candidate
-    raise Failure('no azcloud binary: cargo build --release -p azcloud-api --features encryption '
-                  '(or --azcloud PATH)')
+    raise Failure('no azcloud binary: cargo build --release -p azcloud-api (or --azcloud PATH)')
 
 
 def object_name(data, stamp_secs):
@@ -157,6 +161,82 @@ class Drive:
 
     def has(self, key):
         return os.path.isfile(os.path.join(self.base, *key.split('/')))
+
+
+class ThroughBridge:
+    """The bridge's drive as the bridge serves it (WebDAV): an encrypted drive read and written
+    through its encryption and its drive index - the same calls as Drive, so every step checks
+    the same behaviour through the app. `raw` is the bucket itself."""
+
+    def __init__(self, port, password, raw):
+        self.port = port
+        self.password = password
+        self.raw = raw
+
+    @staticmethod
+    def _path(key):
+        return '/' + urllib.parse.quote(key, safe='/')
+
+    def _children(self, folder):
+        """(key, is_folder) of what `folder` ('' or 'a/b/') holds."""
+        status, _, data = dav_request(self.port, 'PROPFIND', self._path(folder),
+                                      headers={'Depth': '1'}, password=self.password)
+        if status == 404:
+            return []
+        expect(status == 207, 'PROPFIND %s through the bridge: %s' % (folder or '/', status))
+        out = []
+        for response in ElementTree.fromstring(data).findall('{DAV:}response'):
+            href = response.findtext('{DAV:}href') or ''
+            key = urllib.parse.unquote(urllib.parse.urlparse(href).path).lstrip('/')
+            if key.rstrip('/') == folder.rstrip('/'):
+                continue
+            is_folder = response.find('.//{DAV:}collection') is not None
+            out.append((key if not is_folder or key.endswith('/') else key + '/', is_folder))
+        return out
+
+    def keys(self, prefix=''):
+        out = []
+        todo = ['']
+        while todo:
+            for key, is_folder in self._children(todo.pop()):
+                if is_folder:
+                    if key.startswith(prefix) or prefix.startswith(key):
+                        todo.append(key)
+                elif key.startswith(prefix):
+                    out.append(key)
+        return sorted(out)
+
+    def put(self, key, data):
+        """A file into the drive through the bridge (its folders made first, as a file manager
+        does)."""
+        parts = key.split('/')[:-1]
+        for depth in range(1, len(parts) + 1):
+            folder = '/'.join(parts[:depth]) + '/'
+            status = dav_request(self.port, 'MKCOL', self._path(folder), password=self.password)[0]
+            expect(status in (201, 405), 'MKCOL %s through the bridge: %s' % (folder, status))
+        status = dav_request(self.port, 'PUT', self._path(key), data, password=self.password)[0]
+        expect(status in (201, 204), 'PUT %s through the bridge: %s' % (key, status))
+
+    def get(self, key):
+        status, _, data = dav_request(self.port, 'GET', self._path(key), password=self.password)
+        expect(status == 200, 'GET %s through the bridge: %s' % (key, status))
+        return data
+
+    def has(self, key):
+        status = dav_request(self.port, 'PROPFIND', self._path(key), headers={'Depth': '0'},
+                             password=self.password)[0]
+        return status == 207
+
+
+def ciphertext_only(raw, names):
+    """An encrypted drive's bucket: the encryption's keys only (.azlin/: its keys and drive
+    index; data/: the objects under random ids) - no name of the drive's, none of `names`."""
+    keys = raw.keys()
+    strays = [k for k in keys if not (k.startswith('.azlin/') or k.startswith('data/'))]
+    expect(not strays, 'plaintext keys in the encrypted drive\'s bucket: %s' % strays[:10])
+    for name in names:
+        expect(not any(name in k for k in keys), 'the bucket names %s: %s' % (name, keys[:20]))
+    expect(any(k.startswith('data/') for k in keys), 'the bucket holds no encrypted object')
 
 
 class Bridge:
@@ -438,7 +518,7 @@ def step_webdav(port, password, drive):
            'a foreign Host was answered')
     expect(dav_request(port, 'GET', '/..%2f..%2fetc%2fpasswd', password=password)[0] == 400,
            '.. was not refused')
-    drive.put('.azlin/index.json', b'{}')
+    drive.raw.put('.azlin/index.json', b'{}')
     expect(dav_request(port, 'GET', '/.azlin/index.json', password=password)[0] == 404,
            'the sync\'s folder is reachable')
 
@@ -502,7 +582,9 @@ def step_encrypted(binary, azcloud, work, stack, s3_root):
         found = [l.split(' ', 1)[1] for l in out.splitlines() if l.startswith('AZUL_BRIDGE_PASSWORD ')]
         expect(len(found) == 1, 'init printed no password')
         password = found[0].strip()
-        bridge.run('signup', '--token-url', stack.token_url)
+        signed = bridge.run('signup', '--token-url', stack.token_url)
+        expect(any(l.startswith('AZUL_BRIDGE_RECOVERY_CODE ') for l in signed.splitlines()),
+               'signup printed no recovery code (the drive is not encrypted)')
         record = json.load(open(os.path.join(bridge.state, 'azlin.json')))
         drive_id = record['drives'][0]['id']
         drive = Drive(s3_root, record['drives'][0]['bucket'])
@@ -517,9 +599,8 @@ def step_encrypted(binary, azcloud, work, stack, s3_root):
             except ValueError:
                 raise Failure('azcloud %s printed no JSON: %r' % (args[0], done.stdout[:400]))
 
-        recovery = os.path.join(work, 'encrypted', 'recovery.txt')
-        expect(azcloud_json('encrypt', '--yes', '--out', recovery).get('encrypted') is True,
-               'azcloud encrypt did not encrypt the drive')
+        expect(azcloud_json('encryption').get('encrypted') is True,
+               'the drive signup made is not encrypted')
         public = azcloud_json('mail-drop').get('drop_public_key')
         expect(isinstance(public, str) and len(public) == 64, 'azcloud mail-drop gave no drop key')
         raw = mail('Sealed', 'Only the drive key opens this.')
@@ -606,13 +687,21 @@ def main():
         password = found[0].strip()
         again = bridge.run('init', '--address', ADDRESS, '--sending', sending)
         expect('AZUL_BRIDGE_PASSWORD' not in again, 'init printed the password a second time')
-        bridge.run('signup', '--token-url', stack.token_url)
+        signed = bridge.run('signup', '--token-url', stack.token_url)
+        codes = [l.split(' ', 1)[1].strip() for l in signed.splitlines()
+                 if l.startswith('AZUL_BRIDGE_RECOVERY_CODE ')]
+        expect(len(codes) == 1, 'signup printed no recovery code: the drive is not encrypted')
         record = json.load(open(os.path.join(bridge.state, 'azlin.json')))
         bucket = record['drives'][0]['bucket']
-        drive = Drive(s3_root, bucket)
+        raw = Drive(s3_root, bucket)
         state_text = ''.join(open(os.path.join(bridge.state, n), errors='replace').read()
                              for n in ('bridge.json', 'azlin.json', 'drives.json'))
         expect(password not in state_text, 'the password is in a settings file')
+        expect(codes[0] not in state_text, 'the recovery code is in a settings file')
+        imap_port, smtp_port, dav_port, pim_port = bridge.serve()
+        print('[azbridge-e2e] bridge on imap=%d smtp=%d dav=%d pim=%d' % (imap_port, smtp_port, dav_port, pim_port))
+        # The drive through the bridge: the encryption and the drive index.
+        drive = ThroughBridge(dav_port, password, raw)
         seeded = []
         now = int(time.time()) - 3600
         for i, (subject, body) in enumerate((('Lunch on Thursday', 'See you at noon.'),
@@ -621,8 +710,6 @@ def main():
             name = object_name(data, now + i * 60)
             drive.put('mail/Inbox/' + name, data)
             seeded.append((name, data))
-        imap_port, smtp_port, dav_port, pim_port = bridge.serve()
-        print('[azbridge-e2e] bridge on imap=%d smtp=%d dav=%d pim=%d' % (imap_port, smtp_port, dav_port, pim_port))
         for name, step in (('imap', lambda: step_imap(imap_port, password, drive, seeded)),
                            ('smtp', lambda: step_smtp(smtp_port, password, imap_port, drive,
                                                       os.path.join(work, 'sink'))),
@@ -630,7 +717,10 @@ def main():
                            ('pim', lambda: step_pim(pim_port, password, drive)),
                            ('encrypted', lambda: step_encrypted(binary, find_azcloud(args.azcloud),
                                                                 work, stack, s3_root)),
-                           ('doors', lambda: step_doors([imap_port, smtp_port, dav_port, pim_port]))):
+                           ('doors', lambda: step_doors([imap_port, smtp_port, dav_port, pim_port])),
+                           ('bucket', lambda: ciphertext_only(raw, (
+                               'mail', 'Lunch', 'garden', 'notes.txt', 'docs', 'contacts',
+                               'calendar', 'Drafts', 'Sent')))):
             try:
                 step()
                 print('[azbridge-e2e] PASS %s' % name)
