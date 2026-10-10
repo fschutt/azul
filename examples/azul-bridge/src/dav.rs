@@ -586,24 +586,17 @@ impl Dav {
                 }
             };
             if let Err((response, close)) = self.guard(&head, &mut failures) {
-                // A small body can be read past to keep the connection; a big one closes it.
-                let small = matches!(framing, Framing::Length(n) if n <= self.limits.xml_bytes as u64);
-                let expects = head
-                    .header("Expect")
-                    .is_some_and(|e| e.eq_ignore_ascii_case("100-continue"));
-                let close = close || !small || expects;
-                if close {
-                    refuse_and_close(&mut conn, &response);
-                    return;
+                if self.refuse_before_body(&mut input, &mut conn, &head, framing, &response, close) {
+                    continue;
                 }
-                if http::read_body(&mut input, &mut conn, framing, self.limits.xml_bytes as u64).is_err() {
-                    return;
+                return;
+            }
+            // The drive's PUT streams its body into the drive (never held whole).
+            if head.method == "PUT" && self.pim.is_none() {
+                if self.put_streamed(&mut input, &mut conn, &head, framing) {
+                    continue;
                 }
-                let _ = http::write_response(&mut conn, &response, false, keep_alive);
-                if !keep_alive {
-                    return;
-                }
-                continue;
+                return;
             }
             if head
                 .header("Expect")
@@ -624,6 +617,81 @@ impl Dav {
             let head_only = head.method == "HEAD";
             if http::write_response(&mut conn, &response, head_only, keep_alive).is_err() || !keep_alive {
                 return;
+            }
+        }
+    }
+
+    /// Answers `response` to a request refused before its body was read: a small body is read
+    /// past so the connection goes on (`true`); a big one, a client waiting for 100 Continue, or
+    /// `close`, closes it (`false`).
+    fn refuse_before_body<C: Conn>(
+        &self,
+        input: &mut Input,
+        conn: &mut C,
+        head: &Head,
+        framing: Framing,
+        response: &Response,
+        close: bool,
+    ) -> bool {
+        let small = matches!(framing, Framing::Length(n) if n <= self.limits.xml_bytes as u64);
+        let expects = head
+            .header("Expect")
+            .is_some_and(|e| e.eq_ignore_ascii_case("100-continue"));
+        if close || !small || expects {
+            refuse_and_close(conn, response);
+            return false;
+        }
+        if http::read_body(input, conn, framing, self.limits.xml_bytes as u64).is_err() {
+            return false;
+        }
+        let keep_alive = head.keep_alive();
+        http::write_response(conn, response, false, keep_alive).is_ok() && keep_alive
+    }
+
+    /// A PUT of the drive: checked before its body is read, then the body streamed into the
+    /// drive (`Drive::put_from`: an encrypted drive spools a big file to a temporary file, a
+    /// bucket sends it in parts), within `put_bytes`. Whether the connection goes on.
+    fn put_streamed<C: Conn>(&self, input: &mut Input, conn: &mut C, head: &Head, framing: Framing) -> bool {
+        let allowed = match key_of(&head.target) {
+            Err(status) => Err(Response::text(status, "Not a path of the drive.")),
+            Ok((key, folder_syntax)) => match self.put_allowed(head, &key, folder_syntax) {
+                Ok(Ok(existed)) => Ok((key, existed)),
+                Ok(Err(answer)) => Err(answer),
+                Err(e) => Err(drive_answer(e)),
+            },
+        };
+        let (key, existed) = match allowed {
+            Ok(allowed) => allowed,
+            Err(answer) => return self.refuse_before_body(input, conn, head, framing, &answer, false),
+        };
+        if matches!(framing, Framing::Length(n) if n > self.limits.put_bytes) {
+            refuse_and_close(conn, &Response::text(Status::TOO_LARGE, Status::TOO_LARGE.1));
+            return false;
+        }
+        if head
+            .header("Expect")
+            .is_some_and(|e| e.eq_ignore_ascii_case("100-continue"))
+            && net::send(conn, b"HTTP/1.1 100 Continue\r\n\r\n").is_err()
+        {
+            return false;
+        }
+        let mut body = http::BodyReader::new(input, conn, framing, self.limits.put_bytes);
+        let written = self.put_body(&key, existed, &mut body);
+        let failure = body.take_failure();
+        match (written, failure) {
+            (_, Some(HttpError::Gone)) => false,
+            (_, Some(HttpError::Refuse(status))) => {
+                refuse_and_close(conn, &Response::text(status, status.1));
+                false
+            }
+            (Ok(response), None) => {
+                let keep_alive = head.keep_alive();
+                http::write_response(conn, &response, false, keep_alive).is_ok() && keep_alive
+            }
+            // The drive refused part way: what is left of the body is not read.
+            (Err(e), None) => {
+                refuse_and_close(conn, &drive_answer(e));
+                false
             }
         }
     }
@@ -933,23 +1001,40 @@ impl Dav {
     }
 
     fn put(&self, head: &Head, key: &str, folder_syntax: bool, body: &[u8]) -> Result<Response, DriveError> {
+        match self.put_allowed(head, key, folder_syntax)? {
+            Err(answer) => Ok(answer),
+            Ok(existed) => self.put_body(key, existed, &mut &body[..]),
+        }
+    }
+
+    /// A PUT's checks before its body: `Ok(existed)` - it may write (and a file was there) -
+    /// or the answer that refuses it.
+    fn put_allowed(&self, head: &Head, key: &str, folder_syntax: bool) -> Result<Result<bool, Response>, DriveError> {
         if key.is_empty() || folder_syntax {
-            return Ok(Response::text(Status::METHOD_NOT_ALLOWED, "A folder is made with MKCOL."));
+            return Ok(Err(Response::text(Status::METHOD_NOT_ALLOWED, "A folder is made with MKCOL.")));
         }
         let existed = match self.resource(key, false)? {
             Resource::Folder => {
-                return Ok(Response::text(Status::METHOD_NOT_ALLOWED, "A folder has this name."));
+                return Ok(Err(Response::text(Status::METHOD_NOT_ALLOWED, "A folder has this name.")));
             }
             Resource::File(_) => true,
             Resource::Missing => false,
         };
         if !self.parent_exists(key)? {
-            return Ok(Response::text(Status::CONFLICT, "The folder it would go into is not there."));
+            return Ok(Err(Response::text(
+                Status::CONFLICT,
+                "The folder it would go into is not there.",
+            )));
         }
         if self.locked_out(key, head) {
-            return Ok(Response::text(Status::LOCKED, "Locked."));
+            return Ok(Err(Response::text(Status::LOCKED, "Locked.")));
         }
-        self.drive.put(key, body)?;
+        Ok(Ok(existed))
+    }
+
+    /// Writes the file `key` from `body` as it streams in; the answer to an allowed PUT.
+    fn put_body(&self, key: &str, existed: bool, body: &mut dyn std::io::Read) -> Result<Response, DriveError> {
+        self.drive.put_from(key, body)?;
         let mut response = Response::new(if existed { Status::NO_CONTENT } else { Status::CREATED });
         if let Ok(info) = self.drive.head(key) {
             if let Some(etag) = info.etag {
