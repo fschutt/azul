@@ -493,6 +493,8 @@ enum SideAction {
     /// The folder sync of the drive: pair it with a folder, sync now, pause, stop, open the
     /// synced folder.
     Sync(String, crate::sync_view::SyncAction),
+    /// "Restore as of...": an Azlin drive back as it was at a time.
+    Restore(String),
 }
 
 /// What a row's callbacks carry.
@@ -564,6 +566,12 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
                     .into_iter()
                     .map(|(label, what)| (label, SideAction::Sync(slot.entry.id.clone(), what))),
             );
+        }
+        if slot.entry.azlin().is_some() {
+            entries.push((
+                String::from("Restore as of\u{2026}"),
+                SideAction::Restore(slot.entry.id.clone()),
+            ));
         }
         if !slot.is_built_in() {
             entries.push((
@@ -639,6 +647,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
         SideAction::Sync(drive_id, what) => {
             crate::sync_jobs::run_action(info, app, s, Some(drive_id), what);
         }
+        SideAction::Restore(drive_id) => crate::restore::open(s, &drive_id),
     }
 }
 

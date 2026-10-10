@@ -220,6 +220,16 @@ pub const ADD_VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_add_v
 pub const ADD_VOUCHER_REDEEM: AzString =
     AzString::from_const_str("__azdrive_add_voucher_redeem");
 
+/// "Restore as of..." of a drive: its dialog, the time and Restore.
+pub const RESTORE: AzString = AzString::from_const_str("__azdrive_restore");
+pub const RESTORE_TIME: AzString = AzString::from_const_str("__azdrive_restore_time");
+pub const RESTORE_GO: AzString = AzString::from_const_str("__azdrive_restore_go");
+/// Options > Drives' "Restore as of..." of a drive: `__azdrive_restore_<id>`.
+#[must_use]
+pub fn restore_button(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_restore_{}", id_part(drive_id)))
+}
+
 /// Options > Drives' "Redeem a voucher" of a drive: `__azdrive_voucher_<id>`.
 #[must_use]
 pub fn voucher_button(drive_id: &str) -> AzString {

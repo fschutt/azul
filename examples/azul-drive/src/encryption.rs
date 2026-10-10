@@ -53,7 +53,7 @@ use azul_storage::{
         random_bytes, Zeroizing,
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
-    meta::MetaIndexProvider,
+    meta::{merge::keep_both, DriveBucket, MetaIndexProvider, MetaRepo},
     migrate::{migrate, MigrationState},
     recompress::{run_pass, RecompressPolicy, RecompressState},
     rotation::{self, reencrypt_pass, ReencryptState},
@@ -517,6 +517,47 @@ fn auto_of(s: &mut DriveState, drive_id: &str) -> Option<Arc<AutoEncrypted>> {
         s.error("Only an Azlin drive can be encrypted.");
     }
     auto
+}
+
+// ==== "Restore as of..." ====
+
+/// "Restore as of...": the drive's own restore, to run on the job's thread (the drive opened
+/// first); `None` (with a message) when it cannot be opened.
+pub(crate) fn restore_of(
+    s: &mut DriveState,
+    drive_id: &str,
+) -> Option<crate::restore::EncryptedRestore> {
+    let auto = auto_of(s, drive_id)?;
+    Some(Box::new(move |as_of| restore_encrypted(&auto, as_of)))
+}
+
+/// An encrypted drive back as its metadata repository had it at `as_of` (seconds since 1970),
+/// as one new commit ([`azcloud_kit::restore_drive_as_of`]) through a copy of the repository of
+/// its own (in memory; the open drive's index sees the commit at its next poll): the files put
+/// back or taken away. `None` for a plain drive.
+fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Option<Result<usize, String>> {
+    if auto.is_encrypted().is_none() {
+        // The drive's first call decides whether it is encrypted.
+        let _ = auto.head("");
+    }
+    if auto.is_encrypted() != Some(true) {
+        return None;
+    }
+    let bucket = Arc::clone(auto.bucket());
+    let restored = (|| -> Result<usize, String> {
+        let key = device::unlock(bucket.as_ref(), &AzulKeyring::new(), auto.drive())
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| String::from("This device has no key for the drive."))?;
+        let device_id = azul_storage::ids::new_uuid();
+        let mut repo = MetaRepo::open(DriveBucket::new(bucket), key, &device_id, "AzDrive")
+            .map_err(|e| e.to_string())?;
+        let restore = azcloud_kit::restore_drive_as_of(&mut repo, as_of, &mut keep_both)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| String::from("The drive was made after that time."))?;
+        Ok(restore.restored + restore.removed)
+    })();
+    auto.reopen();
+    Some(restored)
 }
 
 /// "Encrypt this drive...": the question.

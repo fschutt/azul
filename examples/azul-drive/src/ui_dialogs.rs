@@ -150,6 +150,12 @@ extern "C" fn on_form_text(
             *code = text;
             error.clear();
         }
+        Some(Popup::Restore {
+            text: typed, error, ..
+        }) => {
+            *typed = text;
+            error.clear();
+        }
         _ => {}
     }
     keep
@@ -253,6 +259,42 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
         #[cfg(feature = "encryption")]
         Popup::Encryption(dialog) => crate::encryption::dialog_parts(dialog, s, app),
         Popup::Sync(dialog) => crate::sync_view::dialog_parts(dialog, s, app),
+        Popup::Restore {
+            drive_id,
+            text,
+            error,
+            busy,
+        } => {
+            let name = s.drive_name(&browse::Place::folder(drive_id, ""));
+            let mut body = Dom::create_div()
+                .with_id(ids::RESTORE)
+                .with_css("display: flex; flex-direction: column; min-width: 420px;")
+                .with_child(line(&format!(
+                    "\"{name}\" goes back to how it was at that time: files changed or deleted \
+                     since come back, files made since go. AzDrive can restore the last {} \
+                     days.",
+                    crate::restore::RESTORE_DAYS
+                )))
+                .with_child(label("When (\"2 hours ago\", or a UTC time: 2026-10-10 08:00)"))
+                .with_child(input(
+                    app,
+                    text,
+                    crate::restore::DEFAULT_AS_OF,
+                    ids::RESTORE_TIME,
+                ));
+            if *busy {
+                body.add_child(line("Restoring the drive..."));
+            }
+            if !error.is_empty() {
+                body.add_child(line(error).with_css("color: #C42B1C;"));
+            }
+            body.add_child(buttons(vec![
+                button("Cancel", app, on_cancel_popup),
+                typed_button("Restore", ButtonType::Primary, app, crate::restore::on_restore)
+                    .with_id(ids::RESTORE_GO),
+            ]));
+            (format!("Restore \"{name}\" as of..."), body)
+        }
     }
 }
 
@@ -967,6 +1009,18 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                                 .dom()
                                 .with_id(ids::voucher_button(&slot.entry.id)),
                         );
+                        row.add_child(
+                            Button::create(AzString::from("Restore as of\u{2026}"))
+                                .with_on_click(
+                                    RefAny::new(DriveRef {
+                                        app: app.clone(),
+                                        index,
+                                    }),
+                                    on_restore_drive as ButtonOnClickCallbackType,
+                                )
+                                .dom()
+                                .with_id(ids::restore_button(&slot.entry.id)),
+                        );
                     }
                     if !slot.is_built_in() {
                         row.add_child(
@@ -1063,6 +1117,19 @@ extern "C" fn on_remove_drive(mut data: RefAny, mut info: CallbackInfo) -> Updat
             let drive_id = slot.entry.id.clone();
             s.popups_opened += 1;
             s.popup = Some(Popup::ConfirmForget { drive_id });
+        }
+    })
+}
+
+/// Options > Drives' "Restore as of..." of an Azlin drive: its dialog.
+extern "C" fn on_restore_drive(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<DriveRef>().map(|d| (d.app.clone(), d.index))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |_info, _app, s| {
+        if let Some(drive_id) = s.slots.get(index).map(|slot| slot.entry.id.clone()) {
+            crate::restore::open(s, &drive_id);
         }
     })
 }
