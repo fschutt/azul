@@ -5,7 +5,9 @@ use std::sync::Arc;
 use super::{TempDir, Unplugged};
 use crate::{
     crypto::DriveKey,
-    encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex},
+    encrypted::{
+        EncryptedDrive, Expect, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex,
+    },
     meta::{
         merge::keep_both, open_encrypted_drive, pointer, Maintenance, MemoryBucket, MetaIndex,
         MetaIndexProvider, MetaRepo, RepoOptions,
@@ -372,6 +374,63 @@ fn a_copy_sealed_before_a_rotation_opens_offline_in_the_rotation_window_only() {
     assert!(provider
         .open_index_in_window("drive-1", away, &new, &stranger)
         .is_err());
+}
+
+/// F5 asks the drive again (RECOVERY17 at azdrive_add_e2e 6d: an encrypted drive's F5 answered
+/// from this device's copy and never reached the node that refused it). A listing marked
+/// `refreshed` pulls at once, its poll time aside: another device's change shows, a node that
+/// refuses says so; a lost connection still answers from the copy.
+#[test]
+fn a_refreshed_listing_asks_the_bucket_again_before_its_poll_time() {
+    let bucket = Arc::new(Unplugged::default());
+    let key = DriveKey::generate().unwrap();
+    let laptop = MetaIndex::new(
+        MetaRepo::create(bucket.clone(), key.clone(), "laptop", "Laptop").unwrap(),
+    )
+    .with_poll_every(0);
+    let phone = MetaIndex::new(MetaRepo::open(bucket.clone(), key, "phone", "Phone").unwrap())
+        .with_poll_every(3600);
+    let paths = |page: IndexPage| -> Vec<String> {
+        page.entries.into_iter().map(|(path, _)| path).collect()
+    };
+    let root = || ListRequest::folder("");
+    assert!(paths(phone.list(&root()).unwrap()).is_empty());
+    laptop
+        .apply(vec![IndexChange::Put {
+            path: "new.txt".to_string(),
+            entry: IndexEntry {
+                size: 3,
+                modified: Some(1_760_000_000),
+                object: None,
+            },
+            expect: Expect::Absent,
+        }])
+        .unwrap();
+    assert!(
+        paths(phone.list(&root()).unwrap()).is_empty(),
+        "within the poll time: the copy"
+    );
+    assert_eq!(
+        paths(phone.list(&root().refreshed()).unwrap()),
+        vec!["new.txt".to_string()],
+        "F5: the bucket"
+    );
+    bucket.set_refusing(true);
+    assert!(phone.list(&root()).is_ok(), "within the poll time: the copy");
+    match phone.list(&root().refreshed()) {
+        Err(DriveError::Service(refused)) => {
+            assert_eq!(refused.azlin_error.as_deref(), Some("read_only_unpaid"));
+            assert_eq!(refused.request_id.as_deref(), Some("REQ-UNPAID"));
+        }
+        other => panic!("F5 says the node's refusal, not {other:?}"),
+    }
+    bucket.set_refusing(false);
+    bucket.set_down(true);
+    assert_eq!(
+        paths(phone.list(&root().refreshed()).unwrap()),
+        vec!["new.txt".to_string()],
+        "no connection: the copy answers"
+    );
 }
 
 #[test]

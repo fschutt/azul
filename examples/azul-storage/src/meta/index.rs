@@ -330,13 +330,16 @@ impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
         f(&mut self.lock().repo)
     }
 
-    /// The copy, polled when the last poll is older than the poll time.
-    fn fresh(&self) -> Result<MutexGuard<'_, Inner<B, S>>, DriveError> {
+    /// The copy, polled when the last poll is older than the poll time - or at once when `asked`
+    /// (a user's refresh, [`ListRequest::refresh`]): then a bucket that refuses says so; one
+    /// that cannot be reached still leaves the copy to answer.
+    fn fresh(&self, asked: bool) -> Result<MutexGuard<'_, Inner<B, S>>, DriveError> {
         let mut inner = self.lock();
         let now = inner.repo.store().now();
-        let due = inner
-            .last_poll
-            .map_or(true, |last| now.saturating_sub(last) >= self.poll_every);
+        let due = asked
+            || inner
+                .last_poll
+                .map_or(true, |last| now.saturating_sub(last) >= self.poll_every);
         if due {
             match inner.repo.pull() {
                 Ok(_) => {}
@@ -355,7 +358,7 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
         if path.is_empty() || reserved(path) {
             return Ok(None);
         }
-        let mut inner = self.fresh()?;
+        let mut inner = self.fresh(false)?;
         let repo = &mut inner.repo;
         let Some(root) = repo.root().map_err(to_drive)? else {
             return Ok(None);
@@ -375,7 +378,7 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
         if reserved(prefix) {
             return Ok(IndexPage::default());
         }
-        let mut inner = self.fresh()?;
+        let mut inner = self.fresh(request.refresh)?;
         let repo = &mut inner.repo;
         let Some(root) = repo.root().map_err(to_drive)? else {
             return Ok(IndexPage::default());

@@ -34,7 +34,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::TempDir;
 use crate::{
     meta::{Bucket, DriveBucket, Fetched, FolderBucket, Listed, MemoryBucket, MetaError, Version},
-    ByteRange, DriveError,
+    ByteRange, DriveError, ServiceError,
 };
 
 /// A bucket that can be cut off: while it is down, every call fails as a lost
@@ -43,6 +43,7 @@ use crate::{
 pub(crate) struct Unplugged {
     pub inner: MemoryBucket,
     down: AtomicBool,
+    refusing: AtomicBool,
 }
 
 impl Unplugged {
@@ -50,11 +51,27 @@ impl Unplugged {
         self.down.store(down, Ordering::SeqCst);
     }
 
+    /// While refusing, every call is answered as an Azlin node answers an unpaid drive: 403,
+    /// `x-azlin-error: read_only_unpaid`.
+    pub(crate) fn set_refusing(&self, refusing: bool) {
+        self.refusing.store(refusing, Ordering::SeqCst);
+    }
+
     fn up(&self) -> Result<(), MetaError> {
         if self.down.load(Ordering::SeqCst) {
             return Err(MetaError::Drive(DriveError::Transport(
                 "no connection to the storage".to_string(),
             )));
+        }
+        if self.refusing.load(Ordering::SeqCst) {
+            return Err(MetaError::Drive(DriveError::Service(ServiceError {
+                status: 403,
+                code: "AccessDenied".to_string(),
+                message: "the drive takes no writes".to_string(),
+                request_id: Some("REQ-UNPAID".to_string()),
+                azlin_error: Some("read_only_unpaid".to_string()),
+                ..ServiceError::default()
+            })));
         }
         Ok(())
     }
