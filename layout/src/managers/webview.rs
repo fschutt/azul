@@ -315,7 +315,7 @@ impl WebViewManager {
 
     /// Whether the shell has anything to do: queued ops or simulated reports.
     #[must_use]
-    pub fn has_pending_work(&self) -> bool {
+    pub const fn has_pending_work(&self) -> bool {
         !self.ops.is_empty() || !self.simulated.is_empty()
     }
 
@@ -675,7 +675,7 @@ impl WebViewRecorder {
             return;
         }
         if back {
-            let _ = view.history.pop();
+            drop(view.history.pop());
         } else {
             view.history.push(url);
         }
@@ -742,7 +742,7 @@ pub fn insert_unavailable_fallback(dom: &mut Dom, reason: &str) -> bool {
             return true;
         }
         let mut inserted = false;
-        for child in dom.children.iter_mut() {
+        for child in &mut dom.children {
             inserted |= walk(child, text);
         }
         inserted
