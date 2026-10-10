@@ -165,6 +165,8 @@ mod ids;
 /// AzCalendar's meeting links are made with it too (it includes the file).
 pub mod invite;
 mod keys;
+#[cfg(test)]
+mod l10n_tests;
 mod pace;
 mod rate;
 mod roomlist;
