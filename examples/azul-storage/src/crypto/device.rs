@@ -403,25 +403,46 @@ pub fn request_key_entry(drive: &str) -> String {
     format!("azul-storage/recovery-request/{drive}")
 }
 
+const KIND_CONTACT_KEY: &str = "contact-key";
+const KIND_REQUEST_KEY: &str = "request-key";
+
 /// A new contact key kept in the keyring; its public half (what the owner seals a share to).
-pub fn new_contact_key(_keyring: &dyn KeyringStore) -> Result<super::keys::MemberPublic, DriveError> {
-    Err(DriveError::Unsupported(String::from("contact keys")))
+pub fn new_contact_key(keyring: &dyn KeyringStore) -> Result<super::keys::MemberPublic, DriveError> {
+    let secret = MemberSecret::generate().map_err(|e| e.for_key("a contact key"))?;
+    let public = secret.public();
+    store_key(
+        keyring,
+        &contact_key_entry(&public.id()),
+        KIND_CONTACT_KEY,
+        &secret.to_bytes(),
+    )?;
+    Ok(public)
 }
 
 /// The contact key whose public half is `public`; `None` when this device has none.
 pub fn load_contact_key(
-    _keyring: &dyn KeyringStore,
-    _public: &super::keys::MemberPublic,
+    keyring: &dyn KeyringStore,
+    public: &super::keys::MemberPublic,
 ) -> Result<Option<MemberSecret>, DriveError> {
-    Ok(None)
+    let secret = load_key(keyring, &contact_key_entry(&public.id()), KIND_CONTACT_KEY)?
+        .map(|bytes| MemberSecret::from_bytes(*bytes));
+    // An entry under the id of another key is no key of this one.
+    Ok(secret.filter(|secret| secret.public() == *public))
 }
 
 /// The drive's recovery request key: the keyring's, else a new one kept there.
-pub fn request_key(_keyring: &dyn KeyringStore, _drive: &str) -> Result<MemberSecret, DriveError> {
-    Err(DriveError::Unsupported(String::from("recovery requests")))
+pub fn request_key(keyring: &dyn KeyringStore, drive: &str) -> Result<MemberSecret, DriveError> {
+    let entry = request_key_entry(drive);
+    if let Some(bytes) = load_key(keyring, &entry, KIND_REQUEST_KEY)? {
+        return Ok(MemberSecret::from_bytes(*bytes));
+    }
+    let secret = MemberSecret::generate().map_err(|e| e.for_key(drive))?;
+    store_key(keyring, &entry, KIND_REQUEST_KEY, &secret.to_bytes())?;
+    Ok(secret)
 }
 
 /// Removes the drive's recovery request key (the recovery is done).
-pub fn forget_request_key(_keyring: &dyn KeyringStore, _drive: &str) -> Result<(), DriveError> {
-    Ok(())
+pub fn forget_request_key(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveError> {
+    let entry = request_key_entry(drive);
+    keyring.delete(&entry).map_err(|e| keyring_error(&entry, e))
 }
