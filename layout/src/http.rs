@@ -2415,6 +2415,105 @@ mod client_pool_tests {
         assert_eq!(accepted.load(Ordering::SeqCst), 3);
     }
 
+    /// A resolver that knows no host: every lookup fails, as when DNS is down.
+    #[derive(Debug)]
+    struct NoDns;
+
+    impl ureq::unversioned::resolver::Resolver for NoDns {
+        fn resolve(
+            &self,
+            _uri: &ureq::http::Uri,
+            _config: &ureq::config::Config,
+            _timeout: ureq::unversioned::transport::NextTimeout,
+        ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+            Err(ureq::Error::HostNotFound)
+        }
+    }
+
+    /// A one-connection-at-a-time HTTP/1.1 server on localhost answering `ok`; the `Host`
+    /// headers it was sent.
+    fn serve_hosts() -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let hosts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&hosts);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                loop {
+                    let mut line = String::new();
+                    let mut ended = false;
+                    loop {
+                        line.clear();
+                        match reader.read_line(&mut line) {
+                            Ok(0) | Err(_) => {
+                                ended = true;
+                                break;
+                            }
+                            Ok(_) if line == "\r\n" => break,
+                            Ok(_) => {
+                                if let Some(host) = line
+                                    .strip_prefix("Host: ")
+                                    .or_else(|| line.strip_prefix("host: "))
+                                {
+                                    seen.lock().unwrap().push(host.trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                    if ended {
+                        break;
+                    }
+                    let reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+                    if stream.write_all(reply).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        (port, hosts)
+    }
+
+    #[test]
+    fn a_host_whose_name_does_not_resolve_is_reached_at_its_fallback_address_under_its_name() {
+        let (port, hosts) = serve_hosts();
+        let config = HttpClientConfig::default();
+        let fallback = FallbackAddresses::default();
+        let client = HttpClient {
+            ptr: Box::new(Arc::new(HttpClientInner {
+                config,
+                agent: client_agent(&config, NoDns, fallback.clone()),
+                fallback,
+            })),
+            run_destructor: true,
+        };
+        let request = HttpRequestConfig::default()
+            .with_timeout(5)
+            .with_client(client.clone());
+        let url = format!("http://n2.azul.invalid:{port}/");
+        assert!(
+            http_get_with_config(&url, &request).is_err(),
+            "no address is known yet"
+        );
+        assert!(!client.add_fallback_address("n2.azul.invalid", "not an address"));
+        assert!(client.add_fallback_address("N2.azul.invalid", "127.0.0.1"));
+        let response = http_get_with_config(&url, &request).expect("reached at its address");
+        assert_eq!(response.status_code, 200);
+        assert_eq!(
+            hosts.lock().unwrap().last().cloned(),
+            Some(format!("n2.azul.invalid:{port}")),
+            "the request still names the host: TLS verifies that name, not the address"
+        );
+        client.clear_fallback_addresses("n2.azul.invalid");
+        assert!(http_get_with_config(&url, &request).is_err());
+        assert!(
+            client.add_fallback_address("n2.azul.invalid", &format!("127.0.0.1:{port}")),
+            "an address may name its port"
+        );
+        assert!(http_get_with_config("http://n2.azul.invalid:1/", &request).is_ok());
+    }
+
     /// MAIL9: the resumable `http_get` ran the transfer inside the calling
     /// callback, so a slow server froze the window for the whole request. It
     /// returns at once; the answer resumes the callback on a later pump.
