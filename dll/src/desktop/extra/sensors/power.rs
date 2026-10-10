@@ -23,6 +23,9 @@
 //!   switch file (`AZ_BATTERY_STATE_FILE`, see `super::battery`) names a battery off its
 //!   charger: one file drains a test's battery and unplugs its power.
 //!
+//! What is read, and that nothing of it leaves the device: the privacy section of
+//! `crate::desktop::extra::sensors`.
+//!
 //! The battery's own reading (its level, Low Power Mode, the thermal state) is
 //! `super::battery`'s; on macOS and Windows it reads the power sources this module loads
 //! (the platform module's `internal_battery` / `system_power_status`).

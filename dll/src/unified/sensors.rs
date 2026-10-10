@@ -3,6 +3,10 @@
 //! [`crate::unified`] and `crate::desktop::extra::sensors` (the per-platform readings, beside
 //! the motion sensors). api.json's `sensor` module names these paths
 //! (`azul_dll::unified::sensors::<Type>`).
+//!
+//! What they read, and that nothing of it leaves the device: the privacy section of
+//! `crate::desktop::extra::sensors`. No identifier (a network's name, an address, a carrier, a
+//! serial number) is read at all.
 
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub use crate::desktop::extra::sensors::{

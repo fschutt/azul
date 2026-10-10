@@ -31,7 +31,8 @@
 //!
 //! The hotspot is an ESTIMATE ([`NetworkState::hotspot`]), from the flags above and the kind
 //! only. No network name (SSID), access point (BSSID), carrier, address or any other identifier
-//! is read for it, or for anything else here.
+//! is read for it, or for anything else here; nothing of the reading leaves the device (the
+//! privacy section of `crate::desktop::extra::sensors`).
 //! * A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): [`NetworkState::HEADLESS`]
 //!   (wired, connected, free), or what the file named by `AZ_NETWORK_STATE_FILE`
 //!   ([`NETWORK_STATE_FILE_VAR`]) says, read at every query - so a test switches the network

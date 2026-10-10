@@ -32,7 +32,8 @@
 //!   while the app runs, in words ([`BatteryState::from_words`]: `battery 23 discharging
 //!   low-power`). No test depends on the battery of the machine it runs on.
 //!
-//! What is read, and what is not: see the privacy section of `crate::desktop::extra::sensors`.
+//! What is read, and what is not, and that nothing of it leaves the device: the privacy section
+//! of `crate::desktop::extra::sensors`.
 
 use std::{
     path::Path,

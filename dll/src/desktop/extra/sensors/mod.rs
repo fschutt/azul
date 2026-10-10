@@ -33,6 +33,37 @@
 //! `AzulSensors.java` helper itself is a deferred (non-Rust) batch — until it
 //! ships, `find_class` fails and no Android samples flow, but the Rust path
 //! is complete.
+//!
+//! # The device-state readings
+//!
+//! Beside the motion sensors live the readings an app asks before background work, each a
+//! synchronous query of a cached or cheap value: [`power`] (`PowerState`: on mains power,
+//! seconds since the last input), [`battery`] (`BatteryState`: a battery, its charger, its
+//! level, the power-saver switch, the thermal state) and [`network`] (`NetworkState`:
+//! connected, its kind, metered, constrained, the hotspot estimate). api.json's `sensor`
+//! module exposes them, through `crate::unified::sensors`.
+//!
+//! # Privacy: what the device-state readings read
+//!
+//! They exist so an app can be gentle with the user's battery and data plan, and they are
+//! built so that using them reveals nothing about the user:
+//!
+//! - READ: whether the computer runs from mains power, and the seconds since the last input
+//!   (not which input, not what it was); whether there is a system battery, whether it is on
+//!   its charger, its level in percent, the system's power-saver switch, and the system's own
+//!   thermal level (on Linux the thermal zones' temperatures are compared with their own trip
+//!   points and not kept); whether the network is connected, its kind (wired, Wi-Fi,
+//!   cellular, other), and the system's own flags on it - metered, constrained - from which the
+//!   hotspot ESTIMATE is made.
+//! - NEVER READ: a network's name (SSID) or access point (BSSID), the carrier, a phone number,
+//!   an IP or MAC address, a location, the battery's model, serial number or health, or any
+//!   other identifier of the device, the network or the user. No platform call that answers
+//!   one is made, so none of these readings needs a location, phone-state or Wi-Fi permission.
+//! - NOTHING LEAVES THE DEVICE: a reading stays in the process that asked for it. azul sends
+//!   none of it anywhere, logs none of it and writes none of it to a file (a headless run only
+//!   READS its switch files). An app that shares a summary with its peers shares one number it
+//!   computed itself - AzDrive's and AzMeet's `client_health` (azul-appkit), 0 to 100 - never
+//!   the parts.
 
 /// Unit conversions, compiled on every platform so the arithmetic each
 /// backend depends on is covered by tests that actually run here.
