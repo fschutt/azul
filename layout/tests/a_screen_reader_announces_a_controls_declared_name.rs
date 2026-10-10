@@ -71,6 +71,30 @@ fn a_declared_name_wins_over_the_text_inside_the_control() {
     );
 }
 
+/// A switch is announced as a switch ("Wi-Fi, switch, on"), not as a check
+/// box: accesskit has the role (VoiceOver's AXSwitch subrole).
+#[cfg(feature = "widgets")]
+#[test]
+fn a_switch_is_announced_as_a_switch_with_its_state() {
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let update = lay_out(
+        &mut lw,
+        Dom::create_body().with_child(
+            azul_layout::widgets::switch::Switch::create(true)
+                .with_accessibility_name("Wi-Fi")
+                .dom(),
+        ),
+    );
+    let switch = update
+        .nodes
+        .iter()
+        .find(|(_, n)| n.label() == Some("Wi-Fi"))
+        .map(|(_, n)| n.clone())
+        .expect("the switch is in the tree");
+    assert_eq!(switch.role(), accesskit::Role::Switch);
+    assert_eq!(switch.toggled(), Some(accesskit::Toggled::True));
+}
+
 #[cfg(feature = "fluent")]
 #[test]
 fn a_name_given_as_a_translation_key_is_announced_translated() {
