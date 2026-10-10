@@ -676,3 +676,39 @@ fn an_encrypted_drives_search_says_it_reads_the_drives_names() {
     find.drive_index = true;
     assert_eq!(find.status_text(), "Searching the drive's names... 0 found");
 }
+
+/// A result shows its sync state where its drive syncs (SYNC17's store answers through the
+/// SyncLookup seam): a row of the open drive by the open drive's id, a row of This PC by its
+/// own drive; nothing where nothing syncs - and with no sync at all no Status column.
+#[test]
+fn a_result_shows_its_sync_state_where_its_drive_syncs() {
+    use crate::sync_lookup::{NoSync, SyncLookup, SyncState};
+
+    struct States;
+    impl SyncLookup for States {
+        fn local_copy(&self, _drive_id: &str, _key: &str) -> Option<PathBuf> {
+            None
+        }
+        fn sync_state(&self, drive_id: &str, key: &str) -> Option<SyncState> {
+            match (drive_id, key) {
+                ("cloud", "Docs/a.txt") => Some(SyncState::OnThisDevice),
+                ("home", "b.txt") => Some(SyncState::Syncing),
+                _ => None,
+            }
+        }
+    }
+    assert_eq!(
+        find::result_sync(&States, Some("cloud"), "Docs/a.txt"),
+        Some(SyncState::OnThisDevice)
+    );
+    let pc_row = find::pc_key("home", "b.txt");
+    assert_eq!(find::result_sync(&States, None, &pc_row), Some(SyncState::Syncing));
+    assert_eq!(find::result_sync(&States, Some("cloud"), "Docs/c.txt"), None);
+    assert_eq!(find::result_sync(&States, None, "Docs/a.txt"), None, "no drive, no state");
+    assert_eq!(find::result_sync(&NoSync, Some("cloud"), "Docs/a.txt"), None);
+    assert!(States.syncs() && !NoSync.syncs(), "a Status column only where something syncs");
+    assert_eq!(
+        SyncState::OnThisDevice.badge(),
+        ("check_circle", "Available on this device")
+    );
+}
