@@ -84,6 +84,7 @@ pub mod error;
 pub mod lock;
 pub mod pending;
 pub mod period;
+pub mod recovery;
 pub mod secrets;
 pub mod session;
 pub mod settings;
@@ -109,17 +110,18 @@ pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
 pub use pending::{Finished, PendingCheckout, PendingTokens, Polled};
 pub use period::{
-    issue_tokens, redeem_due, IssueRequest, Issuer, IssuerKey, PeriodToken, PeriodTokenStore,
-    Redeemed,
+    issue_tokens, look_at_drive, redeem_due, IssueRequest, Issuer, IssuerKey, Look, PeriodToken,
+    PeriodTokenStore, Redeemed,
 };
+pub use recovery::RecoveryKey;
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, IssueAnswer, OptionsQuery,
-    RecoveryLockdown, Tier, Tiers, TokenError, TokenServer, VoucherRedeemed,
+    BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, DriveStatus, IssueAnswer,
+    OptionsQuery, RecoveryLockdown, Tier, Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};
