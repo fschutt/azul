@@ -208,6 +208,8 @@ pub mod listing;
 mod look;
 pub mod model;
 mod paper;
+#[cfg(test)]
+mod pay_words_tests;
 pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
