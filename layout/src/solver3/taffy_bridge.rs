@@ -1991,35 +1991,52 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         // answer is not cached (taffy's cache key ignores the axis). AzContacts'
         // split panes were laid out at widths 0, 49, 79, 190 for these
         // questions, every name in the list with them (2026-10-06).
-        if inputs.run_mode == RunMode::ComputeSize {
-            if inputs.axis == taffy::RequestedAxis::Vertical
-                && self.width_only_rows.last().is_some_and(|&row| {
-                    self.tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.parent) == Some(row)
-                })
-            {
-                drop(crate::probe::Probe::span("taffy_width_only_row_item"));
-                return LayoutOutput::from_outer_size(Size {
-                    width: inputs.known_dimensions.width.unwrap_or(0.0),
-                    height: inputs.known_dimensions.height.unwrap_or(0.0),
-                });
-            }
-            if inputs.axis == taffy::RequestedAxis::Horizontal
-                && fc == FormattingContext::Flex
-                && inputs.known_dimensions.width.is_none()
-                && matches!(
-                    self.get_taffy_style(node_idx).flex_direction,
-                    FlexDirection::Row | FlexDirection::RowReverse
-                )
-            {
-                drop(crate::probe::Probe::span("taffy_width_only_row"));
-                self.width_only_rows.push(node_idx);
-                let output = compute_flexbox_layout(self, node_id, inputs);
-                self.width_only_rows.pop();
-                return LayoutOutput::from_outer_size(Size {
-                    width: output.size.width,
-                    height: 0.0,
-                });
-            }
+        //
+        // That includes the BASELINE layouts: in a row with `align-items:
+        // baseline` taffy lays every baseline item out - `RunMode::PerformLayout`,
+        // even inside a measure - to read its first baseline, at the item's
+        // target width and the stubbed height 0. Those wrote the item's final
+        // layout (its text, its used size, its memo, flagged current) at the
+        // measure's width; once the row's own final layout was served from
+        // taffy's cache, nothing laid the items out again: AzCtl's facts rows
+        // beside the one a poll changed kept a 0 px high label and an ungrown
+        // value (tests/a_facts_row_in_a_card_keeps_its_words.rs).
+        let item_of_width_only_row = self.width_only_rows.last().is_some_and(|&row| {
+            self.tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.parent) == Some(row)
+        });
+        if item_of_width_only_row
+            && (inputs.run_mode == RunMode::PerformLayout
+                || inputs.axis == taffy::RequestedAxis::Vertical)
+        {
+            drop(crate::probe::Probe::span("taffy_width_only_row_item"));
+            return LayoutOutput::from_outer_size(Size {
+                width: inputs.known_dimensions.width.unwrap_or(0.0),
+                height: inputs.known_dimensions.height.unwrap_or(0.0),
+            });
+        }
+        if inputs.run_mode == RunMode::ComputeSize
+            && inputs.axis == taffy::RequestedAxis::Horizontal
+            && fc == FormattingContext::Flex
+            && inputs.known_dimensions.width.is_none()
+            && matches!(
+                self.get_taffy_style(node_idx).flex_direction,
+                FlexDirection::Row | FlexDirection::RowReverse
+            )
+        {
+            drop(crate::probe::Probe::span("taffy_width_only_row"));
+            self.width_only_rows.push(node_idx);
+            let output = compute_flexbox_layout(self, node_id, inputs);
+            self.width_only_rows.pop();
+            // This bypasses `compute_cached_layout`, which marks what it
+            // computes stale; the row's items still answered their width
+            // questions in it (an item's min-content measure lays its text out
+            // at that width), so the row's last final layout no longer
+            // describes its subtree: the next one runs again.
+            self.set_final_layout_current(node_idx, false);
+            return LayoutOutput::from_outer_size(Size {
+                width: output.size.width,
+                height: 0.0,
+            });
         }
 
         // A WIDTH-ONLY measure of a block-level item (taffy's
