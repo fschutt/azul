@@ -216,7 +216,8 @@ def body(args, logs, out):
     binary = e.find_binary("AzWriter", args.bin, "AZWRITER_BIN")
     data = os.path.join(logs, "data")
     os.makedirs(data, exist_ok=True)
-    common = ["--data-dir", data, "--size", "1280x800"]
+    # The checks read English words (the system may be German).
+    common = ["--data-dir", data, "--size", "1280x800", "--language", "en"]
     app = e.App("azwriter-1", binary, common + ["--sample"], args.debug_port, logs, args.timeout)
     try:
         doc_id = first_session(app, data, out)

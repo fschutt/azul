@@ -16,8 +16,9 @@ use crate::{
     ids, storage,
 };
 
+/// A key of the resources said, or words as they are (a document's title).
 fn s(text: &str) -> AzString {
-    AzString::from(text)
+    azul_appkit::l10n::label(text)
 }
 
 fn button(app: &RefAny, id: AzString, label: &str, cmd: Command) -> Dom {
@@ -66,48 +67,53 @@ fn pane(children: Vec<Dom>) -> Dom {
 /// Where the open document's file is, as the user reads it.
 fn file_line(st: &AppState) -> String {
     match st.doc.as_ref() {
-        Some(doc) => format!(
-            "File: {}",
-            azul_appkit::data::local_path(&st.data_root, &doc.key()).display()
+        Some(doc) => azul_appkit::l10n::t_args(
+            "azwriter-file",
+            &[(
+                "path",
+                azul_appkit::l10n::Arg::from(
+                    azul_appkit::data::local_path(&st.data_root, &doc.key()).display().to_string(),
+                ),
+            )],
         ),
-        None => "No document is open.".to_string(),
+        None => azul_appkit::l10n::t("azwriter-no-doc-open"),
     }
 }
 
 fn info_page(app: &RefAny, st: &AppState) -> Dom {
     let Some(doc) = st.doc.as_ref() else {
         return pane(vec![
-            heading("Info"),
-            line("No document is open."),
-            buttons(vec![primary(app, ids::NEW_DOC, "Blank document", Command::NewDocument)]),
+            heading("azwriter-page-info"),
+            line("azwriter-no-doc-open"),
+            buttons(vec![primary(app, ids::NEW_DOC, "azwriter-blank-document", Command::NewDocument)]),
         ]);
     };
     let pages = st.pages.starts_for(doc.doc().block_count()).len();
     pane(vec![
         heading(&doc.title()),
-        line(&format!(
-            "{} words, {} page{}{}",
-            doc.word_count(),
-            pages,
-            if pages == 1 { "" } else { "s" },
-            if doc.is_dirty() { " - unsaved changes" } else { "" }
+        line(&azul_appkit::l10n::t_args(
+            if doc.is_dirty() { "azwriter-info-counts-unsaved" } else { "azwriter-info-counts" },
+            &[
+                ("words", azul_appkit::l10n::Arg::from(doc.word_count())),
+                ("pages", azul_appkit::l10n::Arg::from(pages)),
+            ],
         )),
         line(&file_line(st)),
         buttons(vec![
-            primary(app, ids::SAVE, "Save", Command::Save),
-            button(app, ids::EXPORT_PDF, "Export as PDF", Command::ExportPdf),
-            button(app, ids::DELETE, "Delete", Command::DeleteDocument),
+            primary(app, ids::SAVE, "azwriter-page-save", Command::Save),
+            button(app, ids::EXPORT_PDF, "azwriter-export-pdf", Command::ExportPdf),
+            button(app, ids::DELETE, "azwriter-delete", Command::DeleteDocument),
         ]),
     ])
 }
 
 fn new_page(app: &RefAny) -> Dom {
     pane(vec![
-        heading("New"),
-        line("A blank document, or a Markdown or Word file to import as a new document."),
+        heading("azwriter-page-new"),
+        line("azwriter-new-what"),
         buttons(vec![
-            primary(app, ids::NEW_DOC, "Blank document", Command::NewDocument),
-            button(app, ids::IMPORT, "Import a file", Command::Import),
+            primary(app, ids::NEW_DOC, "azwriter-blank-document", Command::NewDocument),
+            button(app, ids::IMPORT, "azwriter-import-file", Command::Import),
         ]),
     ])
 }
@@ -117,10 +123,16 @@ fn open_page(app: &RefAny, st: &AppState) -> Dom {
         .with_id(ids::DOC_LIST)
         .with_css("display: flex; flex-direction: column; margin-top: 8px;");
     if st.listed && st.docs.is_empty() {
-        list.add_child(line("There are no documents yet."));
+        list.add_child(line("azwriter-no-documents"));
     }
     for (i, entry) in st.docs.iter().enumerate() {
-        let label = format!("{}  ({} words)", entry.title, entry.words);
+        let label = azul_appkit::l10n::t_args(
+            "azwriter-doc-row",
+            &[
+                ("title", azul_appkit::l10n::Arg::from(entry.title.as_str())),
+                ("words", azul_appkit::l10n::Arg::from(entry.words)),
+            ],
+        );
         list.add_child(
             Dom::create_div()
                 .with_css("margin-bottom: 6px;")
@@ -133,10 +145,15 @@ fn open_page(app: &RefAny, st: &AppState) -> Dom {
         );
     }
     pane(vec![
-        heading("Open"),
-        line(&format!(
-            "Your documents, in {}",
-            azul_appkit::data::local_path(&st.data_root, storage::APP_FOLDER).display()
+        heading("azwriter-page-open"),
+        line(&azul_appkit::l10n::t_args(
+            "azwriter-your-documents",
+            &[(
+                "folder",
+                azul_appkit::l10n::Arg::from(
+                    azul_appkit::data::local_path(&st.data_root, storage::APP_FOLDER).display().to_string(),
+                ),
+            )],
         )),
         list,
     ])
@@ -144,10 +161,10 @@ fn open_page(app: &RefAny, st: &AppState) -> Dom {
 
 fn save_page(app: &RefAny, st: &AppState) -> Dom {
     pane(vec![
-        heading("Save"),
-        line("Documents are saved as Markdown files in your data folder."),
+        heading("azwriter-page-save"),
+        line("azwriter-save-what"),
         line(&file_line(st)),
-        buttons(vec![primary(app, ids::SAVE, "Save", Command::Save)]),
+        buttons(vec![primary(app, ids::SAVE, "azwriter-page-save", Command::Save)]),
     ])
 }
 
@@ -157,12 +174,15 @@ fn export_page(app: &RefAny, st: &AppState) -> Dom {
         &azul_appkit::data::app_key(storage::APP_FOLDER, "exports"),
     );
     pane(vec![
-        heading("Export"),
-        line("A PDF keeps the A4 layout; Markdown keeps the text and its structure."),
-        line(&format!("Exports go to {}", folder.display())),
+        heading("azwriter-page-export"),
+        line("azwriter-export-what"),
+        line(&azul_appkit::l10n::t_args(
+            "azwriter-exports-go-to",
+            &[("folder", azul_appkit::l10n::Arg::from(folder.display().to_string()))],
+        )),
         buttons(vec![
-            primary(app, ids::EXPORT_PDF, "Export as PDF", Command::ExportPdf),
-            button(app, ids::EXPORT_MD, "Export as Markdown", Command::ExportMarkdown),
+            primary(app, ids::EXPORT_PDF, "azwriter-export-pdf", Command::ExportPdf),
+            button(app, ids::EXPORT_MD, "azwriter-export-markdown", Command::ExportMarkdown),
         ]),
     ])
 }

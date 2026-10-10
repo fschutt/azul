@@ -109,7 +109,7 @@ fn pdf_bytes(doc: &DocumentModel, info: &CallbackInfo) -> Option<Vec<u8>> {
 fn import_filter() -> OptionFileTypeList {
     OptionFileTypeList::Some(FileTypeList {
         document_types: vec![AzString::from("*.md"), AzString::from("*.docx")].into(),
-        document_descriptor: AzString::from("Markdown or Word documents"),
+        document_descriptor: azul_appkit::l10n::label("azwriter-import-filter"),
     })
 }
 
@@ -130,10 +130,21 @@ pub fn import_bytes(name: &str, bytes: &[u8]) -> Result<azul::widgets::RichTextD
 pub fn imported(name: &str, result: Result<Option<Vec<u8>>, String>) -> Result<azul::widgets::RichTextDoc, String> {
     match result {
         Ok(Some(bytes)) => {
-            import_bytes(name, &bytes).map_err(|e| format!("{name} could not be imported: {e}"))
+            import_bytes(name, &bytes).map_err(|e| {
+                azul_appkit::l10n::t_args(
+                    "azwriter-import-failed",
+                    &[("name", azul_appkit::l10n::Arg::from(name)), ("why", azul_appkit::l10n::Arg::from(e))],
+                )
+            })
         }
-        Ok(None) => Err(format!("{name} is gone.")),
-        Err(e) => Err(format!("{name} could not be read: {e}")),
+        Ok(None) => Err(azul_appkit::l10n::t_args(
+            "azwriter-import-gone",
+            &[("name", azul_appkit::l10n::Arg::from(name))],
+        )),
+        Err(e) => Err(azul_appkit::l10n::t_args(
+            "azwriter-import-unread",
+            &[("name", azul_appkit::l10n::Arg::from(name)), ("why", azul_appkit::l10n::Arg::from(e))],
+        )),
     }
 }
 
@@ -152,7 +163,7 @@ pub fn finish_import(
             save_if_dirty(st, info, app);
             show_document(st, DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
             save(st, info, app, storage::tag::SAVE);
-            st.notice = format!("Imported {name}");
+            st.notice = azul_appkit::l10n::t_args("azwriter-imported", &[("name", azul_appkit::l10n::Arg::from(name))]);
             println!("AZWRITER_IMPORTED {name}");
         }
         Err(e) => st.notice = e,
@@ -179,9 +190,15 @@ extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result:
     // to on_files_done as IMPORT, then the file lives in the tree like any
     // document.
     st.notice = if kit::spawn_outside_read(&mut info, &path, handle, storage::tag::IMPORT, crate::on_files_done) {
-        format!("Importing {}...", path.display())
+        azul_appkit::l10n::t_args(
+            "azwriter-importing",
+            &[("path", azul_appkit::l10n::Arg::from(path.display().to_string()))],
+        )
     } else {
-        format!("{} is not a file that can be imported.", path.display())
+        azul_appkit::l10n::t_args(
+            "azwriter-not-importable",
+            &[("path", azul_appkit::l10n::Arg::from(path.display().to_string()))],
+        )
     };
     Update::RefreshDom
 }
@@ -244,7 +261,7 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
         }
         Command::Import => {
             let _request = FileDialog::open_file(
-                "Import a document",
+                azul_appkit::l10n::label("azwriter-import-dialog"),
                 OptionString::None,
                 import_filter(),
                 handle.clone(),
@@ -307,7 +324,7 @@ fn export(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, pdf: bool) -
     };
     let (key, bytes) = if pdf {
         let Some(bytes) = pdf_bytes(doc, info) else {
-            st.notice = "The PDF could not be made.".to_string();
+            st.notice = azul_appkit::l10n::t("azwriter-pdf-failed");
             return Update::RefreshDom;
         };
         (storage::export_key(&doc.title(), "pdf"), bytes)

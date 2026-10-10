@@ -26,16 +26,17 @@ use crate::{
     ids, paginate,
 };
 
+/// A key of the resources said, or words as they are (a document's title).
 fn s(text: &str) -> AzString {
-    AzString::from(text)
+    azul_appkit::l10n::label(text)
 }
 
 /// The empty state: no document is open.
 fn empty_state(app: &RefAny) -> Dom {
-    ShellEmptyState::create(s("No document is open"))
-        .with_icon(s("description"))
-        .with_detail(s("Start a blank document, or open one from File."))
-        .with_action_label(s("Blank document"))
+    ShellEmptyState::create(s("azwriter-empty"))
+        .with_icon(AzString::from("description"))
+        .with_detail(s("azwriter-empty-what"))
+        .with_action_label(s("azwriter-blank-document"))
         .with_on_action(
             command(app, Command::NewDocument),
             on_command as ButtonOnClickCallbackType,
@@ -68,7 +69,7 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
     let zoom = st.zoom_percent / 100.0;
     let editor = RichTextEditor::create(doc.editor.clone())
         .with_id(ids::DOC_HOST)
-        .with_accessibility_name("Document")
+        .with_accessibility_name(s("azwriter-document"))
         .with_font_size((paginate::FONT_PX * zoom).round())
         .with_paragraph_spacing((paginate::SPACING_PX * zoom).round())
         .with_on_change(app.clone(), on_editor_change as RichTextEditorOnChangeCallbackType);
@@ -123,7 +124,10 @@ pub extern "C" fn on_editor_change(
     let was_dirty = doc.is_dirty();
     doc.adopt(state);
     let dirty = doc.is_dirty();
-    let label = format!("{} WORDS", doc.word_count());
+    let label = azul_appkit::l10n::t_args(
+        "azwriter-status-words",
+        &[("count", azul_appkit::l10n::Arg::from(doc.word_count()))],
+    );
     if let Some(node) = info.get_node_id_by_marker(st.word_count_marker.clone()).into_option() {
         let _ = StatusBar::update_segment_label(info, node, label);
     }
@@ -156,16 +160,29 @@ pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
         Some(doc) => {
             let pages = st.pages.starts_for(doc.doc().block_count()).len();
             let page = st.pages.page_of(doc.editor.caret_block).min(pages.saturating_sub(1)) + 1;
-            (format!("PAGE {page} OF {pages}"), doc.word_count())
+            (
+                azul_appkit::l10n::t_args(
+                    "azwriter-status-page",
+                    &[
+                        ("page", azul_appkit::l10n::Arg::from(page)),
+                        ("pages", azul_appkit::l10n::Arg::from(pages)),
+                    ],
+                ),
+                doc.word_count(),
+            )
         }
-        None => ("NO DOCUMENT".to_string(), 0),
+        None => (azul_appkit::l10n::t("azwriter-status-no-document"), 0),
     };
     let mut segments = vec![
         StatusBarSegment::create(s(&page_label)),
-        StatusBarSegment::create(s(&format!("{words} WORDS"))).with_marker(st.word_count_marker.clone()),
+        StatusBarSegment::create(AzString::from(azul_appkit::l10n::t_args(
+            "azwriter-status-words",
+            &[("count", azul_appkit::l10n::Arg::from(words))],
+        )))
+        .with_marker(st.word_count_marker.clone()),
     ];
     if st.is_saving() {
-        segments.push(StatusBarSegment::create(s("SAVING")).with_icon(s("cloud_upload")));
+        segments.push(StatusBarSegment::create(s("azwriter-status-saving")).with_icon(AzString::from("cloud_upload")));
     }
     if !st.notice.is_empty() {
         segments.push(StatusBarSegment::create(s(&st.notice)));

@@ -46,12 +46,12 @@ impl BackstagePage {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            BackstagePage::Info => "Info",
-            BackstagePage::New => "New",
-            BackstagePage::Open => "Open",
-            BackstagePage::Save => "Save",
-            BackstagePage::Export => "Export",
-            BackstagePage::Close => "Close",
+            BackstagePage::Info => "azwriter-page-info",
+            BackstagePage::New => "azwriter-page-new",
+            BackstagePage::Open => "azwriter-page-open",
+            BackstagePage::Save => "azwriter-page-save",
+            BackstagePage::Export => "azwriter-page-export",
+            BackstagePage::Close => "azwriter-page-close",
         }
     }
 
@@ -92,7 +92,8 @@ pub const ZOOM_MIN: f32 = 50.0;
 pub const ZOOM_MAX: f32 = 200.0;
 
 /// The ribbon's tabs.
-pub const TABS: [&str; 3] = ["HOME", "INSERT", "VIEW"];
+/// The ribbon's tabs (keys of the resources).
+pub const TABS: [&str; 3] = ["azwriter-tab-home", "azwriter-tab-insert", "azwriter-tab-view"];
 
 /// Everything AzWriter knows.
 pub struct AppState {
