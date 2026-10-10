@@ -880,8 +880,13 @@ fn a_conditional_put_that_keeps_meeting_others_says_so_after_a_few_tries() {
     assert!(sent > 1 && sent <= 5, "{sent} tries");
 }
 
-/// 8 MiB: the part size of a streamed upload.
-const PART: usize = 8 * 1024 * 1024;
+/// 16 MiB: the part size of a streamed upload.
+const PART: usize = 16 * 1024 * 1024;
+
+/// The drive of [`local_drive`] sending one part at a time: the scripted answers come in order.
+fn one_part_at_a_time(fake: &Fake) -> S3Drive {
+    local_drive(fake).with_parallel(1)
+}
 
 #[test]
 fn a_streamed_body_above_one_part_goes_up_as_a_multipart_upload() {
@@ -900,7 +905,9 @@ fn a_streamed_body_above_one_part_goes_up_as_a_multipart_upload() {
         "<CompleteMultipartUploadResult><ETag>\"whole-2\"</ETag></CompleteMultipartUploadResult>",
     );
     let body: Vec<u8> = (0..PART + 5).map(|i| (i % 251) as u8).collect();
-    let written = local_drive(&fake).put_from("big.bin", &mut &body[..]).unwrap();
+    let written = one_part_at_a_time(&fake)
+        .put_from("big.bin", &mut &body[..])
+        .unwrap();
     assert_eq!(written, body.len() as u64);
 
     let calls = fake.calls();
@@ -949,7 +956,7 @@ fn a_multipart_upload_that_fails_is_aborted() {
     );
     fake.answer(204, &[], "");
     let body = vec![7u8; PART + 1];
-    let error = local_drive(&fake)
+    let error = one_part_at_a_time(&fake)
         .put_from("big.bin", &mut &body[..])
         .unwrap_err();
     assert!(matches!(error, DriveError::Service(ref e) if e.status == 500), "{error:?}");

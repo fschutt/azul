@@ -142,4 +142,14 @@ impl HttpReply {
 /// no HTTP answer at all (DNS, connection, TLS, timeout), as a readable sentence.
 pub trait Transport: Send + Sync {
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String>;
+
+    /// Connects to `host` at `addresses` (IP addresses, `ip` or `ip:port`) whenever its name
+    /// does not resolve - the request still goes to `host`, and its TLS certificate is
+    /// verified for that name: the last layer of a drive's failover, when DNS is down but the
+    /// node's addresses are known. `false` when this transport cannot (the default) or no
+    /// address was usable.
+    fn fallback_addresses(&self, host: &str, addresses: &[String]) -> bool {
+        let _ = (host, addresses);
+        false
+    }
 }

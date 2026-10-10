@@ -7,7 +7,10 @@ Two backends:
   local folder (``<root>/<bucket>/<key>``) and implements exactly what AzDrive and AzMail use:
   ListObjectsV2 (prefix, delimiter, max-keys, continuation-token, start-after), GetObject (one
   ``Range``), PutObject, CopyObject (``x-amz-copy-source``), DeleteObject, HeadObject, plus
-  CreateBucket / HeadBucket / ListBuckets. Conditional requests as S3 answers them: a PUT with
+  CreateBucket / HeadBucket / ListBuckets, and multipart uploads: CreateMultipartUpload,
+  UploadPart, ListParts, CompleteMultipartUpload (conditional too) and AbortMultipartUpload
+  (the uploads under way live in ``<root>/.s3-server-uploads``, so several servers over one
+  root - the nodes of an E2E - share them). Conditional requests as S3 answers them: a PUT with
   ``If-None-Match: *`` writes only a new key, one with ``If-Match`` only over that version
   (412 PreconditionFailed otherwise); a GET / HEAD with ``If-None-Match`` of the current
   version answers 304 (a sync's compare-and-swap of its index, and its polling).
@@ -15,6 +18,9 @@ Two backends:
   S3's XML error bodies. Path-style (``/<bucket>/<key>``) and virtual-host style
   (``Host: <bucket>.<host>``) both work. Every request is logged, so a test can assert which
   objects were fetched (``Server.requests()``, ``Server.object_gets()``, ``--log file.jsonl``).
+  The kill switches of a transfer E2E: after N parts (``hold_parts_after``,
+  ``--hold-parts-after``) or N ranged GETs (``hold_gets_after``, ``--hold-gets-after``) the next
+  ones wait until ``release()`` - so the client, or this node, can be killed half way.
 - ``moto``: moto's ``ThreadedMotoServer`` when the ``moto`` package is installed (a much bigger
   S3; it does not check signatures and keeps no request log here).
 
@@ -24,6 +30,7 @@ Usage::
         [--host 127.0.0.1] [--port 9000] [--access-key azdrive-test]
         [--secret-key azdrive-test-secret] [--region us-east-1]
         [--backend stdlib|moto|auto] [--log requests.jsonl]
+        [--hold-parts-after N] [--hold-gets-after N]
 
 Then add a drive in AzDrive with endpoint ``http://127.0.0.1:9000``, region ``us-east-1``, the
 bucket, the keys, and path-style URLs.
@@ -46,11 +53,13 @@ import http.server
 import json
 import mimetypes
 import os
+import shutil
 import sys
 import threading
 import time
 import urllib.parse
 import uuid
+import xml.etree.ElementTree as ElementTree
 from collections import namedtuple
 from xml.sax.saxutils import escape
 
@@ -177,6 +186,7 @@ def check_key(key):
 
 class Store:
     TMP = ".s3-server-tmp"
+    UPLOADS = ".s3-server-uploads"
 
     def __init__(self, root, keep_versions=False):
         self.root = os.path.abspath(root)
@@ -301,6 +311,79 @@ class Store:
             f.write(data)
         os.replace(tmp, path)
         return self.etag(path)
+
+    # -- multipart uploads ------------------------------------------------------------------
+
+    def start_upload(self, bucket, key):
+        """A new multipart upload of `key`: its id."""
+        check_key(key)
+        upload_id = uuid.uuid4().hex
+        folder = os.path.join(self.root, self.UPLOADS, upload_id)
+        os.makedirs(folder)
+        with open(os.path.join(folder, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump({"bucket": bucket, "key": key, "started": time.time()}, f)
+        return upload_id
+
+    def upload(self, upload_id, bucket, key):
+        """The folder of the upload `upload_id` of `key`, or None when there is no such upload."""
+        if not upload_id or any(c not in "0123456789abcdef" for c in upload_id):
+            return None
+        folder = os.path.join(self.root, self.UPLOADS, upload_id)
+        try:
+            with open(os.path.join(folder, "meta.json"), encoding="utf-8") as f:
+                meta = json.load(f)
+        except (OSError, ValueError):
+            return None
+        if meta.get("bucket") != bucket or meta.get("key") != key:
+            return None
+        return folder
+
+    @staticmethod
+    def part_path(folder, number):
+        return os.path.join(folder, "part-%05d" % number)
+
+    def write_part(self, folder, number, data):
+        tmp = os.path.join(self.root, self.TMP, uuid.uuid4().hex)
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, self.part_path(folder, number))
+        return '"%s"' % hashlib.md5(data).hexdigest()
+
+    def parts(self, folder):
+        """(number, etag, size) of every part sent, by number."""
+        out = []
+        for name in sorted(os.listdir(folder)):
+            if name.startswith("part-"):
+                path = os.path.join(folder, name)
+                out.append((int(name[5:]), self.etag(path), os.path.getsize(path)))
+        return out
+
+    def complete(self, folder, bucket, key, listed):
+        """Joins the parts `listed` ((number, etag) pairs) into `key`; the object's ETag
+        (S3's: the MD5 of the parts' MD5s, a dash, their count). InvalidPart when one of them
+        was not sent or is another version."""
+        if not listed:
+            raise S3Error(400, "MalformedXML", "The XML you provided was not well-formed")
+        digests = []
+        for number, etag in listed:
+            path = self.part_path(folder, number)
+            if not os.path.isfile(path) or self.etag(path).strip('"') != etag.strip().strip('"'):
+                raise S3Error(400, "InvalidPart", "One or more of the specified parts could "
+                              "not be found.", PartNumber=number)
+            digests.append(bytes.fromhex(self.etag(path).strip('"')))
+        target = self.path(bucket, key)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        tmp = os.path.join(self.root, self.TMP, uuid.uuid4().hex)
+        with open(tmp, "wb") as out:
+            for number, _ in listed:
+                with open(self.part_path(folder, number), "rb") as part:
+                    shutil.copyfileobj(part, out, 1 << 20)
+        os.replace(tmp, target)
+        shutil.rmtree(folder, ignore_errors=True)
+        return '"%s-%d"' % (hashlib.md5(b"".join(digests)).hexdigest(), len(listed))
+
+    def abort(self, folder):
+        shutil.rmtree(folder, ignore_errors=True)
 
     def delete(self, bucket, key):
         path = self.path(bucket, key)
@@ -609,7 +692,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.list_objects(bucket, query)
                 return "ListObjectsV2"
             raise S3Error(405, "MethodNotAllowed", "The specified method is not allowed.")
+        if self.command == "POST" and "uploads" in query:
+            upload_id = store.start_upload(bucket, key)
+            self.respond(200, xml_document("InitiateMultipartUploadResult", element("Bucket", bucket)
+                                           + element("Key", key) + element("UploadId", upload_id)),
+                         {"Content-Type": "application/xml"})
+            return "CreateMultipartUpload"
+        if "uploadId" in query:
+            return self.multipart(bucket, key, query, body)
         if self.command in ("GET", "HEAD"):
+            if self.command == "GET" and self.headers.get("Range"):
+                self.server.gate("gets")
             info = store.info(bucket, key)
             if info is None:
                 raise S3Error(404, "NoSuchKey", "The specified key does not exist.", Key=key)
@@ -657,6 +750,64 @@ class Handler(http.server.BaseHTTPRequestHandler):
             store.delete(bucket, key)
             self.respond(204)
             return "DeleteObject"
+        raise S3Error(405, "MethodNotAllowed", "The specified method is not allowed.")
+
+    def multipart(self, bucket, key, query, body):
+        """UploadPart, ListParts, CompleteMultipartUpload and AbortMultipartUpload."""
+        store = self.server.store
+        upload_id = query.get("uploadId", "")
+        folder = store.upload(upload_id, bucket, key)
+        if folder is None:
+            raise S3Error(404, "NoSuchUpload", "The specified upload does not exist. The upload ID "
+                          "may be invalid, or the upload may have been aborted or completed.",
+                          UploadId=upload_id)
+        if self.command == "PUT":
+            try:
+                number = int(query.get("partNumber", ""))
+                if not 1 <= number <= 10000:
+                    raise ValueError
+            except ValueError:
+                raise S3Error(400, "InvalidArgument", "Part number must be an integer between 1 "
+                              "and 10000, inclusive") from None
+            self.server.gate("parts")
+            etag = store.write_part(folder, number, body)
+            self.respond(200, headers={"ETag": etag})
+            return "UploadPart"
+        if self.command == "GET":
+            parts = "".join(
+                "<Part>%s%s%s</Part>" % (element("PartNumber", n), element("ETag", e), element("Size", size))
+                for n, e, size in store.parts(folder)
+            )
+            self.respond(200, xml_document("ListPartsResult", element("Bucket", bucket)
+                                           + element("Key", key) + element("UploadId", upload_id)
+                                           + element("IsTruncated", "false") + parts),
+                         {"Content-Type": "application/xml"})
+            return "ListParts"
+        if self.command == "DELETE":
+            store.abort(folder)
+            self.respond(204)
+            return "AbortMultipartUpload"
+        if self.command == "POST":
+            try:
+                root = ElementTree.fromstring(body)
+            except ElementTree.ParseError:
+                raise S3Error(400, "MalformedXML", "The XML you provided was not well-formed") from None
+            listed = []
+            for part in root.iter():
+                if part.tag.rsplit("}", 1)[-1] != "Part":
+                    continue
+                fields = {child.tag.rsplit("}", 1)[-1]: (child.text or "") for child in part}
+                try:
+                    listed.append((int(fields.get("PartNumber", "")), fields.get("ETag", "")))
+                except ValueError:
+                    raise S3Error(400, "MalformedXML", "A part has no number") from None
+            with store.write_lock:
+                self.check_write_conditions(store.info(bucket, key))
+                etag = store.complete(folder, bucket, key, listed)
+            self.respond(200, xml_document("CompleteMultipartUploadResult", element("Bucket", bucket)
+                                           + element("Key", key) + element("ETag", etag)),
+                         {"Content-Type": "application/xml"})
+            return "CompleteMultipartUpload"
         raise S3Error(405, "MethodNotAllowed", "The specified method is not allowed.")
 
     def list_objects(self, bucket, query):
@@ -724,16 +875,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     do_HEAD = handle_any
     do_PUT = handle_any
     do_DELETE = handle_any
-
-    def do_POST(self):
-        self.request_id = uuid.uuid4().hex[:16].upper()
-        self.status = 0
-        length = int(self.headers.get("Content-Length") or 0)
-        if length:
-            self.rfile.read(length)
-        self.fail(S3Error(501, "NotImplemented", "this test server has no POST operations"), self.path)
-        self.server.record({"time": time.time(), "method": "POST", "bucket": "", "key": "",
-                            "query": {}, "range": None, "op": None, "status": self.status})
+    do_POST = handle_any
 
 
 class Server(http.server.ThreadingHTTPServer):
@@ -753,6 +895,55 @@ class Server(http.server.ThreadingHTTPServer):
         # Buckets answering an error to every request (an E2E's switch): bucket -> (status,
         # code, message, extra headers).
         self._faults = {}
+        # The kill switches: kind ("parts", "gets") -> how many pass before the rest wait.
+        self._holds = {}
+        self._counts = {}
+        self._waiting = 0
+        self._released = threading.Event()
+        self._stopping = False
+
+    def hold_parts_after(self, count):
+        """After `count` more UploadParts, every next one waits until `release`."""
+        self._hold("parts", count)
+
+    def hold_gets_after(self, count):
+        """After `count` more ranged GetObjects, every next one waits until `release`."""
+        self._hold("gets", count)
+
+    def _hold(self, kind, count):
+        with self._lock:
+            self._holds[kind] = count
+            self._counts[kind] = 0
+            self._released.clear()
+
+    def release(self):
+        """Lets every held request go on, and holds no more."""
+        with self._lock:
+            self._holds.clear()
+            self._released.set()
+
+    def held(self):
+        """How many requests wait right now."""
+        with self._lock:
+            return self._waiting
+
+    def gate(self, kind):
+        """Waits here while a request of `kind` is past its switch's count."""
+        with self._lock:
+            limit = self._holds.get(kind)
+            if limit is None:
+                return
+            self._counts[kind] = self._counts.get(kind, 0) + 1
+            if self._counts[kind] <= limit:
+                return
+            self._waiting += 1
+        try:
+            while not self._released.wait(0.2):
+                if self._stopping:
+                    break
+        finally:
+            with self._lock:
+                self._waiting -= 1
 
     def fail_bucket(self, bucket, status, code, message, headers=None):
         """Every request to `bucket` answers this S3 error (with `headers`, e.g. an Azlin
@@ -800,6 +991,8 @@ class Server(http.server.ThreadingHTTPServer):
         return self
 
     def stop(self):
+        self._stopping = True
+        self._released.set()
         self.shutdown()
         self.server_close()
         if self._thread:
@@ -921,6 +1114,10 @@ def main(argv=None):
                              "auto (moto when installed)")
     parser.add_argument("--log", help="append every request as a JSON line to this file")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--hold-parts-after", type=int, metavar="N",
+                        help="after N UploadParts the next ones wait (an E2E's kill switch)")
+    parser.add_argument("--hold-gets-after", type=int, metavar="N",
+                        help="after N ranged GETs the next ones wait (an E2E's kill switch)")
     args = parser.parse_args(argv)
 
     backend = args.backend
@@ -934,6 +1131,10 @@ def main(argv=None):
     else:
         server = start(args.root, args.host, args.port, args.access_key, args.secret_key,
                        args.region, args.bucket, args.log, args.verbose)
+        if args.hold_parts_after is not None:
+            server.hold_parts_after(args.hold_parts_after)
+        if args.hold_gets_after is not None:
+            server.hold_gets_after(args.hold_gets_after)
     print("S3_SERVER_URL %s" % server.url, flush=True)
     print("[s3_server] %s backend on %s, region %s, buckets %s%s" % (
         backend, server.url, args.region, ", ".join(args.bucket) or "(none created)",

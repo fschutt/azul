@@ -7,6 +7,8 @@
 //! buckets behind it - iroh first, HTTPS as the fallback - when a build can dial iroh; any
 //! other store (a bucket in memory, a cache) implements the trait itself.
 
+use std::{io::Read, path::Path};
+
 use crate::error::CloudResult;
 
 /// Blobs above this are fetched in ranges, several at once, and HEADed before an upload (a
@@ -53,4 +55,26 @@ pub trait RemoteStore: Send + Sync {
     fn delete(&self, key: &str) -> CloudResult<()>;
     /// Every object under `prefix`.
     fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>>;
+
+    /// PUT of what `body` reads (`size` bytes), to its end; the ETag. A bucket streams it (a
+    /// big body in parts, never whole in memory, read to its end before it is completed - a
+    /// reader that fails there stops the upload); by default it is read into memory and put.
+    fn put_from(&self, key: &str, body: &mut dyn Read, size: u64) -> CloudResult<String> {
+        let mut data = Vec::with_capacity(usize::try_from(size).unwrap_or(0).min(BIG_BLOB as usize));
+        body.read_to_end(&mut data)?;
+        self.put(key, &data)
+    }
+
+    /// GET of an object of `size` bytes into the file `dest` (replaced); `false` when there is
+    /// none. A bucket fetches a big one in ranges, several at once, straight into the file; by
+    /// default it is fetched into memory and written.
+    fn fetch_to(&self, key: &str, size: u64, dest: &Path) -> CloudResult<bool> {
+        match self.fetch(key, size)? {
+            Some(bytes) => {
+                std::fs::write(dest, bytes)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
 }

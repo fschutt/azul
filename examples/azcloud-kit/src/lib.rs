@@ -50,6 +50,9 @@
 //! - [`bucket`]: [`Bucket`], the built-in one - S3 through azul-storage's SigV4 over the app's
 //!   transport, with the drive's endpoint failover, conditional requests, multipart uploads and
 //!   ranged downloads.
+//! - [`failover`]: the four failover layers of a drive's requests (the block endpoint, a node's
+//!   hint, the node list, the nodes' addresses) and their retries by the class of the answer -
+//!   the router of the bucket and of [`AzlinDrive`].
 //! - [`transport`]: [`CloudDrive`], one bucket over the transport a run chose: iroh first,
 //!   when a build that links iroh plugs in an [`IrohDialer`], HTTPS as the fallback.
 //! - [`sync`]: a folder against a drive prefix - one index object guarded by compare-and-swap,
@@ -84,6 +87,7 @@ pub mod drive;
 pub mod encryption;
 pub mod endpoints;
 pub mod error;
+pub mod failover;
 pub mod lock;
 pub mod pending;
 pub mod period;

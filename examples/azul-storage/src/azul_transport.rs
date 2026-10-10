@@ -11,15 +11,21 @@
 //!
 //! Never call it from a UI callback: the answer is delivered BY the UI thread,
 //! so waiting for it there would wait forever (the timeout ends the wait).
+//!
+//! Every `AzulTransport` of the process sends through ONE `HttpClient`: its connections
+//! are pooled (a multipart upload's parts and a download's ranges reuse them), and the
+//! fallback addresses a drive's failover hands it ([`Transport::fallback_addresses`]: a
+//! node reached at its IP when its name does not resolve, TLS still verified for the name)
+//! hold for every request.
 
 use std::{
-    sync::{mpsc, Mutex},
+    sync::{mpsc, Mutex, OnceLock},
     time::Duration,
 };
 
 use azul::{
     error::HttpError,
-    http::{HttpGetResult, HttpMethod, HttpRequestConfig},
+    http::{HttpClient, HttpClientConfig, HttpGetResult, HttpMethod, HttpRequestConfig},
     prelude::*,
     vec::U8Vec,
 };
@@ -56,6 +62,20 @@ impl AzulTransport {
 
 /// What the resume callback hands the waiting thread.
 type Answer = Result<HttpReply, String>;
+
+/// The connection pool every request of the process goes through.
+struct Pool(HttpClient);
+
+// SAFETY: the handle points to the library's `Arc<HttpClientInner>`: a ureq agent and a
+// mutex-guarded map of fallback addresses, both Send + Sync. Every call through the handle
+// takes `&self`, and a clone is the library's clone of the `Arc`.
+unsafe impl Send for Pool {}
+unsafe impl Sync for Pool {}
+
+fn pool() -> &'static Pool {
+    static POOL: OnceLock<Pool> = OnceLock::new();
+    POOL.get_or_init(|| Pool(HttpClient::create(HttpClientConfig::create())))
+}
 
 /// The resume callback's data: where the waiting thread listens.
 struct Waiter {
@@ -134,7 +154,8 @@ impl Transport for AzulTransport {
             .with_timeout(self.timeout_secs)
             // Downloads come in ranged chunks (transfer::CHUNK); no cap here.
             .with_max_size(0)
-            .with_user_agent(self.user_agent.as_str());
+            .with_user_agent(self.user_agent.as_str())
+            .with_client(pool().0.clone());
         for (name, value) in &call.headers {
             config = config.with_header(name.as_str(), value.as_str());
         }
@@ -157,5 +178,15 @@ impl Transport for AzulTransport {
                      running on an azul Thread?)",
                 )
             })?
+    }
+
+    /// The process's pool connects to `host` at `addresses` when its name does not resolve
+    /// (the request and TLS still name `host`).
+    fn fallback_addresses(&self, host: &str, addresses: &[String]) -> bool {
+        let mut took = false;
+        for address in addresses {
+            took |= pool().0.add_fallback_address(host, address.as_str());
+        }
+        took
     }
 }

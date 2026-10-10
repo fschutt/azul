@@ -98,9 +98,10 @@ pub const TOMBSTONE_DAYS: i64 = 90;
 pub const MAX_ATTEMPTS: u32 = 8;
 /// Below this many deletes a plan is never stopped as a mass delete.
 pub const MASS_DELETE_MIN: usize = 10;
-/// The biggest file a sync takes by default (each is held in memory while
-/// it travels).
-pub const MAX_FILE_BYTES: u64 = 1 << 30;
+/// The biggest file a sync takes by default: S3's largest object (5 TiB). A big file travels
+/// streamed - up in parts, its BLAKE3 checked as it is read; down into a file - never whole in
+/// memory.
+pub const MAX_FILE_BYTES: u64 = 5 * (1 << 40);
 
 /// How a run behaves.
 #[derive(Clone, Debug)]
@@ -663,6 +664,14 @@ trait SyncRemote: Sync {
     /// when the drive no longer has them.
     fn fetch_hash(&self, hash: &str, size: u64) -> CloudResult<Vec<u8>>;
 
+    /// [`SyncRemote::fetch`] into the file `dest` (a big file: in ranges, never whole in
+    /// memory where the drive can), checked the same way; the content's hash for the base.
+    fn fetch_to(&self, key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {
+        let bytes = self.fetch(key, hash, size)?;
+        fs::write(dest, &bytes)?;
+        Ok(content_hash(hash, &bytes))
+    }
+
     /// Puts what the plan sends to the drive where the commit can name it; the keys whose
     /// upload waits for the next run (their file changed, the run was stopped, ...).
     fn upload(&self, work: &Uploads<'_>, report: &mut SyncReport)
@@ -725,6 +734,18 @@ impl<S: RemoteStore + ?Sized> SyncRemote for BlobIndex<'_, S> {
 
     fn fetch_hash(&self, hash: &str, size: u64) -> CloudResult<Vec<u8>> {
         fetch_blob(self.store, &self.prefix, hash, size)
+    }
+
+    fn fetch_to(&self, _key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {
+        let key = remote::blob_key(&self.prefix, hash);
+        if !self.store.fetch_to(&key, size, dest)? {
+            fail!("the blob {key} is missing from the drive");
+        }
+        if local::hash_file(dest)? != hash {
+            let _ = fs::remove_file(dest);
+            fail!("the blob {key} is damaged: its BLAKE3 is not its name");
+        }
+        Ok(hash.to_string())
     }
 
     fn upload(
@@ -826,6 +847,110 @@ enum Outcome {
     Cancelled,
 }
 
+/// A file read for a streamed upload, hashed as it is read: at its end a content that is not
+/// the one expected fails the read - the upload stops before it is completed (no blob under a
+/// name its content does not have) - and [`CheckedRead::changed`] says why.
+struct CheckedRead {
+    file: fs::File,
+    hasher: blake3::Hasher,
+    expected: String,
+    read: u64,
+    ended: bool,
+    changed: bool,
+}
+
+impl CheckedRead {
+    fn new(file: fs::File, expected: &str) -> CheckedRead {
+        CheckedRead {
+            file,
+            hasher: blake3::Hasher::new(),
+            expected: expected.to_string(),
+            read: 0,
+            ended: false,
+            changed: false,
+        }
+    }
+
+    /// The file's content was not the one expected.
+    fn changed(&self) -> bool {
+        self.changed
+    }
+
+    /// The bytes read so far.
+    fn bytes(&self) -> u64 {
+        self.read
+    }
+}
+
+impl std::io::Read for CheckedRead {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let changed = || {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "the file changed while it was synced",
+            )
+        };
+        if self.changed {
+            return Err(changed());
+        }
+        if self.ended {
+            return Ok(0);
+        }
+        let n = std::io::Read::read(&mut self.file, buf)?;
+        if n > 0 {
+            self.hasher.update(&buf[..n]);
+            self.read += n as u64;
+            return Ok(n);
+        }
+        self.ended = true;
+        if self.hasher.finalize().to_hex().as_str() != self.expected {
+            self.changed = true;
+            return Err(changed());
+        }
+        Ok(0)
+    }
+}
+
+/// The job's file opened for a streamed upload (a file above [`BIG_BLOB`]), checked against its
+/// hash as it is read; `None` for a job whose bytes are made here (small ones, JSON).
+fn streamed(job: &BlobJob) -> Option<Result<CheckedRead, String>> {
+    match &job.source {
+        BlobSource::File(path) if job.size > BIG_BLOB => Some(
+            fs::File::open(path)
+                .map(|file| CheckedRead::new(file, &job.hash))
+                .map_err(|e| format!("cannot be read ({e})")),
+        ),
+        _ => None,
+    }
+}
+
+/// A file in the system's temporary folder a big download comes into, named after what it
+/// holds (a download cut short resumes there next time); removed when dropped.
+struct TempBlob(PathBuf);
+
+impl TempBlob {
+    fn for_download(key: &str, hash: &str) -> TempBlob {
+        let name = blake3::hash(format!("{key}\n{hash}").as_bytes()).to_hex();
+        TempBlob(std::env::temp_dir().join(format!("azcloud-sync-{}.blob", &name.as_str()[..32])))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempBlob {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// What came down for a file: its bytes, or (a big one) a file holding them and their hash.
+enum Blob {
+    Bytes(Vec<u8>),
+    File { file: TempBlob, hash: String },
+}
+
 /// The bytes a job uploads, unless its file changed since the scan.
 fn job_bytes(job: &BlobJob) -> Result<Vec<u8>, String> {
     let bytes = match &job.source {
@@ -852,6 +977,23 @@ fn upload_one<S: RemoteStore + ?Sized>(
     prefix: &str,
     job: &BlobJob,
 ) -> CloudResult<Outcome> {
+    if let Some(reader) = streamed(job) {
+        let key = remote::blob_key(prefix, &job.hash);
+        if store.head(&key)?.is_some() {
+            return Ok(Outcome::Existed);
+        }
+        let mut reader = match reader {
+            Ok(reader) => reader,
+            Err(why) => return Ok(Outcome::Changed(why)),
+        };
+        return match store.put_from(&key, &mut reader, job.size) {
+            Ok(_) => Ok(Outcome::Uploaded(reader.bytes())),
+            Err(_) if reader.changed() => Ok(Outcome::Changed(String::from(
+                "changed while it was synced",
+            ))),
+            Err(e) => Err(e),
+        };
+    }
     let bytes = match job_bytes(job) {
         Ok(bytes) => bytes,
         Err(why) => return Ok(Outcome::Changed(why)),
@@ -1274,6 +1416,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
             }
             drop(sender);
             for (i, blob) in fetched {
+                let blob = blob.map(Blob::Bytes);
                 write_download(&drive, root, &small[i], blob, hooks, base, report);
             }
         });
@@ -1282,7 +1425,20 @@ fn apply_local<R: SyncRemote + ?Sized>(
         if hooks.cancelled() {
             break;
         }
-        let blob = fetch(d);
+        // A big file comes down into a file, never whole in memory (a JSON-merge file is small).
+        let blob = if root.json_merge.iter().any(|k| *k == d.key) {
+            fetch(d).map(Blob::Bytes)
+        } else {
+            hooks.tell(SyncEvent::Started {
+                key: d.key.clone(),
+                up: false,
+                bytes: d.size,
+            });
+            let file = TempBlob::for_download(&d.key, &d.hash);
+            remote_side
+                .fetch_to(&d.key, &d.hash, d.size, file.path())
+                .map(|hash| Blob::File { file, hash })
+        };
         write_download(&drive, root, d, blob, hooks, base, report);
     }
 }
@@ -1294,7 +1450,7 @@ fn write_download(
     drive: &LocalDrive,
     root: &LocalRoot,
     d: &Download,
-    blob: CloudResult<Vec<u8>>,
+    blob: CloudResult<Blob>,
     hooks: &RunHooks<'_>,
     base: &mut BTreeMap<String, BaseEntry>,
     report: &mut SyncReport,
@@ -1316,12 +1472,16 @@ fn write_download(
             return;
         }
     };
-    let hash = content_hash(&d.hash, &blob);
-    let bytes = if root.json_merge.iter().any(|k| *k == d.key) {
-        let current = fs::read(local::path_of(&root.path, &d.key)).ok();
-        local::json_with_local_keys(&blob, current.as_deref()).unwrap_or(blob)
-    } else {
-        blob
+    let hash = match &blob {
+        Blob::Bytes(bytes) => content_hash(&d.hash, bytes),
+        Blob::File { hash, .. } => hash.clone(),
+    };
+    let blob = match blob {
+        Blob::Bytes(bytes) if root.json_merge.iter().any(|k| *k == d.key) => {
+            let current = fs::read(local::path_of(&root.path, &d.key)).ok();
+            Blob::Bytes(local::json_with_local_keys(&bytes, current.as_deref()).unwrap_or(bytes))
+        }
+        other => other,
     };
     if !local::still_as_scanned(&root.path, &d.key, d.expect.as_ref()) {
         report.changed_during_sync.push(format!(
@@ -1331,13 +1491,19 @@ fn write_download(
         finished(Some(String::from("changed here during the run")));
         return;
     }
-    match drive.put(&d.key, &bytes) {
-        Ok(()) => {
+    let written = match &blob {
+        Blob::Bytes(bytes) => drive.put(&d.key, bytes).map(|()| bytes.len() as u64),
+        Blob::File { file, .. } => fs::File::open(file.path())
+            .map_err(azul_storage::DriveError::from)
+            .and_then(|mut from| drive.put_from(&d.key, &mut from)),
+    };
+    match written {
+        Ok(written) => {
             if let Some(entry) = local::entry_now(&root.path, &d.key, &hash) {
                 base.insert(d.key.clone(), entry);
             }
             report.files_down += 1;
-            report.bytes_down += bytes.len() as u64;
+            report.bytes_down += written;
             finished(None);
         }
         Err(e) => {
@@ -1765,12 +1931,25 @@ fn fetch_one<R: SyncRemote + ?Sized>(
     let file = remote.files.get(key).ok_or_else(|| {
         CloudError::failed(format!("{key} is not on the drive (any more)"))
     })?;
-    let bytes = remote_side.fetch(key, &file.hash, file.size)?;
-    if fs::symlink_metadata(&path).is_ok() {
-        fail!("{key} turned up on this device meanwhile; it is left as it is");
-    }
-    root.drive().put(key, &bytes)?;
-    if let Some(entry) = local::entry_now(&root.path, key, &content_hash(&file.hash, &bytes)) {
+    let hash = if file.size > BIG_BLOB {
+        // Into a file first, never whole in memory.
+        let blob = TempBlob::for_download(key, &file.hash);
+        let hash = remote_side.fetch_to(key, &file.hash, file.size, blob.path())?;
+        if fs::symlink_metadata(&path).is_ok() {
+            fail!("{key} turned up on this device meanwhile; it is left as it is");
+        }
+        root.drive()
+            .put_from(key, &mut fs::File::open(blob.path())?)?;
+        hash
+    } else {
+        let bytes = remote_side.fetch(key, &file.hash, file.size)?;
+        if fs::symlink_metadata(&path).is_ok() {
+            fail!("{key} turned up on this device meanwhile; it is left as it is");
+        }
+        root.drive().put(key, &bytes)?;
+        content_hash(&file.hash, &bytes)
+    };
+    if let Some(entry) = local::entry_now(&root.path, key, &hash) {
         index.files.insert(key.to_string(), entry);
     }
     index.save(index_path)?;

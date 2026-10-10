@@ -2,15 +2,24 @@
 //!
 //! Six calls of the S3 API, each signed with SigV4: ListObjectsV2 (with
 //! continuation tokens), GetObject (with `Range`), PutObject (also conditional:
-//! `If-None-Match: *`, `If-Match`; a streamed body above [`PART_SIZE`] as a multipart
-//! upload, a part at a time), CopyObject, DeleteObject and HeadObject; any other
+//! `If-None-Match: *`, `If-Match`; a streamed body or a file above [`PART_SIZE`] as a
+//! multipart upload, [`PARALLEL_PARTS`] parts at once, a file's resumable: see
+//! [`crate::multipart`]), CopyObject, DeleteObject and HeadObject; any other
 //! request (a conditional read) is signed the same way by [`S3Drive::send_raw`].
 //! Error answers become
 //! [`ServiceError`]s that say what the service said. The requests are built here and sent through a
 //! [`Transport`], so the same code runs over azul's HTTP client in the apps and
 //! over a recording fake in the tests.
 
-use std::{fmt, io::Read};
+use std::{
+    fmt,
+    io::Read,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -26,9 +35,9 @@ const MAX_KEY_BYTES: usize = 1024;
 
 /// Bytes of one part of a multipart upload, and the most [`Drive::put_from`] sends in one
 /// PUT (S3 takes parts of 5 MiB to 5 GiB, all but the last at least 5 MiB).
-pub const PART_SIZE: usize = 8 * 1024 * 1024;
-/// The most parts of one upload (S3's limit).
-const MAX_PARTS: usize = 10_000;
+pub const PART_SIZE: usize = 16 * 1024 * 1024;
+/// Parts of one upload in flight at once.
+pub const PARALLEL_PARTS: usize = 4;
 
 /// Where the bucket is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,13 +274,6 @@ fn content_type_for(key: &str) -> &'static str {
     }
 }
 
-/// Up to `size` bytes of `body` (fewer only where it ends).
-fn read_part(body: &mut dyn Read, size: usize) -> Result<Vec<u8>, DriveError> {
-    let mut part = Vec::with_capacity(size);
-    (&mut *body).take(size as u64).read_to_end(&mut part)?;
-    Ok(part)
-}
-
 /// Text for an XML element: `&`, `<` and `>` escaped (an ETag's quotes may stay).
 fn xml_escape(text: &str) -> String {
     text.replace('&', "&amp;")
@@ -289,12 +291,28 @@ fn quoted_etag(etag: &str) -> String {
     }
 }
 
-/// The error of a failed answer: a missing key and a bad range become their own
-/// variants, everything else a readable [`ServiceError`].
 /// How often a conditional PUT is sent when S3 answers 409 (another conditional write of
 /// the object in flight).
 const CONDITIONAL_TRIES: u32 = 4;
 
+/// The header a conditional write sends: `If-None-Match: *` or `If-Match: "<etag>"`.
+fn condition_header(condition: &Precondition) -> (String, String) {
+    match condition {
+        Precondition::Absent => (String::from("if-none-match"), String::from("*")),
+        Precondition::Matches(etag) => (String::from("if-match"), quoted_etag(etag)),
+    }
+}
+
+/// A short random wait before a conditional write that met another one in flight (409) is
+/// sent again (`attempt` from 1: the ceiling doubles).
+fn conflict_pause(attempt: u32) {
+    let ceiling = 5u64 << attempt;
+    let wait = 1 + crate::ids::random_seed() % ceiling;
+    std::thread::sleep(std::time::Duration::from_millis(wait));
+}
+
+/// The error of a failed answer: a missing key and a bad range become their own
+/// variants, everything else a readable [`ServiceError`].
 fn failure(reply: &HttpReply, key: Option<&str>) -> DriveError {
     let mut error = xml::parse_error(reply.status, &String::from_utf8_lossy(&reply.body));
     // An Azlin node's code and pause, and the request ID a body without one leaves out (D33).
@@ -327,6 +345,73 @@ pub fn parse_listing(xml: &str) -> Result<ListPage, DriveError> {
     xml::parse_list(xml)
 }
 
+/// One request of an [`S3Drive`] as its [`Router`] sends it: what it is about, and how to sign
+/// it for an endpoint (SigV4 signs the host, so every endpoint tried gets its own signature).
+pub struct Routed<'a> {
+    method: Method,
+    key: Option<&'a str>,
+    endpoint: &'a str,
+    sign: &'a dyn Fn(&str) -> Result<HttpCall, DriveError>,
+}
+
+impl<'a> Routed<'a> {
+    /// A request on the object `key` (`None`: the bucket) of a drive at `endpoint`; `sign` makes
+    /// it for any endpoint (a URL like [`S3Config::endpoint`]).
+    pub fn new(
+        method: Method,
+        key: Option<&'a str>,
+        endpoint: &'a str,
+        sign: &'a dyn Fn(&str) -> Result<HttpCall, DriveError>,
+    ) -> Self {
+        Routed {
+            method,
+            key,
+            endpoint,
+            sign,
+        }
+    }
+
+    #[must_use]
+    pub fn method(&self) -> Method {
+        self.method
+    }
+
+    /// The object the request is about; `None`: the bucket (a listing).
+    #[must_use]
+    pub fn key(&self) -> Option<&'a str> {
+        self.key
+    }
+
+    /// The drive's own endpoint ([`S3Config::endpoint`]).
+    #[must_use]
+    pub fn endpoint(&self) -> &'a str {
+        self.endpoint
+    }
+
+    /// The request signed for `endpoint` (scheme, host, port, an optional base path).
+    ///
+    /// # Errors
+    ///
+    /// An endpoint that is not an http(s) URL.
+    pub fn signed_for(&self, endpoint: &str) -> Result<HttpCall, DriveError> {
+        (self.sign)(endpoint)
+    }
+}
+
+/// Where an [`S3Drive`]'s requests go and how often they are tried: the seam of a drive whose
+/// bucket answers at several endpoints (an Azlin drive's block endpoint and nodes,
+/// azcloud-kit's failover). [`Router::send`] sends one request - [`Routed::signed_for`] each
+/// endpoint it tries, through `transport` - and returns the answer the drive reads (any
+/// status), or why no endpoint answered. Without a router every request goes once to the
+/// drive's endpoint.
+pub trait Router: Send + Sync {
+    fn send(
+        &self,
+        request: &Routed<'_>,
+        transport: &dyn Transport,
+    ) -> Result<HttpReply, DriveError>;
+}
+
 /// A bucket, reached through a [`Transport`].
 pub struct S3Drive {
     config: S3Config,
@@ -336,6 +421,13 @@ pub struct S3Drive {
     clock: Box<dyn Fn() -> u64 + Send + Sync>,
     /// The part size of a streamed upload ([`PART_SIZE`]).
     part_size: usize,
+    /// Parts in flight at once ([`PARALLEL_PARTS`]).
+    parallel: AtomicUsize,
+    /// Where the state files of resumable uploads go; `None`: the app's
+    /// ([`crate::multipart::resume_folder`]).
+    resume_dir: Option<PathBuf>,
+    /// Where each request goes and how often it is tried; `None`: once, to the endpoint.
+    router: Option<Arc<dyn Router>>,
 }
 
 impl fmt::Debug for S3Drive {
@@ -368,6 +460,9 @@ impl S3Drive {
             transport,
             clock: Box::new(now_unix),
             part_size: PART_SIZE,
+            parallel: AtomicUsize::new(PARALLEL_PARTS),
+            resume_dir: None,
+            router: None,
         })
     }
 
@@ -386,73 +481,157 @@ impl S3Drive {
         self
     }
 
+    /// Sends up to `parallel` parts of an upload at once (at least one) instead of
+    /// [`PARALLEL_PARTS`].
+    #[must_use]
+    pub fn with_parallel(self, parallel: usize) -> Self {
+        self.set_parallel(parallel);
+        self
+    }
+
+    /// Sends up to `parallel` parts of an upload at once (at least one) from now on.
+    pub fn set_parallel(&self, parallel: usize) {
+        self.parallel.store(parallel.max(1), Ordering::Relaxed);
+    }
+
+    /// Keeps the state files of resumable uploads ([`Drive::put_file`]) in `folder` instead of
+    /// the app's ([`crate::multipart::set_resume_folder`]).
+    #[must_use]
+    pub fn with_resume_dir(mut self, folder: impl Into<PathBuf>) -> Self {
+        self.resume_dir = Some(folder.into());
+        self
+    }
+
+    /// Sends every request through `router` (an endpoint failover: several endpoints, retries)
+    /// instead of once to the drive's endpoint.
+    #[must_use]
+    pub fn with_router(mut self, router: Arc<dyn Router>) -> Self {
+        self.router = Some(router);
+        self
+    }
+
+    /// The part size of an upload.
+    #[must_use]
+    pub fn part_size(&self) -> usize {
+        self.part_size
+    }
+
+    /// Parts of an upload in flight at once.
+    #[must_use]
+    pub fn parallel(&self) -> usize {
+        self.parallel.load(Ordering::Relaxed)
+    }
+
+    /// [`Drive::put_from`] with the new version's ETag (without its quotes) when the service
+    /// said it: one PUT for a body of one part or less, else a multipart upload.
+    pub fn put_stream(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+    ) -> Result<(u64, Option<String>), DriveError> {
+        check_s3_key(key)?;
+        crate::multipart::upload_stream(self, key, body, None)
+    }
+
+    /// Where the state files of resumable uploads go, if anywhere.
+    #[must_use]
+    pub fn resume_dir(&self) -> Option<PathBuf> {
+        self.resume_dir
+            .clone()
+            .or_else(crate::multipart::resume_folder)
+    }
+
+    /// Now, by the drive's clock (seconds since 1970).
+    pub(crate) fn now(&self) -> u64 {
+        (self.clock)()
+    }
+
+    /// Aborts this bucket's unfinished uploads in the resume folder that will not be resumed -
+    /// stale, or their file is gone or changed - and forgets them; how many. Uploads that get no
+    /// answer stay for the next sweep.
+    pub fn abort_stale_uploads(&self) -> usize {
+        crate::multipart::abort_stale(self)
+    }
+
     #[must_use]
     pub fn config(&self) -> &S3Config {
         &self.config
     }
 
-    /// The host the requests go to.
-    fn host(&self) -> String {
+    /// The host the requests to `endpoint` go to.
+    fn host_at(&self, endpoint: &Endpoint) -> String {
         if self.config.path_style {
-            self.endpoint.authority()
+            endpoint.authority()
         } else {
-            format!("{}.{}", self.config.bucket, self.endpoint.authority())
+            format!("{}.{}", self.config.bucket, endpoint.authority())
         }
     }
 
-    /// The path of the bucket itself (ListObjectsV2).
-    fn bucket_path(&self) -> String {
+    /// The host the requests go to.
+    fn host(&self) -> String {
+        self.host_at(&self.endpoint)
+    }
+
+    /// The path of the bucket itself (ListObjectsV2) at `endpoint`.
+    fn bucket_path_at(&self, endpoint: &Endpoint) -> String {
         if self.config.path_style {
             format!(
                 "{}/{}",
-                self.endpoint.base_path,
+                endpoint.base_path,
                 sigv4::uri_encode(&self.config.bucket, true)
             )
         } else {
-            format!("{}/", self.endpoint.base_path)
+            format!("{}/", endpoint.base_path)
+        }
+    }
+
+    /// The path of an object at `endpoint`: the key encoded, its slashes kept.
+    fn object_path_at(&self, endpoint: &Endpoint, key: &str) -> String {
+        if self.config.path_style {
+            format!(
+                "{}/{}/{}",
+                endpoint.base_path,
+                sigv4::uri_encode(&self.config.bucket, true),
+                sigv4::uri_encode(key, false)
+            )
+        } else {
+            format!("{}/{}", endpoint.base_path, sigv4::uri_encode(key, false))
         }
     }
 
     /// The path of an object: the key encoded, its slashes kept.
     fn object_path(&self, key: &str) -> String {
-        if self.config.path_style {
-            format!(
-                "{}/{}/{}",
-                self.endpoint.base_path,
-                sigv4::uri_encode(&self.config.bucket, true),
-                sigv4::uri_encode(key, false)
-            )
-        } else {
-            format!(
-                "{}/{}",
-                self.endpoint.base_path,
-                sigv4::uri_encode(key, false)
-            )
-        }
+        self.object_path_at(&self.endpoint, key)
     }
 
-    /// One signed request. `extra` are further headers to send and sign (`range`).
-    fn build(
+    /// One request on the object `key` (`None`: the bucket) signed for `endpoint`. `extra` are
+    /// further headers to send and sign (`range`); `payload_hash` is the body's SHA-256.
+    #[allow(clippy::too_many_arguments)]
+    fn build_at(
         &self,
+        endpoint: &Endpoint,
         method: Method,
-        path: String,
-        query: Vec<(String, String)>,
-        extra: Vec<(String, String)>,
+        key: Option<&str>,
+        query: &[(String, String)],
+        extra: &[(String, String)],
         body: Vec<u8>,
+        payload_hash: &str,
         content_type: &str,
     ) -> HttpCall {
         let date = amz_date((self.clock)());
-        let payload_hash = if body.is_empty() {
-            EMPTY_SHA256.to_string()
-        } else {
-            sigv4::sha256_hex(&body)
+        let host = self.host_at(endpoint);
+        let path = match key {
+            Some(key) => self.object_path_at(endpoint, key),
+            None => self.bucket_path_at(endpoint),
         };
-        let host = self.host();
         let mut headers = vec![
-            (String::from("x-amz-content-sha256"), payload_hash.clone()),
+            (
+                String::from("x-amz-content-sha256"),
+                payload_hash.to_string(),
+            ),
             (String::from("x-amz-date"), date.clone()),
         ];
-        headers.extend(extra);
+        headers.extend(extra.iter().cloned());
         if let Some(token) = &self.credentials.session_token {
             headers.push((String::from("x-amz-security-token"), token.clone()));
         }
@@ -468,16 +647,16 @@ impl S3Drive {
             },
             method.as_str(),
             &path,
-            &query,
+            query,
             &signed_headers,
-            &payload_hash,
+            payload_hash,
         );
         headers.push((String::from("authorization"), signed.authorization));
-        let query_string = sigv4::canonical_query(&query);
+        let query_string = sigv4::canonical_query(query);
         let url = if query_string.is_empty() {
-            format!("{}://{host}{path}", self.endpoint.scheme)
+            format!("{}://{host}{path}", endpoint.scheme)
         } else {
-            format!("{}://{host}{path}?{query_string}", self.endpoint.scheme)
+            format!("{}://{host}{path}?{query_string}", endpoint.scheme)
         };
         HttpCall {
             method,
@@ -490,6 +669,58 @@ impl S3Drive {
             },
             body,
         }
+    }
+
+    /// Sends one request on the object `key` (`None`: the bucket): to the drive's endpoint, or
+    /// through its [`Router`], which signs it anew for every endpoint it tries.
+    fn request(
+        &self,
+        method: Method,
+        key: Option<&str>,
+        query: Vec<(String, String)>,
+        extra: Vec<(String, String)>,
+        body: Vec<u8>,
+        content_type: &str,
+    ) -> Result<HttpReply, DriveError> {
+        let payload_hash = if body.is_empty() {
+            EMPTY_SHA256.to_string()
+        } else {
+            sigv4::sha256_hex(&body)
+        };
+        let Some(router) = &self.router else {
+            let call = self.build_at(
+                &self.endpoint,
+                method,
+                key,
+                &query,
+                &extra,
+                body,
+                &payload_hash,
+                content_type,
+            );
+            return self.send(&call);
+        };
+        let sign = |url: &str| -> Result<HttpCall, DriveError> {
+            let same = url.trim().trim_end_matches('/')
+                == self.config.endpoint.trim().trim_end_matches('/');
+            let endpoint = if same {
+                self.endpoint.clone()
+            } else {
+                Endpoint::parse(url)?
+            };
+            Ok(self.build_at(
+                &endpoint,
+                method,
+                key,
+                &query,
+                &extra,
+                body.clone(),
+                &payload_hash,
+                content_type,
+            ))
+        };
+        let routed = Routed::new(method, key, &self.config.endpoint, &sign);
+        router.send(&routed, self.transport.as_ref())
     }
 
     /// A link anyone holding it can download `key` with for `expires_secs` (S3 takes at most
@@ -565,15 +796,10 @@ impl S3Drive {
         body: Vec<u8>,
         content_type: &str,
     ) -> Result<HttpReply, DriveError> {
-        let path = match key {
-            Some(key) => {
-                check_s3_key(key)?;
-                self.object_path(key)
-            }
-            None => self.bucket_path(),
-        };
-        let call = self.build(method, path, query, extra, body, content_type);
-        self.send(&call)
+        if let Some(key) = key {
+            check_s3_key(key)?;
+        }
+        self.request(method, key, query, extra, body, content_type)
     }
 
     /// The error of a failed answer to a request on `key` (`None`: on the bucket itself): a
@@ -584,8 +810,24 @@ impl S3Drive {
         failure(reply, key)
     }
 
+    /// PutObject of `bytes`: the new version's ETag, when the service sent one.
+    pub(crate) fn put_object(
+        &self,
+        key: &str,
+        bytes: Vec<u8>,
+    ) -> Result<Option<String>, DriveError> {
+        let reply = self.object_call(Method::Put, key, Vec::new(), bytes)?;
+        if !reply.is_success() {
+            return Err(failure(&reply, Some(key)));
+        }
+        Ok(reply
+            .header("etag")
+            .map(xml::strip_quotes)
+            .filter(|e| !e.is_empty()))
+    }
+
     /// CreateMultipartUpload: the upload's id.
-    fn start_multipart(&self, key: &str) -> Result<String, DriveError> {
+    pub fn start_multipart(&self, key: &str) -> Result<String, DriveError> {
         let reply = self.send_raw(
             Method::Post,
             Some(key),
@@ -606,8 +848,9 @@ impl S3Drive {
             })
     }
 
-    /// UploadPart `number` (from 1): the part's ETag as the service sent it.
-    fn upload_part(
+    /// UploadPart `number` (from 1) of the upload `upload`: the part's ETag as the service sent
+    /// it (quotes included).
+    pub fn upload_part(
         &self,
         key: &str,
         upload: &str,
@@ -639,77 +882,112 @@ impl S3Drive {
             })
     }
 
-    /// The parts of a multipart upload - `first`, `second`, then what `body` still reads, a part
-    /// at a time - and CompleteMultipartUpload; the bytes sent.
-    fn send_parts(
+    /// CompleteMultipartUpload of `parts` (number, ETag), only when `condition` holds when it is
+    /// asked (S3 checks `If-None-Match: *` / `If-Match` on the completion): the new version's
+    /// ETag when the service says it; [`DriveError::Conflict`] for a 412 (nothing was written;
+    /// the parts are still there - abort them).
+    pub fn complete_multipart(
         &self,
         key: &str,
         upload: &str,
-        first: Vec<u8>,
-        second: Vec<u8>,
-        body: &mut dyn Read,
-    ) -> Result<u64, DriveError> {
-        let mut etags: Vec<String> = Vec::new();
-        let mut written = 0u64;
-        let mut part = first;
-        let mut queued = Some(second);
-        loop {
-            let number = etags.len() + 1;
-            if number > MAX_PARTS {
-                return Err(DriveError::Unsupported(format!(
-                    "{key}: an upload of more than {MAX_PARTS} parts of {} bytes",
-                    self.part_size
-                )));
-            }
-            written += part.len() as u64;
-            etags.push(self.upload_part(key, upload, number, part)?);
-            part = match queued.take() {
-                Some(next) => next,
-                None => read_part(body, self.part_size)?,
-            };
-            if part.is_empty() {
-                break;
-            }
-        }
+        parts: &[(usize, String)],
+        condition: Option<&Precondition>,
+    ) -> Result<Option<String>, DriveError> {
         let mut manifest = String::from("<CompleteMultipartUpload>");
-        for (i, etag) in etags.iter().enumerate() {
+        for (number, etag) in parts {
             manifest.push_str(&format!(
-                "<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>",
-                i + 1,
+                "<Part><PartNumber>{number}</PartNumber><ETag>{}</ETag></Part>",
                 xml_escape(etag)
             ));
         }
         manifest.push_str("</CompleteMultipartUpload>");
-        let reply = self.send_raw(
-            Method::Post,
-            Some(key),
-            vec![(String::from("uploadId"), upload.to_string())],
-            Vec::new(),
-            manifest.into_bytes(),
-            "application/xml",
-        )?;
+        let extra: Vec<(String, String)> = condition.map(condition_header).into_iter().collect();
+        let mut attempt = 1;
+        let reply = loop {
+            let reply = self.send_raw(
+                Method::Post,
+                Some(key),
+                vec![(String::from("uploadId"), upload.to_string())],
+                extra.clone(),
+                manifest.clone().into_bytes(),
+                "application/xml",
+            )?;
+            if reply.status == 412 {
+                return Err(DriveError::Conflict {
+                    key: key.to_string(),
+                });
+            }
+            // Another conditional write in flight (409): nothing was written; ask again.
+            if reply.status == 409 && condition.is_some() && attempt < CONDITIONAL_TRIES {
+                conflict_pause(attempt);
+                attempt += 1;
+                continue;
+            }
+            break reply;
+        };
         if !reply.is_success() {
             return Err(failure(&reply, Some(key)));
         }
         // A 200 can still carry an error: the service answers early and finishes later.
         let done = String::from_utf8_lossy(&reply.body);
         if done.contains("<Error>") {
-            return Err(DriveError::Service(xml::parse_error(500, &done)));
+            let error = xml::parse_error(500, &done);
+            if error.code == "PreconditionFailed" {
+                return Err(DriveError::Conflict {
+                    key: key.to_string(),
+                });
+            }
+            return Err(DriveError::Service(error));
         }
-        Ok(written)
+        Ok(reply
+            .header("etag")
+            .map(str::to_string)
+            .or_else(|| xml::first_text(&done, "ETag"))
+            .map(|e| xml::strip_quotes(&e))
+            .filter(|e| !e.is_empty()))
     }
 
-    /// AbortMultipartUpload: the parts sent so far are not left (and billed) behind. Best
-    /// effort: the upload failed already.
-    fn abort_multipart(&self, key: &str, upload: &str) {
-        let _ = self.send_raw(
+    /// AbortMultipartUpload: the parts sent so far are not left (and billed) behind.
+    pub fn abort_multipart(&self, key: &str, upload: &str) -> Result<(), DriveError> {
+        let reply = self.send_raw(
             Method::Delete,
             Some(key),
             vec![(String::from("uploadId"), upload.to_string())],
             Vec::new(),
             Vec::new(),
             "",
-        );
+        )?;
+        if reply.is_success() {
+            Ok(())
+        } else {
+            Err(failure(&reply, Some(key)))
+        }
+    }
+
+    /// ListParts: the parts the service holds of the upload `upload`, page by page.
+    pub fn list_parts(
+        &self,
+        key: &str,
+        upload: &str,
+    ) -> Result<Vec<crate::multipart::UploadedPart>, DriveError> {
+        let mut out = Vec::new();
+        let mut marker: Option<String> = None;
+        loop {
+            let mut query = vec![(String::from("uploadId"), upload.to_string())];
+            if let Some(marker) = &marker {
+                query.push((String::from("part-number-marker"), marker.clone()));
+            }
+            let reply = self.send_raw(Method::Get, Some(key), query, Vec::new(), Vec::new(), "")?;
+            if !reply.is_success() {
+                return Err(failure(&reply, Some(key)));
+            }
+            let (parts, next) = xml::parse_parts(&String::from_utf8_lossy(&reply.body))?;
+            out.extend(parts);
+            match next {
+                Some(next) if marker.as_deref() != Some(next.as_str()) => marker = Some(next),
+                _ => return Ok(out),
+            }
+        }
     }
 
     fn send(&self, call: &HttpCall) -> Result<HttpReply, DriveError> {
@@ -725,15 +1003,14 @@ impl S3Drive {
         body: Vec<u8>,
     ) -> Result<HttpReply, DriveError> {
         check_s3_key(key)?;
-        let call = self.build(
+        self.request(
             method,
-            self.object_path(key),
+            Some(key),
             Vec::new(),
             extra,
             body,
             content_type_for(key),
-        );
-        self.send(&call)
+        )
     }
 }
 
@@ -750,15 +1027,7 @@ impl Drive for S3Drive {
         if let Some(token) = &request.continuation {
             query.push((String::from("continuation-token"), token.clone()));
         }
-        let call = self.build(
-            Method::Get,
-            self.bucket_path(),
-            query,
-            Vec::new(),
-            Vec::new(),
-            "",
-        );
-        let reply = self.send(&call)?;
+        let reply = self.request(Method::Get, None, query, Vec::new(), Vec::new(), "")?;
         if !reply.is_success() {
             return Err(failure(&reply, None));
         }
@@ -801,37 +1070,42 @@ impl Drive for S3Drive {
     }
 
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        let reply = self.object_call(Method::Put, key, Vec::new(), bytes.to_vec())?;
-        if reply.is_success() {
-            Ok(())
-        } else {
-            Err(failure(&reply, Some(key)))
-        }
+        self.put_object(key, bytes.to_vec()).map(|_| ())
     }
 
     /// One PutObject for a body of one part or less ([`PART_SIZE`]); a bigger one goes up as a
-    /// multipart upload, a part at a time (one part in memory, two at the start), aborted
-    /// when a part fails.
+    /// multipart upload, [`PARALLEL_PARTS`] parts at once (that many in memory), read to its
+    /// end before it is completed, aborted when anything fails ([`crate::multipart`]).
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
         check_s3_key(key)?;
-        let first = read_part(body, self.part_size)?;
-        let second = if first.len() < self.part_size {
-            Vec::new()
-        } else {
-            read_part(body, self.part_size)?
-        };
-        if second.is_empty() {
-            self.put(key, &first)?;
-            return Ok(first.len() as u64);
-        }
-        let upload = self.start_multipart(key)?;
-        match self.send_parts(key, &upload, first, second, body) {
-            Ok(written) => Ok(written),
-            Err(e) => {
-                self.abort_multipart(key, &upload);
-                Err(e)
-            }
-        }
+        crate::multipart::upload_stream(self, key, body, None).map(|(written, _)| written)
+    }
+
+    /// [`S3Drive::put_from`]'s upload, completed only when `condition` holds (a body of one
+    /// part or less: [`Drive::put_if`]); a 412 is [`DriveError::Conflict`] and the parts are
+    /// aborted.
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        check_s3_key(key)?;
+        crate::multipart::upload_stream(self, key, body, Some(condition)).map(|(_, etag)| etag)
+    }
+
+    /// One PutObject for a file of one part or less; a bigger one goes up as a multipart
+    /// upload, [`PARALLEL_PARTS`] parts at once, read where each part lies - resumable with a
+    /// resume folder: an upload a killed app left behind goes on with the parts that are
+    /// missing ([`crate::multipart`]).
+    fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        check_s3_key(key)?;
+        crate::multipart::upload_file(self, key, path, None, progress).map(|(written, _)| written)
     }
 
     /// One PutObject with `If-None-Match: *` or `If-Match: "<etag>"` (AWS S3, R2 and
@@ -842,10 +1116,7 @@ impl Drive for S3Drive {
         bytes: &[u8],
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
-        let header = match condition {
-            Precondition::Absent => (String::from("if-none-match"), String::from("*")),
-            Precondition::Matches(etag) => (String::from("if-match"), quoted_etag(etag)),
-        };
+        let header = condition_header(condition);
         // A 409 (ConditionalRequestConflict: another conditional write of the object was in
         // flight, nothing was written) is sent again after a short random wait - the condition
         // is checked anew, so a write that went through meanwhile is a 412 then. After
@@ -865,9 +1136,7 @@ impl Drive for S3Drive {
                 });
             }
             if reply.status == 409 && attempt < CONDITIONAL_TRIES {
-                let ceiling = 5u64 << attempt;
-                let wait = 1 + crate::ids::random_seed() % ceiling;
-                std::thread::sleep(std::time::Duration::from_millis(wait));
+                conflict_pause(attempt);
                 attempt += 1;
                 continue;
             }

@@ -88,8 +88,10 @@ tokio = { version = "1.52", default-features = false, optional = true, features 
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc", "stream"], optional = true }
 # X25519: the drive key sealed to a member's key (AzMeet's features; keys from getrandom bytes).
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"], optional = true }
-# BLAKE3: the plaintext hash, the key commitment and every key derived from another.
-blake3 = { version = "1.8", optional = true }
+# BLAKE3: the plaintext hash, the key commitment and every key derived from another; the
+# start of a file a resumable upload checks (src/multipart.rs). Not optional: azul's tree has
+# 1.8.7 already (azcloud-kit, the encryption).
+blake3 = "1.8"
 # zstd level 3 per 1 MiB segment (the C library, as zip builds it); level 19 in the
 # recompression pass.
 zstd = { version = "0.13.3", default-features = false, optional = true }
@@ -132,7 +134,6 @@ sql = ["dep:sqlx", "dep:tokio"]
 encryption = [
     "dep:chacha20poly1305",
     "dep:x25519-dalek",
-    "dep:blake3",
     "dep:zstd",
     "dep:brotli",
     "dep:argon2",

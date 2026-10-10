@@ -8,9 +8,9 @@
 //! - A conditional PUT is the drive's [`Drive::put_if`] (S3 `If-Match` / `If-None-Match: *`);
 //!   a drive that cannot ask (a folder on disk) cannot hold a synced index.
 
-use std::sync::Arc;
+use std::{io::Read, path::Path, sync::Arc};
 
-use azul_storage::{ops, Drive, DriveError, Precondition};
+use azul_storage::{ops, transfer, Drive, DriveError, Precondition};
 
 use crate::{
     error::CloudResult,
@@ -114,6 +114,25 @@ impl RemoteStore for DriveStore {
 
     fn delete(&self, key: &str) -> CloudResult<()> {
         Ok(self.drive.delete(key)?)
+    }
+
+    fn put_from(&self, key: &str, body: &mut dyn Read, _size: u64) -> CloudResult<String> {
+        self.drive.put_from(key, body)?;
+        Ok(String::new())
+    }
+
+    fn fetch_to(&self, key: &str, size: u64, dest: &Path) -> CloudResult<bool> {
+        match transfer::download_to_file(
+            self.drive.as_ref(),
+            key,
+            Some(size),
+            dest,
+            transfer::CHUNK,
+        ) {
+            Ok(_) => Ok(true),
+            Err(DriveError::NotFound { .. }) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>> {

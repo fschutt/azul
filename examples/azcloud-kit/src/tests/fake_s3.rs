@@ -205,6 +205,9 @@ impl FakeS3 {
             (Method::Get, true) if query.get("list-type").map(String::as_str) == Some("2") => {
                 self.list_answer(&query)
             }
+            (Method::Get, false) if query.contains_key("uploadId") => {
+                self.parts_answer(&key, &query)
+            }
             (Method::Get, false) => {
                 self.get_answer(&key, header("if-none-match"), header("range"))
             }
@@ -217,7 +220,15 @@ impl FakeS3 {
             }
             (Method::Post, false) if query.contains_key("uploads") => self.start_answer(&key),
             (Method::Post, false) if query.contains_key("uploadId") => {
-                self.complete_answer(&key, &query)
+                self.complete_answer(&key, &query, header("if-none-match"), header("if-match"))
+            }
+            (Method::Delete, false) if query.contains_key("uploadId") => {
+                self.note("ABORT", &key);
+                let id = query.get("uploadId").cloned().unwrap_or_default();
+                match lock(&self.uploads).remove(&id) {
+                    Some(_) => reply(204, Vec::new(), Vec::new()),
+                    None => error(404, "NoSuchUpload", "The specified upload does not exist"),
+                }
             }
             (Method::Delete, false) => {
                 self.note("DELETE", &key);
@@ -345,9 +356,32 @@ impl FakeS3 {
         )
     }
 
-    fn complete_answer(&self, key: &str, query: &BTreeMap<String, String>) -> HttpReply {
+    fn complete_answer(
+        &self,
+        key: &str,
+        query: &BTreeMap<String, String>,
+        if_none_match: Option<String>,
+        if_match: Option<String>,
+    ) -> HttpReply {
         self.note("POST", key);
         let id = query.get("uploadId").cloned().unwrap_or_default();
+        if !lock(&self.uploads).contains_key(&id) {
+            return error(404, "NoSuchUpload", "The specified upload does not exist");
+        }
+        let current = lock(&self.objects).get(key).map(|o| o.etag.clone());
+        let holds = match (&if_match, &if_none_match, current.as_deref()) {
+            (Some(want), _, Some(have)) => want == have,
+            (Some(_), _, None) => false,
+            (None, Some(star), have) if star == "*" => have.is_none(),
+            _ => true,
+        };
+        if !holds {
+            return error(
+                412,
+                "PreconditionFailed",
+                "At least one of the pre-conditions you specified did not hold",
+            );
+        }
         let Some(parts) = lock(&self.uploads).remove(&id) else {
             return error(404, "NoSuchUpload", "The specified upload does not exist");
         };
@@ -364,6 +398,30 @@ impl FakeS3 {
             )
             .into_bytes(),
         )
+    }
+
+    /// ListParts of an upload under way.
+    fn parts_answer(&self, key: &str, query: &BTreeMap<String, String>) -> HttpReply {
+        self.note("PARTS", key);
+        let id = query.get("uploadId").cloned().unwrap_or_default();
+        let uploads = lock(&self.uploads);
+        let Some(parts) = uploads.get(&id) else {
+            return error(404, "NoSuchUpload", "The specified upload does not exist");
+        };
+        let mut xml = format!(
+            "<ListPartsResult><Bucket>{BUCKET}</Bucket><Key>{}</Key><UploadId>{id}</UploadId>\
+             <IsTruncated>false</IsTruncated>",
+            xml_escape(key)
+        );
+        for (number, bytes) in parts {
+            xml.push_str(&format!(
+                "<Part><PartNumber>{number}</PartNumber><ETag>&quot;part-{number}&quot;</ETag>\
+                 <Size>{}</Size></Part>",
+                bytes.len()
+            ));
+        }
+        xml.push_str("</ListPartsResult>");
+        reply(200, Vec::new(), xml.into_bytes())
     }
 
     fn list_answer(&self, query: &BTreeMap<String, String>) -> HttpReply {
@@ -485,5 +543,13 @@ impl RemoteStore for S3Bucket {
 
     fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>> {
         RemoteStore::list(&self.bucket, prefix)
+    }
+
+    fn put_from(&self, key: &str, body: &mut dyn std::io::Read, size: u64) -> CloudResult<String> {
+        RemoteStore::put_from(&self.bucket, key, body, size)
+    }
+
+    fn fetch_to(&self, key: &str, size: u64, dest: &std::path::Path) -> CloudResult<bool> {
+        RemoteStore::fetch_to(&self.bucket, key, size, dest)
     }
 }

@@ -212,4 +212,25 @@ impl Drive for ObjectCache {
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.inner.metadata(key)
     }
+
+    fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        self.evict(key)?;
+        self.inner.put_file(key, path, progress)
+    }
+
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn std::io::Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let written = self.inner.put_from_if(key, body, condition)?;
+        self.evict(key)?;
+        Ok(written)
+    }
 }
