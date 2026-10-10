@@ -26,7 +26,10 @@ use azul::{
         ToolbarItem,
     },
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{
+    l10n::{begin_layout, t, t_args, Arg},
+    ui as kit,
+};
 
 use crate::{
     ids,
@@ -67,6 +70,8 @@ fn strs(items: &[&str]) -> StringVec {
 }
 
 pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for every word this pass says.
+    begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let mut d = data.clone();
@@ -129,20 +134,17 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
          0px; overflow-y: auto; padding: 32px;",
     );
     let (title, detail) = if let Some(path) = s.loading.as_ref() {
-        ("Opening\u{2026}".to_string(), file_title(path))
+        (t("azpdf-opening-empty"), file_title(path))
     } else if let Some(why) = s.error.as_ref() {
-        ("The PDF could not be opened".to_string(), why.clone())
+        (t("azpdf-could-not-open"), why.clone())
     } else {
-        (
-            "No document open".to_string(),
-            "Open a PDF, drop one on this window, or pick a recent document.".to_string(),
-        )
+        (t("azpdf-no-document"), t("azpdf-no-document-detail"))
     };
     column.add_child(
         ShellEmptyState::create(title.as_str())
             .with_icon("picture_as_pdf")
             .with_detail(detail.as_str())
-            .with_action_label("Open PDF\u{2026}")
+            .with_action_label(t("azpdf-open-pdf-action"))
             .with_on_action(data.clone(), crate::on_open as ButtonOnClickCallbackType)
             .dom(),
     );
@@ -154,7 +156,7 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
          solid system:separator; border-radius: 6px; @theme(flora) { border-radius: 5px; }",
     );
     // Under flora the list's heading is flora's label (capitals in the label ink).
-    list.add_child(Dom::create_h2_with_text("Recent").with_css(
+    list.add_child(Dom::create_h2_with_text(t("azpdf-recent")).with_css(
         "font-size: 13px; font-weight: 600; margin: 0px; padding: 8px 12px; border-bottom: 1px \
          solid system:separator; @theme(flora) { font-size: 11px; font-weight: bold; \
          text-transform: uppercase; letter-spacing: 0.12em; color: system:secondary-text; }",
@@ -185,7 +187,14 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
         row.add_child(text);
         row.add_child(
             Dom::create_span_with_text(
-                format!("p. {} of {}", doc.last_page + 1, doc.pages.max(1)).as_str(),
+                t_args(
+                    "azpdf-recent-page",
+                    &[
+                        ("page", Arg::from(doc.last_page + 1)),
+                        ("count", Arg::from(doc.pages.max(1))),
+                    ],
+                )
+                .as_str(),
             )
             .with_css("font-size: 11px; color: system:secondary-text; flex-shrink: 0;"),
         );
@@ -205,17 +214,17 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     let count = s.doc.as_ref().map_or(0, crate::jobs::Doc::page_count);
     let page = s.current_page.min(count.saturating_sub(1));
 
-    let mut prev = ToolbarItem::create_button(ids::PREV, "Previous page", "chevron_left");
+    let mut prev = ToolbarItem::create_button(ids::PREV, t("azpdf-previous-page"), "chevron_left");
     if page == 0 {
-        prev = prev.with_disabled("This is the first page");
+        prev = prev.with_disabled(t("azpdf-first-page-now"));
     }
-    let mut next = ToolbarItem::create_button(ids::NEXT, "Next page", "chevron_right");
+    let mut next = ToolbarItem::create_button(ids::NEXT, t("azpdf-next-page"), "chevron_right");
     if page + 1 >= count {
-        next = next.with_disabled("This is the last page");
+        next = next.with_disabled(t("azpdf-last-page-now"));
     }
     let page_field = TextInput::create()
         .with_text(format!("{}", page + 1).as_str())
-        .with_accessibility_name("Page")
+        .with_accessibility_name(t("azpdf-page"))
         .with_on_virtual_key_down(
             data.clone(),
             crate::on_page_field_key as TextInputOnVirtualKeyDownCallbackType,
@@ -232,7 +241,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     let selected = choices.iter().position(|z| *z == s.zoom).unwrap_or(0);
     let zoom = DropDown::create(strs(&label_refs))
         .with_selected(selected)
-        .with_accessibility_name("Zoom")
+        .with_accessibility_name(t("azpdf-zoom"))
         .with_on_choice_change(
             data.clone(),
             crate::on_zoom_choice as DropDownOnChoiceChangeCallbackType,
@@ -241,8 +250,8 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
         .with_id(ids::ZOOM);
     let search = TextInput::create_search()
         .with_text(s.search.query.as_str())
-        .with_placeholder("Find in document")
-        .with_accessibility_name("Find in document")
+        .with_placeholder(t("azpdf-find"))
+        .with_accessibility_name(t("azpdf-find"))
         .with_on_virtual_key_down(
             data.clone(),
             crate::on_search_key as TextInputOnVirtualKeyDownCallbackType,
@@ -252,30 +261,35 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
 
     let has_form = s.doc.as_ref().is_some_and(|d| !d.fields.is_empty());
     let mut items = vec![
-        ToolbarItem::create_button(ids::OPEN, "Open", "folder_open").with_show_label(true),
+        ToolbarItem::create_button(ids::OPEN, t("azpdf-open"), "folder_open").with_show_label(true),
         ToolbarItem::create_separator(),
         prev,
-        ToolbarItem::create_custom(ids::PAGE_FIELD, "Page", page_field, 56.0),
-        ToolbarItem::create_custom(ids::PAGE_COUNT, "Page count", page_count, 40.0),
+        ToolbarItem::create_custom(ids::PAGE_FIELD, t("azpdf-page"), page_field, 56.0),
+        ToolbarItem::create_custom(
+            ids::PAGE_COUNT,
+            t("azpdf-page-count-name"),
+            page_count,
+            40.0,
+        ),
         next,
         ToolbarItem::create_separator(),
-        ToolbarItem::create_button(ids::ZOOM_OUT, "Zoom out", "remove"),
-        ToolbarItem::create_custom(ids::ZOOM, "Zoom", zoom, 110.0),
-        ToolbarItem::create_button(ids::ZOOM_IN, "Zoom in", "add"),
+        ToolbarItem::create_button(ids::ZOOM_OUT, t("azpdf-zoom-out"), "remove"),
+        ToolbarItem::create_custom(ids::ZOOM, t("azpdf-zoom"), zoom, 110.0),
+        ToolbarItem::create_button(ids::ZOOM_IN, t("azpdf-zoom-in"), "add"),
         ToolbarItem::create_spacer(),
-        ToolbarItem::create_custom(ids::SEARCH_FIELD, "Find in document", search, 220.0)
+        ToolbarItem::create_custom(ids::SEARCH_FIELD, t("azpdf-find"), search, 220.0)
             .with_never_overflow(true),
-        ToolbarItem::create_button(ids::SETTINGS, "Settings", "settings"),
+        ToolbarItem::create_button(ids::SETTINGS, t("azpdf-settings"), "settings"),
     ];
     if has_form {
         // After Open: the document's own command.
         items.insert(
             1,
-            ToolbarItem::create_button(ids::EXPORT_FILLED, "Export filled PDF", "download")
+            ToolbarItem::create_button(ids::EXPORT_FILLED, t("azpdf-export-filled"), "download")
                 .with_show_label(true),
         );
     }
-    Toolbar::create("Document")
+    Toolbar::create(t("azpdf-document"))
         .with_items(items)
         .with_on_event(data.clone(), on_toolbar as ToolbarOnEventCallbackType)
         .dom()
@@ -317,7 +331,7 @@ struct ViewData {
 fn page_view(data: &RefAny) -> Dom {
     Dom::create_virtual_view(RefAny::new(ViewData { app: data.clone() }), pages_view)
         .with_id(ids::PAGES)
-        .with_accessibility_name("Pages")
+        .with_accessibility_name(t("azpdf-pages"))
         .with_css(
             "flex-grow: 1; min-height: 0px; width: 100%; background: \
              system:under-page-background;",
@@ -427,7 +441,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
 fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<Dom>) -> Dom {
     let mut frame = Dom::create_div()
         .with_id(ids::numbered(ids::PAGE_PREFIX, page + 1))
-        .with_accessibility_name(format!("Page {}", page + 1).as_str())
+        .with_accessibility_name(t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str())
         .with_css(
             format!(
                 "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; \
@@ -448,7 +462,7 @@ fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<Dom>) -> 
                      height: 100%; color: #9a9a9a; font-size: 13px;",
                 )
                 .with_child(Dom::create_span_with_text(
-                    format!("Page {}", page + 1).as_str(),
+                    t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str(),
                 )),
         ),
     }
@@ -636,7 +650,7 @@ fn navigation(s: &AppState, data: &RefAny) -> Dom {
         Dom::create_div()
             .with_css("padding: 6px 8px; flex-shrink: 0;")
             .with_child(
-                Segmented::create(strs(&["Pages", "Outline"]))
+                Segmented::create(strs(&["azpdf-pages", "azpdf-outline"]))
                     .with_selected_index(usize::from(s.nav == Nav::Outline))
                     .with_on_change(
                         data.clone(),
@@ -650,7 +664,7 @@ fn navigation(s: &AppState, data: &RefAny) -> Dom {
         Nav::Pages => column.add_child(
             Dom::create_virtual_view(RefAny::new(ViewData { app: data.clone() }), thumbs_view)
                 .with_id(ids::THUMBS)
-                .with_accessibility_name("Page thumbnails")
+                .with_accessibility_name(t("azpdf-thumbnails"))
                 .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
         ),
         Nav::Outline => column.add_child(outline(s, data)),
@@ -734,7 +748,7 @@ fn thumb_frame(
     };
     let mut frame = Dom::create_div()
         .with_id(ids::numbered(ids::THUMB_PREFIX, page + 1))
-        .with_accessibility_name(format!("Page {}", page + 1).as_str())
+        .with_accessibility_name(t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str())
         .with_dataset(tag(page))
         .with_css(
             format!(
@@ -765,15 +779,13 @@ fn thumb_frame(
 fn outline(s: &AppState, data: &RefAny) -> Dom {
     let mut list = Dom::create_div()
         .with_id(ids::OUTLINE)
-        .with_accessibility_name("Outline")
+        .with_accessibility_name(t("azpdf-outline"))
         .with_css("flex-grow: 1; min-height: 0px; overflow-y: auto; padding: 4px 0px;");
     let entries = s.doc.as_ref().map_or(&[][..], |d| d.outline.as_slice());
     if entries.is_empty() {
-        list.add_child(
-            Dom::create_p_with_text("This document has no outline.").with_css(
-                "margin: 0px; padding: 12px; font-size: 12px; color: system:secondary-text;",
-            ),
-        );
+        list.add_child(Dom::create_p_with_text(t("azpdf-no-outline")).with_css(
+            "margin: 0px; padding: 12px; font-size: 12px; color: system:secondary-text;",
+        ));
         return list;
     }
     for (i, (title, page)) in entries.iter().enumerate() {
@@ -807,12 +819,11 @@ fn outline(s: &AppState, data: &RefAny) -> Dom {
 fn hits_pane(s: &AppState, data: &RefAny) -> Dom {
     let mut column = Dom::create_div().with_id(ids::HITS).with_css(COLUMN);
     let heading = if s.search.running {
-        "Searching\u{2026}".to_string()
+        t("azpdf-searching")
     } else {
         match s.search.hits.len() {
-            0 => "No matches".to_string(),
-            1 => "1 match".to_string(),
-            n => format!("{n} matches"),
+            0 => t("azpdf-no-matches"),
+            n => t_args("azpdf-matches", &[("count", Arg::from(n))]),
         }
     };
     column.add_child(
@@ -830,7 +841,7 @@ fn hits_pane(s: &AppState, data: &RefAny) -> Dom {
                         crate::on_search_close as ButtonOnClickCallbackType,
                     )
                     .dom()
-                    .with_accessibility_name("Close the search"),
+                    .with_accessibility_name(t("azpdf-close-search")),
             ),
     );
     let mut list = Dom::create_div().with_css("flex-grow: 1; min-height: 0px; overflow-y: auto;");
@@ -848,8 +859,10 @@ fn hits_pane(s: &AppState, data: &RefAny) -> Dom {
                 crate::on_go_to_page,
             );
         row.add_child(
-            Dom::create_span_with_text(format!("Page {}", hit.page + 1).as_str())
-                .with_css("font-size: 11px; color: system:secondary-text;"),
+            Dom::create_span_with_text(
+                t_args("azpdf-page-n", &[("page", Arg::from(hit.page + 1))]).as_str(),
+            )
+            .with_css("font-size: 11px; color: system:secondary-text;"),
         );
         row.add_child(
             Dom::create_span_with_text(hit.snippet.as_str()).with_css("font-size: 12px;"),
@@ -859,7 +872,11 @@ fn hits_pane(s: &AppState, data: &RefAny) -> Dom {
     if s.search.hits.len() > MAX_HIT_ROWS {
         list.add_child(
             Dom::create_p_with_text(
-                format!("\u{2026} and {} more", s.search.hits.len() - MAX_HIT_ROWS).as_str(),
+                t_args(
+                    "azpdf-and-more",
+                    &[("count", Arg::from(s.search.hits.len() - MAX_HIT_ROWS))],
+                )
+                .as_str(),
             )
             .with_css("margin: 0px; padding: 8px 12px; font-size: 12px;"),
         );
@@ -876,7 +893,11 @@ fn status_bar(s: &AppState) -> Dom {
         let count = doc.page_count();
         let page = s.current_page.min(count.saturating_sub(1));
         segments.push(StatusBarSegment::create(
-            format!("Page {} of {count}", page + 1).as_str(),
+            t_args(
+                "azpdf-page-of",
+                &[("page", Arg::from(page + 1)), ("count", Arg::from(count))],
+            )
+            .as_str(),
         ));
         if let Some(size) = doc.sizes.get(page) {
             segments.push(StatusBarSegment::create(size_label(*size).as_str()));
