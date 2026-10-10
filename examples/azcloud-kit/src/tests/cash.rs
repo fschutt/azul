@@ -17,9 +17,13 @@ use crate::{
     ClaimKey,
 };
 
-/// The mock's activation code of `ck_aaaaaaaaaaaaaaaaaaaaaaaaaa` for EUR 9.90.
-const ACTIVATION: &str = "AZC1-MNVV-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYIA-AAB5-\
-                          4RKV-KI74-IMPG-BG5O-LTW7-WE";
+/// The token server's test vector (azlin-token cash.rs, SRV17): checkout `ck_aaaqeayeaudaocajbifqydiob4`
+/// (the 16 bytes 00 01 .. 0f behind `ck_`), EUR 11.88, the key `cash-key-for-tests`.
+const ACTIVATION: &str = "AZC1-AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4AA-ABFE-IVKV-F3QG-5NDF-5KZK-SMTY-I";
+const CODE_CHECKOUT: &str = "ck_aaaqeayeaudaocajbifqydiob4";
+/// The code an app wrote before the id's bytes were the token server's: the id as ASCII.
+const ASCII_ID_CODE: &str = "AZC1-MNVV-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYIA-AAB5-\
+                             4RKV-KI74-IMPG-BG5O-LTW7-WE";
 const CHECKOUT: &str = "ck_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 /// The claim code of that checkout with the claim secret 0, 1, ..., 31 (scripts/azlin_claim.py
 /// writes the same).
@@ -39,16 +43,16 @@ fn shared(dir: &TempDir) -> SharedKeyring {
 #[test]
 fn the_activation_code_names_its_checkout_its_amount_and_its_currency() {
     let code = ActivationCode::parse(ACTIVATION).unwrap();
-    assert_eq!(code.checkout_id, CHECKOUT);
-    assert_eq!(code.amount_cents, 990);
+    assert_eq!(code.checkout_id, CODE_CHECKOUT, "the 16 bytes behind ck_, as the id writes them");
+    assert_eq!(code.amount_cents, 1188);
     assert_eq!(code.currency, "EUR");
     assert_eq!(code.mac.len(), 10);
     assert_eq!(code.to_text(), ACTIVATION, "written as the token server wrote it");
-    assert!(code.check(CHECKOUT, 990, "EUR").is_ok());
-    assert!(code.check(CHECKOUT, 9990, "EUR").is_err(), "a slip for another amount");
-    assert!(code.check(CHECKOUT, 990, "CHF").is_err(), "a slip in another currency");
+    assert!(code.check(CODE_CHECKOUT, 1188, "EUR").is_ok());
+    assert!(code.check(CODE_CHECKOUT, 11880, "EUR").is_err(), "a slip for another amount");
+    assert!(code.check(CODE_CHECKOUT, 1188, "CHF").is_err(), "a slip in another currency");
     assert!(
-        code.check("ck_bbbbbbbbbbbbbbbbbbbbbbbbbb", 990, "EUR").is_err(),
+        code.check("ck_bbbbbbbbbbbbbbbbbbbbbbbbbb", 1188, "EUR").is_err(),
         "a slip of another checkout"
     );
     let typed = ACTIVATION.to_lowercase().replace('-', " ");
@@ -60,8 +64,12 @@ fn an_activation_code_of_another_version_or_a_broken_one_is_refused() {
     assert!(ActivationCode::parse("").is_err());
     assert!(ActivationCode::parse(&ACTIVATION.replacen("AZC1", "AZC2", 1)).is_err());
     assert!(ActivationCode::parse(&ACTIVATION[..40]).is_err(), "too short for a MAC");
-    assert!(ActivationCode::parse(&ACTIVATION.replacen("MNVV", "MNV1", 1)).is_err());
+    assert!(ActivationCode::parse(&ACTIVATION.replacen("AAAQ", "AAA1", 1)).is_err());
     assert!(ACTIVATION.starts_with(ACTIVATION_PREFIX));
+    assert!(
+        ActivationCode::parse(ASCII_ID_CODE).is_err(),
+        "a code whose id is not the 16 bytes behind ck_ is no token server's"
+    );
 }
 
 // ==== The claim code ====

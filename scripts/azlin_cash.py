@@ -81,17 +81,28 @@ def verify(parsed, key):
     return hmac.compare_digest(mac, parsed['mac'])
 
 
+# The token server's test vector (azlin-token cash.rs, SRV17): the id bytes 00 01 .. 0f, EUR 11.88.
+VECTOR = ('ck_aaaqeayeaudaocajbifqydiob4', 1188, 'EUR', b'cash-key-for-tests',
+          'AZC1-AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4AA-ABFE-IVKV-F3QG-5NDF-5KZK-SMTY-I')
+
+
 def self_test():
-    code = activation_code('ck_' + 'a' * 26, 990, 'EUR', MOCK_KEY)
-    assert code == ('AZC1-MNVV-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYIA-AAB5-'
-                    '4RKV-KI74-IMPG-BG5O-LTW7-WE'), code
-    assert SHAPE.match(code)
+    checkout_id, cents, currency, key, want = VECTOR
+    code = activation_code(checkout_id, cents, currency, key)
+    assert code == want, code
+    assert SHAPE.match(code) and len(code.replace('-', '')) == 4 + 53
     parsed = parse_activation_code(code.lower())
     assert (parsed['checkout_id'], parsed['amount_cents'], parsed['currency']) == \
-        ('ck_' + 'a' * 26, 990, 'EUR')
-    assert verify(parsed, MOCK_KEY) and not verify(parsed, b'another key')
-    forged = parse_activation_code(activation_code('ck_' + 'a' * 26, 99, 'EUR', b'another key'))
-    assert not verify(forged, MOCK_KEY), 'another amount needs the key'
+        (checkout_id, cents, currency), parsed
+    assert verify(parsed, key) and not verify(parsed, b'another key')
+    forged = parse_activation_code(activation_code(checkout_id, 99, 'EUR', b'another key'))
+    assert not verify(forged, key), 'another amount needs the key'
+    try:
+        parse_activation_code('AZC1-MNVV-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYIA-'
+                              'AAB5-4RKV-KI74-IMPG-BG5O-LTW7-WE')
+        raise AssertionError('a code with the id as ASCII was read')
+    except ValueError:
+        pass
     return code
 
 

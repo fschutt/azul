@@ -20,11 +20,10 @@ const APP: &[SurfaceKind] = &[
     SurfaceKind::Paper,
 ];
 
-/// The activation code of checkout `ck_aaaaaaaaaaaaaaaaaaaaaaaaaa` for EUR 9.90 (the mock's
-/// test key; the app checks its shape only).
-const CODE: &str = "AZC1-MNVV-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYIA-AAB5-4RKV-\
-                    KI74-IMPG-BG5O-LTW7-WE";
-const CHECKOUT: &str = "ck_aaaaaaaaaaaaaaaaaaaaaaaaaa";
+/// The token server's test vector (SRV17): checkout `ck_aaaqeayeaudaocajbifqydiob4` for EUR 11.88
+/// (the app checks its shape only).
+const CODE: &str = "AZC1-AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4AA-ABFE-IVKV-F3QG-5NDF-5KZK-SMTY-I";
+const CHECKOUT: &str = "ck_aaaqeayeaudaocajbifqydiob4";
 
 fn offer(value: Value) -> Offer {
     Offer::parse(
@@ -62,7 +61,7 @@ fn cash_choice() -> Choice {
 
 fn answer() -> Value {
     json!({"checkout_id": CHECKOUT, "status": "awaiting_cash", "provider": "cash",
-           "method": "cash", "amount_cents": 990, "currency": "EUR", "activation_code": CODE,
+           "method": "cash", "amount_cents": 1188, "currency": "EUR", "activation_code": CODE,
            "mail_to": {"name": "Azlin Test Operator", "lines": ["Postfach 10 20 30",
                                                                 "12345 Teststadt", "Germany"]},
            "expires_at": "2026-12-09T10:00:00Z"})
@@ -135,15 +134,15 @@ fn the_server_cannot_widen_cash_to_a_web_view_or_the_browser() {
 fn a_cash_checkout_answer_reads_into_its_slip() {
     let slip = slip();
     assert_eq!(slip.checkout_id, CHECKOUT);
-    assert_eq!(slip.amount_cents, 990);
+    assert_eq!(slip.amount_cents, 1188);
     assert_eq!(slip.currency, "EUR");
     assert_eq!(slip.activation_code, CODE);
     assert!(slip.activation_code.starts_with(ACTIVATION_PREFIX));
     assert_eq!(slip.mail_to.name, "Azlin Test Operator");
     assert_eq!(slip.mail_to.lines.len(), 3);
     assert_eq!(slip.expires_at.as_deref(), Some("2026-12-09T10:00:00Z"));
-    assert_eq!(slip.amount_text(), "EUR 9.90");
-    assert_eq!(slip.amount_words(), "nine euros and ninety cents");
+    assert_eq!(slip.amount_text(), "EUR 11.88");
+    assert_eq!(slip.amount_words(), "eleven euros and eighty-eight cents");
 }
 
 #[test]
@@ -176,6 +175,9 @@ fn an_activation_code_of_another_shape_is_refused() {
         "AZC1-MNV1-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB",
         "AZC1-MNVV-6YLB",
         "AZC1-MNVV-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-",
+        // The id's ASCII instead of its 16 bytes: no token server writes it.
+        "AZC1-MNVV-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYIA-AAB5-4RKV-KI74-IMPG-\
+         BG5O-LTW7-WE",
     ] {
         let mut broken = answer();
         broken["activation_code"] = json!(code);

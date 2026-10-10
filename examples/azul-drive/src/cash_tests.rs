@@ -15,16 +15,16 @@ use crate::{
     periods::Schedule,
 };
 
-const CHECKOUT: &str = "ck_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const CODE: &str = "AZC1-MNVV-6YLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYIA-AAB5-\
-                    4RKV-KI74-IMPG-BG5O-LTW7-WE";
+/// The token server's test vector (SRV17): checkout `ck_aaaqeayeaudaocajbifqydiob4`, EUR 11.88.
+const CHECKOUT: &str = "ck_aaaqeayeaudaocajbifqydiob4";
+const CODE: &str = "AZC1-AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4AA-ABFE-IVKV-F3QG-5NDF-5KZK-SMTY-I";
 const SECRET: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const TOKEN: &str = "http://127.0.0.1:18081";
 
 fn slip() -> CashSlip {
     CashSlip {
         checkout_id: CHECKOUT.to_string(),
-        amount_cents: 990,
+        amount_cents: 1188,
         currency: String::from("EUR"),
         activation_code: CODE.to_string(),
         mail_to: MailTo {
@@ -104,8 +104,8 @@ fn the_buyers_copy_says_what_was_bought_the_amount_and_the_checkout_and_holds_th
     for said in [
         "100 GB",
         "12 months",
-        "EUR 9.90",
-        "nine euros and ninety cents",
+        "EUR 11.88",
+        "eleven euros and eighty-eight cents",
         CHECKOUT,
         "Keep this; AzDrive picks up your drive once the money arrived.",
         "once a day",
@@ -133,9 +133,9 @@ fn the_slip_names_the_address_the_amount_in_words_and_digits_and_the_activation_
     );
     let text = all_text(&paper);
     for said in [
-        "EUR 9.90",
-        "nine euros and ninety cents",
-        "Put this slip and exactly EUR 9.90 in cash in the envelope.",
+        "EUR 11.88",
+        "eleven euros and eighty-eight cents",
+        "Put this slip and exactly EUR 11.88 in cash in the envelope.",
         CHECKOUT,
     ] {
         assert!(text.contains(said), "{said:?} is not on the slip:\n{text}");
@@ -153,8 +153,8 @@ fn the_slip_names_the_address_the_amount_in_words_and_digits_and_the_activation_
 #[test]
 fn a_letter_is_made_from_the_answer_and_again_from_the_keyrings_list() {
     let letter = letter();
-    assert_eq!(letter.amount_text(), "EUR 9.90");
-    assert_eq!(letter.amount_words(), "nine euros and ninety cents");
+    assert_eq!(letter.amount_text(), "EUR 11.88");
+    assert_eq!(letter.amount_words(), "eleven euros and eighty-eight cents");
     let claim = ClaimKey::from_base64(SECRET).unwrap();
     let mut kept = PendingCheckout::new(CHECKOUT, &claim, "100GB", TOKEN, "Photos");
     kept.method = String::from("cash");
@@ -185,7 +185,11 @@ fn a_claim_code_picks_up_the_cash_checkout_as_typed_and_a_typo_is_refused() {
     assert!(kept.is_cash());
     assert_eq!(kept.token_url, TOKEN);
     assert_eq!(kept.name, "Photos");
-    let typo = code.replacen("DVRW", "DVRX", 1);
+    // One character changed in the middle of the code.
+    let mut chars: Vec<char> = code.chars().collect();
+    let at = chars.len() / 2 + usize::from(chars[chars.len() / 2] == '-');
+    chars[at] = if chars[at] == 'A' { 'B' } else { 'A' };
+    let typo: String = chars.into_iter().collect();
     let refused = picked_up(&typo, TOKEN, "Photos").unwrap_err();
     assert!(refused.contains("claim code"), "{refused}");
     assert!(picked_up("", TOKEN, "Photos").is_err());
