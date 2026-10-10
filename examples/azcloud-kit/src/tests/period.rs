@@ -2,12 +2,21 @@
 //! blinded here, blind-signed by the token server against the issue key, finalized and checked
 //! here, kept per drive until each buys the drive a month.
 
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 
-use azul_storage::{testing::TempDir, HttpReply, Method};
+use azul_storage::{
+    config::keyring_key,
+    keyring::{KeyringStore, MemoryKeyring},
+    testing::TempDir,
+    time::iso8601 as rfc3339,
+    HttpReply, Method,
+};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rsa::{
     pkcs8::{EncodePublicKey, LineEnding},
@@ -20,8 +29,13 @@ use sha2::Sha384;
 use super::{header, json, Fake, Shared, TOKEN};
 use crate::{
     bundle::PeriodTokens,
-    period::{issue_tokens, token_message, Issuer, PeriodToken, PeriodTokenStore},
+    lock::LockDir,
+    period::{
+        issue_tokens, redeem_due, token_message, Issuer, PeriodToken, PeriodTokenStore, Redeemed,
+    },
+    shared::SharedKeyring,
     token::{TokenError, TokenServer},
+    AzlinSession,
 };
 
 /// A 2048-bit test issuer key (made for these tests with openssl; e = 65537): its modulus.
@@ -461,4 +475,173 @@ fn a_period_token_buys_its_drive_a_month_with_the_drive_token_and_only_once() {
         Err(TokenError::Refused { status: 409, code, .. }) => assert_eq!(code, "token_used"),
         other => panic!("not refused as used: {other:?}"),
     }
+}
+
+// ==== Redeeming: under the drive's lock, with its newest token ====
+
+const NOW: u64 = 1_791_450_000;
+const DAY: u64 = 86_400;
+
+/// A keyring with drive `d_1`'s session (its drive token `token`), and its locks.
+fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring {
+    let keyring = Arc::new(MemoryKeyring::new());
+    let session = AzlinSession {
+        drive_id: String::from("d_1"),
+        drive_token: token.to_string(),
+        access_key_id: String::from("AKID1"),
+        secret_access_key: String::from("secret"),
+        session_token: None,
+        expires_at: Some(NOW + 3600),
+    };
+    keyring
+        .set(&keyring_key("d_1"), &session.to_keyring_secret())
+        .unwrap();
+    SharedKeyring::new(keyring, LockDir::new(dir.path().join("locks")))
+}
+
+/// A token server whose drive `d_1` (100 GB) is paid until `until` (seconds since 1970, moved
+/// on by 30 days with every redemption answered by `redeem(nonce)`), that checks every call
+/// carries `token` and comes while the drive's lock is held.
+fn redeeming_server(
+    locks: LockDir,
+    token: &'static str,
+    until: u64,
+    redeem: impl Fn(&str) -> Option<HttpReply> + Send + Sync + 'static,
+) -> Arc<Fake> {
+    let until = Arc::new(AtomicU64::new(until));
+    Fake::new(move |call, _| {
+        assert_eq!(header(call, "authorization"), Some(format!("Bearer {token}").as_str()));
+        assert!(
+            locks.lock(&keyring_key("d_1"), Duration::ZERO).is_err(),
+            "the drive's lock is held during {}",
+            call.url
+        );
+        if call.method == Method::Get {
+            assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1"));
+            let answer = serde_json::json!({
+                "id": "d_1", "tier": "100GB",
+                "period_until": rfc3339(until.load(Ordering::SeqCst)),
+            });
+            return Ok(json(200, &answer.to_string()));
+        }
+        assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/redeem"));
+        let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+        if let Some(refusal) = redeem(body["nonce"].as_str().unwrap()) {
+            return Ok(refusal);
+        }
+        let later = until.fetch_add(30 * DAY, Ordering::SeqCst) + 30 * DAY;
+        let answer = serde_json::json!({"period_until": rfc3339(later)});
+        Ok(json(200, &answer.to_string()))
+    })
+}
+
+#[test]
+fn a_period_token_is_redeemed_under_the_drives_lock_with_its_newest_token_when_the_period_nears_its_end(
+) {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    store.add("d_1", &[stored("aa"), stored("bb")]).unwrap();
+    let fake = redeeming_server(shared.locks().clone(), "dt_f.3.newest", NOW + 2 * DAY, |_| None);
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    // Two days left: one token, a month more.
+    match redeem_due(&server, &shared, &store, "d_1", NOW) {
+        Redeemed::Extended {
+            count,
+            period_until,
+        } => assert_eq!((count, period_until), (1, Some(NOW + 32 * DAY))),
+        other => panic!("not redeemed: {other:?}"),
+    }
+    assert_eq!(store.tokens("d_1").unwrap(), vec![stored("bb")], "the oldest went first");
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2, "the drive's period, then one redemption");
+    let body: serde_json::Value = serde_json::from_slice(&calls[1].body).unwrap();
+    assert_eq!(body["nonce"], "aa".repeat(32));
+    // A month ahead: nothing to redeem yet; the token waits.
+    match redeem_due(&server, &shared, &store, "d_1", NOW) {
+        Redeemed::NotDue { period_until } => assert_eq!(period_until, Some(NOW + 32 * DAY)),
+        other => panic!("redeemed too early: {other:?}"),
+    }
+    assert_eq!(fake.calls().len(), 3);
+    assert_eq!(store.tokens("d_1").unwrap().len(), 1);
+}
+
+#[test]
+fn a_used_or_useless_period_token_is_dropped_and_the_next_one_redeemed() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.0.first");
+    let store = store_in(&dir);
+    store
+        .add("d_1", &[stored("aa"), stored("bb"), stored("cc"), stored("dd")])
+        .unwrap();
+    let fake = redeeming_server(shared.locks().clone(), "dt_f.0.first", NOW + DAY, |nonce| {
+        match &nonce[..2] {
+            "aa" => Some(json(
+                409,
+                r#"{"error": "token_used", "message": "this token was already redeemed"}"#,
+            )),
+            "bb" => Some(json(
+                400,
+                r#"{"error": "bad_token", "message": "the token signature does not verify"}"#,
+            )),
+            "cc" => None,
+            _ => Some(json(503, r#"{"error": "busy", "message": "try later"}"#)),
+        }
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match redeem_due(&server, &shared, &store, "d_1", NOW) {
+        Redeemed::Extended { count, .. } => assert_eq!(count, 1),
+        other => panic!("not redeemed: {other:?}"),
+    }
+    assert_eq!(store.tokens("d_1").unwrap(), vec![stored("dd")], "used and useless ones gone");
+    // A token server that cannot answer now: the token stays for the next try.
+    let fake = redeeming_server(shared.locks().clone(), "dt_f.0.first", NOW + DAY, |_| {
+        Some(json(503, r#"{"error": "busy", "message": "try later"}"#))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        redeem_due(&server, &shared, &store, "d_1", NOW),
+        Redeemed::Kept(_)
+    ));
+    assert_eq!(store.tokens("d_1").unwrap(), vec![stored("dd")]);
+}
+
+#[test]
+fn a_drive_without_kept_tokens_or_a_session_asks_the_token_server_nothing() {
+    let dir = TempDir::new("azcloud-period");
+    let store = store_in(&dir);
+    let fake = Fake::new(|call, _| panic!("nothing is asked: {}", call.url));
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let shared = keyring_with_session(&dir, "dt_f.0.first");
+    assert!(matches!(
+        redeem_due(&server, &shared, &store, "d_1", NOW),
+        Redeemed::Nothing
+    ));
+    // Tokens, but this device has no session of the drive: kept, nothing sent.
+    store.add("d_2", &[stored("aa")]).unwrap();
+    assert!(matches!(
+        redeem_due(&server, &shared, &store, "d_2", NOW),
+        Redeemed::Kept(_)
+    ));
+    assert_eq!(store.tokens("d_2").unwrap().len(), 1);
+}
+
+#[test]
+fn a_drive_token_call_runs_under_the_drives_lock_with_the_newest_token() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.7.newest");
+    let locks = shared.locks().clone();
+    let seen = shared
+        .with_drive_token("d_1", |token| {
+            assert!(locks.lock(&keyring_key("d_1"), Duration::ZERO).is_err(), "held");
+            token.to_string()
+        })
+        .unwrap();
+    assert_eq!(seen, "dt_f.7.newest");
+    assert!(locks.lock(&keyring_key("d_1"), Duration::ZERO).is_ok(), "released after");
+    assert!(shared.with_drive_token("d_2", |_| ()).is_err(), "no session of d_2");
 }
