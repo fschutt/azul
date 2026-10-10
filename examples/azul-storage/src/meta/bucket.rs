@@ -437,6 +437,14 @@ impl Drive for MemoryBucket {
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         let mut state = self.lock();
         state.counts.removes += 1;
+        // A failure a test planted for this key, as `Bucket::remove` answers it: the
+        // provider reaches the bucket through `DriveBucket`, i.e. through this impl.
+        if let Some(error) = state.fail_next.remove(key) {
+            return Err(match error {
+                MetaError::Drive(e) => e,
+                other => DriveError::Transport(other.to_string()),
+            });
+        }
         state.objects.remove(key);
         Ok(())
     }
