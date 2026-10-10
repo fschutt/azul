@@ -298,9 +298,20 @@ def pay_id(name):
     return "#__azdrive_pay_" + name
 
 
+class Payment:
+    """One Buy through azul-pay: its checkout id, the dialog, the surface it opened (the
+    AZDRIVE_PAY_SURFACE or AZDRIVE_OPEN_BROWSER line printed after THIS Buy: `fields <host>`,
+    `page <host>`, `browser <host>`) and the drives AzDrive had added before it (AZDRIVE_ADDED:
+    a drive of an earlier step - a voucher's, a claim's - is never taken for this one's)."""
+
+    def __init__(self, checkout, dialog, surface, added):
+        self.checkout, self.dialog, self.surface, self.added = checkout, dialog, surface, added
+
+
 def open_payment(app, pill, what):
     """Add drive -> Buy storage (the fake providers' pills) -> the pill `pill`, the consent
-    ticked -> Buy: the checkout's id and the dialog."""
+    ticked -> Buy, and the surface the checkout opened: a Payment."""
+    added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
     dialog = open_dialog(app, "the source list",
                          lambda: app.click(selector="#" + I("side-add-drive")))
     pills = app.after("the payment pills", "AZDRIVE_PILLS", r".+",
@@ -313,15 +324,32 @@ def open_payment(app, pill, what):
             raise Failure("the pills are %r, without %s" % (pills, wanted))
     dialog.click("pill_" + pill)
     dialog.click("consent")
+    shown = app.count("AZDRIVE_PAY_SURFACE", r".+")
+    browsers = app.count("AZDRIVE_OPEN_BROWSER", r".+")
     checkout = app.after(what, "AZDRIVE_CHECKOUT", r"ck_\S+", lambda: dialog.click("buy_button"))
-    return checkout, dialog
+
+    def surface():
+        if app.count("AZDRIVE_PAY_SURFACE", r".+") > shown:
+            return app.printed("AZDRIVE_PAY_SURFACE", r".+")[-1]
+        if app.count("AZDRIVE_OPEN_BROWSER", r".+") > browsers:
+            return "browser " + app.printed("AZDRIVE_OPEN_BROWSER", r".+")[-1]
+        return None
+    return Payment(checkout, dialog, app.until("the surface of %s" % checkout, surface), added)
 
 
 def popover_of(app, dialog):
-    """The payment popover's window: a transient window of the dialog's."""
-    win = e2e.modal_window(app, known=(dialog.win.window_id,))
-    win.until("the payment popover", lambda: win.has(POPOVER))
-    return win
+    """The payment popover's window: a transient window of the dialog's - the one that shows
+    the popover now, looked for anew on every try (a window that closed meanwhile, or one whose
+    id an earlier popover had, is never taken)."""
+    def showing():
+        for window in app.window_ids()[1:]:
+            if window == dialog.win.window_id:
+                continue
+            win = e2e.InWindow(app, window)
+            if win.has(POPOVER):
+                return win
+        return None
+    return app.until("the payment popover", showing)
 
 
 def webviews(win):
@@ -353,10 +381,20 @@ def navigation_to(win, needle):
     return found[-1] if found else None
 
 
-def new_drive(app, known):
-    """The drive AZDRIVE_ADDED names that is none of `known`."""
-    return app.until("a new drive", lambda: [d for d in app.printed("AZDRIVE_ADDED", r"d_\S+")
-                                              if d not in known])[-1]
+def new_drive(app, payment):
+    """The drive `payment` brought: the first AZDRIVE_ADDED after its Buy."""
+    return app.until("the drive of %s" % payment.checkout, lambda: [
+        d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d not in payment.added])[0]
+
+
+def hand_back(app, popover, view, url, redirect=False):
+    """The page in the popover hands the payment back (a bridge result, a return page, a login
+    for the browser): the dialog waits for the drive, and the popover - which shows a page only
+    while the payment is presented (CHECKOUT-PLAN §2.4) - closes. Nothing is asked of the
+    popover's window afterwards: it is gone."""
+    app.after("the dialog waiting for the drive", "AZDRIVE_PAY", r"waiting",
+              lambda: navigate(popover, view, url, redirect))
+    app.until("the popover closed", lambda: popover.window_id not in app.window_ids())
 
 
 def run(args, logs):
@@ -773,8 +811,11 @@ def run(args, logs):
         # 7. A card payment in the popover: Fake Stripe's fields in the web view.
         stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))
         token = stack.token_url
-        known = {bought, late, paid}
-        card, dialog = open_payment(app, "card", "the card checkout")
+        payment = open_payment(app, "card", "the card checkout")
+        card, dialog = payment.checkout, payment.dialog
+        if not re.fullmatch(r"fields 127\.0\.0\.1:\d+", payment.surface):
+            raise Failure("the card checkout opened %r, not the fields in the popover"
+                          % payment.surface)
         record = stack.token.state.checkouts.get(card) or {}
         if record.get("provider") != "fake-stripe" or record.get("method") != "card":
             raise Failure("the checkout went through %r" % {k: record.get(k) for k in
@@ -783,8 +824,6 @@ def run(args, logs):
             raise Failure("the card checkout names no claim key")
         if card not in pending_checkouts(keyring_file):
             raise Failure("the card checkout is not on the keyring's list before it shows")
-        app.until("the fields in the popover", lambda: app.printed(
-            "AZDRIVE_PAY_SURFACE", r"fields 127\.0\.0\.1:\d+"))
         popover = popover_of(app, dialog)
         view = the_view(popover)
         if not view.get("src", "").startswith(token + "/fields/fake-stripe/v1#pk="):
@@ -817,9 +856,8 @@ def run(args, logs):
         stack.token.state.provider_pays(card, True)
         if (stack.token.state.webhooks[-1:] or [{}])[0].get("outcome") != "approved":
             raise Failure("the provider's webhook did %s" % stack.token.state.webhooks[-1:])
-        navigate(popover, view, token + "/_bridge/result?v=succeeded")
-        by_card = new_drive(app, known)
-        known.add(by_card)
+        hand_back(app, popover, view, token + "/_bridge/result?v=succeeded")
+        by_card = new_drive(app, payment)
         wait_closed(app)
         app.until("the card checkout off the keyring's list",
                   lambda: card not in pending_checkouts(keyring_file))
@@ -831,33 +869,37 @@ def run(args, logs):
             "signed webhook approved; %s arrived" % by_card)
 
         # 8. Direct debit: Fake GoCardless's hosted page in the popover.
-        debit, dialog = open_payment(app, "sepa_debit", "the direct debit checkout")
+        payment = open_payment(app, "sepa_debit", "the direct debit checkout")
+        debit, dialog = payment.checkout, payment.dialog
         if (stack.token.state.checkouts.get(debit) or {}).get("provider") != "fake-gocardless":
             raise Failure("the direct debit went through %s"
                           % (stack.token.state.checkouts.get(debit) or {}).get("provider"))
-        app.until("the hosted page in the popover", lambda: app.printed(
-            "AZDRIVE_PAY_SURFACE", r"page 127\.0\.0\.1:\d+"))
+        if not re.fullmatch(r"page 127\.0\.0\.1:\d+", payment.surface):
+            raise Failure("the direct debit opened %r, not the hosted page in the popover"
+                          % payment.surface)
         popover = popover_of(app, dialog)
         view = the_view(popover)
         if "/fake-gocardless/flow/BRQpr_" not in view.get("src", ""):
             raise Failure("the web view shows %r" % view.get("src", "")[:80])
         popover.until("the chip", lambda: popover.shows("payment page of Fake GoCardless"))
         popover.screenshot(os.path.join(out, "8-debit-popover.png"))
-        # The payer confirms the mandate on the page: the provider's webhook, then its redirect.
+        # The payer confirms the mandate on the page: the provider's webhook, then its redirect to
+        # the return page - which the app takes as "go and ask" (azul-pay cancels a return page's
+        # navigation and waits; machine.rs's tests pin the cancel): the dialog waits, the
+        # popover closes.
         stack.token.state.provider_pays(debit, True)
-        navigate(popover, view, token + "/return/ok", redirect=True)
-        returned = navigation_to(popover, "/return/ok")
-        if not returned or returned["allowed"]:
-            raise Failure("the return page loaded in the web view: %s" % returned)
-        by_debit = new_drive(app, known)
-        known.add(by_debit)
+        hand_back(app, popover, view, token + "/return/ok", redirect=True)
+        by_debit = new_drive(app, payment)
         wait_closed(app)
-        log("8. Direct debit via Fake GoCardless: its hosted page in the popover, the return "
-            "redirect cancelled, the mandate's webhook approved: %s arrived" % by_debit)
+        log("8. Direct debit via Fake GoCardless: its hosted page in the popover; its return "
+            "redirect made the dialog wait and closed the popover; the mandate's webhook "
+            "approved: %s arrived" % by_debit)
 
         # 9. Off the provider's origins: blocked; a PayPal login: the system browser.
-        jumped, dialog = open_payment(app, "card", "the checkout that jumps to PayPal")
-        app.until("the fields", lambda: app.count("AZDRIVE_PAY_SURFACE", r"fields .+") >= 2)
+        payment = open_payment(app, "card", "the checkout that jumps to PayPal")
+        jumped, dialog = payment.checkout, payment.dialog
+        if not payment.surface.startswith("fields "):
+            raise Failure("the card checkout opened %r" % payment.surface)
         popover = popover_of(app, dialog)
         view = the_view(popover)
         navigate(popover, view, token + "/fields/fake-stripe/v1#pk=pk_test_fake_local")
@@ -881,26 +923,31 @@ def run(args, logs):
                            lambda: navigate(popover, view, login, redirect=True))
         if not opened.startswith("localhost:"):
             raise Failure("the browser opened %r, not the login's host" % opened)
+        # The login left for the browser: the dialog waits, the popover closes.
         app.until("the dialog waiting", lambda: app.last("AZDRIVE_PAY") == "waiting")
-        app.until("the popover closed", lambda: len(app.window_ids()) <= 2)
+        app.until("the popover closed", lambda: popover.window_id not in app.window_ids())
         dialog.win.until("Open the page again", lambda: dialog.win.has(add_id("open_again")))
         stack.token.state.provider_pays(jumped, True)
-        by_browser = new_drive(app, known)
-        known.add(by_browser)
+        by_browser = new_drive(app, payment)
         wait_closed(app)
         log("9. evil.example and its look-alikes were blocked with the chip unchanged; the PayPal "
             "login went to the system browser (%s) and the payment there brought %s"
             % (opened, by_browser))
 
         # 10. Load failures: the hosted page of the same checkout, then the system browser.
-        failing, dialog = open_payment(app, "card", "the checkout whose page fails")
-        app.until("the fields", lambda: app.count("AZDRIVE_PAY_SURFACE", r"fields .+") >= 3)
+        payment = open_payment(app, "card", "the checkout whose page fails")
+        failing, dialog = payment.checkout, payment.dialog
+        if not payment.surface.startswith("fields "):
+            raise Failure("the card checkout opened %r" % payment.surface)
         popover = popover_of(app, dialog)
         view = the_view(popover)
-        page_lines = app.count("AZDRIVE_PAY_SURFACE", r"page .+")
-        popover.must("simulate_webview_load_failed", webview=view["id"], reason="offline")
-        app.until("the hosted page", lambda: app.count("AZDRIVE_PAY_SURFACE", r"page .+")
-                  > page_lines)
+        # The same popover shows the next surface of the same checkout: its content changes, it
+        # stays open (and is asked again for its window, which may be a new one).
+        app.after("the hosted page", "AZDRIVE_PAY_SURFACE", r"page .+",
+                  lambda: popover.must("simulate_webview_load_failed", webview=view["id"],
+                                       reason="offline"))
+        if app.last("AZDRIVE_PAY") != "presenting":
+            raise Failure("the fallback left the checkout %s" % app.last("AZDRIVE_PAY"))
         popover = popover_of(app, dialog)
         popover.until("the hosted page in the web view", lambda: any(
             "/fake-stripe/c/pay/cs_test_" in v.get("src", "") for v in webviews(popover)))
@@ -910,6 +957,8 @@ def run(args, logs):
                                                 webview=view["id"], reason="offline"))
         if not opened.startswith("127.0.0.1:"):
             raise Failure("the browser opened %r" % opened)
+        # Off to the browser: the dialog waits, the popover closes.
+        app.until("the popover closed", lambda: popover.window_id not in app.window_ids())
         if stack.token.state.checkouts[failing]["surface"] != "browser":
             raise Failure("the checkout is on %s" % stack.token.state.checkouts[failing]["surface"])
         if sum(1 for c in stack.token.state.checkouts.values()
@@ -926,8 +975,10 @@ def run(args, logs):
             "(%s) - the same checkout; Stop waiting kept its claim" % (failing, opened))
 
         # 11. Closing the dialog while the popover shows abandons the checkout.
-        closed, dialog = open_payment(app, "card", "the checkout that is closed")
-        app.until("the fields", lambda: app.count("AZDRIVE_PAY_SURFACE", r"fields .+") >= 4)
+        payment = open_payment(app, "card", "the checkout that is closed")
+        closed, dialog = payment.checkout, payment.dialog
+        if not payment.surface.startswith("fields "):
+            raise Failure("the card checkout opened %r" % payment.surface)
         popover_of(app, dialog)
         abandoned = app.after("the abandon", "AZDRIVE_ABANDONED", r"\S+ \S+",
                               lambda: dialog.click("cancel"))
