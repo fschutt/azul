@@ -98,6 +98,14 @@ argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "ze
 getrandom = { version = "0.2", optional = true }
 # Wiping keys and plaintext buffers.
 zeroize = { version = "1.8", features = ["alloc"], optional = true }
+# ---- feature `index-cache`: the drive index's local query cache (src/meta/cache.rs) ----
+# The SQLite azul's own `Db` runs on (the dll's `db-sqlite`): turso, pure Rust, as the
+# published fork `turso-azul` 0.7.2 with default features off (no mimalloc, no FTS, no
+# io_uring); aegis with `pure-rust`, so its build script compiles no C. Both are in
+# Cargo.lock already (through the dll). Like the dll, not for 32-bit Linux (turso's sync
+# engine does not compile there).
+turso = { package = "turso-azul", version = "0.7.2", default-features = false, optional = true }
+aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 
 [features]
 default = []
@@ -118,6 +126,8 @@ encryption = [
     "dep:getrandom",
     "dep:zeroize",
 ]
+# The drive index's query cache (search, largest, recent, totals) in a local SQLite.
+index-cache = ["encryption", "dep:turso", "dep:aegis"]
 
 [lib]
 name = "azul_storage"

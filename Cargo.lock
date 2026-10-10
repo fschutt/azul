@@ -1438,6 +1438,7 @@ checksum = "343e24eeae9f09f61afeafcc7112e8d62f965bf0c6b30cedb5f89cc0b200380f"
 name = "azul-storage"
 version = "0.1.0"
 dependencies = [
+ "aegis",
  "argon2",
  "azul-dll",
  "blake3",
@@ -1453,6 +1454,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "tokio",
+ "turso-azul",
  "x25519-dalek",
  "zeroize",
  "zstd 0.13.3",

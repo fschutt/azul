@@ -74,8 +74,12 @@
 //!   on disk and read lazily ([`RepoOptions`]).
 //! - `index`, `pointer` (feature `encryption`): the encrypted drive's `NameIndex` over the
 //!   repository (`MetaIndex`, `open_encrypted_drive`) and its pointer files.
+//! - `cache` (feature `index-cache`): the local SQLite query cache (search, largest,
+//!   recent, totals), rebuilt from the tree.
 
 pub mod bucket;
+#[cfg(feature = "index-cache")]
+pub mod cache;
 #[cfg(feature = "encryption")]
 pub mod index;
 pub mod merge;
