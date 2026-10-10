@@ -49,7 +49,7 @@ use azul::{
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
-    window::PowerState,
+    window::{NetworkKind, NetworkState, PowerState},
 };
 use azcloud_kit::{TokenError, TokenServer};
 use azul_storage::{
@@ -188,10 +188,17 @@ const RECOMPRESS_CHECK_MS: u64 = 60_000;
 /// One pass at a time.
 static RECOMPRESSING: AtomicBool = AtomicBool::new(false);
 
-/// Whether the pass may run: idle long enough, on mains power. A platform azul cannot read
-/// answers "on battery, just used" ([`PowerState::query`]), so the pass waits there.
+/// Whether the pass may run now ([`recompress_allowed`] of the power and the network now).
 fn idle_on_mains() -> bool {
-    PowerState::query().is_idle_on_mains(RECOMPRESS_IDLE_SECS)
+    recompress_allowed(PowerState::query(), NetworkState::query())
+}
+
+/// Whether the pass may run on `power` and `network`: idle long enough, on mains power, and on
+/// a network that costs the user nothing - the pass rewrites every file of the drive. A
+/// platform azul cannot read answers "on battery, just used" ([`PowerState::query`]), so the
+/// pass waits there; a network it cannot read counts as free ([`NetworkState::query`]).
+fn recompress_allowed(power: PowerState, _network: NetworkState) -> bool {
+    power.is_idle_on_mains(RECOMPRESS_IDLE_SECS)
 }
 
 /// Starts the one timer that starts the pass and the drive index's maintenance rounds (from
@@ -1847,6 +1854,33 @@ mod tests {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         assert!(!Sheet::new("d_1", code.to_text()).after_rotation);
         assert!(Sheet::new("d_1", code.to_text()).after_rotation().after_rotation);
+    }
+
+    #[test]
+    fn the_recompression_pass_waits_for_a_network_that_costs_nothing() {
+        let idle = PowerState {
+            on_mains: true,
+            idle_secs: RECOMPRESS_IDLE_SECS,
+        };
+        let on = |kind, metered, constrained| {
+            recompress_allowed(
+                idle,
+                NetworkState {
+                    kind,
+                    connected: true,
+                    metered,
+                    constrained,
+                },
+            )
+        };
+        assert!(on(NetworkKind::Wired, false, false));
+        assert!(!on(NetworkKind::Cellular, true, false), "a phone's hotspot");
+        assert!(!on(NetworkKind::WiFi, false, true), "Low Data Mode");
+        let busy = PowerState {
+            on_mains: true,
+            idle_secs: 0,
+        };
+        assert!(!recompress_allowed(busy, NetworkState::headless()), "used a moment ago");
     }
 
     #[test]
