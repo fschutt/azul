@@ -7,7 +7,10 @@ Two backends:
   local folder (``<root>/<bucket>/<key>``) and implements exactly what AzDrive and AzMail use:
   ListObjectsV2 (prefix, delimiter, max-keys, continuation-token, start-after), GetObject (one
   ``Range``), PutObject, CopyObject (``x-amz-copy-source``), DeleteObject, HeadObject, plus
-  CreateBucket / HeadBucket / ListBuckets.
+  CreateBucket / HeadBucket / ListBuckets. Conditional requests as S3 answers them: a PUT with
+  ``If-None-Match: *`` writes only a new key, one with ``If-Match`` only over that version
+  (412 PreconditionFailed otherwise); a GET / HEAD with ``If-None-Match`` of the current
+  version answers 304 (a sync's compare-and-swap of its index, and its polling).
   Every request must be signed with AWS SigV4 (header-based) with the configured key; errors are
   S3's XML error bodies. Path-style (``/<bucket>/<key>``) and virtual-host style
   (``Host: <bucket>.<host>``) both work. Every request is logged, so a test can assert which
@@ -178,6 +181,9 @@ class Store:
     def __init__(self, root):
         self.root = os.path.abspath(root)
         os.makedirs(os.path.join(self.root, self.TMP), exist_ok=True)
+        # A conditional write checks and writes under it: of two writers that read the same
+        # version, exactly one wins.
+        self.write_lock = threading.Lock()
 
     def bucket_dir(self, bucket):
         return os.path.join(self.root, bucket)
@@ -321,6 +327,16 @@ def iso8601(unix_seconds):
     return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(unix_seconds))
 
 
+def same_etag(header, etag):
+    """Whether a conditional header names `etag` (quotes and a weak prefix aside)."""
+    def bare(tag):
+        tag = tag.strip()
+        if tag.startswith("W/"):
+            tag = tag[2:]
+        return tag.strip('"')
+    return any(bare(part) == bare(etag) for part in header.split(","))
+
+
 class S3Error(Exception):
     def __init__(self, status, code, message, **extra):
         super().__init__(message)
@@ -395,6 +411,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if body and self.command != "HEAD" and status != 204:
             self.wfile.write(body)
         self.status = status
+
+    def check_write_conditions(self, info):
+        """A conditional PUT's If-None-Match: * (no object yet) and If-Match (that version)."""
+        none_match = self.headers.get("If-None-Match")
+        if none_match is not None and none_match.strip() == "*" and info is not None:
+            raise S3Error(412, "PreconditionFailed",
+                          "At least one of the pre-conditions you specified did not hold",
+                          Condition="If-None-Match")
+        match = self.headers.get("If-Match")
+        if match is not None and (info is None or not same_etag(match, info["etag"])):
+            raise S3Error(412, "PreconditionFailed",
+                          "At least one of the pre-conditions you specified did not hold",
+                          Condition="If-Match")
 
     def fail(self, error, resource):
         body = b"" if self.command == "HEAD" else error.body(resource, self.request_id)
@@ -527,6 +556,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             info = store.info(bucket, key)
             if info is None:
                 raise S3Error(404, "NoSuchKey", "The specified key does not exist.", Key=key)
+            none_match = self.headers.get("If-None-Match")
+            if none_match is not None and same_etag(none_match, info["etag"]):
+                self.respond(304, headers={"ETag": info["etag"]})
+                return "HeadObject" if self.command == "HEAD" else "GetObject"
             headers = {
                 "Content-Type": mimetypes.guess_type(key)[0] or "application/octet-stream",
                 "ETag": info["etag"],
@@ -558,7 +591,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(200, xml_document("CopyObjectResult", result), {"Content-Type": "application/xml"})
             return "CopyObject"
         if self.command == "PUT":
-            etag = store.write(bucket, key, body)
+            with store.write_lock:
+                self.check_write_conditions(store.info(bucket, key))
+                etag = store.write(bucket, key, body)
             self.respond(200, headers={"ETag": etag})
             return "PutObject"
         if self.command == "DELETE":
