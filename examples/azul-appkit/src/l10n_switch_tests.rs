@@ -2,7 +2,7 @@
 //! appkit's resources in English, in German, and English for a language without words of its
 //! own.
 
-use crate::l10n::{is_key, keep, named, set_locale, sources, t, t_args, Arg};
+use crate::l10n::{app_word, is_key, keep, named, set_locale, sources, t, t_args, Arg};
 
 #[test]
 fn switching_the_language_changes_a_known_label() {
@@ -61,4 +61,18 @@ fn an_apps_own_category_is_said_by_its_key_and_shown_as_it_is_without_one() {
     assert_eq!(named("AzTest", "category", "Drives"), "Drives", "no message: the name");
     set_locale("en-US");
     assert_eq!(named("AzTest", "category", "View"), "View");
+}
+
+/// An app's own sentence of the kit's pages (the About page's summary): the message
+/// `<app>-<what>` of its resources, else the words the app gave the kit.
+#[test]
+fn an_apps_summary_is_said_by_its_key_and_shown_as_given_without_one() {
+    keep(&sources(&[
+        ("en", "aztest-about-summary = A test app\n"),
+        ("de", "aztest-about-summary = Eine Test-App\n"),
+    ]));
+    set_locale("de-DE");
+    assert_eq!(app_word("AzTest", "about-summary", "A test app"), "Eine Test-App");
+    assert_eq!(app_word("AzOther", "about-summary", "Another app"), "Another app");
+    set_locale("en-US");
 }
