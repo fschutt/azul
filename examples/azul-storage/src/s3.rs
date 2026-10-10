@@ -291,6 +291,10 @@ fn quoted_etag(etag: &str) -> String {
 
 /// The error of a failed answer: a missing key and a bad range become their own
 /// variants, everything else a readable [`ServiceError`].
+/// How often a conditional PUT is sent when S3 answers 409 (another conditional write of
+/// the object in flight).
+const CONDITIONAL_TRIES: u32 = 4;
+
 fn failure(reply: &HttpReply, key: Option<&str>) -> DriveError {
     let error = xml::parse_error(reply.status, &String::from_utf8_lossy(&reply.body));
     match (error.code.as_str(), key) {
@@ -829,19 +833,33 @@ impl Drive for S3Drive {
             Precondition::Absent => (String::from("if-none-match"), String::from("*")),
             Precondition::Matches(etag) => (String::from("if-match"), quoted_etag(etag)),
         };
-        let reply = self.object_call(Method::Put, key, vec![header], bytes.to_vec())?;
-        if reply.is_success() {
-            return Ok(reply
-                .header("etag")
-                .map(xml::strip_quotes)
-                .filter(|e| !e.is_empty()));
+        // A 409 (ConditionalRequestConflict: another conditional write of the object was in
+        // flight, nothing was written) is sent again after a short random wait - the condition
+        // is checked anew, so a write that went through meanwhile is a 412 then. After
+        // CONDITIONAL_TRIES the 409 is the answer.
+        let mut attempt = 1;
+        loop {
+            let reply = self.object_call(Method::Put, key, vec![header.clone()], bytes.to_vec())?;
+            if reply.is_success() {
+                return Ok(reply
+                    .header("etag")
+                    .map(xml::strip_quotes)
+                    .filter(|e| !e.is_empty()));
+            }
+            if reply.status == 412 {
+                return Err(DriveError::Conflict {
+                    key: key.to_string(),
+                });
+            }
+            if reply.status == 409 && attempt < CONDITIONAL_TRIES {
+                let ceiling = 5u64 << attempt;
+                let wait = 1 + crate::ids::random_seed() % ceiling;
+                std::thread::sleep(std::time::Duration::from_millis(wait));
+                attempt += 1;
+                continue;
+            }
+            return Err(failure(&reply, Some(key)));
         }
-        if reply.status == 412 {
-            return Err(DriveError::Conflict {
-                key: key.to_string(),
-            });
-        }
-        Err(failure(&reply, Some(key)))
     }
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
