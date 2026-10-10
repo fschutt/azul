@@ -104,6 +104,7 @@ kit-money = { $currency } { $amount }
 
 kit-date-today = Today
 kit-date-yesterday = Yesterday
+kit-date-tomorrow = Tomorrow
 kit-date-last-week = Last Week
 kit-date-two-weeks-ago = Two Weeks Ago
 kit-date-three-weeks-ago = Three Weeks Ago
@@ -204,3 +205,5 @@ kit-rule-times = { $count ->
    *[other] { $rule }, { $count } times
  }
 kit-rule-until = { $rule }, until { $date }
+kit-date-style-short-date-year = { $wd } { $day } { $mon } { $year }
+kit-date-style-weekday-date = { $weekday } { $day } { $month } { $year }
