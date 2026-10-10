@@ -7,7 +7,7 @@ use std::path::Path;
 
 use azcloud_kit::user_errors::{Code, ID_LABEL_MESSAGE};
 use azul_appkit::{
-    l10n::{keep, set_locale, t, Text},
+    l10n::{keep, set_locale, t, t_text},
     l10n_check::check,
 };
 use azul_storage::{DriveError, ServiceError};
@@ -74,7 +74,34 @@ fn a_storage_error_is_the_tables_message_with_its_error_id_and_a_local_one_its_o
         .map(ToString::to_string);
     assert_eq!(id.as_deref(), Some("n2-81723"));
     let missing = DriveError::NotFound {
-        key: String::from("a.txt"),
+        key: String::from("docs/a.txt"),
     };
-    assert_eq!(drive_error_text(&missing), Text::plain(missing.to_string()));
+    let said = drive_error_text(&missing);
+    assert_eq!(said.keys(), vec!["azdrive-err-not-found"]);
+    let name = said.phrase("azdrive-err-not-found").and_then(|p| p.get("name"));
+    assert_eq!(name.map(ToString::to_string).as_deref(), Some("a.txt"));
+}
+
+/// An error the user caused is said in the window's language too: the name, the file
+/// system's own words as they are.
+#[test]
+fn a_users_own_error_is_said_in_the_windows_language() {
+    keep(&sources());
+    set_locale("de-DE");
+    let missing = DriveError::NotFound {
+        key: String::from("docs/a.txt"),
+    };
+    assert_eq!(t_text(&drive_error_text(&missing)), "„a.txt“ existiert nicht.");
+    let disk = DriveError::Io(String::from("No space left on device"));
+    assert_eq!(
+        t_text(&drive_error_text(&disk)),
+        "Dateifehler: No space left on device"
+    );
+    let bad = DriveError::InvalidKey {
+        key: String::from("a/../b"),
+        reason: "it climbs out of its folder",
+    };
+    assert!(t_text(&drive_error_text(&bad)).starts_with("„a/../b“ ist kein gültiger Name"));
+    set_locale("en-US");
+    assert_eq!(t_text(&drive_error_text(&missing)), "\"a.txt\" does not exist.");
 }
