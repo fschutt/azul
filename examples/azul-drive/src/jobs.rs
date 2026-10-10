@@ -307,11 +307,13 @@ pub(crate) enum Job {
     },
     /// The background claims: the keyring's unfinished checkouts asked about every few seconds
     /// (each at its own token server, else `token_url`) until none is left or an hour is gone;
-    /// a claimed one's period tokens issued into `store`.
+    /// a claimed one's period tokens issued into `store`. A cash checkout is asked once, and
+    /// again only every `cash_every` seconds (the daily look's interval).
     Claims {
         keyring: SharedKeyring,
         token_url: Option<String>,
         store: PeriodTokenStore,
+        cash_every: u64,
     },
     /// A claimed checkout whose drive `drive_id` is in the drives file: without a `grant` it
     /// leaves the keyring's list; with one it stays there (its issue key with its claim secret)
@@ -2360,25 +2362,39 @@ fn await_payment(
 /// whose period tokens are not issued yet (AZLINSEC17 F24) is not asked about again: its tokens
 /// are issued with the issue key it keeps ([`pending::finish`]) - the sealed sign-up may be
 /// gone by now.
+/// Whether a cash checkout last asked at `last` (in this claims run) is to be asked at `now`:
+/// never asked yet, or `every` seconds (its daily look's interval) gone since.
+#[must_use]
+pub(crate) fn cash_ask_due(last: Option<Instant>, every: u64, now: Instant) -> bool {
+    last.is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(every))
+}
+
 fn claim_pending(
     keyring: &SharedKeyring,
     token_url: Option<&str>,
     store: &PeriodTokenStore,
+    cash_every: u64,
     sender: &mut ThreadSender,
 ) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
     let started = Instant::now();
     let mut reported: Vec<String> = Vec::new();
-    // A cash checkout is asked once a run (its letter takes days): the daily look starts the
-    // next run.
-    let mut asked_cash: Vec<String> = Vec::new();
+    // A cash checkout is asked once, then once each daily interval (its letter takes days):
+    // never every round.
+    let mut asked_cash: HashMap<String, Instant> = HashMap::new();
     loop {
         let open: Vec<PendingCheckout> = match pending::list(keyring) {
             Ok(checkouts) => checkouts
                 .into_iter()
                 .filter(|c| c.period.is_some() || !reported.contains(&c.checkout_id))
                 .filter(|c| {
-                    !(c.is_cash() && c.period.is_none() && asked_cash.contains(&c.checkout_id))
+                    !(c.is_cash()
+                        && c.period.is_none()
+                        && !cash_ask_due(
+                            asked_cash.get(&c.checkout_id).copied(),
+                            cash_every,
+                            Instant::now(),
+                        ))
                 })
                 .collect(),
             Err(e) => {
@@ -2424,7 +2440,7 @@ fn claim_pending(
                 continue;
             }
             if checkout.is_cash() {
-                asked_cash.push(checkout.checkout_id.clone());
+                asked_cash.insert(checkout.checkout_id.clone(), Instant::now());
             }
             match pending::poll(&server, keyring, &checkout) {
                 Polled::Pending if checkout.is_cash() => {
@@ -2863,7 +2879,8 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             token_url,
             store,
-        } => claim_pending(&keyring, token_url.as_deref(), &store, sender),
+            cash_every,
+        } => claim_pending(&keyring, token_url.as_deref(), &store, cash_every, sender),
         Job::FinishCheckout {
             keyring,
             store,

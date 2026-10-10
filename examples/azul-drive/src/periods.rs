@@ -122,6 +122,12 @@ impl Schedule {
             .insert(key.to_string(), now.saturating_add(self.every));
     }
 
+    /// Seconds between two looks (a day, or the test run's interval).
+    #[must_use]
+    pub(crate) fn every(&self) -> u64 {
+        self.every
+    }
+
     /// Seconds between two glances of the timer at the schedule.
     fn tick(&self) -> u64 {
         self.every.min(TICK_SECS)

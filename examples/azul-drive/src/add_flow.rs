@@ -1374,6 +1374,7 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     let keyring = s.keyring.clone();
     let token_url = s.token.url.clone();
     let store = s.period_tokens.clone();
+    let cash_every = s.cash_looks.every();
     spawn(
         info,
         app,
@@ -1382,6 +1383,7 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             keyring,
             token_url,
             store,
+            cash_every,
         },
     );
 }
