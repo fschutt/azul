@@ -157,11 +157,14 @@ fn a_date_is_written_as_the_language_writes_it() {
     assert_eq!(day(DateStyle::ShortWeekdayDay), "Wed 30");
     assert_eq!(day(DateStyle::ShortDate), "Wed 30 Sep");
     assert_eq!(day(DateStyle::DayShortMonth), "30 Sep");
+    // A range's first day in its month: "28 - 30 September".
+    assert_eq!(day(DateStyle::DayOnly), "30");
     set_locale("de-DE");
     assert_eq!(day(DateStyle::DayLong), "Mittwoch, 30. September 2026");
     assert_eq!(day(DateStyle::WeekdayDayMonth), "Mittwoch, 30. September");
     assert_eq!(day(DateStyle::ShortWeekdayDay), "Mi. 30.");
     assert_eq!(day(DateStyle::ShortDate), "Mi. 30. Sept.");
+    assert_eq!(day(DateStyle::DayOnly), "30.");
     assert_eq!(date_text(DateStyle::MonthYear, 2026, 3, 1, 6), "März 2026");
     set_locale("en-US");
 }
