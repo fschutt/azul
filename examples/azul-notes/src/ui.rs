@@ -68,6 +68,8 @@ fn text_line(text: &str, css: &str) -> Dom {
 
 /// The window's layout.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The layout's language says the words (a switch of it too).
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window (a
     // theme switch always does).
     let look = look::of(
