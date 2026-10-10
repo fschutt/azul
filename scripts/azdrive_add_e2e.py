@@ -381,7 +381,9 @@ def run(args, logs):
     # The headless keyring in a file of this run: it outlives AzDrive's restart (step 6). The
     # payer pays from Germany whatever this machine's locale is (the pills of steps 7 - 11).
     keyring_file = os.path.join(logs, "keyring.json")
-    env = {"AZ_KEYRING_FILE": keyring_file, "AZLIN_COUNTRY": "DE"}
+    # The daily look at the drives' periods every 3 s (step 6c).
+    env = {"AZ_KEYRING_FILE": keyring_file, "AZLIN_COUNTRY": "DE",
+           "AZDRIVE_PERIOD_CHECK_SECS": "3"}
     app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout, extra_env=env)
     try:
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
@@ -604,6 +606,17 @@ def run(args, logs):
         log("6b. Buy -> Stop waiting -> AzDrive closed -> paid -> AzDrive started: %s arrived at "
             "the start under the name typed, its session in the keyring, its period tokens "
             "kept, its checkout off the keyring's list, its bucket listed" % paid)
+
+        # 6c. While AzDrive runs, its daily look at the periods (every few seconds in this run:
+        # AZDRIVE_PERIOD_CHECK_SECS) finds the drive's period nearly over and buys a month.
+        stack.token.state.drives[paid]["period_until"] = int(time.time()) + 2 * 86400
+        app.until("the period token redeemed by the daily look", lambda: app.printed(
+            "AZDRIVE_PERIOD_REDEEMED", r"%s 1 \S+" % re.escape(paid)))
+        check_period_tokens(stack, drives_file, second, paid, redeemed=1)
+        if stack.token.state.drives[paid]["period_until"] < int(time.time()) + 29 * 86400:
+            raise Failure("the daily look's redemption did not reach the mock")
+        log("6c. AzDrive running, the period of %s nearly over at the token server: the next "
+            "look bought it a month with its kept token" % paid)
 
         # 7. A card payment in the popover: Fake Stripe's fields in the web view.
         stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))
