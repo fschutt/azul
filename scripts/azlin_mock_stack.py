@@ -163,6 +163,11 @@ DECLINING_CARD = '4000000000000002'
 SEALED_KEEP_SECS = 30 * 86400
 # How long a recovery-key lockdown waits for a device of the owner to cancel it.
 LOCKDOWN_PENDING_SECS = 48 * 3600
+# A development token server's test vouchers (azlin-proto's voucher module): never used up.
+TEST_VOUCHERS = {
+    'AZLIN-TEST-1M': {'months': 1, 'value_cents': 0, 'tier': None},
+    'AZLIN-TEST-EUR10': {'months': 0, 'value_cents': 1000, 'tier': None},
+}
 
 # ==== The fake payment providers (CHECKOUT-PLAN §4.2) ====
 #
@@ -1073,7 +1078,8 @@ class TokenState:
         """A voucher the mock takes (an E2E's switch): `months` and a value in cents, for
         `tier` (None: any)."""
         with self.lock:
-            self.vouchers[code] = {'months': months, 'value_cents': value_cents, 'tier': tier}
+            self.vouchers[code.strip().upper()] = {'months': months, 'value_cents': value_cents,
+                                                   'tier': tier}
 
     def redeem_voucher(self, bearer, body):
         """POST /v1/vouchers/redeem (payments.rs `redeem_voucher`): on a drive (`drive_id`, its
@@ -1085,7 +1091,10 @@ class TokenState:
         drive_id = body.get('drive_id')
         with self.lock:
             drive = self.authenticate(drive_id, bearer, previous_ok=True) if drive_id else None
-            voucher = self.vouchers.get(code.strip())
+            # Codes in any case (payments.rs normalizes them); a development server's test
+            # codes are never used up.
+            normalized = code.strip().upper()
+            voucher = self.vouchers.get(normalized) or TEST_VOUCHERS.get(normalized)
             if voucher is None:
                 raise ApiError(400, 'voucher_invalid', 'this voucher is not valid')
             tier = drive['tier'] if drive else (voucher['tier'] or body.get('tier') or DEFAULT_TIER)
@@ -1097,7 +1106,7 @@ class TokenState:
                 raise ApiError(400, 'voucher_too_small',
                                'this voucher is worth less than a day of this tier; it was not '
                                'redeemed')
-            del self.vouchers[code.strip()]
+            self.vouchers.pop(normalized, None)
             if drive is not None:
                 tomorrow = (int(time.time()) // 86400 + 1) * 86400
                 drive['period_until'] = max(drive['period_until'], tomorrow) + days * 86400
