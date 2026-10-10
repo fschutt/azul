@@ -13,6 +13,8 @@
 //! Confirming --Close--> Stopped (the claim kept: the payment may be in flight)
 //! Waiting --Approved--> Done        Waiting --Declined--> Declined
 //! Waiting --Stop waiting / Close--> Stopped --Check again--> Waiting
+//! Preparing (paper) --Posted--> Posted: the slip shown, the background claims look daily
+//! Posted --Approved--> Done   Posted --Declined--> Declined   Posted --Close--> Choosing (kept)
 //! ```
 //!
 //! The app runs the effects: [`Effect::CreateCheckout`] (`POST /v1/checkout` with the claim key,
@@ -39,6 +41,7 @@ use crate::{
     offer::{ReturnKind, Returns, Settles},
     pills::Choice,
     registry::{Method, SurfaceKind, BRIDGE_PREFIX, FIELDS_PREFIX},
+    cash::CashSlip,
     surface::{Created, SecretUrl, Surface},
     url::{shown_host, WebUrl},
 };
@@ -76,6 +79,8 @@ pub enum Notice {
     NoBrowserSurface,
     /// The server could not make the asked surface.
     SurfaceRefused(String),
+    /// A cash checkout's slip is printed: the drive comes when the letter arrived.
+    WaitingForLetter,
 }
 
 impl Notice {
@@ -128,6 +133,10 @@ impl Notice {
             Notice::SurfaceRefused(why) => {
                 format!("The payment could not be moved to the browser: {why}")
             }
+            Notice::WaitingForLetter => String::from(
+                "Waiting for your letter: postal cash takes a while, AzDrive checks once a day. \
+                 Nothing else tells you - look here again in a few days.",
+            ),
         }
     }
 }
@@ -222,6 +231,9 @@ pub enum State {
     Stopped { checkout_id: String },
     Done { checkout_id: String },
     Declined { checkout_id: String, reason: String },
+    /// A cash checkout: its slip is printed, the letter on its way; the background claims
+    /// look once a day (the dialog waits for nothing).
+    Posted { slip: Box<CashSlip> },
 }
 
 /// The popover's chrome: the verified host, what the page is, who runs it.
@@ -237,7 +249,7 @@ pub struct Chip {
 
 impl State {
     /// For the scripts' lines: `choosing`, `preparing`, `presenting`, `confirming`, `waiting`,
-    /// `stopped`, `done`, `declined`.
+    /// `stopped`, `done`, `declined`, `posted`.
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
@@ -249,6 +261,7 @@ impl State {
             State::Stopped { .. } => "stopped",
             State::Done { .. } => "done",
             State::Declined { .. } => "declined",
+            State::Posted { .. } => "posted",
         }
     }
 
@@ -264,6 +277,7 @@ impl State {
             | State::Stopped { checkout_id }
             | State::Done { checkout_id }
             | State::Declined { checkout_id, .. } => Some(checkout_id),
+            State::Posted { slip } => Some(&slip.checkout_id),
         }
     }
 
@@ -351,6 +365,8 @@ pub enum Event {
     Approved,
     /// The poll says the payment was declined (or the checkout is gone).
     Declined(String),
+    /// `POST /v1/checkout` of a cash checkout answered, checked: its slip.
+    Posted(Box<CashSlip>),
 }
 
 impl fmt::Debug for Event {
@@ -386,6 +402,7 @@ impl fmt::Debug for Event {
             Event::PendingForDays => f.write_str("PendingForDays"),
             Event::Approved => f.write_str("Approved"),
             Event::Declined(why) => f.debug_tuple("Declined").field(why).finish(),
+            Event::Posted(slip) => f.debug_tuple("Posted").field(&slip.checkout_id).finish(),
         }
     }
 }
@@ -422,6 +439,8 @@ pub enum Effect {
     /// The dialog stops waiting; the background claims take over.
     StopPoll,
     Notice(Notice),
+    /// The cash checkout's two pages are offered: the buyer's copy and the slip to post.
+    ShowPaper(Box<CashSlip>),
 }
 
 /// One step: `state` after `event`, and what the app does.
@@ -439,6 +458,7 @@ pub fn step(state: State, event: Event) -> (State, Vec<Effect>) {
             settles,
         } => waiting(checkout_id, reason, browser, settles, event),
         State::Stopped { checkout_id } => stopped(checkout_id, event),
+        State::Posted { slip } => posted(slip, event),
         State::Done { checkout_id } => match event {
             Event::Navigation { .. } => (State::Done { checkout_id }, vec![Effect::CancelNavigation]),
             Event::Close => (State::Choosing, Vec::new()),
@@ -532,6 +552,20 @@ fn preparing(choice: Choice, surface: SurfaceKind, event: Event) -> (State, Vec<
         Event::CreateFailed(why) => (
             State::Choosing,
             vec![Effect::Notice(Notice::CreateFailed(why))],
+        ),
+        Event::Posted(slip) if surface == SurfaceKind::Paper => (
+            State::Posted { slip: slip.clone() },
+            vec![
+                Effect::ShowPaper(slip),
+                Effect::Notice(Notice::WaitingForLetter),
+                Effect::StopPoll,
+            ],
+        ),
+        Event::Posted(_) => (
+            State::Choosing,
+            vec![Effect::Notice(Notice::CreateFailed(String::from(
+                "the token server answered with a cash slip for another payment",
+            )))],
         ),
         Event::Close => (State::Choosing, Vec::new()),
         Event::Navigation { .. } => (
@@ -836,7 +870,8 @@ fn presenting(
         | Event::CheckAgain
         | Event::PendingForDays
         | Event::Approved
-        | Event::Declined(_) => (keep(checkout, page), Vec::new()),
+        | Event::Declined(_)
+        | Event::Posted(_) => (keep(checkout, page), Vec::new()),
     }
 }
 
@@ -994,5 +1029,35 @@ fn stopped(checkout_id: String, event: Event) -> (State, Vec<Effect>) {
             }],
         ),
         _ => (State::Stopped { checkout_id }, Vec::new()),
+    }
+}
+
+/// A cash checkout whose slip is printed: the letter, then the operator, then the claim. Closing
+/// the dialog keeps it (nobody abandons a letter in the post); a new order may follow.
+fn posted(slip: Box<CashSlip>, event: Event) -> (State, Vec<Effect>) {
+    match event {
+        Event::Close => (State::Choosing, Vec::new()),
+        Event::Pay { .. } => choosing(event),
+        Event::Approved => (
+            State::Done {
+                checkout_id: slip.checkout_id,
+            },
+            Vec::new(),
+        ),
+        Event::Declined(why) => (
+            State::Declined {
+                checkout_id: slip.checkout_id,
+                reason: why.clone(),
+            },
+            vec![Effect::Notice(Notice::Declined(why))],
+        ),
+        Event::Navigation { .. } => (State::Posted { slip }, vec![Effect::CancelNavigation]),
+        Event::Created(created) => (
+            State::Posted { slip },
+            vec![Effect::Abandon {
+                checkout_id: created.checkout_id,
+            }],
+        ),
+        _ => (State::Posted { slip }, Vec::new()),
     }
 }
