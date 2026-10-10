@@ -14091,6 +14091,63 @@ mod child_window_tests {
         );
     }
 
+    /// A window that closes takes the popups it opened with it, however it closes: its parent's
+    /// rebuild dropped it (a popup's own popup - AzDrive's payment popover over its Add drive
+    /// dialog, both gone in one Cancel), its user or its app closed it. A popup opened by a popup
+    /// is hoisted into the root window's children, so nothing else ever closes it: the window
+    /// that opened it closed without telling its mailbox, and the nested popup stayed open on
+    /// its own (the add-drive E2E's step 11, 2026-10-10).
+    #[test]
+    fn a_closing_window_closes_the_popups_it_opened() {
+        use azul_core::{
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            id::NodeId,
+            transient::TransientWindowConfig,
+        };
+        use crate::desktop::shell2::common::transient::{poll_popup, PopupAction};
+
+        let mut root = root();
+        root.regenerate_layout().expect("the window's first layout");
+        let (popup, mailbox) = transient_popup(&root);
+        {
+            let lw = root
+                .common
+                .layout_window
+                .as_mut()
+                .expect("a laid-out window has its layout window");
+            let placement = azul_layout::transient::placement_for(
+                NodeId::new(1),
+                LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(300.0, 200.0)),
+                &TransientWindowConfig::opened(),
+            );
+            let opened = lw
+                .transient_windows
+                .reconcile(&[placement], |_, _| Some(LogicalSize::new(200.0, 120.0)))
+                .opened;
+            assert_eq!(opened.len(), 1, "the window opened a popup");
+            lw.transient_windows
+                .get_mut(opened[0])
+                .expect("the popup is open")
+                .surface = OptionRefAny::Some(mailbox);
+        }
+        assert_eq!(poll_popup(&popup.window_state), PopupAction::Nothing);
+
+        root.close();
+
+        assert_eq!(
+            poll_popup(&popup.window_state),
+            PopupAction::Close,
+            "the popup was told to close with the window that opened it"
+        );
+        assert!(
+            root.common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| lw.transient_windows.open_windows().is_empty()),
+            "the closed window holds no open popup"
+        );
+    }
+
     /// A key that reached the owner while its transient popup holds the keyboard goes into the
     /// popup's mailbox (`forward_keys_to_popup`: headless, like X11, makes no popup a key
     /// window) - and the owner runs the popup's pass right away, as X11, macOS and Win32 do
