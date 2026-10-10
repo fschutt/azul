@@ -825,6 +825,15 @@ impl Pim {
     pub fn respond(&self, head: &Head, body: &[u8]) -> Response {
         let place = match place_of(&head.target) {
             Ok(Some(place)) => place,
+            // A collection asked to be made where the bridge makes none: refused (RFC 4918
+            // 9.3.1), not "not there" - what is not there yet is what MKCOL asks to make.
+            Ok(None) if matches!(head.method.as_str(), "MKCOL" | "MKCALENDAR") => {
+                return Response::text(
+                    Status::FORBIDDEN,
+                    "Calendars are made with MKCALENDAR under /calendars/; the address book is the \
+                     one AzContacts keeps.",
+                )
+            }
             Ok(None) => return Response::text(Status::NOT_FOUND, "Not there."),
             Err(status) => return Response::text(status, "Not a path of the bridge's calendars and contacts."),
         };
