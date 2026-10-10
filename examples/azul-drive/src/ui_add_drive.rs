@@ -350,8 +350,9 @@ fn claim_code(d: &AddDialog, app: &RefAny) -> Dom {
         text_field(app, &d.buy_name, "Azlin Storage", false, TextTarget::BuyName)
             .with_id(ids::ADD_NAME),
         note(
-            "Use the code only when the computer that bought the drive is lost: two computers \
-             that pick up one drive lock each other out of it.",
+            "Each computer that picks the drive up with the code gets a key of its own (three \
+             at most, within 30 days of the first pick-up); the computer that bought it keeps \
+             its own.",
         ),
     ];
     if !d.notice.is_empty() {
