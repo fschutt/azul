@@ -74,11 +74,18 @@ use crate::{
 /// between runs (`<cache>/AzDrive/drive-index`), so a drive opens with one conditional read and
 /// browses without listing the bucket.
 pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
-    let cache = crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
-        .map(|dir| dir.join("AzDrive").join("drive-index"));
-    Some(Arc::new(
-        MetaIndexProvider::new("AzDrive").with_cache_root(cache),
-    ))
+    Some(Arc::new(meta_provider(index_cache_root())))
+}
+
+/// Where this computer keeps its copies of the drive indexes: `<cache>/AzDrive/drive-index`.
+fn index_cache_root() -> Option<PathBuf> {
+    crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
+        .map(|dir| dir.join("AzDrive").join("drive-index"))
+}
+
+/// The drive index's provider with this computer's copies under `cache_root`.
+fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
+    MetaIndexProvider::new("AzDrive").with_cache_root(cache_root)
 }
 
 /// An Azlin drive's bucket as the drive the app uses: decided plain or encrypted on its first
@@ -1387,5 +1394,38 @@ mod tests {
     #[test]
     fn with_the_drive_index_the_flows_are_offered() {
         assert!(offered());
+    }
+
+    /// C6 in AzDrive: a computer new to an encrypted drive lists a folder from the index's
+    /// pack indexes and the chunks it needs (ranged reads), before any pack is read whole.
+    #[test]
+    fn a_new_computer_lists_an_encrypted_drive_before_reading_a_whole_pack() {
+        use azul_storage::{
+            crypto::DriveKey, encrypted::EncryptedDrive, meta::MemoryBucket, ListRequest,
+        };
+        let bucket = Arc::new(MemoryBucket::new());
+        let key = DriveKey::generate().unwrap();
+        // Another computer wrote the drive: five files, five packs of the index.
+        let index = meta_provider(None)
+            .open_index("d_lazy", bucket.clone(), &key)
+            .unwrap();
+        let writer = EncryptedDrive::new(bucket.clone() as Arc<dyn Drive>, key.clone(), index);
+        for i in 0..5 {
+            writer.put(&format!("docs/{i}.txt"), b"x").unwrap();
+        }
+
+        let before = bucket.whole_reads().len();
+        let index = meta_provider(None)
+            .open_index("d_lazy", bucket.clone(), &key)
+            .unwrap();
+        let drive = EncryptedDrive::new(bucket.clone() as Arc<dyn Drive>, key, index);
+        let page = drive.list(&ListRequest::folder("docs/")).unwrap();
+        assert_eq!(page.objects.len(), 6, "the folder's marker and five files");
+        let packs_read = bucket.whole_reads()[before..]
+            .iter()
+            .filter(|key| key.ends_with(".pack"))
+            .count();
+        assert_eq!(packs_read, 0, "no pack read whole before the first listing");
+        assert!(bucket.counts().range_reads > 0);
     }
 }
