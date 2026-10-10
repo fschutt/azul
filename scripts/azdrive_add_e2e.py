@@ -40,7 +40,8 @@ sheet of `--dialogs inline`:
        token buys it a month at once (redeemed under the drive's lock), the second one's is a
        month away: its tokens wait.
        Then (6c - 6h) the paid drive at the mock: its period bought by the daily look, a
-       node's error in the table's words, a pending recovery-key lockdown cancelled, vouchers,
+       node's error in the table's words, a pending recovery-key lockdown cancelled with the
+       drive's recovery code (F12: another code refused), vouchers,
        a device added at the token server announced (AZDRIVE_NEW_DEVICE), and Options > Drives
        > "Restore as of..." putting its bucket back as it was at a time (AZDRIVE_RESTORED).
 
@@ -998,7 +999,7 @@ def run(args, logs):
         paid = app.until("the drive paid while AzDrive was closed", lambda: [
             d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d not in (bought, late)])[-1]
         app.until("its row in CLOUD", lambda: app.has(side_drive(paid)))
-        new_drive_encrypted(app, paid)
+        paid_code = new_drive_encrypted(app, paid)
         wait_closed(app)
         app.until("the checkout off the keyring's list",
                   lambda: second not in pending_checkouts(keyring_file))
@@ -1060,20 +1061,41 @@ def run(args, logs):
             % (paid, refused.get("request_id")))
 
         # 6e. A pending recovery-key lockdown (made elsewhere, with the recovery code): this
-        # device of the owner shows it with Cancel at its next look, and cancels it.
+        # device of the owner shows it with Cancel at its next look. F12, "the recovery code
+        # always wins": Cancel asks for the code - another one is refused before anything is
+        # signed, the drive's own (from its sheet in 6b) signs the cancel, no drive token sent.
         stack.token.state.drives[paid]["lockdown_pending_until"] = int(time.time()) + 2 * 86400
         app.until("the pending lockdown seen", lambda: app.printed(
             "AZDRIVE_LOCKDOWN_PENDING", r"%s \S+" % re.escape(paid)))
         app.until("its bar", lambda: app.has("#__azdrive_lockdown_bar"))
         if not app.shows("lockdown with the recovery code is pending"):
             raise Failure("the pending lockdown's bar does not say what it is")
+        app.until("the paid drive's recovery key at the token server (its sheet's)",
+                  lambda: stack.token.state.drives[paid].get("recovery_pubkey"))
+        signed_before = len(stack.token.state.drives[paid].get("recovery_nonces") or ())
+        app.click(selector="#__azdrive_lockdown_cancel")
+        popup = e2e.modal_window(app)
+        popup.until("the cancel asks for the recovery code",
+                    lambda: popup.has("#__azdrive_lockdown_cancel_code"))
+        wrong = "00000-00000-00000-00000-000000"
+        popup.text_input("#__azdrive_lockdown_cancel_code", wrong)
+        popup.click(selector="#__azdrive_lockdown_cancel_confirm", frames=3)
+        popup.until("another code refused", lambda: popup.shows(
+            "not this drive's current recovery code"))
+        if not stack.token.state.drives[paid].get("lockdown_pending_until"):
+            raise Failure("another code cancelled the lockdown")
+        retype(popup, "#__azdrive_lockdown_cancel_code", wrong,
+               paid_code.replace("-", " ").lower())
         app.after("the lockdown cancelled", "AZDRIVE_LOCKDOWN_CANCELLED", re.escape(paid),
-                  lambda: app.click(selector="#__azdrive_lockdown_cancel"))
+                  lambda: popup.click(selector="#__azdrive_lockdown_cancel_confirm"))
         if stack.token.state.drives[paid].get("lockdown_pending_until"):
             raise Failure("the mock still has the lockdown pending")
+        if len(stack.token.state.drives[paid].get("recovery_nonces") or ()) <= signed_before:
+            raise Failure("the cancel was not signed with the recovery code")
         app.until("the bar gone", lambda: not app.has("#__azdrive_lockdown_bar"))
         log("6e. A recovery-key lockdown of %s pending at the token server: AzDrive's next look "
-            "showed it with Cancel, and Cancel called it off" % paid)
+            "showed it with Cancel; Cancel asked for the recovery code - another code was "
+            "refused, the drive's own (typed with spaces, lower case) signed the cancel" % paid)
 
         # 6f. Vouchers: one buys a new drive in Add drive > Buy storage ("I have a voucher"),
         # one adds days to a drive in Options > Drives.
