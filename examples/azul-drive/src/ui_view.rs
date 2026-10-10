@@ -401,7 +401,7 @@ extern "C" fn on_place_open(mut data: RefAny, mut info: CallbackInfo) -> Update 
 
 fn drive_tile(s: &DriveState, app: &RefAny, index: usize) -> Dom {
     let slot = &s.slots[index];
-    let mut tile = Tile::create(AzString::from(slot.entry.name.as_str()))
+    let mut tile = Tile::create(AzString::from(slot.name()))
         .with_icon(AzString::from(slot.icon()))
         .with_selected(s.selected_drive == Some(index));
     match (s.disk.get(&slot.entry.id), s.root_counts.get(&slot.entry.id)) {

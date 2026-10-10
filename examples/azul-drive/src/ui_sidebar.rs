@@ -260,7 +260,7 @@ fn sources(s: &DriveState) -> Sources<'_> {
             .iter()
             .map(|slot| DriveRow {
                 id: &slot.entry.id,
-                name: &slot.entry.name,
+                name: slot.label(),
                 icon: slot.icon(),
                 local: slot.is_local(),
             })

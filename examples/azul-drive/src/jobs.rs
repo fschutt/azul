@@ -69,7 +69,8 @@ pub(crate) enum PreviewContent {
         width: usize,
         height: usize,
     },
-    Text(String),
+    /// A text's start; `cut`: the file goes on (the pane says so).
+    Text { text: String, cut: bool },
     /// A local file the video widget plays.
     Video(PathBuf),
     /// A WAV file's samples, for azul's AudioSink.
@@ -821,7 +822,10 @@ fn make_preview(
     };
     match kind {
         PreviewKind::Text => match preview::text_preview(&bytes, truncated) {
-            Ok(text) => PreviewContent::Text(text),
+            Ok(text) => PreviewContent::Text {
+                text,
+                cut: truncated,
+            },
             Err(why) => PreviewContent::Message(Text::key(why)),
         },
         PreviewKind::Pdf => pdf_first_page(&bytes),

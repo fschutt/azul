@@ -1793,3 +1793,25 @@ azdrive-add-choose-path = Choose ...
 
 azdrive-add-no-cash = This token server takes no cash by post.
 azdrive-add-pay-cash = Pay with cash by post…
+
+## The last sweep: the home folder, a session not kept, a preview's cut, a drive's metadata
+
+azdrive-home-drive = Home
+azdrive-session-not-saved = The new session of "{ $name }" could not be saved in the keyring: { $why }. AzDrive keeps it until it closes; after that the drive must be added again.
+azdrive-preview-cut = [... the first 64 KB of the file]
+azdrive-meta-location = Location
+azdrive-meta-created = Created
+azdrive-meta-read-only = Read-only
+azdrive-meta-storage-class = Storage class
+azdrive-meta-encryption = Encryption
+azdrive-meta-version = Version
+azdrive-meta-redirect = Redirect
+azdrive-meta-source = Source
+azdrive-meta-content-type = Content type
+azdrive-meta-content-encoding = Content encoding
+azdrive-meta-cache-control = Cache control
+azdrive-meta-database = Database
+azdrive-meta-engine = Engine
+azdrive-meta-table = Table
+azdrive-meta-yes = Yes
+azdrive-meta-no = No

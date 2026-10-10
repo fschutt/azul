@@ -1791,3 +1791,25 @@ azdrive-add-choose-path = Auswählen…
 
 azdrive-add-no-cash = Dieser Tokenserver nimmt kein Bargeld per Post an.
 azdrive-add-pay-cash = Mit Bargeld per Post bezahlen…
+
+## The last sweep: the home folder, a session not kept, a preview's cut, a drive's metadata
+
+azdrive-home-drive = Persönlicher Ordner
+azdrive-session-not-saved = Die neue Sitzung von „{ $name }“ konnte nicht im Schlüsselbund gespeichert werden: { $why }. AzDrive behält sie, bis es geschlossen wird; danach muss das Laufwerk erneut hinzugefügt werden.
+azdrive-preview-cut = [… die ersten 64 KB der Datei]
+azdrive-meta-location = Ort
+azdrive-meta-created = Erstellt
+azdrive-meta-read-only = Schreibgeschützt
+azdrive-meta-storage-class = Speicherklasse
+azdrive-meta-encryption = Verschlüsselung
+azdrive-meta-version = Version
+azdrive-meta-redirect = Weiterleitung
+azdrive-meta-source = Quelle
+azdrive-meta-content-type = Inhaltstyp
+azdrive-meta-content-encoding = Inhaltscodierung
+azdrive-meta-cache-control = Cache-Steuerung
+azdrive-meta-database = Datenbank
+azdrive-meta-engine = Datenbanksystem
+azdrive-meta-table = Tabelle
+azdrive-meta-yes = Ja
+azdrive-meta-no = Nein

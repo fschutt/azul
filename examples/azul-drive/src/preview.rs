@@ -93,8 +93,8 @@ pub fn fits_preview(kind: PreviewKind, size: Option<u64>) -> bool {
 }
 
 /// The text of a preview: `bytes` decoded (invalid UTF-8 replaced); a cut
-/// file (`truncated`) ends at its last complete line and says it is the
-/// start. A NUL byte in the first 8 KB means a binary file: `Err`.
+/// file (`truncated`) ends at its last complete line (the pane says it is the
+/// start). A NUL byte in the first 8 KB means a binary file: `Err`.
 pub fn text_preview(bytes: &[u8], truncated: bool) -> Result<String, &'static str> {
     let probe = &bytes[..bytes.len().min(8192)];
     if probe.contains(&0) {
@@ -105,7 +105,6 @@ pub fn text_preview(bytes: &[u8], truncated: bool) -> Result<String, &'static st
         if let Some(end) = text.rfind('\n') {
             text.truncate(end + 1);
         }
-        text.push_str("\n[... the first 64 KB of the file]");
     }
     Ok(text)
 }
@@ -255,7 +254,7 @@ mod tests {
         let cut = text_preview(b"line one\nline tw", true).unwrap();
         assert!(cut.starts_with("line one\n"), "{cut}");
         assert!(!cut.contains("line tw"), "a cut line is dropped: {cut}");
-        assert!(cut.contains("64 KB"), "says it is the start: {cut}");
+        assert!(cut.ends_with('\n'), "it ends at a line's end: {cut}");
         // Invalid UTF-8 is shown, replaced; NUL bytes mean a binary file.
         assert!(text_preview(&[b'a', 0xff, b'b'], false)
             .unwrap()

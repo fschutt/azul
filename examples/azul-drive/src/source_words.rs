@@ -96,6 +96,19 @@ pub(crate) fn problem(problem: FormProblem) -> String {
     }
 }
 
+/// A row of a drive's own metadata (`Drive::metadata`, `browse::metadata_rows`) in the window's
+/// language: azul-storage's names (`Location`, `Read-only`: `Yes`) by their English, an HTTP
+/// header's and a user's own name as they are.
+#[must_use]
+pub(crate) fn meta_row(name: &str, value: &str) -> (String, String) {
+    let value = match (name, value) {
+        ("Read-only", "Yes") => t("azdrive-meta-yes"),
+        ("Read-only", "No") => t("azdrive-meta-no"),
+        _ => value.to_string(),
+    };
+    (named("meta", name), value)
+}
+
 /// What kind of drive it is (Properties' Type, the drive's tile): `Lokaler Datenträger`.
 #[must_use]
 pub(crate) fn kind(kind: &DriveKind) -> String {
