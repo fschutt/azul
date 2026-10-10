@@ -624,6 +624,9 @@ macro_rules! page_theme_and_dom {
 
             /// Replaces `self` with an empty page and returns the original.
             #[must_use]
+            // The body is each page's `$default` constructor; six of the eight
+            // (`on_event: None.into()`) are not const.
+            #[allow(clippy::missing_const_for_fn)]
             pub fn swap_with_default(&mut self) -> Self {
                 let mut s = $default;
                 core::mem::swap(&mut s, self);

@@ -232,7 +232,7 @@ impl DetailsPane {
 
     /// Replaces `self` with an empty pane and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s

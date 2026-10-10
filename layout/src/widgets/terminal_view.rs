@@ -1562,7 +1562,7 @@ impl TerminalView {
 
     /// Replaces `self` with a fresh view and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s

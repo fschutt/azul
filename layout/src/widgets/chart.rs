@@ -726,7 +726,7 @@ impl Chart {
 
     /// Replaces `self` with an empty line chart and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(ChartKind::Line, DEFAULT_WIDTH, DEFAULT_HEIGHT);
         core::mem::swap(&mut s, self);
         s
