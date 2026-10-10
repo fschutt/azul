@@ -51,8 +51,39 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
         Authorization: Bearer <drive token>         pending recovery-key lockdown (a read: the
                                                     previous token counts too; an older one is a
                                                     reuse)
-    POST /v1/drives/<id>/recovery                   200 the drive's recovery key (Ed25519,
-        {"recovery_pubkey"}, a drive token          standard base64; scripts/azlin_ed25519.py)
+    POST /v1/drives/<id>/recovery                   200 {"ok", "key_id", "label"}: the drive's
+        {"recovery_pubkey", "label"?, a drive       only recovery key from now on (Ed25519,
+        token; once it has one: "nonce",            standard base64; scripts/azlin_ed25519.py);
+        "signature", "key_id"?}                     once the drive has a key, signed by a current
+                                                    one over recovery:<drive>:<new key>:<nonce>
+                                                    (403 recovery_key_required without)
+    GET /v1/drives/<id>/recovery_keys               200 {"keys": [{"key_id", "label",
+        Authorization: Bearer <drive token>         "recovery_pubkey", "created_at",
+                                                    "verified"}]} (a key from before: rk_legacy)
+    POST /v1/drives/<id>/recovery_keys              201 the key; signed by a current key over
+        {"recovery_pubkey", "label", "nonce",       recovery-add:<drive>:<recovery_pubkey>:<nonce>
+        "signature", "key_id"?}, a drive token      (409 recovery_key_exists,
+                                                    too_many_recovery_keys - 10)
+    DELETE /v1/drives/<id>/recovery_keys/<key_id>   200 {"removed"}; signed over
+        {"nonce", "signature", "key_id"?}, a token  recovery-remove:<drive>:<key_id>:<nonce> (409
+                                                    last_recovery_key, 404 no_such_key)
+    POST /v1/recovery/challenge                     200 {"challenge": "rc1.<expires>.<random>.
+                                                    <mac>", "expires_at"}: 5 minutes
+    POST /v1/recovery/lookup {"recovery_pubkey",    200 {"drives": [{"drive_id", "key_id"}]} (none
+        "challenge", "signature"}                   for a key nobody registered); the signature
+                                                    over recovery-lookup:<challenge> (401
+                                                    bad_challenge, 401 unauthorized, 503
+                                                    not_verified). Both recovery routes: 20 per
+                                                    10 minutes per address (429 rate_limited)
+    A recovery-pending family (D42) gets 403        on every drive-token route but the status
+        {"error": "lockdown_pending", "message",    (credentials, members, keys, a token
+        "pending_until"}                            lockdown, recovery, recovery_keys, restore,
+                                                    redeem, vouchers with a drive): nothing
+                                                    written, the token not rotated; its GET
+                                                    /v1/drives/<id> is {"id", "status":
+                                                    "lockdown_pending", "lockdown_pending_until",
+                                                    "you"} only. Every signup and refresh answer
+                                                    names lockdown_pending_until
     POST /v1/drives/<id>/lockdown                   with a drive token: every other family
         {"nonce", "signature"} or a drive token     revoked, a new one for the caller (200, a
                                                     bundle); with the recovery key's signature
@@ -61,9 +92,13 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     48 h, a `recovery-pending` family (401 a bad
                                                     signature, 409 nonce_used, 400
                                                     no_recovery_key)
-    POST /v1/drives/<id>/lockdown/cancel            200 {"cancelled": true} by another family of
-        Authorization: Bearer <drive token>         the drive (403 by the pending one, 409
-                                                    no_pending_lockdown)
+    POST /v1/drives/<id>/lockdown/cancel            200 {"cancelled": true}: signed by one of the
+        {"nonce", "signature", "key_id"?}, NO       drive's recovery keys over
+        token (F12)                                 lockdown-cancel:<drive>:<nonce> (403
+                                                    recovery_key_required without a signature,
+                                                    401 another key's, 409 no_pending_lockdown).
+                                                    A device's lockdown leaves a pending recovery
+                                                    alone
     POST /v1/vouchers/redeem {"code", "drive_id"?,  with a drive (its token, a read): 200 the days
         "tier"?}                                    added (months and value pro rata); without:
                                                     201 a new drive's sign-up; 400
@@ -194,6 +229,16 @@ SEALED_KEEP_SECS = 30 * 86400
 # How long a recovery-key lockdown waits for a device of the owner to cancel it, and how long
 # deletes pause after a lockdown.
 LOCKDOWN_PENDING_SECS = 48 * 3600
+# A drive's recovery keys (recovery.rs): at most ten, labels of 64 characters; the key from
+# before several keys, and the label it and a replacement without one get.
+RECOVERY_KEYS_MAX = 10
+RECOVERY_LABEL_MAX = 64
+RECOVERY_LEGACY_KEY_ID = 'rk_legacy'
+RECOVERY_KIT_LABEL = 'recovery code'
+# The lookup by recovery key: its challenge's life, the rate limit of both routes per address.
+RECOVERY_CHALLENGE_SECS = 300
+RECOVERY_RATE_LIMIT = 20
+RECOVERY_RATE_WINDOW_SECS = 600
 LOCKDOWN_DELETE_PAUSE_SECS = 24 * 3600
 # A development token server's test vouchers (azlin-proto's voucher module): never used up.
 TEST_VOUCHERS = {
@@ -438,6 +483,9 @@ class TokenState:
         # Seconds the token server's clock is ahead of this computer's (advance): a test lets
         # a recovery-key lockdown's 48 h pass without waiting.
         self.clock_offset = 0
+        # The lookup challenges' MAC key, and the recovery routes' rate windows per address.
+        self.challenge_secret = secrets.token_bytes(32)
+        self.rate = {}
 
     def oauth_token(self, provider, form):
         """The fake OAuth token endpoint (see the module documentation): (status, answer)."""
@@ -532,6 +580,9 @@ class TokenState:
             'quota_bytes': drive['quota_bytes'],
             'read_only': False,
             'period_until': rfc3339(drive['period_until']),
+            # every device sees a pending recovery-key lockdown at its refresh (F12)
+            'lockdown_pending_until': (rfc3339(drive['lockdown_pending_until'])
+                                       if drive.get('lockdown_pending_until') else None),
             'drive_token': token,
             'tier': drive['tier'],
         }
@@ -541,6 +592,7 @@ class TokenState:
         if tier not in TIERS:
             raise ApiError(400, 'bad_tier', 'unknown tier')
         name = body.get('name') or 'Azlin Storage'
+        recovery = self.pubkey_of(body) if 'recovery_pubkey' in body else None
         with self.lock:
             drive_id = random_id('d_')
             drive = {
@@ -551,6 +603,9 @@ class TokenState:
                 'quota_bytes': TIERS[tier],
                 'period_until': int(time.time()) + 30 * 86400,
             }
+            if recovery:
+                # its first recovery key (the dev signup's recovery_pubkey)
+                drive['recovery_keys'] = [self.new_recovery_key(recovery, RECOVERY_KIT_LABEL)]
             self.s3.store.create_bucket(drive['bucket'])
             self.drives[drive_id] = drive
             token = self.new_family(drive_id, 'owner')
@@ -1052,7 +1107,7 @@ class TokenState:
         whose 48 hours are over applied first, as the token server's tick would have)."""
         drive = self.drives.get(drive_id)
         if drive is not None:
-            self.finish_lockdown(drive, time.time())
+            self.finish_lockdown(drive, self.now())
         if drive is None:
             raise ApiError(404, 'no_such_drive', 'unknown drive')
         if not bearer or not bearer.startswith('dt_'):
@@ -1077,7 +1132,8 @@ class TokenState:
         """POST /v1/drives/<id>/redeem (blind.rs `redeem`): one period token, one month more."""
         n, e, _ = self.issuer
         with self.lock:
-            drive = self.authenticate(drive_id, bearer, previous_ok=True)
+            drive, state = self.family_of(drive_id, bearer, previous_ok=True)
+            self.not_pending(drive, state)
             token = {key: body.get(key) for key in ('tier', 'year', 'nonce', 'signature',
                                                     'randomizer')}
             if token['tier'] != drive['tier']:
@@ -1102,6 +1158,11 @@ class TokenState:
             self.finish_pending_lockdowns_locked(self.now())
             drive, state = self.family_of(drive_id, bearer, previous_ok=True)
             pending = drive.get('lockdown_pending_until')
+            if state.get('member') == 'recovery-pending':
+                # its lockdown's status only (D42): no tier, quota or the owner's devices
+                return {'id': drive['id'], 'status': 'lockdown_pending',
+                        'lockdown_pending_until': rfc3339(pending) if pending else None,
+                        'you': state['member']}
             read_only = pending is not None or bool(drive.get('read_only'))
             added = {}
             for family in self.families.values():
@@ -1125,19 +1186,19 @@ class TokenState:
             self.drives[drive_id]['read_only'] = bool(read_only)
 
     def set_recovery(self, drive_id, bearer, body):
-        """POST /v1/drives/<id>/recovery (drives.rs `set_recovery`, a grant): the drive's
-        recovery key, an Ed25519 public key in standard base64."""
-        public = body.get('recovery_pubkey')
+        """POST /v1/drives/<id>/recovery (recovery.rs `set_only`, a grant): the drive's only
+        recovery key from now on (an Ed25519 public key, standard base64) - once the drive has
+        one, signed by a current key over recovery:<drive>:<new key>:<nonce> (F12 option C)."""
         with self.lock:
-            drive = self.authenticate(drive_id, bearer)
-            try:
-                raw = base64.b64decode(str(public) + '=' * (-len(str(public)) % 4), validate=True)
-            except ValueError:
-                raw = b''
-            if not public or len(raw) != 32:
-                raise ApiError(400, 'bad_request', 'recovery_pubkey (Ed25519, base64) required')
-            drive['recovery_pubkey'] = public
-            return {'ok': True}
+            drive = self.owner_call(drive_id, bearer, grant=True)
+            public = self.pubkey_of(body)
+            label = self.label_of(body, RECOVERY_KIT_LABEL)
+            self.key_consent(drive, body, 'recovery:%s:%s'
+                             % (drive_id, body.get('recovery_pubkey') or ''))
+            key = self.new_recovery_key(public, label)
+            drive['recovery_keys'] = [key]
+            drive.pop('recovery_pubkey', None)
+            return {'ok': True, 'key_id': key['key_id'], 'label': key['label']}
 
     def lockdown(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/lockdown (drives.rs `lockdown`): by the recovery key
@@ -1150,25 +1211,17 @@ class TokenState:
                 raise ApiError(404, 'no_such_drive', 'unknown drive')
             if 'signature' not in body:
                 _, state = self.family_of(drive_id, bearer)
-                # every family (the caller's too: it gets the new one), key and link at once
-                self.revoke_all(drive, lambda family: True)
+                # the pending device's token locks nothing down: that would hand it the drive
+                self.not_pending(drive, state)
+                # every family (the caller's too: it gets the new one), key and link at once -
+                # but not a pending recovery-key lockdown's: the recovery key wins (F12), its
+                # 48 h and its freeze stay
+                self.revoke_all(drive, lambda family: family.get('member') != 'recovery-pending')
                 token = self.new_family(drive_id, state.get('member', 'owner'))
-                drive['lockdown_pending_until'] = None
                 return 200, self.bundle(drive, token)
-            public = drive.get('recovery_pubkey')
-            if not public:
-                raise ApiError(400, 'no_recovery_key', 'no recovery key registered')
-            nonce = str(body.get('nonce') or '')
-            message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
-            if not azlin_ed25519.verify_b64(public, message, str(body.get('signature') or '')):
-                raise ApiError(401, 'unauthorized', 'bad recovery signature')
-            if not 16 <= len(nonce) <= 128:
-                raise ApiError(400, 'bad_request',
-                               'nonce: 16 to 128 characters, new for every request')
-            used = drive.setdefault('recovery_nonces', set())
-            if nonce in used:
-                raise ApiError(409, 'nonce_used', 'this lockdown request was used before')
-            used.add(nonce)
+            # signed by any of the drive's recovery keys (the one key_id names, when given)
+            self.find_signer(drive, body, 'lockdown:%s' % drive_id)
+            self.nonce_once(drive, str(body.get('nonce') or ''))
             token = self.new_family(drive_id, 'recovery-pending')
             drive['lockdown_pending_until'] = self.now() + LOCKDOWN_PENDING_SECS
             return 202, {'pending_until': rfc3339(drive['lockdown_pending_until']),
@@ -1219,14 +1272,16 @@ class TokenState:
     def add_member(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/members (a grant): a token family for another device."""
         with self.lock:
-            self.authenticate(drive_id, bearer)
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
             member = body.get('member') or random_id('m_')
             return {'member': member, 'drive_token': self.new_family(drive_id, member)}
 
     def create_key(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/keys (a grant): a long-lived access key of the bucket."""
         with self.lock:
-            drive = self.authenticate(drive_id, bearer)
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
             days = max(1, min(366, int(body.get('expires_days') or 365)))
             akid = 'AZK' + b32(secrets.token_bytes(10)).upper()
             expires_at = int(time.time()) + days * 86400
@@ -1240,7 +1295,8 @@ class TokenState:
     def revoke_key(self, drive_id, bearer, key):
         """DELETE /v1/drives/<id>/keys/<key> (a grant)."""
         with self.lock:
-            drive = self.authenticate(drive_id, bearer)
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
             found = drive.setdefault('access_keys', {}).get(key)
             if found is None:
                 raise ApiError(404, 'no_such_key', 'unknown key')
@@ -1259,6 +1315,9 @@ class TokenState:
         """POST /v1/drives/<id>/restore (drives.rs `restore`, a grant): the drive's objects under
         `prefix` as they were at `as_of` (RFC 3339, or seconds) - queued at the token server and
         applied by the node (here: at once, by the S3 store's versions); 202 `queued`."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer)
+            self.not_pending(drive, state)
         prefix = str(body.get('prefix') or body.get('key') or '')
         as_of = body.get('as_of')
         if isinstance(as_of, (int, float)) and not isinstance(as_of, bool):
@@ -1291,7 +1350,8 @@ class TokenState:
     def restore_status(self, drive_id, bearer, request):
         """GET /v1/drives/<id>/restore/<request> (drives.rs `restore_status`, a read)."""
         with self.lock:
-            self.authenticate(drive_id, bearer, previous_ok=True)
+            drive, state = self.family_of(drive_id, bearer, previous_ok=True)
+            self.not_pending(drive, state)
             found = self.restores.get(request)
             if found is None or found['drive'] != drive_id:
                 raise ApiError(404, 'not_found', 'unknown restore request')
@@ -1299,13 +1359,17 @@ class TokenState:
                     'objects': found['objects'], 'error': found['error'],
                     'done_at': rfc3339(found['done_at']) if found['done_at'] else None}
 
-    def lockdown_cancel(self, drive_id, bearer):
-        """POST /v1/drives/<id>/lockdown/cancel (a grant): the owner's other devices call a
-        pending recovery-key lockdown off; the pending family cannot."""
+    def lockdown_cancel(self, drive_id, body):
+        """POST /v1/drives/<id>/lockdown/cancel (drives.rs `lockdown_cancel`, F12 option 1 + C:
+        the recovery code always wins): one of the drive's recovery keys - never a device's
+        token - calls a pending recovery-key lockdown off, signing
+        lockdown-cancel:<drive>:<nonce>."""
         with self.lock:
-            drive, state = self.family_of(drive_id, bearer)
-            if state.get('member') == 'recovery-pending':
-                raise ApiError(403, 'forbidden', 'the pending device cannot cancel its own lockdown')
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            self.finish_lockdown(drive, self.now())
+            self.signed_by(drive, body, 'lockdown-cancel:%s' % drive_id)
             if not drive.get('lockdown_pending_until'):
                 raise ApiError(409, 'no_pending_lockdown', 'no recovery-key lockdown is pending')
             for other in self.families.values():
@@ -1313,6 +1377,243 @@ class TokenState:
                     other['revoked'] = other['revoked'] or 'lockdown_cancelled'
             drive['lockdown_pending_until'] = None
             return {'cancelled': True}
+
+    # ==== Recovery keys (recovery.rs, D51, F12) and the pending family (D42) ====
+
+    def pending_error(self, drive):
+        """drives.rs `lockdown_pending`: what a recovery-pending family gets."""
+        until = drive.get('lockdown_pending_until')
+        return ApiError(403, 'lockdown_pending',
+                        'the drive is handed over when its 48 h notice ends',
+                        {'pending_until': rfc3339(until) if until else None})
+
+    def not_pending(self, drive, state):
+        """drives.rs `not_pending`: refuses a recovery-pending family, after its token was
+        checked and before anything is written or rotated."""
+        if state.get('member') == 'recovery-pending':
+            raise self.pending_error(drive)
+
+    def owner_call(self, drive_id, bearer, grant):
+        """recovery.rs `owner_call`: the drive of a call that lists (a read) or changes (a
+        grant) its recovery keys - never the pending family's. The caller holds the lock."""
+        drive, state = self.family_of(drive_id, bearer, previous_ok=not grant)
+        self.not_pending(drive, state)
+        return drive
+
+    @staticmethod
+    def canonical_key(public):
+        """An Ed25519 public key as standard base64 with padding; None when it is none."""
+        try:
+            raw = base64.b64decode(str(public) + '=' * (-len(str(public)) % 4), validate=True)
+        except (ValueError, TypeError):
+            return None
+        return base64.b64encode(raw).decode('ascii') if len(raw) == 32 else None
+
+    def pubkey_of(self, body):
+        public = body.get('recovery_pubkey')
+        if not isinstance(public, str):
+            raise ApiError(400, 'bad_request', 'recovery_pubkey (Ed25519, base64) required')
+        canonical = self.canonical_key(public)
+        if canonical is None:
+            raise ApiError(400, 'bad_request', 'not an Ed25519 public key')
+        return canonical
+
+    @staticmethod
+    def label_of(body, default):
+        label = body.get('label')
+        label = (label if isinstance(label, str) else '').strip()
+        if len(label) > RECOVERY_LABEL_MAX or any(ord(c) < 32 for c in label):
+            raise ApiError(400, 'bad_request', 'label: up to 64 characters, no control characters')
+        return label or default
+
+    def new_recovery_key(self, public, label):
+        """A key row of `recovery_keys`, dated by the day (D37), MAC'd (verified)."""
+        return {'key_id': random_id('rk_'), 'label': label, 'recovery_pubkey': public,
+                'created_at': self.now() // 86400 * 86400, 'verified': True}
+
+    def keys_of(self, drive):
+        """recovery.rs `keys_of`: the key from before (`recovery_pubkey`, rk_legacy) first, then
+        the rows by id. The caller holds the lock."""
+        keys = []
+        if drive.get('recovery_pubkey'):
+            keys.append({'key_id': RECOVERY_LEGACY_KEY_ID, 'label': RECOVERY_KIT_LABEL,
+                         'recovery_pubkey': drive['recovery_pubkey'], 'created_at': None,
+                         'verified': drive.get('recovery_verified', True), 'legacy': True})
+        keys.extend(sorted(drive.setdefault('recovery_keys', []), key=lambda k: k['key_id']))
+        return keys
+
+    @staticmethod
+    def key_json(key):
+        created = key.get('created_at')
+        return {'key_id': key['key_id'], 'label': key['label'],
+                'recovery_pubkey': key['recovery_pubkey'],
+                'created_at': rfc3339(created) if created is not None else None,
+                'verified': bool(key.get('verified', True))}
+
+    def nonce_once(self, drive, nonce):
+        """drives.rs `recovery_nonce_once`: 16 to 128 characters, each once per drive."""
+        if not 16 <= len(nonce) <= 128:
+            raise ApiError(400, 'bad_request', 'nonce: 16 to 128 characters, new for every request')
+        used = drive.setdefault('recovery_nonces', set())
+        if nonce in used:
+            raise ApiError(409, 'nonce_used', 'this lockdown request was used before')
+        used.add(nonce)
+
+    def find_signer(self, drive, body, what):
+        """recovery.rs `find_signer`: the drive's key (the one `key_id` names, when given) that
+        signed `<what>:<nonce>` - 400 no_recovery_key without any, 401 when none did, 503
+        not_verified for one not MAC'd yet. The nonce is not counted here."""
+        keys = self.keys_of(drive)
+        if not keys:
+            raise ApiError(400, 'no_recovery_key', 'no recovery key registered')
+        nonce = str(body.get('nonce') or '')
+        signature = str(body.get('signature') or '')
+        wanted = body.get('key_id')
+        message = ('%s:%s' % (what, nonce)).encode('utf-8')
+        for key in keys:
+            if wanted is not None and key['key_id'] != wanted:
+                continue
+            if azlin_ed25519.verify_b64(key['recovery_pubkey'], message, signature):
+                if not key.get('verified', True):
+                    raise ApiError(503, 'not_verified',
+                                   'this recovery key is not verified yet; try again later')
+                return key
+        raise ApiError(401, 'unauthorized', 'bad recovery signature')
+
+    def signed_by(self, drive, body, what):
+        """recovery.rs `signed_by`: 403 recovery_key_required without a signature; else the key
+        that signed it, its nonce counted once."""
+        if 'signature' not in body:
+            raise ApiError(403, 'recovery_key_required',
+                           "this takes a signature by one of the drive's recovery keys")
+        key = self.find_signer(drive, body, what)
+        self.nonce_once(drive, str(body.get('nonce') or ''))
+        return key
+
+    def key_consent(self, drive, body, what):
+        """recovery.rs `key_consent`: a drive with keys changes them only with one's signature;
+        its first key takes the token alone."""
+        if self.keys_of(drive):
+            self.signed_by(drive, body, what)
+
+    def recovery_keys(self, drive_id, bearer):
+        """GET /v1/drives/<id>/recovery_keys (a read)."""
+        with self.lock:
+            drive = self.owner_call(drive_id, bearer, grant=False)
+            return {'keys': [self.key_json(k) for k in self.keys_of(drive)]}
+
+    def add_recovery_key(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/recovery_keys (a grant, signed over
+        recovery-add:<drive>:<recovery_pubkey>:<nonce>): 201 the key."""
+        with self.lock:
+            drive = self.owner_call(drive_id, bearer, grant=True)
+            public = self.pubkey_of(body)
+            label = self.label_of(body, '')
+            keys = self.keys_of(drive)
+            if any(self.canonical_key(k['recovery_pubkey']) == public for k in keys):
+                raise ApiError(409, 'recovery_key_exists',
+                               'this key is a recovery key of the drive already')
+            if len(keys) >= RECOVERY_KEYS_MAX:
+                raise ApiError(409, 'too_many_recovery_keys',
+                               'a drive has at most 10 recovery keys; remove one first')
+            self.key_consent(drive, body, 'recovery-add:%s:%s'
+                             % (drive_id, body.get('recovery_pubkey') or ''))
+            key = self.new_recovery_key(public, label)
+            drive.setdefault('recovery_keys', []).append(key)
+            return self.key_json(key)
+
+    def remove_recovery_key(self, drive_id, bearer, key_id, body):
+        """DELETE /v1/drives/<id>/recovery_keys/<key_id> (a grant, signed over
+        recovery-remove:<drive>:<key_id>:<nonce>): never the last key."""
+        with self.lock:
+            drive = self.owner_call(drive_id, bearer, grant=True)
+            keys = self.keys_of(drive)
+            target = next((k for k in keys if k['key_id'] == key_id), None)
+            if target is None:
+                raise ApiError(404, 'no_such_key', 'unknown recovery key')
+            if len(keys) <= 1:
+                raise ApiError(409, 'last_recovery_key',
+                               "the drive's last recovery key stays; add another first")
+            self.key_consent(drive, body, 'recovery-remove:%s:%s' % (drive_id, key_id))
+            if target.get('legacy'):
+                drive.pop('recovery_pubkey', None)
+            else:
+                drive['recovery_keys'] = [k for k in drive.get('recovery_keys', [])
+                                          if k['key_id'] != key_id]
+            return {'removed': key_id}
+
+    def unverify_recovery_keys(self, drive_id):
+        """A test's switch: the drive's recovery keys lose their MAC (a lookup or a signature
+        by one is then 503 not_verified)."""
+        with self.lock:
+            drive = self.drives[drive_id]
+            drive['recovery_verified'] = False
+            for key in drive.setdefault('recovery_keys', []):
+                key['verified'] = False
+
+    def rate_limited(self, scope, address):
+        """lib.rs `rate_limited`: 20 requests per 10 minutes per address and scope."""
+        with self.lock:
+            now = self.now()
+            start, count = self.rate.get((scope, address), (now, 0))
+            if now - start > RECOVERY_RATE_WINDOW_SECS:
+                start, count = now, 0
+            count += 1
+            self.rate[(scope, address)] = (start, count)
+            return count > RECOVERY_RATE_LIMIT
+
+    def challenge_mac(self, expires, nonce):
+        digest = hmac.new(self.challenge_secret, ('recovery_challenge|%d|%s' % (expires, nonce))
+                          .encode('utf-8'), hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(digest).decode('ascii').rstrip('=')
+
+    def recovery_challenge(self):
+        """POST /v1/recovery/challenge (recovery.rs `challenge`): `rc1.<expires>.<random>.<mac>`,
+        good for 5 minutes; nothing stored."""
+        expires = self.now() + RECOVERY_CHALLENGE_SECS
+        nonce = base64.urlsafe_b64encode(secrets.token_bytes(18)).decode('ascii').rstrip('=')
+        return {'challenge': 'rc1.%d.%s.%s' % (expires, nonce, self.challenge_mac(expires, nonce)),
+                'expires_at': rfc3339(expires)}
+
+    def challenge_ok(self, challenge):
+        parts = challenge.split('.', 3)
+        if len(parts) != 4 or parts[0] != 'rc1':
+            return False
+        try:
+            expires = int(parts[1])
+        except ValueError:
+            return False
+        now = self.now()
+        if expires <= now or expires > now + RECOVERY_CHALLENGE_SECS:
+            return False
+        return hmac.compare_digest(self.challenge_mac(expires, parts[2]), parts[3])
+
+    def recovery_lookup(self, body):
+        """POST /v1/recovery/lookup (recovery.rs `lookup`): the drives `recovery_pubkey` is a
+        recovery key of, for the caller who signed `recovery-lookup:<challenge>` with it. The
+        challenge and the signature are checked before the drives are looked at."""
+        challenge = str(body.get('challenge') or '')
+        if not self.challenge_ok(challenge):
+            raise ApiError(401, 'bad_challenge',
+                           'a challenge of POST /v1/recovery/challenge, at most 5 minutes old')
+        public = self.canonical_key(body.get('recovery_pubkey') or '')
+        message = ('recovery-lookup:%s' % challenge).encode('utf-8')
+        if public is None or not azlin_ed25519.verify_b64(public, message,
+                                                          str(body.get('signature') or '')):
+            raise ApiError(401, 'unauthorized', 'bad recovery signature')
+        with self.lock:
+            found = []
+            for drive in self.drives.values():
+                if drive.get('deleted'):
+                    continue
+                for key in self.keys_of(drive):
+                    if self.canonical_key(key['recovery_pubkey']) == public:
+                        if not key.get('verified', True):
+                            raise ApiError(503, 'not_verified',
+                                           'this recovery key is not verified yet; try again '
+                                           'later')
+                        found.append((drive['id'], key['key_id']))
+            return {'drives': [{'drive_id': d, 'key_id': k} for d, k in sorted(set(found))]}
 
     def now(self):
         """The token server's clock: this computer's, `clock_offset` ahead."""
@@ -1340,7 +1641,10 @@ class TokenState:
             raise ApiError(400, 'bad_request', 'code required')
         drive_id = body.get('drive_id')
         with self.lock:
-            drive = self.authenticate(drive_id, bearer, previous_ok=True) if drive_id else None
+            drive = None
+            if drive_id:
+                drive, state = self.family_of(drive_id, bearer, previous_ok=True)
+                self.not_pending(drive, state)
             # Codes in any case (payments.rs normalizes them); a development server's test
             # codes are never used up.
             normalized = code.strip().upper()
@@ -1385,11 +1689,10 @@ class TokenState:
                 raise ApiError(401, 'unauthorized', 'unknown token')
             if state['revoked']:
                 raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
-            if state.get('member') == 'recovery-pending' and drive.get('lockdown_pending_until'):
+            if state.get('member') == 'recovery-pending':
                 # D42: the drive (its bucket, so its recovery wrap) is handed over only when the
                 # notice ends; the owner's devices may cancel meanwhile.
-                raise ApiError(403, 'lockdown_pending',
-                               'the drive is handed over when its 48 h notice ends')
+                raise self.pending_error(drive)
             digest = token_hash(bearer)
             if digest == state['current']:
                 state['used'] = (state['used'] + [state['current']])[-20:]
@@ -1599,8 +1902,7 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.command == 'POST' and segments[:2] == ['v1', 'drives'] and len(segments) == 5 \
                 and segments[3:] == ['lockdown', 'cancel']:
-            self.body()
-            self.answer(200, state.lockdown_cancel(segments[2], self.bearer()))
+            self.answer(200, state.lockdown_cancel(segments[2], self.body() or {}))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'restore':
@@ -1621,6 +1923,30 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         if self.command == 'DELETE' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'keys':
             self.answer(200, state.revoke_key(segments[2], self.bearer(), segments[4]))
+            return
+        if self.command == 'GET' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'recovery_keys':
+            self.answer(200, state.recovery_keys(segments[2], self.bearer()))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'recovery_keys':
+            self.answer(201, state.add_recovery_key(segments[2], self.bearer(),
+                                                    self.body() or {}))
+            return
+        if self.command == 'DELETE' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'recovery_keys':
+            self.answer(200, state.remove_recovery_key(segments[2], self.bearer(), segments[4],
+                                                       self.body() or {}))
+            return
+        if self.command == 'POST' and segments in (['v1', 'recovery', 'challenge'],
+                                                   ['v1', 'recovery', 'lookup']):
+            body = self.body() or {}
+            if state.rate_limited('recovery', self.client_address[0]):
+                raise ApiError(429, 'rate_limited', 'too many recovery requests from this address')
+            if segments[2] == 'challenge':
+                self.answer(200, state.recovery_challenge())
+            else:
+                self.answer(200, state.recovery_lookup(body))
             return
         if self.command == 'POST' and segments == ['v1', 'vouchers', 'redeem']:
             self.answer(*state.redeem_voucher(self.bearer(), self.body() or {}))
