@@ -286,3 +286,16 @@ azcalendar-notes = Notes
 azcalendar-series-gone = The series of this occurrence is gone: it was deleted meanwhile.
 azcalendar-occurrence-removed = Removed the occurrence of { $day }.
 azcalendar-deleted-event = Deleted "{ $title }".
+
+## Import notes
+
+azcalendar-import-not-icalendar = This is no iCalendar file (no BEGIN:VCALENDAR).
+azcalendar-import-zone-without-rules = The time zone "{ $zone }" has no rules in the file: its times are kept as written.
+azcalendar-import-no-start = "{ $title }" has no start: it is left out.
+azcalendar-import-past-midnight = "{ $title }" runs past midnight: here it ends at 23:59 on its first day.
+azcalendar-import-first-date-only = "{ $title }": { $why }; only its first date is imported.
+azcalendar-import-cancelled = "{ $title }" is cancelled: it is left out.
+azcalendar-import-not-events = { $count ->
+    [one] 1 item that is no event (a task, a journal entry) is left out.
+   *[other] { $count } items that are no events (tasks, journal entries) are left out.
+ }

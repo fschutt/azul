@@ -1330,8 +1330,11 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
     let typed = path.display().to_string();
     let parsed = match ics::parse(&text, &chrono::Local) {
         Ok(parsed) => parsed,
+        // The one refusal: the text is no iCalendar file.
         Err(e) => {
-            report(s, true, format!("{typed}: {e}"));
+            eprintln!("[azcalendar] {typed}: {e}");
+            let said = t("azcalendar-import-not-icalendar");
+            report(s, true, format!("{typed}: {said}"));
             return;
         }
     };
@@ -1357,7 +1360,7 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
         id
     };
     let (mut added, mut updated) = (0usize, 0usize);
-    let mut problems = parsed.notes.clone();
+    let mut problems: Vec<String> = parsed.notes.iter().map(import_note).collect();
     let mut first: Option<NaiveDate> = None;
     for imported in &parsed.events {
         let existing = if imported.uid.is_empty() {
@@ -1374,7 +1377,10 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
             Err(e) => {
                 problems.push(t_args(
                     "azcalendar-import-left-out",
-                    &[("title", Arg::from(imported.title.as_str())), ("why", Arg::from(e.to_string()))],
+                    &[
+                        ("title", Arg::from(imported.title.as_str())),
+                        ("why", Arg::from(e.to_string())),
+                    ],
                 ));
                 continue;
             }
@@ -1412,6 +1418,36 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
         s.notice = s.io_message.clone();
         s.backstage = None;
         s.set_anchor(day);
+    }
+}
+
+/// What an import could not keep as it was (`ics::ImportNote`), in the window's language.
+pub(crate) fn import_note(note: &ics::ImportNote) -> String {
+    use ics::ImportNote;
+    // The messages quote the title or zone as the language quotes.
+    let name = |title: &str| Arg::from(title);
+    match note {
+        ImportNote::ZoneWithoutRules(zone) => t_args(
+            "azcalendar-import-zone-without-rules",
+            &[("zone", name(zone))],
+        ),
+        ImportNote::NoStart(title) => {
+            t_args("azcalendar-import-no-start", &[("title", name(title))])
+        }
+        ImportNote::PastMidnight(title) => {
+            t_args("azcalendar-import-past-midnight", &[("title", name(title))])
+        }
+        ImportNote::FirstDateOnly { title, why } => t_args(
+            "azcalendar-import-first-date-only",
+            &[("title", name(title)), ("why", Arg::from(why.as_str()))],
+        ),
+        ImportNote::Cancelled(title) => {
+            t_args("azcalendar-import-cancelled", &[("title", name(title))])
+        }
+        ImportNote::NotEvents(count) => t_args(
+            "azcalendar-import-not-events",
+            &[("count", Arg::from(*count))],
+        ),
     }
 }
 

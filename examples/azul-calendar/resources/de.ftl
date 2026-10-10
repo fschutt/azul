@@ -286,3 +286,16 @@ azcalendar-notes = Notizen
 azcalendar-series-gone = Die Serie dieses Vorkommens gibt es nicht mehr: Sie wurde inzwischen gelöscht.
 azcalendar-occurrence-removed = Das Vorkommen am { $day } wurde entfernt.
 azcalendar-deleted-event = „{ $title }“ gelöscht.
+
+## Import notes
+
+azcalendar-import-not-icalendar = Das ist keine iCalendar-Datei (kein BEGIN:VCALENDAR).
+azcalendar-import-zone-without-rules = Die Zeitzone „{ $zone }“ hat in der Datei keine Regeln: Ihre Zeiten bleiben, wie sie geschrieben sind.
+azcalendar-import-no-start = „{ $title }“ hat keinen Beginn und wird ausgelassen.
+azcalendar-import-past-midnight = „{ $title }“ geht über Mitternacht hinaus: Hier endet es um 23:59 an seinem ersten Tag.
+azcalendar-import-first-date-only = „{ $title }“: { $why }; nur sein erster Termin wird importiert.
+azcalendar-import-cancelled = „{ $title }“ ist abgesagt und wird ausgelassen.
+azcalendar-import-not-events = { $count ->
+    [one] 1 Eintrag, der kein Termin ist (Aufgaben, Journaleinträge), wird ausgelassen.
+   *[other] { $count } Einträge, die keine Termine sind (Aufgaben, Journaleinträge), werden ausgelassen.
+ }
