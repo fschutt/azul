@@ -7,7 +7,7 @@ use super::fixtures::{
 };
 use crate::{
     bridge::CardBrand,
-    machine::{step, Effect, Event, Notice, State, WaitReason},
+    machine::{step, ChipPage, Effect, Event, Notice, State, WaitReason},
     registry::{Method, SurfaceKind},
     surface::Surface,
 };
@@ -160,6 +160,9 @@ fn a_created_fields_checkout_shows_the_popover() {
     let chip = state.chip().unwrap();
     assert_eq!(chip.host, "pay.azlin.io");
     assert_eq!(chip.what, "card fields by Stripe");
+    // What the words say, for an app that says them in its own language.
+    assert_eq!(chip.page, ChipPage::CardFields);
+    assert_eq!(chip.provider, "Stripe");
     assert_eq!(chip.legal_name, "Stripe Payments Europe, Limited");
     assert!(state.busy());
 }
@@ -488,6 +491,7 @@ fn a_load_failure_falls_back_to_the_hosted_page_and_then_the_browser() {
         .iter()
         .any(|e| matches!(e, Effect::ShowSurface(s) if s.kind == SurfaceKind::WebviewPage)));
     assert_eq!(state.chip().unwrap().what, "payment page of Stripe");
+    assert_eq!(state.chip().unwrap().page, ChipPage::Page);
     let (state, effects) = step(
         state,
         Event::LoadFailed {
