@@ -217,6 +217,9 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
 
 // ==== The dialog ====
 
+/// How many groups of the code the sheet asks for (the plan's four, of five).
+pub(crate) const SETUP_CHECKS: usize = 4;
+
 /// The recovery sheet: the code, then one of its groups typed back.
 pub(crate) struct Sheet {
     pub drive_id: String,
@@ -273,6 +276,18 @@ impl Sheet {
         self
     }
 
+    /// The groups (0-based) the user types back, in order.
+    pub(crate) fn asked(&self) -> Vec<usize> {
+        vec![self.check]
+    }
+
+    /// What the user typed into the box of the `slot`-th group asked for.
+    pub(crate) fn set_typed(&mut self, slot: usize, text: Zeroizing<String>) {
+        if slot == 0 {
+            self.typed = text;
+        }
+    }
+
     /// Whether the typed group is the one asked for.
     pub(crate) fn confirmed(&self) -> bool {
         self.code
@@ -309,6 +324,13 @@ pub(crate) enum Dialog {
         typed: Zeroizing<String>,
         error: String,
     },
+}
+
+impl Dialog {
+    /// Whether its close box and Escape take it away.
+    pub(crate) fn may_close(&self) -> bool {
+        true
+    }
 }
 
 fn drive_name(s: &DriveState, drive_id: &str) -> String {
@@ -1457,28 +1479,63 @@ mod tests {
         assert!(!at(false, 3_600), "on battery");
     }
 
+    /// The groups of the code a sheet asks for, as the user types them in.
+    fn type_groups(sheet: &mut Sheet, change: impl Fn(&str) -> String) {
+        let groups: Vec<String> = sheet.code.split('-').map(str::to_string).collect();
+        for (slot, group) in sheet.asked().into_iter().enumerate() {
+            sheet.set_typed(slot, Zeroizing::new(change(&groups[group])));
+        }
+    }
+
     #[test]
-    fn the_recovery_sheet_takes_the_group_it_asks_for_as_people_type_it() {
+    fn the_recovery_sheet_asks_for_four_different_groups_of_the_code() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        for _ in 0..20 {
+            let sheet = Sheet::new("d_1", code.to_text());
+            let asked = sheet.asked();
+            assert_eq!(asked.len(), SETUP_CHECKS, "four groups: {asked:?}");
+            assert_eq!(SETUP_CHECKS, 4);
+            assert!(asked.windows(2).all(|w| w[0] < w[1]), "different, in order: {asked:?}");
+            assert!(asked.iter().all(|&group| group < 5), "groups of the code: {asked:?}");
+        }
+        let left_out: std::collections::HashSet<Vec<usize>> = (0..60)
+            .map(|_| Sheet::new("d_1", code.to_text()).asked())
+            .collect();
+        assert!(left_out.len() > 1, "chosen at random: {left_out:?}");
+    }
+
+    #[test]
+    fn the_recovery_sheet_takes_the_four_groups_as_people_type_them() {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         let mut sheet = Sheet::new("d_1", code.to_text());
-        assert!(sheet.check < 5, "one of five groups");
-        let group = sheet
-            .code
-            .split('-')
-            .nth(sheet.check)
-            .unwrap()
-            .to_string();
-        sheet.typed = Zeroizing::new(group.to_lowercase());
+        assert!(!sheet.confirmed(), "nothing typed");
+        type_groups(&mut sheet, str::to_lowercase);
         assert!(sheet.confirmed());
-        sheet.typed = Zeroizing::new(format!(
-            " {} ",
-            group.replace('0', "O").replace('1', "l")
-        ));
+        type_groups(&mut sheet, |g| format!(" {} ", g.replace('0', "O").replace('1', "l")));
         assert!(sheet.confirmed(), "O for 0, l for 1, spaces around");
-        sheet.typed = Zeroizing::new(String::from("WRONG"));
-        assert!(!sheet.confirmed());
-        sheet.typed = Zeroizing::new(String::new());
-        assert!(!sheet.confirmed());
+    }
+
+    #[test]
+    fn the_signup_does_not_finish_until_all_four_groups_are_right() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let mut sheet = Sheet::new("d_1", code.to_text());
+        type_groups(&mut sheet, str::to_string);
+        assert!(sheet.confirmed());
+        for slot in 0..SETUP_CHECKS {
+            let mut wrong = Sheet::new("d_1", code.to_text());
+            type_groups(&mut wrong, str::to_string);
+            wrong.set_typed(slot, Zeroizing::new(String::from("WRONG")));
+            assert!(!wrong.confirmed(), "group {slot} wrong");
+            wrong.set_typed(slot, Zeroizing::new(String::new()));
+            assert!(!wrong.confirmed(), "group {slot} empty");
+        }
+        // Neither its close box nor Escape takes the sheet away: the code shows only now.
+        assert!(!Dialog::Sheet(Sheet::new("d_1", code.to_text())).may_close());
+        assert!(Dialog::Message {
+            title: String::new(),
+            text: String::new()
+        }
+        .may_close());
     }
 
     #[test]
