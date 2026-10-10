@@ -7,7 +7,7 @@ use std::sync::Arc;
 use azul_storage::{
     crypto::{device, keys::RecoveryKdf, DriveKey},
     encrypted::{IndexProvider, MemoryIndex, NameIndex},
-    keyring::MemoryKeyring,
+    keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
     Drive, DriveError, Transport,
 };
@@ -163,4 +163,38 @@ fn encryption_is_turned_on_once() {
         a.setup_encryption(&MemoryKeyring::new(), cheap()),
         Err(CloudError::Drive(DriveError::InvalidConfig(_)))
     ));
+}
+
+#[test]
+fn a_device_tells_its_encryption_and_unlocks_from_its_own_wrap() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-status");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    assert_eq!(a.encryption_status(&keys).unwrap(), (false, false));
+    a.setup_encryption(&keys, cheap()).unwrap();
+    assert_eq!(a.encryption_status(&keys).unwrap(), (true, true));
+    assert!(a.holds_drive_key(&keys).unwrap());
+
+    // The keyring lost the drive key (not the member key): this device's wrap brings it back.
+    keys.delete(&device::drive_key_entry("d_1")).unwrap();
+    assert_eq!(a.encryption_status(&keys).unwrap(), (true, false));
+    assert!(a.unlock_key(&keys).unwrap().is_some());
+    assert!(a.holds_drive_key(&keys).unwrap());
+    assert!(a.unlock_key(&MemoryKeyring::new()).unwrap().is_none());
+}
+
+#[test]
+fn a_configured_s3_endpoint_is_the_one_the_keys_go_to() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-endpoint");
+    let a = signed_up(&transports, &dir);
+    assert_eq!(a.s3_endpoint(), super::S3, "the drive's own by default");
+    let a = a.with_s3_endpoint(Some(" http://127.0.0.1:19999/ "));
+    assert_eq!(a.s3_endpoint(), "http://127.0.0.1:19999");
+    assert_eq!(a.bucket_drive().unwrap().config().endpoint, "http://127.0.0.1:19999");
+    let a = a.with_s3_endpoint(None);
+    assert_eq!(a.s3_endpoint(), super::S3);
 }

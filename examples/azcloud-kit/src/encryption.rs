@@ -46,7 +46,7 @@ impl Account {
     pub fn bucket_drive(&self) -> CloudResult<S3Drive> {
         let record = self.record();
         let config = S3Config {
-            endpoint: record.endpoint.clone(),
+            endpoint: self.s3_endpoint().to_string(),
             region: record.region.clone(),
             bucket: record.bucket.clone(),
             path_style: record.path_style,
@@ -123,6 +123,40 @@ impl Account {
             &self.record().id,
             &invite,
         )?))
+    }
+
+    /// The drive key on this device: `keyring`'s, else the one this device's member wrap in the
+    /// bucket holds (then kept in `keyring`). `None` when this device has neither: it needs a
+    /// join code from a device that has the key, or the recovery code.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's or the keyring's refusal, a damaged wrap.
+    pub fn unlock_key(&self, keyring: &dyn KeyringStore) -> CloudResult<Option<DriveKey>> {
+        let bucket = self.bucket_drive()?;
+        Ok(device::unlock(&bucket, keyring, &self.record().id)?)
+    }
+
+    /// `(whether the bucket holds an encrypted drive, whether this device keeps its key)`; the
+    /// second needs no network.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's or the keyring's refusal.
+    pub fn encryption_status(&self, keyring: &dyn KeyringStore) -> CloudResult<(bool, bool)> {
+        let kept = self.holds_drive_key(keyring)?;
+        let bucket = self.bucket_drive()?;
+        Ok((device::is_encrypted(&bucket)? || kept, kept))
+    }
+
+    /// Whether this device keeps the drive's key (a look into `keyring`, no network): its
+    /// plaintext commands must not write into the drive then.
+    ///
+    /// # Errors
+    ///
+    /// The keyring's refusal, a damaged entry.
+    pub fn holds_drive_key(&self, keyring: &dyn KeyringStore) -> CloudResult<bool> {
+        Ok(device::load_drive_key(keyring, &self.record().id)?.is_some())
     }
 
     /// The drive key the recovery code opens, kept in `keyring` with this device enrolled.

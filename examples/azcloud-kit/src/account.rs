@@ -407,6 +407,9 @@ pub struct Account {
     token_url: String,
     transports: TransportFactory,
     record: DriveRecord,
+    /// The S3 endpoint this run asks instead of the drive's (`--s3-url`), for the calls that
+    /// reach the bucket directly ([`Account::with_s3_endpoint`]).
+    s3_endpoint: Option<String>,
 }
 
 impl std::fmt::Debug for Account {
@@ -445,6 +448,7 @@ impl Account {
             token_url: base,
             transports,
             record: grant.record,
+            s3_endpoint: None,
         })
     }
 
@@ -480,6 +484,7 @@ impl Account {
             token_url: base,
             transports,
             record: grant.record,
+            s3_endpoint: None,
         })
     }
 
@@ -511,12 +516,31 @@ impl Account {
             token_url: base_of(token_url),
             transports,
             record,
+            s3_endpoint: None,
         })
     }
 
     #[must_use]
     pub fn record(&self) -> &DriveRecord {
         &self.record
+    }
+
+    /// Reaches the bucket at `endpoint` instead of the drive's own (a configured `--s3-url`;
+    /// `None` keeps the drive's).
+    #[must_use]
+    pub fn with_s3_endpoint(mut self, endpoint: Option<&str>) -> Account {
+        self.s3_endpoint = endpoint
+            .map(|url| url.trim().trim_end_matches('/').to_string())
+            .filter(|url| !url.is_empty());
+        self
+    }
+
+    /// The S3 endpoint the bucket is reached at: the configured one, else the drive's.
+    #[must_use]
+    pub fn s3_endpoint(&self) -> &str {
+        self.s3_endpoint
+            .as_deref()
+            .unwrap_or(self.record.endpoint.as_str())
     }
 
     #[must_use]
