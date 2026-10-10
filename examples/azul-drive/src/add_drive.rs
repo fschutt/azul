@@ -31,7 +31,7 @@ use azul_pay::{
 };
 use azul_storage::{
     catalog::{self, Backend, FieldKind, FormValues, NewDrive, ServiceGroup, ServiceSpec},
-    config::DriveEntry,
+    config::{DriveEntry, DriveLocation},
     oauth::{self, OAuthProvider, Tokens},
 };
 
@@ -424,7 +424,13 @@ impl AddDialog {
         let spec = self
             .spec()
             .ok_or_else(|| String::from("Choose a source first."))?;
-        catalog::build_entry(spec, id, &self.name, &self.values)
+        let mut new = catalog::build_entry(spec, id, &self.name, &self.values)?;
+        if let (Some(token_url), DriveLocation::Opendal { options, .. }) =
+            (&self.token_url, &mut new.entry.location)
+        {
+            options.insert(oauth::TOKEN_URL.to_string(), token_url.clone());
+        }
+        Ok(new)
     }
 
     // ---- A consumer cloud's sign-in ----
@@ -447,22 +453,43 @@ impl AddDialog {
 
     /// The browser is open for `pending`.
     pub(crate) fn sign_in_waiting(&mut self, pending: PendingSignIn) {
-        let _ = pending;
+        self.pending_sign_in = Some(pending);
+        self.sign_in = SignInStep::Waiting;
+        self.error.clear();
     }
 
     /// The redirect brought a code: it is being exchanged.
-    pub(crate) fn sign_in_exchanging(&mut self) {}
+    pub(crate) fn sign_in_exchanging(&mut self) {
+        self.sign_in = SignInStep::Exchanging;
+    }
 
     /// The sign-in ended without tokens: why.
     pub(crate) fn sign_in_failed(&mut self, why: &str) {
-        let _ = why;
+        self.pending_sign_in = None;
+        self.sign_in = SignInStep::Failed(why.to_string());
     }
 
     /// The token endpoint answered with `tokens`: the refresh token and the client into the
     /// form, the token endpoint kept when it is not the provider's.
     pub(crate) fn signed_in(&mut self, tokens: &Tokens) -> Result<(), String> {
-        let _ = tokens;
-        Err(String::new())
+        let pending = self
+            .pending_sign_in
+            .take()
+            .ok_or_else(|| String::from("No sign-in waits for an answer."))?;
+        let settings = match crate::sign_in::form_settings(&pending.plan, tokens) {
+            Ok(settings) => settings,
+            Err(why) => {
+                self.sign_in = SignInStep::Failed(why.clone());
+                return Err(why);
+            }
+        };
+        for (key, value) in settings {
+            self.values.insert(key.to_string(), value);
+        }
+        self.token_url = pending.plan.token_url_option().map(String::from);
+        self.sign_in = SignInStep::SignedIn;
+        self.changed();
+        Ok(())
     }
 
     /// The page for scripts: `choose`, `buy`, `sources`, `form <source>`.

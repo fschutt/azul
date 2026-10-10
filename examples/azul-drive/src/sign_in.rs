@@ -49,8 +49,17 @@ impl SignInSettings {
         var: &dyn Fn(&str) -> Option<String>,
         config_path: Option<&Path>,
     ) -> SignInSettings {
-        let _ = (var, config_path);
-        SignInSettings::default()
+        SignInSettings {
+            by_provider: oauth::PROVIDERS
+                .iter()
+                .map(|p| {
+                    (
+                        p.id,
+                        oauth_clients::resolve(ENV_PREFIX, p.id, var, config_path),
+                    )
+                })
+                .collect(),
+        }
     }
 
     /// The settings of `provider` (none: no opinion on anything).
@@ -80,26 +89,50 @@ impl SignInPlan {
     /// The parameters the provider needs besides the standard authorization request
     /// (`&access_type=offline&prompt=consent`), escaped, each with its `&`.
     pub(crate) fn extras_query(&self) -> String {
-        String::new()
+        self.provider
+            .authorize_extras
+            .iter()
+            .map(|(name, value)| format!("&{}={}", uri_encode(name, true), uri_encode(value, true)))
+            .collect()
     }
 
     /// The token endpoint the drive keeps in its settings: none when it is the provider's own.
     pub(crate) fn token_url_option(&self) -> Option<&str> {
-        None
+        (self.token_url != self.provider.token_url).then_some(self.token_url.as_str())
     }
 }
 
 /// The sign-in of the OpenDAL service `scheme` with `settings`; why not, as a sentence that
 /// names the missing setting.
 pub(crate) fn plan(scheme: &str, settings: &SignInSettings) -> Result<SignInPlan, String> {
-    let _ = (scheme, settings);
-    Err(String::new())
+    let provider = oauth::provider(scheme)
+        .ok_or_else(|| format!("A {scheme} source does not sign in; its form takes its keys."))?;
+    let own = settings.of(provider);
+    let client_id = own
+        .client_id
+        .as_deref()
+        .ok_or_else(|| missing_client(provider))?;
+    let or = |value: Option<String>, default: &str| value.unwrap_or_else(|| default.to_string());
+    Ok(SignInPlan {
+        provider,
+        client: OAuthClient::public(client_id).with_secret(own.client_secret.as_deref()),
+        authorize_endpoint: or(own.authorize_url.clone(), provider.authorize_url),
+        token_url: or(own.token_url.clone(), provider.token_url),
+        scope: or(own.scope.clone(), provider.scope),
+        redirect_uri: or(own.redirect_uri.clone(), DEFAULT_REDIRECT_URI),
+    })
 }
 
 /// The sentence a provider without a configured client shows: the variable and the config key.
 pub(crate) fn missing_client(provider: &OAuthProvider) -> String {
-    let _ = provider;
-    String::new()
+    format!(
+        "To sign in to {}, AzDrive needs the OAuth client id registered for it: set {} or \
+         \"oauth\": {{\"{}\": {{\"client_id\": \"...\"}}}} in the shared Azlin config \
+         (~/.azlin/config.json).",
+        provider.name,
+        oauth_clients::env_var(ENV_PREFIX, provider.id, "client_id"),
+        provider.id
+    )
 }
 
 /// What the form shows of its sign-in.
@@ -144,6 +177,25 @@ pub(crate) fn form_settings(
     plan: &SignInPlan,
     tokens: &Tokens,
 ) -> Result<Vec<(&'static str, String)>, String> {
-    let _ = (plan, tokens);
-    Err(String::new())
+    let refresh_token = tokens
+        .refresh_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "{} gave no refresh token, so the drive could not stay signed in. Sign in again \
+                 and allow offline access.",
+                plan.provider.name
+            )
+        })?;
+    Ok(vec![
+        (REFRESH_TOKEN, refresh_token.to_string()),
+        (CLIENT_ID, plan.client.client_id.clone()),
+        (
+            CLIENT_SECRET,
+            plan.client.client_secret.clone().unwrap_or_default(),
+        ),
+        (ACCESS_TOKEN, String::new()),
+    ])
 }
