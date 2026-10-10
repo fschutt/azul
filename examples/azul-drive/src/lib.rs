@@ -348,7 +348,11 @@ impl Slot {
                         }
                     },
                 ),
-            )?);
+            )?
+            // The node list of the last refresh outlives the app: the next start fails over to
+            // the nodes before its first refresh.
+            .with_nodes_file(&nodes_file(&self.entry.id)),
+            );
             #[cfg(feature = "encryption")]
             {
                 self.azlin = Some(concrete.clone());
@@ -2759,6 +2763,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
 // ==== Start ====
 
+/// Where an Azlin drive keeps the node list of its last credential refresh (not secret).
+fn nodes_file(drive_id: &str) -> PathBuf {
+    path_of(FilePath::get_cache_dir().into_option())
+        .unwrap_or_else(std::env::temp_dir)
+        .join("AzDrive")
+        .join("nodes")
+        .join(format!("{}.json", azul_storage::key::safe_file_name(drive_id).unwrap_or_default()))
+}
+
 fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
     dir.map(|d| PathBuf::from(d.inner.as_str()))
         .filter(|p| !p.as_os_str().is_empty())
@@ -3006,6 +3019,9 @@ pub fn start() {
     };
     #[cfg(feature = "encryption")]
     encryption::set_cache_dir(cache_dir.clone());
+    // A big upload outlives the app: its state file in the cache, resumed by the next upload of
+    // the same file to the same drive (azul-storage's multipart).
+    azul_storage::multipart::set_resume_folder(cache_dir.as_ref().map(|dir| dir.join("uploads")));
     let mut state = DriveState {
         slots,
         place,
