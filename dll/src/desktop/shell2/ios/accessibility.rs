@@ -323,6 +323,13 @@ unsafe fn make_element(
             let _: () = msg_send![obj, setAccessibilityValue: value];
         }
     }
+    // The description, read after a pause (a tooltip's text, a title).
+    if let Some(hint) = element.description.as_deref() {
+        let hint = ns_string(hint);
+        if !hint.is_null() {
+            let _: () = msg_send![obj, setAccessibilityHint: hint];
+        }
+    }
 
     let _: () = msg_send![obj, setAccessibilityTraits: traits_for(element)];
 

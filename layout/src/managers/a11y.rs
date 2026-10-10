@@ -131,6 +131,47 @@ pub fn rendered_nodes(layout_result: &DomLayoutResult) -> Vec<bool> {
     rendered
 }
 
+/// Which nodes assistive technology must not read although the window
+/// renders them, by node index: a node with the `hidden` attribute or the
+/// `Offscreen` state, and its whole subtree (ARIA's `aria-hidden`), such as
+/// a tooltip's tip whose text is already its anchor's description.
+///
+/// The accesskit tree marks such a node hidden and every accesskit platform
+/// drops the subtree; the iOS / Android element list has no such consumer
+/// and leaves the subtree out with this, so the platforms agree.
+#[must_use]
+pub fn hidden_from_assistive_technology(layout_result: &DomLayoutResult) -> Vec<bool> {
+    let node_data = layout_result.styled_dom.node_data.as_ref();
+    let hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+    let mut hidden: Vec<bool> = node_data
+        .iter()
+        .map(|data| {
+            data.attributes()
+                .as_ref()
+                .iter()
+                .any(|attr| matches!(attr, azul_core::dom::AttributeType::Hidden))
+                || data.get_accessibility_info().is_some_and(|info| {
+                    info.states
+                        .as_ref()
+                        .iter()
+                        .any(|state| matches!(state, AccessibilityState::Offscreen))
+                })
+        })
+        .collect();
+    // The arena stores a parent before its children, so one forward pass
+    // carries a hidden ancestor down to every descendant.
+    for idx in 0..hidden.len() {
+        let parent = hierarchy
+            .get(idx)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .map(|parent| parent.index());
+        if parent.is_some_and(|p| p < idx && hidden[p]) {
+            hidden[idx] = true;
+        }
+    }
+    hidden
+}
+
 /// Does this declaration actually say what KIND of control the node is?
 ///
 /// ONE definition, deliberately — three surfaces resolve a node's role (the
@@ -530,17 +571,43 @@ impl core::fmt::Debug for A11yTranslate<'_> {
 /// The strings a node declares for assistive technology, translated: they
 /// win over its text content (ARIA accname puts `aria-label` before the
 /// content), so an icon button named "Search" does not read its glyph.
+/// Shared by the accesskit tree and the iOS / Android element list, so a
+/// node has one name on every platform.
 #[cfg(feature = "a11y")]
 #[derive(Debug, Default)]
-struct DeclaredStrings {
-    /// `aria-label`, else the `AccessibilityInfo` name, else `alt` / `title`.
-    name: Option<String>,
-    /// The `AccessibilityInfo` description, else `title` / `alt`.
-    description: Option<String>,
+pub(crate) struct DeclaredStrings {
+    /// `aria-label`, else the `AccessibilityInfo` name, else `alt` (an
+    /// image's name). Wins over the node's text.
+    pub name: Option<String>,
+    /// The `AccessibilityInfo` description. [`Self::resolve_title`] adds
+    /// the `title` when the title does not name the node.
+    pub description: Option<String>,
+    /// The `title` attribute, a tooltip: the name of last resort, else the
+    /// description. Kept apart because which one it is depends on the text
+    /// content, known only to the caller.
+    pub title: Option<String>,
     /// The `AccessibilityInfo` value, else the `value` attribute.
-    value: Option<String>,
+    pub value: Option<String>,
     /// The `placeholder` attribute.
-    placeholder: Option<String>,
+    pub placeholder: Option<String>,
+}
+
+#[cfg(feature = "a11y")]
+impl DeclaredStrings {
+    /// Places the `title` once the caller knows whether the node's own text
+    /// names it: the title names a node nothing else names, and otherwise
+    /// describes it. A title that became the name is not read a second time
+    /// as the description.
+    pub(crate) fn resolve_title(&mut self, named_by_text: bool) {
+        let Some(title) = self.title.take() else {
+            return;
+        };
+        if self.name.is_none() && !named_by_text {
+            self.name = Some(title);
+        } else if self.description.is_none() {
+            self.description = Some(title);
+        }
+    }
 }
 
 /// One frame's inputs to the accessibility tree: everything a node's
@@ -1576,7 +1643,7 @@ impl A11yManager {
         translate: Option<A11yTranslate<'_>>,
     ) -> Node {
         let a11y_info_ref = node_data.get_accessibility_info();
-        let declared = Self::declared_strings(node_data, translate);
+        let mut declared = Self::declared_strings(node_data, translate);
         let mut node = if let Some((layout_node, abs_pos)) = layout_info {
             Self::build_node(
                 node_data,
@@ -1708,15 +1775,21 @@ impl A11yManager {
             }
         }
 
+        // An edited field's text is its value, never its name.
+        let edited = node_data.is_contenteditable()
+            || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input);
+        let named_by_text = matches!(node_data.node_type, NodeType::Text(_))
+            || (!edited && !has_non_text_children && !text_content.trim().is_empty());
+        declared.resolve_title(named_by_text);
         if let Some(name) = &declared.name {
             node.set_label(name.as_str());
         }
-        if let Some(description) = &declared.description {
-            node.set_description(description.as_str());
+        // The declared description is the whole answer: `build_node` reads
+        // the title as a description, which is wrong once it names the node.
+        match &declared.description {
+            Some(description) => node.set_description(description.as_str()),
+            None => node.clear_description(),
         }
-        // An edited field's value is its text, set above.
-        let edited = node_data.is_contenteditable()
-            || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input);
         if let Some(value) = declared.value.as_ref().filter(|_| !edited) {
             node.set_value(value.as_str());
         }
@@ -1728,10 +1801,13 @@ impl A11yManager {
     }
 
     /// What `node_data` declares for assistive technology
-    /// ([`DeclaredStrings`]), each key translated with `translate`. The same
-    /// precedence `build_node` applies, which this restates once the text
-    /// content is known.
-    fn declared_strings(node_data: &NodeData, translate: Option<A11yTranslate<'_>>) -> DeclaredStrings {
+    /// ([`DeclaredStrings`]), each key translated with `translate`. The
+    /// caller places the title with [`DeclaredStrings::resolve_title`] once
+    /// it knows the node's text.
+    pub(crate) fn declared_strings(
+        node_data: &NodeData,
+        translate: Option<A11yTranslate<'_>>,
+    ) -> DeclaredStrings {
         let text = |s: &AzString| -> String {
             match translate {
                 Some(t) if s.is_localizable() => (t.0)(s.as_str()),
@@ -1745,22 +1821,18 @@ impl A11yManager {
             out.value = info.accessibility_value.as_option().map(|s| text(s));
         }
         let mut aria_label = None;
-        let mut alt_or_title = None;
+        let mut alt = None;
         for attr in node_data.attributes().as_ref() {
             match attr {
                 azul_core::dom::AttributeType::AriaLabel(s) => aria_label = Some(text(s)),
-                azul_core::dom::AttributeType::Alt(s) | azul_core::dom::AttributeType::Title(s) => {
-                    out.description = Some(text(s));
-                    if alt_or_title.is_none() {
-                        alt_or_title = Some(text(s));
-                    }
-                }
+                azul_core::dom::AttributeType::Alt(s) => alt = Some(text(s)),
+                azul_core::dom::AttributeType::Title(s) => out.title = Some(text(s)),
                 azul_core::dom::AttributeType::Placeholder(s) => out.placeholder = Some(text(s)),
                 azul_core::dom::AttributeType::Value(s) => out.value = Some(text(s)),
                 _ => {}
             }
         }
-        out.name = aria_label.or(out.name).or(alt_or_title);
+        out.name = aria_label.or(out.name).or(alt);
         out
     }
 
@@ -3906,6 +3978,7 @@ mod autotest_generated {
             None,
             "t",
             LogicalSize::new(800.0, 600.0),
+            None,
         );
         let unknown: Vec<_> = snapshot
             .elements

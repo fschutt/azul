@@ -75,6 +75,9 @@ pub struct A11yElement {
     pub children: Vec<usize>,
     /// What a screen reader announces. Empty when the node has no name.
     pub label: String,
+    /// Extra context read after the name (UIKit's `accessibilityHint`): the
+    /// declared description, else a `title` that does not name the node.
+    pub description: Option<String>,
     /// The editable / current value, for inputs and contenteditable nodes.
     pub value: Option<String>,
     /// Element purpose.
@@ -150,6 +153,7 @@ impl A11ySnapshot {
         focused_node: Option<DomNodeId>,
         title: &str,
         window_size: LogicalSize,
+        translate: Option<crate::managers::a11y::A11yTranslate<'_>>,
     ) -> Self {
         let mut elements: Vec<A11yElement> = Vec::new();
         let mut roots: Vec<usize> = Vec::new();
@@ -164,9 +168,11 @@ impl A11ySnapshot {
             let node_data_slice = styled_dom.node_data.as_ref();
             let node_hierarchy = styled_dom.node_hierarchy.as_ref();
             let rendered = crate::managers::a11y::rendered_nodes(layout_result);
+            let hidden = crate::managers::a11y::hidden_from_assistive_technology(layout_result);
 
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
                 if !rendered.get(dom_idx).copied().unwrap_or(true)
+                    || hidden.get(dom_idx).copied().unwrap_or(false)
                     || !is_exposed_to_accessibility(node_data)
                 {
                     continue;
@@ -192,33 +198,29 @@ impl A11ySnapshot {
                 let editable = node_data.is_contenteditable()
                     || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input);
 
-                let mut label = String::new();
-                let mut value: Option<String> = None;
-
-                if let Some(info) = node_data.get_accessibility_info() {
-                    if let Some(name) = info.accessibility_name.as_option() {
-                        label = name.as_str().to_string();
+                // The accesskit tree's precedence, translated the same way
+                // (`A11yManager::declared_strings`): a declared name, else the
+                // node's text, else its title.
+                let mut declared =
+                    crate::managers::a11y::A11yManager::declared_strings(node_data, translate);
+                let own_text = match &node_data.node_type {
+                    NodeType::Text(text) => Some(text.as_str().to_string()),
+                    _ if !editable
+                        && !has_non_text_children
+                        && !child_text.trim().is_empty() =>
+                    {
+                        Some(child_text.clone())
                     }
-                    if let Some(v) = info.accessibility_value.as_option() {
-                        value = Some(v.as_str().to_string());
-                    }
-                }
-                if let Some(l) = node_data.get_accessible_label() {
-                    label = l.to_string();
-                }
-                if let Some(v) = node_data.get_accessible_value() {
-                    value = Some(v.to_string());
-                }
-                if let NodeType::Text(text) = &node_data.node_type {
-                    label = text.as_str().to_string();
-                }
-                if !child_text.is_empty() {
-                    if editable {
-                        value = Some(child_text);
-                    } else if !has_non_text_children && label.is_empty() {
-                        label = child_text;
-                    }
-                }
+                    _ => None,
+                };
+                declared.resolve_title(own_text.is_some());
+                let label = declared.name.take().or(own_text).unwrap_or_default();
+                let description = declared.description.take();
+                let value = if editable && !child_text.is_empty() {
+                    Some(child_text)
+                } else {
+                    declared.value.take()
+                };
 
                 // A DECLARED role wins; `Unknown` is the default that means
                 // "not specified" and must not erase the element's own kind.
@@ -263,6 +265,7 @@ impl A11ySnapshot {
                     parent: None,
                     children: Vec::new(),
                     label,
+                    description,
                     value,
                     role,
                     bounds,

@@ -1403,6 +1403,22 @@ static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// from spinning.
 const IFC_CANDIDATE_SCAN_LIMIT: usize = 4096;
 
+/// A translation key a node declares for assistive technology (an
+/// `AzString::tr` name or description), in `language`. The accesskit tree
+/// and the iOS / Android element list both read through it, so every
+/// platform announces the same words.
+#[cfg(all(feature = "a11y", feature = "fluent"))]
+fn translate_a11y_key(localizer: &FluentLocalizerHandle, language: &str, key: &str) -> String {
+    localizer
+        .translate(
+            azul_css::AzString::from(language),
+            azul_css::AzString::from(key),
+            crate::fmt::FmtArgVec::new(),
+        )
+        .as_str()
+        .to_string()
+}
+
 /// `parent`'s children, in order.
 fn child_nodes(
     hierarchy: &azul_core::id::NodeDataContainerRef<'_, azul_core::styled_dom::NodeHierarchyItem>,
@@ -16644,14 +16660,7 @@ impl LayoutWindow {
         let translate_key = |key: &str| -> String {
             #[cfg(feature = "fluent")]
             if let Some(localizer) = localizer {
-                return localizer
-                    .translate(
-                        azul_css::AzString::from(language.id.as_str()),
-                        azul_css::AzString::from(key),
-                        crate::fmt::FmtArgVec::new(),
-                    )
-                    .as_str()
-                    .to_string();
+                return translate_a11y_key(localizer, language.id.as_str(), key);
             }
             key.to_string()
         };
@@ -16737,6 +16746,16 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     #[must_use]
     pub fn build_a11y_snapshot(&self) -> crate::managers::a11y_snapshot::A11ySnapshot {
+        let language = self.active_language();
+        // The keys nodes declare, in the window's language, as the
+        // accesskit tree reads them.
+        #[cfg(feature = "fluent")]
+        let translate_key = self.fluent_localizer.as_ref().map(|localizer| {
+            let language = language.id.as_str();
+            move |key: &str| translate_a11y_key(localizer, language, key)
+        });
+        #[cfg(not(feature = "fluent"))]
+        let translate_key: Option<fn(&str) -> String> = None;
         let mut snapshot = crate::managers::a11y_snapshot::A11ySnapshot::build(
             &self.layout_results,
             &self.scroll_manager,
@@ -16744,8 +16763,11 @@ impl LayoutWindow {
             self.focus_manager.get_focused_node().copied(),
             self.current_window_state.title.as_str(),
             self.current_window_state.size.dimensions,
+            translate_key
+                .as_ref()
+                .map(|translate| crate::managers::a11y::A11yTranslate(translate)),
         );
-        snapshot.language = self.active_language().id.as_str().to_string();
+        snapshot.language = language.id.as_str().to_string();
         snapshot
     }
 
