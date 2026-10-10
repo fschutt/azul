@@ -176,6 +176,10 @@ mod recovery;
 /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
 #[cfg(feature = "encryption")]
 mod recovery_contacts;
+/// A drive's several recovery keys: the kit's lookup on a computer that never had the drive,
+/// a second kit, removing a key.
+#[cfg(feature = "encryption")]
+mod recovery_keys;
 /// A drive's recovery state (the code's checks, the drills, the trusted contacts) and its
 /// Recovery health: plain data in the settings.
 pub mod recovery_health;
