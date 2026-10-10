@@ -405,6 +405,15 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
         ],
     );
 
+    // URL module - the URL type and the sign-in session that opens one (OAuth 2.0 for native
+    // apps: AuthSession, AuthRequest, AuthSessionResult, AuthSessionStatus, AuthPkce,
+    // AuthCode, AuthCodeStatus). "authsession" outweighs the error module's "result" for
+    // AuthSessionResult.
+    map.insert(
+        "url",
+        vec!["authsession", "authrequest", "authpkce", "authcode"],
+    );
+
     // ZIP module - archive handling
     map.insert(
         "zip",
@@ -1134,6 +1143,12 @@ fn module_from_external_path(path: &str) -> Option<String> {
         return Some("notification".to_string());
     }
     if path.starts_with("azul_core::url::") {
+        return Some("url".to_string());
+    }
+    // Sign-in sessions: the URL a sign-in opens and the redirect it comes back with.
+    if path.starts_with("azul_layout::auth_session::")
+        || path.starts_with("azul_dll::unified::auth_session::")
+    {
         return Some("url".to_string());
     }
     if path.starts_with("azul_core::xml::") {
