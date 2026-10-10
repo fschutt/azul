@@ -11,7 +11,9 @@
 //! ([`DriveIndex::query`]) is words and word beginnings - the last word may be half typed
 //! ("quarterly rep" finds "quarterly report") -, below a folder of the drive, best first; what
 //! the index has not read as it is now ([`DriveIndex::unread`]: changed since its update) a
-//! search reads itself, and [`document_text`] gives a file's text for the line a result shows.
+//! search reads itself, and [`document_text`] / [`file_text`] give a file's text for the line a
+//! result shows. A source other than a folder (a cloud drive's listing, an encrypted drive's
+//! index, read through the app's reader) is indexed by [`DriveIndex::update_files`].
 //!
 //! Blocking and plain Rust (no azul types); an update stops within a file when it is cancelled
 //! and keeps what it committed. One update at a time per index (tantivy's writer lock): a
@@ -144,9 +146,18 @@ pub struct UpdateSummary {
     pub removed: usize,
     /// Files the index held as they are: not read.
     pub unchanged: usize,
+    /// Files the source could not give now (offline): not recorded, asked for again by the next
+    /// update.
+    pub failed: usize,
     /// The update was cancelled; what it committed stays.
     pub cancelled: bool,
 }
+
+/// How an update gets a file's bytes from its source: `(file, its kind, at most this many
+/// bytes)` -> the bytes; `Ok(None)` when the source has none to give (too large, no copy on
+/// this computer): recorded as read without text; `Err` when it cannot now (offline): not
+/// recorded, asked for again by the next update.
+pub type ReadFn<'a> = dyn FnMut(&FileEntry, Kind, u64) -> Result<Option<Vec<u8>>, String> + 'a;
 
 /// One drive's index: a tantivy index in a folder of its own.
 pub struct DriveIndex {
@@ -215,29 +226,36 @@ fn unread_in<'a>(state: &state::State, files: &'a [FileEntry]) -> Vec<&'a FileEn
 /// without text (a picture), a file that cannot be read or is too large, one without any text.
 #[must_use]
 pub fn document_text(root: &Path, path: &str, extractors: &Extractors) -> Option<String> {
-    let name = path.rsplit('/').next().unwrap_or("");
+    file_text(&full_path(root, path), extractors)
+}
+
+/// The text of the file `file` on this computer (a drive's local copy too, named apart from
+/// its key), as the index reads it: its kind by its own name.
+#[must_use]
+pub fn file_text(file: &Path, extractors: &Extractors) -> Option<String> {
+    let name = file.file_name()?.to_str()?;
     let kind = kind_of(name)?;
-    let size = fs::metadata(full_path(root, path)).ok()?.len();
-    let file = FileEntry {
-        path: path.to_string(),
-        size,
-        modified: None,
-    };
-    let bytes = read_bytes(root, &file, kind)?;
+    let size = fs::metadata(file).ok()?.len();
+    if kind != Kind::Text && size > MAX_DOCUMENT_BYTES {
+        return None;
+    }
+    let bytes = read_file(file, read_limit(kind))?;
     extract(name, &bytes, extractors)
 }
 
-/// The bytes of `file` (below `root`) its kind needs: a plain file's first [`MAX_TEXT_BYTES`], a
-/// document whole (`None` when it is larger than [`MAX_DOCUMENT_BYTES`] or cannot be read).
-fn read_bytes(root: &Path, file: &FileEntry, kind: Kind) -> Option<Vec<u8>> {
-    let full = full_path(root, &file.path);
-    let limit = match kind {
+/// The bytes a file of `kind` is read for: a plain file's first [`MAX_TEXT_BYTES`], a document
+/// whole (one larger than [`MAX_DOCUMENT_BYTES`] is not read).
+fn read_limit(kind: Kind) -> u64 {
+    match kind {
         Kind::Text => MAX_TEXT_BYTES as u64,
-        _ if file.size > MAX_DOCUMENT_BYTES => return None,
         _ => MAX_DOCUMENT_BYTES,
-    };
+    }
+}
+
+/// The first `limit` bytes of the file `path`; `None` when it cannot be read.
+fn read_file(path: &Path, limit: u64) -> Option<Vec<u8>> {
     let mut bytes = Vec::new();
-    File::open(&full)
+    File::open(path)
         .ok()?
         .take(limit)
         .read_to_end(&mut bytes)
@@ -311,18 +329,47 @@ impl DriveIndex {
         cancel: &AtomicBool,
         on_progress: &mut dyn FnMut(UpdateProgress),
     ) -> Result<UpdateSummary, IndexError> {
-        let state_file = self.dir.join(STATE_FILE);
-        let mut state = state::read(&state_file);
         let mut files: Vec<FileEntry> = Vec::new();
         list_files(root, filters, cancel, &mut |file| files.push(file))?;
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(UpdateSummary {
+                listed: files.len(),
+                cancelled: true,
+                ..UpdateSummary::default()
+            });
+        }
+        // A file that cannot be read now is recorded without text, as the walk found it.
+        let mut read = |file: &FileEntry, _kind: Kind, limit: u64| -> Result<_, String> {
+            Ok(read_file(&full_path(root, &file.path), limit))
+        };
+        self.update_files(&files, &mut read, extractors, cancel, on_progress)
+    }
+
+    /// Brings the index up to `files` - every file a source has (a folder's walk, a cloud
+    /// drive's listing, an encrypted drive's index), its path the index's key - reading the new
+    /// and changed ones through `read` (the bytes their kind needs; a document larger than
+    /// [`MAX_DOCUMENT_BYTES`] is not asked for), taking the gone ones out; the rest is not read.
+    /// A file `read` cannot give now is not recorded: the next update asks again. Commits every
+    /// [`COMMIT_EVERY`] files or [`COMMIT_AFTER`]; a cancel stops it between files and keeps
+    /// what was committed. `on_progress` hears how far it got every quarter second.
+    ///
+    /// # Errors
+    ///
+    /// The index cannot be written (another update holds it), its list cannot be saved.
+    pub fn update_files(
+        &self,
+        files: &[FileEntry],
+        read: &mut ReadFn<'_>,
+        extractors: &Extractors,
+        cancel: &AtomicBool,
+        on_progress: &mut dyn FnMut(UpdateProgress),
+    ) -> Result<UpdateSummary, IndexError> {
+        let state_file = self.dir.join(STATE_FILE);
+        let mut state = state::read(&state_file);
         let mut summary = UpdateSummary {
             listed: files.len(),
             ..UpdateSummary::default()
         };
-        if cancel.load(Ordering::SeqCst) {
-            summary.cancelled = true;
-            return Ok(summary);
-        }
         let present: HashSet<&str> = files.iter().map(|f| f.path.as_str()).collect();
         let removed: Vec<String> = state
             .files
@@ -330,7 +377,7 @@ impl DriveIndex {
             .filter(|path| !present.contains(String::as_str(path)))
             .cloned()
             .collect();
-        let mut changed = unread_in(&state, &files);
+        let mut changed = unread_in(&state, files);
         changed.sort_by(|a, b| a.path.cmp(&b.path));
         summary.unchanged = files.len() - changed.len();
         summary.removed = removed.len();
@@ -354,26 +401,35 @@ impl DriveIndex {
                     summary.cancelled = true;
                     break;
                 }
-                writer.delete_term(Term::from_field_text(self.path, &file.path));
                 let name = file.path.rsplit('/').next().unwrap_or("");
-                let text = kind_of(name)
-                    .and_then(|kind| read_bytes(root, file, kind))
-                    .and_then(|bytes| extract(name, &bytes, extractors));
-                match text {
-                    Some(text) => {
-                        let mut document = TantivyDocument::default();
-                        document.add_text(self.path, &file.path);
-                        document.add_text(self.body, &text);
-                        writer.add_document(document)?;
-                        summary.indexed += 1;
-                    }
-                    None => summary.without_text += 1,
-                }
-                state
-                    .files
-                    .insert(file.path.clone(), (file.size, file.modified));
+                let text = match kind_of(name) {
+                    None => Ok(None),
+                    Some(kind) if kind != Kind::Text && file.size > MAX_DOCUMENT_BYTES => Ok(None),
+                    Some(kind) => read(file, kind, read_limit(kind))
+                        .map(|bytes| bytes.and_then(|bytes| extract(name, &bytes, extractors))),
+                };
                 progress.read += 1;
-                since_commit += 1;
+                match text {
+                    Ok(text) => {
+                        writer.delete_term(Term::from_field_text(self.path, &file.path));
+                        match text {
+                            Some(text) => {
+                                let mut document = TantivyDocument::default();
+                                document.add_text(self.path, &file.path);
+                                document.add_text(self.body, &text);
+                                writer.add_document(document)?;
+                                summary.indexed += 1;
+                            }
+                            None => summary.without_text += 1,
+                        }
+                        state
+                            .files
+                            .insert(file.path.clone(), (file.size, file.modified));
+                        since_commit += 1;
+                    }
+                    // Not recorded: the next update asks for it again (its old text stays).
+                    Err(_) => summary.failed += 1,
+                }
                 if since_commit >= COMMIT_EVERY || last_commit.elapsed() >= COMMIT_AFTER {
                     writer.commit()?;
                     state::write(&state_file, &state)?;
