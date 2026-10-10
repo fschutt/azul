@@ -10395,146 +10395,6 @@
                             }
                         },
                         "repr": "C"
-                    },
-                    "PowerState": {
-                        "external": "azul_dll::unified::power::PowerState",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "on_mains": {
-                                    "type": "bool"
-                                },
-                                "idle_secs": {
-                                    "type": "u64"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "headless": {
-                                "doc": [
-                                    "[`PowerState::HEADLESS`]."
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_dll::unified::power::PowerState::headless()"
-                            },
-                            "query": {
-                                "doc": [
-                                    "The power state now (see the module documentation)."
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_dll::unified::power::PowerState::query()"
-                            }
-                        },
-                        "functions": {
-                            "is_idle_on_mains": {
-                                "doc": [
-                                    "Whether heavy background work may run: on mains power and idle for at least",
-                                    "`min_idle_secs` seconds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "min_idle_secs": "u64"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_idle_on_mains(min_idle_secs)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "NetworkKind": {
-                        "external": "azul_dll::unified::network::NetworkKind",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Unknown": {},
-                                "Wired": {},
-                                "WiFi": {},
-                                "Cellular": {},
-                                "Other": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "NetworkState": {
-                        "external": "azul_dll::unified::network::NetworkState",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "kind": {
-                                    "type": "NetworkKind"
-                                },
-                                "connected": {
-                                    "type": "bool"
-                                },
-                                "metered": {
-                                    "type": "bool"
-                                },
-                                "constrained": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "headless": {
-                                "doc": [
-                                    "[`NetworkState::HEADLESS`]."
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_dll::unified::network::NetworkState::headless()"
-                            },
-                            "query": {
-                                "doc": [
-                                    "The network state now (see the module documentation)."
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_dll::unified::network::NetworkState::query()"
-                            }
-                        },
-                        "functions": {
-                            "allows_background_transfer": {
-                                "doc": [
-                                    "Whether big transfers that can wait may run now: connected, neither metered nor",
-                                    "constrained."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.allows_background_transfer()"
-                            }
-                        },
-                        "repr": "C"
                     }
                 }
             },
@@ -198835,6 +198695,23 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "magnitude": {
+                                "doc": [
+                                    "The magnitude of the `(x, y, z)` vector — e.g. total acceleration",
+                                    "(≈9.81 at rest for the accelerometer) or field strength."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.magnitude()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "SensorKind": {
@@ -198883,6 +198760,23 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "is_near": {
+                                "doc": [
+                                    "`Some(true)` near, `Some(false)` far, `None` for a distance - which",
+                                    "only the app can turn into a verdict, against its own threshold."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionBool"
+                                },
+                                "fn_body": "object.is_near().into()"
+                            }
+                        },
                         "repr": "C, u8"
                     },
                     "ProximityDistance": {
@@ -198903,6 +198797,41 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "in_centimeters": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.in_centimeters()"
+                            },
+                            "in_meters": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.in_meters()"
+                            },
+                            "in_millimeters": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.in_millimeters()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "DistanceUnit": {
@@ -198922,6 +198851,238 @@
                                 "Millimeters": {},
                                 "Centimeters": {},
                                 "Meters": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NetworkKind": {
+                        "external": "azul_dll::unified::network::NetworkKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Unknown": {},
+                                "Wired": {},
+                                "WiFi": {},
+                                "Cellular": {},
+                                "Other": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NetworkState": {
+                        "external": "azul_dll::unified::network::NetworkState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "NetworkKind"
+                                },
+                                "connected": {
+                                    "type": "bool"
+                                },
+                                "metered": {
+                                    "type": "bool"
+                                },
+                                "constrained": {
+                                    "type": "bool"
+                                },
+                                "hotspot": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "headless": {
+                                "doc": [
+                                    "[`NetworkState::HEADLESS`]."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::network::NetworkState::headless()"
+                            },
+                            "query": {
+                                "doc": [
+                                    "The network state now (see the module documentation)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::network::NetworkState::query()"
+                            }
+                        },
+                        "functions": {
+                            "allows_background_transfer": {
+                                "doc": [
+                                    "Whether big transfers that can wait may run now: connected, neither metered nor",
+                                    "constrained."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.allows_background_transfer()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PowerState": {
+                        "external": "azul_dll::unified::power::PowerState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "on_mains": {
+                                    "type": "bool"
+                                },
+                                "idle_secs": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "headless": {
+                                "doc": [
+                                    "[`PowerState::HEADLESS`]."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::power::PowerState::headless()"
+                            },
+                            "query": {
+                                "doc": [
+                                    "The power state now (see the module documentation)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::power::PowerState::query()"
+                            }
+                        },
+                        "functions": {
+                            "is_idle_on_mains": {
+                                "doc": [
+                                    "Whether heavy background work may run: on mains power and idle for at least",
+                                    "`min_idle_secs` seconds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "min_idle_secs": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_idle_on_mains(min_idle_secs)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "BatteryState": {
+                        "external": "azul_dll::unified::sensors::BatteryState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "present": {
+                                    "type": "bool"
+                                },
+                                "charging": {
+                                    "type": "bool"
+                                },
+                                "level_percent": {
+                                    "type": "u8"
+                                },
+                                "low_power_mode": {
+                                    "type": "bool"
+                                },
+                                "thermal": {
+                                    "type": "ThermalState"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "headless": {
+                                "doc": [
+                                    "[`BatteryState::HEADLESS`]."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::sensors::BatteryState::headless()"
+                            },
+                            "query": {
+                                "doc": [
+                                    "The battery now (see the module documentation)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::sensors::BatteryState::query()"
+                            }
+                        },
+                        "functions": {
+                            "runs_low": {
+                                "doc": [
+                                    "Whether the device runs from a battery that is under `below_percent` full: a battery,",
+                                    "not on its charger, its level known and lower. `false` on mains power, without a",
+                                    "battery and while its level is unknown."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "below_percent": "u8"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.runs_low(below_percent)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ThermalState": {
+                        "external": "azul_dll::unified::sensors::ThermalState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Nominal": {},
+                                "Fair": {},
+                                "Serious": {},
+                                "Critical": {},
+                                "Unknown": {}
                             }
                         ],
                         "repr": "C"
