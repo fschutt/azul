@@ -3,7 +3,8 @@
 //! own.
 
 use crate::l10n::{
-    app_word, decimal, grouped, is_key, keep, money, named, set_locale, sources, t, t_args, Arg,
+    app_word, decimal, grouped, is_key, keep, money, named, named_key, set_locale, sources, t,
+    t_args, t_phrase, Arg, Phrase,
 };
 
 #[test]
@@ -112,4 +113,28 @@ fn money_and_decimals_are_written_as_the_language_writes_them() {
     assert_eq!(decimal("7.5"), "7,5");
     assert_eq!(decimal("100 GB"), "100 GB");
     set_locale("en-US");
+}
+
+/// A word kept as its key (a worker thread's reason: it has no language) is said when its
+/// phrase is shown, in the window's language - its own words when the resources have none.
+#[test]
+fn a_word_argument_is_said_when_its_phrase_is_shown() {
+    keep(&sources(&[]));
+    let phrase = Phrase::new("kit-about-title").arg(
+        "app",
+        Arg::word("kit-general-language", "Language"),
+    );
+    set_locale("en-US");
+    assert_eq!(t_phrase(&phrase), "About Language");
+    set_locale("de-DE");
+    assert_eq!(t_phrase(&phrase), "Info zu Sprache");
+    let missing =
+        Phrase::new("kit-about-title").arg("app", Arg::word("kit-no-such-word", "AzTest"));
+    assert_eq!(t_phrase(&missing), "Info zu AzTest");
+    set_locale("en-US");
+    // The key `named` looks a name up by: a worker makes it without the resources.
+    assert_eq!(
+        named_key("AzDrive", "reason", "it is the drive's root"),
+        "azdrive-reason-it-is-the-drive-s-root"
+    );
 }
