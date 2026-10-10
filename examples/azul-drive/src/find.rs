@@ -862,7 +862,7 @@ pub struct CachedListing {
     pub objects: Vec<ObjectInfo>,
 }
 
-/// The file in `dir` that keeps the drive `drive_id`'s listing ([`cache_name`]).
+/// The file in `dir` that keeps the drive `drive_id`'s listing (named safely after the drive).
 #[must_use]
 pub fn listing_file(dir: &Path, drive_id: &str) -> PathBuf {
     dir.join(format!("{}.tsv", cache_name(drive_id)))
