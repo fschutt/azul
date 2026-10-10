@@ -40,6 +40,8 @@ pub mod csv_io;
 pub mod depreciation;
 /// The DOM ids and classes (`__azerp_` prefix), each defined once.
 pub mod ids;
+#[cfg(test)]
+mod l10n_tests;
 /// The records (asset, category, location, maintenance entry, check-out)
 /// and their files.
 pub mod model;
