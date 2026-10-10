@@ -291,12 +291,18 @@ pub struct HttpClientInner {
     pub config: HttpClientConfig,
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     agent: ureq::Agent,
+    /// Where a host is reached when its name does not resolve
+    /// ([`HttpClient::add_fallback_address`]); the agent's resolver reads it.
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    fallback: FallbackAddresses,
 }
 
 impl HttpClient {
     /// Create a connection pool with the given settings
     #[must_use]
     pub fn create(config: HttpClientConfig) -> Self {
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        let fallback = FallbackAddresses::default();
         Self {
             ptr: Box::new(alloc::sync::Arc::new(HttpClientInner {
                 config,
@@ -304,7 +310,10 @@ impl HttpClient {
                 agent: client_agent(
                     &config,
                     ureq::unversioned::resolver::DefaultResolver::default(),
+                    fallback.clone(),
                 ),
+                #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+                fallback,
             })),
             run_destructor: true,
         }
@@ -314,6 +323,48 @@ impl HttpClient {
     #[must_use]
     pub fn get_config(&self) -> HttpClientConfig {
         self.ptr.config
+    }
+
+    /// Connects to `host` at `address` (an IP address, `ip:port` or `[ipv6]:port`) whenever
+    /// the host's name does not resolve: the request still goes to `host` - its Host header
+    /// and the TLS server name, so the certificate is verified for that name, not for the
+    /// address. A host collects up to 16 addresses. Returns false when `address` is no address
+    /// (or this build has no HTTP client).
+    #[must_use]
+    pub fn add_fallback_address(&self, host: &str, address: &str) -> bool {
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        {
+            let Some(parsed) = parse_fallback_address(address) else {
+                return false;
+            };
+            let host = fallback_host(host);
+            if host.is_empty() {
+                return false;
+            }
+            let Ok(mut known) = self.ptr.fallback.lock() else {
+                return false;
+            };
+            let addresses = known.entry(host).or_default();
+            if !addresses.contains(&parsed) && addresses.len() < MAX_FALLBACK_ADDRESSES {
+                addresses.push(parsed);
+            }
+            true
+        }
+        #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+        {
+            let _ = (host, address);
+            false
+        }
+    }
+
+    /// Forgets the fallback addresses of `host`: its name is looked up only.
+    pub fn clear_fallback_addresses(&self, host: &str) {
+        #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+        if let Ok(mut known) = self.ptr.fallback.lock() {
+            known.remove(&fallback_host(host));
+        }
+        #[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+        let _ = host;
     }
 }
 
@@ -1038,11 +1089,13 @@ fn agent_config(
 }
 
 /// The agent behind an [`HttpClient`]: pooled per `config`, and resolving hosts
-/// through `resolver`, cached when `config.dns_cache_secs` asks for it.
+/// through `resolver`, cached when `config.dns_cache_secs` asks for it; a host whose
+/// lookup fails is answered from `fallback`.
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn client_agent(
     config: &HttpClientConfig,
     resolver: impl ureq::unversioned::resolver::Resolver,
+    fallback: FallbackAddresses,
 ) -> ureq::Agent {
     let agent_config = agent_config(config.disable_tls_cert_verification)
         .max_idle_connections(config.max_idle_connections as usize)
@@ -1050,16 +1103,115 @@ fn client_agent(
         .build();
     let connector = ureq::unversioned::transport::DefaultConnector::default();
     if config.dns_cache_secs == 0 {
-        ureq::Agent::with_parts(agent_config, connector, resolver)
+        ureq::Agent::with_parts(
+            agent_config,
+            connector,
+            FallbackResolver {
+                inner: resolver,
+                fallback,
+            },
+        )
     } else {
         ureq::Agent::with_parts(
             agent_config,
             connector,
-            CachingResolver::new(
-                resolver,
-                std::time::Duration::from_secs(u64::from(config.dns_cache_secs)),
-            ),
+            FallbackResolver {
+                inner: CachingResolver::new(
+                    resolver,
+                    std::time::Duration::from_secs(u64::from(config.dns_cache_secs)),
+                ),
+                fallback,
+            },
         )
+    }
+}
+
+/// The most fallback addresses of one host (ureq's resolver answers at most 16).
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+const MAX_FALLBACK_ADDRESSES: usize = 16;
+
+/// A client's fallback addresses: host (lowercase, no brackets) -> its addresses, each with
+/// the port it names (`None`: the URL's).
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+type FallbackAddresses = alloc::sync::Arc<
+    std::sync::Mutex<alloc::collections::BTreeMap<String, Vec<(std::net::IpAddr, Option<u16>)>>>,
+>;
+
+/// A host as the fallback addresses are kept under: lowercase, an IPv6 one without brackets.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn fallback_host(host: &str) -> String {
+    host.trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase()
+}
+
+/// `192.0.2.7`, `2001:db8::1`, `[2001:db8::1]`, `192.0.2.7:8443`, `[2001:db8::1]:8443`.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+fn parse_fallback_address(address: &str) -> Option<(std::net::IpAddr, Option<u16>)> {
+    let address = address.trim();
+    if let Ok(socket) = address.parse::<std::net::SocketAddr>() {
+        return Some((socket.ip(), Some(socket.port())));
+    }
+    address
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .map(|ip| (ip, None))
+}
+
+/// A resolver that asks `inner` first and, when the lookup fails, answers the host from
+/// the client's fallback addresses: the connection goes to the address, the request (and
+/// TLS) still to the host.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+#[derive(Debug)]
+struct FallbackResolver<R> {
+    inner: R,
+    fallback: FallbackAddresses,
+}
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+impl<R: ureq::unversioned::resolver::Resolver> ureq::unversioned::resolver::Resolver
+    for FallbackResolver<R>
+{
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let error = match self.inner.resolve(uri, config, timeout) {
+            Ok(found) => return Ok(found),
+            Err(error) => error,
+        };
+        let Some(host) = uri.host().map(fallback_host) else {
+            return Err(error);
+        };
+        let known = self
+            .fallback
+            .lock()
+            .ok()
+            .and_then(|known| known.get(&host).cloned())
+            .filter(|addresses| !addresses.is_empty());
+        let Some(known) = known else {
+            return Err(error);
+        };
+        let default_port = if uri.scheme_str() == Some("https") {
+            443
+        } else {
+            80
+        };
+        let port = uri.port_u16().unwrap_or(default_port);
+        let mut out = self.inner.empty();
+        for (ip, named) in known.into_iter().take(MAX_FALLBACK_ADDRESSES) {
+            out.push(std::net::SocketAddr::new(ip, named.unwrap_or(port)));
+        }
+        Ok(out)
+    }
+
+    fn empty(&self) -> ureq::unversioned::resolver::ResolvedSocketAddrs {
+        self.inner.empty()
     }
 }
 
@@ -2368,6 +2520,7 @@ mod client_pool_tests {
         let client = HttpClient {
             ptr: Box::new(Arc::new(HttpClientInner {
                 config: HttpClientConfig::default(),
+                fallback: FallbackAddresses::default(),
                 agent: agent(CountingResolver {
                     port,
                     calls: Arc::clone(&calls),
@@ -2385,14 +2538,18 @@ mod client_pool_tests {
     #[test]
     fn a_client_without_a_dns_cache_looks_the_host_up_for_every_request() {
         let config = HttpClientConfig::default();
-        let (_, calls) = counted_client(|resolver| client_agent(&config, resolver));
+        let (_, calls) = counted_client(|resolver| {
+            client_agent(&config, resolver, FallbackAddresses::default())
+        });
         assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
 
     #[test]
     fn a_client_with_a_dns_cache_looks_the_host_up_once() {
         let config = HttpClientConfig::default().with_dns_cache_secs(60);
-        let (_, calls) = counted_client(|resolver| client_agent(&config, resolver));
+        let (_, calls) = counted_client(|resolver| {
+            client_agent(&config, resolver, FallbackAddresses::default())
+        });
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
