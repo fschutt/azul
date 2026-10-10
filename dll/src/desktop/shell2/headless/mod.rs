@@ -2472,13 +2472,26 @@ impl HeadlessWindow {
         }
         let mut opened_by_children = Vec::new();
         let mut a_menu_closed = false;
+        let mut left_by_closed = BTreeMap::new();
         self.children.retain_mut(|child| {
             child.pump_once(false);
             opened_by_children.append(&mut child.pending_window_creates);
             let open = child.is_open();
-            a_menu_closed |= !open && child.is_menu_window();
+            let menu_closed = !open && child.is_menu_window();
+            a_menu_closed |= menu_closed;
+            if menu_closed {
+                // The work a menu item's callback started is this window's: the callback runs
+                // in the menu's own window, which closes as the item is picked (AzDrive's
+                // Saved searches, its Refine) - as a modal's answer's thread is its owner's
+                // (`transient::post_owner_thread`). A window of its own (a dialog) keeps its
+                // threads, and a thread a node of the menu owns stops with it.
+                left_by_closed.append(&mut child.take_unowned_threads());
+            }
             open
         });
+        if !left_by_closed.is_empty() {
+            self.add_threads(left_by_closed);
+        }
         // A menu that closed takes its chain with it (X11's
         // `dismiss_chain_if_menu`): an item picked in a submenu, or an Escape
         // in it, leaves the menu it hangs off too. Every menu of this window
@@ -2487,6 +2500,27 @@ impl HeadlessWindow {
             let _ = self.dismiss_menu_windows();
         }
         self.pending_window_creates.extend(opened_by_children);
+    }
+
+    /// The threads of this (closing) window that no node of it owns - the work its callbacks
+    /// started for the app -, taken out for the window that owns it
+    /// ([`Self::pump_children`]).
+    fn take_unowned_threads(
+        &mut self,
+    ) -> BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread> {
+        let Some(lw) = self.common.layout_window.as_mut() else {
+            return BTreeMap::new();
+        };
+        let unowned: Vec<azul_core::task::ThreadId> = lw
+            .threads
+            .keys()
+            .filter(|id| lw.thread_owners.owner(id).is_none())
+            .copied()
+            .collect();
+        unowned
+            .into_iter()
+            .filter_map(|id| lw.threads.remove(&id).map(|thread| (id, thread)))
+            .collect()
     }
 
     /// Is this window a window-based menu: a `WindowType::Menu` window with no
