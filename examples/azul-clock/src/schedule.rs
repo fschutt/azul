@@ -151,7 +151,7 @@ pub fn plan<Tz: TimeZone>(
             continue;
         }
         let title = if alarm.label.trim().is_empty() {
-            "Alarm".to_string()
+            azul_appkit::l10n::t("azclock-alarm")
         } else {
             alarm.label.trim().to_string()
         };
@@ -203,11 +203,14 @@ pub fn plan<Tz: TimeZone>(
                 id: timer_id(&timer.id),
                 at_ms,
                 title: if timer.label.trim().is_empty() {
-                    "Timer".to_string()
+                    azul_appkit::l10n::t("azclock-timer")
                 } else {
                     timer.label.trim().to_string()
                 },
-                body: format!("Time is up ({})", fmt::countdown(timer.duration_ms)),
+                body: azul_appkit::l10n::t_args(
+                    "azclock-time-is-up-of",
+                    &[("length", azul_appkit::l10n::Arg::from(fmt::countdown(timer.duration_ms)))],
+                ),
                 payload: Payload::Timer {
                     id: timer.id.clone(),
                 },
@@ -270,6 +273,7 @@ mod tests {
 
     #[test]
     fn a_daily_alarm_is_scheduled_for_its_next_seven_days() {
+        crate::l10n::in_english();
         let alarm = Alarm::new("a1", 7, 0, day(2026, 10, 1)).repeating("FREQ=DAILY").labelled("Wake up");
         let plan = plan(&[alarm], &[], now(), &Berlin, false);
         assert_eq!(plan.post.len(), ALARM_SLOTS);
@@ -288,6 +292,7 @@ mod tests {
 
     #[test]
     fn a_weekly_alarm_fills_what_the_horizon_holds_and_withdraws_its_other_slots() {
+        crate::l10n::in_english();
         let alarm = Alarm::new("m", 6, 30, day(2026, 10, 1)).repeating("FREQ=WEEKLY;BYDAY=MO");
         let plan = plan(&[alarm], &[], now(), &Berlin, true);
         assert_eq!(plan.post.len(), 1, "one Monday in the next eight days");
@@ -301,6 +306,7 @@ mod tests {
 
     #[test]
     fn an_alarm_that_is_off_withdraws_every_id_it_may_have() {
+        crate::l10n::in_english();
         let mut alarm = Alarm::new("off", 7, 0, day(2026, 10, 1)).repeating("FREQ=DAILY");
         alarm.enabled = false;
         let plan = plan(&[alarm], &[], now(), &Berlin, false);
@@ -310,6 +316,7 @@ mod tests {
 
     #[test]
     fn a_snoozed_alarm_schedules_the_end_of_its_snooze() {
+        crate::l10n::in_english();
         let mut alarm = Alarm::new("s", 9, 50, day(2026, 10, 3));
         alarm.snooze(now(), 10);
         let plan = plan(&[alarm], &[], now(), &Berlin, false);
@@ -320,6 +327,7 @@ mod tests {
 
     #[test]
     fn a_running_timer_is_scheduled_at_its_end_and_a_paused_one_withdrawn() {
+        crate::l10n::in_english();
         let t0 = now().timestamp_millis();
         let mut tea = CountdownTimer::new("tea", "Tea", 10 * MINUTE_MS);
         tea.start(t0);
@@ -338,6 +346,7 @@ mod tests {
 
     #[test]
     fn the_budget_keeps_the_soonest_and_withdraws_the_rest() {
+        crate::l10n::in_english();
         let alarms: Vec<Alarm> = (0..10)
             .map(|i| Alarm::new(&format!("a{i}"), 6 + i, 0, day(2026, 10, 1)).repeating("FREQ=DAILY"))
             .collect();
@@ -353,6 +362,7 @@ mod tests {
 
     #[test]
     fn the_payload_names_what_rang_and_reads_back() {
+        crate::l10n::in_english();
         let p = Payload::Alarm { id: "7f3a-11".into(), at_ms: 1_790_000_000_000 };
         assert_eq!(p.to_text(), "alarm:7f3a-11:1790000000000");
         assert_eq!(Payload::parse(&p.to_text()), Some(p));
@@ -368,6 +378,7 @@ mod tests {
 
     #[test]
     fn only_what_changed_is_handed_over_again() {
+        crate::l10n::in_english();
         let alarm = Alarm::new("a1", 7, 0, day(2026, 10, 1)).repeating("FREQ=DAILY");
         let other = Alarm::new("a2", 8, 0, day(2026, 10, 1)).repeating("FREQ=DAILY");
         let first = plan(&[alarm.clone(), other], &[], now(), &Berlin, false);

@@ -51,6 +51,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     files::FileJob,
+    l10n::{t, t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -92,20 +93,20 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keyboard shortcuts the settings page lists.
 pub const SHORTCUTS: [Shortcut; 11] = [
-    Shortcut::new("Clock", "Alt+1 .. Alt+4", "World, Alarms, Timer, Stopwatch"),
-    Shortcut::new("Clock", "Mod+N", "New alarm, timer or city"),
-    Shortcut::new("Clock", "Mod+Q", "Quit (also when AzClock keeps running)"),
-    Shortcut::new("Ringing", "Space", "Snooze"),
-    Shortcut::new("Ringing", "Escape", "Dismiss"),
-    Shortcut::new("Timer", "Space", "Start or pause"),
-    Shortcut::new("Timer", "+", "One more minute"),
-    Shortcut::new("Stopwatch", "Space", "Start or stop"),
-    Shortcut::new("Stopwatch", "L", "Lap"),
-    Shortcut::new("Stopwatch", "R", "Reset"),
-    Shortcut::new("Stopwatch", "Mod+C", "Copy the laps"),
+    Shortcut::new("azclock-category-clock", "Alt+1 .. Alt+4", "azclock-shortcut-screens"),
+    Shortcut::new("azclock-category-clock", "Mod+N", "azclock-shortcut-new"),
+    Shortcut::new("azclock-category-clock", "Mod+Q", "azclock-shortcut-quit"),
+    Shortcut::new("azclock-shortcuts-ringing", "Space", "azclock-snooze"),
+    Shortcut::new("azclock-shortcuts-ringing", "Escape", "azclock-dismiss"),
+    Shortcut::new("azclock-timer", "Space", "azclock-shortcut-start-pause"),
+    Shortcut::new("azclock-timer", "+", "azclock-shortcut-one-minute"),
+    Shortcut::new("azclock-screen-stopwatch", "Space", "azclock-shortcut-start-stop"),
+    Shortcut::new("azclock-screen-stopwatch", "L", "azclock-lap"),
+    Shortcut::new("azclock-screen-stopwatch", "R", "azclock-reset"),
+    Shortcut::new("azclock-screen-stopwatch", "Mod+C", "azclock-shortcut-copy-laps"),
 ];
 
-/// The settings page's own category.
+/// The settings page's own category: an id, shown as `azclock-category-clock`.
 const APP_CATEGORIES: [&str; 1] = ["Clock"];
 
 /// Write-back tags.
@@ -135,13 +136,14 @@ pub enum Screen {
 impl Screen {
     pub const ALL: [Screen; 4] = [Screen::World, Screen::Alarms, Screen::Timer, Screen::Stopwatch];
 
+    /// The mode switch's word (a key of AzClock's resources).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Screen::World => "World",
-            Screen::Alarms => "Alarms",
-            Screen::Timer => "Timer",
-            Screen::Stopwatch => "Stopwatch",
+            Screen::World => "azclock-screen-world",
+            Screen::Alarms => "azclock-screen-alarms",
+            Screen::Timer => "azclock-timer",
+            Screen::Stopwatch => "azclock-screen-stopwatch",
         }
     }
 
@@ -274,7 +276,7 @@ impl ClockApp {
         } else if cap.available {
             (
                 false,
-                "this system cannot schedule notifications: AzClock keeps running to ring".to_string(),
+                t("azclock-no-os-schedule"),
             )
         } else {
             (false, format!("{}: {}", cap.backend.as_str(), cap.reason.as_str()))
@@ -407,6 +409,15 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
@@ -414,7 +425,6 @@ pub fn start() {
     println!("AZCLOCK_SCREEN {}", app.screen.key());
     eprintln!("[azclock] alarms ring while AzClock is closed: {} ({})", app.os_rings.0, app.os_rings.1);
     let app_ref = RefAny::new(app);
-    let mut config = kit::app_config(&kit_ref);
     // Every notification AzClock posts goes here - also the tap that
     // launched it, in a process that never posted it.
     config.set_notification_handler(app_ref.clone(), on_notification as CallbackType);
@@ -507,9 +517,12 @@ fn notification_of(p: &schedule::Planned) -> Notification {
         })
         .with_deliver_at(u64::try_from(p.at_ms).unwrap_or(0));
     if p.snooze_minutes > 0 {
-        n = n.with_action("snooze", format!("Snooze {} min", p.snooze_minutes));
+        n = n.with_action(
+            "snooze",
+            t_args("azclock-snooze-minutes", &[("min", Arg::from(p.snooze_minutes.to_string()))]),
+        );
     }
-    n.with_action("dismiss", "Dismiss")
+    n.with_action("dismiss", t("azclock-dismiss"))
 }
 
 /// Hand the OS what changed since the last plan: the next occurrences of
@@ -591,7 +604,7 @@ fn feed_tone(s: &mut ClockApp) {
         });
         if !sink.is_open() {
             if s.notice.is_empty() {
-                s.notice = "No sound: the audio output could not be opened.".to_string();
+                s.notice = t("azclock-no-sound");
             }
             return;
         }
@@ -687,7 +700,7 @@ pub(crate) fn snooze(s: &mut ClockApp) {
                 save_alarm(s, i);
                 println!("AZCLOCK_SNOOZED {id} {minutes}");
                 s.toast = Some((
-                    format!("Snoozed for {}", crate::fmt::minutes(minutes)),
+                    t_args("azclock-snoozed-for", &[("span", Arg::from(crate::fmt::minutes(minutes)))]),
                     now_ms() + 4000,
                 ));
             }
@@ -750,7 +763,7 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
             while !s.ringing.is_empty() {
                 dismiss(s, cb);
             }
-            s.notice = "A ring ended by itself (settings: Ring for).".to_string();
+            s.notice = t("azclock-ring-ended");
         } else {
             feed_tone(s);
         }
@@ -880,7 +893,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
         }
         let written = reply.outcomes.len().saturating_sub(failed.len());
         if let Some((_, e)) = failed.first() {
-            s.notice = format!("Not saved: {e}");
+            s.notice = t_args("azclock-not-saved", &[("why", Arg::from(e.to_string()))]);
         }
         s.queue.finish(failed);
         println!("AZCLOCK_SAVED {written}");
@@ -907,7 +920,7 @@ extern "C" fn on_notification(mut data: RefAny, mut info: CallbackInfo) -> Updat
     with_app(&mut data, &mut info, |s, info, _| {
         if kind == "failed" {
             s.os_rings = (false, reason.clone());
-            s.notice = format!("The system cannot ring alarms while AzClock is closed: {reason}");
+            s.notice = t_args("azclock-os-cannot-ring", &[("why", Arg::from(reason.as_str()))]);
             return;
         }
         let Some(p) = Payload::parse(&payload) else {
@@ -953,6 +966,7 @@ extern "C" fn on_notification(mut data: RefAny, mut info: CallbackInfo) -> Updat
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let wide = info.window_width_greater_than(views::WIDE);
@@ -1014,8 +1028,7 @@ extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Up
     let mut state = info.get_current_window_state();
     state.flags.frame = WindowFrame::Minimized;
     info.modify_window_state(state);
-    s.notice =
-        "AzClock keeps running (minimized) so your alarms and timers ring. Mod+Q quits.".to_string();
+    s.notice = t("azclock-kept-running");
     println!("AZCLOCK_KEPT_RUNNING");
     Update::RefreshDom
 }

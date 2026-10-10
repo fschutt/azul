@@ -146,9 +146,9 @@ fn save_draft(s: &mut ClockApp) {
     a.arm(now, &Local);
     let id = a.id.clone();
     if let Some(at) = a.next_ring(now, &Local) {
-        let text = format!(
-            "Alarm set for {} from now",
-            fmt::until((at - now).num_milliseconds())
+        let text = azul_appkit::l10n::t_args(
+            "azclock-alarm-set",
+            &[("span", azul_appkit::l10n::Arg::from(fmt::until((at - now).num_milliseconds())))],
         );
         s.toast = Some((text, now_ms() + 4000));
     }
@@ -338,9 +338,9 @@ pub extern "C" fn on_alarm_switch(mut data: RefAny, mut info: CallbackInfo, stat
         if state.checked {
             s.alarms[i].arm(now, &Local);
             if let Some(at) = s.alarms[i].next_ring(now, &Local) {
-                let text = format!(
-                    "Alarm set for {} from now",
-                    fmt::until((at - now).num_milliseconds())
+                let text = azul_appkit::l10n::t_args(
+                    "azclock-alarm-set",
+                    &[("span", azul_appkit::l10n::Arg::from(fmt::until((at - now).num_milliseconds())))],
                 );
                 s.toast = Some((text, now_ms() + 4000));
             }

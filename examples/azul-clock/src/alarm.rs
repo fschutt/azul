@@ -392,14 +392,15 @@ impl Alarm {
     /// "Mon Wed Fri", else what the rule says ("Every 2 weeks on Monday").
     #[must_use]
     pub fn repeat_label(&self) -> String {
+        use azul_appkit::l10n::{t, t_said};
         use azul_pim::rrule::Freq;
         let Some(rule) = self.rule() else {
-            return "Once".to_string();
+            return t("azclock-repeat-once");
         };
         let plain = rule.interval <= 1 && rule.end == RepeatEnd::Never;
         let every_day = |days: &[chrono::Weekday]| days.len() == 7;
         if plain && rule.freq == Freq::Daily && rule.by_day.is_empty() {
-            return "Every day".to_string();
+            return t("azclock-repeat-every-day");
         }
         let simple_days = rule.by_day.iter().all(|d| d.nth == 0)
             && rule.by_month_day.is_empty()
@@ -410,18 +411,21 @@ impl Alarm {
             days.dedup();
             let monday_based: Vec<u32> = days.iter().map(chrono::Weekday::num_days_from_monday).collect();
             if every_day(&days) {
-                return "Every day".to_string();
+                return t("azclock-repeat-every-day");
             }
             if monday_based == [0, 1, 2, 3, 4] {
-                return "Weekdays".to_string();
+                return t("azclock-repeat-weekdays");
             }
             if monday_based == [5, 6] {
-                return "Weekends".to_string();
+                return t("azclock-repeat-weekends");
             }
-            let names: Vec<&str> = days.iter().map(|d| azul_pim::dates::weekday_short(*d)).collect();
+            let names: Vec<String> = days
+                .iter()
+                .map(|d| t(azul_pim::dates::weekday_short_message_id(*d)))
+                .collect();
             return names.join(" ");
         }
-        rule.describe(self.first)
+        t_said(&rule.description(self.first))
     }
 }
 
@@ -481,6 +485,7 @@ mod tests {
 
     #[test]
     fn a_weekday_alarm_skips_the_weekend() {
+        crate::l10n::in_english();
         // Made on Friday 2 October 2026, after its time: next is Monday.
         let alarm =
             Alarm::new("a", 7, 15, day(2026, 10, 2)).repeating("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR");
@@ -491,6 +496,7 @@ mod tests {
 
     #[test]
     fn a_repeating_alarm_does_not_ring_on_a_first_day_its_repeat_does_not_name() {
+        crate::l10n::in_english();
         // Mon / Wed / Fri, made on Tuesday 6 October 2026 at 02:00 CEST.
         let alarm = Alarm::new("a", 6, 30, day(2026, 10, 6)).repeating("FREQ=WEEKLY;BYDAY=MO,WE,FR");
         assert_eq!(
@@ -518,6 +524,7 @@ mod tests {
 
     #[test]
     fn a_one_time_alarm_arms_for_the_next_time_its_time_comes_and_then_switches_off() {
+        crate::l10n::in_english();
         let mut alarm = Alarm::new("a", 6, 30, day(2026, 1, 1));
         alarm.arm(utc(2026, 10, 3, 8, 0), &Berlin); // 10:00 CEST: today's 06:30 is gone
         assert_eq!(alarm.first, day(2026, 10, 4));
@@ -534,6 +541,7 @@ mod tests {
 
     #[test]
     fn a_due_occurrence_rings_once_and_a_long_missed_one_not_at_all() {
+        crate::l10n::in_english();
         let mut alarm = Alarm::new("a", 7, 0, day(2026, 10, 1)).repeating("FREQ=DAILY");
         assert_eq!(alarm.due(utc(2026, 10, 3, 4, 59), &Berlin), None, "not yet");
         let ring = alarm.due(utc(2026, 10, 3, 5, 0), &Berlin).expect("07:00 CEST");
@@ -584,6 +592,7 @@ mod tests {
 
     #[test]
     fn the_repeat_reads_as_days_or_as_the_rule_says() {
+        crate::l10n::in_english();
         let a = |rrule: &str| Alarm::new("a", 7, 0, day(2026, 10, 5)).repeating(rrule).repeat_label();
         assert_eq!(a("FREQ=WEEKLY;BYDAY=SA,SU"), "Weekends");
         assert_eq!(a("FREQ=WEEKLY;BYDAY=TU,TH"), "Tue Thu");

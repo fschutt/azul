@@ -31,11 +31,12 @@ pub enum LapMark {
 impl LapMark {
     /// The badge's text ("" for none).
     #[must_use]
+    /// The badge of the lap (a key of AzClock's resources; none for an ordinary lap).
     pub fn label(self) -> &'static str {
         match self {
             LapMark::None => "",
-            LapMark::Fastest => "fastest",
-            LapMark::Slowest => "slowest",
+            LapMark::Fastest => "azclock-lap-fastest",
+            LapMark::Slowest => "azclock-lap-slowest",
         }
     }
 }
@@ -147,7 +148,8 @@ impl Stopwatch {
     /// line per lap, newest first.
     #[must_use]
     pub fn laps_text(&self) -> String {
-        let mut out = String::from("Lap\tLap time\tTotal\n");
+        use azul_appkit::l10n::t;
+        let mut out = format!("{}\t{}\t{}\n", t("azclock-lap"), t("azclock-lap-time"), t("azclock-total"));
         for row in self.rows() {
             out.push_str(&format!(
                 "{}\t{}\t{}\n",
@@ -225,6 +227,7 @@ mod tests {
 
     #[test]
     fn the_laps_copy_as_tab_separated_lines() {
+        crate::l10n::in_english();
         let text = plan_laps().laps_text();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[0], "Lap\tLap time\tTotal");

@@ -21,6 +21,7 @@ pub mod alarm;
 pub mod fmt;
 /// The DOM ids and classes (`__azclock_` prefix), each defined once.
 pub mod ids;
+mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod schedule;

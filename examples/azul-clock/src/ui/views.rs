@@ -22,7 +22,10 @@ use azul::{
         NumberInput, Segmented, Switch, TextInput, TimePicker,
     },
 };
-use azul_appkit::ui::{self as kit, AppSection};
+use azul_appkit::{
+    l10n::{self, label, t, t_args, Arg, DateStyle},
+    ui::{self as kit, AppSection},
+};
 use chrono::{DateTime, Local, Timelike, Utc};
 
 use super::{
@@ -38,12 +41,14 @@ pub const RING_MINUTES: [u32; 5] = [1, 5, 10, 15, 30];
 
 // ==== Small parts ====
 
+/// Choices: keys said in the window's language, plain words (a length) as they are.
 fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
+    StringVec::from_vec(items.iter().map(|s| label(s)).collect())
 }
 
+/// A key said, plain words (a name, a time) as they are.
 fn text(content: &str) -> Dom {
-    Dom::create_span_with_text(content)
+    Dom::create_span_with_text(label(content))
 }
 
 /// A block of text with its own style.
@@ -52,15 +57,15 @@ fn line(content: &str, css: &str) -> Dom {
 }
 
 /// A button that does `action`.
-fn button(label: &str, app: &RefAny, action: Action) -> Dom {
-    Button::create(label)
+fn button(name: &str, app: &RefAny, action: Action) -> Dom {
+    Button::create(label(name))
         .with_on_click(act(app, action), actions::on_act as ButtonOnClickCallbackType)
         .dom()
 }
 
 /// The primary button of a group.
-fn primary(label: &str, app: &RefAny, action: Action) -> Dom {
-    Button::with_type(label, ButtonType::Primary)
+fn primary(name: &str, app: &RefAny, action: Action) -> Dom {
+    Button::with_type(label(name), ButtonType::Primary)
         .with_on_click(act(app, action), actions::on_act as ButtonOnClickCallbackType)
         .dom()
 }
@@ -102,14 +107,14 @@ pub fn modes_row(s: &ClockApp, app: &RefAny) -> Dom {
         )
         .with_child(Dom::create_div().with_css(SPACER));
     let new = match s.screen {
-        Screen::World => Some("Add city"),
-        Screen::Alarms => Some("New alarm"),
-        Screen::Timer => Some("New timer"),
+        Screen::World => Some("azclock-add-city"),
+        Screen::Alarms => Some("azclock-new-alarm"),
+        Screen::Timer => Some("azclock-new-timer"),
         Screen::Stopwatch => None,
     };
-    if let Some(label) = new {
+    if let Some(name) = new {
         row.add_child(
-            Button::create(label)
+            Button::create(label(name))
                 .with_icon("add")
                 .with_on_click(act(app, Action::New), actions::on_act as ButtonOnClickCallbackType)
                 .dom()
@@ -117,7 +122,7 @@ pub fn modes_row(s: &ClockApp, app: &RefAny) -> Dom {
         );
     }
     row.with_child(
-        Button::create("Settings")
+        Button::create(label("azclock-settings"))
             .with_icon("settings")
             .with_on_click(act(app, Action::OpenSettings), actions::on_act as ButtonOnClickCallbackType)
             .dom()
@@ -130,7 +135,7 @@ pub fn modes_row(s: &ClockApp, app: &RefAny) -> Dom {
 /// The screen the mode row chose, over the status line.
 pub fn screen(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom {
     let content = if !s.loaded {
-        line("Loading...", EMPTY)
+        line("azclock-loading", EMPTY)
     } else {
         match s.screen {
             Screen::World => world_view(s, app, now, wide),
@@ -159,8 +164,8 @@ fn status_line(s: &ClockApp, now: DateTime<Utc>) -> Dom {
             Some((i, at)) => {
                 let a = &s.alarms[i];
                 format!(
-                    "Next alarm in {}{}",
-                    fmt::until((at - now).num_milliseconds()),
+                    "{}{}",
+                    t_args("azclock-next-alarm-in", &[("span", Arg::from(fmt::until((at - now).num_milliseconds())))]),
                     if a.label.is_empty() {
                         String::new()
                     } else {
@@ -168,7 +173,7 @@ fn status_line(s: &ClockApp, now: DateTime<Utc>) -> Dom {
                     }
                 )
             }
-            None => "No alarm is on".to_string(),
+            None => t("azclock-no-alarm-on"),
         }
     };
     let id = if s.notice.is_empty() { ids::STATUS } else { ids::NOTICE };
@@ -235,6 +240,12 @@ fn analog_face(hour: u32, minute: u32, second: u32, size: f32) -> Dom {
     )))
 }
 
+/// "Friday 9 October": the kit's words for a day.
+fn day_text(day: chrono::NaiveDate) -> String {
+    use chrono::Datelike;
+    l10n::date_text(DateStyle::WeekdayDayMonth, day.year(), day.month(), day.day(), day.weekday().num_days_from_monday())
+}
+
 fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom {
     let twelve = s.twelve_hour();
     // The face shows here, or the city clicked last.
@@ -246,7 +257,7 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
                 t.hour(),
                 t.minute(),
                 t.second(),
-                t.format("%A %-d %B").to_string(),
+                day_text(t.date_naive()),
                 city.name.clone(),
                 world::abbreviation(zone, now),
             )
@@ -258,8 +269,11 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
                 t.hour(),
                 t.minute(),
                 t.second(),
-                t.format("%A %-d %B").to_string(),
-                zone.map_or_else(|| "Here".to_string(), |z| format!("{} (here)", world::city_name(z.name()))),
+                day_text(t.date_naive()),
+                zone.map_or_else(
+                    || l10n::t("azclock-here"),
+                    |z| t_args("azclock-city-here", &[("city", Arg::from(world::city_name(z.name())))]),
+                ),
                 zone.map(|z| world::abbreviation(z, now)).unwrap_or_default(),
             )
         }
@@ -281,12 +295,12 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
         .with_child(line(&date, "font-size: 14px;"))
         .with_child(line(&place, SECONDARY));
     if s.face_city.is_some() {
-        face_panel.add_child(button("Show here", app, Action::FaceCity(None)));
+        face_panel.add_child(button("azclock-show-here", app, Action::FaceCity(None)));
     }
 
     let mut list = Dom::create_div().with_id(ids::CITIES).with_css(LIST);
     if s.cities.is_empty() {
-        list.add_child(line("No cities yet. Add one with \"Add city\".", EMPTY));
+        list.add_child(line("azclock-no-cities", EMPTY));
     }
     for (i, city) in s.cities.iter().enumerate() {
         let Some(r) = world::row(city, &Local, now) else {
@@ -294,9 +308,9 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
         };
         let when = format!(
             "{} - {} - {}",
-            world::day_label(r.day_offset),
+            t(world::day_label(r.day_offset)),
             fmt::offset_difference(r.difference_min),
-            if r.daytime { "day" } else { "night" }
+            t(if r.daytime { "azclock-day" } else { "azclock-night" })
         );
         list.add_child(
             Dom::create_div()
@@ -317,8 +331,8 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
                     &fmt::clock(r.hour, r.minute, twelve),
                     &format!("font-size: 22px; font-family: monospace; {FIGURES_FLORA}"),
                 ))
-                .with_child(button("Up", app, Action::CityUp(i)))
-                .with_child(button("Remove", app, Action::CityRemove(i)))
+                .with_child(button("azclock-up", app, Action::CityUp(i)))
+                .with_child(button("azclock-remove", app, Action::CityRemove(i)))
                 .with_context_menu(city_menu(app, i, s.cities.len())),
         );
     }
@@ -337,17 +351,17 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
 /// A city row's context menu: Move up (not the first), Move down (not the
 /// last), Remove.
 fn city_menu(app: &RefAny, i: usize, count: usize) -> Menu {
-    let item = |label: &str, action: Action| {
-        MenuItem::string(StringMenuItem::create(label).with_callback(act(app, action), actions::on_act))
+    let item = |name: &str, action: Action| {
+        MenuItem::string(StringMenuItem::create(label(name)).with_callback(act(app, action), actions::on_act))
     };
     let mut items = Vec::new();
     if i > 0 {
-        items.push(item("Move up", Action::CityUp(i)));
+        items.push(item("azclock-move-up", Action::CityUp(i)));
     }
     if i + 1 < count {
-        items.push(item("Move down", Action::CityDown(i)));
+        items.push(item("azclock-move-down", Action::CityDown(i)));
     }
-    items.push(item("Remove", Action::CityRemove(i)));
+    items.push(item("azclock-remove", Action::CityRemove(i)));
     Menu::create(items)
 }
 
@@ -357,15 +371,17 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
     let twelve = s.twelve_hour();
     let mut list = Dom::create_div().with_id(ids::ALARMS).with_css(LIST);
     if s.alarms.is_empty() {
-        list.add_child(line("No alarms yet. Make one with \"New alarm\".", EMPTY));
+        list.add_child(line("azclock-no-alarms", EMPTY));
     }
     for a in &s.alarms {
         let mut detail = a.repeat_label();
         if let Some(at) = a.next_ring(now, &Local) {
-            detail.push_str(&format!(" - in {}", fmt::until((at - now).num_milliseconds())));
+            detail.push_str(" - ");
+            detail.push_str(&t_args("azclock-in-span", &[("span", Arg::from(fmt::until((at - now).num_milliseconds())))]));
         }
         if a.snoozed_until.is_some_and(|ms| ms > now.timestamp_millis()) {
-            detail.push_str(" - snoozed");
+            detail.push_str(" - ");
+            detail.push_str(&t("azclock-snoozed"));
         }
         let dim = if a.enabled { "" } else { " opacity: 0.55;" };
         list.add_child(
@@ -386,7 +402,7 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
                             Dom::create_div()
                                 .with_css(COLUMN)
                                 .with_child(line(
-                                    if a.label.is_empty() { "Alarm" } else { a.label.as_str() },
+                                    if a.label.is_empty() { "azclock-alarm" } else { a.label.as_str() },
                                     "font-size: 15px;",
                                 ))
                                 .with_child(line(&detail, SECONDARY)),
@@ -399,7 +415,10 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
                 )
                 .with_child(
                     Switch::create(a.enabled)
-                        .with_accessibility_name(format!("Alarm {}", fmt::clock(a.hour, a.minute, twelve)))
+                        .with_accessibility_name(t_args(
+                            "azclock-alarm-at",
+                            &[("time", Arg::from(fmt::clock(a.hour, a.minute, twelve)))],
+                        ))
                         .with_on_toggle(
                             act(app, Action::EditAlarm(a.id.clone())),
                             actions::on_alarm_switch as SwitchOnToggleCallbackType,
@@ -415,7 +434,7 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
         .with_child(list);
     if !s.os_rings.0 {
         column.add_child(line(
-            &format!("Alarms ring while AzClock runs ({}).", s.os_rings.1),
+            &t_args("azclock-ring-while-running", &[("why", Arg::from(&s.os_rings.1))]),
             "padding: 4px 12px; font-size: 12px; opacity: 0.7; @theme(flora) { opacity: 1; \
              color: system:secondary-text; }",
         ));
@@ -437,12 +456,12 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
             let running = t.is_running();
             let mut controls = Dom::create_div().with_css(format!("{} justify-content: center;", row_css(8)));
             controls.add_child(primary(
-                if running { "Pause" } else { "Start" },
+                if running { "azclock-pause" } else { "azclock-start" },
                 app,
                 Action::TimerToggle(t.id.clone()),
             ));
-            controls.add_child(button("Reset", app, Action::TimerReset(t.id.clone())));
-            controls.add_child(button("+1 min", app, Action::TimerPlusMinute(t.id.clone())));
+            controls.add_child(button("azclock-reset", app, Action::TimerReset(t.id.clone())));
+            controls.add_child(button("azclock-plus-minute", app, Action::TimerPlusMinute(t.id.clone())));
             view.add_child(
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 8px; padding: 20px 16px;")
@@ -455,15 +474,15 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
                             .with_thickness(14.0)
                             .with_value_text(fmt::countdown(t.remaining_ms(now)))
                             .with_label(format!(
-                                "of {}{}",
-                                fmt::countdown(t.duration_ms),
+                                "{}{}",
+                                t_args("azclock-of-length", &[("length", Arg::from(fmt::countdown(t.duration_ms)))]),
                                 if t.label.is_empty() {
                                     String::new()
                                 } else {
                                     format!(" - {}", t.label)
                                 }
                             ))
-                            .with_accessibility_name("Time left")
+                            .with_accessibility_name(label("azclock-time-left"))
                             .dom()
                             .with_id(ids::TIMER_TIME)
                             .with_id(ids::TIMER_RING),
@@ -471,13 +490,13 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
                     .with_child(controls),
             );
         }
-        None => view.add_child(line("No timer yet. Start one with a preset.", EMPTY)),
+        None => view.add_child(line("azclock-no-timer", EMPTY)),
     }
     // The presets.
     let mut presets = Dom::create_div()
         .with_id(ids::PRESETS)
         .with_css(format!("{} padding: 8px 12px; flex-wrap: wrap;", row_css(6)))
-        .with_child(line("Presets", SECONDARY));
+        .with_child(line("azclock-presets", SECONDARY));
     for minutes in crate::timer::PRESETS_MIN {
         presets.add_child(button(&fmt::minutes(minutes), app, Action::TimerPreset(minutes)));
     }
@@ -486,15 +505,16 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
     let shown = s.shown_timer();
     let mut list = Dom::create_div().with_id(ids::TIMERS).with_css(LIST);
     for (i, t) in s.timers.iter().enumerate() {
+        let left = || Arg::from(fmt::countdown(t.remaining_ms(now)));
         let state = if t.is_finished() {
-            "done".to_string()
+            l10n::t("azclock-timer-done")
         } else if t.is_running() {
-            format!("{} left", fmt::countdown(t.remaining_ms(now)))
+            t_args("azclock-timer-left", &[("left", left())])
         } else {
-            format!("{} left, paused", fmt::countdown(t.remaining_ms(now)))
+            t_args("azclock-timer-left-paused", &[("left", left())])
         };
         let name = if t.label.is_empty() {
-            format!("{} timer", fmt::countdown(t.duration_ms))
+            t_args("azclock-length-timer", &[("length", Arg::from(fmt::countdown(t.duration_ms)))])
         } else {
             t.label.clone()
         };
@@ -515,11 +535,11 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
                         ),
                 )
                 .with_child(button(
-                    if t.is_running() { "Pause" } else { "Start" },
+                    if t.is_running() { "azclock-pause" } else { "azclock-start" },
                     app,
                     Action::TimerToggle(t.id.clone()),
                 ))
-                .with_child(button("Remove", app, Action::TimerRemove(t.id.clone()))),
+                .with_child(button("azclock-remove", app, Action::TimerRemove(t.id.clone()))),
         );
     }
     view.with_child(list)
@@ -532,20 +552,20 @@ fn stopwatch_view(s: &ClockApp, app: &RefAny) -> Dom {
     let w = &s.stopwatch;
     let running = w.is_running();
     let mut controls = Dom::create_div().with_css(format!("{} justify-content: center;", row_css(8)));
-    controls.add_child(button("Lap", app, Action::StopwatchLap));
-    controls.add_child(primary(if running { "Stop" } else { "Start" }, app, Action::StopwatchToggle));
-    controls.add_child(button("Reset", app, Action::StopwatchReset));
+    controls.add_child(button("azclock-lap", app, Action::StopwatchLap));
+    controls.add_child(primary(if running { "azclock-stop" } else { "azclock-start" }, app, Action::StopwatchToggle));
+    controls.add_child(button("azclock-reset", app, Action::StopwatchReset));
     if !w.laps.is_empty() {
-        controls.add_child(button("Copy laps", app, Action::CopyLaps));
+        controls.add_child(button("azclock-copy-laps", app, Action::CopyLaps));
     }
     let mut list = Dom::create_div().with_id(ids::LAPS).with_css(LIST);
     if !w.laps.is_empty() {
         list.add_child(
             Dom::create_div()
                 .with_css(format!("{} padding: 4px; {SECONDARY}", row_css(12)))
-                .with_child(line("Lap", "width: 48px;"))
-                .with_child(line("Lap time", "width: 120px;"))
-                .with_child(line("Total", "width: 120px;")),
+                .with_child(line("azclock-lap", "width: 48px;"))
+                .with_child(line("azclock-lap-time", "width: 120px;"))
+                .with_child(line("azclock-total", "width: 120px;")),
         );
     }
     for r in w.rows() {
@@ -658,79 +678,79 @@ fn editor(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
     let sounds: Vec<&str> = Sound::ALL.iter().map(|s| s.label()).collect();
     let presets = Dom::create_div()
         .with_css(row_css(6))
-        .with_child(button("Once", app, Action::RepeatPreset(0)))
-        .with_child(button("Every day", app, Action::RepeatPreset(1)))
-        .with_child(button("Weekdays", app, Action::RepeatPreset(2)))
-        .with_child(button("Weekends", app, Action::RepeatPreset(3)));
+        .with_child(button("azclock-repeat-once", app, Action::RepeatPreset(0)))
+        .with_child(button("azclock-repeat-every-day", app, Action::RepeatPreset(1)))
+        .with_child(button("azclock-repeat-weekdays", app, Action::RepeatPreset(2)))
+        .with_child(button("azclock-repeat-weekends", app, Action::RepeatPreset(3)));
     let mut footer = Dom::create_div().with_css(format!("{} padding-top: 12px;", row_css(8)));
     if d.id.is_some() {
         footer.add_child(
-            Button::with_type("Delete", ButtonType::Danger)
+            Button::with_type(label("azclock-delete"), ButtonType::Danger)
                 .with_on_click(act(app, Action::EditorDelete), actions::on_act as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::EDITOR_DELETE),
         );
     }
     footer.add_child(Dom::create_div().with_css(SPACER));
-    footer.add_child(button("Cancel", app, Action::EditorCancel).with_id(ids::EDITOR_CANCEL));
-    footer.add_child(primary("Save", app, Action::EditorSave).with_id(ids::EDITOR_SAVE));
+    footer.add_child(button("kit-button-cancel", app, Action::EditorCancel).with_id(ids::EDITOR_CANCEL));
+    footer.add_child(primary("azclock-save", app, Action::EditorSave).with_id(ids::EDITOR_SAVE));
     let content = Dom::create_div()
         .with_id(ids::EDITOR)
         .with_css("display: flex; flex-direction: column; padding: 8px 4px; min-width: 420px;")
         .with_child(field(
-            "Time",
+            "azclock-time",
             picker
-                .with_accessibility_name("Alarm time")
+                .with_accessibility_name(label("azclock-alarm-time"))
                 .with_on_change(app.clone(), actions::on_editor_time as TimePickerOnChangeCallbackType)
                 .dom()
                 .with_id(ids::EDITOR_TIME),
         ))
-        .with_child(field("Repeat", presets))
+        .with_child(field("azclock-repeat", presets))
         .with_child(field(
             "",
             DateRepeatPicker::create(d.rule)
                 .with_week_start(DatePickerWeekStart::Monday)
                 .with_end_option(true)
-                .with_accessibility_name("Repeat")
+                .with_accessibility_name(label("azclock-repeat"))
                 .with_on_change(app.clone(), actions::on_editor_repeat as DateRepeatPickerOnChangeCallbackType)
                 .dom()
                 .with_id(ids::EDITOR_REPEAT),
         ))
         .with_child(field(
-            "Label",
+            "azclock-label",
             TextInput::create()
                 .with_text(d.label.as_str())
-                .with_placeholder("Alarm")
-                .with_accessibility_name("Label")
+                .with_placeholder(label("azclock-alarm"))
+                .with_accessibility_name(label("azclock-label"))
                 .with_on_text_input(app.clone(), actions::on_editor_label as TextInputOnTextInputCallbackType)
                 .dom()
                 .with_id(ids::EDITOR_LABEL),
         ))
         .with_child(field(
-            "Sound",
+            "azclock-sound",
             DropDown::create(strs(&sounds))
                 .with_selected(d.sound.index())
-                .with_accessibility_name("Sound")
+                .with_accessibility_name(label("azclock-sound"))
                 .with_on_choice_change(app.clone(), actions::on_editor_sound as DropDownOnChoiceChangeCallbackType)
                 .dom()
                 .with_id(ids::EDITOR_SOUND),
         ))
         .with_child(field(
-            "Snooze",
+            "azclock-snooze",
             Dom::create_div()
                 .with_css(row_css(6))
                 .with_child(
                     NumberInput::create(d.snooze_minutes as f32)
-                        .with_accessibility_name("Snooze minutes")
+                        .with_accessibility_name(label("azclock-snooze-length"))
                         .with_on_value_change(app.clone(), actions::on_editor_snooze as NumberInputOnValueChangeCallbackType)
                         .dom()
                         .with_id(ids::EDITOR_SNOOZE),
                 )
-                .with_child(text("min")),
+                .with_child(text("azclock-min")),
         ))
         .with_child(footer);
     Modal::create(content)
-        .with_title(if d.id.is_some() { "Edit alarm" } else { "New alarm" })
+        .with_title(label(if d.id.is_some() { "azclock-edit-alarm" } else { "azclock-new-alarm" }))
         .with_open(true)
         .with_on_close(app.clone(), actions::on_modal_close as ModalOnCloseCallbackType)
         .dom()
@@ -744,9 +764,9 @@ fn city_search(query: &str, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: column; max-height: 280px; overflow-y: auto; row-gap: 2px; padding-top: 8px;");
     let found = world::search(query, 30);
     if query.trim().is_empty() {
-        results.add_child(line("Type a city or a region (\"tokyo\", \"america\").", SECONDARY));
+        results.add_child(line("azclock-city-search-hint", SECONDARY));
     } else if found.is_empty() {
-        results.add_child(line("No city found.", SECONDARY));
+        results.add_child(line("azclock-no-city", SECONDARY));
     }
     for city in found {
         let label = format!("{} - {}", city.name, city.zone);
@@ -762,8 +782,8 @@ fn city_search(query: &str, app: &RefAny) -> Dom {
         .with_child(
             TextInput::create_search()
                 .with_text(query)
-                .with_placeholder("Search cities")
-                .with_accessibility_name("Search cities")
+                .with_placeholder(label("azclock-search-cities"))
+                .with_accessibility_name(label("azclock-search-cities"))
                 .with_on_text_input(app.clone(), actions::on_city_query as TextInputOnTextInputCallbackType)
                 .dom()
                 .with_id(ids::CITY_QUERY),
@@ -772,10 +792,10 @@ fn city_search(query: &str, app: &RefAny) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(format!("{} justify-content: flex-end; padding-top: 8px;", row_css(8)))
-                .with_child(button("Close", app, Action::CloseCitySearch)),
+                .with_child(button("azclock-close", app, Action::CloseCitySearch)),
         );
     Modal::create(content)
-        .with_title("Add a city")
+        .with_title(label("azclock-add-a-city"))
         .with_open(true)
         .with_on_close(app.clone(), actions::on_modal_close as ModalOnCloseCallbackType)
         .dom()
@@ -791,24 +811,24 @@ fn ringing(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
                 let a = &s.alarms[i];
                 (
                     fmt::clock(a.hour, a.minute, twelve),
-                    if a.label.is_empty() { "Alarm".to_string() } else { a.label.clone() },
-                    format!("Snooze {}", fmt::minutes(a.snooze_minutes)),
+                    if a.label.is_empty() { t("azclock-alarm") } else { a.label.clone() },
+                    t_args("azclock-snooze-span", &[("span", Arg::from(fmt::minutes(a.snooze_minutes)))]),
                 )
             }
-            None => (String::new(), "Alarm".to_string(), "Snooze".to_string()),
+            None => (String::new(), t("azclock-alarm"), t("azclock-snooze")),
         },
         Ringing::Timer { id } => {
             let label = s
                 .timer_index(id)
                 .map(|i| &s.timers[i])
-                .map_or_else(|| "Timer".to_string(), |t| {
-                    if t.label.is_empty() {
-                        format!("{} timer", fmt::countdown(t.duration_ms))
+                .map_or_else(|| l10n::t("azclock-timer"), |timer| {
+                    if timer.label.is_empty() {
+                        t_args("azclock-length-timer", &[("length", Arg::from(fmt::countdown(timer.duration_ms)))])
                     } else {
-                        t.label.clone()
+                        timer.label.clone()
                     }
                 });
-            ("Time is up".to_string(), label, "+1 min".to_string())
+            (l10n::t("azclock-time-is-up"), label, l10n::t("azclock-plus-minute"))
         }
     };
     let local = now.with_timezone(&Local);
@@ -821,20 +841,24 @@ fn ringing(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
         ))
         .with_child(line(&label, "font-size: 20px;"))
         .with_child(line(
-            &format!("{} {}", local.format("%A"), fmt::clock(local.hour(), local.minute(), twelve)),
+            &format!(
+                "{} {}",
+                t(azul_pim::dates::weekday_message_id(chrono::Datelike::weekday(&local.date_naive()))),
+                fmt::clock(local.hour(), local.minute(), twelve)
+            ),
             SECONDARY,
         ))
         .with_child(
             Dom::create_div()
                 .with_css(format!("{} padding-top: 12px;", row_css(12)))
                 .with_child(button(&snooze, app, Action::Snooze).with_id(ids::RING_SNOOZE))
-                .with_child(primary("Dismiss", app, Action::Dismiss).with_id(ids::RING_DISMISS)),
+                .with_child(primary("azclock-dismiss", app, Action::Dismiss).with_id(ids::RING_DISMISS)),
         );
     Modal::create(content)
-        .with_title(match r {
-            Ringing::Alarm { .. } => "Alarm",
-            Ringing::Timer { .. } => "Timer",
-        })
+        .with_title(l10n::label(match r {
+            Ringing::Alarm { .. } => "azclock-alarm",
+            Ringing::Timer { .. } => "azclock-timer",
+        }))
         .with_open(true)
         .with_on_close(app.clone(), actions::on_ring_close as ModalOnCloseCallbackType)
         .dom()
@@ -846,7 +870,7 @@ fn ringing(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
 /// A settings switch bound to a key of `settings.json`.
 fn setting_switch(app: &RefAny, key: &str, on: bool, name: &str) -> Dom {
     Switch::create(on)
-        .with_accessibility_name(name)
+        .with_accessibility_name(label(name))
         .with_on_toggle(
             act(app, Action::Setting(key.to_string())),
             actions::on_setting_switch as SwitchOnToggleCallbackType,
@@ -863,48 +887,45 @@ pub fn settings_sections(s: &ClockApp, app: &RefAny) -> Vec<AppSection> {
     let ring_labels: Vec<String> = RING_MINUTES.iter().map(|m| fmt::minutes(*m)).collect();
     let ring_refs: Vec<&str> = ring_labels.iter().map(String::as_str).collect();
     let os_line = if s.os_rings.0 {
-        format!("The system rings alarms while AzClock is closed ({}).", s.os_rings.1)
+        t_args("azclock-os-rings", &[("how", Arg::from(&s.os_rings.1))])
     } else {
-        format!("Alarms ring only while AzClock runs: {}.", s.os_rings.1)
+        t_args("azclock-only-while-running", &[("why", Arg::from(&s.os_rings.1))])
     };
     vec![
         AppSection {
             category: 0,
-            title: "Clock".to_string(),
+            title: "azclock-category-clock".to_string(),
             content: Dom::create_div()
                 .with_css(COLUMN)
                 .with_child(kit::row(
-                    "12-hour times",
-                    setting_switch(app, "twelve-hour", s.twelve_hour(), "12-hour times"),
+                    "azclock-twelve-hour",
+                    setting_switch(app, "twelve-hour", s.twelve_hour(), "azclock-twelve-hour"),
                 )),
         },
         AppSection {
             category: 0,
-            title: "Alarms".to_string(),
+            title: "azclock-screen-alarms".to_string(),
             content: Dom::create_div()
                 .with_css(COLUMN)
                 .with_child(kit::row(
-                    "Ring while closed",
-                    setting_switch(app, "os-alarms", s.schedule_with_os(), "Let the system ring alarms while AzClock is closed"),
+                    "azclock-ring-while-closed",
+                    setting_switch(app, "os-alarms", s.schedule_with_os(), "azclock-ring-while-closed-long"),
                 ))
                 .with_child(kit::row(
-                    "Keep running",
-                    setting_switch(app, "keep-running", s.keep_running(), "Keep running when the window is closed"),
+                    "azclock-keep-running",
+                    setting_switch(app, "keep-running", s.keep_running(), "azclock-keep-running-long"),
                 ))
                 .with_child(kit::row(
-                    "Ring for",
+                    "azclock-ring-for",
                     DropDown::create(strs(&ring_refs))
                         .with_selected(ring_index)
-                        .with_accessibility_name("Ring for")
+                        .with_accessibility_name(label("azclock-ring-for"))
                         .with_on_choice_change(app.clone(), actions::on_ring_minutes as DropDownOnChoiceChangeCallbackType)
                         .dom()
                         .with_id(ids::SET_RING_MINUTES),
                 ))
                 .with_child(kit::note(&os_line))
-                .with_child(kit::note(
-                    "Where the system cannot ring by itself (Linux), closing the window while an \
-                     alarm or a timer is on keeps AzClock running, minimized.",
-                )),
+                .with_child(kit::note("azclock-linux-note")),
         },
     ]
 }
