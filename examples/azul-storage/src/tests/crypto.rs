@@ -10,7 +10,7 @@ use crate::{
         azl1::{decrypt, encrypt, OpenObject, WriteOptions},
         codec::{
             decompress, looks_compressed, worth_it, Codec, Compression, Encoded, Encoder,
-            CODEC_BROTLI,
+            CODEC_BROTLI, CODEC_JPEG_XL,
         },
         keys::{
             load_member_wrap, load_recovery_wrap, member_key_file, store_member_wrap,
@@ -283,9 +283,14 @@ fn codec_bytes_of_later_versions_are_named_not_guessed() {
     assert_eq!(Codec::from_byte(0), Ok(Codec::Stored));
     assert_eq!(Codec::from_byte(1), Ok(Codec::Zstd));
     assert_eq!(Codec::Zstd.byte(), 1);
+    // The recompression pass writes brotli segments: this version reads them.
+    assert!(
+        Codec::from_byte(CODEC_BROTLI).is_ok(),
+        "a brotli segment is read, not refused"
+    );
     assert!(matches!(
-        Codec::from_byte(CODEC_BROTLI),
-        Err(CryptoError::Unsupported(why)) if why.contains("brotli")
+        Codec::from_byte(CODEC_JPEG_XL),
+        Err(CryptoError::Unsupported(why)) if why.contains("JPEG XL")
     ));
     assert!(matches!(
         Codec::from_byte(200),
