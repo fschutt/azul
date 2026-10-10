@@ -157,3 +157,4 @@ kit-date-style-weekday = { $weekday }
 kit-date-style-short-weekday-day = { $wd }. { $day }.
 kit-date-style-short-date = { $wd }. { $day }. { $mon }
 kit-date-style-day-short-month = { $day }. { $mon }
+kit-date-style-day-only = { $day }.

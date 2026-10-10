@@ -352,6 +352,8 @@ pub enum DateStyle {
     ShortDate,
     /// 30 Sep.
     DayShortMonth,
+    /// 30 (a range's first day in its month: 28 - 30 September).
+    DayOnly,
 }
 
 impl DateStyle {
@@ -366,6 +368,7 @@ impl DateStyle {
             DateStyle::ShortWeekdayDay => "kit-date-style-short-weekday-day",
             DateStyle::ShortDate => "kit-date-style-short-date",
             DateStyle::DayShortMonth => "kit-date-style-day-short-month",
+            DateStyle::DayOnly => "kit-date-style-day-only",
         }
     }
 }
