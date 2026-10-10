@@ -102,6 +102,9 @@ pub(crate) struct AccountEditor {
     pub(crate) azlin_session: Option<Secret>,
     /// "Create a new drive" is asking the token server (on a thread).
     pub(crate) azlin_busy: bool,
+    /// The recovery code of the drive "Create a new drive" made (encrypted as it was made):
+    /// shown on the page this once. A secret.
+    pub(crate) azlin_recovery: Option<Secret>,
     /// The Azlin Bridge's settings ("Other programs"), read when Account Settings opened.
     pub(crate) bridge: crate::ui_bridge::BridgeView,
 }
@@ -125,6 +128,7 @@ impl AccountEditor {
             dkim_report: Vec::new(),
             azlin_session: None,
             azlin_busy: false,
+            azlin_recovery: None,
             bridge: crate::ui_bridge::BridgeView::default(),
         }
     }
@@ -715,7 +719,10 @@ fn azlin_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
         let note = if editor.azlin_busy {
             String::from("Asking the token server for a new drive...")
         } else if editor.azlin_session.is_some() {
-            new_drive_note(f.drive_id.trim(), None)
+            new_drive_note(
+                f.drive_id.trim(),
+                editor.azlin_recovery.as_ref().map(Secret::expose),
+            )
         } else {
             String::from(
                 "A new, empty drive at this token server (a development token server's: a real \
@@ -1207,21 +1214,35 @@ extern "C" fn on_create_drive(mut data: RefAny, mut info: CallbackInfo) -> Updat
 /// What the account page says of a drive "Create a new drive" made: that Finish adds it, and
 /// - "we always encrypt" - its recovery code, shown this once.
 pub(crate) fn new_drive_note(drive_id: &str, recovery_code: Option<&str>) -> String {
-    let _ = recovery_code;
-    format!("The new drive {drive_id} is ready: Finish adds it as this account.")
+    match recovery_code {
+        Some(code) => format!(
+            "The new drive {drive_id} is ready and encrypted: Finish adds it as this account. Its \
+             RECOVERY CODE, shown this once and stored nowhere - write it down and keep it apart \
+             from this computer (Azlin cannot reset it): {code}"
+        ),
+        None => format!("The new drive {drive_id} is ready: Finish adds it as this account."),
+    }
 }
 
-pub(crate) fn drive_created(s: &mut MailApp, result: Result<azlin::AzlinSession, String>) {
+pub(crate) fn drive_created(
+    s: &mut MailApp,
+    result: Result<(azlin::AzlinSession, Option<String>), String>,
+) {
     let Some(editor) = s.editor.as_mut() else {
         return;
     };
     editor.azlin_busy = false;
     match result {
-        Ok(session) => {
-            println!("AZMAIL_AZLIN_DRIVE_CREATED {}", session.drive_id);
+        Ok((session, recovery)) => {
+            println!(
+                "AZMAIL_AZLIN_DRIVE_CREATED {}{}",
+                session.drive_id,
+                if recovery.is_some() { " encrypted" } else { "" }
+            );
             editor.form.drive_id = session.drive_id.clone();
             editor.secret = Secret::new(String::new());
             editor.azlin_session = Some(Secret::new(session.to_secret()));
+            editor.azlin_recovery = recovery.map(Secret::new);
             editor.error.clear();
         }
         Err(e) => editor.error = format!("No drive was made: {e}"),
