@@ -361,3 +361,171 @@ azdrive-sync-menu-now = Sync now
 azdrive-sync-menu-resume = Resume syncing
 azdrive-sync-menu-pause = Pause syncing
 azdrive-sync-menu-stop = Stop syncing…
+
+## Dialogs and Options
+
+azdrive-delete-title = Delete for good
+azdrive-delete-question = Are you sure you want to delete { $count ->
+        [one] "{ $name }"
+       *[other] these { $count } items
+    } from "{ $drive }" for good?
+azdrive-delete-cannot-undo = This cannot be undone.
+azdrive-delete-button = Delete
+azdrive-forget-title = Remove the drive "{ $name }"?
+azdrive-forget-what = AzDrive forgets the drive and removes its keys from the keyring.
+azdrive-forget-files-stay = Its files stay where they are.
+azdrive-forget-button = Remove
+azdrive-location-folder = The folder (a drive's name, then its folders: Home/docs)
+azdrive-location-move-here = Move here
+azdrive-location-copy-here = Copy here
+azdrive-location-move-title = Move the selected items to
+azdrive-location-copy-title = Copy the selected items to
+azdrive-voucher-what = A voucher adds its months (or its value) to "{ $name }"'s paid period.
+azdrive-voucher-code = The voucher's code
+azdrive-voucher-redeeming = Redeeming the voucher…
+azdrive-voucher-redeem = Redeem
+azdrive-voucher-title = Redeem a voucher for "{ $name }"
+azdrive-restore-what = "{ $name }" goes back to how it was at that time: files changed or deleted since come back, files made since go. AzDrive can restore the last { $days } days.
+azdrive-restore-when = When ("2 hours ago", or a UTC time: 2026-10-10 08:00)
+azdrive-restore-default-as-of = 1 hour ago
+azdrive-restore-restoring = Restoring the drive…
+azdrive-restore-button = Restore
+azdrive-restore-title = Restore "{ $name }" as of…
+azdrive-conflict-title = Replace or Skip Files
+azdrive-button-close = Close
+azdrive-conflict-transfer = { $kind ->
+        [move] Moving
+        [upload] Uploading
+        [download] Downloading
+       *[copy] Copying
+    } { $count ->
+        [one] one item
+       *[other] { $count } items
+    } to "{ $target }"
+azdrive-conflict-taken = The destination already has a file named "{ $name }".
+azdrive-conflict-new-one = The new one: { $size }
+azdrive-conflict-replace = Replace the file in the destination
+azdrive-conflict-skip = Skip this file
+azdrive-conflict-keep-both = Keep both files
+azdrive-conflict-apply-all = { $count ->
+        [one] Do this for the next conflict
+       *[other] Do this for the next { $count } conflicts
+    }
+azdrive-props-general = General
+azdrive-props-details = Details
+azdrive-props-type = Type
+azdrive-props-location = Location
+azdrive-props-used = Used space
+azdrive-props-free = Free space
+azdrive-props-capacity = Capacity
+azdrive-props-bucket = Bucket
+azdrive-props-endpoint = Endpoint
+azdrive-props-region = Region
+azdrive-props-url-style = URL style
+azdrive-props-keys = Keys
+azdrive-props-passwords = Passwords and tokens
+azdrive-props-drive-id = Drive id
+azdrive-props-size = Size
+azdrive-props-contains = Contains
+azdrive-props-modified = Modified
+azdrive-props-attributes = Attributes
+azdrive-props-metadata = Metadata
+azdrive-props-size-of-files = Size of the files
+azdrive-props-name = Name
+azdrive-props-key = Key
+azdrive-props-path-style = path
+azdrive-props-virtual-host = virtual host
+azdrive-props-in-keyring = in the system keyring (never on disk)
+azdrive-props-counting = Counting…
+azdrive-props-size-bytes = { $size } ({ $bytes } bytes)
+azdrive-props-files-folders = { $files ->
+        [one] one file
+       *[other] { $files } files
+    }, { $folders ->
+        [one] one folder
+       *[other] { $folders } folders
+    }
+azdrive-props-hidden = Hidden
+azdrive-props-reading = Reading…
+azdrive-props-items = { $count ->
+        [one] one item
+       *[other] { $count } items
+    }
+azdrive-props-title = { $name } Properties
+azdrive-transfers-none = No transfers.
+azdrive-transfers-items = { $done } of { $total ->
+        [one] one item
+       *[other] { $total } items
+    }
+azdrive-transfers-bytes = { $done } of { $total }
+azdrive-transfers-waiting = waiting
+azdrive-transfers-done = done
+azdrive-transfers-failed = failed:
+azdrive-transfers-cancelled = cancelled
+azdrive-transfers-clear = Clear finished
+azdrive-transfers-title = Transfers
+azdrive-backstage-options = Options
+azdrive-backstage-about = About
+azdrive-category-view = View
+azdrive-category-navigation = Navigation
+azdrive-category-drives = Drives
+azdrive-options-layout = Layout of the folders
+azdrive-options-show = Show
+azdrive-options-hidden-items = Hidden items
+azdrive-options-extensions = File name extensions
+azdrive-options-item-checkboxes = Item check boxes
+azdrive-options-deleting = Deleting
+azdrive-options-confirm-delete = Ask before deleting for good
+azdrive-options-delete-note = Delete on a local drive moves the items into its .azdrive-trash folder (Ctrl+Z brings them back); a cloud drive always asks.
+azdrive-options-open-in = Open AzDrive in
+azdrive-this-pc = This PC
+azdrive-quick-access = Quick access
+azdrive-options-panes = Panes
+azdrive-options-navigation-pane = Navigation pane
+azdrive-options-preview-pane = Preview pane
+azdrive-options-details-pane = Details pane
+azdrive-options-s3-at = s3://{ $bucket } at { $endpoint }
+azdrive-options-redeem-voucher = Redeem a voucher
+azdrive-options-restore = Restore as of…
+azdrive-options-no-drives-file = (none)
+azdrive-options-drives = Drives
+azdrive-options-sync = Sync
+azdrive-options-other-programs = Use with other programs
+azdrive-options-add-drive = Add a drive
+azdrive-options-add-drive-button = Add drive…
+azdrive-options-keys-note = Access keys, passwords and tokens live in the system keyring only; the list of drives (without them) is { $file }.
+azdrive-about-summary = A file manager like Windows Explorer for the Azlin data tree, the folders of this computer, S3 buckets, Azlin cloud storage and the data sources OpenDAL reaches (WebDAV, FTP, Google Drive, Dropbox, OneDrive, GitHub, ...), with databases browsed as tables.
+azdrive-no-token-server = The drive's token server is not known.
+azdrive-voucher-type-code = Type the voucher's code.
+azdrive-voucher-added = The voucher added { $days ->
+        [one] one day
+       *[other] { $days } days
+    } to "{ $name }".
+azdrive-voucher-added-until = The voucher added { $days ->
+        [one] one day
+       *[other] { $days } days
+    } to "{ $name }": it is paid until { $until }.
+azdrive-voucher-failed = The voucher could not be redeemed:
+azdrive-restore-type-time = Type the time to restore the drive to: type "2 hours ago" or a UTC time like 2026-10-10 08:00.
+azdrive-restore-unknown-time = "{ $text }" is no time AzDrive knows: type "2 hours ago" or a UTC time like 2026-10-10 08:00.
+azdrive-restore-in-future = That time is still to come.
+azdrive-restore-too-old = AzDrive can restore the last { $days } days (what the drive keeps).
+azdrive-restored-files = "{ $drive }" is as it was at { $at }: { $count ->
+        [one] one file came
+       *[other] { $count } files came
+    } back or went. The drive as it was before the restore stays in its history.
+azdrive-restored-objects = "{ $drive }" is as it was at { $at }: { $count ->
+        [one] one object came
+       *[other] { $count } objects came
+    } back or went.
+azdrive-restore-queued = The restore of "{ $drive }" as of { $at } is queued at the token server ({ $request }): the drive's node does it later.
+azdrive-restore-open-first = Open the drive first: its session is read from the keyring.
+azdrive-restore-out-of-range = The time is out of range.
+azdrive-restore-node-failed = The drive's node did not restore it:
+azdrive-restore-failed = The drive could not be restored:
+azdrive-voucher-made-new-drive = The token server made a new drive instead of extending this one.
+
+## About
+
+azdrive-about-credits = Credits
+azdrive-about-public-domain = Public domain

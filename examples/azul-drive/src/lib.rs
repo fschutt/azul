@@ -659,7 +659,7 @@ pub(crate) enum Popup {
     Voucher {
         drive_id: String,
         code: String,
-        error: String,
+        error: azul_appkit::l10n::Text,
         busy: bool,
     },
     /// The folder sync's dialogs: pairing a drive with a folder, a conflict (D52), stopping.
@@ -668,7 +668,7 @@ pub(crate) enum Popup {
     Restore {
         drive_id: String,
         text: String,
-        error: String,
+        error: azul_appkit::l10n::Text,
         busy: bool,
     },
 }

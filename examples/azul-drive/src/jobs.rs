@@ -47,7 +47,7 @@ use crate::{
     browse::{self, Entry},
     fileops::{self, Plan, Progress, SourceItem, TransferKind, TransferReport},
     find::{self, FindEnd, FindPhase},
-    l10n::drive_error_text,
+    l10n::{cloud_error_text, drive_error_text, token_error_text},
     listing::{self, Stat},
     preview::{self, PreviewKind},
     TreeKey, USER_AGENT,
@@ -638,7 +638,7 @@ pub(crate) enum Outcome {
     /// 1970), or why not.
     VoucherRedeemed {
         drive_id: String,
-        result: Result<(u32, Option<u64>), String>,
+        result: Result<(u32, Option<u64>), Text>,
     },
     /// What a sync job did (a pass's progress while it runs).
     Sync(crate::sync_jobs::SyncOutcome),
@@ -646,7 +646,7 @@ pub(crate) enum Outcome {
     DriveRestored {
         drive_id: String,
         as_of: u64,
-        result: Result<crate::restore::Restored, String>,
+        result: Result<crate::restore::Restored, Text>,
     },
 }
 
@@ -2974,7 +2974,7 @@ fn redeem_voucher(
             return match drive {
                 Some(drive_id) => Outcome::VoucherRedeemed {
                     drive_id,
-                    result: Err(e.to_string()),
+                    result: Err(token_error_text(&e)),
                 },
                 None => Outcome::Bought {
                     serial,
@@ -2988,16 +2988,14 @@ fn redeem_voucher(
             .with_drive_token(&drive_id, |token| {
                 server.redeem_voucher(code, Some((drive_id.as_str(), token)), "")
             })
-            .map_err(|e| e.to_string())
-            .and_then(|answer| answer.map_err(|e| e.to_string()));
+            .map_err(|e| cloud_error_text(&e))
+            .and_then(|answer| answer.map_err(|e| token_error_text(&e)));
         let result = match redeemed {
             Ok(VoucherRedeemed::Extended {
                 days_added,
                 period_until,
             }) => Ok((days_added, period_until)),
-            Ok(VoucherRedeemed::NewDrive(_)) => Err(String::from(
-                "The token server made a new drive instead of extending this one.",
-            )),
+            Ok(VoucherRedeemed::NewDrive(_)) => Err(Text::key("azdrive-voucher-made-new-drive")),
             Err(why) => Err(why),
         };
         return Outcome::VoucherRedeemed { drive_id, result };

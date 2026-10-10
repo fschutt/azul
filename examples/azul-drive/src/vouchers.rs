@@ -6,6 +6,7 @@
 //! On stdout: `AZDRIVE_VOUCHER <drive id> <days added>`.
 
 use azul::prelude::*;
+use azul_appkit::l10n::{Phrase, Text};
 use azul_storage::time::iso8601;
 
 use crate::{jobs::Job, periods, spawn, with_state, DriveState, Popup};
@@ -16,7 +17,7 @@ pub(crate) fn open(s: &mut DriveState, drive_id: &str) {
     s.popup = Some(Popup::Voucher {
         drive_id: drive_id.to_string(),
         code: String::new(),
-        error: String::new(),
+        error: Text::default(),
         busy: false,
     });
 }
@@ -43,18 +44,18 @@ fn redeem(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         .and_then(|index| periods::azlin_drive(&s.slots[index].entry, fallback.as_deref()))
         .map(|(_, url)| url);
     let problem = match (&token_url, code.is_empty()) {
-        (None, _) => Some("The drive's token server is not known."),
-        (_, true) => Some("Type the voucher's code."),
+        (None, _) => Some("azdrive-no-token-server"),
+        (_, true) => Some("azdrive-voucher-type-code"),
         _ => None,
     };
     if let Some(Popup::Voucher { error, busy, .. }) = s.popup.as_mut() {
         match problem {
             Some(why) => {
-                *error = why.to_string();
+                *error = Text::key(why);
                 return;
             }
             None => {
-                error.clear();
+                *error = Text::default();
                 *busy = true;
             }
         }
@@ -78,7 +79,7 @@ fn redeem(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 pub(crate) fn redeemed(
     s: &mut DriveState,
     drive_id: &str,
-    result: Result<(u32, Option<u64>), String>,
+    result: Result<(u32, Option<u64>), Text>,
 ) {
     let open = matches!(&s.popup, Some(Popup::Voucher { drive_id: id, .. }) if id == drive_id);
     match result {
@@ -91,10 +92,11 @@ pub(crate) fn redeemed(
                 .slot_index(drive_id)
                 .map(|index| s.slots[index].entry.name.clone())
                 .unwrap_or_else(|| drive_id.to_string());
-            let until = until.map_or_else(String::new, |at| {
-                format!(": it is paid until {}", iso8601(at))
-            });
-            s.success(format!("The voucher added {days} days to \"{name}\"{until}."));
+            let said = match until {
+                Some(at) => Phrase::new("azdrive-voucher-added-until").arg("until", iso8601(at)),
+                None => Phrase::new("azdrive-voucher-added"),
+            };
+            s.success(said.arg("days", days).arg("name", name));
         }
         Err(why) => {
             if open {
@@ -103,7 +105,7 @@ pub(crate) fn redeemed(
                     *busy = false;
                 }
             } else {
-                s.error(format!("The voucher could not be redeemed: {why}"));
+                s.error(Text::key("azdrive-voucher-failed").then(" ").then(why));
             }
         }
     }

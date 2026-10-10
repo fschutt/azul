@@ -359,3 +359,171 @@ azdrive-sync-menu-now = Jetzt synchronisieren
 azdrive-sync-menu-resume = Synchronisierung fortsetzen
 azdrive-sync-menu-pause = Synchronisierung anhalten
 azdrive-sync-menu-stop = Synchronisierung beenden…
+
+## Dialogs and Options
+
+azdrive-delete-title = Endgültig löschen
+azdrive-delete-question = Möchtest du { $count ->
+        [one] „{ $name }“
+       *[other] diese { $count } Elemente
+    } endgültig aus „{ $drive }“ löschen?
+azdrive-delete-cannot-undo = Das kann nicht rückgängig gemacht werden.
+azdrive-delete-button = Löschen
+azdrive-forget-title = Laufwerk „{ $name }“ entfernen?
+azdrive-forget-what = AzDrive vergisst das Laufwerk und entfernt seine Schlüssel aus dem Schlüsselbund.
+azdrive-forget-files-stay = Seine Dateien bleiben, wo sie sind.
+azdrive-forget-button = Entfernen
+azdrive-location-folder = Der Ordner (der Name eines Laufwerks, dann seine Ordner: Home/docs)
+azdrive-location-move-here = Hierher verschieben
+azdrive-location-copy-here = Hierher kopieren
+azdrive-location-move-title = Ausgewählte Elemente verschieben nach
+azdrive-location-copy-title = Ausgewählte Elemente kopieren nach
+azdrive-voucher-what = Ein Gutschein verlängert den bezahlten Zeitraum von „{ $name }“ um seine Monate (oder seinen Wert).
+azdrive-voucher-code = Der Code des Gutscheins
+azdrive-voucher-redeeming = Der Gutschein wird eingelöst…
+azdrive-voucher-redeem = Einlösen
+azdrive-voucher-title = Gutschein für „{ $name }“ einlösen
+azdrive-restore-what = „{ $name }“ wird so, wie es zu diesem Zeitpunkt war: Seither geänderte oder gelöschte Dateien kommen zurück, seither erstellte verschwinden. AzDrive kann die letzten { $days } Tage wiederherstellen.
+azdrive-restore-when = Wann („vor 2 Stunden“ oder eine UTC-Zeit: 2026-10-10 08:00)
+azdrive-restore-default-as-of = vor 1 Stunde
+azdrive-restore-restoring = Das Laufwerk wird wiederhergestellt…
+azdrive-restore-button = Wiederherstellen
+azdrive-restore-title = „{ $name }“ wiederherstellen auf den Stand von…
+azdrive-conflict-title = Dateien ersetzen oder überspringen
+azdrive-button-close = Schließen
+azdrive-conflict-transfer = { $count ->
+        [one] Ein Element wird
+       *[other] { $count } Elemente werden
+    } nach „{ $target }“ { $kind ->
+        [move] verschoben
+        [upload] hochgeladen
+        [download] heruntergeladen
+       *[copy] kopiert
+    }
+azdrive-conflict-taken = Im Ziel gibt es bereits eine Datei namens „{ $name }“.
+azdrive-conflict-new-one = Die neue: { $size }
+azdrive-conflict-replace = Datei im Ziel ersetzen
+azdrive-conflict-skip = Diese Datei überspringen
+azdrive-conflict-keep-both = Beide Dateien behalten
+azdrive-conflict-apply-all = { $count ->
+        [one] Für den nächsten Konflikt übernehmen
+       *[other] Für die nächsten { $count } Konflikte übernehmen
+    }
+azdrive-props-general = Allgemein
+azdrive-props-details = Details
+azdrive-props-type = Typ
+azdrive-props-location = Ort
+azdrive-props-used = Belegter Speicher
+azdrive-props-free = Freier Speicher
+azdrive-props-capacity = Speicherkapazität
+azdrive-props-bucket = Bucket
+azdrive-props-endpoint = Endpunkt
+azdrive-props-region = Region
+azdrive-props-url-style = URL-Stil
+azdrive-props-keys = Schlüssel
+azdrive-props-passwords = Kennwörter und Token
+azdrive-props-drive-id = Laufwerks-ID
+azdrive-props-size = Größe
+azdrive-props-contains = Inhalt
+azdrive-props-modified = Geändert
+azdrive-props-attributes = Attribute
+azdrive-props-metadata = Metadaten
+azdrive-props-size-of-files = Größe der Dateien
+azdrive-props-name = Name
+azdrive-props-key = Schlüssel (Key)
+azdrive-props-path-style = Pfad
+azdrive-props-virtual-host = virtueller Host
+azdrive-props-in-keyring = im Schlüsselbund des Systems (nie auf der Festplatte)
+azdrive-props-counting = Wird gezählt…
+azdrive-props-size-bytes = { $size } ({ $bytes } Bytes)
+azdrive-props-files-folders = { $files ->
+        [one] eine Datei
+       *[other] { $files } Dateien
+    }, { $folders ->
+        [one] ein Ordner
+       *[other] { $folders } Ordner
+    }
+azdrive-props-hidden = Versteckt
+azdrive-props-reading = Wird gelesen…
+azdrive-props-items = { $count ->
+        [one] ein Element
+       *[other] { $count } Elemente
+    }
+azdrive-props-title = Eigenschaften von { $name }
+azdrive-transfers-none = Keine Übertragungen.
+azdrive-transfers-items = { $done } von { $total ->
+        [one] einem Element
+       *[other] { $total } Elementen
+    }
+azdrive-transfers-bytes = { $done } von { $total }
+azdrive-transfers-waiting = wartet
+azdrive-transfers-done = fertig
+azdrive-transfers-failed = fehlgeschlagen:
+azdrive-transfers-cancelled = abgebrochen
+azdrive-transfers-clear = Abgeschlossene entfernen
+azdrive-transfers-title = Übertragungen
+azdrive-backstage-options = Optionen
+azdrive-backstage-about = Info
+azdrive-category-view = Ansicht
+azdrive-category-navigation = Navigation
+azdrive-category-drives = Laufwerke
+azdrive-options-layout = Layout der Ordner
+azdrive-options-show = Anzeigen
+azdrive-options-hidden-items = Ausgeblendete Elemente
+azdrive-options-extensions = Dateinamenerweiterungen
+azdrive-options-item-checkboxes = Kontrollkästchen für Elemente
+azdrive-options-deleting = Löschen
+azdrive-options-confirm-delete = Vor dem endgültigen Löschen fragen
+azdrive-options-delete-note = Löschen auf einem lokalen Laufwerk verschiebt die Elemente in seinen Ordner .azdrive-trash (Strg+Z holt sie zurück); ein Cloud-Laufwerk fragt immer.
+azdrive-options-open-in = AzDrive öffnen in
+azdrive-this-pc = Dieser PC
+azdrive-quick-access = Schnellzugriff
+azdrive-options-panes = Bereiche
+azdrive-options-navigation-pane = Navigationsbereich
+azdrive-options-preview-pane = Vorschaufenster
+azdrive-options-details-pane = Detailbereich
+azdrive-options-s3-at = s3://{ $bucket } bei { $endpoint }
+azdrive-options-redeem-voucher = Gutschein einlösen
+azdrive-options-restore = Wiederherstellen auf den Stand von…
+azdrive-options-no-drives-file = (keine)
+azdrive-options-drives = Laufwerke
+azdrive-options-sync = Synchronisierung
+azdrive-options-other-programs = Mit anderen Programmen verwenden
+azdrive-options-add-drive = Laufwerk hinzufügen
+azdrive-options-add-drive-button = Laufwerk hinzufügen…
+azdrive-options-keys-note = Zugriffsschlüssel, Kennwörter und Token liegen nur im Schlüsselbund des Systems; die Liste der Laufwerke (ohne sie) ist { $file }.
+azdrive-about-summary = Ein Dateimanager wie der Windows-Explorer für den Azlin-Datenbaum, die Ordner dieses Computers, S3-Buckets, den Azlin-Cloudspeicher und die Datenquellen, die OpenDAL erreicht (WebDAV, FTP, Google Drive, Dropbox, OneDrive, GitHub, ...), mit Datenbanken, die als Tabellen durchsucht werden.
+azdrive-no-token-server = Der Tokenserver des Laufwerks ist nicht bekannt.
+azdrive-voucher-type-code = Gib den Code des Gutscheins ein.
+azdrive-voucher-added = Der Gutschein hat „{ $name }“ um { $days ->
+        [one] einen Tag
+       *[other] { $days } Tage
+    } verlängert.
+azdrive-voucher-added-until = Der Gutschein hat „{ $name }“ um { $days ->
+        [one] einen Tag
+       *[other] { $days } Tage
+    } verlängert: Es ist bis { $until } bezahlt.
+azdrive-voucher-failed = Der Gutschein konnte nicht eingelöst werden:
+azdrive-restore-type-time = Gib den Zeitpunkt ein, auf den das Laufwerk zurückgesetzt wird: „vor 2 Stunden“ oder eine UTC-Zeit wie 2026-10-10 08:00.
+azdrive-restore-unknown-time = „{ $text }“ ist kein Zeitpunkt, den AzDrive kennt: Gib „vor 2 Stunden“ oder eine UTC-Zeit wie 2026-10-10 08:00 ein.
+azdrive-restore-in-future = Dieser Zeitpunkt liegt in der Zukunft.
+azdrive-restore-too-old = AzDrive kann die letzten { $days } Tage wiederherstellen (so lange bewahrt das Laufwerk sie auf).
+azdrive-restored-files = „{ $drive }“ ist so, wie es um { $at } war: { $count ->
+        [one] Eine Datei ist
+       *[other] { $count } Dateien sind
+    } zurückgekommen oder verschwunden. Das Laufwerk, wie es vor der Wiederherstellung war, bleibt in seinem Verlauf.
+azdrive-restored-objects = „{ $drive }“ ist so, wie es um { $at } war: { $count ->
+        [one] Ein Objekt ist
+       *[other] { $count } Objekte sind
+    } zurückgekommen oder verschwunden.
+azdrive-restore-queued = Die Wiederherstellung von „{ $drive }“ auf den Stand von { $at } wartet beim Tokenserver ({ $request }): Der Knoten des Laufwerks erledigt sie später.
+azdrive-restore-open-first = Öffne zuerst das Laufwerk: Seine Sitzung wird aus dem Schlüsselbund gelesen.
+azdrive-restore-out-of-range = Der Zeitpunkt liegt außerhalb des gültigen Bereichs.
+azdrive-restore-node-failed = Der Knoten des Laufwerks hat es nicht wiederhergestellt:
+azdrive-restore-failed = Das Laufwerk konnte nicht wiederhergestellt werden:
+azdrive-voucher-made-new-drive = Der Tokenserver hat ein neues Laufwerk erstellt, statt dieses zu verlängern.
+
+## About
+
+azdrive-about-credits = Mitwirkende
+azdrive-about-public-domain = Gemeinfrei
