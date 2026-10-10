@@ -1003,13 +1003,13 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
         }
         let printed = report_once(styled_dom, node_id, A11Y_SUPPRESS_TAG, || {
             format!(
-                "[azul][a11y] node {} has a callback but no accessible name, and no text child \
+                "[azul][a11y] {} has a callback but no accessible name, and no text child \
                  that could serve as one — an icon-only control reads to a screen reader as a \
                  private-use codepoint, or as nothing. Add one: \
                  .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
                  Some(\"...\".into()).into(), ..Default::default() }}). (suppress with \
                  AZ_SUPPRESS={A11Y_SUPPRESS_TAG})",
-                node_id.index()
+                describe_node(styled_dom, node_id)
             )
         });
         if printed {
@@ -1534,6 +1534,229 @@ fn has_readable_text_label(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     false
 }
 
+/// How a finding names its node: its index, the azul widget it belongs to,
+/// its ids and classes (the selectors a developer searches the app for) and
+/// the start of its text. "node 40" alone is a puzzle; "node 40 (a Slider
+/// #volume .settings-row)" is a call site.
+fn describe_node(styled_dom: &StyledDom, node_id: NodeId) -> String {
+    let nodes = styled_dom.node_data.as_container();
+    let Some(node) = nodes.get(node_id) else {
+        return format!("node {}", node_id.index());
+    };
+    let mut parts = Vec::new();
+    if let Some(kind) = azul_widget_kind(node) {
+        parts.push(format!("a {kind}"));
+    }
+    for ic in node.get_ids_and_classes().iter() {
+        match ic {
+            azul_core::dom::IdOrClass::Id(id) => parts.push(format!("#{}", id.as_str())),
+            azul_core::dom::IdOrClass::Class(c)
+                if !c.as_str().starts_with("__azul-native-") && parts.len() < 6 =>
+            {
+                parts.push(format!(".{}", c.as_str()));
+            }
+            azul_core::dom::IdOrClass::Class(_) => {}
+        }
+    }
+    if let Some(text) = first_text(styled_dom, node_id) {
+        parts.push(snippet_of(&text));
+    }
+    if parts.is_empty() {
+        format!("node {}", node_id.index())
+    } else {
+        format!("node {} ({})", node_id.index(), parts.join(" "))
+    }
+}
+
+/// The first non-blank text at or beneath `node_id` (bounded walk).
+fn first_text(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
+    let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut stack = vec![node_id];
+    let mut visited = 0usize;
+    while let Some(cur) = stack.pop() {
+        visited += 1;
+        if visited > 64 {
+            return None;
+        }
+        if let Some(NodeType::Text(t)) = nodes.get(cur).map(|n| n.get_node_type()) {
+            if !t.as_str().trim().is_empty() {
+                return Some(t.as_str().to_string());
+            }
+        }
+        let mut children = Vec::new();
+        let mut child = hierarchy.get(cur).and_then(|item| item.first_child_id(cur));
+        while let Some(c) = child {
+            children.push(c);
+            child = hierarchy.get(c).and_then(NodeHierarchyItem::next_sibling_id);
+        }
+        // Document order: the first child is popped first.
+        stack.extend(children.into_iter().rev());
+    }
+    None
+}
+
+// ============================================================================
+// Lint: keyboard navigation inside composites and grids
+// ============================================================================
+
+/// Suppression tag for [`warn_composite_navigation`].
+pub const A11Y_NAV_SUPPRESS_TAG: &str = "a11y_nav";
+
+/// Whether the Tab key stops on `node`: a tab index other than
+/// "no keyboard focus", or an element focusable by itself (a link, a button,
+/// a select).
+fn is_tab_stop(node: &azul_core::dom::NodeData) -> bool {
+    use azul_core::dom::TabIndex;
+    match node.get_tab_index() {
+        Some(TabIndex::NoKeyboardFocus) => false,
+        Some(_) => true,
+        None => matches!(
+            node.get_node_type(),
+            NodeType::A | NodeType::Button | NodeType::Select
+        ),
+    }
+}
+
+/// Whether `node` edits text: Tab is how a user leaves a field, so a field
+/// inside a composite (a toolbar's search box) keeps its own Tab stop.
+fn edits_text(node: &azul_core::dom::NodeData) -> bool {
+    node.is_contenteditable() || matches!(node.get_node_type(), NodeType::Input | NodeType::TextArea)
+}
+
+/// Tell the developer where keyboard navigation goes wrong, from the shape
+/// of the DOM.
+///
+/// - A composite - a toolbar, a menu bar, a tab list, a list box, a list, a tree, a grid - is ONE
+///   stop in the Tab order and the arrow keys move inside it (WAI-ARIA APG, `widgets::roving`). One
+///   whose items are each a Tab stop makes a keyboard user Tab through all of them, and Shift+Tab
+///   back.
+/// - A CSS grid of focusable tiles needs `spatial-navigation-function: grid`, or the arrow keys pick
+///   the nearest tile by distance and jump diagonally instead of along the rows and columns.
+///
+/// Reported once per problem; suppress with `AZ_SUPPRESS=a11y_nav`.
+pub fn warn_composite_navigation(styled_dom: &StyledDom) {
+    use azul_core::a11y::AccessibilityRole as R;
+    use azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction;
+
+    if lint_suppressed(A11Y_NAV_SUPPRESS_TAG) {
+        return;
+    }
+    let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let mut reported = 0usize;
+
+    for (node_id, node) in nodes
+        .linear_iter()
+        .filter_map(|id| nodes.get(id).map(|n| (id, n)))
+    {
+        if reported >= 8 {
+            break;
+        }
+        let role = node.accessibility.as_ref().map(|info| info.role);
+        let composite = matches!(
+            role,
+            Some(
+                R::Toolbar
+                    | R::MenuBar
+                    | R::PageTabList
+                    | R::DropList
+                    | R::List
+                    | R::Outline
+                    | R::Grid
+            )
+        );
+
+        if composite {
+            // The Tab stops inside it, a text field's aside.
+            let mut stops = 0usize;
+            let mut stack: Vec<NodeId> = Vec::new();
+            let mut child = hierarchy.get(node_id).and_then(|item| item.first_child_id(node_id));
+            while let Some(c) = child {
+                stack.push(c);
+                child = hierarchy.get(c).and_then(NodeHierarchyItem::next_sibling_id);
+            }
+            let mut visited = 0usize;
+            while let Some(cur) = stack.pop() {
+                visited += 1;
+                if visited > 4096 {
+                    break;
+                }
+                let Some(data) = nodes.get(cur) else {
+                    continue;
+                };
+                if is_tab_stop(data) && !edits_text(data) {
+                    stops += 1;
+                }
+                let mut grandchild = hierarchy.get(cur).and_then(|item| item.first_child_id(cur));
+                while let Some(g) = grandchild {
+                    stack.push(g);
+                    grandchild = hierarchy.get(g).and_then(NodeHierarchyItem::next_sibling_id);
+                }
+            }
+            if stops > 1
+                && report_once(styled_dom, node_id, A11Y_NAV_SUPPRESS_TAG, || {
+                    let who = describe_node(styled_dom, node_id);
+                    let role = role.map(|r| format!("{r:?}")).unwrap_or_default();
+                    format!(
+                        "[azul][a11y-nav] {who} is a {role} with {stops} Tab stops inside it. A \
+                         composite is ONE stop in the Tab order and the arrow keys move between \
+                         its items: build the active item with TabIndex::Auto and the others with \
+                         TabIndex::NoKeyboardFocus, move the stop on the arrow keys \
+                         (widgets::roving), or use the toolbar / tab / list widget that does. \
+                         (suppress with AZ_SUPPRESS={A11Y_NAV_SUPPRESS_TAG})"
+                    )
+                })
+            {
+                reported += 1;
+            }
+            continue;
+        }
+
+        if !matches!(display_of(styled_dom, node_id), LayoutDisplay::Grid | LayoutDisplay::InlineGrid) {
+            continue;
+        }
+        let mut tiles = 0usize;
+        let mut child = hierarchy.get(node_id).and_then(|item| item.first_child_id(node_id));
+        while let Some(c) = child {
+            if nodes
+                .get(c)
+                .is_some_and(|d| d.get_tab_index().is_some() || d.is_focusable())
+            {
+                tiles += 1;
+            }
+            child = hierarchy.get(c).and_then(NodeHierarchyItem::next_sibling_id);
+        }
+        if tiles < 4 {
+            continue;
+        }
+        let grid_function = styled_nodes.get(node_id).is_some_and(|sn| {
+            matches!(
+                crate::solver3::getters::get_spatial_navigation_function(
+                    styled_dom,
+                    node_id,
+                    &sn.styled_node_state
+                ),
+                MultiValue::Exact(StyleSpatialNavigationFunction::Grid)
+            )
+        });
+        if !grid_function
+            && report_once(styled_dom, node_id, A11Y_NAV_SUPPRESS_TAG, || {
+                let who = describe_node(styled_dom, node_id);
+                format!(
+                    "[azul][a11y-nav] {who} is a CSS grid of {tiles} focusable tiles, and the arrow \
+                     keys pick the nearest tile by distance, so they jump diagonally. Add \
+                     `spatial-navigation-function: grid;` to it: the arrows then move along its rows \
+                     and columns. (suppress with AZ_SUPPRESS={A11Y_NAV_SUPPRESS_TAG})"
+                )
+            })
+        {
+            reported += 1;
+        }
+    }
+}
+
 // ============================================================================
 // Lint: what this node's SHAPE says it should declare
 // ============================================================================
@@ -1587,7 +1810,6 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
         if reported >= 8 {
             break; // one screenful is enough to act on
         }
-        let idx = node_id.index();
         let interactive = is_user_interactive(node);
         let focusable = node.get_tab_index().is_some();
 
@@ -1597,8 +1819,9 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             // are worth naming even when they are not clickable.
             if matches!(node.get_node_type(), NodeType::Image(_)) {
                 if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                    let who = describe_node(styled_dom, node_id);
                     format!(
-                        "[azul][a11y-shape] node {idx} is an IMAGE with no accessibility info, so it \
+                        "[azul][a11y-shape] {who} is an IMAGE with no accessibility info, so it \
                          is absent from the accessibility tree entirely — a screen reader announces \
                          nothing where a sighted user sees a picture. Give it \
                          .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
@@ -1612,8 +1835,9 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
                 }
             } else if focusable
                 && report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                    let who = describe_node(styled_dom, node_id);
                     format!(
-                        "[azul][a11y-shape] node {idx} is KEYBOARD-FOCUSABLE (it has a tab_index) but \
+                        "[azul][a11y-shape] {who} is KEYBOARD-FOCUSABLE (it has a tab_index) but \
                          declares no accessibility info, so tabbing lands on something the screen \
                          reader cannot describe. At minimum give it a `role` and an \
                          `accessibility_name`. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
@@ -1639,8 +1863,9 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             && (interactive || focusable)
         {
             if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                let who = describe_node(styled_dom, node_id);
                 format!(
-                    "[azul][a11y-shape] node {idx} is interactive and declares accessibility, but its \
+                    "[azul][a11y-shape] {who} is interactive and declares accessibility, but its \
                      `role` is Unknown — a screen reader can say its name and not what it IS. Pick \
                      from AccessibilityRole (PushButton, CheckBox, ComboBox, Slider, Link, Tab, \
                      MenuItem, …). (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
@@ -1659,8 +1884,9 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
         ) && !has_value
         {
             if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                let who = describe_node(styled_dom, node_id);
                 format!(
-                    "[azul][a11y-shape] node {idx} has role {role:?} but no `accessibility_value`. \
+                    "[azul][a11y-shape] {who} has role {role:?} but no `accessibility_value`. \
                      The value IS the content of these controls — without it a screen reader \
                      announces \"slider\" and never how far along it is. Set accessibility_value on \
                      every change, not once. (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
@@ -1686,8 +1912,9 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             });
             if !declares_checked {
                 if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+                    let who = describe_node(styled_dom, node_id);
                     format!(
-                        "[azul][a11y-shape] node {idx} has role {role:?} but declares no \
+                        "[azul][a11y-shape] {who} has role {role:?} but declares no \
                          CheckedTrue/CheckedFalse/Selected state, so it always announces as unchecked \
                          no matter what it renders. Push the state into AccessibilityInfo::states \
                          when the control toggles. (suppress with \
@@ -1721,8 +1948,7 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             // apply; "node 40 is anonymous" is a puzzle they have to solve
             // first.
             if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
-                let who = azul_widget_kind(node)
-                    .map_or_else(|| format!("node {idx}"), |w| format!("node {idx} (a {w})"));
+                let who = describe_node(styled_dom, node_id);
                 format!(
                     "[azul][a11y-shape] {who} declares accessibility (role {role:?}) but has neither \
                      an `accessibility_name` nor a `labelled_by`. It is in the tree and anonymous. \

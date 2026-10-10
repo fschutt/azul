@@ -437,24 +437,22 @@ pub(crate) fn follow_dom(structure: UiTheme, flat: Dom, flora: Dom) -> Dom {
 /// ([`follow_dom`]) in the structure of the theme the DOM is being built for
 /// ([`UiTheme::current`]) - the `None` arm of a two-builder widget's `dom()`.
 /// The structure theme's build is the one the app gets; the other one is a
-/// style-only twin (`widgets::style_only_build`: read for its styles, its
-/// warnings silent, so an unnamed slider warns once, not twice).
+/// style-only twin, read for its styles and dropped.
 #[must_use]
 pub(crate) fn follow_app_theme<W: Clone>(
     widget: W,
     flat: fn(W) -> Dom,
     flora: fn(W) -> Dom,
 ) -> Dom {
-    use crate::widgets::style_only_build;
     let structure = UiTheme::current();
     let (flat_dom, flora_dom) = match structure {
         UiTheme::Flat => {
             let own = flat(widget.clone());
-            (own, style_only_build(|| flora(widget)))
+            (own, flora(widget))
         }
         UiTheme::Flora => {
             let own = flora(widget.clone());
-            (style_only_build(|| flat(widget)), own)
+            (flat(widget), own)
         }
     };
     follow_dom(structure, flat_dom, flora_dom)

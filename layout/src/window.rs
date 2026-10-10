@@ -3189,6 +3189,7 @@ impl LayoutWindow {
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
                 crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
                 crate::dom_lint::warn_a11y_shape(&lr.styled_dom);
+                crate::dom_lint::warn_composite_navigation(&lr.styled_dom);
             }
             self.dom_lint_stamps
                 .retain(|dom_id, _| self.layout_results.contains_key(dom_id));
