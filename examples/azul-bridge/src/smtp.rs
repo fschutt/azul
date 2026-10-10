@@ -668,4 +668,39 @@ mod tests {
         assert_eq!(one_line("a\r\nb"), "a b");
         assert_eq!(one_line(&"é".repeat(300)).chars().count(), 203);
     }
+
+    /// CHUNKING (RFC 3030): BDAT takes the message in chunks of exactly so many octets, as they
+    /// are (no dot-stuffing); the last one sends it. A BDAT out of order is refused after its
+    /// octets are read, so the next command comes in step; DATA does not mix with BDAT.
+    #[test]
+    fn bdat_takes_the_message_in_chunks_of_exact_octets() {
+        let (smtp, fake) = server(Verdict::Accepted(String::from("sent")), Limits::default());
+        let mut client = Client::signed_in(smtp);
+        assert!(client.say("EHLO mail.local").contains("CHUNKING"));
+        let head = "From: Ada <ada@example.org>\r\nTo: ben@example.net\r\nSubject: Hi\r\n\r\n";
+        let body = ".a line that starts with a dot\r\n";
+
+        client.stream.write_all(b"BDAT 5\r\nhello").unwrap();
+        assert!(client.reply().starts_with("503 "), "no MAIL yet");
+        assert!(client.say("NOOP").starts_with("250 "), "still in step");
+
+        assert!(client.say("MAIL FROM:<ada@example.org>").starts_with("250 "));
+        assert!(client.say("RCPT TO:<ben@example.net>").starts_with("250 "));
+        client
+            .stream
+            .write_all(format!("BDAT {}\r\n{head}", head.len()).as_bytes())
+            .unwrap();
+        assert!(client.reply().starts_with("250 "));
+        assert!(client.say("DATA").starts_with("503 "), "DATA does not follow BDAT");
+        client
+            .stream
+            .write_all(format!("BDAT {} LAST\r\n{body}", body.len()).as_bytes())
+            .unwrap();
+        assert_eq!(client.reply(), "250 2.0.0 sent");
+        let seen = fake.seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&seen[0].message), format!("{head}{body}"));
+        drop(seen);
+        assert!(client.say("QUIT").starts_with("221 "));
+    }
 }
