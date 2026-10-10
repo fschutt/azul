@@ -77,7 +77,11 @@ node layout, AzDrive's stdout markers and the files on disk:
         both change it, resumed: the question (D52, "Someone changed this file"), Keep both -
         the drive's version under the name, this computer's as "notes (conflict <device>
         <date>).txt", on the drive too; Free up space: the file leaves this computer, its row
-        stays (cloud only), opening it downloads it first. `--sync-only` runs step 25 alone.
+        stays (cloud only) and previews as a sentence, opening it downloads it first; the plain
+        drive's own listing shows the sync index's files (not only its hidden `.azlin`); a
+        cloud-only row deleted asks "Delete from the drive?" and the next pass deletes it there;
+        an Azlin drive synced from the start whose token server says it takes no writes says
+        "Read-only (payment due)". `--sync-only` runs step 25 alone.
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
@@ -99,6 +103,7 @@ Every key_down has its key_up (the E2E key_up rule).
 """
 
 import argparse
+import calendar
 import glob
 import json
 import zipfile
@@ -1192,10 +1197,13 @@ SYNC_BUCKET = "e2e-sync"
 SYNC_NAME = "Sync drive"
 # This computer's name in conflict copies (azcloud-kit's device_name: $AZCLOUD_DEVICE).
 SYNC_DEVICE = "e2e-laptop"
+# The Azlin drive unpaid past its grace (the mock token server's development sign-up).
+PAID_NAME = "Unpaid drive"
 
 
-def sync_drives_file(path, s3_url):
-    """A drives file with one S3 drive on the mock stack's S3 (its keys in the keyring file)."""
+def sync_drives_file(path, s3_url, extra=()):
+    """A drives file with one S3 drive on the mock stack's S3 (its keys in the keyring file),
+    and the drives-file entries `extra`."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     entry = {
         "id": SYNC_DRIVE,
@@ -1210,15 +1218,33 @@ def sync_drives_file(path, s3_url):
         },
     }
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"format": "azul-storage.drives", "version": 1, "drives": [entry]}, f)
+        json.dump({"format": "azul-storage.drives", "version": 1,
+                   "drives": [entry] + list(extra)}, f)
 
 
-def sync_keyring_file(path):
-    """The headless keyring (AZ_KEYRING_FILE) holding the drive's keys."""
+def sync_keyring_file(path, extra=None):
+    """The headless keyring (AZ_KEYRING_FILE) holding the drive's keys (and `extra` entries)."""
     secret = json.dumps({"access_key_id": azlin_mock_stack.ACCESS_KEY,
                          "secret_access_key": azlin_mock_stack.SECRET_KEY})
+    entries = {"azul-storage/s3/" + SYNC_DRIVE: secret}
+    entries.update(extra or {})
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"azul-storage/s3/" + SYNC_DRIVE: secret}, f)
+        json.dump(entries, f)
+
+
+def azlin_session(bundle):
+    """The keyring text of an Azlin drive's session (azcloud-kit's AzlinSession) from a sign-up's
+    bundle."""
+    creds = bundle["credentials"]
+    expires = calendar.timegm(time.strptime(creds["expires_at"], "%Y-%m-%dT%H:%M:%SZ"))
+    return json.dumps({
+        "drive_id": bundle["drive"]["id"],
+        "drive_token": bundle["drive_token"],
+        "access_key_id": creds["access_key_id"],
+        "secret_access_key": creds["secret_access_key"],
+        "session_token": creds["session_token"],
+        "expires_at": expires,
+    })
 
 
 def sync_meta(s3_root):
@@ -1273,10 +1299,21 @@ def sync_step(args, logs, binary, out):
     s3_root = os.path.join(base, "s3")
     stack = azlin_mock_stack.start(s3_root)
     os.makedirs(os.path.join(s3_root, SYNC_BUCKET), exist_ok=True)
+    # An Azlin drive (a development sign-up at the mock token server) unpaid past its grace:
+    # synced from the start (the view settings name it), its token server says it takes no
+    # writes.
+    paid = stack.token.state.signup({"name": PAID_NAME})
+    paid_id = paid["drive"]["id"]
+    stack.token.state.set_read_only(paid_id, True)
     drives = os.path.join(base, "config", "drives.json")
-    sync_drives_file(drives, stack.s3_url)
+    sync_drives_file(drives, stack.s3_url, [paid["drive"]])
     keyring = os.path.join(base, "keyring.json")
-    sync_keyring_file(keyring)
+    sync_keyring_file(keyring, {"azul-storage/s3/" + paid_id: azlin_session(paid)})
+    view = os.path.join(base, "data", "drive", "view.json")
+    os.makedirs(os.path.dirname(view), exist_ok=True)
+    with open(view, "w", encoding="utf-8") as f:
+        json.dump({"synced": [{"drive_id": paid_id, "prefix": "",
+                               "folder": os.path.join(home, "AzDrive", PAID_NAME)}]}, f)
     switches = [
         "--screen", "this-pc", "--theme", "flat", "--mode", "light",
         "--home", home,
@@ -1309,7 +1346,7 @@ def sync_step(args, logs, binary, out):
         app.tab("Share")
         app.ribbon("Sync with a folder")
         app.until("the pairing sheet", lambda: app.has("#" + I("sync-pair")))
-        app.screenshot(os.path.join(out, "23-sync-pair.png"))
+        app.screenshot(os.path.join(out, "25-sync-pair.png"))
         app.after("Sync", "AZDRIVE_SYNC_PAIRED", re.escape(SYNC_DRIVE) + r" .*",
                   lambda: (app.must("click", selector="#" + I("sync-pair-ok")), app.frame()))
         paired = app.last("AZDRIVE_SYNC_PAIRED").split(" ", 1)[1]
@@ -1322,7 +1359,10 @@ def sync_step(args, logs, binary, out):
         app.until("Up to date", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) +
                                                     r" Up to date"))
         app.until("the status line says it", lambda: "Up to date" in status())
-        log("25a. paired: %s, the first pass, \"Up to date\" on the status line" % folder)
+        app.until("the unpaid drive is read-only by its token server's word", lambda: app.printed(
+            status_key, re.escape(paid_id) + r" Read-only \(payment due\)"))
+        log("25a. paired: %s, the first pass, \"Up to date\" on the status line; the unpaid "
+            "Azlin drive: \"Read-only (payment due)\"" % folder)
 
         # A file written on disk goes up with the next poll.
         with open(notes, "wb") as f:
@@ -1335,8 +1375,16 @@ def sync_step(args, logs, binary, out):
         if index["files"]["notes.txt"]["hash"] != azlin_blake3.hex_digest(b"first version\n"):
             raise Failure("the index names another content: %s" % index["files"]["notes.txt"])
         app.until("notes.txt listed", lambda: "notes.txt" in item_names(app))
-        app.screenshot(os.path.join(out, "23-sync-uploaded.png"))
-        log("25b. a file written on disk went up with the poll (the index names its BLAKE3)")
+        app.screenshot(os.path.join(out, "25-sync-uploaded.png"))
+        # The drive's own listing shows the sync index's files, not only its hidden `.azlin`.
+        app.after("the drive's own listing", "AZDRIVE_LISTED", re.escape(SYNC_DRIVE) + r" / \d+",
+                  lambda: app.click(selector=row))
+        app.until("notes.txt in the drive's own listing", lambda: "notes.txt" in item_names(app))
+        app.screenshot(os.path.join(out, "25-sync-drive-listing.png"))
+        app.after("back to the synced folder", "AZDRIVE_PLACE",
+                  r"home AzDrive/%s/" % re.escape(SYNC_NAME), lambda: app.key("left", alt=True))
+        log("25b. a file written on disk went up with the poll (the index names its BLAKE3); the "
+            "drive's own listing shows it")
 
         # A version another device committed comes down.
         before = app.count("AZDRIVE_SYNC_DONE")
@@ -1361,7 +1409,7 @@ def sync_step(args, logs, binary, out):
         app.until("it says who changed it", lambda: app.shows("Someone changed this file"))
         if read_file(notes) != b"third version, from the laptop!\n":
             raise Failure("mine changed before the question was answered")
-        app.screenshot(os.path.join(out, "23-sync-conflict.png"))
+        app.screenshot(os.path.join(out, "25-sync-conflict.png"))
         app.after("Keep both", "AZDRIVE_SYNC_RESOLVED",
                   re.escape(SYNC_DRIVE) + r" both notes\.txt",
                   lambda: (app.must("click", selector="#" + I("sync-keep-both")), app.frame()))
@@ -1390,14 +1438,45 @@ def sync_step(args, logs, binary, out):
         if read_file(notes) is not None:
             raise Failure("the freed file is still on this computer")
         app.until("its row stays", lambda: "notes.txt" in item_names(app))
-        app.screenshot(os.path.join(out, "23-sync-cloud-only.png"))
+        app.screenshot(os.path.join(out, "25-sync-cloud-only.png"))
+        # Its preview is a sentence: its bytes are not here.
+        app.after("the preview pane", "AZDRIVE_PANES", r"\w+ true \w+",
+                  lambda: app.key("p", alt=True))
+        app.until("a cloud-only preview", lambda: app.printed(
+            "AZDRIVE_PREVIEW", r"synced .*notes\.txt"))
         app.after("opening it downloads it first", "AZDRIVE_SYNC_OPENED",
                   re.escape(SYNC_DRIVE) + r" notes\.txt", lambda: open_item(app, "notes.txt"))
         app.until("back on this computer",
                   lambda: read_file(notes) == b"third version, from the desktop\n")
         app.until("on this device", lambda: app.printed(
             "AZDRIVE_SYNC_FILE", re.escape(SYNC_DRIVE) + r" on-device notes\.txt"))
-        log("25e. Free up space: notes.txt cloud only (its row stays); opened: downloaded first")
+        log("25e. Free up space: notes.txt cloud only (its row stays, its preview a sentence); "
+            "opened: downloaded first")
+
+        # A cloud-only row deleted: asked, then the next pass deletes it on the drive.
+        draft = os.path.join(folder, "draft.txt")
+        with open(draft, "wb") as f:
+            f.write(b"a draft\n")
+        app.until("draft.txt uploaded", lambda: app.printed(
+            "AZDRIVE_SYNC_FILE", re.escape(SYNC_DRIVE) + r" on-device draft\.txt"))
+        app.until("draft.txt listed", lambda: "draft.txt" in item_names(app))
+        app.after("draft.txt selected", "AZDRIVE_SELECTED", r"1 .*draft\.txt",
+                  lambda: select_item(app, "draft.txt"))
+        app.tab("Share")
+        app.after("Free up space", "AZDRIVE_SYNC_FREED", re.escape(SYNC_DRIVE),
+                  lambda: app.ribbon("Free up space"))
+        app.until("draft.txt cloud only", lambda: read_file(draft) is None)
+        app.until("draft.txt listed", lambda: "draft.txt" in item_names(app))
+        app.after("draft.txt selected", "AZDRIVE_SELECTED", r"1 .*draft\.txt",
+                  lambda: select_item(app, "draft.txt"))
+        app.key("delete")
+        app.until("Delete from the drive?", lambda: app.has("#" + I("sync-delete")))
+        app.after("Delete", "AZDRIVE_SYNC_DELETED", re.escape(SYNC_DRIVE),
+                  lambda: (app.must("click", selector="#" + I("sync-delete-ok")), app.frame()))
+        app.until("gone from the drive's index",
+                  lambda: "draft.txt" not in sync_index(s3_root).get("files", {}))
+        app.until("its row gone", lambda: "draft.txt" not in item_names(app))
+        log("25f. a cloud-only row deleted: asked, then gone from the drive")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
