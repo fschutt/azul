@@ -329,6 +329,13 @@ pub fn run(options: &Options) -> Result<(), String> {
             }
             let has_password = secrets.get(PASSWORD_ENTRY).map_err(|e| e.to_string())?.is_some();
             say(&format!("password={}", if has_password { "set" } else { "none" }));
+            match crate::single::running(&state) {
+                Some(running) => say(&format!(
+                    "running=process {} imap={} smtp={} dav={} pim={}",
+                    running.pid, running.imap, running.smtp, running.dav, running.pim
+                )),
+                None => say("running=no"),
+            }
             Ok(())
         }
         "serve" => serve(options, &state, &state_dir, secrets),
@@ -526,6 +533,8 @@ fn serve(
     let bind = |port: u16, what: &str| {
         net::bind_loopback(port).map_err(|e| format!("{what} on 127.0.0.1:{port}: {e}"))
     };
+    // One bridge per user: refused here, before a port is taken, naming the one that serves.
+    let instance = crate::single::claim(state)?;
     let imap_listener = bind(options.imap_port.unwrap_or(config.imap_port), "IMAP")?;
     let smtp_listener = bind(options.smtp_port.unwrap_or(config.smtp_port), "SMTP")?;
     let dav_listener = bind(options.dav_port.unwrap_or(config.dav_port), "WebDAV")?;
@@ -580,6 +589,14 @@ fn serve(
     std::thread::spawn(move || loop {
         std::thread::sleep(RETRY_EVERY);
         submitter.retry();
+    });
+    instance.announce(&crate::single::Running {
+        pid: std::process::id(),
+        imap: imap_port,
+        smtp: smtp_port,
+        dav: dav_port,
+        pim: pim_port,
+        started: azul_storage::time::now_unix(),
     });
     say(&format!("AZUL_BRIDGE_READY imap={imap_port} smtp={smtp_port} dav={dav_port} pim={pim_port}"));
     for thread in threads {
