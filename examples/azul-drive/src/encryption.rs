@@ -49,8 +49,8 @@ use azul_storage::{
     azul_transport::AzulTransport,
     crypto::{
         device,
-        keys::{RecoveryCode, RecoveryKdf},
-        random_bytes, Zeroizing,
+        keys::{load_recovery_wrap, RecoveryCode, RecoveryKdf},
+        random_bytes, CryptoError, Zeroizing,
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
     meta::MetaIndexProvider,
@@ -184,6 +184,12 @@ pub(crate) fn start_recompression(info: &mut CallbackInfo, app: &RefAny) {
 extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
     if !offered() {
         return TimerCallbackReturn::terminate_unchanged();
+    }
+    // A recovery drill that is due opens (once a minute, when no dialog shows).
+    if let Some(mut s) = data.downcast_mut::<DriveState>() {
+        if crate::recovery::drill_if_due(&mut s, now_unix()) {
+            return TimerCallbackReturn::continue_and_refresh_dom();
+        }
     }
     if RECOMPRESSING.load(Ordering::SeqCst) || !idle_on_mains() {
         return TimerCallbackReturn::continue_unchanged();
@@ -341,6 +347,12 @@ pub(crate) enum Dialog {
     /// "Lock down with the recovery code...": the code typed, signing a lockdown without a
     /// drive token.
     RecoveryLockdown {
+        drive_id: String,
+        typed: Zeroizing<String>,
+        error: String,
+    },
+    /// "Do you still have your recovery kit?": the code typed for a drill.
+    Drill {
         drive_id: String,
         typed: Zeroizing<String>,
         error: String,
@@ -550,6 +562,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 ]),
             ]),
         ),
+        Dialog::Drill { .. } => crate::recovery::drill_parts(dialog, s, app),
         Dialog::OfferReencrypt { drive_id } => (
             String::from("Re-encrypt every file?"),
             column(vec![
@@ -687,7 +700,7 @@ pub(crate) fn ask_unlock(s: &mut DriveState, drive_id: &str) {
     }
 }
 
-extern "C" fn on_typed(
+pub(crate) extern "C" fn on_typed(
     mut data: RefAny,
     _info: CallbackInfo,
     state: TextInputState,
@@ -702,7 +715,9 @@ extern "C" fn on_typed(
     let text = Zeroizing::new(state.get_text().as_str().to_string());
     match s.popup.as_mut() {
         Some(Popup::Encryption(
-            Dialog::Unlock { typed, error, .. } | Dialog::RecoveryLockdown { typed, error, .. },
+            Dialog::Unlock { typed, error, .. }
+            | Dialog::RecoveryLockdown { typed, error, .. }
+            | Dialog::Drill { typed, error, .. },
         )) => {
             *typed = text;
             error.clear();
@@ -782,8 +797,10 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         let drive_id = sheet.drive_id.clone();
         let code = RecoveryCode::parse(&sheet.code);
-        // The sheet closes: Print's copies of the kit go.
+        // The sheet closes: Print's copies of the kit go; the setup's check is kept.
         crate::recovery::forget_print_copies();
+        crate::recovery::setup_verified(s, &drive_id);
+        crate::save_settings(info, app, s);
         // The token server's recovery key from this code: what a lockdown without a drive token
         // is signed with ("Lock down with the recovery code...").
         if let Some(code) = code {
@@ -930,6 +947,12 @@ pub(crate) enum EncryptionJob {
         path: PathBuf,
         bytes: Zeroizing<Vec<u8>>,
     },
+    /// A drill's code against the bucket's recovery wrap (a drive set up before the drills).
+    CheckCode {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+        code: RecoveryCode,
+    },
 }
 
 /// What a rotation brings back to the UI thread.
@@ -984,6 +1007,12 @@ pub(crate) enum EncryptionOutcome {
         path: PathBuf,
         len: usize,
         result: Result<(), String>,
+    },
+    /// Whether a drill's code opens the bucket's recovery wrap; the code's public recovery key.
+    CodeChecked {
+        drive_id: String,
+        recovery_key: String,
+        result: Result<bool, String>,
     },
 }
 
@@ -1188,6 +1217,25 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             len: bytes.len(),
             path,
         },
+        EncryptionJob::CheckCode {
+            drive_id,
+            auto,
+            code,
+        } => {
+            let recovery_key = recovery_key_of(&code, &drive_id).public_base64();
+            let result = load_recovery_wrap(auto.bucket().as_ref())
+                .map_err(|e| e.to_string())
+                .and_then(|wrap| match wrap.open(auto.drive(), &code) {
+                    Ok(_) => Ok(true),
+                    Err(CryptoError::WrongKey) => Ok(false),
+                    Err(e) => Err(e.to_string()),
+                });
+            EncryptionOutcome::CodeChecked {
+                drive_id,
+                recovery_key,
+                result,
+            }
+        }
     }
 }
 
@@ -1275,6 +1323,8 @@ pub(crate) fn on_outcome(
     match outcome {
         EncryptionOutcome::SetUp { drive_id, result } => match result {
             Ok(code) => {
+                crate::recovery::code_made(s, &drive_id, &code);
+                crate::save_settings(info, app, s);
                 s.popup = Some(Popup::Encryption(Dialog::Sheet(Sheet::new(&drive_id, code))));
             }
             Err(why) => {
@@ -1343,6 +1393,8 @@ pub(crate) fn on_outcome(
         }
         EncryptionOutcome::Rotated { drive_id, result } => match result {
             Ok(done) => {
+                crate::recovery::code_made(s, &drive_id, &done.code);
+                crate::save_settings(info, app, s);
                 let name = drive_name(s, &drive_id);
                 let mail = if done.drop_key.is_some() {
                     " Incoming mail has a new drop key: give it to your mail Worker (AzMail, or \
@@ -1431,7 +1483,36 @@ pub(crate) fn on_outcome(
         EncryptionOutcome::KitSaved { path, len, result } => {
             crate::recovery::kit_saved(s, &path, len, result);
         }
+        EncryptionOutcome::CodeChecked {
+            drive_id,
+            recovery_key,
+            result,
+        } => crate::recovery::bucket_answered(info, app, s, &drive_id, recovery_key, result),
     }
+}
+
+/// A drill's code checked against the bucket's recovery wrap, on a worker thread (a drive set
+/// up before the drills kept no recovery key).
+pub(crate) fn check_code_in_bucket(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    code: RecoveryCode,
+) {
+    let Some(auto) = auto_of(s, drive_id) else {
+        return;
+    };
+    s.popup = Some(Popup::Encryption(Dialog::Busy {
+        title: String::from("Checking the recovery code"),
+        text: String::from("Opening the drive's recovery key with the code (a few seconds)..."),
+    }));
+    let job = EncryptionJob::CheckCode {
+        drive_id: drive_id.to_string(),
+        auto,
+        code,
+    };
+    spawn(info, app, s, Job::Encryption(job));
 }
 
 /// "Lock down with the recovery code...": the dialog.

@@ -8,18 +8,29 @@
 //! system's save dialog) and Save to a USB stick (a folder picked, the PDF written into it).
 //! The sheet shows the QR code too, for a photo with a phone.
 //!
+//! DRILLS (the schedule is `recovery_health`'s): once a minute the recompression's timer looks
+//! whether a drive's drill is due and opens "Do you still have your recovery kit?" - the code
+//! typed from the kit, checked offline against the public recovery key kept for the drive (a
+//! drive set up before asks its bucket's recovery wrap). "Later" moves it a week; closing it
+//! waits for the next start.
+//!
 //! On stdout, for scripts (never a secret): `AZDRIVE_KIT_PRINT <bytes>` (the kit opened for
 //! printing), `AZDRIVE_KIT_SAVED <bytes>` (the save dialog took it), `AZDRIVE_KIT_WRITTEN
-//! <bytes>` (written into the folder picked).
+//! <bytes>` (written into the folder picked), `AZDRIVE_RECOVERY_VERIFIED <drive id>` (the
+//! setup's groups typed back), `AZDRIVE_DRILL_DUE|PASSED|FAILED|LATER <drive id>`.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use azul::{
-    callbacks::ButtonOnClickCallbackType,
+    callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType},
     dialog::{FileDialog, FileOpenResult},
     pdf::Pdf,
     prelude::*,
     str::String as AzString,
+    widgets::ButtonType,
 };
 use azul_appkit::qr::QrCode;
 use azul_storage::{
@@ -31,7 +42,8 @@ use crate::{
     encryption::{Dialog, EncryptionJob},
     ids,
     jobs::Job,
-    spawn,
+    recovery_health::{state_mut, state_of, RecoveryState},
+    save_settings, spawn,
     ui_dialogs::line,
     with_state, DriveState, Popup,
 };
@@ -500,8 +512,259 @@ pub(crate) enum DrillAnswer {
 /// The drill's answer to `typed` for the drive `drive_id` whose code's public recovery key is
 /// `recovery_key`: offline, without the bucket and without Argon2id's second.
 pub(crate) fn drill_answer(recovery_key: Option<&str>, drive_id: &str, typed: &str) -> DrillAnswer {
-    let _ = (recovery_key, drive_id, typed);
-    DrillAnswer::NotACode
+    let Some(code) = RecoveryCode::parse(typed) else {
+        return DrillAnswer::NotACode;
+    };
+    let Some(known) = recovery_key else {
+        return DrillAnswer::AskTheBucket(code);
+    };
+    if crate::encryption::recovery_key_of(&code, drive_id).public_base64() == known.trim() {
+        DrillAnswer::Passed
+    } else {
+        DrillAnswer::NotTheCode
+    }
+}
+
+/// The drives a drill was shown for in this run (closing one counts as "Later" until the next
+/// start).
+static ASKED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn now() -> u64 {
+    azul_storage::time::now_unix()
+}
+
+/// A new recovery code of `drive_id` (the setup, a rotation): kept with its public recovery
+/// key; the drills count from it and its shares are made again.
+pub(crate) fn code_made(s: &mut DriveState, drive_id: &str, code: &str) {
+    let key = RecoveryCode::parse(code)
+        .map(|code| crate::encryption::recovery_key_of(&code, drive_id).public_base64());
+    state_mut(&mut s.settings.recovery.drives, drive_id).code_made(now(), key);
+}
+
+/// The setup's groups were typed back right.
+pub(crate) fn setup_verified(s: &mut DriveState, drive_id: &str) {
+    state_mut(&mut s.settings.recovery.drives, drive_id).setup_verified(now());
+    println!("AZDRIVE_RECOVERY_VERIFIED {drive_id}");
+}
+
+/// Opens the drill of `drive_id` ("Test" in the methods list, or a due one).
+pub(crate) fn open_drill(s: &mut DriveState, drive_id: &str) {
+    if s.popup.is_none() {
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Encryption(Dialog::Drill {
+            drive_id: drive_id.to_string(),
+            typed: Zeroizing::new(String::new()),
+            error: String::new(),
+        }));
+    }
+}
+
+/// A drill due `now` opens, when no dialog shows and none was shown for that drive in this
+/// run (the timer's minute); whether one opened.
+pub(crate) fn drill_if_due(s: &mut DriveState, now: u64) -> bool {
+    if s.popup.is_some() {
+        return false;
+    }
+    let Ok(mut asked) = ASKED.lock() else {
+        return false;
+    };
+    let due = s
+        .settings
+        .recovery
+        .drives
+        .iter()
+        .find(|state| {
+            state.drill_due(now)
+                && s.slot_index(&state.drive_id).is_some()
+                && !asked.contains(&state.drive_id)
+        })
+        .map(|state| state.drive_id.clone());
+    let Some(drive_id) = due else {
+        return false;
+    };
+    asked.push(drive_id.clone());
+    drop(asked);
+    println!("AZDRIVE_DRILL_DUE {drive_id}");
+    open_drill(s, &drive_id);
+    true
+}
+
+/// The drill's page.
+pub(crate) fn drill_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (String, Dom) {
+    let Dialog::Drill {
+        drive_id, error, ..
+    } = dialog
+    else {
+        return (String::new(), Dom::create_div());
+    };
+    let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
+    let mut body = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; min-width: 420px; max-width: 520px;")
+        .with_child(line(&format!(
+            "A short check that the recovery code of \"{name}\" still works: type it from your \
+             emergency kit (any case, with or without dashes). It is checked on this computer \
+             and kept nowhere."
+        )))
+        .with_child(crate::ui_dialogs::label("The recovery code"))
+        .with_child(
+            TextInput::create()
+                .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
+                .with_on_text_input(
+                    app.clone(),
+                    crate::encryption::on_typed as TextInputOnTextInputCallbackType,
+                )
+                .dom()
+                .with_id(ids::DRILL_CODE),
+        );
+    if !error.is_empty() {
+        body.add_child(line(error).with_css("color: #C42B1C;"));
+    }
+    let may_stop =
+        state_of(&s.settings.recovery.drives, drive_id).is_some_and(RecoveryState::may_stop_drills);
+    let mut row =
+        vec![crate::ui_dialogs::button("Later", app, on_drill_later).with_id(ids::DRILL_LATER)];
+    if may_stop {
+        row.push(crate::ui_dialogs::button(
+            "Stop the checks",
+            app,
+            on_drill_stop,
+        ));
+    }
+    row.push(
+        crate::ui_dialogs::typed_button("Check", ButtonType::Primary, app, on_drill_check)
+            .with_id(ids::DRILL_CHECK),
+    );
+    body.add_child(crate::ui_dialogs::buttons(row));
+    (String::from("Do you still have your recovery kit?"), body)
+}
+
+/// The drive of the drill showing.
+fn drill_drive(s: &DriveState) -> Option<String> {
+    match s.popup.as_ref()? {
+        Popup::Encryption(Dialog::Drill { drive_id, .. }) => Some(drive_id.clone()),
+        _ => None,
+    }
+}
+
+/// The drill passed: the next one, and a word of it.
+pub(crate) fn drill_passed(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    recovery_key: Option<String>,
+) {
+    let state = state_mut(&mut s.settings.recovery.drives, drive_id);
+    state.drill_passed(now());
+    if state.recovery_key.is_none() {
+        state.recovery_key = recovery_key;
+    }
+    let next = state.next_drill().map(|at| {
+        let day = azul_storage::time::iso8601(at);
+        day.get(..10).unwrap_or(&day).to_string()
+    });
+    println!("AZDRIVE_DRILL_PASSED {drive_id}");
+    let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
+    s.popup = Some(Popup::Encryption(Dialog::Message {
+        title: String::from("Your recovery kit works"),
+        text: match next {
+            Some(day) => {
+                format!("That is the recovery code of \"{name}\". AzDrive asks again on {day}.")
+            }
+            None => format!("That is the recovery code of \"{name}\"."),
+        },
+    }));
+    save_settings(info, app, s);
+}
+
+extern "C" fn on_drill_check(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::Drill {
+            drive_id, typed, ..
+        })) = s.popup.as_ref()
+        else {
+            return;
+        };
+        let drive_id = drive_id.clone();
+        let known = state_of(&s.settings.recovery.drives, &drive_id)
+            .and_then(|state| state.recovery_key.clone());
+        let answer = drill_answer(known.as_deref(), &drive_id, typed);
+        let error = match answer {
+            DrillAnswer::Passed => {
+                drill_passed(info, app, s, &drive_id, None);
+                return;
+            }
+            DrillAnswer::AskTheBucket(code) => {
+                crate::encryption::check_code_in_bucket(info, app, s, &drive_id, code);
+                return;
+            }
+            DrillAnswer::NotTheCode => String::from(
+                "That is not this drive's recovery code. If your kit is lost, make a new code \
+                 (the drive's menu: I was hacked: new keys) and print its kit.",
+            ),
+            DrillAnswer::NotACode => {
+                String::from("That is not a recovery code: 26 letters and digits, in five groups.")
+            }
+        };
+        println!("AZDRIVE_DRILL_FAILED {drive_id}");
+        if let Some(Popup::Encryption(Dialog::Drill { error: shown, .. })) = s.popup.as_mut() {
+            *shown = error;
+        }
+    })
+}
+
+/// The bucket's recovery wrap answered a drill (`Ok(true)`: the code opens it).
+pub(crate) fn bucket_answered(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    recovery_key: String,
+    result: Result<bool, String>,
+) {
+    match result {
+        Ok(true) => drill_passed(info, app, s, drive_id, Some(recovery_key)),
+        Ok(false) => {
+            println!("AZDRIVE_DRILL_FAILED {drive_id}");
+            s.popup = None;
+            open_drill(s, drive_id);
+            if let Some(Popup::Encryption(Dialog::Drill { error, .. })) = s.popup.as_mut() {
+                *error = String::from("That is not this drive's recovery code.");
+            }
+        }
+        Err(why) => {
+            s.popup = Some(Popup::Encryption(Dialog::Message {
+                title: String::from("The code could not be checked"),
+                text: why,
+            }));
+        }
+    }
+}
+
+extern "C" fn on_drill_later(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(drive_id) = drill_drive(s) else {
+            return;
+        };
+        state_mut(&mut s.settings.recovery.drives, &drive_id).postpone(now());
+        println!("AZDRIVE_DRILL_LATER {drive_id}");
+        s.popup = None;
+        save_settings(info, app, s);
+    })
+}
+
+extern "C" fn on_drill_stop(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(drive_id) = drill_drive(s) else {
+            return;
+        };
+        let stopped = state_mut(&mut s.settings.recovery.drives, &drive_id).stop_drills();
+        s.popup = None;
+        if stopped {
+            s.info("No more checks of the recovery code: two printed shares are a second way in.");
+        }
+        save_settings(info, app, s);
+    })
 }
 
 #[cfg(test)]
@@ -570,13 +833,19 @@ mod tests {
         let typed = code.to_text().replace('-', " ").to_lowercase();
         assert_eq!(drill_answer(Some(&key), "d_1", &typed), DrillAnswer::Passed);
         let other = RecoveryCode::from_bytes([0x11; 16]).to_text();
-        assert_eq!(drill_answer(Some(&key), "d_1", &other), DrillAnswer::NotTheCode);
+        assert_eq!(
+            drill_answer(Some(&key), "d_1", &other),
+            DrillAnswer::NotTheCode
+        );
         assert_eq!(
             drill_answer(Some(&key), "d_2", &code.to_text()),
             DrillAnswer::NotTheCode,
             "another drive's key"
         );
-        assert_eq!(drill_answer(Some(&key), "d_1", "hello"), DrillAnswer::NotACode);
+        assert_eq!(
+            drill_answer(Some(&key), "d_1", "hello"),
+            DrillAnswer::NotACode
+        );
         assert!(matches!(
             drill_answer(None, "d_1", &code.to_text()),
             DrillAnswer::AskTheBucket(_)

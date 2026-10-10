@@ -571,6 +571,17 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                 let mut pane = DetailsPane::create(AzString::from(slot.entry.name.as_str()))
                     .with_icon(AzString::from(slot.icon()))
                     .with_subtitle(AzString::from(slot.kind()));
+                // An encrypted drive's recovery: green, yellow or red, and why (D51).
+                if let Some(health) = crate::recovery_health::health_line(
+                    &s.settings.recovery.drives,
+                    &slot.entry.id,
+                    azul_storage::time::now_unix(),
+                ) {
+                    pane = pane.with_property(
+                        AzString::from("Recovery health"),
+                        AzString::from(health),
+                    );
+                }
                 match &slot.entry.location {
                     DriveLocation::Local { root } => {
                         if let Some((total, free)) = s.disk.get(&slot.entry.id) {
