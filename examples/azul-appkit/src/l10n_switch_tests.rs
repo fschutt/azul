@@ -2,7 +2,9 @@
 //! appkit's resources in English, in German, and English for a language without words of its
 //! own.
 
-use crate::l10n::{app_word, is_key, keep, named, set_locale, sources, t, t_args, Arg};
+use crate::l10n::{
+    app_word, grouped, is_key, keep, named, set_locale, sources, t, t_args, Arg,
+};
 
 #[test]
 fn switching_the_language_changes_a_known_label() {
@@ -74,5 +76,20 @@ fn an_apps_summary_is_said_by_its_key_and_shown_as_given_without_one() {
     set_locale("de-DE");
     assert_eq!(app_word("AzTest", "about-summary", "A test app"), "Eine Test-App");
     assert_eq!(app_word("AzOther", "about-summary", "Another app"), "Another app");
+    set_locale("en-US");
+}
+
+/// A big count is grouped as the window's language groups it: 1,234,567 in English,
+/// 1.234.567 in German (the status line's "12,345 items").
+#[test]
+fn a_big_number_is_grouped_as_the_language_groups_it() {
+    keep(&sources(&[]));
+    set_locale("en-US");
+    assert_eq!(grouped(1_234_567), "1,234,567");
+    assert_eq!(grouped(999), "999");
+    assert_eq!(grouped(1_000), "1,000");
+    set_locale("de-DE");
+    assert_eq!(grouped(1_234_567), "1.234.567");
+    assert_eq!(grouped(0), "0");
     set_locale("en-US");
 }
