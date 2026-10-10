@@ -29,6 +29,7 @@ mod sync_ondemand;
 mod sync_remote;
 mod sync_rules;
 mod sync_session;
+mod sync_stream;
 mod token;
 mod transport;
 mod user_errors;

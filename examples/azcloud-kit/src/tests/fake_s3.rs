@@ -544,4 +544,12 @@ impl RemoteStore for S3Bucket {
     fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>> {
         RemoteStore::list(&self.bucket, prefix)
     }
+
+    fn put_from(&self, key: &str, body: &mut dyn std::io::Read, size: u64) -> CloudResult<String> {
+        RemoteStore::put_from(&self.bucket, key, body, size)
+    }
+
+    fn fetch_to(&self, key: &str, size: u64, dest: &std::path::Path) -> CloudResult<bool> {
+        RemoteStore::fetch_to(&self.bucket, key, size, dest)
+    }
 }
