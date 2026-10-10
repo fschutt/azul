@@ -98,6 +98,75 @@ pub mod https {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        net::TcpListener,
+        sync::mpsc,
+    };
+
+    use azul_storage::{transport::is_dns_failure, HttpCall, Method, Transport};
+
+    use super::{https::HttpsTransport, HTTPS_TIMEOUT};
+
+    /// An HTTP server on this computer answering `ok` to one request; the request's head lines.
+    fn server() -> (u16, mpsc::Receiver<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut head = Vec::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                head.push(line.trim_end().to_string());
+            }
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+            let _ = tx.send(head);
+        });
+        (port, rx)
+    }
+
+    /// DNS down: a node whose name does not resolve is reached at the addresses the failover
+    /// hands the transport (reqwest's resolve_to_addrs), the request still naming the host.
+    #[test]
+    fn a_name_that_does_not_resolve_is_reached_at_its_fallback_address_under_its_name() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let transport = HttpsTransport::new(runtime.handle().clone(), HTTPS_TIMEOUT).unwrap();
+        let (port, heads) = server();
+        let call = HttpCall {
+            method: Method::Get,
+            url: format!("http://n2.azlin-dns-test.invalid:{port}/d-1/a.txt"),
+            headers: Vec::new(),
+            body: Vec::new(),
+            content_type: String::new(),
+        };
+        let why = transport.send(&call).unwrap_err();
+        assert!(is_dns_failure(&why), "{why}");
+        assert!(!transport.fallback_addresses("n2.azlin-dns-test.invalid", &[String::from("no")]));
+        assert!(transport.fallback_addresses(
+            "n2.azlin-dns-test.invalid",
+            &[String::from("127.0.0.1")]
+        ));
+        let reply = transport.clone().send(&call).unwrap();
+        assert_eq!(reply.status, 200);
+        assert_eq!(reply.body, b"ok");
+        let head = heads.recv().unwrap();
+        assert!(
+            head.iter()
+                .any(|l| l.eq_ignore_ascii_case(&format!("host: n2.azlin-dns-test.invalid:{port}"))),
+            "{head:?}"
+        );
+    }
+}
+
 #[cfg(feature = "iroh")]
 pub mod iroh_lane {
     //! S3 over iroh: the kit's `IrohDialer`, through azlin-client's iroh transport (one HTTP/1.1
