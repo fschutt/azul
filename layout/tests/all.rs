@@ -1035,3 +1035,5 @@ mod the_accessibility_tree_speaks_the_apps_language;
 mod a_screen_reader_announces_a_controls_declared_name;
 #[path = "tab_and_shift_tab_walk_the_rendered_stops_in_reading_order.rs"]
 mod tab_and_shift_tab_walk_the_rendered_stops_in_reading_order;
+#[path = "a_label_names_the_control_it_is_for.rs"]
+mod a_label_names_the_control_it_is_for;
