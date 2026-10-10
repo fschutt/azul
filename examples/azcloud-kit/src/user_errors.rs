@@ -288,6 +288,19 @@ pub enum Lang {
 }
 
 impl Lang {
+    /// Every language with texts of its own.
+    pub const ALL: [Lang; 2] = [Lang::En, Lang::De];
+
+    /// Its tag, under which an app gives the engine its Fluent resource ([`fluent_source`]):
+    /// `en`, `de`.
+    #[must_use]
+    pub fn tag(self) -> &'static str {
+        match self {
+            Lang::En => "en",
+            Lang::De => "de",
+        }
+    }
+
     /// The language of an OS locale (`de_DE.UTF-8`, `de-AT`, `de`): German for German, else
     /// English.
     #[must_use]
