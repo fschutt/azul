@@ -986,8 +986,12 @@ impl<'a> TokenServer<'a> {
             read_only: info["read_only"].as_bool().unwrap_or(false),
             members,
             you: info["you"].as_str().map(str::to_string),
-            quota_bytes: None,
-            used_bytes: None,
+            quota_bytes: info["quota_bytes"].as_u64(),
+            // Stored bytes (compressed and encrypted, what arrived); `stored_bytes` is the same
+            // count under the name some servers give it.
+            used_bytes: info["used_bytes"]
+                .as_u64()
+                .or_else(|| info["stored_bytes"].as_u64()),
         })
     }
 
