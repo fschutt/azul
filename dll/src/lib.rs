@@ -279,6 +279,12 @@ extern crate azul_css;
 #[cfg(feature = "cabi_internal")]
 extern crate azul_layout;
 
+// `getrandom`: the random source of a sign-in's PKCE verifier and state
+// (`desktop::extra::auth_session::create_pkce`). A build without the desktop
+// module (link-dynamic, wasm) links it unused.
+#[cfg(not(all(feature = "cabi_internal", not(target_arch = "wasm32"))))]
+use getrandom as _;
+
 // Desktop windowing implementation (OpenGL, fonts, event loop, etc.)
 // Compiled when internal bindings are available (not for link-dynamic)
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]

@@ -16,6 +16,10 @@
 /// The playback counterpart to `MicrophoneWidget` (capture). See
 /// `audio/mod.rs`.
 pub mod audio;
+/// Sign-in sessions (OAuth 2.0 for native apps): `ASWebAuthenticationSession` on Apple, the
+/// system browser with a loopback listener on the desktops, a Custom Tab on Android, a fake
+/// in headless runs. See `auth_session/mod.rs`.
+pub mod auth_session;
 pub mod biometric;
 /// The bytes of a media file read where they are - a local file, an HTTP(S)
 /// URL by range requests (a download a window ahead of its readers, shared by
