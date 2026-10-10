@@ -70,6 +70,7 @@ pub mod pim;
 pub mod secrets;
 pub mod sender;
 pub mod sent;
+pub mod single;
 pub mod smtp;
 pub mod store;
 pub mod transport;
