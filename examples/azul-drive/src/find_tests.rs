@@ -667,3 +667,89 @@ fn a_drive_keeps_its_listing_unless_its_names_are_encrypted() {
     });
     assert!(crate::keeps_listing(&slot));
 }
+
+/// An encrypted drive's names come from its drive index (on this computer, no listing of the
+/// bucket): the status line says so, not "in the cloud (slower)".
+#[test]
+fn an_encrypted_drives_search_says_it_reads_the_drives_names() {
+    let mut find = state("pick", false, true);
+    find.drive_index = true;
+    assert_eq!(find.status_text(), "Searching the drive's names... 0 found");
+}
+
+/// A result shows its sync state where its drive syncs (SYNC17's store answers through the
+/// SyncLookup seam): a row of the open drive by the open drive's id, a row of This PC by its
+/// own drive; nothing where nothing syncs - and with no sync at all no Status column.
+#[test]
+fn a_result_shows_its_sync_state_where_its_drive_syncs() {
+    use crate::sync_lookup::{NoSync, SyncLookup, SyncState};
+
+    struct States;
+    impl SyncLookup for States {
+        fn local_copy(&self, _drive_id: &str, _key: &str) -> Option<PathBuf> {
+            None
+        }
+        fn sync_state(&self, drive_id: &str, key: &str) -> Option<SyncState> {
+            match (drive_id, key) {
+                ("cloud", "Docs/a.txt") => Some(SyncState::OnThisDevice),
+                ("home", "b.txt") => Some(SyncState::Syncing),
+                _ => None,
+            }
+        }
+    }
+    assert_eq!(
+        find::result_sync(&States, Some("cloud"), "Docs/a.txt"),
+        Some(SyncState::OnThisDevice)
+    );
+    let pc_row = find::pc_key("home", "b.txt");
+    assert_eq!(find::result_sync(&States, None, &pc_row), Some(SyncState::Syncing));
+    assert_eq!(find::result_sync(&States, Some("cloud"), "Docs/c.txt"), None);
+    assert_eq!(find::result_sync(&States, None, "Docs/a.txt"), None, "no drive, no state");
+    assert_eq!(find::result_sync(&NoSync, Some("cloud"), "Docs/a.txt"), None);
+    assert!(States.syncs() && !NoSync.syncs(), "a Status column only where something syncs");
+    assert_eq!(
+        SyncState::OnThisDevice.badge(),
+        ("check_circle", "Available on this device")
+    );
+}
+
+/// A saved search keeps a name, the search box's text, the Search tab's choices (File
+/// contents, Location, Skip ignored files, the Refine) and where it searched; its name is the
+/// text (cut when long). Saving under a name that is taken (without case) replaces that one in
+/// its place; the settings file keeps them.
+#[test]
+fn a_saved_search_keeps_the_query_the_choices_and_the_place() {
+    use crate::browse::Place;
+
+    let refines = Refines {
+        date: DateRefine::ThisWeek,
+        kind: KindRefine::Document,
+        size: SizeRefine::Any,
+    };
+    let mut settings = Settings::default();
+    settings.search_contents = true;
+    settings.search_subfolders = false;
+    let saved = find::SavedSearch::of("  needle  ", &settings, refines, &Place::folder("home", "Find/"));
+    assert_eq!((saved.name.as_str(), saved.query.as_str()), ("needle", "needle"));
+    assert!(saved.contents && !saved.subfolders && saved.ignore_files);
+    assert_eq!(saved.refines(), refines);
+    assert_eq!(saved.place(), Place::folder("home", "Find/"));
+    let pc = find::SavedSearch::of("report", &settings, Refines::default(), &Place::ThisPc);
+    assert_eq!(pc.place(), Place::ThisPc);
+    let long = find::SavedSearch::of(&"x".repeat(100), &settings, refines, &Place::ThisPc);
+    assert!(long.name.chars().count() <= 40 && long.name.ends_with('\u{2026}'), "{}", long.name);
+    assert_eq!(long.query.len(), 100, "the text itself is kept whole");
+
+    let mut list = vec![pc.clone(), saved.clone()];
+    let mut again = saved.clone();
+    again.name = String::from("NEEDLE");
+    again.contents = false;
+    find::save_search(&mut list, again.clone());
+    assert_eq!(list, vec![pc.clone(), again.clone()], "replaced where it was");
+    find::save_search(&mut list, long.clone());
+    assert_eq!(list.len(), 3, "a new name is added at the end");
+
+    settings.saved_searches = list.clone();
+    assert_eq!(Settings::from_json(&settings.to_json()).saved_searches, list);
+    assert!(Settings::default().saved_searches.is_empty());
+}

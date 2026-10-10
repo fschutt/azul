@@ -12,7 +12,7 @@
 //! ever waits on a drive.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -350,11 +350,11 @@ pub(crate) enum Job {
         drive: Arc<dyn Drive>,
         cancel: Arc<AtomicBool>,
     },
-    /// A drive's full-text index brought up to its folder on this computer (what changed read
-    /// again), its progress streamed ([`Outcome::IndexProgress`]) until it ends or `cancel`.
+    /// A drive's full-text index brought up to its files (what changed read again), its
+    /// progress streamed ([`Outcome::IndexProgress`]) until it ends or `cancel`.
     IndexDrive {
         drive_id: String,
-        root: PathBuf,
+        source: IndexSource,
         dir: PathBuf,
         cancel: Arc<AtomicBool>,
     },
@@ -395,6 +395,31 @@ pub(crate) struct RemoteFind {
     /// The file that keeps the drive's last complete listing ([`find::listing_file`]); `None`:
     /// nothing is kept (a `--shot` run, a system without a cache folder).
     pub cache: Option<PathBuf>,
+    /// An encrypted drive: its names are its drive index's (on this computer) - listed in one
+    /// pass, never kept on disk.
+    pub drive_index: bool,
+    /// The drive's index, asked for the files' contents after the names.
+    pub contents: Option<find::RemoteContents>,
+}
+
+/// What a drive's index reads.
+#[derive(Clone)]
+pub(crate) enum IndexSource {
+    /// A folder on this computer, walked (a drive on this computer).
+    Folder(PathBuf),
+    /// A cloud or encrypted drive.
+    Drive(DriveSource),
+}
+
+/// A drive whose files are not on this computer, as its index reads it: its listing (an
+/// encrypted drive's: its drive index), each file from its local copy (the sync's), or - with
+/// `download_cap` ("Index files that are not downloaded") - downloaded when it is at most that
+/// large, read and dropped.
+#[derive(Clone)]
+pub(crate) struct DriveSource {
+    pub drive: Arc<dyn Drive>,
+    pub sync: Arc<dyn crate::sync_lookup::SyncLookup>,
+    pub download_cap: Option<u64>,
 }
 
 /// What a job answers, on the UI thread.
@@ -1268,7 +1293,9 @@ pub(crate) fn run_find(
 /// ([`list_side_by_side`]). The drive's last complete listing (`search.cache`) goes first: its
 /// results at once ([`FindPhase::Cached`]), then the fresh listing's others; once the fresh one
 /// is complete the cached results it has not got end the search as stale, and it is kept for
-/// the next search.
+/// the next search. An encrypted drive's names (`search.drive_index`) are listed in one pass
+/// from its drive index, and nothing of them is kept. With the drive's index (`search.contents`)
+/// the files whose text holds the words follow the names ([`drive_contents`]).
 pub(crate) fn run_find_remote(
     search: &RemoteFind,
     drive: &dyn Drive,
@@ -1288,10 +1315,10 @@ pub(crate) fn run_find_remote(
     let prefix = search.prefix.as_str();
     let options = &search.options;
     let mut found = 0;
+    // An encrypted drive's names are its drive index's: nothing of them is kept on disk.
+    let cache = search.cache.as_deref().filter(|_| !search.drive_index);
     // The last complete listing, when it covers this folder (a recursive search only).
-    let cached = search
-        .cache
-        .as_deref()
+    let cached = cache
         .filter(|_| options.subfolders)
         .and_then(find::read_listing);
     let mut shown_cached = HashSet::new();
@@ -1327,9 +1354,17 @@ pub(crate) fn run_find_remote(
     let mut seen = HashSet::new();
     let mut limited = false;
     let mut listed: Option<Vec<ObjectInfo>> =
-        (search.cache.is_some() && options.subfolders).then(Vec::new);
+        (cache.is_some() && options.subfolders).then(Vec::new);
+    // The sizes and dates of the files, for the rows the index finds by their contents.
+    let mut facts: HashMap<String, ObjectInfo> = HashMap::new();
+    let want_facts = search.contents.is_some() && options.contents;
     let mut on_page = |page: ListPage| -> bool {
         batch.searched += page.objects.len();
+        if want_facts {
+            for object in page.objects.iter().filter(|o| !o.key.ends_with('/')) {
+                facts.insert(object.key.clone(), object.clone());
+            }
+        }
         for item in find::remote_names(&page, prefix, &matcher, options, &mut seen) {
             if !live.insert(item.entry.key.clone()) || shown_cached.contains(&item.entry.key) {
                 continue;
@@ -1354,12 +1389,15 @@ pub(crate) fn run_find_remote(
         batch.tick(&mut *emit);
         true
     };
-    let listing = if options.subfolders {
-        list_side_by_side(drive, prefix, cancel, &mut on_page)
+    let listing = if !options.subfolders {
+        list_pages(drive, &ListRequest::folder(prefix), cancel, &mut Vec::new(), &mut on_page)
+    } else if search.drive_index {
+        // The drive index answers on this computer: one recursive listing.
+        list_pages(drive, &ListRequest::recursive(prefix), cancel, &mut Vec::new(), &mut on_page)
     } else {
-        list_level(drive, prefix, cancel, &mut Vec::new(), &mut on_page)
+        list_side_by_side(drive, prefix, cancel, &mut on_page)
     };
-    let end = match listing {
+    let mut end = match listing {
         Err(error) => FindEnd {
             error: Some(error),
             ..FindEnd::default()
@@ -1372,7 +1410,7 @@ pub(crate) fn run_find_remote(
         Ok(Listed::Complete) => {
             let mut stale: Vec<String> = shown_cached.difference(&live).cloned().collect();
             stale.sort();
-            if let (Some(file), Some(objects)) = (search.cache.as_deref(), listed) {
+            if let (Some(file), Some(objects)) = (cache, listed) {
                 keep_listing(file, cached, prefix, objects);
             }
             FindEnd {
@@ -1381,7 +1419,73 @@ pub(crate) fn run_find_remote(
             }
         }
     };
+    // The files whose text holds the words, from the drive's index (the names first).
+    if let Some(contents) = search.contents.as_ref().filter(|_| want_facts) {
+        if end.error.is_none() && !end.limited && !cancel.load(Ordering::Relaxed) {
+            end.limited = drive_contents(search, contents, &facts, found, &mut batch, emit);
+        }
+    }
     batch.finish(end)
+}
+
+/// The contents part of a search of a cloud or encrypted drive with an index (`contents`): the
+/// files below the folder whose text holds the search's words, best first - a local copy's line
+/// read there, any other without a line (its text is in the index only) -, with the sizes and
+/// dates of the names' listing (`facts`: a file not in it is gone since), the refine, hidden
+/// items and "Current folder" holding; at most [`find::FIND_MAX`] results in all (`found` so
+/// far). Whether the limit stopped it.
+fn drive_contents(
+    search: &RemoteFind,
+    contents: &find::RemoteContents,
+    facts: &HashMap<String, ObjectInfo>,
+    mut found: usize,
+    batch: &mut FindBatch,
+    emit: &mut dyn FnMut(Outcome),
+) -> bool {
+    let text = search.pattern.text.as_str();
+    // The words as the walk's contents search takes them (a glob names files: no contents).
+    let Ok(matcher) = azul_search::ContentMatcher::new(&azul_search::Pattern::literal(text)) else {
+        return false;
+    };
+    let asked = DriveIndex::open(&contents.dir)
+        .and_then(|index| index.query(text, &search.prefix, find::FIND_MAX));
+    let paths = match asked {
+        Ok(paths) => paths,
+        Err(e) => {
+            eprintln!("[azdrive] the index in {} is passed by: {e}", contents.dir.display());
+            return false;
+        }
+    };
+    batch.phase(FindPhase::Contents, emit);
+    let options = &search.options;
+    let extractors = extractors();
+    for key in paths {
+        let Some(rel) = key.strip_prefix(search.prefix.as_str()) else {
+            continue;
+        };
+        let Some(object) = facts.get(&key) else {
+            continue; // gone since the index read it
+        };
+        if (!options.show_hidden && find::hidden_path(rel))
+            || (!options.subfolders && rel.contains('/'))
+            || !options.refine.admits_name(key_name(rel), false)
+            || !options.refine.admits_facts(Some(object.size), object.modified)
+        {
+            continue;
+        }
+        if found >= find::FIND_MAX {
+            return true;
+        }
+        let line = contents
+            .sync
+            .local_copy(&contents.drive_id, &key)
+            .and_then(|copy| azul_search_index::file_text(&copy, &extractors))
+            .and_then(|text| find::document_line(&text, &matcher));
+        found += 1;
+        let row = find::found_document(&search.prefix, rel, object.size, object.modified, line);
+        batch.push(row, emit);
+    }
+    false
 }
 
 /// How a cloud drive's listing ended.
@@ -1392,11 +1496,12 @@ enum Listed {
     Stopped,
 }
 
-/// One level of a cloud drive's folder `prefix`, page by page through `on_page` (`false`: stop);
-/// its subfolders (the common prefixes) gathered into `folders`.
-fn list_level(
+/// A listing of a drive (`base`: one folder's level, or a folder and everything below it), page
+/// by page through `on_page` (`false`: stop); the subfolders of a level's listing (the common
+/// prefixes) gathered into `folders`.
+fn list_pages(
     drive: &dyn Drive,
-    prefix: &str,
+    base: &ListRequest,
     cancel: &AtomicBool,
     folders: &mut Vec<String>,
     on_page: &mut dyn FnMut(ListPage) -> bool,
@@ -1406,7 +1511,7 @@ fn list_level(
         if cancel.load(Ordering::Relaxed) {
             return Ok(Listed::Stopped);
         }
-        let mut request = ListRequest::folder(prefix).with_max_keys(SCAN_PAGE);
+        let mut request = base.clone().with_max_keys(SCAN_PAGE);
         if let Some(token) = next.take() {
             request = request.with_continuation(token);
         }
@@ -1434,7 +1539,8 @@ fn list_side_by_side(
     on_page: &mut dyn FnMut(ListPage) -> bool,
 ) -> Result<Listed, String> {
     let mut folders = Vec::new();
-    if let Listed::Stopped = list_level(drive, prefix, cancel, &mut folders, on_page)? {
+    let level = ListRequest::folder(prefix);
+    if let Listed::Stopped = list_pages(drive, &level, cancel, &mut folders, on_page)? {
         return Ok(Listed::Stopped);
     }
     if folders.is_empty() {
@@ -1598,6 +1704,139 @@ pub(crate) fn run_index_update(
     }
 }
 
+/// Brings the drive `drive_id`'s index in `dir` up to the drive's files as `source` reads them
+/// (its listing; each file from its local copy, or downloaded within the cap when allowed): how
+/// far it got now and then through `emit`; the answer says what it did and what the index holds
+/// - or why it could not.
+pub(crate) fn run_drive_index_update(
+    drive_id: &str,
+    source: &DriveSource,
+    dir: &Path,
+    extractors: &Extractors,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(Outcome),
+) -> Outcome {
+    Outcome::Indexed {
+        drive_id: drive_id.to_string(),
+        result: drive_index_update(drive_id, source, dir, extractors, cancel, emit),
+    }
+}
+
+/// [`run_drive_index_update`]'s work.
+fn drive_index_update(
+    drive_id: &str,
+    source: &DriveSource,
+    dir: &Path,
+    extractors: &Extractors,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(Outcome),
+) -> Result<(UpdateSummary, IndexStatus), String> {
+    let index = DriveIndex::open(dir).map_err(|e| e.to_string())?;
+    let held = index.status();
+    // Every file of the drive, from its listing (an encrypted drive's: its drive index).
+    let mut objects: Vec<ObjectInfo> = Vec::new();
+    let everything = ListRequest::recursive("");
+    let listed = list_pages(&*source.drive, &everything, cancel, &mut Vec::new(), &mut |page| {
+        objects.extend(page.objects);
+        true
+    })?;
+    if matches!(listed, Listed::Stopped) {
+        let summary = UpdateSummary {
+            listed: objects.len(),
+            cancelled: true,
+            ..UpdateSummary::default()
+        };
+        return Ok((summary, index.status()));
+    }
+    let files: Vec<azul_search::FileEntry> = objects
+        .into_iter()
+        .filter_map(|object| readable(drive_id, source, object))
+        .collect();
+    let mut read = |file: &azul_search::FileEntry, _kind: Kind, limit: u64| {
+        read_from_source(drive_id, source, file, limit)
+    };
+    let summary = index
+        .update_files(&files, &mut read, extractors, cancel, &mut |progress| {
+            emit(Outcome::IndexProgress {
+                drive_id: drive_id.to_string(),
+                progress,
+                held,
+            });
+        })
+        .map_err(|e| e.to_string())?;
+    Ok((summary, index.status()))
+}
+
+/// The file the index reads for `object` of a drive: its local copy's size and date when there
+/// is one, else the listing's when it may be downloaded; `None` (not read): a folder, a hidden
+/// item, a file with no copy here that may not be downloaded or is over the cap.
+fn readable(
+    drive_id: &str,
+    source: &DriveSource,
+    object: ObjectInfo,
+) -> Option<azul_search::FileEntry> {
+    if object.key.ends_with('/') || find::hidden_path(&object.key) {
+        return None;
+    }
+    if let Some(copy) = source.sync.local_copy(drive_id, &object.key) {
+        let meta = fs::metadata(copy).ok()?;
+        return Some(azul_search::FileEntry {
+            path: object.key,
+            size: meta.len(),
+            modified: modified_secs(&meta),
+        });
+    }
+    source
+        .download_cap
+        .filter(|cap| object.size <= *cap)
+        .map(|_| azul_search::FileEntry {
+            path: object.key,
+            size: object.size,
+            modified: object.modified,
+        })
+}
+
+/// The first `limit` bytes of a drive's file for its index: from its local copy, else downloaded
+/// (within the cap; the bytes are dropped once read). `Err` when it cannot be read now.
+fn read_from_source(
+    drive_id: &str,
+    source: &DriveSource,
+    file: &azul_search::FileEntry,
+    limit: u64,
+) -> Result<Option<Vec<u8>>, String> {
+    use std::io::Read as _;
+
+    if let Some(copy) = source.sync.local_copy(drive_id, &file.path) {
+        let mut bytes = Vec::new();
+        let read = fs::File::open(&copy).and_then(|f| f.take(limit).read_to_end(&mut bytes));
+        return match read {
+            Ok(_) => Ok(Some(bytes)),
+            Err(e) => Err(format!("{}: {e}", copy.display())),
+        };
+    }
+    match source.download_cap {
+        Some(cap) if file.size <= cap => {
+            let bytes = if file.size > limit {
+                source
+                    .drive
+                    .get_range(&file.path, ByteRange::new(0, Some(limit.saturating_sub(1))))
+            } else {
+                source.drive.get(&file.path)
+            };
+            bytes.map(Some).map_err(|e| e.to_string())
+        }
+        _ => Ok(None),
+    }
+}
+
+/// When a file on this computer was last modified (seconds since 1970).
+fn modified_secs(meta: &fs::Metadata) -> Option<u64> {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+}
+
 /// Whether the file `rel` is read as text (a plain file, or one of no known kind: the walk's
 /// reader passes over a binary one) rather than through its document's text.
 fn read_as_text(rel: &str) -> bool {
@@ -1616,12 +1855,7 @@ fn file_facts(root: &Path, rel: &str) -> Option<(u64, Option<u64>)> {
         path.push(segment);
     }
     let meta = fs::metadata(path).ok()?;
-    let modified = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs());
-    Some((meta.len(), modified))
+    Some((meta.len(), modified_secs(&meta)))
 }
 
 /// The contents part of an indexed search as it goes: the results so far against
@@ -2581,12 +2815,24 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         }
         Job::IndexDrive {
             drive_id,
-            root,
+            source,
             dir,
             cancel,
         } => {
             let mut emit = |outcome: Outcome| send(sender, outcome);
-            run_index_update(&drive_id, &root, &dir, &extractors(), &cancel, &mut emit)
+            match &source {
+                IndexSource::Folder(root) => {
+                    run_index_update(&drive_id, root, &dir, &extractors(), &cancel, &mut emit)
+                }
+                IndexSource::Drive(source) => run_drive_index_update(
+                    &drive_id,
+                    source,
+                    &dir,
+                    &extractors(),
+                    &cancel,
+                    &mut emit,
+                ),
+            }
         }
         Job::RemoveIndex { drive_id, dir } => {
             let error = match fs::remove_dir_all(&dir) {
@@ -2970,7 +3216,218 @@ mod tests {
             pattern,
             options: options.clone(),
             cache,
+            drive_index: false,
+            contents: None,
         }
+    }
+
+    /// A drive that records the listings asked of it (the drive underneath answers).
+    struct Recorded {
+        drive: LocalDrive,
+        asked: std::sync::Mutex<Vec<ListRequest>>,
+    }
+
+    impl Drive for Recorded {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            if let Ok(mut asked) = self.asked.lock() {
+                asked.push(request.clone());
+            }
+            self.drive.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.drive.get(key)
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.drive.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.drive.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.drive.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            self.drive.head(key)
+        }
+    }
+
+    /// The sync's answers as a test sets them: the local copies by key, the states by key.
+    #[derive(Default)]
+    struct Copies {
+        copies: std::collections::HashMap<String, PathBuf>,
+        states: std::collections::HashMap<String, crate::sync_lookup::SyncState>,
+    }
+
+    impl crate::sync_lookup::SyncLookup for Copies {
+        fn local_copy(&self, _drive_id: &str, key: &str) -> Option<PathBuf> {
+            self.copies.get(key).cloned()
+        }
+        fn sync_state(&self, _drive_id: &str, key: &str) -> Option<crate::sync_lookup::SyncState> {
+            self.states.get(key).copied()
+        }
+    }
+
+    /// An encrypted drive's names come from its drive index: the folder in one recursive
+    /// listing (the index answers it on this computer - no listing side by side), and nothing
+    /// is kept on disk even when a cache file is named.
+    #[test]
+    fn an_encrypted_drives_names_come_from_its_index_in_one_listing_and_none_is_kept() {
+        use azul_search::Pattern;
+
+        let dir = TempDir::new("azdrive-find-encrypted");
+        let cache = TempDir::new("azdrive-find-encrypted-cache");
+        for folder in ["a", "b", "c"] {
+            fs::create_dir_all(dir.path().join(folder)).expect("a folder");
+            fs::write(dir.path().join(format!("{folder}/report-{folder}.txt")), b"x").expect("a file");
+        }
+        let drive = Recorded {
+            drive: LocalDrive::without_manifest(dir.path().to_path_buf()),
+            asked: std::sync::Mutex::new(Vec::new()),
+        };
+        let cache_file = cache.path().join("drive.tsv");
+        let mut search = remote(
+            5,
+            "",
+            Pattern::literal("report"),
+            &crate::find::FindOptions::default(),
+            Some(cache_file.clone()),
+        );
+        search.drive_index = true;
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_find_remote(&search, &drive, &cancel, &mut |o| outcomes.push(o));
+        outcomes.push(last);
+        let mut keys: Vec<String> = searched(&outcomes).iter().map(|f| f.entry.key.clone()).collect();
+        keys.sort();
+        assert_eq!(keys, vec!["a/report-a.txt", "b/report-b.txt", "c/report-c.txt"]);
+        let asked = drive.asked.lock().map(|a| a.clone()).unwrap_or_default();
+        assert!(!asked.is_empty());
+        assert!(
+            asked.iter().all(|r| r.prefix.is_empty() && r.delimiter.is_none()),
+            "one recursive listing of the folder: {asked:?}"
+        );
+        assert!(!cache_file.exists(), "an encrypted drive's names are never kept on disk");
+    }
+
+    /// A drive whose files are not on this computer (a cloud drive, an encrypted drive) is
+    /// indexed from its listing: a file with a local copy is read there (its plain text, never
+    /// the bucket); the others only when downloads are allowed, each at most `download_cap`
+    /// bytes - read and dropped, nothing kept but the index.
+    #[test]
+    fn a_drives_index_reads_its_local_copies_and_downloads_within_the_cap_when_allowed() {
+        let bucket = TempDir::new("azdrive-index-bucket");
+        let copies = TempDir::new("azdrive-index-copies");
+        let dir = TempDir::new("azdrive-index-of-drive");
+        fs::create_dir_all(bucket.path().join("notes")).expect("a folder");
+        fs::write(bucket.path().join("notes/a.txt"), b"alpha in the cloud\n").expect("a file");
+        fs::write(bucket.path().join("notes/b.txt"), b"beta\n").expect("a file");
+        fs::write(bucket.path().join("big.txt"), b"gamma gamma gamma gamma\n").expect("a file");
+        fs::write(copies.path().join("a-copy.txt"), b"alpha copied here\n").expect("a copy");
+        let mut sync = Copies::default();
+        sync.copies
+            .insert(String::from("notes/a.txt"), copies.path().join("a-copy.txt"));
+        let drive: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(bucket.path().to_path_buf()));
+        let sync: Arc<dyn crate::sync_lookup::SyncLookup> = Arc::new(sync);
+        let none = azul_search_index::Extractors::default();
+        let cancel = AtomicBool::new(false);
+        let source = |download_cap| DriveSource {
+            drive: drive.clone(),
+            sync: sync.clone(),
+            download_cap,
+        };
+        let held = |outcome: Outcome| match outcome {
+            Outcome::Indexed {
+                result: Ok((summary, status)),
+                ..
+            } => (summary, status),
+            _ => panic!("the update did not end well"),
+        };
+        let (_, status) = held(run_drive_index_update(
+            "cloud",
+            &source(None),
+            dir.path(),
+            &none,
+            &cancel,
+            &mut |_| {},
+        ));
+        assert_eq!(status.files, 1, "only the local copy is read");
+        let index = azul_search_index::DriveIndex::open(dir.path()).expect("the index");
+        assert_eq!(index.query("copied", "", 10).expect("q"), vec!["notes/a.txt"]);
+        assert!(index.query("beta", "", 10).expect("q").is_empty(), "not downloaded");
+        drop(index);
+
+        let (summary, _) = held(run_drive_index_update(
+            "cloud",
+            &source(Some(10)),
+            dir.path(),
+            &none,
+            &cancel,
+            &mut |_| {},
+        ));
+        assert_eq!(summary.indexed, 1, "notes/b.txt, downloaded; big.txt is over the cap");
+        let index = azul_search_index::DriveIndex::open(dir.path()).expect("the index");
+        assert_eq!(index.query("beta", "", 10).expect("q"), vec!["notes/b.txt"]);
+        assert!(index.query("gamma", "", 10).expect("q").is_empty(), "over the cap");
+        assert_eq!(index.query("copied", "", 10).expect("q"), vec!["notes/a.txt"]);
+    }
+
+    /// A cloud or encrypted drive with an index: its search finds the names as before, then the
+    /// files whose text holds the words from the index - a local copy's line read there, a
+    /// downloaded file's without one -, each once.
+    #[test]
+    fn a_drives_contents_come_from_its_index_with_the_lines_of_its_local_copies() {
+        use azul_search::Pattern;
+
+        let bucket = TempDir::new("azdrive-contents-bucket");
+        let copies = TempDir::new("azdrive-contents-copies");
+        let dir = TempDir::new("azdrive-contents-index");
+        fs::create_dir_all(bucket.path().join("Docs")).expect("a folder");
+        fs::write(bucket.path().join("Docs/a.txt"), b"one\nthe walrus line\n").expect("a file");
+        fs::write(bucket.path().join("Docs/b.txt"), b"a walrus too\n").expect("a file");
+        fs::write(bucket.path().join("Docs/c.txt"), b"nothing\n").expect("a file");
+        fs::write(copies.path().join("a.txt"), b"one\nthe walrus line\n").expect("a copy");
+        let mut sync = Copies::default();
+        sync.copies.insert(String::from("Docs/a.txt"), copies.path().join("a.txt"));
+        let drive: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(bucket.path().to_path_buf()));
+        let sync: Arc<dyn crate::sync_lookup::SyncLookup> = Arc::new(sync);
+        let none = azul_search_index::Extractors::default();
+        let cancel = AtomicBool::new(false);
+        let source = DriveSource {
+            drive: drive.clone(),
+            sync: sync.clone(),
+            download_cap: Some(1024),
+        };
+        run_drive_index_update("cloud", &source, dir.path(), &none, &cancel, &mut |_| {});
+
+        let mut search = remote(
+            6,
+            "Docs/",
+            Pattern::literal("walrus"),
+            &crate::find::FindOptions {
+                contents: true,
+                ..crate::find::FindOptions::default()
+            },
+            None,
+        );
+        search.contents = Some(crate::find::RemoteContents {
+            dir: dir.path().to_path_buf(),
+            drive_id: String::from("cloud"),
+            sync: sync.clone(),
+        });
+        let mut outcomes = Vec::new();
+        let last = run_find_remote(&search, &*drive, &cancel, &mut |o| outcomes.push(o));
+        outcomes.push(last);
+        let found = searched(&outcomes);
+        let mut keys: Vec<&str> = found.iter().map(|f| f.entry.key.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec!["Docs/a.txt", "Docs/b.txt"]);
+        let a = found.iter().find(|f| f.entry.key == "Docs/a.txt").expect("a.txt");
+        let line = a.line.as_ref().expect("the local copy's line");
+        assert_eq!((line.line, line.text.as_str()), (2, "the walrus line"));
+        let b = found.iter().find(|f| f.entry.key == "Docs/b.txt").expect("b.txt");
+        assert!(b.line.is_none(), "no copy here: found by the index, no line");
+        assert_eq!(b.entry.size, Some(13), "its size from the listing");
+        assert!(end_of(&outcomes).error.is_none());
     }
 
     /// The end of a search's last answer.

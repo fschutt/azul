@@ -56,6 +56,8 @@ pub(crate) enum Toggle {
     SearchContents,
     /// The search passes over what .gitignore / .ignore files name.
     SearchIgnoreFiles,
+    /// A cloud drive's index downloads the files not on this computer, within the cap.
+    IndexCloudFiles,
 }
 
 /// Every command of the ribbon, its File menu, the menus and the backstage.
@@ -171,6 +173,14 @@ pub(crate) enum Action {
     OpenFileLocation,
     /// "Index this drive": the open drive's full-text index kept from now on, or thrown away.
     IndexDrive,
+    /// The Search tab's Save search: the open search kept in the settings.
+    SaveSearch,
+    /// The Search tab's Saved searches: the menu of them.
+    SavedSearchesMenu,
+    /// A saved search run again (its place in the settings' list).
+    RunSavedSearch(usize),
+    /// The open search's saved search forgotten.
+    ForgetSavedSearch,
 }
 
 /// A button's / menu item's click data.
@@ -357,10 +367,22 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             }
         }),
         Action::HideSelected => need_selection(),
-        Action::Toggle(Toggle::SearchContents) if s.find.as_ref().is_some_and(|f| f.remote) => {
+        Action::Toggle(Toggle::SearchContents)
+            if s.find.as_ref().is_some_and(|f| f.remote)
+                && !s
+                    .current_drive_id()
+                    .is_some_and(|id| s.settings.indexed_drives.contains(&id)) =>
+        {
             Some(String::from(
-                "A cloud drive is searched by name: its files would have to be downloaded to be \
-                 read.",
+                "A cloud drive's files are searched through its index: turn on Index this drive \
+                 first.",
+            ))
+        }
+        Action::Toggle(Toggle::IndexCloudFiles)
+            if s.current_drive().is_some_and(|i| s.local_root(i).is_some()) =>
+        {
+            Some(String::from(
+                "The files of a drive on this computer are read where they are.",
             ))
         }
         Action::CloseSearch => s
@@ -376,12 +398,19 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
                 None
             }
         }
+        Action::SaveSearch => s.find.is_none().then(|| {
+            String::from("Search first: Save search keeps the search box's text and its choices.")
+        }),
+        Action::SavedSearchesMenu => s
+            .settings
+            .saved_searches
+            .is_empty()
+            .then(|| String::from("No saved searches yet: Save search keeps the open one.")),
+        Action::ForgetSavedSearch => open_saved_search(s)
+            .is_none()
+            .then(|| String::from("The open search is not a saved one.")),
         Action::IndexDrive => match s.current_drive() {
-            None => Some(String::from("Open a drive on this computer to index it.")),
-            Some(index) if s.local_root(index).is_none() => Some(String::from(
-                "Only a drive on this computer is indexed: a cloud drive's files would have to \
-                 be downloaded.",
-            )),
+            None => Some(String::from("Open a drive to index it.")),
             Some(_) if s.cache_dir.is_none() => {
                 Some(String::from("There is no cache folder to keep an index in."))
             }
@@ -666,7 +695,88 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::OpenFileLocation => open_file_location(info, app, s),
         Action::IndexDrive => toggle_index(info, app, s),
+        Action::SaveSearch => save_search(info, app, s),
+        Action::SavedSearchesMenu => {
+            let mut items: Vec<MenuItem> = s
+                .settings
+                .saved_searches
+                .iter()
+                .enumerate()
+                .map(|(at, saved)| menu_item(app, &saved.name, Action::RunSavedSearch(at), false))
+                .collect();
+            if open_saved_search(s).is_some() {
+                items.push(MenuItem::Separator);
+                items.push(menu_item(
+                    app,
+                    "Forget this saved search",
+                    Action::ForgetSavedSearch,
+                    false,
+                ));
+            }
+            open_menu_below(info, items);
+        }
+        Action::RunSavedSearch(at) => run_saved_search(info, app, s, at),
+        Action::ForgetSavedSearch => {
+            if let Some(at) = open_saved_search(s) {
+                let gone = s.settings.saved_searches.remove(at);
+                println!("AZDRIVE_SAVED_SEARCH_FORGOTTEN {}", gone.name);
+                save_settings(info, app, s);
+            }
+        }
     }
+}
+
+/// The open search as Save search would keep it.
+fn open_search_saved(s: &DriveState) -> crate::find::SavedSearch {
+    crate::find::SavedSearch::of(&s.search, &s.settings, s.refines, &s.place)
+}
+
+/// Where the open search is among the saved ones (by its name), when a search is open.
+fn open_saved_search(s: &DriveState) -> Option<usize> {
+    s.find.as_ref()?;
+    crate::find::saved_position(&s.settings.saved_searches, &open_search_saved(s).name)
+}
+
+/// Save search: the open search kept in the settings under its text's name (in place of a saved
+/// search of that name), with the Search tab's choices and the place it searches.
+fn save_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if s.find.is_none() {
+        return;
+    }
+    let saved = open_search_saved(s);
+    let name = saved.name.clone();
+    crate::find::save_search(&mut s.settings.saved_searches, saved);
+    println!("AZDRIVE_SEARCH_SAVED {name}");
+    s.info(format!("Saved the search \"{name}\": Saved searches runs it again."));
+    save_settings(info, app, s);
+}
+
+/// A saved search run again: its place opened, the Search tab's choices and the Refine set as it
+/// kept them, its text in the search box.
+fn run_saved_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, at: usize) {
+    let Some(saved) = s.settings.saved_searches.get(at).cloned() else {
+        return;
+    };
+    if !saved.drive.is_empty() && s.slot_index(&saved.drive).is_none() {
+        s.error(format!(
+            "The drive the saved search \"{}\" searched is not in the list any more.",
+            saved.name
+        ));
+        return;
+    }
+    let place = saved.place();
+    if place != s.place {
+        go(info, app, s, place, true);
+    }
+    s.settings.search_contents = saved.contents;
+    s.settings.search_subfolders = saved.subfolders;
+    s.settings.search_ignore_files = saved.ignore_files;
+    s.refines = saved.refines();
+    s.search = saved.query.clone();
+    set_search_box_text(info, &saved.query);
+    println!("AZDRIVE_SAVED_SEARCH_RUN {}", saved.name);
+    save_settings(info, app, s);
+    crate::start_find(info, app, s);
 }
 
 /// "Index this drive": the open drive's index is made and kept up to date from now on (an
@@ -1307,6 +1417,11 @@ fn focus_search(info: &mut CallbackInfo) {
 /// The search box shows nothing any more: the app SETS its text (a rebuild with an empty text
 /// alone would not: what was typed there outranks the DOM until the app sets it).
 pub(crate) fn clear_search_box(info: &mut CallbackInfo) {
+    set_search_box_text(info, "");
+}
+
+/// Puts `text` into the address bar's search box (a saved search run again).
+pub(crate) fn set_search_box_text(info: &mut CallbackInfo, text: &str) {
     let dom = DomId { inner: 0 };
     let host = info.get_node_id_by_id_attribute(dom, AzString::from("shell-address-bar"));
     if host.into_raw() == 0 {
@@ -1315,7 +1430,7 @@ pub(crate) fn clear_search_box(info: &mut CallbackInfo) {
     let start = DomNodeId { dom, node: host };
     if let Some(search) = find_class(info, start, "__azul-native-address-bar-search", 16) {
         if let Some(input) = info.get_first_child(search).into_option() {
-            TextInput::set_text_in(*info, input, AzString::from(""));
+            TextInput::set_text_in(*info, input, AzString::from(text));
         }
     }
 }
@@ -2993,6 +3108,7 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
         Toggle::SearchIgnoreFiles => {
             settings.search_ignore_files = !settings.search_ignore_files;
         }
+        Toggle::IndexCloudFiles => settings.index_cloud_files = !settings.index_cloud_files,
     }
     println!(
         "AZDRIVE_PANES {} {} {}",
@@ -3017,6 +3133,16 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
         Toggle::PreviewPane | Toggle::DetailsPane => {
             s.clear_preview();
             request_preview(info, app, s);
+        }
+        Toggle::IndexCloudFiles => {
+            println!("AZDRIVE_INDEX_CLOUD_FILES {}", s.settings.index_cloud_files);
+            // The open drive's index reads (or forgets) its files in the cloud now.
+            let indexed = s
+                .current_drive_id()
+                .filter(|id| s.settings.indexed_drives.contains(id));
+            if let Some(drive_id) = indexed {
+                crate::update_index(info, app, s, &drive_id);
+            }
         }
         _ => {}
     }

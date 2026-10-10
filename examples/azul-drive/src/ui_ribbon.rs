@@ -21,7 +21,9 @@
 //!        [Remove drive]  System [Refresh][Options]
 //! Search (Search Tools, while a search is open): Location [Current folder][All subfolders]
 //!        Refine [Date modified v] Kind v / Size v  Options [File contents] Hidden items /
-//!        Skip ignored files / Open file location / Index this drive  Close [Close search]
+//!        Skip ignored files / Open file location / Index this drive / Index files in the
+//!        cloud  Saved [Save search]
+//!        Saved searches v  Close [Close search]
 //! ```
 //!
 //! Every control runs its [`Action`] or is greyed with the reason it cannot run now
@@ -582,6 +584,29 @@ fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                     button(s, app, "manage_search", "Index this drive", Action::IndexDrive)
                         .with_toggled(indexed),
                 ),
+                small(
+                    button(
+                        s,
+                        app,
+                        "cloud_download",
+                        "Index files in the cloud",
+                        Action::Toggle(Toggle::IndexCloudFiles),
+                    )
+                    .with_toggled(settings.index_cloud_files),
+                ),
+            ],
+        ))
+        .with_group(group(
+            "Saved",
+            vec![
+                large(button(s, app, "bookmark_add", "Save search", Action::SaveSearch)),
+                small(menu_button(
+                    s,
+                    app,
+                    "bookmarks",
+                    "Saved searches",
+                    Action::SavedSearchesMenu,
+                )),
             ],
         ))
         .with_group(group(
