@@ -56,7 +56,17 @@ node layout, AzDrive's stdout markers and the files on disk:
     22. the Search tab's "Index this drive" (azul-search-index, in the run's --cache-dir): a
         word only a Word document holds finds nothing by the walk (a zip is binary to it); with
         the Home drive indexed (AZDRIVE_INDEXED, the status line's "Indexed:") the same search
-        finds the document, its line from its text; turned off, the index's folder is gone.
+        finds the document, its line from its text; turned off, the index's folder is gone;
+    23. the Search tab's saved searches: Save search keeps the open search ("zebra-quartz" in
+        Find, File contents on); from Home, Saved searches runs it again - Find opens, the
+        search finds plan.md again -, and "Forget this saved search" drops it;
+    24. a cloud drive's index (AzDrive restarted with an S3 drive of the mock stack in its drives
+        file, its key in the run's keyring file): a word only a file's text holds finds nothing
+        by name; "Index files in the cloud" and "Index this drive" download each file within
+        the cap (GetObject at the mock), index its text and keep nothing but the index; the same
+        search finds the file from the index; turned off, the index is gone. (An encrypted
+        drive's search - names from its drive index - needs a build with the encryption feature
+        and an encrypted Azlin drive: its unit tests cover it.)
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
@@ -79,6 +89,7 @@ Every key_down has its key_up (the E2E key_up rule).
 
 import argparse
 import glob
+import json
 import zipfile
 import os
 import re
@@ -87,6 +98,7 @@ import sys
 import tempfile
 
 import azlin_e2e as e2e
+import azlin_mock_stack
 from azlin_e2e import Failure
 
 # The key of the platform's shortcut modifier (KeyModifiers::primary_down):
@@ -431,6 +443,7 @@ def run(args, logs):
     ]
     app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout)
     docs = os.path.join(home, "Documents")
+    stack = None
     try:
         # 1. This PC.
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
@@ -1014,11 +1027,132 @@ def run(args, logs):
             "walk; the Home drive indexed (\"Indexed:\" on the status line), the same search "
             "found the Word document with its line; turned off, the index's folder went")
 
+        # 23. Saved searches: Save search keeps the open search, Saved searches runs it again.
+        def ribbon_menu(button, item, key, pattern, what):
+            """Opens the ribbon's menu `button` and clicks its entry `item`, waiting for `key`."""
+            windows_before = len(app.window_ids())
+            app.ribbon(button)
+            menu = app.until("the %s menu" % button,
+                             lambda: app.popup() if len(app.window_ids()) > windows_before
+                             else None)
+            app.until('"%s" in the menu' % item,
+                      lambda: any(norm(n.get("text")) == item for n in app.hierarchy(menu)))
+            app.after(what, key, pattern, lambda: app.click_exact(item, window=menu))
+            app.until("the menu closed", lambda: len(app.window_ids()) <= windows_before)
+
+        focus_search_box(app)
+        app.after("the search to keep", "AZDRIVE_SEARCHED", r"1 contents zebra-quartz",
+                  lambda: (app.must("text_input", text="zebra-quartz"), app.frame(2)))
+        app.tab("Search")
+        app.after("Save search", "AZDRIVE_SEARCH_SAVED", r"zebra-quartz",
+                  lambda: app.ribbon("Save search"))
+        focus_search_box(app)
+        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
+        focus_search_box(app)
+        app.after("another search in Home", "AZDRIVE_SEARCHED", r"\d+ contents needle",
+                  lambda: (app.must("text_input", text="needle"), app.frame(2)))
+        app.tab("Search")
+        app.after("the saved search's results", "AZDRIVE_SEARCHED", r"1 contents zebra-quartz",
+                  lambda: ribbon_menu("Saved searches", "zebra-quartz",
+                                      "AZDRIVE_SAVED_SEARCH_RUN", r"zebra-quartz",
+                                      "the saved search run again"))
+        app.until("back in Find: its result", lambda: "plan.md" in item_names(app))
+        app.until("its folder: Find", lambda: "Find" in texts_in_view(app))
+        app.screenshot(os.path.join(out, "23-saved-search.png"))
+        app.tab("Search")
+        ribbon_menu("Saved searches", "Forget this saved search",
+                    "AZDRIVE_SAVED_SEARCH_FORGOTTEN", r"zebra-quartz", "Forget")
+        focus_search_box(app)
+        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        log("23. saved searches: \"zebra-quartz\" (Find, File contents) saved; from Home, Saved "
+            "searches ran it again (Find, plan.md); Forget dropped it")
+
+        # 24. A cloud drive's index: the mock stack's S3 bucket as a drive of AzDrive (restarted
+        # with it in the drives file and its key in the run's keyring file).
+        stack = azlin_mock_stack.start(os.path.join(logs, "s3"))
+        bucket = os.path.join(logs, "s3", "e2e-cloud", "Notes")
+        os.makedirs(bucket)
+        with open(os.path.join(bucket, "minutes.txt"), "wb") as f:
+            f.write(b"the tusk ledger of the harbour\n")
+        with open(os.path.join(bucket, "other.txt"), "wb") as f:
+            f.write(b"nothing to see\n")
+        drives_file = os.path.join(logs, "config", "drives.json")
+        os.makedirs(os.path.dirname(drives_file), exist_ok=True)
+        try:
+            with open(drives_file, "r", encoding="utf-8") as f:
+                drives = json.load(f)
+        except (OSError, ValueError):
+            drives = {"format": "azul-storage.drives", "version": 1, "drives": []}
+        drives["drives"] = [d for d in drives.get("drives", []) if d.get("id") != "e2e-cloud"]
+        drives["drives"].append({
+            "id": "e2e-cloud",
+            "name": "E2E Cloud",
+            "location": {"kind": "s3", "endpoint": stack.s3_url,
+                         "region": azlin_mock_stack.REGION, "bucket": "e2e-cloud",
+                         "path_style": True},
+        })
+        with open(drives_file, "w", encoding="utf-8") as f:
+            json.dump(drives, f)
+        keyring_file = os.path.join(logs, "keyring.json")
+        with open(keyring_file, "w", encoding="utf-8") as f:
+            json.dump({"azul-storage/s3/e2e-cloud": json.dumps({
+                "access_key_id": azlin_mock_stack.ACCESS_KEY,
+                "secret_access_key": azlin_mock_stack.SECRET_KEY,
+                "session_token": None})}, f)
+        app.stop()
+        app = Drive("azdrive-cloud", binary, switches + ["--open", "E2E Cloud/Notes"],
+                    args.debug_port, logs, args.timeout,
+                    extra_env={"AZ_KEYRING_FILE": keyring_file})
+        app.until("the debug server", lambda: app.op("get_dom_tree"))
+        app.must("resize", width=1280.0, height=800.0)
+        app.until("the cloud drive's folder", lambda: app.printed(
+            "AZDRIVE_LISTED", r"e2e-cloud Notes/ 2"))
+        app.until("its files", lambda: "minutes.txt" in item_names(app))
+        focus_search_box(app)
+        app.after("a word only a file's text holds, without an index", "AZDRIVE_SEARCHED",
+                  r"0 names ledger",
+                  lambda: (app.must("text_input", text="ledger"), app.frame(2)))
+        app.tab("Search")
+        app.after("Index files in the cloud", "AZDRIVE_INDEX_CLOUD_FILES", r"true",
+                  lambda: app.ribbon("Index files in the cloud"))
+        stack.s3.clear_log()
+        app.after("Index this drive", "AZDRIVE_INDEXED", r"e2e-cloud 2 2 0",
+                  lambda: app.ribbon("Index this drive"))
+        gets = sorted(stack.s3.object_gets() or [])
+        if gets != ["Notes/minutes.txt", "Notes/other.txt"]:
+            raise Failure("the index downloaded %r, not each file once" % gets)
+        kept = [name for _, _, names in os.walk(os.path.join(logs, "cache")) for name in names
+                if name in ("minutes.txt", "other.txt")]
+        if kept:
+            raise Failure("a downloaded file stayed on disk: %r" % kept)
+        focus_search_box(app)
+        app.after("Escape closes the search", "AZDRIVE_SEARCH_CLOSED", r".*",
+                  lambda: app.key("escape"))
+        app.after("the same word, from the drive's index", "AZDRIVE_SEARCHED",
+                  r"1 contents ledger",
+                  lambda: (app.must("text_input", text="ledger"), app.frame(2)))
+        app.until("the file whose text holds it", lambda: "minutes.txt" in item_names(app))
+        if "other.txt" in item_names(app):
+            raise Failure("a file without the word is a result")
+        app.screenshot(os.path.join(out, "24-cloud-index.png"))
+        app.tab("Search")
+        app.after("Index this drive off", "AZDRIVE_INDEX_REMOVED", r"e2e-cloud",
+                  lambda: app.ribbon("Index this drive"))
+        app.after("Index files in the cloud off", "AZDRIVE_INDEX_CLOUD_FILES", r"false",
+                  lambda: app.ribbon("Index files in the cloud"))
+        focus_search_box(app)
+        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        log("24. a cloud drive (the mock S3): \"ledger\" found nothing by name; Index files in "
+            "the cloud + Index this drive downloaded each file once (nothing kept), and the same "
+            "search found Notes/minutes.txt from the index; both turned off again")
+
         log("PASS: AzDrive browsed, laid out, sorted, selected, renamed, created, copied, "
             "resolved a conflict, deleted and undid, walked the history, toggled the panes, "
             "showed Properties and the Options, took the editing keys, walked its source list, "
             "its breadcrumb and its File menu, opened 3,000 files at once, searched a folder "
-            "and every folder below it by name and by contents, and indexed a drive")
+            "and every folder below it by name and by contents, indexed a drive, kept a saved "
+            "search, and indexed a cloud drive's files")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
@@ -1026,6 +1160,8 @@ def run(args, logs):
         raise
     finally:
         app.stop()
+        if stack is not None:
+            stack.stop()
 
 
 def main():
