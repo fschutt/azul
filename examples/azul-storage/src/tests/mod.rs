@@ -53,6 +53,9 @@ mod sharing;
 /// The key rotation and re-encryption (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod rotation;
+/// The key rotation through the drive index (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod rotation_meta;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;

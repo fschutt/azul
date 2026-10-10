@@ -13,6 +13,9 @@ mod pack;
 #[cfg(feature = "index-cache")]
 mod query_cache;
 mod race;
+/// The drive index under a new drive key (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod rekey;
 mod repo;
 mod seal;
 mod shard;
