@@ -351,6 +351,17 @@ fn share_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                 small(button(
                     s,
                     app,
+                    "pause_circle",
+                    if sync_paused(s) {
+                        "Resume syncing"
+                    } else {
+                        "Pause syncing"
+                    },
+                    Action::Sync(SyncAction::Pause),
+                )),
+                small(button(
+                    s,
+                    app,
                     "drive_folder_upload",
                     "Sync with a folder",
                     Action::Sync(SyncAction::Pair),
@@ -366,6 +377,13 @@ fn share_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                  system's sharing settings.",
             ))],
         ))
+}
+
+/// Whether the drive the sync commands are about is paused.
+fn sync_paused(s: &DriveState) -> bool {
+    crate::sync_view::target_drive(s)
+        .and_then(|id| crate::sync_view::setup_of(s, &id).map(|p| p.paused))
+        .unwrap_or(false)
 }
 
 // ==== View ====
