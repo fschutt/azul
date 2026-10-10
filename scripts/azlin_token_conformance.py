@@ -44,6 +44,12 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     a period token and reads the drive (GET /v1/drives/<id>) without revoking the family - the
     new token refreshes after that; a token older than the previous one is a reuse on a read
     too (401 `token_reuse`).
+12. The recovery key (§18.7, AZLINSEC17 F14, scripts/azlin_ed25519.py): a new drive's owner
+    registers an Ed25519 key (POST /v1/drives/<id>/recovery); a lockdown signed with it and no
+    drive token is 202 with `pending_until` and a new family's drive token; the same request
+    again is 409 `nonce_used`, one signed by another key 401; the drive's status names the
+    pending lockdown; the pending family cannot cancel it (403), the owner can (200), and then
+    there is none to cancel (409 `no_pending_lockdown`).
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -61,6 +67,7 @@ sys.path.insert(0, HERE)
 
 import azlin_claim  # noqa: E402
 import azlin_client  # noqa: E402
+import azlin_ed25519  # noqa: E402
 import azlin_period  # noqa: E402
 
 # The test provider's card that approves (the mock's and azlin-token's payments.rs).
@@ -167,7 +174,64 @@ def run(token_url, s3_url=None):
     suite.check('a route nobody serves is 404 not_found',
                 status == 404 and error_code(value) == 'not_found', '(HTTP %d %r)' % (status, value))
     claim_checks(suite, client)
+    recovery_checks(suite, client)
     return suite.failures
+
+
+def recovery_checks(suite, client):
+    """12. A recovery-key lockdown: registered, signed without a drive token, pending, cancelled
+    by the owner."""
+    status, bundle, text = client.signup('azlin-conformance-recovery')
+    if not suite.check('a drive for the recovery key', status == 201 and isinstance(bundle, dict),
+                       '(HTTP %d %s)' % (status, text[:120])):
+        return
+    drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
+    owner = bundle.get('drive_token') or ''
+    path = '/v1/drives/%s' % drive_id
+    secret, public = azlin_ed25519.new_key()
+    status, value, _ = client.call('POST', path + '/recovery', {'recovery_pubkey': public},
+                                   bearer=owner)
+    suite.check("the owner registers the drive's recovery key", status == 200,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    nonce = os.urandom(16).hex()
+    message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
+    request = {'nonce': nonce, 'signature': azlin_ed25519.sign_b64(secret, message)}
+    status, value, _ = client.call('POST', path + '/lockdown', request)
+    pending_token = (value or {}).get('drive_token') or ''
+    suite.check('a lockdown signed with the recovery key, without a drive token, is 202 pending',
+                status == 202 and unix_of((value or {}).get('pending_until')) is not None
+                and bool(pending_token), '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown', request)
+    suite.check('the same lockdown request again is 409 nonce_used',
+                status == 409 and error_code(value) == 'nonce_used',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    other, _ = azlin_ed25519.new_key()
+    nonce = os.urandom(16).hex()
+    message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
+    status, value, _ = client.call('POST', path + '/lockdown',
+                                   {'nonce': nonce,
+                                    'signature': azlin_ed25519.sign_b64(other, message)})
+    suite.check('a lockdown signed by another key is 401', status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('GET', path, bearer=owner)
+    suite.check("the drive's status names the pending lockdown",
+                status == 200 and unix_of((value or {}).get('lockdown_pending_until')) is not None,
+                '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=pending_token)
+    suite.check('the pending family cannot cancel its own lockdown (403)', status == 403,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=owner)
+    suite.check('the owner cancels the pending lockdown',
+                status == 200 and (value or {}).get('cancelled') is True,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('GET', path, bearer=owner)
+    suite.check('then no lockdown is pending',
+                status == 200 and (value or {}).get('lockdown_pending_until') is None,
+                '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=owner)
+    suite.check('nothing left to cancel is 409 no_pending_lockdown',
+                status == 409 and error_code(value) == 'no_pending_lockdown',
+                '(HTTP %d %r)' % (status, error_code(value)))
 
 
 def claim_checks(suite, client):

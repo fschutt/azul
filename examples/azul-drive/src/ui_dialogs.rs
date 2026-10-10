@@ -139,12 +139,18 @@ extern "C" fn on_form_text(
         return keep;
     };
     let text = state.get_text().as_str().to_string();
-    if let Some(Popup::ChooseLocation {
-        text: typed, error, ..
-    }) = s.popup.as_mut()
-    {
-        *typed = text;
-        error.clear();
+    match s.popup.as_mut() {
+        Some(Popup::ChooseLocation {
+            text: typed, error, ..
+        }) => {
+            *typed = text;
+            error.clear();
+        }
+        Some(Popup::Voucher { code, error, .. }) => {
+            *code = text;
+            error.clear();
+        }
+        _ => {}
     }
     keep
 }
@@ -216,6 +222,34 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             (format!("{verb} the selected items to"), body)
         }
         Popup::Transfers { .. } => transfers_dialog(s, app),
+        Popup::Voucher {
+            drive_id,
+            code,
+            error,
+            busy,
+        } => {
+            let name = s.drive_name(&browse::Place::folder(drive_id, ""));
+            let mut body = Dom::create_div()
+                .with_id(ids::VOUCHER)
+                .with_css("display: flex; flex-direction: column; min-width: 380px;")
+                .with_child(line(&format!(
+                    "A voucher adds its months (or its value) to \"{name}\"'s paid period."
+                )))
+                .with_child(label("The voucher's code"))
+                .with_child(input(app, code, "AZ-XXXX-XXXX", ids::VOUCHER_CODE));
+            if *busy {
+                body.add_child(line("Redeeming the voucher..."));
+            }
+            if !error.is_empty() {
+                body.add_child(line(error).with_css("color: #C42B1C;"));
+            }
+            body.add_child(buttons(vec![
+                button("Cancel", app, on_cancel_popup),
+                typed_button("Redeem", ButtonType::Primary, app, crate::vouchers::on_redeem)
+                    .with_id(ids::VOUCHER_REDEEM),
+            ]));
+            (format!("Redeem a voucher for \"{name}\""), body)
+        }
         #[cfg(feature = "encryption")]
         Popup::Encryption(dialog) => crate::encryption::dialog_parts(dialog, s, app),
     }
@@ -919,6 +953,20 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                                     .with_css("font-size: 12px; opacity: 0.75;"),
                                 ),
                         );
+                    if slot.entry.azlin().is_some() {
+                        row.add_child(
+                            Button::create(AzString::from("Redeem a voucher"))
+                                .with_on_click(
+                                    RefAny::new(DriveRef {
+                                        app: app.clone(),
+                                        index,
+                                    }),
+                                    on_voucher_drive as ButtonOnClickCallbackType,
+                                )
+                                .dom()
+                                .with_id(ids::voucher_button(&slot.entry.id)),
+                        );
+                    }
                     if !slot.is_built_in() {
                         row.add_child(
                             Button::create(AzString::from("Remove"))
@@ -1013,6 +1061,19 @@ extern "C" fn on_remove_drive(mut data: RefAny, mut info: CallbackInfo) -> Updat
             let drive_id = slot.entry.id.clone();
             s.popups_opened += 1;
             s.popup = Some(Popup::ConfirmForget { drive_id });
+        }
+    })
+}
+
+/// Options > Drives' "Redeem a voucher" of an Azlin drive: its dialog.
+extern "C" fn on_voucher_drive(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<DriveRef>().map(|d| (d.app.clone(), d.index))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |_info, _app, s| {
+        if let Some(drive_id) = s.slots.get(index).map(|slot| slot.entry.id.clone()) {
+            crate::vouchers::open(s, &drive_id);
         }
     })
 }

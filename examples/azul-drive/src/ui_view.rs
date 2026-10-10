@@ -183,6 +183,10 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     if let Some(message) = &s.message {
         area.add_child(info_bar(message, app));
     }
+    // A recovery-key lockdown of the drive in view is pending: what it does, and Cancel.
+    if let Some(bar) = crate::periods::lockdown_bar(s, app) {
+        area.add_child(bar);
+    }
     let grid = uses_icon_grid(s);
     // A search's results (of This PC too) are a folder's view of rows.
     let folder = matches!(s.place, Place::Folder { .. }) || s.find.is_some();

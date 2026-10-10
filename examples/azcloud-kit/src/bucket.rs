@@ -300,13 +300,10 @@ impl Bucket {
         Err(last.unwrap_or_else(|| DriveError::Transport(String::from("no endpoint to ask"))))
     }
 
-    /// The error of a failed answer about `key`, with the node's own reason when it sent one.
+    /// The error of a failed answer about `key` (an Azlin node's own code, pause and request ID
+    /// in its ServiceError: user_errors words it).
     fn failure(reply: &HttpReply, key: &str) -> CloudError {
-        let error = CloudError::Drive(S3Drive::failure_of(reply, Some(key)));
-        match reply.header("x-azlin-error") {
-            Some(why) => error.context(format!("{key} (x-azlin-error {why})")),
-            None => error,
-        }
+        CloudError::Drive(S3Drive::failure_of(reply, Some(key)))
     }
 
     /// PUT (a multipart upload above twice the part size); the ETag the service answered.

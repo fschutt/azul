@@ -25,6 +25,7 @@
 //! | `POST /v1/drives/{id}/lockdown`       | every other device, key and link revoked at once  |
 //! |                                       | (or by the recovery key: a fresh nonce, 48 h)     |
 //! | `POST /v1/drives/{id}/lockdown/cancel`| a pending recovery-key lockdown called off        |
+//! | `POST /v1/drives/{id}/recovery`       | the drive's recovery key (what signs a lockdown)  |
 //! | `POST /v1/vouchers/redeem`            | a voucher: days on a drive, or a new drive        |
 //! | `POST /v1/drives/{id}/restore`        | a prefix as it was at a time (queued)             |
 //! | `GET /v1/drives/{id}/restore/{req}`   | a restore's progress                              |
@@ -319,6 +320,20 @@ impl fmt::Debug for RecoveryLockdown {
             .field("drive_token", &"<hidden>")
             .finish()
     }
+}
+
+/// A drive as the token server keeps it ([`TokenServer::drive_status`]).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DriveStatus {
+    /// `100GB`.
+    pub tier: Option<String>,
+    /// Paid until, in seconds since 1970.
+    pub period_until: Option<u64>,
+    /// A recovery-key lockdown takes effect then (seconds since 1970) unless a device of the
+    /// owner cancels it ([`TokenServer::lockdown_cancel`]).
+    pub lockdown_pending_until: Option<u64>,
+    /// The drive takes no writes (unpaid past its grace, a pending lockdown).
+    pub read_only: bool,
 }
 
 /// What a voucher bought.
@@ -928,6 +943,39 @@ impl<'a> TokenServer<'a> {
     pub fn info(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
         let path = format!("/v1/drives/{}", check_id(drive_id)?);
         self.call_or_null(Method::Get, &path, Some(token_of(drive_token)?), None)
+    }
+
+    /// [`Self::info`] as a [`DriveStatus`]: the tier, the period's end, a pending recovery-key
+    /// lockdown, whether the drive takes no writes.
+    pub fn drive_status(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+    ) -> Result<DriveStatus, TokenError> {
+        let info = self.info(drive_id, drive_token)?;
+        let time = |key: &str| info[key].as_str().and_then(azul_storage::time::parse_iso8601);
+        Ok(DriveStatus {
+            tier: info["tier"].as_str().map(str::to_string),
+            period_until: time("period_until"),
+            lockdown_pending_until: time("lockdown_pending_until"),
+            read_only: info["read_only"].as_bool().unwrap_or(false),
+        })
+    }
+
+    /// Registers the drive's recovery key (`POST /v1/drives/{id}/recovery {"recovery_pubkey"}`,
+    /// [`crate::recovery::RecoveryKey::public_base64`]): what a lockdown without a drive token
+    /// is signed with. A grant: send it with the newest drive token
+    /// ([`crate::SharedKeyring::with_drive_token`]).
+    pub fn set_recovery_key(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        public_key_base64: &str,
+    ) -> Result<(), TokenError> {
+        let path = format!("/v1/drives/{}/recovery", check_id(drive_id)?);
+        let body = json!({ "recovery_pubkey": public_key_base64.trim() });
+        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+            .map(|_| ())
     }
 
     /// A new member token family of the drive (`POST /v1/drives/{id}/members`): what a second

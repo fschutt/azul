@@ -76,8 +76,13 @@
 //! `AZDRIVE_TRANSFER <id> planned|conflict|done|failed|cancelled <n>`, `AZDRIVE_DONE <what> <key>`,
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
 //! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
-//! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>`, `AZDRIVE_TIERS <n>`,
+//! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>|voucher`, `AZDRIVE_TIERS <n>`,
 //! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive id>`,
+//! `AZDRIVE_PERIOD_TOKENS <checkout id> <drive id> <n>`, `AZDRIVE_PERIOD_REDEEMED <drive id> <n>
+//! <until>`, `AZDRIVE_PROBLEM <drive id> <code> <request id>`, `AZDRIVE_PROBLEM_GONE <drive
+//! id>`, `AZDRIVE_LOCKDOWN_PENDING <drive id> <until>`, `AZDRIVE_LOCKDOWN_CANCELLED <drive id>`,
+//! `AZDRIVE_VOUCHER [new] <drive id> [<days>]`, `AZDRIVE_RECOVERY_KEY <drive id>`,
+//! `AZDRIVE_RECOVERY_LOCKDOWN <drive id>`,
 //! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
 //! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
 //! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
@@ -115,6 +120,16 @@ pub mod find;
 #[cfg(test)]
 mod find_tests;
 mod ids;
+/// The Azlin drives' paid months: when their periods are looked at, the redemptions.
+mod periods;
+/// A drive's errors as the user sees them: the table's words, the error ID, notifications.
+mod problems;
+/// Vouchers on a drive (Options > Drives).
+mod vouchers;
+#[cfg(test)]
+mod periods_tests;
+#[cfg(test)]
+mod problems_tests;
 /// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
 #[cfg(feature = "encryption")]
 mod encryption;
@@ -526,6 +541,14 @@ pub(crate) enum Popup {
     /// Encrypting a drive, its recovery sheet, unlocking it with the recovery code.
     #[cfg(feature = "encryption")]
     Encryption(encryption::Dialog),
+    /// Options > Drives' "Redeem a voucher" of an Azlin drive: the code, why not, a redemption
+    /// on its way.
+    Voucher {
+        drive_id: String,
+        code: String,
+        error: String,
+        busy: bool,
+    },
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -694,6 +717,13 @@ pub(crate) struct DriveState {
     /// The paid checkouts' period tokens until each buys its drive a month: one 0600 file per
     /// drive in `period-tokens` beside the drives file.
     pub period_tokens: azcloud_kit::PeriodTokenStore,
+    /// When each Azlin drive's period is looked at next (a day, an hour after a failure).
+    pub redemptions: periods::Schedule,
+    /// The drives' storage and token server problems as the user sees them.
+    pub problems: problems::Problems,
+    /// The drives with a recovery-key lockdown pending, and until when (seconds since 1970):
+    /// the bar with Cancel over the drive in view.
+    pub pending_lockdowns: HashMap<String, u64>,
 }
 
 impl DriveState {
@@ -1932,6 +1962,8 @@ fn scanned(
     }
     s.listing_done = true;
     s.loading = false;
+    // The drive answered: its problem leaves the status line.
+    problems::drive_answered(s);
     if let Some(mut fresh) = s.refreshing.take() {
         // The rows read again show the old sizes and dates until their own stats are in.
         listing::carry_stats(&s.entries, &mut fresh);
@@ -2001,6 +2033,7 @@ pub(crate) extern "C" fn on_job_done(
             }
             | Outcome::Searched { end: None, .. }
             | Outcome::IndexProgress { .. }
+            | Outcome::DriveProblem { .. }
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
@@ -2263,7 +2296,9 @@ pub(crate) extern "C" fn on_job_done(
             result,
             ..
         } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
-        Outcome::PeriodsRedeemed { results } => add_flow::periods_redeemed(results),
+        Outcome::PeriodsRedeemed { results } => {
+            periods::periods_redeemed(&mut info, s, results);
+        }
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -2354,6 +2389,15 @@ pub(crate) extern "C" fn on_job_done(
         },
         #[cfg(feature = "encryption")]
         Outcome::Encryption(outcome) => encryption::on_outcome(&mut info, &handle, s, outcome),
+        Outcome::DriveProblem { serial, problem } => {
+            problems::drive_problem(&mut info, s, serial, problem);
+        }
+        Outcome::LockdownCancelled { drive_id, result } => {
+            periods::lockdown_cancelled(s, &drive_id, result);
+        }
+        Outcome::VoucherRedeemed { drive_id, result } => {
+            vouchers::redeemed(s, &drive_id, result);
+        }
     }
     Update::RefreshDom
 }
@@ -2557,8 +2601,10 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         s.backstage = backstage;
         // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
         add_flow::start_claims(info, app, s);
-        // An Azlin drive whose period nears its end gets its next month from a kept token.
-        add_flow::start_redemptions(info, app, s, None);
+        // An Azlin drive whose period nears its end gets its next month from a kept token: now,
+        // then once a day while AzDrive runs.
+        periods::start_redemptions(info, app, s, None);
+        periods::start_timer(info, app, s);
         // Encrypted drives get smaller while the computer is idle on mains power.
         #[cfg(feature = "encryption")]
         encryption::start_recompression(info, app);
@@ -2842,6 +2888,9 @@ pub fn start() {
         keyring,
         claiming: false,
         period_tokens,
+        redemptions: periods::Schedule::default(),
+        problems: problems::Problems::default(),
+        pending_lockdowns: HashMap::new(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

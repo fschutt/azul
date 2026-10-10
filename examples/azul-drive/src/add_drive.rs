@@ -48,6 +48,8 @@ pub(crate) enum AddPage {
     Sources,
     /// One source's form.
     Form,
+    /// Buy storage's "I have a voucher": its code, then the new drive it buys.
+    Voucher,
 }
 
 /// The tier list of Buy storage.
@@ -131,6 +133,8 @@ pub(crate) struct AddDialog {
     pub kept: Option<PendingCheckout>,
     /// The look the fields page should take (`flora-light`, `flat-dark`).
     pub look_name: String,
+    /// "I have a voucher"'s code, as typed.
+    pub voucher_code: String,
 }
 
 /// The surfaces AzDrive can show: the popover's hosted fields, a hosted page in the web view,
@@ -279,6 +283,7 @@ impl AddDialog {
             card_name: String::new(),
             kept: None,
             look_name: String::from("flat-light"),
+            voucher_code: String::new(),
         }
     }
 
@@ -317,6 +322,12 @@ impl AddDialog {
         self.page = AddPage::Sources;
     }
 
+    /// Buy storage's "I have a voucher".
+    pub(crate) fn choose_voucher(&mut self) {
+        self.page = AddPage::Voucher;
+        self.notice.clear();
+    }
+
     /// The form of the source `id` at its defaults; `false` (and nothing changes) when this
     /// build cannot open it.
     pub(crate) fn open_service(&mut self, id: &str) -> bool {
@@ -339,6 +350,7 @@ impl AddDialog {
             AddPage::Form if self.editing.is_none() => AddPage::Sources,
             AddPage::Form => AddPage::Form,
             AddPage::Sources | AddPage::Buy | AddPage::Choose => AddPage::Choose,
+            AddPage::Voucher => AddPage::Buy,
         };
         self.error.clear();
     }
@@ -414,6 +426,7 @@ impl AddDialog {
             AddPage::Buy => String::from("buy"),
             AddPage::Sources => String::from("sources"),
             AddPage::Form => format!("form {}", self.service.unwrap_or("-")),
+            AddPage::Voucher => String::from("voucher"),
         }
     }
 

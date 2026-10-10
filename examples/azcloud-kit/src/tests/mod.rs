@@ -14,6 +14,7 @@ mod lock;
 mod lockdown;
 mod pending;
 mod period;
+mod recovery;
 mod secrets;
 mod session;
 mod settings;
@@ -26,6 +27,7 @@ mod sync_remote;
 mod sync_rules;
 mod token;
 mod transport;
+mod user_errors;
 mod voucher;
 
 use std::sync::{Arc, Mutex};

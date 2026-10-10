@@ -1153,6 +1153,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "chacha20poly1305",
+ "ed25519-dalek 2.2.0",
  "getrandom 0.2.17",
  "hkdf",
  "num-bigint-dig",

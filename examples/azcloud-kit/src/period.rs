@@ -47,7 +47,7 @@ use crate::{
     error::{CloudError, CloudResult, Context},
     shared::SharedKeyring,
     state::{create_private_dir, read_json, write_json},
-    token::{check_id, IssueAnswer, TokenError, TokenServer, MAX_BLINDED},
+    token::{check_id, DriveStatus, IssueAnswer, TokenError, TokenServer, MAX_BLINDED},
 };
 
 /// What every token message starts with.
@@ -633,29 +633,81 @@ pub fn redeem_due(
         return Redeemed::Nothing;
     }
     shared
-        .with_drive_token(drive_id, |token| {
-            redeem_with(server, store, drive_id, token, &kept, now)
+        .with_drive_token(drive_id, |token| match server.drive_status(drive_id, token) {
+            Ok(status) => redeem_with(server, store, drive_id, token, &kept, &status, now),
+            Err(e) => Redeemed::Kept(e.to_string()),
         })
         .unwrap_or_else(|e| Redeemed::Kept(e.to_string()))
 }
 
-/// [`redeem_due`] with the drive token `token`, the drive's lock held.
+/// What a look at a drive found ([`look_at_drive`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Look {
+    /// The drive as the token server keeps it (after a redemption: with the new end); `None`
+    /// when it could not be asked.
+    pub status: Option<DriveStatus>,
+    pub redeemed: Redeemed,
+}
+
+/// A look at `drive_id`: under the drive's lock with its newest drive token, its status
+/// (`GET /v1/drives/{id}`: the period, a pending recovery-key lockdown) whether or not tokens
+/// are kept for it, and - with kept tokens and the period due - [`redeem_due`]'s redemption
+/// in the same look.
+#[must_use]
+pub fn look_at_drive(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    store: &PeriodTokenStore,
+    drive_id: &str,
+    now: u64,
+) -> Look {
+    let kept = store.tokens(drive_id).unwrap_or_default();
+    let looked = shared.with_drive_token(drive_id, |token| {
+        let mut status = match server.drive_status(drive_id, token) {
+            Ok(status) => status,
+            Err(e) => {
+                return Look {
+                    status: None,
+                    redeemed: Redeemed::Kept(e.to_string()),
+                }
+            }
+        };
+        let redeemed = if kept.is_empty() {
+            Redeemed::Nothing
+        } else {
+            redeem_with(server, store, drive_id, token, &kept, &status, now)
+        };
+        if let Redeemed::Extended {
+            period_until: Some(until),
+            ..
+        } = &redeemed
+        {
+            status.period_until = Some(*until);
+        }
+        Look {
+            status: Some(status),
+            redeemed,
+        }
+    });
+    looked.unwrap_or_else(|e| Look {
+        status: None,
+        redeemed: Redeemed::Kept(e.to_string()),
+    })
+}
+
+/// [`redeem_due`] with the drive token `token` and the drive's `status`, the drive's lock
+/// held.
 fn redeem_with(
     server: &TokenServer<'_>,
     store: &PeriodTokenStore,
     drive_id: &str,
     token: &str,
     kept: &[PeriodToken],
+    status: &DriveStatus,
     now: u64,
 ) -> Redeemed {
-    let info = match server.info(drive_id, token) {
-        Ok(info) => info,
-        Err(e) => return Redeemed::Kept(e.to_string()),
-    };
-    let tier = info["tier"].as_str().unwrap_or_default();
-    let mut period_until = info["period_until"]
-        .as_str()
-        .and_then(azul_storage::time::parse_iso8601);
+    let tier = status.tier.as_deref().unwrap_or_default();
+    let mut period_until = status.period_until;
     let due =
         |until: Option<u64>| until.is_some_and(|at| at <= now.saturating_add(REDEEM_AHEAD_SECS));
     let mut count = 0;
