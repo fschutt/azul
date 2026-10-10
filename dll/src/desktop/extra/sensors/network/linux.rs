@@ -7,6 +7,8 @@
 //! - metered: `Metered` is yes or guess-yes (NetworkManager's own guess: a mobile modem, a
 //!   phone's hotspot that says it is one, a connection the user set to metered);
 //! - constrained: false - Linux has no system-wide data saver;
+//! - hotspot: a Wi-Fi whose `Metered` is NetworkManager's own guess-yes, not the user's yes
+//!   ([`metered_of`], [`super::hotspot_guess`]);
 //! - the kind: `PrimaryConnectionType` - `802-3-ethernet` wired, `802-11-wireless` Wi-Fi, `gsm`
 //!   and `cdma` cellular, anything else other.
 //!
@@ -19,7 +21,7 @@ use std::{sync::OnceLock, time::Duration};
 
 use zbus::{blocking::Proxy, zvariant::OwnedValue};
 
-use super::{last_seen, seen, NetworkKind, NetworkState};
+use super::{hotspot_guess, last_seen, seen, NetworkKind, NetworkState};
 
 const NM: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";
@@ -60,7 +62,10 @@ fn kind_of(connection_type: &str) -> NetworkKind {
 /// `ANDROID_METERED`, a vendor element of the access point) - rather than the user's setting
 /// (yes).
 fn metered_of(value: Option<u32>) -> (bool, bool) {
-    (matches!(value, Some(METERED_YES | METERED_GUESS_YES)), false)
+    (
+        matches!(value, Some(METERED_YES | METERED_GUESS_YES)),
+        value == Some(METERED_GUESS_YES),
+    )
 }
 
 /// NetworkManager's state now; `None` when it does not answer.
@@ -70,10 +75,7 @@ fn reading(props: &Proxy<'_>) -> Option<NetworkState> {
         CONNECTIVITY_UNKNOWN => property::<u32>(props, "State")? == STATE_CONNECTED_GLOBAL,
         level => level == CONNECTIVITY_FULL,
     };
-    let metered = matches!(
-        property::<u32>(props, "Metered"),
-        Some(METERED_YES | METERED_GUESS_YES)
-    );
+    let (metered, guessed) = metered_of(property::<u32>(props, "Metered"));
     let kind = property::<String>(props, "PrimaryConnectionType")
         .map_or(NetworkKind::Unknown, |kind| kind_of(&kind));
     Some(NetworkState {
@@ -81,7 +83,7 @@ fn reading(props: &Proxy<'_>) -> Option<NetworkState> {
         connected,
         metered: connected && metered,
         constrained: false,
-        hotspot: false,
+        hotspot: connected && hotspot_guess(kind, guessed),
     })
 }
 

@@ -12,14 +12,26 @@
 //! decides at its start asks once early, so the monitor has answered by then.
 //!
 //! * macOS, iOS: Network.framework's path monitor (`nw_path_is_expensive` is metered,
-//!   `nw_path_is_constrained` - Low Data Mode - constrained).
+//!   `nw_path_is_constrained` - Low Data Mode - constrained). Hotspot: an expensive Wi-Fi path -
+//!   Apple marks an iPhone's Personal Hotspot (and an Android hotspot that says it is one)
+//!   expensive.
 //! * Windows: WinRT's `NetworkInformation` (the connection profile's cost: Fixed / Variable is
-//!   metered; near or over the data limit, roaming or Data Saver is constrained).
-//! * Linux: NetworkManager over D-Bus (`Metered` yes / guess-yes); never constrained. Without
-//!   NetworkManager: UNKNOWN.
+//!   metered; near or over the data limit, roaming or Data Saver is constrained). Hotspot: a
+//!   WLAN profile whose cost is Variable or roaming - what Windows gives a phone's hotspot it
+//!   recognises (a Windows Mobile Hotspot's or an Android hotspot's cost element).
+//! * Linux: NetworkManager over D-Bus (`Metered` yes / guess-yes); never constrained. Hotspot:
+//!   a Wi-Fi NetworkManager itself guesses metered (guess-yes: Android's DHCP option 43
+//!   `ANDROID_METERED`, an access point's vendor element), never one the user set metered.
+//!   Without NetworkManager: UNKNOWN.
 //! * Android: `ConnectivityManager` through JNI, read every 10 s (`isActiveNetworkMetered`,
-//!   Data Saver's `RESTRICT_BACKGROUND_STATUS_ENABLED` is constrained).
+//!   Data Saver's `RESTRICT_BACKGROUND_STATUS_ENABLED` is constrained). Hotspot: a metered
+//!   Wi-Fi (another phone's hotspot); the phone's own mobile data is cellular, and whether the
+//!   phone shares it (tethering) is not asked.
 //! * Other targets: UNKNOWN.
+//!
+//! The hotspot is an ESTIMATE ([`NetworkState::hotspot`]), from the flags above and the kind
+//! only. No network name (SSID), access point (BSSID), carrier, address or any other identifier
+//! is read for it, or for anything else here.
 //! * A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): [`NetworkState::HEADLESS`]
 //!   (wired, connected, free), or what the file named by `AZ_NETWORK_STATE_FILE`
 //!   ([`NETWORK_STATE_FILE_VAR`]) says, read at every query - so a test switches the network
@@ -157,6 +169,11 @@ impl NetworkState {
                     state.constrained = true;
                     None
                 }
+                "hotspot" => {
+                    state.hotspot = true;
+                    state.metered = true;
+                    None
+                }
                 "wired" => Some(NetworkKind::Wired),
                 "wifi" => Some(NetworkKind::WiFi),
                 "cellular" => Some(NetworkKind::Cellular),
@@ -169,7 +186,9 @@ impl NetworkState {
                 named_kind = true;
             }
         }
-        if !state.connected && !named_kind {
+        if state.hotspot && !named_kind {
+            state.kind = NetworkKind::WiFi;
+        } else if !state.connected && !named_kind {
             state.kind = NetworkKind::Unknown;
         }
         state
@@ -180,9 +199,18 @@ impl NetworkState {
 /// (`system_says_costly`: Apple's expensive path, Windows' variable or roaming cost,
 /// NetworkManager's own metered guess, Android's metered network). A costly mobile network is
 /// the device's own data plan, not a hotspot; a costly wired one is the user's setting.
+#[cfg_attr(
+    not(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    )),
+    allow(dead_code)
+)]
 fn hotspot_guess(kind: NetworkKind, system_says_costly: bool) -> bool {
-    let _ = (kind, system_says_costly);
-    false
+    kind == NetworkKind::WiFi && system_says_costly
 }
 
 /// A headless run's network: the switch file's words, else [`NetworkState::HEADLESS`].

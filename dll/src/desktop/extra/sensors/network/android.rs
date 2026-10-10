@@ -8,6 +8,9 @@
 //! - metered: `isActiveNetworkMetered()`;
 //! - constrained: `getRestrictBackgroundStatus()` (API 24) is `ENABLED`: Data Saver is on and
 //!   the app is not let past it;
+//! - hotspot: a metered Wi-Fi - another phone's hotspot, which Android recognises by its
+//!   `ANDROID_METERED` DHCP option ([`super::hotspot_guess`]); this phone's own mobile data is
+//!   cellular, and whether it shares it (tethering) is not asked;
 //! - the kind: `NetworkCapabilities.hasTransport` - Wi-Fi, cellular, Ethernet, anything else
 //!   other.
 //!
@@ -21,7 +24,7 @@ use jni::{
     JNIEnv,
 };
 
-use super::{last_seen, seen, NetworkKind, NetworkState};
+use super::{hotspot_guess, last_seen, seen, NetworkKind, NetworkState};
 use crate::desktop::extra::sensors::{system_service, with_activity};
 
 /// How often the thread reads the service.
@@ -102,7 +105,7 @@ fn read_with(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Option<NetworkStat
         connected,
         metered,
         constrained,
-        hotspot: false,
+        hotspot: hotspot_guess(kind, metered),
     })
 }
 
