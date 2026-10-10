@@ -15,6 +15,7 @@ use std::{
     fmt,
     io::Read,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use serde::{Deserialize, Serialize};
@@ -341,6 +342,73 @@ pub fn parse_listing(xml: &str) -> Result<ListPage, DriveError> {
     xml::parse_list(xml)
 }
 
+/// One request of an [`S3Drive`] as its [`Router`] sends it: what it is about, and how to sign
+/// it for an endpoint (SigV4 signs the host, so every endpoint tried gets its own signature).
+pub struct Routed<'a> {
+    method: Method,
+    key: Option<&'a str>,
+    endpoint: &'a str,
+    sign: &'a dyn Fn(&str) -> Result<HttpCall, DriveError>,
+}
+
+impl<'a> Routed<'a> {
+    /// A request on the object `key` (`None`: the bucket) of a drive at `endpoint`; `sign` makes
+    /// it for any endpoint (a URL like [`S3Config::endpoint`]).
+    pub fn new(
+        method: Method,
+        key: Option<&'a str>,
+        endpoint: &'a str,
+        sign: &'a dyn Fn(&str) -> Result<HttpCall, DriveError>,
+    ) -> Self {
+        Routed {
+            method,
+            key,
+            endpoint,
+            sign,
+        }
+    }
+
+    #[must_use]
+    pub fn method(&self) -> Method {
+        self.method
+    }
+
+    /// The object the request is about; `None`: the bucket (a listing).
+    #[must_use]
+    pub fn key(&self) -> Option<&'a str> {
+        self.key
+    }
+
+    /// The drive's own endpoint ([`S3Config::endpoint`]).
+    #[must_use]
+    pub fn endpoint(&self) -> &'a str {
+        self.endpoint
+    }
+
+    /// The request signed for `endpoint` (scheme, host, port, an optional base path).
+    ///
+    /// # Errors
+    ///
+    /// An endpoint that is not an http(s) URL.
+    pub fn signed_for(&self, endpoint: &str) -> Result<HttpCall, DriveError> {
+        (self.sign)(endpoint)
+    }
+}
+
+/// Where an [`S3Drive`]'s requests go and how often they are tried: the seam of a drive whose
+/// bucket answers at several endpoints (an Azlin drive's block endpoint and nodes,
+/// azcloud-kit's failover). [`Router::send`] sends one request - [`Routed::signed_for`] each
+/// endpoint it tries, through `transport` - and returns the answer the drive reads (any
+/// status), or why no endpoint answered. Without a router every request goes once to the
+/// drive's endpoint.
+pub trait Router: Send + Sync {
+    fn send(
+        &self,
+        request: &Routed<'_>,
+        transport: &dyn Transport,
+    ) -> Result<HttpReply, DriveError>;
+}
+
 /// A bucket, reached through a [`Transport`].
 pub struct S3Drive {
     config: S3Config,
@@ -355,6 +423,8 @@ pub struct S3Drive {
     /// Where the state files of resumable uploads go; `None`: the app's
     /// ([`crate::multipart::resume_folder`]).
     resume_dir: Option<PathBuf>,
+    /// Where each request goes and how often it is tried; `None`: once, to the endpoint.
+    router: Option<Arc<dyn Router>>,
 }
 
 impl fmt::Debug for S3Drive {
@@ -389,6 +459,7 @@ impl S3Drive {
             part_size: PART_SIZE,
             parallel: PARALLEL_PARTS,
             resume_dir: None,
+            router: None,
         })
     }
 
@@ -420,6 +491,14 @@ impl S3Drive {
     #[must_use]
     pub fn with_resume_dir(mut self, folder: impl Into<PathBuf>) -> Self {
         self.resume_dir = Some(folder.into());
+        self
+    }
+
+    /// Sends every request through `router` (an endpoint failover: several endpoints, retries)
+    /// instead of once to the drive's endpoint.
+    #[must_use]
+    pub fn with_router(mut self, router: Arc<dyn Router>) -> Self {
+        self.router = Some(router);
         self
     }
 
@@ -460,68 +539,80 @@ impl S3Drive {
         &self.config
     }
 
-    /// The host the requests go to.
-    fn host(&self) -> String {
+    /// The host the requests to `endpoint` go to.
+    fn host_at(&self, endpoint: &Endpoint) -> String {
         if self.config.path_style {
-            self.endpoint.authority()
+            endpoint.authority()
         } else {
-            format!("{}.{}", self.config.bucket, self.endpoint.authority())
+            format!("{}.{}", self.config.bucket, endpoint.authority())
         }
     }
 
-    /// The path of the bucket itself (ListObjectsV2).
-    fn bucket_path(&self) -> String {
+    /// The host the requests go to.
+    fn host(&self) -> String {
+        self.host_at(&self.endpoint)
+    }
+
+    /// The path of the bucket itself (ListObjectsV2) at `endpoint`.
+    fn bucket_path_at(&self, endpoint: &Endpoint) -> String {
         if self.config.path_style {
             format!(
                 "{}/{}",
-                self.endpoint.base_path,
+                endpoint.base_path,
                 sigv4::uri_encode(&self.config.bucket, true)
             )
         } else {
-            format!("{}/", self.endpoint.base_path)
+            format!("{}/", endpoint.base_path)
+        }
+    }
+
+    /// The path of an object at `endpoint`: the key encoded, its slashes kept.
+    fn object_path_at(&self, endpoint: &Endpoint, key: &str) -> String {
+        if self.config.path_style {
+            format!(
+                "{}/{}/{}",
+                endpoint.base_path,
+                sigv4::uri_encode(&self.config.bucket, true),
+                sigv4::uri_encode(key, false)
+            )
+        } else {
+            format!("{}/{}", endpoint.base_path, sigv4::uri_encode(key, false))
         }
     }
 
     /// The path of an object: the key encoded, its slashes kept.
     fn object_path(&self, key: &str) -> String {
-        if self.config.path_style {
-            format!(
-                "{}/{}/{}",
-                self.endpoint.base_path,
-                sigv4::uri_encode(&self.config.bucket, true),
-                sigv4::uri_encode(key, false)
-            )
-        } else {
-            format!(
-                "{}/{}",
-                self.endpoint.base_path,
-                sigv4::uri_encode(key, false)
-            )
-        }
+        self.object_path_at(&self.endpoint, key)
     }
 
-    /// One signed request. `extra` are further headers to send and sign (`range`).
-    fn build(
+    /// One request on the object `key` (`None`: the bucket) signed for `endpoint`. `extra` are
+    /// further headers to send and sign (`range`); `payload_hash` is the body's SHA-256.
+    #[allow(clippy::too_many_arguments)]
+    fn build_at(
         &self,
+        endpoint: &Endpoint,
         method: Method,
-        path: String,
-        query: Vec<(String, String)>,
-        extra: Vec<(String, String)>,
+        key: Option<&str>,
+        query: &[(String, String)],
+        extra: &[(String, String)],
         body: Vec<u8>,
+        payload_hash: &str,
         content_type: &str,
     ) -> HttpCall {
         let date = amz_date((self.clock)());
-        let payload_hash = if body.is_empty() {
-            EMPTY_SHA256.to_string()
-        } else {
-            sigv4::sha256_hex(&body)
+        let host = self.host_at(endpoint);
+        let path = match key {
+            Some(key) => self.object_path_at(endpoint, key),
+            None => self.bucket_path_at(endpoint),
         };
-        let host = self.host();
         let mut headers = vec![
-            (String::from("x-amz-content-sha256"), payload_hash.clone()),
+            (
+                String::from("x-amz-content-sha256"),
+                payload_hash.to_string(),
+            ),
             (String::from("x-amz-date"), date.clone()),
         ];
-        headers.extend(extra);
+        headers.extend(extra.iter().cloned());
         if let Some(token) = &self.credentials.session_token {
             headers.push((String::from("x-amz-security-token"), token.clone()));
         }
@@ -537,16 +628,16 @@ impl S3Drive {
             },
             method.as_str(),
             &path,
-            &query,
+            query,
             &signed_headers,
-            &payload_hash,
+            payload_hash,
         );
         headers.push((String::from("authorization"), signed.authorization));
-        let query_string = sigv4::canonical_query(&query);
+        let query_string = sigv4::canonical_query(query);
         let url = if query_string.is_empty() {
-            format!("{}://{host}{path}", self.endpoint.scheme)
+            format!("{}://{host}{path}", endpoint.scheme)
         } else {
-            format!("{}://{host}{path}?{query_string}", self.endpoint.scheme)
+            format!("{}://{host}{path}?{query_string}", endpoint.scheme)
         };
         HttpCall {
             method,
@@ -559,6 +650,58 @@ impl S3Drive {
             },
             body,
         }
+    }
+
+    /// Sends one request on the object `key` (`None`: the bucket): to the drive's endpoint, or
+    /// through its [`Router`], which signs it anew for every endpoint it tries.
+    fn request(
+        &self,
+        method: Method,
+        key: Option<&str>,
+        query: Vec<(String, String)>,
+        extra: Vec<(String, String)>,
+        body: Vec<u8>,
+        content_type: &str,
+    ) -> Result<HttpReply, DriveError> {
+        let payload_hash = if body.is_empty() {
+            EMPTY_SHA256.to_string()
+        } else {
+            sigv4::sha256_hex(&body)
+        };
+        let Some(router) = &self.router else {
+            let call = self.build_at(
+                &self.endpoint,
+                method,
+                key,
+                &query,
+                &extra,
+                body,
+                &payload_hash,
+                content_type,
+            );
+            return self.send(&call);
+        };
+        let sign = |url: &str| -> Result<HttpCall, DriveError> {
+            let same = url.trim().trim_end_matches('/')
+                == self.config.endpoint.trim().trim_end_matches('/');
+            let endpoint = if same {
+                self.endpoint.clone()
+            } else {
+                Endpoint::parse(url)?
+            };
+            Ok(self.build_at(
+                &endpoint,
+                method,
+                key,
+                &query,
+                &extra,
+                body.clone(),
+                &payload_hash,
+                content_type,
+            ))
+        };
+        let routed = Routed::new(method, key, &self.config.endpoint, &sign);
+        router.send(&routed, self.transport.as_ref())
     }
 
     /// A link anyone holding it can download `key` with for `expires_secs` (S3 takes at most
@@ -634,15 +777,10 @@ impl S3Drive {
         body: Vec<u8>,
         content_type: &str,
     ) -> Result<HttpReply, DriveError> {
-        let path = match key {
-            Some(key) => {
-                check_s3_key(key)?;
-                self.object_path(key)
-            }
-            None => self.bucket_path(),
-        };
-        let call = self.build(method, path, query, extra, body, content_type);
-        self.send(&call)
+        if let Some(key) = key {
+            check_s3_key(key)?;
+        }
+        self.request(method, key, query, extra, body, content_type)
     }
 
     /// The error of a failed answer to a request on `key` (`None`: on the bucket itself): a
@@ -846,15 +984,14 @@ impl S3Drive {
         body: Vec<u8>,
     ) -> Result<HttpReply, DriveError> {
         check_s3_key(key)?;
-        let call = self.build(
+        self.request(
             method,
-            self.object_path(key),
+            Some(key),
             Vec::new(),
             extra,
             body,
             content_type_for(key),
-        );
-        self.send(&call)
+        )
     }
 }
 
@@ -871,15 +1008,7 @@ impl Drive for S3Drive {
         if let Some(token) = &request.continuation {
             query.push((String::from("continuation-token"), token.clone()));
         }
-        let call = self.build(
-            Method::Get,
-            self.bucket_path(),
-            query,
-            Vec::new(),
-            Vec::new(),
-            "",
-        );
-        let reply = self.send(&call)?;
+        let reply = self.request(Method::Get, None, query, Vec::new(), Vec::new(), "")?;
         if !reply.is_success() {
             return Err(failure(&reply, None));
         }
