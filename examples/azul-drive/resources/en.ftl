@@ -1377,3 +1377,47 @@ azdrive-usage-full = "{ $name }": The drive is full ({ $about ->
         [yes] about { $used } of { $quota } used, counted after compression, estimated on this computer
        *[no] { $used } of { $quota } used, counted after compression
     }): new files are refused until space is freed or the tier is bigger.
+
+## Cash by post
+
+azdrive-cash-waiting = Waiting for your letter: postal cash takes a while, AzDrive checks once a day.
+azdrive-cash-bought = Azlin storage{ $months ->
+        [0] { "" }
+        [one] { " " }for 1 month
+       *[other] { " " }for { $months } months
+    }
+azdrive-cash-bought-tier = Azlin storage, { $tier }{ $months ->
+        [0] { "" }
+        [one] { " " }for 1 month
+       *[other] { " " }for { $months } months
+    }
+azdrive-cash-copy-title = Azlin cash order - your copy
+azdrive-cash-copy-subtitle = Checkout { $checkout }, made on { $made }.
+azdrive-cash-copy-bought = You bought: { $bought }. The amount: { $amount } ({ $words }).
+azdrive-cash-copy-keep = Keep this; AzDrive picks up your drive once the money arrived.
+azdrive-cash-copy-daily = Postal cash takes a while: AzDrive checks once a day. Nothing else tells you - open AzDrive every day or two until the drive is there.
+azdrive-cash-copy-lost = If this computer is lost: on another computer, in AzDrive, Add drive > "Pick up a paid drive with a claim code", then type the code below or scan its QR code.
+azdrive-cash-copy-key = The claim code is the key to the drive: whoever has it can pick the drive up. Keep this page like a key, never send the code to anyone and never post it with the cash.
+azdrive-cash-copy-label = Your claim code
+azdrive-cash-copy-qr = The same claim code as a QR code: a phone's camera reads it, and AzDrive takes the text it shows as it is.
+azdrive-cash-slip-amount = Amount: { $amount } - { $words }.
+azdrive-cash-slip-envelope = Put this slip and exactly { $amount } in cash in the envelope.
+azdrive-cash-slip-send = Send it to the address above. Azlin activates the order when the letter arrived; this slip holds no key to the drive.
+azdrive-cash-slip-expires = The order ends unpaid on { $day } if no letter arrived by then.
+azdrive-cash-slip-title = Azlin cash order - slip to post
+azdrive-cash-slip-subtitle = For checkout { $checkout }, { $amount }, made on { $made }.
+azdrive-cash-slip-label = Activation code
+azdrive-cash-slip-qr = The same activation code as a QR code, for Azlin to read the slip back.
+azdrive-cash-ended = Your cash order ended: { $why }.
+azdrive-cash-no-token-server = No Azlin token server is set to ask for the drive: start AzDrive with --token-url or set AZLIN_TOKEN_URL.
+azdrive-cash-unreadable-code = AzDrive cannot read that ({ $detail }): type the claim code as your copy prints it, or scan its QR code.
+azdrive-cash-print-open = It is open in your PDF viewer: print it from there. AzDrive deletes this copy at its next start.
+azdrive-cash-both-pages = Save or print both pages. Keep your copy; post the slip with exactly { $amount } in cash to the address on it.
+azdrive-cash-claim-code-is = Your claim code (it is on your copy too) - another computer picks the drive up with it:
+azdrive-cash-save-copy = Save your copy as PDF…
+azdrive-cash-print-copy = Print your copy…
+azdrive-cash-save-slip = Save the slip as PDF…
+azdrive-cash-print-slip = Print the slip…
+azdrive-cash-your-copy = Your copy
+azdrive-cash-the-slip = The slip
+azdrive-cash-orders = Cash orders

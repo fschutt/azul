@@ -1375,3 +1375,47 @@ azdrive-usage-full = „{ $name }“: Das Laufwerk ist voll ({ $about ->
         [yes] etwa { $used } von { $quota } belegt, nach der Komprimierung gezählt, auf diesem Computer geschätzt
        *[no] { $used } von { $quota } belegt, nach der Komprimierung gezählt
     }): Neue Dateien werden abgelehnt, bis Speicherplatz frei wird oder die Stufe größer ist.
+
+## Cash by post
+
+azdrive-cash-waiting = Warte auf deinen Brief: Bargeld per Post braucht eine Weile, AzDrive sieht einmal am Tag nach.
+azdrive-cash-bought = Azlin-Speicher{ $months ->
+        [0] { "" }
+        [one] { " " }für 1 Monat
+       *[other] { " " }für { $months } Monate
+    }
+azdrive-cash-bought-tier = Azlin-Speicher, { $tier }{ $months ->
+        [0] { "" }
+        [one] { " " }für 1 Monat
+       *[other] { " " }für { $months } Monate
+    }
+azdrive-cash-copy-title = Azlin-Barzahlung – deine Kopie
+azdrive-cash-copy-subtitle = Bestellung { $checkout }, erstellt am { $made }.
+azdrive-cash-copy-bought = Du hast gekauft: { $bought }. Der Betrag: { $amount } ({ $words }).
+azdrive-cash-copy-keep = Bewahre das auf; AzDrive holt dein Laufwerk ab, sobald das Geld angekommen ist.
+azdrive-cash-copy-daily = Bargeld per Post braucht eine Weile: AzDrive sieht einmal am Tag nach. Sonst sagt dir nichts Bescheid – öffne AzDrive alle ein, zwei Tage, bis das Laufwerk da ist.
+azdrive-cash-copy-lost = Falls dieser Computer verloren geht: auf einem anderen Computer in AzDrive Laufwerk hinzufügen > „Ein bezahltes Laufwerk mit einem Abholcode abholen“, dann den Code unten eintippen oder seinen QR-Code scannen.
+azdrive-cash-copy-key = Der Abholcode ist der Schlüssel zum Laufwerk: Wer ihn hat, kann das Laufwerk abholen. Bewahre diese Seite wie einen Schlüssel auf, schicke den Code nie jemandem und lege ihn nie dem Bargeld bei.
+azdrive-cash-copy-label = Dein Abholcode
+azdrive-cash-copy-qr = Derselbe Abholcode als QR-Code: Die Kamera eines Telefons liest ihn, und AzDrive übernimmt den angezeigten Text, wie er ist.
+azdrive-cash-slip-amount = Betrag: { $amount } – { $words }.
+azdrive-cash-slip-envelope = Lege diesen Zettel und genau { $amount } in bar in den Umschlag.
+azdrive-cash-slip-send = Schicke ihn an die Adresse oben. Azlin aktiviert die Bestellung, wenn der Brief angekommen ist; dieser Zettel enthält keinen Schlüssel zum Laufwerk.
+azdrive-cash-slip-expires = Die Bestellung endet unbezahlt am { $day }, wenn bis dahin kein Brief angekommen ist.
+azdrive-cash-slip-title = Azlin-Barzahlung – Zettel zum Versenden
+azdrive-cash-slip-subtitle = Für die Bestellung { $checkout }, { $amount }, erstellt am { $made }.
+azdrive-cash-slip-label = Aktivierungscode
+azdrive-cash-slip-qr = Derselbe Aktivierungscode als QR-Code, damit Azlin den Zettel zurücklesen kann.
+azdrive-cash-ended = Deine Barzahlung ist beendet: { $why }.
+azdrive-cash-no-token-server = Es ist kein Azlin-Tokenserver eingestellt, der nach dem Laufwerk gefragt werden kann: Starte AzDrive mit --token-url oder setze AZLIN_TOKEN_URL.
+azdrive-cash-unreadable-code = AzDrive kann das nicht lesen ({ $detail }): Tippe den Abholcode so ein, wie deine Kopie ihn druckt, oder scanne seinen QR-Code.
+azdrive-cash-print-open = Es ist in deinem PDF-Betrachter geöffnet: Drucke es von dort. AzDrive löscht diese Kopie beim nächsten Start.
+azdrive-cash-both-pages = Speichere oder drucke beide Seiten. Behalte deine Kopie; schicke den Zettel mit genau { $amount } in bar an die Adresse darauf.
+azdrive-cash-claim-code-is = Dein Abholcode (er steht auch auf deiner Kopie) – ein anderer Computer holt das Laufwerk damit ab:
+azdrive-cash-save-copy = Deine Kopie als PDF speichern…
+azdrive-cash-print-copy = Deine Kopie drucken…
+azdrive-cash-save-slip = Den Zettel als PDF speichern…
+azdrive-cash-print-slip = Den Zettel drucken…
+azdrive-cash-your-copy = Deine Kopie
+azdrive-cash-the-slip = Der Zettel
+azdrive-cash-orders = Barzahlungen

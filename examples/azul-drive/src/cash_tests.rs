@@ -99,6 +99,7 @@ fn cash_by_post_is_a_pill_of_buy_storage_when_the_token_server_offers_it() {
 
 #[test]
 fn the_buyers_copy_says_what_was_bought_the_amount_and_the_checkout_and_holds_the_claim_code() {
+    crate::l10n::in_english();
     let paper = copy_paper(&letter(), &claim_code(), "2026-10-10");
     let text = all_text(&paper);
     for said in [
@@ -114,13 +115,14 @@ fn the_buyers_copy_says_what_was_bought_the_amount_and_the_checkout_and_holds_th
         assert!(text.contains(said), "{said:?} is not on the copy:\n{text}");
     }
     assert_eq!(paper.secret.as_str(), claim_code(), "the claim code as text and QR code");
-    assert!(paper.label.contains("claim code"));
+    assert!(azul_appkit::l10n::t_label(paper.label).contains("claim code"));
     assert!(paper.file_name.ends_with(".pdf"));
     assert!(!text.contains(CODE), "the activation code is the slip's");
 }
 
 #[test]
 fn the_slip_names_the_address_the_amount_in_words_and_digits_and_the_activation_code_only() {
+    crate::l10n::in_english();
     let paper = slip_paper(&letter(), "2026-10-10");
     assert_eq!(
         paper.address,
@@ -168,8 +170,9 @@ fn a_letter_is_made_from_the_answer_and_again_from_the_keyrings_list() {
 
 #[test]
 fn the_waiting_line_says_postal_cash_takes_a_while_and_azdrive_looks_daily() {
+    crate::l10n::in_english();
     assert_eq!(
-        WAITING_TEXT,
+        azul_appkit::l10n::t(WAITING_TEXT),
         "Waiting for your letter: postal cash takes a while, AzDrive checks once a day."
     );
     let text = ended_text("the payment did not go through: the envelope held less");
@@ -178,6 +181,7 @@ fn the_waiting_line_says_postal_cash_takes_a_while_and_azdrive_looks_daily() {
 
 #[test]
 fn a_claim_code_picks_up_the_cash_checkout_as_typed_and_a_typo_is_refused() {
+    crate::l10n::in_english();
     let code = claim_code();
     let kept = picked_up(&code.to_lowercase().replace('-', " "), TOKEN, "Photos").unwrap();
     assert_eq!(kept.checkout_id, CHECKOUT);
