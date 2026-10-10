@@ -2681,6 +2681,181 @@ mod client_pool_tests {
         );
     }
 
+    /// A resolver that answers 127.0.0.1:`port` for its first `answers` lookups and fails every
+    /// later one the way the system's does when DNS is down (an I/O error of the lookup).
+    #[derive(Debug)]
+    struct DnsGoesDown {
+        port: u16,
+        answers: usize,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ureq::unversioned::resolver::Resolver for DnsGoesDown {
+        fn resolve(
+            &self,
+            _uri: &ureq::http::Uri,
+            _config: &ureq::config::Config,
+            _timeout: ureq::unversioned::transport::NextTimeout,
+        ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+            let before = self.calls.fetch_add(1, Ordering::SeqCst);
+            if before >= self.answers {
+                return Err(ureq::Error::Io(std::io::Error::other(
+                    "failed to lookup address information: nodename nor servname provided",
+                )));
+            }
+            let mut out = self.empty();
+            out.push(std::net::SocketAddr::from(([127, 0, 0, 1], self.port)));
+            Ok(out)
+        }
+    }
+
+    /// A pooled client whose lookups go through `resolver` (and its fallback addresses).
+    fn client_over(
+        config: HttpClientConfig,
+        agent: impl FnOnce(FallbackAddresses) -> ureq::Agent,
+    ) -> HttpRequestConfig {
+        let fallback = FallbackAddresses::default();
+        let client = HttpClient {
+            ptr: Box::new(Arc::new(HttpClientInner {
+                config,
+                agent: agent(fallback.clone()),
+                fallback,
+            })),
+            run_destructor: true,
+        };
+        HttpRequestConfig::default()
+            .with_timeout(5)
+            .with_client(client)
+    }
+
+    #[test]
+    fn a_lookup_that_times_out_fails_as_a_dns_failure_and_not_as_a_slow_server() {
+        let url = "https://n2.azul.invalid/d-1/a.txt";
+        assert!(
+            matches!(
+                map_ureq_error(url, &ureq::Error::Timeout(ureq::Timeout::Resolve)),
+                HttpError::DnsFailed(_)
+            ),
+            "the resolver gave up: the name is the problem, its addresses may still answer"
+        );
+        assert!(matches!(
+            map_ureq_error(url, &ureq::Error::HostNotFound),
+            HttpError::DnsFailed(_)
+        ));
+        assert_eq!(
+            map_ureq_error(url, &ureq::Error::Timeout(ureq::Timeout::RecvResponse)),
+            HttpError::Timeout,
+            "a server that is slow to answer stays a timeout"
+        );
+        assert!(HttpError::dns_failed("n2.azul.invalid".into())
+            .to_string()
+            .contains("n2.azul.invalid"));
+    }
+
+    #[test]
+    fn every_lookup_gives_up_after_the_dns_timeout_so_the_fallback_addresses_have_time_left() {
+        assert_eq!(
+            agent_config(false).build().timeouts().resolve,
+            Some(DNS_LOOKUP_TIMEOUT),
+            "a lookup that hangs must not use up the request's whole time"
+        );
+    }
+
+    #[test]
+    fn a_name_that_does_not_resolve_fails_as_a_dns_failure() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let config = HttpClientConfig::default();
+        let resolver = DnsGoesDown {
+            port: 1,
+            answers: 0,
+            calls: Arc::clone(&calls),
+        };
+        let request = client_over(config, |fallback| client_agent(&config, resolver, fallback));
+        match http_get_with_config("http://n2.azul.invalid:1/", &request) {
+            Err(HttpError::DnsFailed(why)) => {
+                assert!(why.as_str().contains("n2.azul.invalid"), "{}", why.as_str())
+            }
+            other => panic!("a lookup error is a DNS failure, not {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_cached_answer_is_served_for_seven_days_after_the_name_stops_resolving() {
+        let (url, _) = serve();
+        let port: u16 = url
+            .trim_end_matches('/')
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse().ok())
+            .expect("port");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let config = HttpClientConfig::default().with_dns_cache_secs(60);
+        let resolver = DnsGoesDown {
+            port,
+            answers: 1,
+            calls: Arc::clone(&calls),
+        };
+        let request = client_over(config, |fallback| {
+            ureq::Agent::with_parts(
+                agent_config(false).build(),
+                ureq::unversioned::transport::DefaultConnector::default(),
+                FallbackResolver {
+                    // Every answer is due again at once: only the stale one is left.
+                    inner: CachingResolver::new(resolver, std::time::Duration::ZERO),
+                    fallback,
+                },
+            )
+        });
+        let url = format!("http://tiles.azul.invalid:{port}/");
+        for round in 0..3 {
+            let response = http_get_with_config(&url, &request)
+                .unwrap_or_else(|e| panic!("round {round}: {e}"));
+            assert_eq!(response.status_code, 200);
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "after the lookup failed, the next requests take the stale answer without waiting \
+             for another lookup"
+        );
+        assert_eq!(DNS_STALE_FOR, std::time::Duration::from_secs(7 * 24 * 3600));
+    }
+
+    #[test]
+    fn an_answer_older_than_its_stale_limit_is_not_served() {
+        let (url, _) = serve();
+        let port: u16 = url
+            .trim_end_matches('/')
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse().ok())
+            .expect("port");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let config = HttpClientConfig::default();
+        let resolver = DnsGoesDown {
+            port,
+            answers: 1,
+            calls: Arc::clone(&calls),
+        };
+        let request = client_over(config, |fallback| {
+            ureq::Agent::with_parts(
+                agent_config(false).build(),
+                ureq::unversioned::transport::DefaultConnector::default(),
+                FallbackResolver {
+                    inner: CachingResolver::new(resolver, std::time::Duration::ZERO)
+                        .with_stale_for(std::time::Duration::ZERO),
+                    fallback,
+                },
+            )
+        });
+        let url = format!("http://tiles.azul.invalid:{port}/");
+        assert!(http_get_with_config(&url, &request).is_ok());
+        assert!(matches!(
+            http_get_with_config(&url, &request),
+            Err(HttpError::DnsFailed(_))
+        ));
+    }
+
     /// MAIL9: the resumable `http_get` ran the transfer inside the calling
     /// callback, so a slow server froze the window for the whole request. It
     /// returns at once; the answer resumes the callback on a later pump.
