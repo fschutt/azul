@@ -86,19 +86,24 @@ static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 /// Sets the run's cache folder (the start, once): the drives' index copies live in it.
 pub(crate) fn set_cache_dir(dir: Option<PathBuf>) {
     let _ = CACHE_DIR.set(dir);
+    // Print's copies of an emergency kit a run before left behind.
+    crate::recovery::forget_print_copies();
+}
+
+/// The run's cache folder: `--cache-dir`, else `<cache>/AzDrive` (before the start set it too);
+/// `None` in a `--shot` run without the switch.
+pub(crate) fn run_cache_dir() -> Option<PathBuf> {
+    match CACHE_DIR.get() {
+        Some(dir) => dir.clone(),
+        None => crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
+            .map(|dir| dir.join("AzDrive")),
+    }
 }
 
 /// The folder of this computer's copies of the encrypted drives' indexes: `drive-index/` in the
 /// run's cache folder (before the start set it: in `<cache>/AzDrive`).
 pub(crate) fn drive_index_root() -> Option<PathBuf> {
-    match CACHE_DIR.get() {
-        Some(dir) => drive_index_root_in(dir.as_deref()),
-        None => {
-            let default = crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
-                .map(|dir| dir.join("AzDrive"));
-            drive_index_root_in(default.as_deref())
-        }
-    }
+    drive_index_root_in(run_cache_dir().as_deref())
 }
 
 /// `drive-index/` in the cache folder `cache_dir`; `None` without one (the copies in memory).
@@ -224,6 +229,8 @@ pub(crate) struct Sheet {
     /// The sheet of a key rotation's new code: re-encryption is offered next (else the
     /// migration of a newly encrypted drive starts).
     pub after_rotation: bool,
+    /// What the emergency kit's last button did (printed, saved, why not).
+    pub kit_note: String,
 }
 
 /// A group of a recovery code as people type it: no spaces or dashes, upper case, `O` for 0,
@@ -255,6 +262,7 @@ impl Sheet {
             typed: Zeroizing::new(String::new()),
             error: String::new(),
             after_rotation: false,
+            kit_note: String::new(),
         }
     }
 
@@ -357,6 +365,12 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                     "font-family: monospace; font-size: 20px; margin-top: 14px; \
                      margin-bottom: 14px; letter-spacing: 1px;",
                 ),
+            ]);
+            // The emergency kit: Print, Save as PDF, Save to a USB stick, and its QR code.
+            for piece in crate::recovery::kit_pieces(app, &sheet.code, &sheet.kit_note) {
+                body.add_child(piece);
+            }
+            for piece in [
                 label(&format!(
                     "To check that you have it, type group {} of the code:",
                     sheet.check + 1
@@ -365,7 +379,9 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                     .with_text(AzString::from(sheet.typed.as_str()))
                     .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
                     .dom(),
-            ]);
+            ] {
+                body.add_child(piece);
+            }
             if !sheet.error.is_empty() {
                 body.add_child(line(&sheet.error).with_css("color: #C42B1C;"));
             }
@@ -677,6 +693,8 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         let drive_id = sheet.drive_id.clone();
         let code = RecoveryCode::parse(&sheet.code);
+        // The sheet closes: Print's copies of the kit go.
+        crate::recovery::forget_print_copies();
         // The token server's recovery key from this code: what a lockdown without a drive token
         // is signed with ("Lock down with the recovery code...").
         if let Some(code) = code {
@@ -818,6 +836,11 @@ pub(crate) enum EncryptionJob {
         token_url: String,
         keyring: azcloud_kit::SharedKeyring,
     },
+    /// The emergency kit written into the folder picked (a USB stick).
+    SaveKit {
+        path: PathBuf,
+        bytes: Zeroizing<Vec<u8>>,
+    },
 }
 
 /// What a rotation brings back to the UI thread.
@@ -866,6 +889,12 @@ pub(crate) enum EncryptionOutcome {
     LockedDown {
         drive_id: String,
         result: Result<Option<u64>, String>,
+    },
+    /// The emergency kit is in the folder picked (its bytes), or why not.
+    KitSaved {
+        path: PathBuf,
+        len: usize,
+        result: Result<(), String>,
     },
 }
 
@@ -1065,6 +1094,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             let result = recovery_lockdown(&drive_id, &code, &token_url, &keyring);
             EncryptionOutcome::LockedDown { drive_id, result }
         }
+        EncryptionJob::SaveKit { path, bytes } => EncryptionOutcome::KitSaved {
+            result: crate::recovery::save_kit(&path, &bytes),
+            len: bytes.len(),
+            path,
+        },
     }
 }
 
@@ -1304,6 +1338,9 @@ pub(crate) fn on_outcome(
                     text: why,
                 },
             }));
+        }
+        EncryptionOutcome::KitSaved { path, len, result } => {
+            crate::recovery::kit_saved(s, &path, len, result);
         }
     }
 }

@@ -317,3 +317,10 @@ pub const fn layout_class(layout: ViewLayout) -> AzString {
         ViewLayout::Content => AzString::from_const_str("__azdrive_layout_content"),
     }
 }
+
+// ==== An encrypted drive's recovery methods (recovery.rs) ====
+
+/// The emergency kit's buttons on the recovery sheet: Print, Save as PDF, Save to a USB stick.
+pub const KIT_PRINT: AzString = AzString::from_const_str("__azdrive_kit_print");
+pub const KIT_SAVE: AzString = AzString::from_const_str("__azdrive_kit_save");
+pub const KIT_USB: AzString = AzString::from_const_str("__azdrive_kit_usb");
