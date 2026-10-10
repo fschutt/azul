@@ -91,13 +91,30 @@ impl OAuthSettings {
 
     /// Sets `key` (one of [`KEYS`]) to `value`, trimmed; a blank one is no opinion.
     pub fn set(&mut self, key: &str, value: Option<&str>) {
-        let _ = (key, value);
+        let value = value
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(String::from);
+        let slot = match key {
+            "client_id" => &mut self.client_id,
+            "client_secret" => &mut self.client_secret,
+            "redirect_uri" => &mut self.redirect_uri,
+            "authorize_url" => &mut self.authorize_url,
+            "token_url" => &mut self.token_url,
+            "scope" => &mut self.scope,
+            _ => return,
+        };
+        *slot = value;
     }
 
     /// `self` with every setting `over` has an opinion on replaced.
     #[must_use]
-    pub fn overlaid(self, over: OAuthSettings) -> OAuthSettings {
-        let _ = over;
+    pub fn overlaid(mut self, over: OAuthSettings) -> OAuthSettings {
+        for key in KEYS {
+            if let Some(value) = over.get(key) {
+                self.set(key, Some(value));
+            }
+        }
         self
     }
 }
@@ -105,8 +122,17 @@ impl OAuthSettings {
 /// `oauth.<provider>` of `config`.
 #[must_use]
 pub fn of(config: &AzlinConfig, provider: &str) -> OAuthSettings {
-    let _ = (config, provider);
-    OAuthSettings::default()
+    let mut settings = OAuthSettings::default();
+    let Ok(json) = serde_json::from_str::<Value>(&config.to_json()) else {
+        return settings;
+    };
+    let Some(section) = json.get(SECTION).and_then(|s| s.get(provider)) else {
+        return settings;
+    };
+    for key in KEYS {
+        settings.set(key, section.get(key).and_then(Value::as_str));
+    }
+    settings
 }
 
 /// `oauth.<provider>` of the config file at `path` (the kit's `Kit::config_path`; none in a
@@ -120,8 +146,7 @@ pub fn in_file(path: &Path, provider: &str) -> OAuthSettings {
 /// The variable of `key` for `provider` under `prefix`: `AZDRIVE_GOOGLE_CLIENT_ID`.
 #[must_use]
 pub fn env_var(prefix: &str, provider: &str, key: &str) -> String {
-    let _ = (prefix, provider, key);
-    String::new()
+    format!("{prefix}_{provider}_{key}").to_ascii_uppercase()
 }
 
 /// `provider`'s settings from the variables `var` reads ([`env_var`] names them).
@@ -131,8 +156,11 @@ pub fn from_env(
     provider: &str,
     var: &dyn Fn(&str) -> Option<String>,
 ) -> OAuthSettings {
-    let _ = (prefix, provider, var);
-    OAuthSettings::default()
+    let mut settings = OAuthSettings::default();
+    for key in KEYS {
+        settings.set(key, var(&env_var(prefix, provider, key)).as_deref());
+    }
+    settings
 }
 
 /// `provider`'s settings as an app weighs them: the environment (`prefix`'s variables) over
