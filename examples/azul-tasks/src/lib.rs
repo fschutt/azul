@@ -34,6 +34,8 @@ pub mod chrome;
 pub mod detail;
 pub mod ids;
 pub mod jobs;
+#[cfg(test)]
+mod l10n_tests;
 pub mod layouts;
 pub mod list;
 pub mod listedit;
