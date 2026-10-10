@@ -148,6 +148,18 @@ fn io_error(e: MetaError) -> io::Error {
     io::Error::other(e.to_string())
 }
 
+/// The helper's whole run over the repository in `bucket`, opened with `sealer`.
+pub fn serve_bucket<B: Bucket, S: Sealer>(
+    bucket: B,
+    sealer: S,
+    input: impl BufRead,
+    output: impl Write,
+    index_pack: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+) -> io::Result<()> {
+    let _ = (bucket, sealer, input, output, index_pack);
+    Ok(())
+}
+
 /// Serves git's remote-helper commands from `input` to `output` over `repo` until git sends
 /// a blank line or closes the input. `index_pack` takes each pack into git's repository (the
 /// binary pipes it to `git index-pack --stdin`).

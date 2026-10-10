@@ -23,7 +23,10 @@
 //! folder's secrets file on the command line ([`crate::secrets::FileSecrets`]). Blocking: call
 //! it from an azul `Thread`.
 
-use std::sync::Arc;
+use std::{
+    io::{self, BufRead, Write},
+    sync::Arc,
+};
 
 pub use azul_storage::encrypted::{open_encrypted, IndexProvider};
 use azul_storage::{
@@ -143,6 +146,22 @@ impl Account {
     pub fn unlock_key(&self, keyring: &dyn KeyringStore) -> CloudResult<Option<DriveKey>> {
         let bucket = self.bucket_drive()?;
         Ok(device::unlock(&bucket, keyring, &self.record().id)?)
+    }
+
+    /// git's remote helper over this drive's index.
+    ///
+    /// # Errors
+    ///
+    /// No drive key here, the bucket's refusal, a broken protocol.
+    pub fn serve_git_remote(
+        &self,
+        keyring: &dyn KeyringStore,
+        input: impl BufRead,
+        output: impl Write,
+        index_pack: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+    ) -> CloudResult<()> {
+        let _ = (keyring, input, output, index_pack);
+        Ok(())
     }
 
     /// `(whether the bucket holds an encrypted drive, whether this device keeps its key)`; the

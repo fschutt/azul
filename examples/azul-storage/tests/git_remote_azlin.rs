@@ -106,3 +106,62 @@ fn git_clones_a_drive_index_with_the_same_commits() {
     assert_eq!(file.stdout, pointer);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// An Azlin drive (`azlin::drive://<drive id>`) lives in an S3 bucket that the azcloud
+/// command line reaches with the account's credentials and its HTTPS transport. The helper
+/// hands such a URL to `azcloud git-remote`, with git's input and output, and says so when
+/// there is no azcloud to hand it to.
+#[cfg(unix)]
+#[test]
+fn an_azlin_drive_url_is_handed_to_azcloud_with_gits_input_and_output() {
+    use std::{
+        io::Write,
+        os::unix::fs::PermissionsExt,
+        process::Stdio,
+    };
+
+    let root = env::temp_dir().join(format!("azul-git-remote-azcloud-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // A stand-in azcloud: its arguments, then what git wrote (shell builtins only).
+    let script = root.join("azcloud");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\necho \"$@\"\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let helper = PathBuf::from(env!("CARGO_BIN_EXE_git-remote-azlin"));
+
+    let mut child = Command::new(&helper)
+        .args(["origin", "drive://d_1"])
+        .env("PATH", &root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"capabilities\n")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "--drive d_1 git-remote origin drive://d_1\ncapabilities\n"
+    );
+
+    std::fs::remove_file(&script).unwrap();
+    let out = Command::new(&helper)
+        .args(["origin", "drive://d_1"])
+        .env("PATH", &root)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("azcloud git-remote"), "{text}");
+    let _ = std::fs::remove_dir_all(&root);
+}
