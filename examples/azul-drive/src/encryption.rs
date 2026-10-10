@@ -641,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_drive_index_the_flows_are_not_offered() {
-        assert!(!offered());
+    fn with_the_drive_index_the_flows_are_offered() {
+        assert!(offered());
     }
 }
