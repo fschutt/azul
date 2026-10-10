@@ -77,60 +77,9 @@ pub fn hotp(secret: &[u8], counter: u64, digits: u32, algorithm: Algorithm) -> u
     binary % 10u32.pow(digits.clamp(1, 9))
 }
 
-/// The RFC 4648 base32 alphabet.
-const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-
-/// The bytes of RFC 4648 base32 `text`: any case; blanks, dashes and `=` padding skipped. `None`
-/// for a character base32 does not have or a length no base32 has.
-#[must_use]
-pub fn base32_decode(text: &str) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(text.len() * 5 / 8);
-    let (mut buf, mut bits, mut count) = (0u32, 0u32, 0usize);
-    for c in text.chars() {
-        if c.is_whitespace() || c == '-' || c == '=' {
-            continue;
-        }
-        let c = c.to_ascii_uppercase();
-        let value = match c {
-            'A'..='Z' => c as u32 - 'A' as u32,
-            '2'..='7' => c as u32 - '2' as u32 + 26,
-            _ => return None,
-        };
-        buf = (buf << 5) | value;
-        bits += 5;
-        count += 1;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((buf >> bits) as u8);
-            buf &= (1 << bits) - 1;
-        }
-    }
-    // 8 characters are 5 bytes; a last group of 1, 3 or 6 characters is no whole byte count.
-    if !matches!(count % 8, 0 | 2 | 4 | 5 | 7) {
-        return None;
-    }
-    Some(out)
-}
-
-/// `bytes` as RFC 4648 base32, upper case, without padding (as otpauth URLs write secrets).
-#[must_use]
-pub fn base32_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len().div_ceil(5) * 8);
-    let (mut buf, mut bits) = (0u32, 0u32);
-    for &b in bytes {
-        buf = (buf << 8) | u32::from(b);
-        bits += 8;
-        while bits >= 5 {
-            bits -= 5;
-            out.push(char::from(BASE32[((buf >> bits) & 31) as usize]));
-        }
-        buf &= (1 << bits) - 1;
-    }
-    if bits > 0 {
-        out.push(char::from(BASE32[((buf << (5 - bits)) & 31) as usize]));
-    }
-    out
-}
+/// RFC 4648 base32, any case on the way in (azul-storage's, which the Azlin cash codes use
+/// too).
+pub use azul_storage::base32::{decode as base32_decode, encode as base32_encode};
 
 /// A code for reading aloud: `482913` -> `482 913`, `94287082` -> `9428 7082`.
 #[must_use]
