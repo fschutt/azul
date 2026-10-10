@@ -165,9 +165,15 @@ fn contacts_are_azcontacts_files_served_and_written_as_they_are() {
     assert!(listing.contains(&format!("<D:href>/addressbooks/contacts/{CARD}.vcf</D:href>")), "{listing}");
     assert!(!listing.contains("readme") && !listing.contains("old/"), "{listing}");
     let ctag = between(&listing, "<CS:getctag>", "</CS:getctag>");
-    let get = ask(&f.pim, "GET", &format!("/addressbooks/contacts/{CARD}.vcf"), &[], "");
+    let get = ask(
+        &f.pim,
+        "GET",
+        &format!("/addressbooks/contacts/{CARD}.vcf"),
+        &[("Accept", "text/vcard; version=4.0")],
+        "",
+    );
     assert_eq!(get.status, Status::OK);
-    assert_eq!(get.body, CARD_TEXT.as_bytes(), "byte for byte");
+    assert_eq!(get.body, CARD_TEXT.as_bytes(), "a 4.0 file asked for as 4.0: byte for byte");
     assert_eq!(get.header("Content-Type"), Some(cards::CONTENT_TYPE));
     assert!(get.header("ETag").is_some());
 
@@ -218,6 +224,40 @@ fn contacts_are_azcontacts_files_served_and_written_as_they_are() {
     assert_eq!(ask(&f.pim, "DELETE", href, &[("If-Match", current.as_str())], "").status, Status::NO_CONTENT);
     assert!(f.contacts.head("contacts/ABCDEF-1234.vcf").is_err());
     assert_eq!(ask(&f.pim, "GET", href, &[], "").status, Status::NOT_FOUND);
+}
+
+/// AzContacts writes vCard 4.0; Apple's Contacts reads 3.0. A card is served in 3.0 unless the
+/// program asks for 4.0 (`Accept`, or address-data's `version` in a REPORT), written by
+/// AzContacts' own model (azul-contacts-core) with the file's UID; a 3.0 card a program put is
+/// served as it came.
+#[test]
+fn a_vcard_4_file_is_served_as_3_0_unless_the_program_asks_for_4_0() {
+    let f = fixture();
+    let href = format!("/addressbooks/contacts/{CARD}.vcf");
+    let plain = ask(&f.pim, "GET", &href, &[], "");
+    assert_eq!(plain.status, Status::OK);
+    let plain = text(&plain);
+    assert!(plain.contains("VERSION:3.0") && !plain.contains("VERSION:4.0"), "{plain}");
+    assert!(plain.contains("FN:Grace Hopper") && plain.contains("grace@example.org"), "{plain}");
+    assert!(plain.contains(&format!("UID:{CARD}")), "{plain}");
+    let four = ask(&f.pim, "GET", &href, &[("Accept", "text/vcard; version=4.0")], "");
+    assert_eq!(four.body, CARD_TEXT.as_bytes(), "as the file is");
+
+    let multiget = |version: &str| {
+        format!(
+            "<CR:addressbook-multiget xmlns:D=\"DAV:\" xmlns:CR=\"urn:ietf:params:xml:ns:carddav\">\
+             <D:prop><D:getetag/><CR:address-data content-type=\"text/vcard\" version=\"{version}\"/></D:prop>\
+             <D:href>{href}</D:href></CR:addressbook-multiget>"
+        )
+    };
+    let three = text(&ask(&f.pim, "REPORT", "/addressbooks/contacts/", &[], &multiget("3.0")));
+    assert!(three.contains("VERSION:3.0") && three.contains("FN:Grace Hopper"), "{three}");
+    let four = text(&ask(&f.pim, "REPORT", "/addressbooks/contacts/", &[], &multiget("4.0")));
+    assert!(four.contains("VERSION:4.0"), "{four}");
+
+    let apple = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:A1B2-C3\r\nFN:Ada Lovelace\r\nEND:VCARD\r\n";
+    assert_eq!(ask(&f.pim, "PUT", "/addressbooks/contacts/A1B2-C3.vcf", &[], apple).status, Status::CREATED);
+    assert_eq!(ask(&f.pim, "GET", "/addressbooks/contacts/A1B2-C3.vcf", &[], "").body, apple.as_bytes());
 }
 
 #[test]
