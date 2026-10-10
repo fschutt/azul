@@ -10,9 +10,9 @@
 //! ```
 //!
 //! The activation code is `AZC1-` and the RFC 4648 base32 (upper case, no padding, blocks of
-//! four joined by `-`) of the checkout id, the amount (u32, big endian), the currency (three
-//! ASCII letters) and ten bytes of the token server's MAC over them: the operator's AzCtl reads
-//! the slip back and checks it. This crate checks its shape only (azcloud-kit reads it); the
+//! four joined by `-`) of the checkout id's 16 random bytes (the base32 behind `ck_`), the amount
+//! (u32, big endian), the currency (three ASCII letters) and ten bytes of the token server's MAC
+//! over them - 33 bytes, 53 characters: the operator's AzCtl reads the slip back and checks it. This crate checks its shape only (azcloud-kit reads it); the
 //! slip holds no secret of the drive.
 
 use std::fmt::Write as _;
@@ -28,9 +28,9 @@ use crate::{
 
 /// What every activation code starts with (its version).
 pub const ACTIVATION_PREFIX: &str = "AZC1-";
-/// The fewest base32 characters of an activation code: a checkout id of one byte, the amount,
-/// the currency and the MAC (18 bytes).
-const MIN_CODE_CHARS: usize = 29;
+/// The base32 characters of an activation code: a checkout id's 16 bytes, the amount, the
+/// currency and the MAC (33 bytes).
+const CODE_CHARS: usize = 53;
 /// The longest line of the operator's address taken from the answer, in characters.
 const MAX_LINE_CHARS: usize = 120;
 /// The most lines of the address.
@@ -58,8 +58,7 @@ pub struct CashSlip {
 }
 
 /// Whether `text` has an activation code's shape: [`ACTIVATION_PREFIX`], then blocks of four
-/// upper-case base32 characters joined by `-` (the last one of one to four), enough of them for
-/// a checkout id, an amount, a currency and a MAC, and a whole number of bytes.
+/// upper-case base32 characters joined by `-` (the last one of one to four), 53 of them.
 #[must_use]
 pub fn is_activation_code(text: &str) -> bool {
     let Some(rest) = text.strip_prefix(ACTIVATION_PREFIX) else {
@@ -79,7 +78,7 @@ pub fn is_activation_code(text: &str) -> bool {
                 .all(|b| b.is_ascii_uppercase() || (b'2'..=b'7').contains(&b))
     });
     let chars = rest.len() - last;
-    shaped && chars >= MIN_CODE_CHARS && matches!(chars % 8, 0 | 2 | 4 | 5 | 7)
+    shaped && chars == CODE_CHARS
 }
 
 /// A text of the answer: trimmed, at most `max` characters, no control characters; `None` for
