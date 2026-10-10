@@ -66,12 +66,17 @@ pub mod tables;
 pub mod time;
 pub mod transfer;
 pub mod transport;
+/// A request and its answer as HTTP/1.1 bytes: S3 over iroh.
+pub mod http1;
 pub(crate) mod xml;
 
 #[cfg(feature = "azul")]
 pub mod azul_keyring;
 #[cfg(feature = "azul")]
 pub mod azul_transport;
+/// S3 over iroh through azul's iroh endpoint.
+#[cfg(feature = "azul")]
+pub mod azul_iroh;
 
 /// The one tokio runtime the async back-ends (OpenDAL, the database drivers) run on.
 #[cfg(any(feature = "opendal", feature = "sql"))]
