@@ -116,6 +116,7 @@ free ports). As a module:
 """
 import argparse
 import base64
+import calendar
 import hashlib
 import hmac
 import html
@@ -381,6 +382,9 @@ class TokenState:
         self.issue_answers = {}
         # The vouchers it takes (add_voucher): code -> months, value, tier.
         self.vouchers = {}
+        # The restore requests: id -> drive, bucket, prefix, as_of, status, objects, error,
+        # done_at.
+        self.restores = {}
         # The fake payment providers offered (none: no payment options, the v1 checkout).
         self.providers = []
         # Checkout ids by their provider reference (what the providers see).
@@ -1150,6 +1154,50 @@ class TokenState:
             self.drives[drive_id].setdefault('public_links', {})[link] = {'revoked_at': None}
             return link
 
+    def restore(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/restore (drives.rs `restore`, a grant): the drive's objects under
+        `prefix` as they were at `as_of` (RFC 3339, or seconds) - queued at the token server and
+        applied by the node (here: at once, by the S3 store's versions); 202 `queued`."""
+        prefix = str(body.get('prefix') or body.get('key') or '')
+        as_of = body.get('as_of')
+        if isinstance(as_of, (int, float)) and not isinstance(as_of, bool):
+            as_of = int(as_of)
+        elif isinstance(as_of, str):
+            try:
+                as_of = calendar.timegm(time.strptime(as_of.split('.')[0].rstrip('Z'),
+                                                      '%Y-%m-%dT%H:%M:%S'))
+            except ValueError:
+                raise ApiError(400, 'bad_request', 'as_of must be RFC 3339') from None
+        else:
+            raise ApiError(400, 'bad_request', 'as_of required')
+        with self.lock:
+            drive = self.authenticate(drive_id, bearer)
+            request = random_id('r_')
+            self.restores[request] = {'drive': drive_id, 'bucket': drive['bucket'],
+                                      'prefix': prefix, 'as_of': as_of, 'status': 'queued',
+                                      'objects': None, 'error': None, 'done_at': None}
+        # The node's part, outside the token server's lock.
+        try:
+            objects = self.s3.store.restore(drive['bucket'], prefix, as_of)
+            error, status = None, 'done'
+        except (OSError, ValueError) as e:
+            objects, error, status = None, str(e), 'failed'
+        with self.lock:
+            self.restores[request].update(status=status, objects=objects, error=error,
+                                          done_at=int(time.time()))
+        return {'request_id': request, 'status': 'queued'}
+
+    def restore_status(self, drive_id, bearer, request):
+        """GET /v1/drives/<id>/restore/<request> (drives.rs `restore_status`, a read)."""
+        with self.lock:
+            self.authenticate(drive_id, bearer, previous_ok=True)
+            found = self.restores.get(request)
+            if found is None or found['drive'] != drive_id:
+                raise ApiError(404, 'not_found', 'unknown restore request')
+            return {'request_id': request, 'status': found['status'],
+                    'objects': found['objects'], 'error': found['error'],
+                    'done_at': rfc3339(found['done_at']) if found['done_at'] else None}
+
     def lockdown_cancel(self, drive_id, bearer):
         """POST /v1/drives/<id>/lockdown/cancel (a grant): the owner's other devices call a
         pending recovery-key lockdown off; the pending family cannot."""
@@ -1438,6 +1486,14 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             self.answer(200, state.lockdown_cancel(segments[2], self.bearer()))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'restore':
+            self.answer(202, state.restore(segments[2], self.bearer(), self.body() or {}))
+            return
+        if self.command == 'GET' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'restore':
+            self.answer(200, state.restore_status(segments[2], self.bearer(), segments[4]))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'members':
             self.answer(201, state.add_member(segments[2], self.bearer(), self.body() or {}))
             return
@@ -1528,7 +1584,8 @@ def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verb
     live under `root/<bucket>/<key>`; the fake payment providers `providers` offered (none: no
     payment options, the v1 checkout)."""
     s3 = s3_server.start(root, host=host, port=s3_port, access_key=ACCESS_KEY,
-                         secret_key=SECRET_KEY, region=REGION, verbose=verbose)
+                         secret_key=SECRET_KEY, region=REGION, verbose=verbose,
+                         keep_versions=True)
     state = TokenState(s3, s3.url, ttl)
     state.set_providers(providers)
     token = TokenServer((host, token_port), state, verbose).start_background()

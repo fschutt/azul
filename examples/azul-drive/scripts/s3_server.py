@@ -175,9 +175,55 @@ def check_key(key):
 class Store:
     TMP = ".s3-server-tmp"
 
-    def __init__(self, root):
+    def __init__(self, root, keep_versions=False):
         self.root = os.path.abspath(root)
         os.makedirs(os.path.join(self.root, self.TMP), exist_ok=True)
+        # With `keep_versions` every version of every object, in memory, with when it was made
+        # (an Azlin node's retention, what a token server's restore asks for): (bucket, key) ->
+        # [(time, bytes, or None for a delete)]. An object from before keeps its file's time.
+        self.versions = {} if keep_versions else None
+        self.clock = time.time
+        self._versions_lock = threading.Lock()
+
+    def _keep(self, bucket, key, data):
+        """Records `data` (None: a delete) as the newest version of `key`, the file's version
+        from before the store kept versions first."""
+        if self.versions is None:
+            return
+        with self._versions_lock:
+            versions = self.versions.get((bucket, key))
+            if versions is None:
+                versions = self.versions[(bucket, key)] = []
+                path = self.path(bucket, key)
+                if os.path.isfile(path):
+                    with open(path, "rb") as f:
+                        versions.append((os.stat(path).st_mtime, f.read()))
+            versions.append((self.clock(), data))
+
+    def restore(self, bucket, prefix, as_of):
+        """Every object of `bucket` under `prefix` back as it was at `as_of` (seconds since 1970),
+        the objects made since gone - an Azlin node's restore; how many changed. The restore's
+        own writes are versions too, so the state before it can come back the same way."""
+        if self.versions is None:
+            raise ValueError("this store keeps no versions")
+        with self._versions_lock:
+            history = {key: list(versions) for (b, key), versions in self.versions.items()
+                       if b == bucket and key.startswith(prefix)}
+        changed = 0
+        for key in sorted(history):
+            then = None
+            for when, data in history[key]:
+                if when <= as_of:
+                    then = data
+            now = self.read(bucket, key) if self.info(bucket, key) else None
+            if then == now:
+                continue
+            if then is None:
+                self.delete(bucket, key)
+            else:
+                self.write(bucket, key, then)
+            changed += 1
+        return changed
 
     def bucket_dir(self, bucket):
         return os.path.join(self.root, bucket)
@@ -242,6 +288,7 @@ class Store:
 
     def write(self, bucket, key, data):
         path = self.path(bucket, key)
+        self._keep(bucket, key, bytes(data))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = os.path.join(self.root, self.TMP, uuid.uuid4().hex)
         with open(tmp, "wb") as f:
@@ -251,6 +298,8 @@ class Store:
 
     def delete(self, bucket, key):
         path = self.path(bucket, key)
+        if os.path.isfile(path):
+            self._keep(bucket, key, None)
         try:
             os.remove(path)
         except FileNotFoundError:
@@ -723,9 +772,10 @@ class Server(http.server.ThreadingHTTPServer):
 
 
 def start(root, host="127.0.0.1", port=0, access_key=DEFAULT_ACCESS_KEY, secret_key=DEFAULT_SECRET_KEY,
-          region=DEFAULT_REGION, buckets=(), log_path=None, verbose=False):
-    """The stdlib server on `host:port` (0 = a free port), serving in a background thread."""
-    store = Store(root)
+          region=DEFAULT_REGION, buckets=(), log_path=None, verbose=False, keep_versions=False):
+    """The stdlib server on `host:port` (0 = a free port), serving in a background thread
+    (`keep_versions`: the store keeps every version, for `Store.restore`)."""
+    store = Store(root, keep_versions)
     for bucket in buckets:
         store.create_bucket(bucket)
     server = Server((host, port), store, access_key, secret_key, region, log_path, verbose)
