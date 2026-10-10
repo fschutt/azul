@@ -1640,3 +1640,30 @@ azdrive-add-connection-ok = Verbindung OK: Die Quelle hat geantwortet und listet
 azdrive-add-checkout-only = Dieser Tokenserver verkauft Laufwerke nur über eine Bestellung: Er erstellt keine Testlaufwerke. Verwende „Kaufen“.
 azdrive-add-days-not-drive = Der Tokenserver hat mit Tagen für ein Laufwerk geantwortet, nicht mit einem neuen Laufwerk.
 azdrive-pay-err-no-surface = die Antwort enthält keine Oberfläche
+
+## Why a name cannot be (DriveError::InvalidKey's reasons, by their English: l10n::named)
+
+azdrive-reason-something-has-this-name-already = etwas anderes hat bereits diesen Namen
+azdrive-reason-a-folder-is-copied-object-by-object = ein Ordner wird Objekt für Objekt kopiert
+azdrive-reason-a-folder-has-this-name = ein Ordner hat diesen Namen
+azdrive-reason-a-file-has-this-name = eine Datei hat diesen Namen
+azdrive-reason-a-folder-cannot-move-into-itself = ein Ordner kann nicht in sich selbst verschoben werden
+azdrive-reason-a-file-and-a-folder-cannot-trade-places = eine Datei und ein Ordner können nicht die Plätze tauschen
+azdrive-reason-it-names-a-folder-not-a-file = er bezeichnet einen Ordner, keine Datei
+azdrive-reason-it-is-a-folder = das ist ein Ordner
+azdrive-reason-it-is-a-file = das ist eine Datei
+azdrive-reason-it-has-no-usable-file-name = er ergibt keinen verwendbaren Dateinamen
+azdrive-reason-it-is-not-empty-any-more-delete-it-instead = es ist nicht mehr leer; lösche es stattdessen
+azdrive-reason-it-is-the-drive-s-root = das ist das Stammverzeichnis des Laufwerks
+azdrive-reason-it-is-the-drive-s-own-bookkeeping-azlin = das ist die eigene Verwaltung des Laufwerks (.azlin)
+azdrive-reason-a-folder-name-ends-with = ein Ordnername endet auf /
+azdrive-reason-two-shared-files-have-this-name = zwei freigegebene Dateien haben diesen Namen
+azdrive-reason-a-grant-covers-a-folder-which-ends-with = eine Freigabe gilt für einen Ordner, der auf / endet
+azdrive-reason-the-destination-folder-is-inside-the-folder-it-would-receive = der Zielordner liegt in dem Ordner, den er aufnehmen würde
+azdrive-reason-it-is-empty = er ist leer
+azdrive-reason-it-contains-a-nul-character = er enthält ein NUL-Zeichen
+azdrive-reason-it-contains-a-backslash = er enthält einen umgekehrten Schrägstrich
+azdrive-reason-it-is-an-absolute-path = das ist ein absoluter Pfad
+azdrive-reason-it-has-an-empty-path-segment = er hat einen leeren Pfadabschnitt
+azdrive-reason-it-has-a-segment = er hat einen Abschnitt „.“
+azdrive-reason-it-climbs-out-of-its-folder = er führt aus seinem Ordner heraus („..“)

@@ -1642,3 +1642,30 @@ azdrive-add-connection-ok = Connection OK: the source answered and lists its fil
 azdrive-add-checkout-only = This token server sells drives through a checkout only: it makes no test drives. Use Buy.
 azdrive-add-days-not-drive = The token server answered with days for a drive, not with a new drive.
 azdrive-pay-err-no-surface = the answer has no surface
+
+## Why a name cannot be (DriveError::InvalidKey's reasons, by their English: l10n::named)
+
+azdrive-reason-something-has-this-name-already = something has this name already
+azdrive-reason-a-folder-is-copied-object-by-object = a folder is copied object by object
+azdrive-reason-a-folder-has-this-name = a folder has this name
+azdrive-reason-a-file-has-this-name = a file has this name
+azdrive-reason-a-folder-cannot-move-into-itself = a folder cannot move into itself
+azdrive-reason-a-file-and-a-folder-cannot-trade-places = a file and a folder cannot trade places
+azdrive-reason-it-names-a-folder-not-a-file = it names a folder, not a file
+azdrive-reason-it-is-a-folder = it is a folder
+azdrive-reason-it-is-a-file = it is a file
+azdrive-reason-it-has-no-usable-file-name = it has no usable file name
+azdrive-reason-it-is-not-empty-any-more-delete-it-instead = it is not empty any more; delete it instead
+azdrive-reason-it-is-the-drive-s-root = it is the drive's root
+azdrive-reason-it-is-the-drive-s-own-bookkeeping-azlin = it is the drive's own bookkeeping (.azlin)
+azdrive-reason-a-folder-name-ends-with = a folder name ends with /
+azdrive-reason-two-shared-files-have-this-name = two shared files have this name
+azdrive-reason-a-grant-covers-a-folder-which-ends-with = a grant covers a folder, which ends with /
+azdrive-reason-the-destination-folder-is-inside-the-folder-it-would-receive = the destination folder is inside the folder it would receive
+azdrive-reason-it-is-empty = it is empty
+azdrive-reason-it-contains-a-nul-character = it contains a NUL character
+azdrive-reason-it-contains-a-backslash = it contains a backslash
+azdrive-reason-it-is-an-absolute-path = it is an absolute path
+azdrive-reason-it-has-an-empty-path-segment = it has an empty path segment
+azdrive-reason-it-has-a-segment = it has a "." segment
+azdrive-reason-it-climbs-out-of-its-folder = it climbs out of its folder ("..")

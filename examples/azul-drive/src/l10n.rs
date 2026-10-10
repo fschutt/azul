@@ -12,7 +12,7 @@ use azcloud_kit::{
     CloudError, TokenError, UserError,
 };
 use azul::prelude::AppConfig;
-use azul_appkit::l10n::{self, Phrase, Text};
+use azul_appkit::l10n::{self, Arg, Phrase, Text};
 use azul_storage::DriveError;
 
 /// AzDrive's words in English.
@@ -79,9 +79,14 @@ fn own_error_text(e: &DriveError) -> Text {
         DriveError::NotFound { key } => {
             Phrase::new("azdrive-err-not-found").arg("name", azul_storage::key::last_segment(key))
         }
+        // The reason as a word of the resources: said in the window's language when shown (a
+        // worker thread makes this too), azul-storage's English for a reason they lack.
         DriveError::InvalidKey { key, reason } => Phrase::new("azdrive-err-invalid-name")
             .arg("name", key.as_str())
-            .arg("reason", *reason),
+            .arg(
+                "reason",
+                Arg::word(&l10n::named_key("AzDrive", "reason", reason), reason),
+            ),
         DriveError::InvalidRange { key } => {
             Phrase::new("azdrive-err-range").arg("name", azul_storage::key::last_segment(key))
         }
