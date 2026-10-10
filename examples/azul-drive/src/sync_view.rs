@@ -26,11 +26,17 @@
 //!   read as it is now, a slashed one (`search_off`) on a file it never reads.
 //!
 //! SEAM for the kit's guards that stop a pass by themselves (the mass-delete guard today, the
-//! burst / ransomware guard of CLIENT17 round 6): a guard's pause should travel in the pass's
-//! `SyncStates` (written by azcloud-kit's `session::record` / `after_failure`, as `read_only`
-//! and `last_error` are), show in [`status_text`] and [`sidebar_state`] next to "Read-only",
-//! and ask with a [`SyncDialog`] next to `Conflict` (resume - the guard allowed once - or keep
-//! it paused). Until then a tripped guard is the pass's error: "Not synced: <why>".
+//! burst / ransomware guard of CLIENT17 round 6, not in azcloud-kit yet): a guard's pause should
+//! travel in the pass's `SyncStates` (written by azcloud-kit's `session::record` /
+//! `after_failure`, as `read_only` and `last_error` are), show in [`status_text`] and
+//! [`sidebar_state`] next to "Read-only" ("Paused: <why>"), and ask with a [`SyncDialog`] next
+//! to `Conflict` - "Resume" (the guard allowed once: `SyncOptions::allow_mass_delete` for one
+//! pass) and "Show the changes" (the files the pass would delete or change, from its plan).
+//! Until then a tripped guard is the pass's error: "Not synced: <why>".
+//!
+//! GAP: "Paused (metered network)" - azul exposes no metered-network flag yet (nothing in the
+//! dll for NWPath / NetworkCostType / ConnectivityManager); when it does, [`status_text`] takes
+//! it like `paused` and the poll timer skips the drive.
 
 use std::{
     collections::{HashMap, HashSet},
