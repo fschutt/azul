@@ -230,6 +230,29 @@ pub fn month_message_id(month: u32) -> &'static str {
         .unwrap_or(IDS[0])
 }
 
+/// The month's short name's message in azul-appkit's resources (`kit-month-short-sep` for 9:
+/// "Sep", "Sept."); January's for anything else.
+#[must_use]
+pub fn month_short_message_id(month: u32) -> &'static str {
+    const IDS: [&str; 12] = [
+        "kit-month-short-jan",
+        "kit-month-short-feb",
+        "kit-month-short-mar",
+        "kit-month-short-apr",
+        "kit-month-short-may",
+        "kit-month-short-jun",
+        "kit-month-short-jul",
+        "kit-month-short-aug",
+        "kit-month-short-sep",
+        "kit-month-short-oct",
+        "kit-month-short-nov",
+        "kit-month-short-dec",
+    ];
+    IDS.get(month.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or(IDS[0])
+}
+
 /// "January" for 1 .. "December" for 12; "January" for anything else.
 #[must_use]
 pub fn month_name(month: u32) -> &'static str {
