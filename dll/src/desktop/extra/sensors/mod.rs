@@ -38,6 +38,15 @@
 /// backend depends on is covered by tests that actually run here.
 pub mod units;
 
+/// The computer's network state for background transfers (`NetworkState`: connected, metered,
+/// constrained, its kind), kept current by a platform monitor; a fixed reading (or a test's
+/// switch file) in headless runs. Its platform files sit in `network/`, split as the motion
+/// backends are.
+pub mod network;
+/// The computer's power state for background work (`PowerState`: on mains power, seconds
+/// since the last input), per platform; a fixed reading in headless runs.
+pub mod power;
+
 #[cfg(target_os = "android")]
 pub mod android;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
