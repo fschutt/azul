@@ -94,7 +94,7 @@ pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
-pub use pending::{PendingCheckout, Polled};
+pub use pending::{Finished, PendingCheckout, PendingTokens, Polled};
 pub use period::{issue_tokens, Issuer, IssuerKey, PeriodToken, PeriodTokenStore};
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
