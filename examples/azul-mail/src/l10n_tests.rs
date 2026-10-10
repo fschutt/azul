@@ -11,16 +11,22 @@ use azul_appkit::{
 
 use crate::l10n::{sources, DE, EN};
 
-/// The windows' ids look like keys (`azmail-main`): the debug server and the scripts address
-/// the windows by them, no window says them.
-const WINDOW_IDS: [&str; 2] = [crate::MAIN_WINDOW_ID, crate::ui_options::OPTIONS_WINDOW_ID];
+/// Strings that look like keys and are no words: the windows' ids (`azmail-main`: the debug
+/// server and the scripts address the windows by them) and the test SMTP sink's name.
+const NOT_KEYS: [&str; 3] = [
+    crate::MAIN_WINDOW_ID,
+    crate::ui_options::OPTIONS_WINDOW_ID,
+    "azmail-test-sink",
+];
 
 #[test]
 fn every_key_of_azmails_source_is_in_english_and_german_and_both_parse() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let problems: Vec<String> = check(&dir, &["azmail"], EN, DE)
-        .into_iter()
-        .filter(|problem| !WINDOW_IDS.iter().any(|id| problem.starts_with(&format!("{id}: "))))
+    // AzMail's source, and azul-mail-core's (its shortcut table names AzMail's keys).
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let problems: Vec<String> = [manifest.join("src"), manifest.join("../azul-mail-core/src")]
+        .iter()
+        .flat_map(|dir| check(dir, &["azmail"], EN, DE))
+        .filter(|problem| !NOT_KEYS.iter().any(|id| problem.starts_with(&format!("{id}: "))))
         .collect();
     assert!(problems.is_empty(), "{problems:#?}");
 }

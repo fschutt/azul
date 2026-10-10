@@ -118,24 +118,27 @@ pub struct RemoteContent {
 }
 
 impl RemoteContent {
-    /// "4 pictures, 1 font and 2 style sheets" (what is there); empty when there is nothing.
+    /// "4 pictures, 1 font and 2 style sheets" (what is there, in the window's language); empty
+    /// when there is nothing.
     pub fn summary(&self) -> String {
+        use azul_appkit::l10n::{t_args, Arg};
         let mut parts: Vec<String> = Vec::new();
-        for (count, one, many) in [
-            (self.images.len(), "picture", "pictures"),
-            (self.fonts.len(), "font", "fonts"),
-            (self.stylesheets.len(), "style sheet", "style sheets"),
+        for (count, key) in [
+            (self.images.len(), "azmail-remote-pictures"),
+            (self.fonts.len(), "azmail-remote-fonts"),
+            (self.stylesheets.len(), "azmail-remote-style-sheets"),
         ] {
-            match count {
-                0 => {}
-                1 => parts.push(format!("1 {one}")),
-                n => parts.push(format!("{n} {many}")),
+            if count > 0 {
+                parts.push(t_args(key, &[("count", Arg::from(count))]));
             }
         }
         match parts.pop() {
             None => String::new(),
             Some(last) if parts.is_empty() => last,
-            Some(last) => format!("{} and {last}", parts.join(", ")),
+            Some(last) => t_args(
+                "azmail-remote-and",
+                &[("first", Arg::from(parts.join(", "))), ("last", Arg::from(last))],
+            ),
         }
     }
 }
@@ -1709,6 +1712,7 @@ mod tests {
     /// fetched ("download pictures"): no tracking pixel, no background, nothing not on the web.
     #[test]
     fn the_pre_pass_lists_the_web_pictures_fonts_and_style_sheets_and_the_shown_ones_are_fetched() {
+        crate::l10n::in_english();
         let html = "<html><head><link rel=\"stylesheet\" href=\"https://cdn.example/mail.css\">\
                     <style>@font-face { font-family: Brand; src: url(https://cdn.example/brand.woff2) }\
                     @import url(\"https://cdn.example/more.css\");\

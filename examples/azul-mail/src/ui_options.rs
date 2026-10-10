@@ -30,8 +30,8 @@ use crate::{args::Screen, ui_main, with_app, MailApp};
 
 /// The Options window's id.
 pub(crate) const OPTIONS_WINDOW_ID: &str = "azmail-options";
-/// Its title (Outlook's "Outlook Options").
-const TITLE: &str = "AzMail Options";
+/// Its title (Outlook's "Outlook Options"): a key of the resources.
+const TITLE: &str = "azmail-options-title";
 
 /// Opens File > Options at `category` (a category's name: "Mail", "Shortcuts") in its own
 /// window; while that is open, it only moves to `category` (the caller redraws every window).
@@ -47,7 +47,7 @@ pub(crate) fn open(s: &mut MailApp, info: &mut CallbackInfo, category: &str) {
 fn window() -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(layout_options);
     window.window_state.window_id = AzString::from(OPTIONS_WINDOW_ID);
-    window.window_state.title = AzString::from(TITLE);
+    window.window_state.title = AzString::from(azul_appkit::l10n::t(TITLE));
     window.window_state.size.dimensions = LogicalSize::create(780.0, 580.0);
     window.window_state.size.min_dimensions =
         OptionLogicalSize::Some(LogicalSize::create(560.0, 420.0));
@@ -81,7 +81,11 @@ extern "C" fn layout_options(mut data: RefAny, info: LayoutCallbackInfo) -> Dom 
     let s = &*guard;
     let page = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(Titlebar::create(TITLE).without_border_bottom().dom())
+        .with_child(
+            Titlebar::create(azul_appkit::l10n::label(TITLE))
+                .without_border_bottom()
+                .dom(),
+        )
         .with_child(kit::settings_page_with_reload(
             &s.kit,
             ui_main::mail_options(s, &app),

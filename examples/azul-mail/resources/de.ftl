@@ -480,3 +480,22 @@ azmail-compose-draft-not-saved = Der Entwurf konnte nicht gespeichert werden: { 
 azmail-compose-in-outbox = Im Postausgang: { $subject }
 azmail-compose-draft-later = Der Entwurf ist hier gespeichert; das nächste Senden/Empfangen legt ihn ins Azlin-Laufwerk ({ $why }).
 azmail-ban-sends-nothing = AzMail sendet nichts von diesem Konto: Seine E-Mails warten im Postausgang.
+
+## Options, a mail's web content, the shortcuts
+
+azmail-options-title = AzMail-Optionen
+azmail-remote-pictures = { $count ->
+    [one] 1 Bild
+   *[other] { $count } Bildern
+ }
+azmail-remote-fonts = { $count ->
+    [one] 1 Schriftart
+   *[other] { $count } Schriftarten
+ }
+azmail-remote-style-sheets = { $count ->
+    [one] 1 Stylesheet
+   *[other] { $count } Stylesheets
+ }
+azmail-remote-and = { $first } und { $last }
+azmail-shortcut-leave-file = Die Registerkarte „Datei“ verlassen
+azmail-shortcut-save-draft = Den Entwurf speichern

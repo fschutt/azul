@@ -145,18 +145,20 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// The keyboard shortcuts (`Mod` = Cmd on macOS, Ctrl elsewhere). The key handlers of the
 /// main window (`ui_main::on_main_key`) and of a message window (`ui_compose::on_compose_key`)
 /// act on exactly these; the kit adds Mod+, (settings), F1 (this table) and Escape.
+/// The groups and actions are keys of AzMail's resources (the kit's table says them in the
+/// window's language).
 pub const SHORTCUTS: [Shortcut; 11] = [
-    Shortcut::new("Mail", "Mod+N", "New E-mail"),
-    Shortcut::new("Mail", "Mod+R", "Reply"),
-    Shortcut::new("Mail", "Mod+Shift+R", "Reply All"),
-    Shortcut::new("Mail", "Mod+F", "Forward"),
-    Shortcut::new("Mail", "F9", "Send/Receive All Folders"),
-    Shortcut::new("Mail", "Escape", "Leave the File tab"),
-    Shortcut::new("Message", "Mod+Enter", "Send"),
-    Shortcut::new("Message", "Mod+S", "Save the draft"),
-    Shortcut::new("Message", "Mod+B", "Bold"),
-    Shortcut::new("Message", "Mod+I", "Italic"),
-    Shortcut::new("Message", "Mod+U", "Underline"),
+    Shortcut::new("azmail-module-mail", "Mod+N", "azmail-cmd-new-mail"),
+    Shortcut::new("azmail-module-mail", "Mod+R", "azmail-cmd-reply"),
+    Shortcut::new("azmail-module-mail", "Mod+Shift+R", "azmail-cmd-reply-all"),
+    Shortcut::new("azmail-module-mail", "Mod+F", "azmail-cmd-forward"),
+    Shortcut::new("azmail-module-mail", "F9", "azmail-cmd-send-receive-all"),
+    Shortcut::new("azmail-module-mail", "Escape", "azmail-shortcut-leave-file"),
+    Shortcut::new("azmail-compose-tab-message", "Mod+Enter", "azmail-compose-send"),
+    Shortcut::new("azmail-compose-tab-message", "Mod+S", "azmail-shortcut-save-draft"),
+    Shortcut::new("azmail-compose-tab-message", "Mod+B", "azmail-compose-bold"),
+    Shortcut::new("azmail-compose-tab-message", "Mod+I", "azmail-compose-italic"),
+    Shortcut::new("azmail-compose-tab-message", "Mod+U", "azmail-compose-underline"),
 ];
 
 /// AzMail's own categories on the kit's settings page (File > Options; before Appearance,

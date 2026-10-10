@@ -480,3 +480,22 @@ azmail-compose-draft-not-saved = The draft could not be saved: { $why }
 azmail-compose-in-outbox = In the Outbox: { $subject }
 azmail-compose-draft-later = The draft is saved here; the next Send/Receive puts it into the Azlin drive ({ $why }).
 azmail-ban-sends-nothing = AzMail sends nothing from this account: its mail waits in the Outbox.
+
+## Options, a mail's web content, the shortcuts
+
+azmail-options-title = AzMail Options
+azmail-remote-pictures = { $count ->
+    [one] 1 picture
+   *[other] { $count } pictures
+ }
+azmail-remote-fonts = { $count ->
+    [one] 1 font
+   *[other] { $count } fonts
+ }
+azmail-remote-style-sheets = { $count ->
+    [one] 1 style sheet
+   *[other] { $count } style sheets
+ }
+azmail-remote-and = { $first } and { $last }
+azmail-shortcut-leave-file = Leave the File tab
+azmail-shortcut-save-draft = Save the draft
