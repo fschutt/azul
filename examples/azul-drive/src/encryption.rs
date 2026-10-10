@@ -479,7 +479,8 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 TextInput::create()
                     .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
                     .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
-                    .dom(),
+                    .dom()
+                    .with_id(crate::ids::UNLOCK_CODE),
             ]);
             if !error.is_empty() {
                 body.add_child(line(error).with_css("color: #C42B1C;"));

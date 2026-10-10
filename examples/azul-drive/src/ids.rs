@@ -409,3 +409,5 @@ pub fn method_button(
 pub fn share_paper(row: usize, what: &str) -> AzString {
     AzString::from(format!("__azdrive_share_{what}_{row}"))
 }
+/// "Unlock with the recovery code": the code's box.
+pub const UNLOCK_CODE: AzString = AzString::from_const_str("__azdrive_unlock_code");

@@ -64,6 +64,16 @@ sheet of `--dialogs inline`:
        the client id and the token endpoint), and the drive refreshes its access token at that
        endpoint before its first listing (googleapis.com answered by azul's request mock: an
        empty My Drive).
+   13. The recovery methods of an encrypted drive (C14; `--recovery`, AzDrive built with the
+       `encryption` feature): step 5's test drive encrypted - the kit saved as a PDF from the
+       recovery sheet (FileDialog::save_bytes under the mock store), Escape keeps the sheet, the
+       setup finishes only with the four groups it asks for typed back (a wrong one refused);
+       a drill from Options > Drives (a wrong code fails, the kit's code passes); three trusted
+       contacts without AzDrive (printed shares, two saved as PDFs: Recovery health green); a
+       second AzDrive that never had the drive recovers it with two printed shares - the code
+       they give back signs the lockdown, the token server holds it 48 hours without
+       credentials for it while the owner's AzDrive shows it, then (the mock's clock advanced)
+       hands the drive over, the owner's old token is refused and the code unlocks the drive.
 
 Url::open starts no browser in a headless run (the engine's stand-in), so the payment page of
 step 6 stays closed and the mock's test provider is paid directly; in steps 7 - 11 nothing loads
@@ -75,7 +85,11 @@ its default features `opendal` and `sql` plus `fake-providers` - steps 7 - 11 ne
 azul-pay's registry: `cargo build --release -p AzDrive --features fake-providers`):
 
     python3 scripts/azdrive_add_e2e.py [--bin target/release/AzDrive] [--debug-port 8783]
-        [--timeout 240] [--out /tmp/azdrive-add-shots] [--keep-logs]
+        [--timeout 240] [--out /tmp/azdrive-add-shots] [--keep-logs] [--recovery]
+
+(`--recovery`: step 13, after `cargo build --release -p AzDrive --features
+fake-providers,encryption`; the second AzDrive of step 13 uses the debug port after
+`--debug-port`.)
 
 Every key_down has its key_up (the E2E key_up rule); the shared Azlin config is a temporary one
 (azlin_e2e sets AZLIN_CONFIG), the keyring the headless backend's stand-in kept in a file of the
@@ -94,6 +108,7 @@ import tempfile
 import time
 
 import azlin_claim
+import azlin_client
 import azlin_e2e as e2e
 import azlin_mock_stack
 import azlin_period
@@ -355,6 +370,275 @@ def new_drive(app, known):
                                               if d not in known])[-1]
 
 
+# ==== 13. Recovery methods (C14): AzDrive built with the encryption feature ====
+
+# The recovery code as the sheet shows it, and the groups the sheet asks for.
+CODE_RE = re.compile(r"\b[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{6}\b")
+ASKED_RE = re.compile(r"type groups ([0-9, and]+) of the code")
+SHARE_RE = re.compile(r"\bS[123]-[0-9A-F]{8}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-"
+                      r"[0-9A-Z]{6}\b")
+
+
+def drive_menu(app, drive_id, entry):
+    """Right-clicks the drive's row in the source list and picks `entry` from its menu."""
+    before = len(app.window_ids())
+    app.must("click", selector=side_drive(drive_id), button="right")
+    app.frame(2)
+    menu = app.until("the drive's menu",
+                     lambda: app.popup() if len(app.window_ids()) > before else None)
+    app.click_exact(entry, window=menu)
+
+
+def method_button(drive_id, method, action):
+    """Options > Drives' button of a recovery method (ids.rs method_button)."""
+    return "#__azdrive_method_%s_%s_%s" % (re.sub(r"[^A-Za-z0-9_-]", "_", drive_id).lower(),
+                                           method, action)
+
+
+def retype(win, selector, old, text):
+    """Replaces the `old` text of the field `selector` with `text` (End, Backspaces, typing)."""
+    win.must("focus_node", selector=selector)
+    win.frame(2)
+    win.key("end")
+    for _ in range(len(old)):
+        win.key("backspace", frames=1)
+    if text:
+        win.must("text_input", text=text)
+    win.frame(2)
+
+
+def found(texts, pattern):
+    for text in texts:
+        match = pattern.search(text or "")
+        if match:
+            return match
+    return None
+
+
+def saved_pdf(app, what):
+    """The newest export recorded by FileDialog::save_bytes is a PDF of some size."""
+    answer = app.op("assert_saved_file", name_ends_with=".pdf", mime="application/pdf",
+                    min_len=2000, contains="%PDF")
+    if not isinstance(answer, dict) or answer.get("status") == "error":
+        raise Failure("%s was not saved as a PDF: %s" % (what, json.dumps(answer)[:300]))
+
+
+def settings_text(data_dir):
+    """AzDrive's settings file in the data folder (drive/view.json)."""
+    for root, _dirs, files in os.walk(data_dir):
+        if "view.json" in files and os.path.basename(root) == "drive":
+            with open(os.path.join(root, "view.json"), "r", encoding="utf-8") as f:
+                return f.read()
+    return ""
+
+
+def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_file, keyring_file,
+                   drive_id):
+    """13. The recovery methods of an encrypted drive (C14, D51), on the test drive of step 5:
+    13a the setup's sheet - the kit saved as a PDF, Escape does not take the sheet away, the
+    signup finishes only with four groups typed back; 13b a drill from Options > Drives; 13c
+    three trusted contacts, all printed, two shares handed over (Recovery health green); 13d a
+    second AzDrive that never had the drive recovers it with two of the printed shares - the
+    token server holds the lockdown 48 hours (no credentials meanwhile), the owner's devices are
+    told, then the drive is handed over and the code the shares gave back unlocks it."""
+    app.after("the drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id),
+              lambda: app.click(selector=side_drive(drive_id)))
+
+    # 13a. Encrypt this drive: the sheet, the kit, the four groups.
+    drive_menu(app, drive_id, "Encrypt this drive…")
+    popup = e2e.modal_window(app)
+    popup.until("Encrypt?", lambda: popup.exact("Encrypt"))
+    popup.click_exact("Encrypt", frames=3)
+    popup = e2e.modal_window(app)
+    popup.until("the recovery sheet", lambda: popup.has("#__azdrive_sheet_group_0"))
+    texts = popup.texts()
+    code = found(texts, CODE_RE)
+    asked = found(texts, ASKED_RE)
+    if not code or not asked:
+        raise Failure("the sheet shows no code or no groups to type: %r" % texts[:20])
+    code = code.group(0)
+    groups = code.split("-")
+    numbers = [int(n) for n in re.findall(r"\d+", asked.group(1))]
+    if len(numbers) != 4 or len(set(numbers)) != 4 or not all(1 <= n <= 5 for n in numbers):
+        raise Failure("the sheet asks for groups %r: four of five, each once" % numbers)
+    app.op("mock", set={"save_bytes": {"accept": True}})
+    app.after("the kit saved", "AZDRIVE_KIT_SAVED", r"\d+",
+              lambda: popup.click(selector="#__azdrive_kit_save"))
+    saved_pdf(app, "the emergency kit")
+    popup.screenshot(os.path.join(out, "13a-sheet.png"))
+    popup.key("escape")
+    app.frame(3)
+    popup = e2e.modal_window(app)
+    if not popup.has("#__azdrive_sheet_group_0"):
+        raise Failure("Escape took the recovery sheet away before its groups were typed")
+    popup.click(selector="#__azdrive_sheet_done", frames=3)
+    if app.printed("AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id)):
+        raise Failure("the setup finished without the groups typed back")
+    if not popup.shows("are not all the code's"):
+        raise Failure("the sheet did not say the groups are missing")
+    for slot, number in enumerate(numbers):
+        typed = groups[number - 1] if slot else "WRONG"
+        popup.text_input("#__azdrive_sheet_group_%d" % slot, typed)
+    popup.click(selector="#__azdrive_sheet_done", frames=3)
+    if app.printed("AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id)):
+        raise Failure("the setup finished with a wrong group")
+    retype(popup, "#__azdrive_sheet_group_0", "WRONG", groups[numbers[0] - 1].lower())
+    app.after("the setup finished", "AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id),
+              lambda: popup.click(selector="#__azdrive_sheet_done"))
+    app.until("the recovery key registered", lambda: app.printed(
+        "AZDRIVE_RECOVERY_KEY", re.escape(drive_id)))
+    if not stack.token.state.drives[drive_id].get("recovery_pubkey"):
+        raise Failure("the token server has no recovery key of %s" % drive_id)
+    app.until("the files moved into the encryption", lambda: app.shows("are encrypted"))
+    app.until("the recovery state in the settings file",
+              lambda: '"code_checked"' in settings_text(os.path.join(logs, "data")))
+    if code in settings_text(os.path.join(logs, "data")):
+        raise Failure("the settings file holds the recovery code")
+    log("13a. Encrypt this drive: the kit saved as a PDF from the sheet, Escape kept the sheet, "
+        "\"I have written it down\" refused nothing and a wrong group, groups %r typed back "
+        "finished the setup (the recovery key at the token server, the files encrypted)"
+        % numbers)
+
+    # 13b. A drill: Options > Drives > Recovery > the code's Test.
+    app.tab("View")
+    app.ribbon("Options")
+    app.click(text="Drives")
+    app.until("the recovery methods", lambda: app.has(method_button(drive_id, "code", "test")))
+    if not app.has("#__azdrive_method_warning_" + re.sub(r"[^A-Za-z0-9_-]", "_",
+                                                          drive_id).lower()):
+        raise Failure("one method and no warning")
+    app.click(selector=method_button(drive_id, "code", "test"))
+    popup = e2e.modal_window(app)
+    popup.until("the drill", lambda: popup.has("#__azdrive_drill_code"))
+    popup.text_input("#__azdrive_drill_code", "00000-00000-00000-00000-000000")
+    app.after("a wrong code", "AZDRIVE_DRILL_FAILED", re.escape(drive_id),
+              lambda: popup.click(selector="#__azdrive_drill_check"))
+    retype(popup, "#__azdrive_drill_code", "00000-00000-00000-00000-000000",
+           code.replace("-", " ").lower())
+    app.after("the drill passed", "AZDRIVE_DRILL_PASSED", re.escape(drive_id),
+              lambda: popup.click(selector="#__azdrive_drill_check"))
+    popup = e2e.modal_window(app)
+    popup.click_exact("Close", frames=3)
+    log("13b. A drill from Options > Drives: a wrong code failed, the kit's code (typed with "
+        "spaces, lower case) passed")
+
+    # 13c. Three trusted contacts without AzDrive: their shares printed; two handed over.
+    app.click(selector=method_button(drive_id, "contacts", "add"))
+    popup = e2e.modal_window(app)
+    popup.until("the contacts' page", lambda: popup.has("#__azdrive_contacts_code"))
+    popup.text_input("#__azdrive_contacts_code", code)
+    for slot, person in enumerate(("Ada", "Grace", "Linus")):
+        popup.text_input("#__azdrive_contacts_name_%d" % slot, person)
+    app.after("the shares made", "AZDRIVE_CONTACTS_SHARED", r"%s 3" % re.escape(drive_id),
+              lambda: popup.click(selector="#__azdrive_contacts_make"))
+    popup.until("the shares", lambda: popup.has("#__azdrive_contacts_share_2"))
+    shares = [m.group(0) for m in (SHARE_RE.search(t or "") for t in popup.texts()) if m]
+    if len(shares) != 3 or sorted(s[:2] for s in shares) != ["S1", "S2", "S3"]:
+        raise Failure("the printed shares are %r" % shares)
+    for row in (0, 2):
+        app.after("share %d saved" % (row + 1), "AZDRIVE_KIT_SAVED", r"\d+",
+                  lambda: popup.click(selector="#__azdrive_share_save_%d" % row))
+        saved_pdf(app, "share %d" % (row + 1))
+    popup.screenshot(os.path.join(out, "13c-shares.png"))
+    popup.click(selector="#__azdrive_contacts_done", frames=3)
+    wait_closed(app)
+    app.until("two methods", lambda: not app.has(
+        "#__azdrive_method_warning_" + re.sub(r"[^A-Za-z0-9_-]", "_", drive_id).lower()))
+    if not app.shows("Green: 2 methods"):
+        raise Failure("the Recovery health is not green with the code and two shares out")
+    app.key("escape")
+    log("13c. Trusted contacts: three printed shares %s, two saved as PDFs (handed over); the "
+        "warning gone, Recovery health green" % ", ".join(s[:2] for s in shares))
+
+    # 13d. Another computer recovers the drive with shares 1 and 3.
+    other = os.path.join(logs, "other")
+    os.makedirs(os.path.join(other, "config"), exist_ok=True)
+    other_drives = os.path.join(other, "config", "drives.json")
+    text, entries = drives_file_entries(drives_file)
+    kept = json.loads(text)
+    kept["drives"] = [e for e in entries if e["id"] == drive_id]
+    with open(other_drives, "w", encoding="utf-8") as f:
+        json.dump(kept, f)
+    other_keyring = os.path.join(other, "keyring.json")
+    other_switches = [s for s in switches]
+    for flag, value in (("--drives", other_drives), ("--data-dir", os.path.join(other, "data")),
+                        ("--cache-dir", os.path.join(other, "cache")),
+                        ("--home", os.path.join(other, "home"))):
+        if flag in other_switches:
+            other_switches[other_switches.index(flag) + 1] = value
+        else:
+            other_switches += [flag, value]
+    os.makedirs(os.path.join(other, "home"), exist_ok=True)
+    other_env = dict(env, AZ_KEYRING_FILE=other_keyring)
+
+    def start_other(tag):
+        drive = Drive(tag, binary, other_switches, args.debug_port + 1, logs, args.timeout,
+                      extra_env=other_env)
+        drive.until("the This PC view", lambda: drive.printed("AZDRIVE_PLACE", r"this-pc"))
+        drive.until("the debug server", lambda: drive.op("get_dom_tree"))
+        drive.until("the drive's row", lambda: drive.has(side_drive(drive_id)))
+        return drive
+
+    second = start_other("azdrive-other")
+    try:
+        drive_menu(second, drive_id, "Recover with trusted contacts…")
+        second.until("the request", lambda: second.printed(
+            "AZDRIVE_CONTACTS_REQUEST", re.escape(drive_id)))
+        popup = e2e.modal_window(second)
+        popup.until("the answers' boxes", lambda: popup.has("#__azdrive_contacts_answer_0"))
+        popup.text_input("#__azdrive_contacts_answer_0", shares[0].lower().replace("-", " "))
+        popup.text_input("#__azdrive_contacts_answer_1", shares[2])
+        second.after("the code back and the lockdown", "AZDRIVE_CONTACTS_RECOVERED",
+                     re.escape(drive_id),
+                     lambda: popup.click(selector="#__azdrive_contacts_recover"))
+        popup = e2e.modal_window(second)
+        popup.until("the code given back", lambda: popup.has("#__azdrive_rebuilt_code"))
+        if found(popup.texts(), CODE_RE).group(0) != code:
+            raise Failure("the shares gave back another code")
+        popup.screenshot(os.path.join(out, "13d-rebuilt.png"))
+        pending = stack.token.state.drives[drive_id].get("lockdown_pending_until")
+        if not pending or pending < stack.token.state.now() + 47 * 3600:
+            raise Failure("the token server holds no 48 h lockdown: %r" % pending)
+        session = json.loads(keyring_entries(other_keyring).get("azul-storage/s3/" + drive_id)
+                             or "{}")
+        token = session.get("drive_token") or ""
+        client = azlin_client.TokenClient(stack.token_url)
+        status, value, _ = client.call("POST", "/v1/drives/%s/credentials" % drive_id, {},
+                                       bearer=token)
+        if status != 403 or (value or {}).get("error") != "lockdown_pending":
+            raise Failure("the recovering computer got credentials during the notice: HTTP %d %r"
+                          % (status, value))
+        app.until("the owner's device told", lambda: app.printed(
+            "AZDRIVE_LOCKDOWN_PENDING", r"%s \S+" % re.escape(drive_id)))
+        log("13d. Another computer: two printed shares (one typed in lower case with spaces) gave "
+            "back the code, which signed the recovery-key lockdown - pending 48 h at the token "
+            "server, no credentials meanwhile, the owner's AzDrive shows it")
+
+        # The 48 hours pass at the token server: the drive is handed over.
+        second.stop()
+        stack.token.state.advance(azlin_mock_stack.LOCKDOWN_PENDING_SECS + 60)
+        owner = json.loads(keyring_entries(keyring_file).get("azul-storage/s3/" + drive_id)
+                           or "{}").get("drive_token") or ""
+        status, value, _ = client.call("POST", "/v1/drives/%s/credentials" % drive_id, {},
+                                       bearer=owner)
+        if status != 401:
+            raise Failure("the old devices keep the drive after the hand-over: HTTP %d" % status)
+        second = start_other("azdrive-other-after")
+        drive_menu(second, drive_id, "Unlock with the recovery code…")
+        popup = e2e.modal_window(second)
+        popup.until("the code's box", lambda: popup.has("#__azdrive_unlock_code"))
+        popup.text_input("#__azdrive_unlock_code", code)
+        second.after("the drive unlocked and listed", "AZDRIVE_LISTED",
+                     r"%s / [1-9]\d*" % re.escape(drive_id),
+                     lambda: popup.click_exact("Unlock"))
+        second.until("its file", lambda: "hello.txt" in item_names(second))
+        second.screenshot(os.path.join(out, "13d-recovered.png"))
+        log("13d. After the 48 h the token server handed the drive over (the owner's old devices "
+            "refused), and the code the shares gave back unlocked it: hello.txt in its listing")
+    finally:
+        second.stop()
+
+
 def run(args, logs):
     binary = e2e.find_binary("AzDrive", args.bin, "AZDRIVE_BIN")
     log("AzDrive: %s" % binary)
@@ -388,6 +672,9 @@ def run(args, logs):
         "--token-url", stack.token_url,
         "--profile", "local",
     ]
+    if args.recovery:
+        # Step 13: the encrypted drive's index copies in this run's folder.
+        switches += ["--cache-dir", os.path.join(logs, "cache")]
     # The headless keyring in a file of this run: it outlives AzDrive's restart (step 6). The
     # payer pays from Germany whatever this machine's locale is (the pills of steps 7 - 11).
     keyring_file = os.path.join(logs, "keyring.json")
@@ -950,6 +1237,14 @@ def run(args, logs):
             "its refresh token in the keyring only and refreshed its access token before its "
             "first listing" % gdrive_id)
 
+        # 13. The recovery methods of an encrypted drive (C14): AzDrive with `encryption`.
+        if args.recovery:
+            recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_file,
+                           keyring_file, bought)
+        else:
+            log("13. skipped: the recovery methods need AzDrive built with --features "
+                "encryption (run with --recovery)")
+
         log("PASS: Add drive connected an S3 bucket, a folder and a SQLite database (tables as "
             "folders), bought a test drive, and claimed two paid drives - one in the background "
             "after Stop waiting, one at the start after AzDrive was closed - from the source list, "
@@ -974,6 +1269,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=240)
     parser.add_argument("--out")
     parser.add_argument("--keep-logs", action="store_true")
+    parser.add_argument("--recovery", action="store_true",
+                        help="step 13: the recovery methods (AzDrive built with encryption)")
     args = parser.parse_args()
     logs = tempfile.mkdtemp(prefix="azdrive-add-e2e-")
     ok = False
