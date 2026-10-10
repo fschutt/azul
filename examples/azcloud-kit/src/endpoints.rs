@@ -31,6 +31,9 @@ pub struct TokenEndpoint {
     /// What a layer said that could not be used (a file that is not JSON, an address that is
     /// none), for a log line.
     pub problems: Vec<String>,
+    /// The iroh relay of this run (`off`, `default` or an address), when a layer names one: the
+    /// Azlin drives' iroh lane dials through it.
+    pub relay: Option<String>,
 }
 
 /// The token server of this run: `flag_token` / `flag_profile` (the app's `--token-url` /
@@ -80,5 +83,6 @@ pub fn token_endpoint(
         profile: resolved.profile,
         development,
         problems,
+        relay: resolved.url(Endpoint::Relay).map(str::to_string),
     }
 }

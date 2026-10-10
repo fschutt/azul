@@ -294,6 +294,17 @@ pub trait IrohDialer: Send + Sync {
     fn dial(&self, target: &IrohTarget, relay: Option<&str>) -> Result<Box<dyn Transport>, String>;
 }
 
+/// A closure dials as well: `|target, relay| ...`, an app's few lines over its iroh endpoint
+/// (AzDrive's and the bridge's over azul's: `azul_storage::azul_iroh::dial`).
+impl<F> IrohDialer for F
+where
+    F: Fn(&IrohTarget, Option<&str>) -> Result<Box<dyn Transport>, String> + Send + Sync,
+{
+    fn dial(&self, target: &IrohTarget, relay: Option<&str>) -> Result<Box<dyn Transport>, String> {
+        self(target, relay)
+    }
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

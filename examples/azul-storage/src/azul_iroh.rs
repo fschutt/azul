@@ -106,12 +106,13 @@ impl std::fmt::Debug for AzulIrohTransport {
 
 /// A transport to the node `id` (its endpoint id, the node's Ed25519 key) at `addrs` (`ip:port`),
 /// through the process's endpoint of the relay setting `relay` (`off` or `None`, `default`, an
-/// address - which is the node's home relay too). Connects on the first request.
+/// address - which is the node's home relay too): what an app's iroh dialer hands azcloud-kit's
+/// lane. Connects on the first request.
 ///
 /// # Errors
 ///
 /// When the endpoint cannot bind (a build without the iroh engine).
-pub fn dial(id: &str, addrs: &[String], relay: Option<&str>) -> Result<AzulIrohTransport, String> {
+pub fn dial(id: &str, addrs: &[String], relay: Option<&str>) -> Result<Box<dyn Transport>, String> {
     let endpoint = endpoint(relay)?;
     let key = relay_key(relay);
     let relay_url = if matches!(key.as_str(), "off" | "default") {
@@ -119,22 +120,13 @@ pub fn dial(id: &str, addrs: &[String], relay: Option<&str>) -> Result<AzulIrohT
     } else {
         key
     };
-    Ok(AzulIrohTransport {
+    Ok(Box::new(AzulIrohTransport {
         endpoint,
         id: id.trim().to_string(),
         addrs: addrs.to_vec(),
         relay_url,
         timeout_secs: IROH_TIMEOUT_SECS,
-    })
-}
-
-impl AzulIrohTransport {
-    /// Gives a request `secs` (at least one) instead of [`IROH_TIMEOUT_SECS`].
-    #[must_use]
-    pub fn with_timeout(mut self, secs: u32) -> Self {
-        self.timeout_secs = secs.max(1);
-        self
-    }
+    }))
 }
 
 impl Transport for AzulIrohTransport {
