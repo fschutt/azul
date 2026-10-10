@@ -655,12 +655,12 @@ def run(args, logs):
         app.until("the table's text with the error ID", lambda: app.shows(
             "Your last payment didn't go through") and app.shows(
             "Error ID: %s" % refused.get("request_id")))
-        try:
-            answer = app.op("assert_notification", title="AzDrive")
-            if isinstance(answer, dict) and answer.get("status") == "error":
-                log("WARN assert_notification: %s" % json.dumps(answer)[:200])
-        except (OSError, ValueError) as e:
-            log("WARN assert_notification unavailable: %s" % e)
+        # The notification: AzDrive says on stdout that it posted it (once).
+        app.until("the notification", lambda: app.printed(
+            "AZDRIVE_PROBLEM_NOTIFIED", re.escape(paid)))
+        notified = app.count("AZDRIVE_PROBLEM_NOTIFIED", re.escape(paid))
+        if notified != 1:
+            raise Failure("the unpaid drive was notified %d times, not once" % notified)
         stack.s3.clear_faults()
         app.after("the drive answering again", "AZDRIVE_PROBLEM_GONE", re.escape(paid),
                   lambda: app.key("f5"))
@@ -728,6 +728,12 @@ def run(args, logs):
         # 6h. Restore as of (D42): objects of the paid drive's bucket rewritten, deleted and
         # added after a time; Options > Drives > "Restore as of..." with that time puts the
         # bucket back through the token server (the mock's node: the S3 store's versions).
+        # Options > Drives is open from 6f; the step closes what it opens and leaves the main
+        # window on its source list (step 7 starts there).
+        if not app.has("#" + I("settings")):
+            app.tab("View")
+            app.ribbon("Options")
+            app.click(text="Drives")
         store = stack.s3.store
         bucket = stack.token.state.drives[paid]["bucket"]
         store.write(bucket, "restore/a.txt", b"a1\n")
@@ -757,6 +763,10 @@ def run(args, logs):
         if int(restored[-1]) < 3 or back != (b"a1\n", b"b1\n", None):
             raise Failure("the restore changed %s objects; the bucket has %r"
                           % (restored[-1], back))
+        wait_closed(app)
+        app.key("escape")
+        app.until("the Options closed", lambda: not app.has("#" + I("settings")))
+        app.until("the source list's Add drive", lambda: app.has("#" + I("side-add-drive")))
         log("6h. Options > Drives > Restore as of %s: %s objects of %s came back or went"
             % (restored[1], restored[-1], paid))
 
