@@ -1287,6 +1287,25 @@ pub fn default_list(lists: &[TaskList], settings: &Settings) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// A priority's, a list colour's and a sort's words are messages of azul-appkit's
+    /// resources (an app says them in the window's language), one each.
+    #[test]
+    fn the_words_of_a_priority_a_colour_and_a_sort_are_messages_of_the_kit() {
+        assert_eq!(Priority::High.message_id(), "kit-task-priority-high");
+        assert_eq!(ListColor::Teal.message_id(), "kit-task-color-teal");
+        assert_eq!(SortMode::Due.message_id(), "kit-task-sort-due");
+        let ids: Vec<&str> = Priority::ALL
+            .iter()
+            .map(|p| p.message_id())
+            .chain(ListColor::ALL.iter().map(|c| c.message_id()))
+            .chain(SortMode::ALL.iter().map(|m| m.message_id()))
+            .collect();
+        let mut unique = ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len(), "{ids:?}");
+    }
+
     const LIST: &str = "9d4c1f3a-2b7e-4d10-8f6a-51c2e7b9a0d3";
     const TASK: &str = "0b0f6f2e-5b8e-4c43-9a57-3f1f0d6f4b1a";
 

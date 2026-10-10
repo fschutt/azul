@@ -621,6 +621,53 @@ mod tests {
         assert_eq!(Repeat::daily().first_on_or_after(thursday), thursday);
     }
 
+    /// What a repeat does, as messages of azul-appkit's resources (azul-appkit's
+    /// `l10n_switch_tests` say them in English and German).
+    #[test]
+    fn a_repeat_says_what_it_does_as_messages() {
+        use crate::said::{Said, SaidArg};
+        let every = |id: &'static str, n: i64| Said::new(id).arg("n", SaidArg::Number(n));
+        assert_eq!(Repeat::daily().description(), every("kit-rule-daily", 1));
+        assert_eq!(
+            Repeat::new(3, Unit::Day).description(),
+            every("kit-rule-daily", 3)
+        );
+        assert_eq!(
+            Repeat::weekdays().description(),
+            Said::new("kit-repeat-weekdays")
+        );
+        assert_eq!(
+            Repeat::weekly()
+                .on_weekdays(&[Weekday::Wed, Weekday::Mon])
+                .description(),
+            Said::new("kit-rule-on")
+                .arg("every", SaidArg::Said(every("kit-rule-weekly", 1)))
+                .arg(
+                    "on",
+                    SaidArg::List(vec![
+                        Said::new("kit-weekday-short-mon"),
+                        Said::new("kit-weekday-short-wed"),
+                    ])
+                )
+        );
+        assert_eq!(
+            Repeat::monthly().on_month_day(31).description(),
+            Said::new("kit-rule-on")
+                .arg("every", SaidArg::Said(every("kit-rule-monthly", 1)))
+                .arg(
+                    "on",
+                    SaidArg::Said(
+                        Said::new("kit-repeat-month-day").arg("day", SaidArg::Number(31))
+                    )
+                )
+        );
+        assert_eq!(
+            Repeat::daily().counting_from_completion(true).description(),
+            Said::new("kit-repeat-after-completion")
+                .arg("rule", SaidArg::Said(every("kit-rule-daily", 1)))
+        );
+    }
+
     #[test]
     fn a_label_reads_like_a_sentence() {
         assert_eq!(Repeat::daily().label(), "Daily");

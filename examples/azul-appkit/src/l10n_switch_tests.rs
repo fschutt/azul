@@ -297,3 +297,57 @@ fn a_list_is_joined_as_the_language_joins_it() {
     assert_eq!(list(&["a", "b", "c"]), "a, b und c");
     set_locale("en-US");
 }
+
+/// A to-do's repeat (azul-pim's Repeat::description) and a task's priority, colour and sort,
+/// in the window's language.
+#[test]
+fn a_tasks_repeat_and_its_words_are_said_in_english_and_german() {
+    use azul_pim::{
+        repeat::{Repeat, Unit},
+        task::{ListColor, Priority, SortMode},
+    };
+    use chrono::Weekday;
+
+    use crate::l10n::t_said;
+
+    keep(&sources(&[]));
+    let said = |r: Repeat| t_said(&r.description());
+    let on_mon_wed = || Repeat::weekly().on_weekdays(&[Weekday::Wed, Weekday::Mon]);
+    set_locale("en-US");
+    assert_eq!(said(Repeat::daily()), "Daily");
+    assert_eq!(said(Repeat::new(3, Unit::Day)), "Every 3 days");
+    assert_eq!(said(Repeat::weekdays()), "Weekdays");
+    assert_eq!(said(on_mon_wed()), "Weekly on Mon and Wed");
+    assert_eq!(said(Repeat::new(2, Unit::Week)), "Every 2 weeks");
+    assert_eq!(
+        said(Repeat::monthly().on_month_day(31)),
+        "Monthly on the 31st"
+    );
+    assert_eq!(
+        said(Repeat::monthly().on_month_day(12)),
+        "Monthly on the 12th"
+    );
+    assert_eq!(
+        said(Repeat::monthly().on_month_day(22)),
+        "Monthly on the 22nd"
+    );
+    assert_eq!(said(Repeat::yearly()), "Yearly");
+    assert_eq!(
+        said(Repeat::daily().counting_from_completion(true)),
+        "Daily after completion"
+    );
+    assert_eq!(t(Priority::High.message_id()), "High");
+    assert_eq!(t(ListColor::Gray.message_id()), "Gray");
+    assert_eq!(t(SortMode::Due.message_id()), "Due date");
+    set_locale("de-DE");
+    assert_eq!(said(Repeat::weekdays()), "Werktags");
+    assert_eq!(said(on_mon_wed()), "Wöchentlich am Mo und Mi");
+    assert_eq!(said(Repeat::monthly().on_month_day(31)), "Monatlich am 31.");
+    assert_eq!(
+        said(Repeat::daily().counting_from_completion(true)),
+        "Täglich nach Erledigung"
+    );
+    assert_eq!(t(Priority::High.message_id()), "Hoch");
+    assert_eq!(t(SortMode::Due.message_id()), "Fälligkeitsdatum");
+    set_locale("en-US");
+}
