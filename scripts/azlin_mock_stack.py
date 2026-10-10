@@ -52,18 +52,32 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     previous token counts too; an older one is a
                                                     reuse)
     POST /v1/drives/<id>/recovery                   200 the drive's recovery key (Ed25519,
-        {"recovery_pubkey"}, a drive token          standard base64; scripts/azlin_ed25519.py)
+        {"recovery_pubkey", "nonce"?, "signature"?} standard base64; scripts/azlin_ed25519.py).
+        a drive token                               F12 C: replacing a key needs the CURRENT
+                                                    key's signature over
+                                                    recovery:<drive>:<new key>:<nonce> (401
+                                                    without it or a bad one, 409 nonce_used);
+                                                    the drive's first key, or the same key
+                                                    again, needs none
     POST /v1/drives/<id>/lockdown                   with a drive token: every other family
         {"nonce", "signature"} or a drive token     revoked, a new one for the caller (200, a
-                                                    bundle); with the recovery key's signature
-                                                    over lockdown:<drive>:<nonce>: 202
+                                                    bundle) - a pending recovery-key lockdown
+                                                    and its family left as they are (F12; the
+                                                    pending family itself: 403
+                                                    lockdown_pending); with the recovery key's
+                                                    signature over lockdown:<drive>:<nonce>: 202
                                                     {pending_until, drive_token} - frozen for
                                                     48 h, a `recovery-pending` family (401 a bad
                                                     signature, 409 nonce_used, 400
                                                     no_recovery_key)
-    POST /v1/drives/<id>/lockdown/cancel            200 {"cancelled": true} by another family of
-        Authorization: Bearer <drive token>         the drive (403 by the pending one, 409
-                                                    no_pending_lockdown)
+    POST /v1/drives/<id>/lockdown/cancel            200 {"cancelled": true}: F12, "the recovery
+        {"nonce", "signature"}, no drive token      code always wins" - the recovery key's
+                                                    signature over
+                                                    lockdown-cancel:<drive>:<nonce> (401 none or
+                                                    a bad one - a drive token alone cancels
+                                                    nothing -, 409 nonce_used, 409
+                                                    no_pending_lockdown); the pending family is
+                                                    revoked
     POST /v1/vouchers/redeem {"code", "drive_id"?,  with a drive (its token, a read): 200 the days
         "tier"?}                                    added (months and value pro rata); without:
                                                     201 a new drive's sign-up; 400
@@ -1126,7 +1140,10 @@ class TokenState:
 
     def set_recovery(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/recovery (drives.rs `set_recovery`, a grant): the drive's
-        recovery key, an Ed25519 public key in standard base64."""
+        recovery key, an Ed25519 public key in standard base64. F12 C: a drive that has a key
+        takes another only with the CURRENT key's signature over
+        `recovery:<drive>:<new key>:<nonce>` - a device token alone (a thief's) cannot swap the
+        owner's code out. The first key, or the same key again, needs none."""
         public = body.get('recovery_pubkey')
         with self.lock:
             drive = self.authenticate(drive_id, bearer)
@@ -1136,8 +1153,33 @@ class TokenState:
                 raw = b''
             if not public or len(raw) != 32:
                 raise ApiError(400, 'bad_request', 'recovery_pubkey (Ed25519, base64) required')
+            current = drive.get('recovery_pubkey')
+            if current and current != public:
+                self.signed_by_recovery_key_locked(
+                    drive, 'recovery:%s:%s:%s' % (drive_id, public, '%s'), body,
+                    'the new recovery key is not signed by the current one')
             drive['recovery_pubkey'] = public
             return {'ok': True}
+
+    def signed_by_recovery_key_locked(self, drive, template, body, refusal):
+        """A request the drive's recovery key signs: `template` with the body's nonce in its
+        `%s` (16 to 128 characters, each used once - lockdowns, cancels and key changes share
+        the drive's nonces). 400 no_recovery_key, 401 `refusal` (no or a bad signature), 400 a
+        nonce of another length, 409 nonce_used. The caller holds the lock."""
+        public = drive.get('recovery_pubkey')
+        if not public:
+            raise ApiError(400, 'no_recovery_key', 'no recovery key registered')
+        nonce = str(body.get('nonce') or '')
+        message = (template % nonce).encode('utf-8')
+        if not azlin_ed25519.verify_b64(public, message, str(body.get('signature') or '')):
+            raise ApiError(401, 'unauthorized', refusal)
+        if not 16 <= len(nonce) <= 128:
+            raise ApiError(400, 'bad_request',
+                           'nonce: 16 to 128 characters, new for every request')
+        used = drive.setdefault('recovery_nonces', set())
+        if nonce in used:
+            raise ApiError(409, 'nonce_used', 'this signed request was used before')
+        used.add(nonce)
 
     def lockdown(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/lockdown (drives.rs `lockdown`): by the recovery key
@@ -1150,25 +1192,22 @@ class TokenState:
                 raise ApiError(404, 'no_such_drive', 'unknown drive')
             if 'signature' not in body:
                 _, state = self.family_of(drive_id, bearer)
-                # every family (the caller's too: it gets the new one), key and link at once
-                self.revoke_all(drive, lambda family: True)
+                pending = drive.get('lockdown_pending_until')
+                if pending and state.get('member') == 'recovery-pending':
+                    raise ApiError(403, 'lockdown_pending',
+                                   'the recovering device waits for its lockdown')
+
+                def revoked_now(family):
+                    # F12: a device's lockdown leaves a pending recovery as it is - the code
+                    # wins; only the recovery code cancels it.
+                    return not (pending and family.get('member') == 'recovery-pending')
+
+                # every other family (the caller's too: it gets the new one), key and link
+                self.revoke_all(drive, revoked_now)
                 token = self.new_family(drive_id, state.get('member', 'owner'))
-                drive['lockdown_pending_until'] = None
                 return 200, self.bundle(drive, token)
-            public = drive.get('recovery_pubkey')
-            if not public:
-                raise ApiError(400, 'no_recovery_key', 'no recovery key registered')
-            nonce = str(body.get('nonce') or '')
-            message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
-            if not azlin_ed25519.verify_b64(public, message, str(body.get('signature') or '')):
-                raise ApiError(401, 'unauthorized', 'bad recovery signature')
-            if not 16 <= len(nonce) <= 128:
-                raise ApiError(400, 'bad_request',
-                               'nonce: 16 to 128 characters, new for every request')
-            used = drive.setdefault('recovery_nonces', set())
-            if nonce in used:
-                raise ApiError(409, 'nonce_used', 'this lockdown request was used before')
-            used.add(nonce)
+            self.signed_by_recovery_key_locked(drive, 'lockdown:%s:%%s' % drive_id, body,
+                                               'bad recovery signature')
             token = self.new_family(drive_id, 'recovery-pending')
             drive['lockdown_pending_until'] = self.now() + LOCKDOWN_PENDING_SECS
             return 202, {'pending_until': rfc3339(drive['lockdown_pending_until']),
@@ -1299,13 +1338,19 @@ class TokenState:
                     'objects': found['objects'], 'error': found['error'],
                     'done_at': rfc3339(found['done_at']) if found['done_at'] else None}
 
-    def lockdown_cancel(self, drive_id, bearer):
-        """POST /v1/drives/<id>/lockdown/cancel (a grant): the owner's other devices call a
-        pending recovery-key lockdown off; the pending family cannot."""
+    def lockdown_cancel(self, drive_id, body):
+        """POST /v1/drives/<id>/lockdown/cancel {"nonce", "signature"} (F12, "the recovery code
+        always wins"): whoever holds the recovery code calls a pending recovery-key lockdown off
+        - its key signs `lockdown-cancel:<drive>:<nonce>`; a drive token alone cancels nothing
+        (none is read). The pending family is revoked."""
         with self.lock:
-            drive, state = self.family_of(drive_id, bearer)
-            if state.get('member') == 'recovery-pending':
-                raise ApiError(403, 'forbidden', 'the pending device cannot cancel its own lockdown')
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            self.finish_lockdown(drive, self.now())
+            self.signed_by_recovery_key_locked(
+                drive, 'lockdown-cancel:%s:%%s' % drive_id, body,
+                "a lockdown is cancelled with the recovery code's signature")
             if not drive.get('lockdown_pending_until'):
                 raise ApiError(409, 'no_pending_lockdown', 'no recovery-key lockdown is pending')
             for other in self.families.values():
@@ -1599,8 +1644,7 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.command == 'POST' and segments[:2] == ['v1', 'drives'] and len(segments) == 5 \
                 and segments[3:] == ['lockdown', 'cancel']:
-            self.body()
-            self.answer(200, state.lockdown_cancel(segments[2], self.bearer()))
+            self.answer(200, state.lockdown_cancel(segments[2], self.body() or {}))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'restore':
