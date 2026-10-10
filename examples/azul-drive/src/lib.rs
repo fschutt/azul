@@ -2769,7 +2769,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         shell.add_pane(
             ShellPane::create(DETAILS_PANE_ID, ui_view::on_page(ui_panes::details_pane(s)))
                 .with_kind(ShellPaneKind::Side)
-                .with_label("Details"),
+                .with_label(azul_appkit::l10n::label("azdrive-pane-details")),
         );
     }
     // No title row while the ribbon shows - its tabs are the title bar; the backstage (the

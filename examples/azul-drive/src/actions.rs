@@ -853,9 +853,13 @@ fn open_new_window(s: &mut DriveState) {
         s.error(Text::key("azdrive-new-window-no-program"));
         return;
     };
-    let path = crate::window_title(s)
-        .trim_end_matches(" - AzDrive")
-        .to_string();
+    // The place as the address bar names it, This PC and Quick access in English: the new
+    // process reads it before its window says a word.
+    let path = match &s.place {
+        Place::ThisPc => String::from(browse::THIS_PC),
+        Place::QuickAccess => String::from(browse::QUICK_ACCESS),
+        place => browse::path_text(place, Some(&s.drive_name(place))),
+    };
     let args = crate::args::new_window_args(std::env::args().skip(1), &path);
     match std::process::Command::new(me).args(&args).spawn() {
         Ok(_) => {
