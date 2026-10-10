@@ -455,6 +455,11 @@ mod tests {
                 month_message_id(month).to_string(),
                 month_name(month).to_string(),
             ));
+            // "Sep", as a date line writes a month short.
+            pairs.push((
+                month_short_message_id(month).to_string(),
+                month_name(month).chars().take(3).collect(),
+            ));
         }
         for (id, english) in pairs {
             assert_eq!(message(en, &id), Some(english.as_str()), "{id} in English");
@@ -464,6 +469,7 @@ mod tests {
             );
         }
         assert_eq!(message(de, &DateGroup::Today.message_id()), Some("Heute"));
+        assert_eq!(message(de, month_short_message_id(3)), Some("März"));
     }
 
     #[test]
