@@ -351,5 +351,7 @@ extern "C" fn on_period_timer(mut data: RefAny, info: TimerCallbackInfo) -> Time
     if !s.redemptions.running {
         start_redemptions(&mut callback_info, &app, &mut *s, None);
     }
+    // A transient storage problem nobody asked about again notifies once its half hour is up.
+    crate::problems::notify_due(&mut callback_info, &mut *s);
     TimerCallbackReturn::continue_unchanged()
 }
