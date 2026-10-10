@@ -227,6 +227,9 @@ pub(crate) struct Slot {
     /// keys, and its decision to take again after the keys changed.
     #[cfg(feature = "encryption")]
     pub auto: Option<Arc<azul_storage::AutoEncrypted>>,
+    /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked").
+    #[cfg(feature = "encryption")]
+    pub azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
 }
 
 impl Slot {
@@ -237,6 +240,8 @@ impl Slot {
             drive: None,
             #[cfg(feature = "encryption")]
             auto: None,
+            #[cfg(feature = "encryption")]
+            azlin: None,
         }
     }
 
@@ -273,7 +278,7 @@ impl Slot {
             let transports: azcloud_kit::drive::TransportFactory = Arc::new(|| {
                 Box::new(AzulTransport::new(USER_AGENT)) as Box<dyn azul_storage::Transport>
             });
-            let azlin: Arc<dyn Drive> = Arc::new(azcloud_kit::AzlinDrive::new(
+            let concrete = Arc::new(azcloud_kit::AzlinDrive::new(
                 &self.entry,
                 session,
                 token_url.unwrap_or_default(),
@@ -291,6 +296,11 @@ impl Slot {
                     },
                 ),
             )?);
+            #[cfg(feature = "encryption")]
+            {
+                self.azlin = Some(concrete.clone());
+            }
+            let azlin: Arc<dyn Drive> = concrete;
             // Plain or encrypted: the first call (a worker thread) decides.
             #[cfg(feature = "encryption")]
             let azlin: Arc<dyn Drive> = {

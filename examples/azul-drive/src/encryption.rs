@@ -16,6 +16,10 @@
 //!   state file sits beside the drives file and the next "Encrypt" continues from it.
 //! - "Unlock with the recovery code...": a computer without the drive's key types the code;
 //!   the key is kept in its keyring and the computer gets a wrap of its own.
+//! - "I was hacked: new keys...": a question, then the drive's lockdown (every other computer,
+//!   key and link loses access at once) and a new drive key (azul-storage's `rotation`), then
+//!   the recovery sheet of the NEW code, then "Re-encrypt every file?" - recommended after a
+//!   compromise: every file into a new object with a new key, in the background, resumably.
 //!
 //! In the background: the RECOMPRESSION PASS (azul-storage's `recompress`). A timer looks once
 //! a minute; when the computer has been idle for five minutes on mains power (azul's
@@ -49,6 +53,7 @@ use azul_storage::{
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
     migrate::{migrate, MigrationState},
     recompress::{run_pass, RecompressPolicy, RecompressState},
+    rotation::{self, reencrypt_pass, ReencryptState},
     time::now_unix,
     Drive,
 };
@@ -178,6 +183,9 @@ pub(crate) struct Sheet {
     pub check: usize,
     pub typed: Zeroizing<String>,
     pub error: String,
+    /// The sheet of a key rotation's new code: re-encryption is offered next (else the
+    /// migration of a newly encrypted drive starts).
+    pub after_rotation: bool,
 }
 
 /// A group of a recovery code as people type it: no spaces or dashes, upper case, `O` for 0,
@@ -208,7 +216,15 @@ impl Sheet {
             check,
             typed: Zeroizing::new(String::new()),
             error: String::new(),
+            after_rotation: false,
         }
+    }
+
+    /// The sheet of a key rotation's new code.
+    #[must_use]
+    pub(crate) fn after_rotation(mut self) -> Sheet {
+        self.after_rotation = true;
+        self
     }
 
     /// Whether the typed group is the one asked for.
@@ -236,6 +252,10 @@ pub(crate) enum Dialog {
     },
     /// The end: a title and a sentence.
     Message { title: String, text: String },
+    /// "I was hacked: new keys for this drive?"
+    ConfirmRotate { drive_id: String },
+    /// After a rotation: "Re-encrypt every file?"
+    OfferReencrypt { drive_id: String },
 }
 
 fn drive_name(s: &DriveState, drive_id: &str) -> String {
@@ -347,6 +367,64 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 )]),
             ]),
         ),
+        Dialog::ConfirmRotate { drive_id } => (
+            format!("New keys for \"{}\"?", drive_name(s, drive_id)),
+            column(vec![
+                line(
+                    "Use this when a computer, a phone or a key of this drive may be in someone \
+                     else's hands.",
+                ),
+                line(
+                    "1. The drive is locked down: every other computer, every key and every \
+                     shared link loses access at once.",
+                ),
+                line(
+                    "2. The drive gets a new key, and you get a NEW RECOVERY CODE. The old code \
+                     stops working.",
+                ),
+                line(
+                    "3. Your other computers join again with a new join code from this one; \
+                     links are shared again; incoming mail gets a new drop key.",
+                ),
+                line(
+                    "Then re-encrypting every file is recommended: afterwards nothing in the \
+                     drive opens with the old key.",
+                ),
+                buttons(vec![
+                    button("Cancel", app, on_cancel_popup),
+                    typed_button(
+                        "Lock down and change the keys",
+                        ButtonType::Primary,
+                        app,
+                        on_rotate,
+                    ),
+                ]),
+            ]),
+        ),
+        Dialog::OfferReencrypt { drive_id } => (
+            String::from("Re-encrypt every file?"),
+            column(vec![
+                line(&format!(
+                    "Recommended after a compromise. The files of \"{}\" are under the new key \
+                     now, but each file still has its own old file key: whoever copied the \
+                     drive's data and its old key before the lockdown could read those copies.",
+                    drive_name(s, drive_id)
+                )),
+                line(
+                    "Re-encrypting writes every file anew with new keys. It runs in the \
+                     background and continues where it stopped if AzDrive closes.",
+                ),
+                buttons(vec![
+                    button("Later", app, on_cancel_popup),
+                    typed_button(
+                        "Re-encrypt everything",
+                        ButtonType::Primary,
+                        app,
+                        on_reencrypt,
+                    ),
+                ]),
+            ]),
+        ),
     }
 }
 
@@ -376,6 +454,76 @@ pub(crate) fn ask_encrypt(s: &mut DriveState, drive_id: &str) {
             drive_id: drive_id.to_string(),
         }));
     }
+}
+
+/// "I was hacked: new keys...": the question.
+pub(crate) fn ask_rotate(s: &mut DriveState, drive_id: &str) {
+    if s.popup.is_none() {
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Encryption(Dialog::ConfirmRotate {
+            drive_id: drive_id.to_string(),
+        }));
+    }
+}
+
+extern "C" fn on_rotate(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::ConfirmRotate { drive_id })) = s.popup.take() else {
+            return;
+        };
+        let Some(auto) = auto_of(s, &drive_id) else {
+            return;
+        };
+        let Some(azlin) = s
+            .slot_index(&drive_id)
+            .and_then(|index| s.slots[index].azlin.clone())
+        else {
+            s.error("Only an Azlin drive can be locked down.");
+            return;
+        };
+        s.popup = Some(Popup::Encryption(Dialog::Busy {
+            title: String::from("Changing the drive's keys"),
+            text: String::from(
+                "Locking the drive down, then making its new key and recovery code...",
+            ),
+        }));
+        spawn(
+            info,
+            app,
+            s,
+            Job::Encryption(EncryptionJob::Rotate {
+                drive_id,
+                auto,
+                azlin,
+            }),
+        );
+    })
+}
+
+extern "C" fn on_reencrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::OfferReencrypt { drive_id })) = s.popup.take() else {
+            return;
+        };
+        let Some(auto) = auto_of(s, &drive_id) else {
+            return;
+        };
+        let state_file = state_dir(s).join(format!("{drive_id}.reencrypt.json"));
+        let name = drive_name(s, &drive_id);
+        s.info(format!(
+            "The files of \"{name}\" are being re-encrypted in the background."
+        ));
+        spawn(
+            info,
+            app,
+            s,
+            Job::Encryption(EncryptionJob::Reencrypt {
+                drive_id,
+                auto,
+                state_file,
+            }),
+        );
+    })
 }
 
 /// "Unlock with the recovery code...".
@@ -453,6 +601,10 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
             return;
         }
         let drive_id = sheet.drive_id.clone();
+        if sheet.after_rotation {
+            s.popup = Some(Popup::Encryption(Dialog::OfferReencrypt { drive_id }));
+            return;
+        }
         start_migration(info, app, s, &drive_id);
     })
 }
@@ -553,6 +705,29 @@ pub(crate) enum EncryptionJob {
         auto: Arc<AutoEncrypted>,
         state_file: PathBuf,
     },
+    /// "I was hacked": the lockdown (through the Azlin drive, which keeps its new grant), then
+    /// the key rotation (or the rest of one that stopped).
+    Rotate {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+        azlin: Arc<azcloud_kit::AzlinDrive>,
+    },
+    /// Every file into a new object, the state in `state_file`.
+    Reencrypt {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+        state_file: PathBuf,
+    },
+}
+
+/// What a rotation brings back to the UI thread.
+pub(crate) struct RotationDone {
+    /// The new recovery code, for the sheet. A secret: never printed.
+    pub code: Zeroizing<String>,
+    /// The new drop public key (hex) when incoming mail is on.
+    pub drop_key: Option<String>,
+    pub members_removed: usize,
+    pub shares_revoked: usize,
 }
 
 /// What an encryption task found.
@@ -574,6 +749,14 @@ pub(crate) enum EncryptionOutcome {
     Recompressed {
         drive_id: String,
         result: Result<bool, String>,
+    },
+    Rotated {
+        drive_id: String,
+        result: Result<RotationDone, String>,
+    },
+    Reencrypted {
+        drive_id: String,
+        result: Result<ReencryptState, String>,
     },
 }
 
@@ -678,6 +861,73 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             })();
             EncryptionOutcome::Recompressed { drive_id, result }
         }
+        EncryptionJob::Rotate {
+            drive_id,
+            auto,
+            azlin,
+        } => {
+            let result = (|| -> Result<RotationDone, String> {
+                let provider = index_provider()
+                    .ok_or_else(|| String::from("this build of AzDrive has no drive index"))?;
+                let resuming = rotation::pending(auto.bucket().as_ref())
+                    .map_err(|e| e.to_string())?
+                    .is_some();
+                if !resuming {
+                    azlin.lockdown().map_err(|e| e.to_string())?;
+                }
+                let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
+                let rotated = rotation::rotate(
+                    Arc::clone(auto.bucket()),
+                    &keyring,
+                    auto.drive(),
+                    provider.as_ref(),
+                    kdf,
+                )
+                .map_err(|e| e.to_string())?;
+                auto.reopen();
+                Ok(RotationDone {
+                    code: rotated.recovery_code.to_text(),
+                    drop_key: rotated.drop_key.map(|key| key.to_hex()),
+                    members_removed: rotated.members_removed,
+                    shares_revoked: rotated.shares_revoked,
+                })
+            })();
+            EncryptionOutcome::Rotated { drive_id, result }
+        }
+        EncryptionJob::Reencrypt {
+            drive_id,
+            auto,
+            state_file,
+        } => {
+            let result = (|| -> Result<ReencryptState, String> {
+                let provider = index_provider()
+                    .ok_or_else(|| String::from("this build of AzDrive has no drive index"))?;
+                let drive = open_encrypted(
+                    Arc::clone(auto.bucket()),
+                    &keyring,
+                    auto.drive(),
+                    provider.as_ref(),
+                )
+                .map_err(|e| e.to_string())?;
+                let mut state = std::fs::read_to_string(&state_file)
+                    .ok()
+                    .and_then(|text| ReencryptState::from_json(&text).ok())
+                    .unwrap_or_else(|| ReencryptState::new(now_unix()));
+                if let Some(dir) = state_file.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                let mut save = |state: &ReencryptState| {
+                    std::fs::write(&state_file, state.to_json())
+                        .map_err(|e| azul_storage::DriveError::Io(e.to_string()))
+                };
+                reencrypt_pass(&drive, &mut state, &mut save, &|| false)
+                    .map_err(|e| e.to_string())?;
+                // Done: the next "Re-encrypt" starts a new pass.
+                let _ = std::fs::remove_file(&state_file);
+                Ok(state)
+            })();
+            EncryptionOutcome::Reencrypted { drive_id, result }
+        }
     }
 }
 
@@ -757,12 +1007,72 @@ pub(crate) fn on_outcome(
                 eprintln!("AZDRIVE_RECOMPRESS_STOPPED {drive_id}: {why}");
             }
         }
+        EncryptionOutcome::Rotated { drive_id, result } => match result {
+            Ok(done) => {
+                let name = drive_name(s, &drive_id);
+                let mail = if done.drop_key.is_some() {
+                    " Incoming mail has a new drop key: give it to your mail Worker (AzMail, or \
+                     azcloud mail-drop)."
+                } else {
+                    ""
+                };
+                s.info(format!(
+                    "\"{name}\" is locked down and has new keys: {} other computers and invites \
+                     removed, {} shared links revoked.{mail}",
+                    done.members_removed, done.shares_revoked
+                ));
+                s.popup = Some(Popup::Encryption(Dialog::Sheet(
+                    Sheet::new(&drive_id, done.code).after_rotation(),
+                )));
+                crate::refresh(info, app, s);
+            }
+            Err(why) => {
+                s.popup = Some(Popup::Encryption(Dialog::Message {
+                    title: String::from("The keys were not changed"),
+                    text: format!(
+                        "{why}. A rotation that stopped continues where it stopped when you \
+                         try again on this computer."
+                    ),
+                }));
+            }
+        },
+        EncryptionOutcome::Reencrypted { drive_id, result } => {
+            let name = drive_name(s, &drive_id);
+            match result {
+                Ok(state) => {
+                    let failed = if state.failed > 0 {
+                        format!(
+                            " {} damaged files were left as they were.",
+                            state.failed
+                        )
+                    } else {
+                        String::new()
+                    };
+                    s.info(format!(
+                        "{} files of \"{name}\" have new keys: nothing in the drive opens with \
+                         the old key any more.{failed}",
+                        state.done
+                    ));
+                }
+                Err(why) => s.error(format!(
+                    "Re-encrypting \"{name}\" stopped: {why}. It continues where it stopped the \
+                     next time."
+                )),
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rotations_sheet_offers_re_encryption_next() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        assert!(!Sheet::new("d_1", code.to_text()).after_rotation);
+        assert!(Sheet::new("d_1", code.to_text()).after_rotation().after_rotation);
+    }
 
     #[test]
     fn the_recompression_pass_waits_while_the_power_state_is_unknown() {
