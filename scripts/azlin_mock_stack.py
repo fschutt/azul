@@ -38,6 +38,21 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
         "nonce", "signature", "randomizer"}         bad_token / wrong_tier, 409 token_used); the
         Authorization: Bearer <drive token>         drive token is checked, not spent
 
+  With fake payment providers (`--providers`, `set_providers`; CHECKOUT-PLAN §3.11, §4.2 - see
+  "The fake payment providers" below for their pages and webhooks):
+
+    GET /v1/checkout/options?tier&months&country    200 the offered fakes' descriptors, the price
+        &currency&surfaces                          with its VAT, the legal texts (404 without
+                                                    providers: the v1 checkout)
+    POST /v1/checkout {..., "provider", "method",   201 + provider, method, surface (a fields page
+                       "surface", "vat_country",    with its client secret, a hosted page, a page
+                       "withdrawal_consent"}        for the browser), return pages, expires_at
+    POST /v1/checkout/<id>/surface {"kind"}         200 the same checkout on another surface
+    POST /v1/checkout/<id>/abandon                  200 the provider session expires
+    POST /v1/webhook/<provider>                     200 a signed provider webhook (each event once)
+    GET /fields/fake-stripe/v1, /fake-*/...,        the fakes' pages; /return/ok|cancel|pending;
+        /_bridge/...                                the bridge (204)
+
   The claim (CLAIM CONTRACT v1, scripts/azlin_claim.py): a checkout names the standard padded
   base64 of the X25519 public key the app made for it; the approved checkout's sign-up is sealed
   to it (X25519 + HKDF-SHA256 "azlin-claim-v1" + ChaCha20-Poly1305, the checkout id as associated
@@ -73,6 +88,8 @@ free ports). As a module:
 import argparse
 import base64
 import hashlib
+import hmac
+import html
 import http.server
 import json
 import os
@@ -81,6 +98,9 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..'))
@@ -111,6 +131,139 @@ APPROVING_CARD = '4242424242424242'
 DECLINING_CARD = '4000000000000002'
 # How long an approved checkout keeps its sealed sign-up (then it answers "expired").
 SEALED_KEEP_SECS = 30 * 86400
+
+# ==== The fake payment providers (CHECKOUT-PLAN §4.2) ====
+#
+# One fake per provider shape, with the shape's pages, redirects and signed webhooks - not its
+# look. They exist only when the stack is started with `--providers` (or after
+# `stack.token.state.set_providers([...])`): without them the token server has no payment
+# options (GET /v1/checkout/options answers 404) and the apps pay on the v1 page. The apps'
+# registry (azul-pay, feature `fake-providers`) knows the same ids, and takes them only from a
+# token server on this computer.
+#
+#   fake-stripe      card: our fields page /fields/fake-stripe/v1 (plain inputs taking Stripe's
+#                    test cards, talking to the app through /_bridge/ navigations), a hosted
+#                    page /fake-stripe/c/pay/cs_test_<ref>, the browser; webhooks signed with
+#                    Stripe's scheme (Stripe-Signature: t=..,v1=HMAC-SHA256(secret, "t.body"))
+#   fake-gocardless  SEPA Direct Debit: a Billing Request Flow page /fake-gocardless/flow/BRQ<ref>
+#                    taking a test IBAN; webhooks with Webhook-Signature (HMAC-SHA256 of the body)
+#   fake-paypal      PayPal: a login + approve page on "localhost" (another host than the other
+#                    fakes': the system browser only); webhooks with x-provider-signature
+#   fake-mor         a merchant of record's hosted checkout /fake-mor/checkout/<ref> (opt-in)
+#
+# The return pages /return/ok, /return/cancel, /return/pending and the bridge /_bridge/... live
+# on the token server's host (pay.azlin.io's stand-in). A provider only ever sees the
+# checkout's random `provider_ref` (pr_...), never the checkout id.
+FAKE_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal', 'fake-mor')
+# The providers a stack started with `--providers` without a list offers.
+DEFAULT_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal')
+# Each fake's methods and their surfaces, best first.
+PROVIDER_METHODS = {
+    'fake-stripe': {'card': ['fields', 'page', 'browser']},
+    'fake-gocardless': {'sepa_debit': ['page', 'browser']},
+    'fake-paypal': {'paypal': ['browser']},
+    'fake-mor': {'card': ['page', 'browser']},
+}
+PROVIDER_KINDS = {'fake-mor': 'merchant_of_record'}
+# The local webhook secrets (no real provider's).
+WEBHOOK_SECRETS = {
+    'fake-stripe': 'whsec_local_fake_stripe',
+    'fake-gocardless': 'local-fake-gocardless-webhook-secret',
+    'fake-paypal': 'local-fake-paypal-webhook-secret',
+    'fake-mor': 'local-fake-mor-webhook-secret',
+}
+# Stripe's libraries' default tolerance for a webhook's timestamp.
+STRIPE_TOLERANCE_SECS = 300
+# The test IBANs of the fake GoCardless: the first is mandated, the second fails.
+APPROVING_IBAN = 'DE89370400440532013000'
+DECLINING_IBAN = 'DE62370400440532013001'
+# Where SEPA Direct Debit is offered (the fake GoCardless's countries).
+SEPA_COUNTRIES = {
+    'AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'HU', 'IE',
+    'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK', 'IS', 'LI', 'NO',
+    'CH', 'GB', 'MC', 'SM', 'VA', 'AD',
+}
+VAT_PERMILLE = 190
+
+# The fake Stripe's fields page: plain inputs, no script but its own; the inputs (publishable
+# key, client secret, locale, look) come in the fragment; it tells the app through main-frame
+# navigations to /_bridge/<message> (which the app cancels) and hears the app's commands as new
+# fragments (hashchange).
+FIELDS_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Fake Stripe card fields</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<style>
+body { margin: 0; padding: 8px; font: 14px system-ui, sans-serif; background: transparent; }
+input { box-sizing: border-box; width: 100%; margin: 0 0 8px 0; padding: 8px; font: inherit;
+        border: 1px solid #b8b8b8; border-radius: 4px; }
+.row { display: flex; gap: 8px; }
+</style></head>
+<body>
+<input id="number" placeholder="Card number (4242 4242 4242 4242)" autocomplete="cc-number">
+<div class="row"><input id="exp" placeholder="MM / YY"><input id="cvc" placeholder="CVC"></div>
+<script>
+(function () {
+  var inputs = new URLSearchParams(location.hash.slice(1));
+  var secret = inputs.get('cs');
+  var queue = [];
+  function flush() {
+    if (!queue.length) { return; }
+    location.href = queue.shift();
+    if (queue.length) { setTimeout(flush, 150); }
+  }
+  function bridge(message, args) {
+    var query = new URLSearchParams(args || {}).toString();
+    queue.push('/_bridge/' + message + (query ? '?' + query : ''));
+    if (queue.length === 1) { setTimeout(flush, 0); }
+  }
+  function digits() { return document.getElementById('number').value.replace(/\\D/g, ''); }
+  function brand(n) {
+    if (/^4/.test(n)) { return 'visa'; }
+    if (/^5[1-5]/.test(n)) { return 'mastercard'; }
+    if (/^3[47]/.test(n)) { return 'amex'; }
+    return 'unknown';
+  }
+  var last = '';
+  function changed() {
+    var n = digits();
+    var complete = n.length >= 15 && document.getElementById('exp').value.length >= 4 &&
+                   document.getElementById('cvc').value.length >= 3;
+    var now = brand(n) + (complete ? '1' : '0');
+    if (now === last) { return; }
+    last = now;
+    bridge('brand', {v: brand(n)});
+    bridge('complete', {v: complete ? '1' : '0'});
+  }
+  ['number', 'exp', 'cvc'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', changed);
+  });
+  window.addEventListener('hashchange', function () {
+    var cmd = new URLSearchParams(location.hash.slice(1));
+    if (cmd.get('cmd') === 'reset') { location.reload(); return; }
+    if (cmd.get('cmd') !== 'confirm') { return; }
+    fetch('/fake-stripe/confirm', {method: 'POST', headers: {'content-type': 'application/json'},
+      body: JSON.stringify({client_secret: secret, card_number: digits(), name: cmd.get('name')})})
+      .then(function (r) { return r.json(); })
+      .then(function (answer) {
+        var args = {v: answer.result};
+        if (answer.code) { args.code = answer.code; }
+        if (answer.last4) { bridge('last4', {v: answer.last4}); }
+        if (answer.message) { bridge('error', {code: answer.code, message: answer.message}); }
+        bridge('result', args);
+      });
+  });
+  bridge('ready');
+})();
+</script></body></html>
+"""
+
+
+def page(title, body):
+    """A plain page of a fake provider."""
+    return ('<!doctype html><html><head><meta charset="utf-8"><title>%s</title><style>body '
+            '{ font: 15px system-ui, sans-serif; margin: 24px; } input, button { font: inherit; '
+            'padding: 6px; }</style></head><body><h1>%s</h1>%s</body></html>'
+            % (html.escape(title), html.escape(title), body))
 
 
 def tier_list():
@@ -182,6 +335,29 @@ class TokenState:
         # the redeemed tokens' messages.
         self.issuer = (azlin_period.MOCK_N, azlin_period.MOCK_E, azlin_period.MOCK_D)
         self.redeemed = set()
+        # The fake payment providers offered (none: no payment options, the v1 checkout).
+        self.providers = []
+        # Checkout ids by their provider reference (what the providers see).
+        self.by_ref = {}
+        # Webhook event ids already applied, per provider (each counts once).
+        self.events_seen = set()
+        # Every webhook that arrived: provider, event id, verified, what it did.
+        self.webhooks = []
+        # The checkouts abandoned (POST /v1/checkout/<id>/abandon), in order.
+        self.abandoned = []
+
+    def set_providers(self, providers):
+        """Offers the fake payment providers `providers` (ids of FAKE_PROVIDERS) from now on."""
+        unknown = [p for p in providers if p not in FAKE_PROVIDERS]
+        if unknown:
+            raise ValueError('no such fake provider: %s' % ', '.join(unknown))
+        with self.lock:
+            self.providers = list(providers)
+
+    @property
+    def login_url(self):
+        """The fake provider logins' base: this computer under another name (localhost)."""
+        return self.base_url.replace('127.0.0.1', 'localhost', 1)
 
     def new_token(self, family):
         state = self.families[family]
@@ -252,7 +428,22 @@ class TokenState:
         if tier not in TIERS:
             raise ApiError(400, 'bad_tier', 'unknown tier')
         method = body.get('method') or 'sepa'
-        if method not in METHODS:
+        provider = body.get('provider')
+        surface = None
+        if provider:
+            # Claim contract v1, extended: a checkout through a provider (CHECKOUT-PLAN §3.11).
+            if provider not in self.providers:
+                raise ApiError(400, 'bad_provider', 'this token server offers no such provider')
+            surfaces = PROVIDER_METHODS[provider].get(method)
+            if surfaces is None:
+                raise ApiError(400, 'bad_method', '%s takes no %s' % (provider, method))
+            surface = body.get('surface') or surfaces[0]
+            if surface not in surfaces:
+                raise ApiError(400, 'surface_unavailable',
+                               '%s cannot show %s for %s' % (provider, surface, method))
+            if body.get('withdrawal_consent') is not True:
+                raise ApiError(400, 'consent_required', 'the order needs the consent')
+        elif method not in METHODS:
             raise ApiError(400, 'bad_method', 'unknown payment method')
         months = body.get('months', 1)
         if months not in PREPAY_MONTHS:
@@ -270,15 +461,307 @@ class TokenState:
         amount = price_cents(tier, months)
         with self.lock:
             checkout_id = random_id('ck_')
+            provider_ref = random_id('pr_')
             self.checkouts[checkout_id] = {'tier': tier, 'method': method, 'months': months,
                                            'amount': amount, 'status': 'pending',
                                            'claim_key': str(claim_key), 'sealed_signup': None,
-                                           'approved_at': None}
-        return {'checkout_id': checkout_id,
-                'pay_url': '%s/v1/pay/%s' % (self.base_url, checkout_id),
-                'tier': tier, 'method': method, 'months': months, 'amount_cents': amount,
-                'currency': 'EUR', 'vat_country': None, 'first_month_free': True,
-                'withdrawal_consent_required': True, 'mock': True}
+                                           'approved_at': None, 'provider': provider,
+                                           'provider_ref': provider_ref,
+                                           'client_secret': 'pi_%s_secret_%s' % (
+                                               provider_ref[3:], secrets.token_hex(8)),
+                                           'surface': surface,
+                                           'vat_country': body.get('vat_country'),
+                                           'abandoned': False}
+            self.by_ref[provider_ref] = checkout_id
+        answer = {'checkout_id': checkout_id,
+                  'pay_url': '%s/v1/pay/%s' % (self.base_url, checkout_id),
+                  'tier': tier, 'method': method, 'months': months, 'amount_cents': amount,
+                  'currency': 'EUR', 'vat_country': body.get('vat_country'),
+                  'first_month_free': True, 'withdrawal_consent_required': True, 'mock': True}
+        if provider:
+            answer.update({'provider': provider, 'surface': self.surface_of(checkout_id, surface),
+                           'return': self.returns(),
+                           'expires_at': rfc3339(int(time.time()) + 3600)})
+        return answer
+
+    # ---- The payment options and the fake providers ----
+
+    def returns(self):
+        """The return pages (pay.azlin.io's stand-in: this server)."""
+        return {'success': self.base_url + '/return/ok',
+                'cancel': self.base_url + '/return/cancel',
+                'pending': self.base_url + '/return/pending'}
+
+    def checkout_options(self, query):
+        """GET /v1/checkout/options (CHECKOUT-PLAN §3.11): the offered fakes' descriptors for the
+        tier, the months, the country and the currency; 404 without providers (an older token
+        server: the apps pay on the v1 page)."""
+        if not self.providers:
+            raise ApiError(404, 'not_found', 'this token server has no payment options')
+        first = lambda key, default='': (query.get(key) or [default])[0]  # noqa: E731
+        tier = first('tier').strip().upper()
+        try:
+            months = int(first('months', '1'))
+        except ValueError:
+            raise ApiError(400, 'bad_months', 'months is no number')
+        country = first('country', 'DE').strip().upper()
+        currency = first('currency', 'EUR').strip().upper()
+        offers = []
+        for provider in self.providers:
+            if provider == 'fake-gocardless' and (country not in SEPA_COUNTRIES
+                                                  or currency != 'EUR'):
+                continue
+            methods = [{'method': method, 'surfaces': list(surfaces),
+                        'settles': 'days' if method == 'sepa_debit' else 'instant',
+                        'recurring': False}
+                       for method, surfaces in PROVIDER_METHODS[provider].items()]
+            offer = {'provider': provider, 'kind': PROVIDER_KINDS.get(provider, 'processor'),
+                     'default': provider == 'fake-gocardless',
+                     'origins': ['localhost'] if provider == 'fake-paypal' else ['127.0.0.1'],
+                     'return': self.returns(), 'methods': methods}
+            if provider == 'fake-stripe':
+                offer['fields_page'] = self.base_url + '/fields/fake-stripe/v1'
+            offers.append(offer)
+        out = {'offers': offers,
+               'legal': {'withdrawal_consent': 'I ask Azlin to start the service now. If I '
+                                               'withdraw, I pay for the service provided until '
+                                               'then.',
+                         'terms_url': self.base_url + '/terms'}}
+        if tier in TIERS:
+            amount = price_cents(tier, months)
+            out['price'] = {'amount_cents': amount, 'currency': 'EUR',
+                            'vat_rate_permille': VAT_PERMILLE,
+                            'vat_cents': round(amount * VAT_PERMILLE / (1000 + VAT_PERMILLE)),
+                            'vat_included': True}
+        return out
+
+    def surface_of(self, checkout_id, kind):
+        """What the checkout `checkout_id` shows on the surface `kind`."""
+        checkout = self.checkouts[checkout_id]
+        provider, ref = checkout['provider'], checkout['provider_ref']
+        if kind == 'fields':
+            return {'kind': 'fields', 'page': self.base_url + '/fields/%s/v1' % provider,
+                    'publishable_key': 'pk_test_fake_local',
+                    'client_secret': checkout['client_secret']}
+        urls = {
+            'fake-stripe': '%s/fake-stripe/c/pay/cs_test_%s' % (self.base_url, ref),
+            'fake-gocardless': '%s/fake-gocardless/flow/BRQ%s' % (self.base_url, ref),
+            'fake-paypal': '%s/fake-paypal/checkoutnow?token=%s' % (self.login_url, ref),
+            'fake-mor': '%s/fake-mor/checkout/%s' % (self.base_url, ref),
+        }
+        return {'kind': kind, 'url': urls[provider]}
+
+    def checkout_surface(self, checkout_id, body):
+        """POST /v1/checkout/<id>/surface: the same checkout (the same provider session) on
+        another of its method's surfaces."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            if not checkout.get('provider'):
+                raise ApiError(409, 'surface_unavailable', 'a v1 checkout has its pay_url only')
+            if checkout['status'] != 'pending':
+                raise ApiError(409, 'checkout_closed', 'the checkout is %s' % checkout['status'])
+            kind = (body or {}).get('kind')
+            if kind not in PROVIDER_METHODS[checkout['provider']][checkout['method']]:
+                raise ApiError(409, 'surface_unavailable', 'no %s for this checkout' % kind)
+            checkout['surface'] = kind
+        return {'checkout_id': checkout_id, 'surface': self.surface_of(checkout_id, kind),
+                'return': self.returns()}
+
+    def abandon(self, checkout_id):
+        """POST /v1/checkout/<id>/abandon: the provider session expires (the popover closed
+        before paying): nobody can pay it any more."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            checkout['abandoned'] = True
+            if checkout['status'] == 'pending':
+                checkout['status'] = 'expired'
+            self.abandoned.append(checkout_id)
+            return {'checkout_id': checkout_id, 'status': checkout['status']}
+
+    def checkout_of_ref(self, provider_ref):
+        with self.lock:
+            checkout_id = self.by_ref.get(provider_ref)
+            return checkout_id, self.checkouts.get(checkout_id) if checkout_id else None
+
+    def provider_pays(self, checkout_id, paid=True):
+        """The fake provider took (or refused) the payment of `checkout_id`: it sends its signed
+        webhook to this token server (a real HTTP request), which approves or declines."""
+        checkout = self.checkouts[checkout_id]
+        return self.send_webhook(checkout['provider'], checkout['provider_ref'], paid)
+
+    def send_webhook(self, provider, provider_ref, paid, created=None, event_id=None):
+        """`provider`'s webhook for the payment `provider_ref`, signed with its scheme and
+        posted to /v1/webhook/<provider>: the HTTP status."""
+        created = int(time.time()) if created is None else created
+        secret = WEBHOOK_SECRETS[provider].encode('utf-8')
+        if provider == 'fake-stripe':
+            event = {'id': event_id or random_id('evt_'), 'created': created,
+                     'type': 'payment_intent.succeeded' if paid
+                     else 'payment_intent.payment_failed',
+                     'data': {'object': {'metadata': {'provider_ref': provider_ref}}}}
+            raw = json.dumps(event).encode('utf-8')
+            mac = hmac.new(secret, b'%d.' % created + raw, hashlib.sha256).hexdigest()
+            headers = {'Stripe-Signature': 't=%d,v1=%s' % (created, mac)}
+        elif provider == 'fake-gocardless':
+            event = {'events': [{'id': event_id or random_id('EV'), 'created_at': rfc3339(created),
+                                 'resource_type': 'billing_requests',
+                                 'action': 'fulfilled' if paid else 'failed',
+                                 'metadata': {'provider_ref': provider_ref}}]}
+            raw = json.dumps(event).encode('utf-8')
+            headers = {'Webhook-Signature': hmac.new(secret, raw, hashlib.sha256).hexdigest()}
+        else:
+            event = {'id': event_id or random_id('WH-'), 'create_time': rfc3339(created),
+                     'event_type': 'CHECKOUT.ORDER.APPROVED' if paid else 'PAYMENT.CAPTURE.DENIED',
+                     'resource': {'custom_id': provider_ref}}
+            raw = json.dumps(event).encode('utf-8')
+            headers = {'x-provider-signature': hmac.new(secret, raw, hashlib.sha256).hexdigest()}
+        headers['Content-Type'] = 'application/json'
+        request = urllib.request.Request(self.base_url + '/v1/webhook/' + provider, data=raw,
+                                         headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(request, timeout=10) as reply:
+                return reply.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    def webhook(self, provider, headers, raw):
+        """POST /v1/webhook/<provider>: the provider's signature checked with its scheme, each
+        event id applied once, the payment approved or declined by its provider reference -
+        payer data is never read."""
+        secret = WEBHOOK_SECRETS.get(provider)
+        if provider not in self.providers or secret is None:
+            raise ApiError(404, 'not_found', 'no webhook for %s' % provider)
+        secret = secret.encode('utf-8')
+        try:
+            body = json.loads(raw.decode('utf-8'))
+        except ValueError:
+            raise ApiError(400, 'bad_body', 'the webhook is not JSON')
+        if provider == 'fake-stripe':
+            parts = dict(p.split('=', 1) for p in (headers.get('Stripe-Signature') or '')
+                         .split(',') if '=' in p)
+            try:
+                stamp = int(parts.get('t', ''))
+            except ValueError:
+                raise ApiError(401, 'bad_signature', 'no timestamp')
+            want = hmac.new(secret, b'%d.' % stamp + raw, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(want, parts.get('v1', '')):
+                raise ApiError(401, 'bad_signature', 'the signature does not match')
+            if abs(time.time() - stamp) > STRIPE_TOLERANCE_SECS:
+                raise ApiError(401, 'stale_signature', 'the timestamp is outside the tolerance')
+            ref = (((body.get('data') or {}).get('object') or {}).get('metadata') or {}) \
+                .get('provider_ref')
+            events = [(body.get('id'), body.get('type') == 'payment_intent.succeeded', ref)]
+        else:
+            name = 'Webhook-Signature' if provider == 'fake-gocardless' else 'x-provider-signature'
+            want = hmac.new(secret, raw, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(want, headers.get(name) or ''):
+                raise ApiError(401, 'bad_signature', 'the signature does not match')
+            if provider == 'fake-gocardless':
+                events = [(e.get('id'), e.get('action') == 'fulfilled',
+                           (e.get('metadata') or {}).get('provider_ref'))
+                          for e in body.get('events') or []]
+            else:
+                events = [(body.get('id'), body.get('event_type') == 'CHECKOUT.ORDER.APPROVED',
+                           (body.get('resource') or {}).get('custom_id'))]
+        applied = 0
+        for event_id, paid, ref in events:
+            key = (provider, event_id)
+            with self.lock:
+                again = key in self.events_seen
+                self.events_seen.add(key)
+            checkout_id, _ = self.checkout_of_ref(ref)
+            what = 'replayed' if again else ('unknown' if checkout_id is None else
+                                             ('approved' if paid else 'declined'))
+            self.webhooks.append({'provider': provider, 'event': event_id, 'outcome': what})
+            if again or checkout_id is None:
+                continue
+            if paid:
+                self.approve(checkout_id)
+            else:
+                self.decline(checkout_id, 'the provider declined the payment')
+            applied += 1
+        return {'received': len(events), 'applied': applied}
+
+    def provider_confirm(self, body):
+        """POST /fake-stripe/confirm, the fake Stripe's API of its fields page: a test card
+        approves (and the webhook follows), the declining card is declined in the fields (the
+        checkout stays open for another try)."""
+        secret = str((body or {}).get('client_secret') or '')
+        with self.lock:
+            checkout_id = next((cid for cid, c in self.checkouts.items()
+                                if c.get('client_secret') == secret and secret), None)
+        if checkout_id is None:
+            return {'result': 'failed', 'code': 'resource_missing'}
+        card = ''.join(c for c in str(body.get('card_number') or '') if c.isdigit())
+        if card != APPROVING_CARD:
+            return {'result': 'failed', 'code': 'card_declined',
+                    'message': 'Your card was declined.'}
+        self.provider_pays(checkout_id, True)
+        return {'result': 'succeeded', 'last4': card[-4:]}
+
+    def provider_page(self, path, query):
+        """A fake provider's own page (GET): (status, html) or None for no such page."""
+        segments = path.split('/')
+        if segments[:3] == ['fake-stripe', 'c', 'pay'] and len(segments) == 4:
+            ref = segments[3][len('cs_test_'):]
+            return self.pay_form(ref, 'Fake Stripe Checkout', 'card_number', 'Card number',
+                                 '4242 4242 4242 4242', extra=(
+                                     '<p><a href="%s/fake-paypal/checkoutnow?token=%s">Pay with '
+                                     'PayPal</a></p>' % (self.login_url, html.escape(ref))))
+        if segments[:2] == ['fake-gocardless', 'flow'] and len(segments) == 3:
+            return self.pay_form(segments[2][len('BRQ'):], 'Fake GoCardless: set up a Direct '
+                                 'Debit', 'iban', 'IBAN', APPROVING_IBAN)
+        if segments == ['fake-paypal', 'checkoutnow']:
+            ref = (query.get('token') or [''])[0]
+            return self.pay_form(ref, 'Fake PayPal: log in and approve', 'email', 'Email',
+                                 'buyer@example.com')
+        if segments[:2] == ['fake-mor', 'checkout'] and len(segments) == 3:
+            return self.pay_form(segments[2], 'Fake MoR Inc.: checkout', 'card_number',
+                                 'Card number', '4242 4242 4242 4242')
+        return None
+
+    def pay_form(self, ref, title, field, label, example, extra=''):
+        checkout_id, checkout = self.checkout_of_ref(ref)
+        if checkout is None:
+            return 404, page('No such payment', '<p>This payment does not exist.</p>')
+        body = ('<form method="post"><label>%s <input name="%s" value="%s"></label> '
+                '<button>Pay EUR %s</button></form><p><a href="%s/return/cancel">Cancel</a></p>%s'
+                % (html.escape(label), field, html.escape(example),
+                   '%d.%02d' % divmod(checkout['amount'], 100), self.base_url, extra))
+        return 200, page(title, body)
+
+    def provider_post(self, path, query, form):
+        """A fake provider's page posted (its Pay): (status, location or html)."""
+        segments = path.split('/')
+        form = dict(form)
+        form.setdefault('token', (query.get('token') or [''])[0])
+        if segments[:3] == ['fake-stripe', 'c', 'pay'] and len(segments) == 4:
+            ref, ok = segments[3][len('cs_test_'):], form.get('card_number')
+            ok = ''.join(c for c in (ok or '') if c.isdigit()) == APPROVING_CARD
+        elif segments[:2] == ['fake-gocardless', 'flow'] and len(segments) == 3:
+            ref = segments[2][len('BRQ'):]
+            ok = (form.get('iban') or '').replace(' ', '').upper() == APPROVING_IBAN
+        elif segments == ['fake-paypal', 'checkoutnow']:
+            ref, ok = form.get('token') or '', True
+        elif segments[:2] == ['fake-mor', 'checkout'] and len(segments) == 3:
+            ref = segments[2]
+            ok = ''.join(c for c in (form.get('card_number') or '') if c.isdigit()) \
+                == APPROVING_CARD
+        else:
+            return None
+        checkout_id, checkout = self.checkout_of_ref(ref)
+        if checkout is None:
+            return 404, page('No such payment', '<p>This payment does not exist.</p>')
+        if not ok:
+            return 200, page('Declined', '<p>The payment was declined. <a href="javascript:'
+                             'history.back()">Try again</a> or <a href="%s/return/cancel">'
+                             'cancel</a>.</p>' % self.base_url)
+        self.provider_pays(checkout_id, True)
+        return 303, self.base_url + '/return/ok'
 
     def checkout_status(self, checkout_id):
         """GET /v1/checkout/<id>: pending | approved (the sign-up sealed to the claim key, to
@@ -295,6 +778,10 @@ class TokenState:
                     out['status'] = 'expired'
                 else:
                     out['sealed_signup'] = checkout['sealed_signup']
+            if checkout['status'] == 'declined' and checkout.get('reason'):
+                out['reason'] = checkout['reason']
+            if checkout.get('provider'):
+                out['settles'] = 'days' if checkout['method'] == 'sepa_debit' else 'instant'
             return out
 
     def pay(self, checkout_id, body):
@@ -307,28 +794,44 @@ class TokenState:
                 raise ApiError(404, 'no_such_checkout', 'unknown checkout')
             if checkout['status'] != 'pending':
                 return {'status': checkout['status']}
-            tier = checkout['tier']
         card = ''.join(c for c in str(body.get('card_number') or '') if c.isdigit())
         if card == APPROVING_CARD or body.get('prepaid') is True:
-            bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
-            # The key the period tokens are issued against, sealed with the drive (F24); the
-            # checkout keeps its hash only.
-            issue_key, issue_key_hash = azlin_period.new_issue_key()
-            bundle['period_tokens'] = {'checkout_id': checkout_id, 'months': checkout['months'],
-                                       'issue_key': issue_key}
-            sealed = azlin_claim.seal(json.dumps(bundle).encode('utf-8'), checkout['claim_key'],
-                                      checkout_id)
-            with self.lock:
-                checkout['status'] = 'approved'
-                checkout['sealed_signup'] = sealed
-                checkout['approved_at'] = time.time()
-                checkout['issue_key_hash'] = issue_key_hash
-                checkout['tokens_issued'] = 0
-            return {'status': 'approved'}
+            return {'status': self.approve(checkout_id)}
+        reason = 'declined' if card == DECLINING_CARD else 'no payment details'
+        self.decline(checkout_id, reason)
+        return {'status': 'declined', 'reason': reason}
+
+    def approve(self, checkout_id):
+        """A pending checkout paid: its drive made, its sign-up sealed to its claim key (an
+        abandoned or settled checkout stays as it is). Its status now."""
         with self.lock:
-            checkout['status'] = 'declined'
-        return {'status': 'declined',
-                'reason': 'declined' if card == DECLINING_CARD else 'no payment details'}
+            checkout = self.checkouts[checkout_id]
+            if checkout['status'] != 'pending' or checkout.get('abandoned'):
+                return checkout['status']
+            tier = checkout['tier']
+        bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
+        # The key the period tokens are issued against, sealed with the drive (F24); the
+        # checkout keeps its hash only.
+        issue_key, issue_key_hash = azlin_period.new_issue_key()
+        bundle['period_tokens'] = {'checkout_id': checkout_id, 'months': checkout['months'],
+                                   'issue_key': issue_key}
+        sealed = azlin_claim.seal(json.dumps(bundle).encode('utf-8'), checkout['claim_key'],
+                                  checkout_id)
+        with self.lock:
+            checkout['status'] = 'approved'
+            checkout['sealed_signup'] = sealed
+            checkout['approved_at'] = time.time()
+            checkout['issue_key_hash'] = issue_key_hash
+            checkout['tokens_issued'] = 0
+        return 'approved'
+
+    def decline(self, checkout_id, reason):
+        with self.lock:
+            checkout = self.checkouts[checkout_id]
+            if checkout['status'] == 'pending':
+                checkout['status'] = 'declined'
+                checkout['reason'] = reason
+            return checkout['status']
 
     def issuer_keys(self):
         """GET /v1/tokens/keys (blind.rs `keys`): the issuer key of every tier, this year."""
@@ -464,9 +967,12 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.server.record({'method': self.command, 'path': self.path, 'status': status})
 
-    def body(self):
+    def raw_body(self):
         length = int(self.headers.get('Content-Length') or 0)
-        raw = self.rfile.read(length) if length else b''
+        return self.rfile.read(length) if length else b''
+
+    def body(self):
+        raw = self.raw_body()
         if not raw:
             return {}
         try:
@@ -474,6 +980,75 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             return None
         return value if isinstance(value, dict) else None
+
+    def html_page(self, status, text):
+        body = text.encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        self.server.record({'method': self.command, 'path': self.path, 'status': status})
+
+    def redirect(self, location):
+        self.send_response(303)
+        self.send_header('Location', location)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+        self.server.record({'method': self.command, 'path': self.path, 'status': 303})
+
+    def fake_provider_route(self, state, path, query):
+        """The fake providers' pages, the return pages and the bridge; whether it answered."""
+        if self.command == 'GET' and path.startswith('_bridge/'):
+            # The app cancels these before they load; a browser that gets here sees nothing.
+            self.send_response(204)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            self.server.record({'method': self.command, 'path': self.path, 'status': 204})
+            return True
+        if self.command == 'GET' and path in ('return/ok', 'return/cancel', 'return/pending'):
+            words = {'return/ok': 'Payment received. AzDrive adds your drive in a moment; you '
+                                  'can close this tab.',
+                     'return/cancel': 'The payment was cancelled; nothing was charged.',
+                     'return/pending': 'The payment is on its way. AzDrive adds the drive when '
+                                       'the bank confirms.'}
+            self.html_page(200, page('Azlin', '<p>%s</p>' % html.escape(words[path])))
+            return True
+        if self.command == 'GET' and path.startswith('fields/'):
+            if path != 'fields/fake-stripe/v1' or 'fake-stripe' not in state.providers:
+                self.html_page(404, page('Not found', '<p>No such fields page.</p>'))
+            else:
+                self.html_page(200, FIELDS_PAGE)
+            return True
+        provider = path.split('/', 1)[0]
+        if provider not in FAKE_PROVIDERS:
+            return False
+        if provider not in state.providers:
+            self.html_page(404, page('Not found', '<p>This provider is not offered.</p>'))
+            return True
+        if self.command == 'POST' and path == 'fake-stripe/confirm':
+            self.answer(200, state.provider_confirm(self.body() or {}))
+            return True
+        if self.command == 'GET':
+            shown = state.provider_page(path, query)
+            if shown is None:
+                return False
+            self.html_page(*shown)
+            return True
+        if self.command == 'POST':
+            form = {k: v[0] for k, v in urllib.parse.parse_qs(
+                self.raw_body().decode('utf-8', 'replace')).items()}
+            done = state.provider_post(path, query, form)
+            if done is None:
+                return False
+            status, what = done
+            if status == 303:
+                self.redirect(what)
+            else:
+                self.html_page(status, what)
+            return True
+        return False
 
     def bearer(self):
         value = self.headers.get('Authorization') or ''
@@ -484,8 +1059,27 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
 
     def route(self):
         state = self.server.state
-        path = self.path.split('?', 1)[0].strip('/')
+        path, _, query_text = self.path.partition('?')
+        path = path.strip('/')
+        query = urllib.parse.parse_qs(query_text)
         segments = path.split('/') if path else []
+        if self.fake_provider_route(state, path, query):
+            return
+        if self.command == 'GET' and segments == ['v1', 'checkout', 'options']:
+            self.answer(200, state.checkout_options(query))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'checkout'] \
+                and segments[3] == 'surface':
+            self.answer(200, state.checkout_surface(segments[2], self.body() or {}))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'checkout'] \
+                and segments[3] == 'abandon':
+            self.raw_body()
+            self.answer(200, state.abandon(segments[2]))
+            return
+        if self.command == 'POST' and len(segments) == 3 and segments[:2] == ['v1', 'webhook']:
+            self.answer(200, state.webhook(segments[2], self.headers, self.raw_body()))
+            return
         if self.command == 'GET' and segments in (['health'], ['v1', 'health']):
             body = b'ok\n'
             self.send_response(200)
@@ -607,12 +1201,15 @@ class Stack:
         self.s3.stop()
 
 
-def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verbose=False):
+def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verbose=False,
+          providers=()):
     """Both servers on `host` (port 0: a free one), serving in background threads; the S3 objects
-    live under `root/<bucket>/<key>`."""
+    live under `root/<bucket>/<key>`; the fake payment providers `providers` offered (none: no
+    payment options, the v1 checkout)."""
     s3 = s3_server.start(root, host=host, port=s3_port, access_key=ACCESS_KEY,
                          secret_key=SECRET_KEY, region=REGION, verbose=verbose)
     state = TokenState(s3, s3.url, ttl)
+    state.set_providers(providers)
     token = TokenServer((host, token_port), state, verbose).start_background()
     state.base_url = token.url
     return Stack(token, s3)
@@ -629,9 +1226,14 @@ def main(argv=None):
     parser.add_argument('--ttl', type=int, default=DEFAULT_TTL,
                         help='seconds the S3 credentials of a bundle are valid (default 12 h)')
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--providers', nargs='?', const=','.join(DEFAULT_PROVIDERS), default='',
+                        help='offer fake payment providers (comma-separated, of %s; without a '
+                             'list: %s)' % (', '.join(FAKE_PROVIDERS), ','.join(DEFAULT_PROVIDERS)))
     args = parser.parse_args(argv)
     root = args.root or tempfile.mkdtemp(prefix='azlin-mock-s3-')
-    stack = start(root, args.host, args.token_port, args.s3_port, args.ttl, args.verbose)
+    providers = [p for p in args.providers.split(',') if p]
+    stack = start(root, args.host, args.token_port, args.s3_port, args.ttl, args.verbose,
+                  providers)
     print('AZLIN_MOCK_TOKEN_URL %s' % stack.token_url, flush=True)
     print('AZLIN_MOCK_S3_URL %s' % stack.s3_url, flush=True)
     print('[azlin-mock] token server %s, S3 %s, objects in %s' % (stack.token_url, stack.s3_url,

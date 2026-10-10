@@ -1,12 +1,19 @@
 //! The Add drive dialog as data: its pages, its forms, what Buy storage offers. No window.
 
 use azcloud_kit::{Tier, Tiers};
+use azul_pay::{
+    offer::{Offer, OfferContext},
+    registry::{Method, SurfaceKind},
+};
 use azul_storage::{
     catalog::ServiceGroup,
     config::{DriveAuth, DriveEntry, DriveLocation},
 };
 
-use crate::add_drive::{source_groups, AddDialog, AddPage, TiersState};
+use crate::add_drive::{
+    country_from, country_of_locale, source_groups, AddDialog, AddPage, OfferState, TiersState,
+    COUNTRIES,
+};
 
 fn tiers() -> Tiers {
     let tier = |id: &str, gb: u64, month: u64, year: u64| Tier {
@@ -159,4 +166,205 @@ fn the_sources_page_lists_every_group_that_has_a_source_of_this_build() {
     }
     let listed: usize = groups.iter().map(|(_, l)| l.len()).sum();
     assert_eq!(listed + unavailable, azul_storage::catalog::services().len());
+}
+
+// ==== Buy storage's payment: the pills, the consent, the country (azul-pay) ====
+
+/// GoCardless's SEPA (the server's default) and Stripe's card, SEPA and PayPal.
+fn offer() -> Offer {
+    let text = serde_json::json!({"offers": [
+        {"provider": "gocardless", "default": true,
+         "methods": [{"method": "sepa_debit", "surfaces": ["page", "browser"], "settles": "days"}]},
+        {"provider": "stripe",
+         "methods": [{"method": "card"}, {"method": "sepa_debit"}, {"method": "paypal"}]}
+    ]})
+    .to_string();
+    Offer::parse(&text, &OfferContext::for_token_url("https://token.azlin.io")).unwrap()
+}
+
+/// Buy storage with the tiers and the offer in, paying from `country`.
+fn paying_dialog(country: &str) -> AddDialog {
+    let mut dialog = AddDialog::new(1);
+    dialog.choose_buy();
+    dialog.tiers = TiersState::Loaded(tiers());
+    dialog.country = country.to_string();
+    dialog.offer_loaded(offer());
+    dialog
+}
+
+fn methods(dialog: &AddDialog) -> Vec<Method> {
+    dialog.pills().iter().map(|p| p.method).collect()
+}
+
+#[test]
+fn buy_storage_without_payment_options_pays_on_the_v1_payment_page() {
+    let mut dialog = AddDialog::new(1);
+    dialog.choose_buy();
+    dialog.tiers = TiersState::Loaded(tiers());
+    assert!(matches!(dialog.offer, OfferState::NotLoaded));
+    assert!(!dialog.pays_with_pills());
+    dialog.offer = OfferState::Legacy;
+    assert!(!dialog.pays_with_pills());
+    assert!(dialog.pills().is_empty());
+    assert_eq!(dialog.choice(), None);
+    let nothing_to_show = Offer::parse(
+        r#"{"offers": [{"provider": "evilpay", "methods": [{"method": "card"}]}]}"#,
+        &OfferContext::for_token_url("https://token.azlin.io"),
+    )
+    .unwrap();
+    dialog.offer_loaded(nothing_to_show);
+    assert!(!dialog.pays_with_pills(), "an offer of nothing this app knows is the v1 page");
+}
+
+#[test]
+fn the_pills_follow_the_country_and_the_period() {
+    let mut dialog = paying_dialog("DE");
+    assert!(dialog.pays_with_pills());
+    assert_eq!(methods(&dialog), vec![Method::SepaDebit, Method::Card]);
+    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::SepaDebit));
+    dialog.yearly = true;
+    assert_eq!(
+        methods(&dialog),
+        vec![Method::SepaDebit, Method::Card, Method::PayPal],
+        "PayPal for a prepaid year"
+    );
+    let mut us = paying_dialog("US");
+    assert_eq!(methods(&us), vec![Method::Card]);
+    assert_eq!(us.chosen_pill().map(|p| p.method), Some(Method::Card));
+    us.yearly = true;
+    assert_eq!(methods(&us), vec![Method::Card, Method::PayPal]);
+}
+
+#[test]
+fn a_chosen_pill_stays_chosen_when_the_period_changes() {
+    let mut dialog = paying_dialog("DE");
+    dialog.choose_pill(Method::Card);
+    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::Card));
+    dialog.yearly = true;
+    assert_eq!(dialog.chosen_pill().map(|p| p.method), Some(Method::Card));
+    dialog.choose_pill(Method::PayPal);
+    dialog.yearly = false;
+    assert_eq!(
+        dialog.chosen_pill().map(|p| p.method),
+        Some(Method::SepaDebit),
+        "a pill that went away gives way to the default"
+    );
+}
+
+#[test]
+fn a_pill_with_two_providers_switches_between_them() {
+    let mut dialog = paying_dialog("DE");
+    let sepa = dialog.chosen_pill().unwrap();
+    assert_eq!(sepa.providers.len(), 2);
+    assert_eq!(dialog.choice().unwrap().provider.spec.id, "gocardless");
+    let stripe = sepa.providers[1];
+    dialog.choose_provider(stripe);
+    assert_eq!(dialog.choice().unwrap().provider.spec.id, "stripe");
+    dialog.choose_pill(Method::Card);
+    dialog.choose_pill(Method::SepaDebit);
+    assert_eq!(
+        dialog.choice().unwrap().provider.spec.id,
+        "gocardless",
+        "another pill forgets the switch"
+    );
+}
+
+#[test]
+fn the_choice_carries_the_surfaces_azdrive_can_show() {
+    let mut dialog = paying_dialog("DE");
+    assert_eq!(
+        dialog.choice().unwrap().method.surfaces,
+        vec![SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser],
+        "GoCardless's hosted page, then the browser"
+    );
+    dialog.choose_pill(Method::Card);
+    assert_eq!(
+        dialog.choice().unwrap().method.surfaces,
+        vec![
+            SurfaceKind::PopoverFields,
+            SurfaceKind::WebviewPage,
+            SurfaceKind::SystemBrowser
+        ]
+    );
+    assert_eq!(dialog.pills_line(), "sepa_debit:gocardless card:stripe");
+}
+
+#[test]
+fn a_country_change_asks_for_the_options_again() {
+    let mut dialog = paying_dialog("DE");
+    assert!(dialog.set_country("FR"));
+    assert_eq!(dialog.country, "FR");
+    assert!(matches!(dialog.offer, OfferState::NotLoaded));
+    assert!(!dialog.set_country("FR"), "the same country");
+    assert!(!dialog.set_country("XX"), "not a country of the list");
+    assert_eq!(dialog.country, "FR");
+    assert!(COUNTRIES.iter().any(|(code, _)| *code == "DE"));
+}
+
+#[test]
+fn the_country_comes_from_the_locale() {
+    assert_eq!(country_of_locale("de_DE.UTF-8").as_deref(), Some("DE"));
+    assert_eq!(country_of_locale("en_GB").as_deref(), Some("GB"));
+    assert_eq!(country_of_locale("fr-FR").as_deref(), Some("FR"));
+    assert_eq!(country_of_locale("nl_NL@euro").as_deref(), Some("NL"));
+    assert_eq!(country_of_locale("C"), None);
+    assert_eq!(country_of_locale("POSIX"), None);
+    assert_eq!(country_of_locale("en_ZZ.UTF-8"), None);
+    assert_eq!(country_of_locale(""), None);
+}
+
+#[test]
+fn azlin_country_names_the_payers_country_before_the_locale() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| (*v).to_string())
+        }
+    };
+    assert_eq!(
+        country_from(env(&[("AZLIN_COUNTRY", "fr"), ("LANG", "de_DE.UTF-8")])),
+        "FR"
+    );
+    assert_eq!(
+        country_from(env(&[("AZLIN_COUNTRY", "XX"), ("LANG", "nl_NL.UTF-8")])),
+        "NL",
+        "a country not of the list is no choice"
+    );
+    assert_eq!(country_from(env(&[("LC_ALL", "C"), ("LANG", "en_GB.UTF-8")])), "GB");
+    assert_eq!(country_from(env(&[])), "DE");
+}
+
+#[test]
+fn the_dialog_is_busy_while_a_payment_runs_and_its_debug_text_holds_no_secret() {
+    let mut dialog = paying_dialog("DE");
+    dialog.choose_pill(Method::Card);
+    assert!(!dialog.busy());
+    let choice = dialog.choice().unwrap();
+    let (preparing, effects) = azul_pay::step(
+        azul_pay::State::Choosing,
+        azul_pay::Event::Pay {
+            choice: choice.clone(),
+            consent: true,
+        },
+    );
+    assert_eq!(effects.len(), 1);
+    dialog.pay = preparing;
+    assert!(dialog.busy());
+    let answer = serde_json::json!({"checkout_id": "ck_1", "provider": "stripe", "method": "card",
+        "surface": {"kind": "fields", "page": "https://pay.azlin.io/fields/stripe/v1",
+                    "publishable_key": "pk_test_SECRETPK", "client_secret": "pi_1_secret_SECRETCS"}});
+    let created = azul_pay::Created::parse(&answer, &choice, &dialog.look()).unwrap();
+    let (presenting, _) = azul_pay::step(
+        std::mem::replace(&mut dialog.pay, azul_pay::State::Choosing),
+        azul_pay::Event::Created(Box::new(created)),
+    );
+    dialog.pay = presenting;
+    dialog.card_name = "Felix Example".to_string();
+    assert!(dialog.busy());
+    let text = format!("{dialog:?}");
+    for secret in ["SECRETPK", "SECRETCS", "Felix"] {
+        assert!(!text.contains(secret), "{secret}: {text}");
+    }
 }

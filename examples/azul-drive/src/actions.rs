@@ -3026,8 +3026,8 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
 pub(crate) fn close_popup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     match s.popup {
         Some(Popup::Conflict { id, .. }) => cancel_transfer(info, app, s, id),
-        // A payment waited for is waited for no more.
-        Some(Popup::AddDrive(_)) => crate::add_flow::cancel(s),
+        // A payment shown is abandoned, one waited for is waited for in the background.
+        Some(Popup::AddDrive(_)) => crate::add_flow::close(info, app, s),
         _ => s.popup = None,
     }
 }

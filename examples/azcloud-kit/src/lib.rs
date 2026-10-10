@@ -107,8 +107,8 @@ pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    BlindSignatures, Checkout, CheckoutStatus, RecoveryLockdown, Tier, Tiers, TokenError,
-    TokenServer, VoucherRedeemed,
+    BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, OptionsQuery, RecoveryLockdown, Tier,
+    Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 

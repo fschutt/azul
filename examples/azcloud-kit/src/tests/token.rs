@@ -1,13 +1,14 @@
 //! The token server's API: tiers, a development sign-up, a checkout and its sealed sign-up, a
 //! refresh.
 
-use azul_storage::{config::DriveAuth, config::DriveLocation, Method};
+use azul_storage::{config::DriveAuth, config::DriveLocation, HttpReply, Method};
 
 use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
     claim::seal,
     token::{
-        check_id, check_token_url, is_loopback_host, CheckoutStatus, TokenError, TokenServer,
+        check_id, check_token_url, is_loopback_host, CheckoutStatus, CheckoutVia, OptionsQuery,
+        TokenError, TokenServer,
     },
     ClaimKey, CloudError, DriveBundle,
 };
@@ -475,6 +476,178 @@ fn a_refused_drive_token_means_signing_in_again_under_any_context() {
         message: String::new(),
     });
     assert!(!busy.is_sign_in());
+}
+
+// ==== The checkout through a provider (CHECKOUT-PLAN §3.11: claim contract v1, extended) ====
+
+#[test]
+fn the_payment_options_are_asked_for_the_tier_period_country_and_surfaces() {
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            200,
+            r#"{"offers": [{"provider": "stripe", "methods": [{"method": "card"}]}]}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let query = OptionsQuery {
+        tier: "1TB",
+        months: 12,
+        country: "DE",
+        currency: "EUR",
+        surfaces: &["fields", "page", "browser"],
+    };
+    let text = server.checkout_options(&query).unwrap().expect("options");
+    assert!(text.contains("\"stripe\""), "{text}");
+    let call = &fake.calls()[0];
+    assert_eq!(call.method, Method::Get);
+    assert_eq!(
+        call.url,
+        format!(
+            "{TOKEN}/v1/checkout/options?tier=1TB&months=12&country=DE&currency=EUR&\
+             surfaces=fields%2Cpage%2Cbrowser"
+        )
+    );
+    assert_eq!(header(call, "authorization"), None, "the options are no account call");
+}
+
+#[test]
+fn a_token_server_without_payment_options_answers_none() {
+    let fake = Fake::new(|_, _| {
+        Ok(json(404, r#"{"error": "not_found", "message": "no route"}"#))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let query = OptionsQuery {
+        tier: "100GB",
+        months: 1,
+        country: "de",
+        currency: "EUR",
+        surfaces: &[],
+    };
+    assert_eq!(server.checkout_options(&query).unwrap(), None);
+    let failing = Fake::new(|_, _| Ok(json(500, r#"{"error": "internal"}"#)));
+    let transport = Shared(failing);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        server.checkout_options(&query),
+        Err(TokenError::Refused { status: 500, .. })
+    ));
+}
+
+#[test]
+fn a_checkout_through_a_provider_names_it_and_answers_its_surface() {
+    let claim = ClaimKey::generate().unwrap();
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            201,
+            r#"{"checkout_id": "ck_9", "pay_url": "https://pay.azlin.io/legacy/ck_9",
+                "provider": "stripe", "method": "card", "tier": "1TB", "months": 12,
+                "amount_cents": 4990, "currency": "EUR",
+                "surface": {"kind": "fields", "page": "https://pay.azlin.io/fields/stripe/v1",
+                            "publishable_key": "pk_test_1", "client_secret": "pi_1_secret_2"}}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let via = CheckoutVia {
+        provider: "stripe",
+        method: "card",
+        surface: "fields",
+        vat_country: "DE",
+        withdrawal_consent: true,
+    };
+    let (started, answer) = server.checkout_via("1TB", 12, &via, &claim).unwrap();
+    assert_eq!(started.checkout_id, "ck_9");
+    assert_eq!(started.amount_cents, 4990);
+    assert_eq!(started.months, 12);
+    assert_eq!(answer["surface"]["kind"], "fields");
+    assert_eq!(answer["surface"]["client_secret"], "pi_1_secret_2");
+    let call = &fake.calls()[0];
+    assert_eq!(call.method, Method::Post);
+    assert_eq!(call.url, format!("{TOKEN}/v1/checkout"));
+    let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+    assert_eq!(body["tier"], "1TB");
+    assert_eq!(body["months"], 12);
+    assert_eq!(body["provider"], "stripe");
+    assert_eq!(body["method"], "card");
+    assert_eq!(body["surface"], "fields");
+    assert_eq!(body["vat_country"], "DE");
+    assert_eq!(body["withdrawal_consent"], true);
+    assert_eq!(body["claim_key"], claim.public_base64().as_str());
+    let sent = String::from_utf8_lossy(&call.body).into_owned();
+    assert!(!sent.contains(claim.to_base64().as_str()), "{sent}");
+}
+
+#[test]
+fn a_checkout_through_a_provider_needs_an_id_but_no_payment_page() {
+    let claim = ClaimKey::generate().unwrap();
+    let via = CheckoutVia {
+        provider: "fake-paypal",
+        method: "paypal",
+        surface: "browser",
+        vat_country: "DE",
+        withdrawal_consent: true,
+    };
+    let without_page = Fake::new(|_, _| {
+        Ok(json(
+            201,
+            r#"{"checkout_id": "ck_10", "surface": {"kind": "browser",
+                "url": "http://localhost:18081/fake-paypal/checkoutnow?token=ck_10"}}"#,
+        ))
+    });
+    let transport = Shared(without_page);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let (started, _) = server.checkout_via("100GB", 12, &via, &claim).unwrap();
+    assert_eq!(started.checkout_id, "ck_10");
+    assert_eq!(started.months, 12, "the months asked for when the answer names none");
+    let without_id = Fake::new(|_, _| Ok(json(201, r#"{"surface": {"kind": "browser"}}"#)));
+    let transport = Shared(without_id);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        server.checkout_via("100GB", 12, &via, &claim),
+        Err(TokenError::Protocol(_))
+    ));
+}
+
+#[test]
+fn the_same_checkout_moves_to_another_surface_and_is_abandoned() {
+    let fake = Fake::new(|call, _| {
+        Ok(if call.url.ends_with("/surface") {
+            json(
+                200,
+                r#"{"checkout_id": "ck_9", "surface": {"kind": "browser",
+                    "url": "https://checkout.stripe.com/c/pay/cs_test_1"}}"#,
+            )
+        } else {
+            HttpReply {
+                status: 204,
+                headers: Vec::new(),
+                body: Vec::new(),
+            }
+        })
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let answer = server.checkout_surface("ck_9", "browser").unwrap();
+    assert_eq!(answer["surface"]["kind"], "browser");
+    server.abandon_checkout("ck_9").unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls[0].method, Method::Post);
+    assert_eq!(calls[0].url, format!("{TOKEN}/v1/checkout/ck_9/surface"));
+    let body: serde_json::Value = serde_json::from_slice(&calls[0].body).unwrap();
+    assert_eq!(body["kind"], "browser");
+    assert_eq!(calls[1].method, Method::Post);
+    assert_eq!(calls[1].url, format!("{TOKEN}/v1/checkout/ck_9/abandon"));
+    assert!(matches!(
+        server.abandon_checkout("ck/../drives"),
+        Err(TokenError::Config(_))
+    ));
+    assert!(matches!(
+        server.checkout_surface("", "browser"),
+        Err(TokenError::Config(_))
+    ));
+    assert_eq!(fake.calls().len(), 2, "a bad id never reaches the network");
 }
 
 #[test]

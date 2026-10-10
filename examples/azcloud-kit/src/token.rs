@@ -9,6 +9,12 @@
 //! |                                       | key the sign-up is sealed to)                     |
 //! | `GET /v1/checkout/{id}`               | pending / approved (the sealed sign-up, 30 days)  |
 //! |                                       | / declined / expired                              |
+//! | `GET /v1/checkout/options`            | the providers' offer for a tier, period, country  |
+//! |                                       | (azul-pay narrows it to the app's registry)       |
+//! | `POST /v1/checkout` + provider        | a checkout through a provider: its surface (the   |
+//! |                                       | fields page, a hosted page, the browser)          |
+//! | `POST /v1/checkout/{id}/surface`      | the same checkout on the next surface             |
+//! | `POST /v1/checkout/{id}/abandon`      | the provider session expires (popover closed)     |
 //! | `GET /v1/tokens/keys`                 | the period tokens' issuer keys (tier and year)    |
 //! | `POST /v1/tokens/issue`               | a paid checkout's blind-signed period tokens      |
 //! |                                       | (against the sealed sign-up's issue key)          |
@@ -222,6 +228,29 @@ pub struct Checkout {
     pub currency: String,
     /// The token server's own test provider takes the payment (a development server).
     pub mock: bool,
+}
+
+/// What `GET /v1/checkout/options` is asked for (CHECKOUT-PLAN §3.11): the tier, the months
+/// paid at once, the payer's country and currency, the surfaces this app can show (`fields`,
+/// `page`, `browser`, ...).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OptionsQuery<'a> {
+    pub tier: &'a str,
+    pub months: u32,
+    pub country: &'a str,
+    pub currency: &'a str,
+    pub surfaces: &'a [&'a str],
+}
+
+/// How a checkout is paid (claim contract v1, extended): the provider and method of the payer's
+/// pill, the first surface to open, the VAT country, the consent the order needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckoutVia<'a> {
+    pub provider: &'a str,
+    pub method: &'a str,
+    pub surface: &'a str,
+    pub vat_country: &'a str,
+    pub withdrawal_consent: bool,
 }
 
 /// Where a checkout stands (`GET /v1/checkout/{id}`).
@@ -524,25 +553,82 @@ impl<'a> TokenServer<'a> {
             "claim_key": claim.public_base64(),
         });
         let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
-        let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
-        let checkout = Checkout {
-            checkout_id: text("checkout_id"),
-            pay_url: text("pay_url"),
-            tier: text("tier"),
-            months: value["months"]
-                .as_u64()
-                .and_then(|m| u32::try_from(m).ok())
-                .unwrap_or(months),
-            amount_cents: value["amount_cents"].as_u64().unwrap_or(0),
-            currency: value["currency"].as_str().unwrap_or("EUR").to_string(),
-            mock: value["mock"].as_bool().unwrap_or(false),
-        };
+        let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() || checkout.pay_url.is_empty() {
             return Err(TokenError::Protocol(String::from(
                 "the checkout has no id or no payment page",
             )));
         }
         Ok(checkout)
+    }
+
+    /// The payment options for `query` (`GET /v1/checkout/options`): the offer's JSON text, for
+    /// azul-pay to read and narrow; `None` from a token server without them (a 404: an older one,
+    /// whose checkout is claim contract v1's - a payment page in the browser).
+    pub fn checkout_options(&self, query: &OptionsQuery<'_>) -> Result<Option<String>, TokenError> {
+        let path = format!(
+            "/v1/checkout/options?tier={}&months={}&country={}&currency={}&surfaces={}",
+            uri_encode(query.tier.trim(), true),
+            query.months,
+            uri_encode(&query.country.trim().to_ascii_uppercase(), true),
+            uri_encode(query.currency.trim(), true),
+            uri_encode(&query.surfaces.join(","), true),
+        );
+        match self.call(Method::Get, &path, None, None) {
+            Ok(value) => Ok(Some(value.to_string())),
+            Err(TokenError::Refused { status: 404, .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// A checkout of `tier` for `months` months paid through `via` (claim contract v1,
+    /// extended): its sign-up sealed to `claim` (the public half is sent), and the whole answer -
+    /// its `surface` (a fields page with a client secret, a hosted page, a page for the browser)
+    /// and `return` pages, for azul-pay to check. The answer holds a client secret: never print
+    /// or `Debug` it.
+    ///
+    /// # Errors
+    ///
+    /// No answer, a refusal, or an answer without a checkout id.
+    pub fn checkout_via(
+        &self,
+        tier: &str,
+        months: u32,
+        via: &CheckoutVia<'_>,
+        claim: &ClaimKey,
+    ) -> Result<(Checkout, Value), TokenError> {
+        let body = json!({
+            "tier": tier.trim(),
+            "months": months,
+            "provider": via.provider.trim(),
+            "method": via.method.trim(),
+            "surface": via.surface.trim(),
+            "vat_country": via.vat_country.trim().to_ascii_uppercase(),
+            "withdrawal_consent": via.withdrawal_consent,
+            "claim_key": claim.public_base64(),
+        });
+        let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
+        let checkout = checkout_of(&value, months);
+        if checkout.checkout_id.is_empty() {
+            return Err(TokenError::Protocol(String::from("the checkout has no id")));
+        }
+        Ok((checkout, value))
+    }
+
+    /// The checkout `checkout_id` on another surface (`POST /v1/checkout/{id}/surface`, the
+    /// fallback chain: the hosted page, the browser): the answer, its `surface` for azul-pay to
+    /// check. It holds a client secret: never print it.
+    pub fn checkout_surface(&self, checkout_id: &str, kind: &str) -> Result<Value, TokenError> {
+        let path = format!("/v1/checkout/{}/surface", check_id(checkout_id.trim())?);
+        self.call_or_null(Method::Post, &path, None, Some(&json!({ "kind": kind.trim() })))
+    }
+
+    /// Abandons the checkout `checkout_id` (`POST /v1/checkout/{id}/abandon`): the provider
+    /// session expires, so a forgotten browser tab can never take money for it.
+    pub fn abandon_checkout(&self, checkout_id: &str) -> Result<(), TokenError> {
+        let path = format!("/v1/checkout/{}/abandon", check_id(checkout_id.trim())?);
+        self.send(Method::Post, &path, None, Some(&json!({})))
+            .map(|_| ())
     }
 
     /// Where the checkout `checkout_id` stands; once it is paid, the new drive - its sign-up
@@ -931,6 +1017,24 @@ impl<'a> TokenServer<'a> {
             check_id(request)?
         );
         self.call_or_null(Method::Get, &path, Some(token_of(drive_token)?), None)
+    }
+}
+
+/// The checkout an answer of `POST /v1/checkout` describes (`months`: asked for, when it names
+/// none). Its id and payment page may be empty: the caller says which it needs.
+fn checkout_of(value: &Value, months: u32) -> Checkout {
+    let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
+    Checkout {
+        checkout_id: text("checkout_id"),
+        pay_url: text("pay_url"),
+        tier: text("tier"),
+        months: value["months"]
+            .as_u64()
+            .and_then(|m| u32::try_from(m).ok())
+            .unwrap_or(months),
+        amount_cents: value["amount_cents"].as_u64().unwrap_or(0),
+        currency: value["currency"].as_str().unwrap_or("EUR").to_string(),
+        mock: value["mock"].as_bool().unwrap_or(false),
     }
 }
 
