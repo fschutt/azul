@@ -70,6 +70,8 @@ pub mod shared_endpoint;
 pub mod shortcuts;
 #[cfg(test)]
 mod l10n_tests;
+#[cfg(all(test, feature = "azul"))]
+mod l10n_switch_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
