@@ -402,14 +402,16 @@ const MONTHS: [&str; 12] = [
 pub fn date_text(style: DateStyle, year: i32, month: u32, day: u32, weekday: u32) -> String {
     let weekday = WEEKDAYS[(weekday % 7) as usize];
     let month_name = MONTHS[(month.clamp(1, 12) - 1) as usize];
+    let short_weekday = t(&format!("kit-weekday-short-{}", &weekday[..3]));
+    let short_month = t(&format!("kit-month-short-{}", &month_name[..3]));
     t_args(
         style.key(),
         &[
             ("weekday", Arg::from(t(&format!("kit-weekday-{weekday}")))),
-            ("wd", Arg::from(t(&format!("kit-weekday-short-{}", &weekday[..3])))),
+            ("wd", Arg::from(short_weekday)),
             ("day", Arg::from(day)),
             ("month", Arg::from(t(&format!("kit-month-{month_name}")))),
-            ("mon", Arg::from(t(&format!("kit-month-short-{}", &month_name[..3])))),
+            ("mon", Arg::from(short_month)),
             ("year", Arg::from(year)),
         ],
     )
