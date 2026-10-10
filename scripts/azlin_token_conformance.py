@@ -75,16 +75,20 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     with a `request_id` and `queued`; GET /v1/drives/<id>/restore/<request> reaches `done` with
     the objects it changed, and the prefix is as it was (the one added since gone, outside it
     nothing changed); without `as_of` it is 400 `bad_request`, an unknown request 404.
-16. Cash by post (cash contract v1, scripts/azlin_cash.py): POST /v1/checkout {"method": "cash"}
-    without a claim key is 400 `claim_key_required`; with one it is 201 `awaiting_cash` with its
-    amount, its currency, the address to post the cash to and an end 60 days on; its activation
-    code is `AZC1-` and upper-case base32 in blocks of four without padding, holding the checkout
-    id, the amount (u32 BE) and the currency, then ten bytes of HMAC-SHA256 by the server's cash
-    key (checked with the mock's key or `--cash-key`); its poll answers `awaiting_cash` with no
-    sealed sign-up; the claim code (AZK1) of the checkout id and the claim secret reads back.
-    With the operator's switches (`--mock`: the mock's stand-ins for AzCtl): activated it is
-    `approved` and the claim code alone opens its sealed sign-up to the drive; rejected it is
-    `rejected` with the reason; one nobody activated is `expired` after 60 days.
+16. Cash by post (cash contract v1, scripts/azlin_cash.py): GET /v1/tiers lists `cash` among its
+    methods exactly when the server takes it - without it POST /v1/checkout {"method": "cash"}
+    is 400 `cash_unavailable` (the mock's operator switch turns it off and on; a real server
+    without cash skips the rest). Without a claim key it is 400 `claim_key_required`; with one
+    201 `awaiting_cash` with its amount, its currency, the address to post the cash to, an end
+    60 days on and no payment page; its activation code is `AZC1-` and upper-case base32 in
+    blocks of four without padding, holding the checkout id's 16 bytes (the base32 behind `ck_`),
+    the amount (u32 BE) and the currency, then ten bytes of HMAC-SHA256 by the server's cash key
+    (checked with the mock's key or `--cash-key`); its poll answers `awaiting_cash` with no sealed
+    sign-up but the code, the address and the end again (an app that lost its page prints it
+    anew); the claim code (AZK1) of the checkout id and the claim secret reads back. With the
+    operator's switches (`--mock`: the mock's stand-ins for AzCtl): activated it is `approved`
+    and the claim code alone opens its sealed sign-up to the drive; rejected it is `rejected`
+    with the reason; one nobody activated is `expired` after 60 days, its end still said.
 17. A ban with a grace period (ban contract v1, `--mock`: the operator's switch): before the ban a
     public link (a presigned GET) of the drive reads; banned, its status is `banned` with
     `ban_reason` and `ban_until` and read-only, its credentials are handed out with the same
@@ -185,6 +189,10 @@ class MockOperator:
 
     def activate_cash(self, checkout_id):
         return self.state.activate_cash(checkout_id)
+
+    def set_cash(self, on):
+        """The server takes cash by post (its key and the operator's address are set), or not."""
+        self.state.set_cash(on)
 
     def reject_cash(self, checkout_id, reason):
         return self.state.reject_cash(checkout_id, reason)
@@ -294,6 +302,28 @@ def cash_checks(suite, client, operator, cash_key):
     """16. Cash by post: the checkout, its activation code, its poll, the claim code - and with
     the operator's switches its activation, a rejection, the end of one nobody paid."""
     order = {'tier': '100GB', 'months': 12, 'method': 'cash'}
+
+    def takes_cash():
+        status, tiers, _ = client.call('GET', '/v1/tiers')
+        return status == 200 and 'cash' in ((tiers or {}).get('methods') or [])
+
+    def refused_without_cash():
+        _, key = azlin_claim.new_claim_key()
+        status, value, _ = client.call('POST', '/v1/checkout', dict(order, claim_key=key))
+        return status == 400 and error_code(value) == 'cash_unavailable'
+
+    if operator is not None:
+        operator.set_cash(False)
+        suite.check('a server without cash by post lists no cash in GET /v1/tiers',
+                    not takes_cash())
+        suite.check('and refuses a cash checkout 400 cash_unavailable', refused_without_cash())
+        operator.set_cash(True)
+    if not takes_cash():
+        suite.check('a server that lists no cash refuses a cash checkout 400 cash_unavailable',
+                    refused_without_cash())
+        print('skipped: cash by post (this server takes none)', flush=True)
+        return
+    suite.check('a server that takes cash by post lists it in GET /v1/tiers', True)
     status, value, _ = client.call('POST', '/v1/checkout', order)
     suite.check('a cash checkout without a claim key is 400 claim_key_required',
                 status == 400 and error_code(value) == 'claim_key_required',
@@ -342,6 +372,7 @@ def cash_checks(suite, client, operator, cash_key):
     suite.check('it ends 60 days after it was made',
                 expires is not None and abs(expires - (started + 60 * 86400)) < 86400,
                 '(%r)' % value.get('expires_at'))
+    suite.check('it opens no payment page', not value.get('pay_url'), '(%r)' % value.get('pay_url'))
     path = '/v1/checkout/' + checkout_id
     status, polled, _ = client.call('GET', path)
     polled = polled or {}
@@ -349,6 +380,10 @@ def cash_checks(suite, client, operator, cash_key):
                 status == 200 and polled.get('status') == 'awaiting_cash'
                 and 'sealed_signup' not in polled,
                 '(HTTP %d %r)' % (status, polled.get('status')))
+    suite.check('the poll gives the code, the address and the end again',
+                polled.get('activation_code') == code and polled.get('mail_to') == mail_to
+                and unix_of(polled.get('expires_at')) == expires,
+                '(%r)' % sorted(polled))
     claim_code = azlin_claim.claim_code(checkout_id, secret)
     suite.check('the claim code (AZK1) reads back to the checkout id and the claim secret',
                 azlin_claim.parse_claim_code(claim_code) == (checkout_id, secret))
@@ -388,8 +423,10 @@ def cash_checks(suite, client, operator, cash_key):
     third_id = (third or {}).get('checkout_id') or ''
     operator.advance(61 * 86400)
     status, polled, _ = client.call('GET', '/v1/checkout/' + third_id)
-    suite.check('a cash checkout nobody activated is expired after 60 days',
-                status == 200 and (polled or {}).get('status') == 'expired',
+    suite.check('a cash checkout nobody activated is expired after 60 days, its end still said',
+                status == 200 and (polled or {}).get('status') == 'expired'
+                and unix_of((polled or {}).get('expires_at')) is not None
+                and 'activation_code' not in (polled or {}),
                 '(HTTP %d %r)' % (status, (polled or {}).get('status')))
 
 
