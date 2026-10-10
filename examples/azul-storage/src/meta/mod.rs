@@ -76,10 +76,12 @@
 //!   repository (`MetaIndex`, `open_encrypted_drive`) and its pointer files.
 //! - `cache` (feature `index-cache`): the local SQLite query cache (search, largest,
 //!   recent, totals), rebuilt from the tree.
+//! - [`git`]: `git-remote-azlin` (C7), plain git reading the repository.
 
 pub mod bucket;
 #[cfg(feature = "index-cache")]
 pub mod cache;
+pub mod git;
 #[cfg(feature = "encryption")]
 pub mod index;
 pub mod merge;

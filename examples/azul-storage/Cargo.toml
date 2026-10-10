@@ -144,3 +144,9 @@ index-cache = ["encryption", "dep:turso", "dep:aegis"]
 [lib]
 name = "azul_storage"
 path = "src/lib.rs"
+
+# git's remote helper for a drive index: `git clone azlin::folder://<path>` (src/meta/git.rs).
+[[bin]]
+name = "git-remote-azlin"
+path = "src/bin/git-remote-azlin.rs"
+required-features = ["encryption"]

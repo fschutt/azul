@@ -3,6 +3,7 @@
 
 mod bucket;
 mod cache;
+mod git;
 /// The encrypted drive over the drive index (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod index;
