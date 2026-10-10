@@ -330,6 +330,20 @@ pub fn split_pc_key(row: &str) -> Option<(&str, &str)> {
     row.split_once('\u{0}')
 }
 
+/// The sync state of the result row `row` (the sync's answer): a This PC row's by its own
+/// drive, any other's by the open drive `open_drive`; `None` where nothing syncs.
+#[must_use]
+pub fn result_sync(
+    sync: &dyn crate::sync_lookup::SyncLookup,
+    open_drive: Option<&str>,
+    row: &str,
+) -> Option<crate::sync_lookup::SyncState> {
+    match split_pc_key(row) {
+        Some((drive, key)) => sync.sync_state(drive, key),
+        None => sync.sync_state(open_drive?, row),
+    }
+}
+
 // ==== Refine (the Search tab's Date modified, Kind and Size) ====
 
 /// Explorer's Date modified.

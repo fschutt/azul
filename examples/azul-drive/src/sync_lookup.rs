@@ -45,6 +45,11 @@ pub trait SyncLookup: Send + Sync {
 
     /// The sync state of `key` of the drive `drive_id`; `None` where nothing syncs.
     fn sync_state(&self, drive_id: &str, key: &str) -> Option<SyncState>;
+
+    /// Whether anything syncs on this computer: the results show a Status column then.
+    fn syncs(&self) -> bool {
+        true
+    }
 }
 
 /// No sync on this computer: no copies, no states.
@@ -58,5 +63,9 @@ impl SyncLookup for NoSync {
 
     fn sync_state(&self, _drive_id: &str, _key: &str) -> Option<SyncState> {
         None
+    }
+
+    fn syncs(&self) -> bool {
+        false
     }
 }

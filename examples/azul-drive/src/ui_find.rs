@@ -2,8 +2,9 @@
 //! search's own columns - Name (the icon and the name, F2 renames it in place), Folder (where
 //! the result is, from the drive's root), Match (the line its contents matched on: its number,
 //! the line with the match marked), Date modified and Size (the rows in view are stat'ed as a
-//! folder's are). Every row takes the clicks, the menu and the drag of a folder's item. A cloud
-//! drive's results carry a note: searched by name, slower.
+//! folder's are), and - where something syncs - Status (the sync's state of the file). Every
+//! row takes the clicks, the menu and the drag of a folder's item. A cloud drive's results carry
+//! a note: where its names and contents come from.
 
 use azul::{prelude::*, str::String as AzString};
 
@@ -25,10 +26,14 @@ const COLUMNS: [(&str, f32, Option<Column>); 5] = [
     ("Size", 90.0, Some(Column::Size)),
 ];
 
+/// The Status column (where something syncs): its header and width (px).
+const STATUS: (&str, f32) = ("Status", 170.0);
+
 /// The width the rows draw in: the columns (each with its padding) and the check boxes'.
 pub(crate) fn width(s: &DriveState) -> f32 {
     let checks = if s.settings.item_checkboxes { 28.0 } else { 0.0 };
-    COLUMNS.iter().map(|(_, w, _)| w + 8.0).sum::<f32>() + checks
+    let status = if s.sync.syncs() { STATUS.1 + 8.0 } else { 0.0 };
+    COLUMNS.iter().map(|(_, w, _)| w + 8.0).sum::<f32>() + checks + status
 }
 
 /// A cell of `width` px holding `content`, cut with an ellipsis.
@@ -80,7 +85,35 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
             on_action,
         ));
     }
+    if s.sync.syncs() {
+        let (label, width) = STATUS;
+        row.add_child(
+            Dom::create_div()
+                .with_class(ids::COLUMN_CLASS)
+                .with_css(format!(
+                    "{} width: {width}px; min-width: {width}px;",
+                    look::COLUMN
+                ))
+                .with_child(Dom::create_span_with_text(AzString::from(label))),
+        );
+    }
     row
+}
+
+/// The Status cell: the sync's state of the result, its icon and its words (empty where its
+/// drive does not sync).
+fn status_cell(s: &DriveState, entry: &Entry) -> Dom {
+    let state = find::result_sync(&*s.sync, s.current_drive_id().as_deref(), &entry.key);
+    let mut content = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; opacity: 0.8;");
+    if let Some((icon, words)) = state.map(crate::sync_lookup::SyncState::badge) {
+        content.add_child(
+            Dom::create_icon(AzString::from(icon))
+                .with_css("font-size: 14px; margin-right: 4px; flex-shrink: 0;"),
+        );
+        content.add_child(Dom::create_span_with_text(AzString::from(words)));
+    }
+    content
 }
 
 /// The note over a cloud drive's results: its names come from a listing of every file below the
@@ -183,5 +216,8 @@ pub(crate) fn row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom
          padding-right: 12px;",
         Dom::create_span_with_text(AzString::from(ui_view::size_text(s, entry))),
     ));
+    if s.sync.syncs() {
+        row.add_child(cell(STATUS.1, "", status_cell(s, entry)));
+    }
     ui_view::interactive(s, app, entry, row)
 }
