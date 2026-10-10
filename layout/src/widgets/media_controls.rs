@@ -240,7 +240,7 @@ impl MediaControls {
 
     /// Replaces `self` with paused controls and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
         s

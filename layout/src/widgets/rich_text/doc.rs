@@ -151,7 +151,7 @@ impl RichRun {
 
     /// The run with `format` on.
     #[must_use]
-    pub fn with_format(mut self, format: RichFormat) -> Self {
+    pub const fn with_format(mut self, format: RichFormat) -> Self {
         self.formats.set(format, true);
         self
     }
@@ -189,7 +189,7 @@ impl RichRun {
     }
 
     /// Turns `format` on or off.
-    pub fn set(&mut self, format: RichFormat, on: bool) {
+    pub const fn set(&mut self, format: RichFormat, on: bool) {
         self.formats.set(format, on);
     }
 
@@ -516,7 +516,7 @@ impl RichBlock {
 
     /// A block of `kind` holding `runs` (Rust convenience).
     #[must_use]
-    pub fn new(kind: RichBlockKind, runs: Vec<RichRun>) -> Self {
+    pub const fn new(kind: RichBlockKind, runs: Vec<RichRun>) -> Self {
         Self::create(kind, RichRunVec::from_vec(runs))
     }
 

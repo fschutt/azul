@@ -101,7 +101,7 @@ pub(super) const fn atomic_inline_containing_block(
 
 /// What an IFC's atomic inlines are measured against, as
 /// `CachedInlineContent::atomics_measured_against` records it.
-pub(super) fn atomic_inline_measure_key(
+pub(super) const fn atomic_inline_measure_key(
     constraints: &LayoutConstraints<'_>,
 ) -> (LogicalSize, Text3AvailableSpace) {
     (

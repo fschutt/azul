@@ -503,7 +503,7 @@ impl CodeViewView {
 
     /// Scrolls the least so `line` is shown; a line far off is put a
     /// third down the view (where "go to line" lands).
-    pub fn reveal_line(&mut self, line: u32) {
+    pub const fn reveal_line(&mut self, line: u32) {
         let fit = self.fit_lines();
         if line >= self.top_line && line < self.top_line.saturating_add(fit) {
             return;

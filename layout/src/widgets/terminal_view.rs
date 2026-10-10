@@ -1145,7 +1145,7 @@ impl TerminalScreen {
 
     /// No lines at all (no data callback, or it is not there).
     #[must_use]
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self::create(TerminalLineVec::from_const_slice(&[]))
     }
 
@@ -1313,7 +1313,7 @@ impl TerminalViewEvent {
 
     /// A `Scroll` event to display offset `scroll`.
     #[must_use]
-    pub fn scrolled(scroll: u32) -> Self {
+    pub const fn scrolled(scroll: u32) -> Self {
         let mut e = Self::create(TerminalViewEventKind::Scroll);
         e.scroll = scroll;
         e
@@ -1562,7 +1562,7 @@ impl TerminalView {
 
     /// Replaces `self` with a fresh view and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
@@ -2952,7 +2952,7 @@ fn rerender_view(info: &mut CallbackInfo) {
 }
 
 /// A selection event at `point`.
-fn select_event(
+const fn select_event(
     kind: TerminalViewEventKind,
     point: TerminalPoint,
     right_half: bool,
