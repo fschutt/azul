@@ -39,7 +39,10 @@ use azul::{
         TextInputState, TextInputValid, UiTheme,
     },
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{
+    l10n::{label, t, t_args, t_label, Arg},
+    ui as kit,
+};
 
 use crate::{
     app::{self, LibraryRef, Music, FOLDER_SETTING},
@@ -74,8 +77,9 @@ const NO_DRAG: &str = "-azul-app-region: no-drag;";
 // ==== Small parts ====
 
 /// One line of text, cut with an ellipsis when it does not fit.
+/// A key said, plain words (a title, a name) as they are.
 fn text(t: &str, css: &str) -> Dom {
-    Dom::create_p_with_text(t).with_css(format!(
+    Dom::create_p_with_text(label(t)).with_css(format!(
         "margin: 0px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; {css}"
     ))
 }
@@ -118,7 +122,7 @@ fn round_button(
             "display: flex; flex-shrink: 0; width: {size}px; height: {size}px; margin-left: 6px; \
              cursor: pointer; {NO_DRAG}"
         ))
-        .with_accessibility_name(name)
+        .with_accessibility_name(label(name))
         // The box takes the click, the focus and the name; its icon is the face (a `:hover` on
         // a leaf lights only itself).
         .with_child(Dom::create_icon(icon).with_css(format!(
@@ -138,7 +142,7 @@ fn round_button(
 /// A pill-shaped button with an icon and a word: the lime Play (`primary`) or a grey one.
 fn pill(
     look: &Look,
-    (icon, label): (&str, &str),
+    (icon, name): (&str, &str),
     primary: bool,
     id: AzString,
     data: RefAny,
@@ -158,14 +162,14 @@ fn pill(
              pointer;"
         ))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(label)
+        .with_accessibility_name(label(name))
         .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, cb)
         .with_child(
             Dom::create_icon(icon)
                 .with_css(format!("font-size: 18px; color: {ink}; margin-right: 6px;")),
         )
         .with_child(text(
-            label,
+            name,
             &format!("font-size: 12px; font-weight: 700; color: {ink};"),
         ))
 }
@@ -220,7 +224,7 @@ fn cover_play(look: &Look, title: &str, pick: RefAny, inset: f32) -> Dom {
              36px; height: 36px; cursor: pointer;"
         ))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(format!("Play {title}"))
+        .with_accessibility_name(t_args("azmusic-play-title", &[("title", Arg::from(title))]))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
             pick,
@@ -241,6 +245,7 @@ fn cover_play(look: &Look, title: &str, pick: RefAny, inset: f32) -> Dom {
 /// in the theme scope, in the player's own hand; the keys and the desktop's media requests on
 /// the body.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
     let look = look::of(dark);
@@ -297,8 +302,8 @@ fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
     let forward = (!s.forward.is_empty()).then(|| (app.clone(), on_forward as CallbackType));
     let search = TextInput::create_search()
         .with_text(s.query.as_str())
-        .with_placeholder("Search")
-        .with_accessibility_name("Search the library")
+        .with_placeholder(label("azmusic-search"))
+        .with_accessibility_name(label("azmusic-search-library"))
         // The flat field in every theme: flora writes a field's value in Garamond, and the
         // player's hand is a sans.
         .with_theme(UiTheme::Flat)
@@ -326,7 +331,7 @@ fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         ))
         .with_child(round_button(
             look,
-            ("navigate_before", "Back"),
+            ("navigate_before", "azmusic-back"),
             26.0,
             false,
             ids::BACK,
@@ -334,7 +339,7 @@ fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         ))
         .with_child(round_button(
             look,
-            ("navigate_next", "Forward"),
+            ("navigate_next", "azmusic-forward"),
             26.0,
             false,
             ids::FORWARD,
@@ -373,7 +378,7 @@ fn sidebar_heading(label: &str, look: &Look) -> Dom {
 fn nav_item(
     look: &Look,
     app: &RefAny,
-    (icon, label): (&str, &str),
+    (icon, name): (&str, &str),
     current: bool,
     view: View,
 ) -> Dom {
@@ -392,7 +397,7 @@ fn nav_item(
              26px; padding: 0px 12px; cursor: pointer; {ground}"
         ))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(label)
+        .with_accessibility_name(label(name))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
             RefAny::new(GoPick {
@@ -406,7 +411,7 @@ fn nav_item(
             "font-size: 16px; color: {icon_ink}; margin-right: 8px; flex-shrink: 0;"
         )))
         .with_child(text(
-            label,
+            name,
             &format!("font-size: 12px; font-weight: {weight}; color: {};", look.text),
         ))
 }
@@ -422,25 +427,25 @@ fn sidebar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         nav_item(
             look,
             app,
-            ("playlist_play", "Play Queue"),
+            ("playlist_play", "azmusic-play-queue"),
             s.view == View::Queue,
             View::Queue,
         )
         .with_id(ids::NAV_QUEUE),
     );
-    list.add_child(sidebar_heading("LIBRARY", look));
+    list.add_child(sidebar_heading("azmusic-heading-library", look));
     let library = [
-        ("schedule", "Recently Added", ids::NAV_RECENT, View::RecentlyAdded),
-        ("person", "Artists", ids::NAV_ARTISTS, View::Artists),
-        ("album", "Albums", ids::NAV_ALBUMS, View::Albums),
-        ("music_note", "Songs", ids::NAV_SONGS, View::Songs),
-        ("category", "Genres", ids::NAV_GENRES, View::Genres),
+        ("schedule", "azmusic-recently-added", ids::NAV_RECENT, View::RecentlyAdded),
+        ("person", "azmusic-artists", ids::NAV_ARTISTS, View::Artists),
+        ("album", "azmusic-albums", ids::NAV_ALBUMS, View::Albums),
+        ("music_note", "azmusic-songs", ids::NAV_SONGS, View::Songs),
+        ("category", "azmusic-genres", ids::NAV_GENRES, View::Genres),
     ];
-    for (icon, label, id, view) in library {
+    for (icon, name, id, view) in library {
         let current = s.view == view;
-        list.add_child(nav_item(look, app, (icon, label), current, view).with_id(id));
+        list.add_child(nav_item(look, app, (icon, name), current, view).with_id(id));
     }
-    list.add_child(sidebar_heading("PLAYLISTS", look));
+    list.add_child(sidebar_heading("azmusic-heading-playlists", look));
     for p in &s.playlists {
         let view = View::Playlist(p.id.clone());
         let current = s.view == view;
@@ -458,7 +463,7 @@ fn sidebar(s: &Music, app: &RefAny, look: &Look) -> Dom {
             look.line, look.sidebar_hover
         ))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name("New Playlist")
+        .with_accessibility_name(label("azmusic-new-playlist"))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
             app.clone(),
@@ -469,7 +474,7 @@ fn sidebar(s: &Music, app: &RefAny, look: &Look) -> Dom {
             look.muted
         )))
         .with_child(text(
-            "New Playlist",
+            "azmusic-new-playlist",
             &format!("font-size: 12px; color: {};", look.text),
         ));
     let mut column = Dom::create_div().with_css(format!(
@@ -492,7 +497,7 @@ fn sidebar(s: &Music, app: &RefAny, look: &Look) -> Dom {
                      pointer;",
                     look.line
                 ))
-                .with_accessibility_name(format!("The album {title}"))
+                .with_accessibility_name(t_args("azmusic-the-album", &[("title", Arg::from(title))]))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
                     RefAny::new(GoPick {
@@ -532,29 +537,26 @@ fn main_pane(s: &Music, app: &RefAny, look: &Look) -> Dom {
 /// No music yet: scan the music folder, or try the sample tones.
 fn empty_library(s: &Music, app: &RefAny) -> Dom {
     let detail = if s.loaded {
-        format!(
-            "Scan your music folder ({}) or try the six sample tones.",
-            s.music_folder().display()
-        )
+        t_args("azmusic-empty-detail", &[("folder", Arg::from(s.music_folder().display().to_string()))])
     } else {
-        String::from("Reading the library\u{2026}")
+        t("azmusic-reading-library")
     };
     // Flat in every theme: flora sets its shells in Garamond and its buttons in Garamond
     // capitals, and the player's hand is a sans.
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
         .with_child(
-            ShellEmptyState::create("No music yet")
+            ShellEmptyState::create(label("azmusic-no-music"))
                 .with_icon("library_music")
                 .with_detail(detail.as_str())
-                .with_action_label("Scan the music folder")
+                .with_action_label(label("azmusic-scan-folder"))
                 .with_on_action(app.clone(), on_scan as ButtonOnClickCallbackType)
                 .with_theme(UiTheme::Flat)
                 .dom()
                 .with_id(ids::EMPTY),
         )
         .with_child(
-            Button::create("Use the sample library")
+            Button::create(label("azmusic-use-sample"))
                 .with_on_click(app.clone(), on_sample as ButtonOnClickCallbackType)
                 .with_theme(UiTheme::Flat)
                 .dom()
@@ -565,13 +567,13 @@ fn empty_library(s: &Music, app: &RefAny) -> Dom {
 /// The page's id (per page: a new page starts at its top), its class and its name.
 fn page_names(s: &Music) -> (AzString, Option<AzString>, String) {
     match &s.view {
-        View::RecentlyAdded => (ids::RECENT, None, String::from("Recently Added")),
-        View::Artists => (ids::ARTISTS, None, String::from("Artists")),
-        View::Albums => (ids::ALBUMS, None, String::from("Albums")),
-        View::Songs => (ids::SONGS, None, String::from("Songs")),
-        View::Genres => (ids::GENRES, None, String::from("Genres")),
-        View::Search => (ids::SEARCH_RESULTS, None, String::from("Search results")),
-        View::Queue => (ids::QUEUE, None, String::from("Play Queue")),
+        View::RecentlyAdded => (ids::RECENT, None, t("azmusic-recently-added")),
+        View::Artists => (ids::ARTISTS, None, t("azmusic-artists")),
+        View::Albums => (ids::ALBUMS, None, t("azmusic-albums")),
+        View::Songs => (ids::SONGS, None, t("azmusic-songs")),
+        View::Genres => (ids::GENRES, None, t("azmusic-genres")),
+        View::Search => (ids::SEARCH_RESULTS, None, t("azmusic-search-results")),
+        View::Queue => (ids::QUEUE, None, t("azmusic-play-queue")),
         View::Album { artist, title } => (
             ids::numbered("album", s.catalog.album(artist, title).unwrap_or(0)),
             Some(ids::PAGE_ALBUM),
@@ -593,7 +595,7 @@ fn page_names(s: &Music) -> (AzString, Option<AzString>, String) {
             s.playlists
                 .iter()
                 .find(|p| p.id == *id)
-                .map_or_else(|| String::from("Playlist"), |p| p.name.clone()),
+                .map_or_else(|| t("azmusic-playlist"), |p| p.name.clone()),
         ),
     }
 }
@@ -782,9 +784,9 @@ fn track_number(track_no: u32, rows: Rows, place: usize) -> usize {
 fn page_buttons(ctx: &Ctx<'_>) -> Dom {
     let playing = ctx.plays_page && ctx.s.state.playing && !ctx.s.state.finished;
     let play = if playing {
-        ("pause", "Pause")
+        ("pause", "azmusic-pause")
     } else {
-        ("play_arrow", "Play")
+        ("play_arrow", "azmusic-play")
     };
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 14px;")
@@ -798,7 +800,7 @@ fn page_buttons(ctx: &Ctx<'_>) -> Dom {
         ))
         .with_child(pill(
             ctx.look,
-            ("shuffle", "Shuffle"),
+            ("shuffle", "azmusic-shuffle"),
             false,
             ids::PAGE_SHUFFLE,
             ctx.app.clone(),
@@ -841,7 +843,7 @@ fn hero_line(ctx: &Ctx<'_>, hero: &Hero, height: f32) -> Dom {
                     "display: flex; flex-direction: row; align-items: center; margin-top: 4px;",
                 )
                 .with_child(text(
-                    "by\u{a0}",
+                    &format!("{}\u{a0}", azul_appkit::l10n::t("azmusic-by")),
                     &format!("font-size: 13px; color: {};", look.muted),
                 ))
                 .with_child(
@@ -854,7 +856,7 @@ fn hero_line(ctx: &Ctx<'_>, hero: &Hero, height: f32) -> Dom {
                         ),
                     )
                     .with_tab_index(TabIndex::Auto)
-                    .with_accessibility_name(format!("The artist {}", hero.by))
+                    .with_accessibility_name(t_args("azmusic-the-artist", &[("name", Arg::from(&hero.by))]))
                     .with_callback(
                         EventFilter::Hover(HoverEventFilter::Click),
                         RefAny::new(GoPick {
@@ -946,13 +948,13 @@ fn columns_line(ctx: &Ctx<'_>, rows: Rows, height: f32) -> Dom {
     let look = ctx.look;
     let sortable = ctx.s.view == View::Songs;
     let sort = ctx.s.sort;
-    let head = |label: &str, key: SortKey, css: &str| -> Dom {
+    let head = |name: &str, key: SortKey, css: &str| -> Dom {
         let mut cell = Dom::create_div()
             .with_css(format!(
                 "display: flex; flex-direction: row; align-items: center; height: {height}px; {css}"
             ))
             .with_child(text(
-                label,
+                name,
                 &format!("font-size: 11px; color: {};", look.text),
             ));
         if sortable && sort.key == key && key != SortKey::Library {
@@ -969,7 +971,7 @@ fn columns_line(ctx: &Ctx<'_>, rows: Rows, height: f32) -> Dom {
         if sortable {
             cell = cell
                 .with_css("cursor: pointer;")
-                .with_accessibility_name(format!("Sort by {label}"))
+                .with_accessibility_name(t_args("azmusic-sort-by", &[("column", Arg::from(t_label(name)))]))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
                     RefAny::new(SortPick {
@@ -989,14 +991,14 @@ fn columns_line(ctx: &Ctx<'_>, rows: Rows, height: f32) -> Dom {
             look.columns, look.line, look.line
         ))
         .with_child(head("#", SortKey::Library, LEAD_CELL))
-        .with_child(head("Track", SortKey::Title, grow_cell(4).as_str()));
+        .with_child(head("azmusic-col-track", SortKey::Title, grow_cell(4).as_str()));
     match rows {
         Rows::Table => {
-            line.add_child(head("Artist", SortKey::Artist, grow_cell(3).as_str()));
-            line.add_child(head("Time", SortKey::Time, TIME_CELL));
-            line.add_child(head("Album", SortKey::Album, grow_cell(3).as_str()));
+            line.add_child(head("azmusic-col-artist", SortKey::Artist, grow_cell(3).as_str()));
+            line.add_child(head("azmusic-col-time", SortKey::Time, TIME_CELL));
+            line.add_child(head("azmusic-col-album", SortKey::Album, grow_cell(3).as_str()));
         }
-        Rows::Album => line.add_child(head("Time", SortKey::Time, TIME_CELL)),
+        Rows::Album => line.add_child(head("azmusic-col-time", SortKey::Time, TIME_CELL)),
     }
     quiet(line, ctx)
 }
@@ -1038,9 +1040,9 @@ fn track_row(
     let title = t.display_title();
     let lead = if hovered {
         let (icon, word) = if heard && s.state.playing {
-            ("pause", "Pause")
+            ("pause", "azmusic-pause")
         } else {
-            ("play_arrow", "Play")
+            ("play_arrow", "azmusic-play")
         };
         // A box takes the click, the focus, the class and the name; the icon is only its face.
         // Icon resolution replaces an icon node with its glyph - the style survives, the class,
@@ -1050,7 +1052,7 @@ fn track_row(
             .with_class(ids::ROW_PLAY)
             .with_css("display: flex; align-items: center; cursor: pointer;")
             .with_tab_index(TabIndex::Auto)
-            .with_accessibility_name(format!("{word} {title}"))
+            .with_accessibility_name(format!("{} {title}", t_label(word)))
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::Click),
                 pick(),
@@ -1161,7 +1163,7 @@ fn album_block(ctx: &Ctx<'_>, album: usize, first_row: usize, count: usize, heig
                         ),
                     )
                     .with_tab_index(TabIndex::Auto)
-                    .with_accessibility_name(format!("The album {}", a.title))
+                    .with_accessibility_name(t_args("azmusic-the-album", &[("title", Arg::from(&a.title))]))
                     .with_callback(EventFilter::Hover(HoverEventFilter::Click), open(), on_go),
                 )
                 .with_child(text(
@@ -1191,7 +1193,7 @@ fn album_block(ctx: &Ctx<'_>, album: usize, first_row: usize, count: usize, heig
         .with_child(
             Dom::create_div()
                 .with_css("flex-shrink: 0; cursor: pointer;")
-                .with_accessibility_name(format!("The album {}", a.title))
+                .with_accessibility_name(t_args("azmusic-the-album", &[("title", Arg::from(&a.title))]))
                 .with_callback(EventFilter::Hover(HoverEventFilter::Click), open(), on_go)
                 .with_child(cover(&page::album_seed(a), &a.title, BLOCK_COVER, false, look)),
         )
@@ -1319,16 +1321,16 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
     };
     let playing = s.state.playing && !s.state.finished;
     let play = if playing {
-        ("pause", "Pause")
+        ("pause", "azmusic-pause")
     } else {
-        ("play_arrow", "Play")
+        ("play_arrow", "azmusic-play")
     };
     let transport = Dom::create_div()
         .with_id(ids::CONTROLS)
         .with_css("display: flex; flex-direction: row; align-items: center; flex-shrink: 0;")
         .with_child(round_button(
             look,
-            ("skip_previous", "Previous"),
+            ("skip_previous", "azmusic-previous"),
             32.0,
             false,
             ids::PREVIOUS,
@@ -1344,7 +1346,7 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         ))
         .with_child(round_button(
             look,
-            ("skip_next", "Next"),
+            ("skip_next", "azmusic-next"),
             32.0,
             false,
             ids::NEXT,
@@ -1406,7 +1408,7 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
                 .with_child(
                     SeekBar::create(position, duration)
                         .with_show_times(false)
-                        .with_accessibility_name("Position in the song")
+                        .with_accessibility_name(label("azmusic-position"))
                         .with_on_seek(app.clone(), app::on_seek as SeekBarOnSeekCallbackType)
                         .dom()
                         .with_id(ids::SEEK)
@@ -1420,21 +1422,21 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
             &time_css,
         ));
     let (repeat_icon, repeat_name) = match s.queue.repeat {
-        Repeat::Off => ("repeat", "Repeat is off"),
-        Repeat::All => ("repeat", "Repeating all"),
-        Repeat::One => ("repeat_one", "Repeating this song"),
+        Repeat::Off => ("repeat", "azmusic-repeat-off"),
+        Repeat::All => ("repeat", "azmusic-repeat-all"),
+        Repeat::One => ("repeat_one", "azmusic-repeat-one"),
     };
     let shuffle_name = if s.queue.shuffle {
-        "Shuffle is on"
+        "azmusic-shuffle-on"
     } else {
-        "Shuffle is off"
+        "azmusic-shuffle-off"
     };
     let volume_icon = if s.volume <= 0.0 {
-        ("volume_off", "Sound on")
+        ("volume_off", "azmusic-sound-on")
     } else if s.volume < 0.5 {
-        ("volume_down", "Mute")
+        ("volume_down", "azmusic-mute")
     } else {
-        ("volume_up", "Mute")
+        ("volume_up", "azmusic-mute")
     };
     Dom::create_div()
         .with_id(ids::NOW_PLAYING)
@@ -1465,7 +1467,7 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         ))
         .with_child(round_button(
             look,
-            ("queue_music", "Play Queue"),
+            ("queue_music", "azmusic-play-queue"),
             28.0,
             s.view == View::Queue,
             ids::QUEUE_BUTTON,
@@ -1486,7 +1488,7 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
                 .with_css("display: flex; width: 200px; flex-shrink: 0; margin-left: 8px;")
                 .with_child(
                     Slider::create(s.volume, 0.0, 1.0)
-                        .with_accessibility_name("Volume")
+                        .with_accessibility_name(label("azmusic-volume"))
                         .with_on_value_change(
                             app.clone(),
                             on_volume as SliderOnValueChangeCallbackType,
@@ -1505,7 +1507,7 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
                     // Built at the level the meter shows (the throttle's): a rebuild - any click
                     // that refreshes the window - no longer empties it until the next move.
                     LevelMeter::create(s.meter.level)
-                        .with_accessibility_name("Level")
+                        .with_accessibility_name(label("azmusic-level"))
                         .dom()
                         .with_id(ids::LEVEL)
                         .with_marker(OptionString::Some(ids::LEVEL))
@@ -1522,7 +1524,7 @@ fn library_section(s: &Music, app: &RefAny) -> kit::AppSection {
     let content = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(kit::row(
-            "Music folder",
+            "azmusic-music-folder",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center;")
                 .with_child(
@@ -1531,30 +1533,26 @@ fn library_section(s: &Music, app: &RefAny) -> kit::AppSection {
                         .with_css("margin: 0px 8px 0px 0px; font-size: 13px;"),
                 )
                 .with_child(
-                    Button::create("Choose...")
+                    Button::create(label("azmusic-choose"))
                         .with_on_click(app.clone(), on_choose_folder as ButtonOnClickCallbackType)
                         .dom(),
                 ),
         ))
         .with_child(kit::row(
-            "Library",
-            Button::create(if s.scanning {
-                "Scanning..."
+            "azmusic-category-library",
+            Button::create(label(if s.scanning {
+                "azmusic-scanning"
             } else {
-                "Scan the music folder"
-            })
+                "azmusic-scan-folder"
+            }))
             .with_on_click(app.clone(), on_scan as ButtonOnClickCallbackType)
             .dom()
             .with_id(ids::SCAN),
         ))
-        .with_child(kit::note(
-            "AzMusic reads MP3, AAC / M4A, ALAC, FLAC, Ogg Vorbis, Opus (Apple), WAV and AIFF \
-             where they are; only the library (tags) and the playlists are kept in the data \
-             folder.",
-        ));
+        .with_child(kit::note("azmusic-formats-note"));
     kit::AppSection {
         category: 0,
-        title: String::from("Library"),
+        title: t("azmusic-category-library"),
         content,
     }
 }
@@ -1773,8 +1771,8 @@ extern "C" fn on_row_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
         else {
             return Update::DoNothing;
         };
-        let item = |label: &str, action: RowAction| {
-            MenuItem::string(StringMenuItem::create(label).with_callback(
+        let item = |name: &str, action: RowAction| {
+            MenuItem::string(StringMenuItem::create(label(name)).with_callback(
                 RefAny::new(MenuPick {
                     app: handle.clone(),
                     row,
@@ -1784,7 +1782,7 @@ extern "C" fn on_row_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 on_menu,
             ))
         };
-        let mut playlists = vec![item("New Playlist", RowAction::AddToNew)];
+        let mut playlists = vec![item("azmusic-new-playlist", RowAction::AddToNew)];
         if !s.playlists.is_empty() {
             playlists.push(MenuItem::separator());
         }
@@ -1792,18 +1790,18 @@ extern "C" fn on_row_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
             playlists.push(item(p.name.as_str(), RowAction::AddTo(p.id.clone())));
         }
         let mut items = vec![
-            item("Play", RowAction::Play),
-            item("Play Next", RowAction::PlayNext),
-            item("Add to Queue", RowAction::Enqueue),
+            item("azmusic-play", RowAction::Play),
+            item("azmusic-play-next", RowAction::PlayNext),
+            item("azmusic-add-queue", RowAction::Enqueue),
             MenuItem::separator(),
-            MenuItem::string(StringMenuItem::create("Add to Playlist").with_children(playlists)),
+            MenuItem::string(StringMenuItem::create(label("azmusic-add-playlist")).with_children(playlists)),
         ];
         if let View::Playlist(pid) = &s.view {
-            items.push(item("Remove from this Playlist", RowAction::Remove(pid.clone())));
+            items.push(item("azmusic-remove-from-playlist", RowAction::Remove(pid.clone())));
         }
         items.push(MenuItem::separator());
-        items.push(item("Go to Album", RowAction::GoToAlbum));
-        items.push(item("Go to Artist", RowAction::GoToArtist));
+        items.push(item("azmusic-go-album", RowAction::GoToAlbum));
+        items.push(item("azmusic-go-artist", RowAction::GoToArtist));
         Menu::create(items)
     };
     app::rerender_page(&mut info);
@@ -2066,7 +2064,7 @@ extern "C" fn on_sample(data: RefAny, mut info: CallbackInfo) -> Update {
 
 extern "C" fn on_choose_folder(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::open_directory(
-        "Choose the music folder",
+        t("azmusic-choose-folder"),
         OptionString::None,
         data,
         on_folder_chosen,

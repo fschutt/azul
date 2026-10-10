@@ -61,26 +61,18 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keyboard shortcuts the settings page lists.
 pub const SHORTCUTS: [Shortcut; 9] = [
-    Shortcut::new("Playback", "Space", "Play / pause"),
-    Shortcut::new("Playback", "Mod+Right  Mod+Left", "Next / previous track"),
-    Shortcut::new("Playback", "Mod+Up  Mod+Down", "Volume up / down"),
-    Shortcut::new(
-        "Playback",
-        "Media keys",
-        "Play, pause, next, previous, stop",
-    ),
-    Shortcut::new("Library", "Enter  Double-click", "Play the song from here"),
-    Shortcut::new(
-        "Library",
-        "Right-click",
-        "Play next, add to the queue or to a playlist",
-    ),
-    Shortcut::new("Library", "Mod+F", "Search"),
-    Shortcut::new("Library", "Mod+[  Mod+]  Escape", "Back / forward"),
-    Shortcut::new("Library", "Mod+R", "Scan the music folder again"),
+    Shortcut::new("azmusic-shortcuts-playback", "Space", "azmusic-shortcut-play-pause"),
+    Shortcut::new("azmusic-shortcuts-playback", "Mod+Right  Mod+Left", "azmusic-shortcut-next-previous"),
+    Shortcut::new("azmusic-shortcuts-playback", "Mod+Up  Mod+Down", "azmusic-shortcut-volume"),
+    Shortcut::new("azmusic-shortcuts-playback", "Media keys", "azmusic-shortcut-media-keys"),
+    Shortcut::new("azmusic-category-library", "Enter  Double-click", "azmusic-shortcut-play-from-here"),
+    Shortcut::new("azmusic-category-library", "Right-click", "azmusic-shortcut-context"),
+    Shortcut::new("azmusic-category-library", "Mod+F", "azmusic-search"),
+    Shortcut::new("azmusic-category-library", "Mod+[  Mod+]  Escape", "azmusic-shortcut-back-forward"),
+    Shortcut::new("azmusic-category-library", "Mod+R", "azmusic-shortcut-rescan"),
 ];
 
-/// The settings page's own category.
+/// The settings page's own category: an id, shown as `azmusic-category-library`.
 pub const APP_CATEGORIES: [&str; 1] = ["Library"];
 
 /// The settings key of the music folder.
@@ -356,12 +348,20 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     dark_by_default(&kit_ref);
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
     let app = Music::new(kit_ref.clone(), args);
-    let mut config = kit::app_config(&kit_ref);
     // The OS media keys and the desktop's now-playing widget.
     config.expose_system_media_controls = true;
     let window = kit::window_options(
@@ -434,7 +434,7 @@ extern "C" fn on_files(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo
     if reply.tag == TAG_SAVE {
         for outcome in reply.outcomes {
             if let Some(why) = outcome.error() {
-                s.status = format!("Not saved: {why}");
+                s.status = azul_appkit::l10n::t_args("azmusic-not-saved", &[("why", azul_appkit::l10n::Arg::from(why.to_string()))]);
                 println!("AZMUSIC_ERROR {why}");
             }
         }
@@ -546,7 +546,7 @@ pub fn write_sample(app: &RefAny, info: &mut CallbackInfo) {
     );
     s.set_library(library);
     s.loaded = true;
-    s.status = String::from("The sample library: six generated tones.");
+    s.status = azul_appkit::l10n::t("azmusic-sample-library");
     if let Some((_, key)) = s.root_and_key(LIBRARY_FILE) {
         jobs.push(FileJob::Put {
             key,
@@ -626,7 +626,7 @@ pub fn start_scan(app: &RefAny, info: &mut CallbackInfo) -> Update {
     }
     s.scanning = true;
     let folder = s.music_folder();
-    s.status = format!("Scanning {}...", folder.display());
+    s.status = azul_appkit::l10n::t_args("azmusic-scanning-folder", &[("folder", azul_appkit::l10n::Arg::from(folder.display().to_string()))]);
     drop(s);
     info.add_thread(
         ThreadId::unique(),
@@ -690,7 +690,14 @@ extern "C" fn on_scanned(mut data: RefAny, mut msg: RefAny, mut info: CallbackIn
     s.set_library(library);
     s.scanning = false;
     s.loaded = true;
-    s.status = format!("{count} songs ({added} new, {removed} gone).");
+    s.status = azul_appkit::l10n::t_args(
+        "azmusic-scanned",
+        &[
+            ("count", azul_appkit::l10n::Arg::from(count)),
+            ("added", azul_appkit::l10n::Arg::from(added.to_string())),
+            ("removed", azul_appkit::l10n::Arg::from(removed.to_string())),
+        ],
+    );
     save(&app, &s, &mut info, &playlists);
     Update::RefreshDom
 }
@@ -1242,7 +1249,7 @@ pub extern "C" fn on_media_control(mut data: RefAny, info: CallbackInfo) -> Upda
 fn new_playlist(s: &mut Music, tracks: &[String]) -> Playlist {
     let mut playlist = Playlist::new(
         azul_storage::ids::new_uuid(),
-        format!("Playlist {}", s.playlists.len() + 1),
+        azul_appkit::l10n::t_args("azmusic-playlist-n", &[("n", azul_appkit::l10n::Arg::from((s.playlists.len() + 1).to_string()))]),
     );
     playlist.add(tracks);
     s.playlists.push(playlist.clone());
@@ -1265,10 +1272,12 @@ pub extern "C" fn on_new_playlist(mut data: RefAny, mut info: CallbackInfo) -> U
         .collect();
     let playlist = new_playlist(&mut s, &tracks);
     go(&mut s, View::Playlist(playlist.id.clone()), false);
-    s.status = format!(
-        "Made \u{201c}{}\u{201d} ({}).",
-        playlist.name,
-        page::count(playlist.tracks.len(), "song")
+    s.status = azul_appkit::l10n::t_args(
+        "azmusic-playlist-made",
+        &[
+            ("name", azul_appkit::l10n::Arg::from(&playlist.name)),
+            ("songs", azul_appkit::l10n::Arg::from(page::count(playlist.tracks.len(), "song"))),
+        ],
     );
     println!("AZMUSIC_PLAYLIST {} {}", playlist.tracks.len(), playlist.name);
     save(&app, &s, &mut info, &[playlist]);
@@ -1295,7 +1304,7 @@ pub fn add_to_playlist(
         },
         None => new_playlist(s, &tracks),
     };
-    s.status = format!("Added to \u{201c}{}\u{201d}.", saved.name);
+    s.status = azul_appkit::l10n::t_args("azmusic-added-to", &[("name", azul_appkit::l10n::Arg::from(&saved.name))]);
     println!("AZMUSIC_PLAYLIST {} {}", saved.tracks.len(), saved.name);
     save(app, s, info, &[saved]);
 }

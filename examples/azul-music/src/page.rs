@@ -278,7 +278,7 @@ pub fn album_seed(album: &Album) -> String {
 pub fn album_key(track: &Track) -> (String, String) {
     let album = track.album.trim();
     let title = if album.is_empty() {
-        "Unknown album"
+        return (track.filed_artist(), t("azmusic-unknown-album"));
     } else {
         album
     };
@@ -287,14 +287,18 @@ pub fn album_key(track: &Track) -> (String, String) {
 
 // ==== Words ====
 
-/// "1 song", "12 songs".
+use azul_appkit::l10n::{t, t_args, Arg};
+
+/// "1 song", "12 songs" (`word`: song, album, artist or genre), in the window's language.
 #[must_use]
 pub fn count(n: usize, word: &str) -> String {
-    if n == 1 {
-        format!("1 {word}")
-    } else {
-        format!("{n} {word}s")
-    }
+    let key = match word {
+        "album" => "azmusic-count-album",
+        "artist" => "azmusic-count-artist",
+        "genre" => "azmusic-count-genre",
+        _ => "azmusic-count-song",
+    };
+    t_args(key, &[("count", Arg::from(n))])
 }
 
 /// A playing time in words: "48 min", "2 hr 5 min" (a few seconds are a minute).
@@ -304,9 +308,12 @@ pub fn duration_words(seconds: f64) -> String {
     let seconds = seconds.max(0.0);
     let minutes = ((seconds / 60.0).round() as u64).max(u64::from(seconds > 0.0));
     if minutes >= 60 {
-        format!("{} hr {} min", minutes / 60, minutes % 60)
+        t_args(
+            "azmusic-duration-h-min",
+            &[("h", Arg::from((minutes / 60).to_string())), ("min", Arg::from((minutes % 60).to_string()))],
+        )
     } else {
-        format!("{minutes} min")
+        t_args("azmusic-duration-min", &[("min", Arg::from(minutes.to_string()))])
     }
 }
 
@@ -394,10 +401,10 @@ impl HeroKind {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            HeroKind::Album => "ALBUM",
-            HeroKind::Artist => "ARTIST",
-            HeroKind::Genre => "GENRE",
-            HeroKind::Playlist => "PLAYLIST",
+            HeroKind::Album => "azmusic-hero-album",
+            HeroKind::Artist => "azmusic-hero-artist",
+            HeroKind::Genre => "azmusic-hero-genre",
+            HeroKind::Playlist => "azmusic-hero-playlist",
         }
     }
 }
@@ -566,12 +573,12 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
     match input.view {
         View::RecentlyAdded | View::Albums => {
             let (title, order) = if *input.view == View::Albums {
-                ("Albums", (0..cat.albums.len()).collect::<Vec<usize>>())
+                (t("azmusic-albums"), (0..cat.albums.len()).collect::<Vec<usize>>())
             } else {
-                ("Recently Added", cat.recent())
+                (t("azmusic-recently-added"), cat.recent())
             };
             page.lines.push(Line::Title {
-                title: title.to_string(),
+                title,
                 detail: count(order.len(), "album"),
                 play: false,
             });
@@ -581,7 +588,7 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
         View::Artists => {
             let all: Vec<usize> = (0..cat.artists.len()).collect();
             page.lines.push(Line::Title {
-                title: String::from("Artists"),
+                title: t("azmusic-artists"),
                 detail: count(all.len(), "artist"),
                 play: false,
             });
@@ -591,13 +598,13 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
         View::Genres => {
             let all: Vec<usize> = (0..cat.genres.len()).collect();
             page.lines.push(Line::Title {
-                title: String::from("Genres"),
+                title: t("azmusic-genres"),
                 detail: count(all.len(), "genre"),
                 play: false,
             });
             if all.is_empty() {
                 page.lines
-                    .push(Line::Empty(String::from("No song of the library names a genre.")));
+                    .push(Line::Empty(t("azmusic-no-genres")));
             }
             page.cards(CardKind::Genre, &all, columns);
             page.tracks = (0..lib.tracks.len()).collect();
@@ -605,7 +612,7 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
         View::Songs => {
             let songs = sorted_songs(lib, input.sort);
             page.lines.push(Line::Title {
-                title: String::from("Songs"),
+                title: t("azmusic-songs"),
                 detail: songs_detail(lib, &songs),
                 play: true,
             });
@@ -632,7 +639,7 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
             }
             None => page
                 .lines
-                .push(Line::Empty(String::from("This album is no longer in the library."))),
+                .push(Line::Empty(t("azmusic-album-gone"))),
         },
         View::Artist(name) => {
             let albums = cat.albums_of(name);
@@ -650,7 +657,7 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
             }));
             if albums.is_empty() {
                 page.lines
-                    .push(Line::Empty(String::from("This artist is no longer in the library.")));
+                    .push(Line::Empty(t("azmusic-artist-gone")));
             }
             for album in albums {
                 let songs = cat.albums[album].tracks.clone();
@@ -675,14 +682,14 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
                 seed: name.clone(),
             }));
             if !albums.is_empty() {
-                page.lines.push(Line::Heading(String::from("Albums")));
+                page.lines.push(Line::Heading(t("azmusic-albums")));
                 page.cards(CardKind::Album, &albums, columns);
             }
             if songs.is_empty() {
                 page.lines
-                    .push(Line::Empty(String::from("No song of the library is in this genre.")));
+                    .push(Line::Empty(t("azmusic-genre-empty")));
             } else {
-                page.lines.push(Line::Heading(String::from("Songs")));
+                page.lines.push(Line::Heading(t("azmusic-songs")));
                 page.lines.push(Line::Columns(Rows::Table));
                 page.rows(songs, Rows::Table);
             }
@@ -698,9 +705,7 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
                     seed: p.id.clone(),
                 }));
                 if songs.is_empty() {
-                    page.lines.push(Line::Empty(String::from(
-                        "Empty. Right-click a song anywhere to add it here.",
-                    )));
+                    page.lines.push(Line::Empty(t("azmusic-playlist-empty")));
                 } else {
                     page.lines.push(Line::Columns(Rows::Table));
                     page.rows(songs, Rows::Table);
@@ -708,7 +713,7 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
             }
             None => page
                 .lines
-                .push(Line::Empty(String::from("This playlist is gone."))),
+                .push(Line::Empty(t("azmusic-playlist-gone"))),
         },
         View::Search => {
             let query = input.query.trim();
@@ -721,7 +726,7 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
             let artists = cat.search_artists(query);
             page.lines.push(Line::Title {
                 title: if query.is_empty() {
-                    String::from("Search")
+                    t("azmusic-search")
                 } else {
                     format!("\u{201c}{query}\u{201d}")
                 },
@@ -735,21 +740,21 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
             });
             if songs.is_empty() && albums.is_empty() && artists.is_empty() {
                 page.lines.push(Line::Empty(if query.is_empty() {
-                    String::from("Type what you are looking for in the search field.")
+                    t("azmusic-search-hint")
                 } else {
-                    String::from("Nothing in the library matches.")
+                    t("azmusic-no-match")
                 }));
             }
             if !artists.is_empty() {
-                page.lines.push(Line::Heading(String::from("Artists")));
+                page.lines.push(Line::Heading(t("azmusic-artists")));
                 page.cards(CardKind::Artist, &artists, columns);
             }
             if !albums.is_empty() {
-                page.lines.push(Line::Heading(String::from("Albums")));
+                page.lines.push(Line::Heading(t("azmusic-albums")));
                 page.cards(CardKind::Album, &albums, columns);
             }
             if !songs.is_empty() {
-                page.lines.push(Line::Heading(String::from("Songs")));
+                page.lines.push(Line::Heading(t("azmusic-songs")));
                 page.lines.push(Line::Columns(Rows::Table));
                 page.rows(songs, Rows::Table);
             }
@@ -761,20 +766,18 @@ pub fn build(input: &PageInput<'_>, columns: usize) -> Page {
                 .filter_map(|t| lib.index_of(t))
                 .collect();
             page.lines.push(Line::Title {
-                title: String::from("Play Queue"),
+                title: t("azmusic-play-queue"),
                 detail: songs_detail(lib, &songs),
                 play: false,
             });
             if songs.is_empty() {
-                page.lines.push(Line::Empty(String::from(
-                    "Nothing is queued. Play an album, a playlist or a song.",
-                )));
+                page.lines.push(Line::Empty(t("azmusic-queue-empty")));
             } else {
-                page.lines.push(Line::Heading(String::from("Now Playing")));
+                page.lines.push(Line::Heading(t("azmusic-now-playing")));
                 page.lines.push(Line::Columns(Rows::Table));
                 page.rows(songs[..1].to_vec(), Rows::Table);
                 if songs.len() > 1 {
-                    page.lines.push(Line::Heading(String::from("Next Up")));
+                    page.lines.push(Line::Heading(t("azmusic-next-up")));
                     page.rows(songs[1..].to_vec(), Rows::Table);
                 }
             }
@@ -856,6 +859,7 @@ mod tests {
 
     #[test]
     fn the_songs_sort_by_a_column_and_back_and_the_number_column_is_the_librarys_order() {
+        crate::l10n::in_english();
         let lib = library();
         let by_title = SongSort::default().toggled(SortKey::Title);
         assert_eq!(
@@ -877,6 +881,7 @@ mod tests {
 
     #[test]
     fn the_catalog_finds_recent_albums_an_artists_albums_by_year_and_a_genres_albums() {
+        crate::l10n::in_english();
         let lib = library();
         let cat = Catalog::of(&lib);
         let names = |albums: Vec<usize>| -> Vec<String> {
@@ -905,6 +910,7 @@ mod tests {
 
     #[test]
     fn a_song_is_filed_under_its_albums_artist_and_title() {
+        crate::l10n::in_english();
         let mut t = track("X", "Guest", "  ", 1, 1.0);
         t.album_artist = "Various Artists".into();
         assert_eq!(
@@ -920,6 +926,7 @@ mod tests {
 
     #[test]
     fn time_and_counts_read_as_words() {
+        crate::l10n::in_english();
         assert_eq!(duration_words(0.0), "0 min");
         assert_eq!(duration_words(20.0), "1 min", "a few seconds are a minute");
         assert_eq!(duration_words(48.0 * 60.0), "48 min");
@@ -932,6 +939,7 @@ mod tests {
 
     #[test]
     fn a_row_of_cards_fills_the_width_and_never_drops_below_one_card() {
+        crate::l10n::in_english();
         let (columns, card) = grid(1000.0);
         assert_eq!(columns, 5);
         assert!(card >= CARD_MIN);
@@ -942,6 +950,7 @@ mod tests {
 
     #[test]
     fn the_lines_in_view_are_found_by_their_tops() {
+        crate::l10n::in_english();
         let lines = vec![
             Line::Title {
                 title: "Songs".into(),
@@ -976,6 +985,7 @@ mod tests {
 
     #[test]
     fn an_albums_page_is_its_header_over_its_songs_in_track_order() {
+        crate::l10n::in_english();
         let lib = library();
         let cat = Catalog::of(&lib);
         let view = View::Album {
@@ -1012,6 +1022,7 @@ mod tests {
 
     #[test]
     fn an_artists_page_puts_each_album_beside_its_songs_and_counts_the_rows_through() {
+        crate::l10n::in_english();
         let lib = library();
         let cat = Catalog::of(&lib);
         let view = View::Artist("Northlight Quartet".into());
@@ -1050,6 +1061,7 @@ mod tests {
 
     #[test]
     fn the_grid_pages_cut_their_cards_into_rows() {
+        crate::l10n::in_english();
         let lib = library();
         let cat = Catalog::of(&lib);
         let page = build(&input(&View::Albums, &lib, &cat, &[], &[]), 2);
@@ -1078,6 +1090,7 @@ mod tests {
 
     #[test]
     fn a_playlists_page_skips_songs_gone_from_the_library_and_says_when_it_is_empty() {
+        crate::l10n::in_english();
         let lib = library();
         let cat = Catalog::of(&lib);
         let mut p = Playlist::new("p1".into(), "Mix".into());
@@ -1094,6 +1107,7 @@ mod tests {
 
     #[test]
     fn search_shows_the_artists_albums_and_songs_that_match() {
+        crate::l10n::in_english();
         let lib = library();
         let cat = Catalog::of(&lib);
         let mut page_input = input(&View::Search, &lib, &cat, &[], &[]);
@@ -1112,6 +1126,7 @@ mod tests {
 
     #[test]
     fn the_queue_page_is_what_plays_now_then_what_comes_next() {
+        crate::l10n::in_english();
         let lib = library();
         let cat = Catalog::of(&lib);
         let queue = vec!["id-Low Tide".to_string(), "id-Old Pier".to_string()];

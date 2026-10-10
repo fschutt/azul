@@ -57,7 +57,7 @@ impl Track {
         Path::new(&self.path)
             .file_stem()
             .and_then(|s| s.to_str())
-            .map_or_else(|| String::from("Untitled"), str::to_string)
+            .map_or_else(|| azul_appkit::l10n::t("azmusic-untitled"), str::to_string)
     }
 
     /// The artist the track is filed under: the album's artist, else the track's, else
@@ -67,8 +67,7 @@ impl Track {
         [self.album_artist.trim(), self.artist.trim()]
             .into_iter()
             .find(|s| !s.is_empty())
-            .unwrap_or("Unknown artist")
-            .to_string()
+            .map_or_else(|| azul_appkit::l10n::t("azmusic-unknown-artist"), str::to_string)
     }
 }
 
@@ -117,11 +116,8 @@ impl Library {
             std::collections::BTreeMap::new();
         for (i, t) in self.tracks.iter().enumerate() {
             let album = t.album.trim();
-            let album = if album.is_empty() {
-                "Unknown album"
-            } else {
-                album
-            };
+            let unknown = azul_appkit::l10n::t("azmusic-unknown-album");
+            let album = if album.is_empty() { unknown.as_str() } else { album };
             groups
                 .entry((t.filed_artist(), album.to_string()))
                 .or_default()
@@ -300,6 +296,7 @@ mod tests {
 
     #[test]
     fn the_scan_reads_audio_files_by_extension_in_any_case() {
+        crate::l10n::in_english();
         assert!(is_audio_file(Path::new("/m/a.mp3")));
         assert!(is_audio_file(Path::new("/m/b.FLAC")));
         assert!(is_audio_file(Path::new("/m/c.m4a")));
@@ -309,6 +306,7 @@ mod tests {
 
     #[test]
     fn a_track_without_a_title_is_called_by_its_file_name() {
+        crate::l10n::in_english();
         let mut t = track("", "X", "Y", 1, 1.0);
         t.path = "/music/X/Y/07 Some Song.mp3".into();
         assert_eq!(t.display_title(), "07 Some Song");
@@ -317,6 +315,7 @@ mod tests {
 
     #[test]
     fn a_track_is_filed_under_its_album_artist_else_its_artist() {
+        crate::l10n::in_english();
         let mut t = track("A", "Guest", "Comp", 1, 1.0);
         assert_eq!(t.filed_artist(), "Guest");
         t.album_artist = "Various Artists".into();
@@ -328,6 +327,7 @@ mod tests {
 
     #[test]
     fn albums_group_by_artist_and_title_in_track_order() {
+        crate::l10n::in_english();
         let lib = sample();
         let albums = lib.albums();
         let names: Vec<(&str, &str)> = albums
@@ -358,6 +358,7 @@ mod tests {
 
     #[test]
     fn artists_are_counted_by_name() {
+        crate::l10n::in_english();
         assert_eq!(
             sample().artists(),
             vec![
@@ -369,6 +370,7 @@ mod tests {
 
     #[test]
     fn search_matches_every_word_anywhere_in_any_case() {
+        crate::l10n::in_english();
         let lib = sample();
         assert_eq!(lib.search("").len(), 4);
         assert_eq!(lib.search("first"), vec![1]);
@@ -384,6 +386,7 @@ mod tests {
 
     #[test]
     fn the_library_file_round_trips_and_says_why_it_does_not_read() {
+        crate::l10n::in_english();
         let lib = sample();
         let back = Library::from_json(&lib.to_json()).expect("reads back");
         assert_eq!(back, lib);
@@ -395,6 +398,7 @@ mod tests {
 
     #[test]
     fn genres_are_counted_by_name_and_songs_without_one_are_in_none() {
+        crate::l10n::in_english();
         let mut lib = sample();
         lib.tracks[0].genre = "Jazz".into();
         lib.tracks[1].genre = " Jazz ".into();
@@ -410,6 +414,7 @@ mod tests {
 
     #[test]
     fn an_album_was_added_when_its_newest_song_was() {
+        crate::l10n::in_english();
         let mut lib = sample();
         lib.tracks[0].added_s = 10;
         lib.tracks[1].added_s = 30;
@@ -418,6 +423,7 @@ mod tests {
 
     #[test]
     fn a_rescan_keeps_the_ids_of_known_files_and_drops_the_missing() {
+        crate::l10n::in_english();
         let mut lib = sample();
         lib.tracks[0].added_s = 42;
         let kept = lib.tracks[0].clone();
