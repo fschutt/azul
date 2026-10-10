@@ -712,3 +712,44 @@ fn a_result_shows_its_sync_state_where_its_drive_syncs() {
         ("check_circle", "Available on this device")
     );
 }
+
+/// A saved search keeps a name, the search box's text, the Search tab's choices (File
+/// contents, Location, Skip ignored files, the Refine) and where it searched; its name is the
+/// text (cut when long). Saving under a name that is taken (without case) replaces that one in
+/// its place; the settings file keeps them.
+#[test]
+fn a_saved_search_keeps_the_query_the_choices_and_the_place() {
+    use crate::browse::Place;
+
+    let refines = Refines {
+        date: DateRefine::ThisWeek,
+        kind: KindRefine::Document,
+        size: SizeRefine::Any,
+    };
+    let mut settings = Settings::default();
+    settings.search_contents = true;
+    settings.search_subfolders = false;
+    let saved = find::SavedSearch::of("  needle  ", &settings, refines, &Place::folder("home", "Find/"));
+    assert_eq!((saved.name.as_str(), saved.query.as_str()), ("needle", "needle"));
+    assert!(saved.contents && !saved.subfolders && saved.ignore_files);
+    assert_eq!(saved.refines(), refines);
+    assert_eq!(saved.place(), Place::folder("home", "Find/"));
+    let pc = find::SavedSearch::of("report", &settings, Refines::default(), &Place::ThisPc);
+    assert_eq!(pc.place(), Place::ThisPc);
+    let long = find::SavedSearch::of(&"x".repeat(100), &settings, refines, &Place::ThisPc);
+    assert!(long.name.chars().count() <= 40 && long.name.ends_with('\u{2026}'), "{}", long.name);
+    assert_eq!(long.query.len(), 100, "the text itself is kept whole");
+
+    let mut list = vec![pc.clone(), saved.clone()];
+    let mut again = saved.clone();
+    again.name = String::from("NEEDLE");
+    again.contents = false;
+    find::save_search(&mut list, again.clone());
+    assert_eq!(list, vec![pc.clone(), again.clone()], "replaced where it was");
+    find::save_search(&mut list, long.clone());
+    assert_eq!(list.len(), 3, "a new name is added at the end");
+
+    settings.saved_searches = list.clone();
+    assert_eq!(Settings::from_json(&settings.to_json()).saved_searches, list);
+    assert!(Settings::default().saved_searches.is_empty());
+}
