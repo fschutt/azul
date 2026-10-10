@@ -250,6 +250,13 @@ impl AutoEncrypted {
         &self.bucket
     }
 
+    /// The drive's id its keys are kept and bound under (an Azlin drive's id: the same in every
+    /// app of this computer).
+    #[must_use]
+    pub fn drive(&self) -> &str {
+        &self.drive
+    }
+
     /// Forgets the decision: the next call decides again (after the drive was encrypted, or
     /// this device got its key).
     pub fn reopen(&self) {

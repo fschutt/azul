@@ -489,7 +489,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 }
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 let (_, code) =
-                    device::setup_new_drive(auto.bucket().as_ref(), &keyring, &drive_id, kdf)
+                    device::setup_new_drive(auto.bucket().as_ref(), &keyring, auto.drive(), kdf)
                         .map_err(|e| e.to_string())?;
                 auto.reopen();
                 Ok(code.to_text())
@@ -501,7 +501,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             auto,
             code,
         } => {
-            let result = device::recover(auto.bucket().as_ref(), &keyring, &drive_id, &code)
+            let result = device::recover(auto.bucket().as_ref(), &keyring, auto.drive(), &code)
                 .map(|_| auto.reopen())
                 .map_err(|e| e.to_string());
             EncryptionOutcome::Recovered { drive_id, result }
@@ -518,7 +518,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 let drive = open_encrypted(
                     Arc::clone(auto.bucket()),
                     &keyring,
-                    &drive_id,
+                    auto.drive(),
                     provider.as_ref(),
                 )
                 .map_err(|e| e.to_string())?;

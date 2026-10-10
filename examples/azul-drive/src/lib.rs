@@ -294,7 +294,12 @@ impl Slot {
             // Plain or encrypted: the first call (a worker thread) decides.
             #[cfg(feature = "encryption")]
             let azlin: Arc<dyn Drive> = {
-                let auto = crate::encryption::wrap(&self.entry.id, azlin);
+                // The Azlin drive's id: the keys are kept and bound under it in every app.
+                let drive_id = self
+                    .entry
+                    .azlin()
+                    .map_or_else(|| self.entry.id.clone(), |(id, _)| id.to_string());
+                let auto = crate::encryption::wrap(&drive_id, azlin);
                 self.auto = Some(auto.clone());
                 auto
             };
