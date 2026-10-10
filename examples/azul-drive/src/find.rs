@@ -4,6 +4,8 @@
 //! cloud drive, the names of a recursive listing (slower; no contents: the files would have to
 //! be downloaded) - its folders listed side by side, its last full listing kept in the cache
 //! folder ([`CachedListing`]) and shown at once by the next search while the fresh one comes.
+//! A drive on this computer may have a full-text index ([`IndexAsk`], azul-search-index): its
+//! contents are asked from it first, the files it has not read as they are now read after.
 //! The results stream in as rows ([`FindState`]): the folder view shows them in the Details
 //! layout with their folder and the line they matched on.
 //!
@@ -19,7 +21,8 @@ use std::{
 };
 
 use azul_search::{
-    ContentHit, Filters, Limits, NameHit, NameMatcher, Pattern, PatternKind, Refine, Request,
+    ContentHit, ContentMatcher, Filters, Limits, NameHit, NameMatcher, Pattern, PatternKind,
+    Refine, Request,
 };
 use azul_storage::{key, ListPage, ObjectInfo};
 use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone};
@@ -858,10 +861,15 @@ pub struct CachedListing {
     pub objects: Vec<ObjectInfo>,
 }
 
-/// The file in `dir` that keeps the drive `drive_id`'s listing: the id's letters and digits
-/// (the rest become `_`) and a hash of the whole id (two ids that read alike do not share it).
+/// The file in `dir` that keeps the drive `drive_id`'s listing ([`cache_name`]).
 #[must_use]
 pub fn listing_file(dir: &Path, drive_id: &str) -> PathBuf {
+    dir.join(format!("{}.tsv", cache_name(drive_id)))
+}
+
+/// The name of a drive's file or folder in the cache: the id's letters and digits (the rest
+/// become `_`) and a hash of the whole id (two ids that read alike do not share it).
+fn cache_name(drive_id: &str) -> String {
     let safe: String = drive_id
         .chars()
         .take(48)
@@ -877,7 +885,7 @@ pub fn listing_file(dir: &Path, drive_id: &str) -> PathBuf {
     let hash = drive_id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
-    dir.join(format!("{safe}-{hash:016x}.tsv"))
+    format!("{safe}-{hash:016x}")
 }
 
 /// A key, tag or prefix on one line of the file: `\\`, tabs and line breaks escaped.
@@ -984,4 +992,106 @@ pub fn read_listing(path: &Path) -> Option<CachedListing> {
         at,
         objects,
     })
+}
+
+// ==== A drive's index ====
+
+/// A drive's full-text index as a search asks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexAsk {
+    /// The index's folder ([`index_dir`]).
+    pub dir: PathBuf,
+    /// The drive's folder on this computer: the index's paths are below it.
+    pub root: PathBuf,
+    /// The searched folder's key (`""`: the drive's root; else `Docs/`): the search's root is
+    /// `root` with it.
+    pub under: String,
+}
+
+/// The folder in `dir` (the cache's index folder) that holds the drive `drive_id`'s index.
+#[must_use]
+pub fn index_dir(dir: &Path, drive_id: &str) -> PathBuf {
+    dir.join(cache_name(drive_id))
+}
+
+/// The walk a drive's index reads, from the drive's root: the search box's defaults - no hidden
+/// items, no files .gitignore / .ignore name -, never the storage crate's temporary files or
+/// the drive's bookkeeping. A search that shows more reads the rest itself (it is not in the
+/// index: [`azul_search_index::DriveIndex::unread`]).
+#[must_use]
+pub fn index_filters() -> Filters {
+    Filters {
+        include: Vec::new(),
+        exclude: vec![
+            TEMP_GLOB.to_string(),
+            format!("/{}/", azul_storage::manifest::MANIFEST_DIR),
+        ],
+        hidden: false,
+        ignore_files: true,
+        max_depth: None,
+        refine: Refine::default(),
+    }
+}
+
+/// Whether a file the index named (`rel`, below the searched folder) is one the search's walk
+/// comes to: not hidden unless hidden items show, not deeper than "Current folder" goes.
+#[must_use]
+pub fn index_admits(filters: &Filters, rel: &str) -> bool {
+    (filters.hidden || !hidden_path(rel))
+        && filters
+            .max_depth
+            .is_none_or(|depth| rel.split('/').count() <= depth)
+}
+
+/// The longest line a document's result shows (bytes); a longer one is cut around its match.
+const DOCUMENT_LINE_BYTES: usize = 400;
+
+/// The line a document's result shows: the first line of its text (as the index reads it) the
+/// search's text is on, the match marked; a long line cut around the match. `None` when no line
+/// holds it (the index's words were apart).
+#[must_use]
+pub fn document_line(text: &str, matcher: &ContentMatcher) -> Option<FoundLine> {
+    for (i, line) in text.lines().enumerate() {
+        let Some(&(start, end)) = matcher.find_all(line).first() else {
+            continue;
+        };
+        let (from, to) = if line.len() <= DOCUMENT_LINE_BYTES {
+            (0, line.len())
+        } else {
+            let mut from = start.saturating_sub(DOCUMENT_LINE_BYTES / 4);
+            while !line.is_char_boundary(from) {
+                from -= 1;
+            }
+            let mut to = (end + DOCUMENT_LINE_BYTES / 2).min(line.len());
+            while !line.is_char_boundary(to) {
+                to += 1;
+            }
+            (from, to)
+        };
+        return Some(FoundLine {
+            line: u64::try_from(i + 1).unwrap_or(u64::MAX),
+            text: line[from..to].to_string(),
+            start: start - from,
+            end: end - from,
+        });
+    }
+    None
+}
+
+/// A document the index named, or one read since, below the folder `prefix` (`rel` below it):
+/// its row with the size and date read now, and the line its text matched on.
+#[must_use]
+pub fn found_document(
+    prefix: &str,
+    rel: &str,
+    size: u64,
+    modified: Option<u64>,
+    line: Option<FoundLine>,
+) -> Found {
+    let key = format!("{prefix}{rel}");
+    let name = key::last_segment(&key).to_string();
+    Found {
+        entry: result_row(key, name, false, Some(size), modified),
+        line,
+    }
 }

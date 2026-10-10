@@ -1096,6 +1096,7 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 serial,
                 request: find::local_request(dir, &query, prefix.is_empty(), &options),
                 prefix,
+                index: None,
                 cancel: cancel.clone(),
             }),
             None => {
@@ -1129,6 +1130,7 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 serial,
                 request: find::local_request(root, &query, true, &options),
                 prefix,
+                index: None,
                 cancel: cancel.clone(),
             });
         }
@@ -1801,6 +1803,7 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
             | Outcome::Searched { end: None, .. }
+            | Outcome::IndexProgress { .. }
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
@@ -2102,6 +2105,10 @@ pub(crate) extern "C" fn on_job_done(
             // The rows that came into view get their sizes and dates.
             actions::request_view_work(&mut info, &handle, s);
         }
+        // A drive's index (the Search tab's "Index this drive").
+        Outcome::IndexProgress { .. }
+        | Outcome::Indexed { .. }
+        | Outcome::IndexRemoved { .. } => {}
     }
     Update::RefreshDom
 }

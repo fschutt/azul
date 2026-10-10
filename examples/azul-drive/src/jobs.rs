@@ -32,6 +32,9 @@ use azul::{
     prelude::*,
     vec::U8VecRef,
 };
+use azul_search_index::{
+    DriveIndex, ExtractFn, Extractors, IndexStatus, Kind, UpdateProgress, UpdateSummary,
+};
 use azul_storage::{
     azul_transport::AzulTransport, config::DriveEntry, ops as storage_ops, transfer, ByteRange,
     Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
@@ -271,6 +274,8 @@ pub(crate) enum Job {
         request: azul_search::Request,
         /// The drive's key of the searched folder: the results' keys start with it.
         prefix: String,
+        /// The drive's full-text index, asked first for the contents.
+        index: Option<find::IndexAsk>,
         cancel: Arc<AtomicBool>,
     },
     /// The search box's search of a cloud drive's folder: the names of its listing (recursive -
@@ -280,6 +285,16 @@ pub(crate) enum Job {
         drive: Arc<dyn Drive>,
         cancel: Arc<AtomicBool>,
     },
+    /// A drive's full-text index brought up to its folder on this computer (what changed read
+    /// again), its progress streamed ([`Outcome::IndexProgress`]) until it ends or `cancel`.
+    IndexDrive {
+        drive_id: String,
+        root: PathBuf,
+        dir: PathBuf,
+        cancel: Arc<AtomicBool>,
+    },
+    /// A drive's index thrown away ("Index this drive" turned off).
+    RemoveIndex { drive_id: String, dir: PathBuf },
 }
 
 /// A search of a cloud drive's folder, as the window asks for it.
@@ -425,6 +440,21 @@ pub(crate) enum Outcome {
         /// Files read (a cloud drive: keys listed) so far.
         searched: usize,
         end: Option<FindEnd>,
+    },
+    /// How far a drive's index update got.
+    IndexProgress {
+        drive_id: String,
+        progress: UpdateProgress,
+    },
+    /// A drive's index update ended: what it did and what the index holds, or why it could not.
+    Indexed {
+        drive_id: String,
+        result: Result<(UpdateSummary, IndexStatus), String>,
+    },
+    /// A drive's index was thrown away (or why it could not be).
+    IndexRemoved {
+        drive_id: String,
+        error: Option<String>,
     },
 }
 
@@ -1376,6 +1406,323 @@ fn keep_listing(
     }
 }
 
+// ==== A drive's full-text index ====
+
+/// A PDF's text through azul's reader (the PDF viewer's): every page's text blocks, a line
+/// each, a blank line after a page; `None` for bytes that are no PDF.
+pub(crate) fn pdf_text(bytes: &[u8]) -> Option<String> {
+    let pdf = azul::pdf::ParsedPdf::create_from_bytes(U8VecRef::from(bytes));
+    if !pdf.is_valid() {
+        return None;
+    }
+    let mut text = String::new();
+    for page in 0..pdf.page_count() {
+        for block in pdf.page_text(page).as_slice() {
+            text.push_str(block.as_str());
+            text.push('\n');
+        }
+        text.push('\n');
+        if text.len() >= azul_search_index::MAX_TEXT_BYTES {
+            break;
+        }
+    }
+    Some(text)
+}
+
+/// What AzDrive reads beyond plain text, office documents and mail: PDFs, through azul's reader.
+pub(crate) fn extractors() -> Extractors {
+    let pdf: ExtractFn = Arc::new(pdf_text);
+    Extractors { pdf: Some(pdf) }
+}
+
+/// Brings the drive `drive_id`'s index in `dir` up to its folder `root` (the search box's
+/// default walk, [`find::index_filters`]): how far it got now and then through `emit`; the
+/// answer says what it did and what the index holds - or why it could not (another window
+/// updating it, a folder that cannot be written).
+pub(crate) fn run_index_update(
+    drive_id: &str,
+    root: &Path,
+    dir: &Path,
+    extractors: &Extractors,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(Outcome),
+) -> Outcome {
+    let result = DriveIndex::open(dir).and_then(|index| {
+        let summary = index.update(
+            root,
+            &find::index_filters(),
+            extractors,
+            cancel,
+            &mut |progress| {
+                emit(Outcome::IndexProgress {
+                    drive_id: drive_id.to_string(),
+                    progress,
+                });
+            },
+        )?;
+        Ok((summary, index.status()))
+    });
+    Outcome::Indexed {
+        drive_id: drive_id.to_string(),
+        result: result.map_err(|e| e.to_string()),
+    }
+}
+
+/// Whether the file `rel` is read as text (a plain file, or one of no known kind: the walk's
+/// reader passes over a binary one) rather than through its document's text.
+fn read_as_text(rel: &str) -> bool {
+    matches!(azul_search_index::kind_of(key_name(rel)), Some(Kind::Text) | None)
+}
+
+/// The last segment of a `/`-separated path.
+fn key_name(rel: &str) -> &str {
+    rel.rsplit('/').next().unwrap_or(rel)
+}
+
+/// The size and date of the file `rel` below `root` now; `None` when it is gone.
+fn file_facts(root: &Path, rel: &str) -> Option<(u64, Option<u64>)> {
+    let mut path = root.to_path_buf();
+    for segment in rel.split('/').filter(|s| !s.is_empty()) {
+        path.push(segment);
+    }
+    let meta = fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+    Some((meta.len(), modified))
+}
+
+/// The contents part of an indexed search as it goes: the results so far against
+/// [`find::FIND_MAX`], the files a content result was handed over for.
+struct IndexedContents<'a> {
+    request: &'a azul_search::Request,
+    prefix: &'a str,
+    ask: &'a find::IndexAsk,
+    matcher: &'a azul_search::ContentMatcher,
+    extractors: &'a Extractors,
+    cancel: &'a AtomicBool,
+    found: usize,
+    limited: bool,
+    keys: HashSet<String>,
+}
+
+impl IndexedContents<'_> {
+    fn full(&mut self) -> bool {
+        if self.found >= find::FIND_MAX {
+            self.limited = true;
+        }
+        self.limited || self.cancel.load(Ordering::Relaxed)
+    }
+
+    fn hand_over(
+        &mut self,
+        found: find::Found,
+        batch: &mut FindBatch,
+        emit: &mut dyn FnMut(Outcome),
+    ) {
+        if self.full() || !self.keys.insert(found.entry.key.clone()) {
+            return;
+        }
+        self.found += 1;
+        batch.push(found, emit);
+    }
+
+    /// Plain files (`rels` below the searched folder) read as the walk reads them: a matching
+    /// one with its line.
+    fn read_texts(
+        &mut self,
+        rels: &[String],
+        batch: &mut FindBatch,
+        emit: &mut dyn FnMut(Outcome),
+    ) {
+        if rels.is_empty() || self.full() {
+            return;
+        }
+        let mut request = self.request.clone();
+        request.limits.max_results = find::FIND_MAX.saturating_sub(self.found);
+        let searched_before = batch.searched;
+        let result = azul_search::search_listed(&request, rels, self.cancel, &mut |event| {
+            match event {
+                azul_search::Event::Content(hit) => {
+                    let found = find::found_content(self.prefix, hit);
+                    self.hand_over(found, batch, &mut *emit);
+                }
+                azul_search::Event::Progress(progress) => {
+                    batch.searched = searched_before + progress.searched;
+                    batch.tick(&mut *emit);
+                }
+                azul_search::Event::Phase(_) | azul_search::Event::Name(_) => {}
+            }
+        });
+        if let Ok(summary) = result {
+            batch.searched = searched_before + summary.searched;
+            self.limited |= summary.limited;
+        }
+    }
+
+    /// Documents (`rels` below the searched folder) read through their text: a matching one
+    /// with its line; with `named` (the index named them) one whose words were apart too,
+    /// without a line.
+    fn read_documents(
+        &mut self,
+        rels: &[String],
+        named: bool,
+        batch: &mut FindBatch,
+        emit: &mut dyn FnMut(Outcome),
+    ) {
+        let request = self.request;
+        let refine = &request.filters.refine;
+        for rel in rels {
+            if self.full() {
+                return;
+            }
+            let Some((size, modified)) = file_facts(&request.root, rel) else {
+                continue; // gone since
+            };
+            if !refine.admits_name(key_name(rel), false)
+                || !refine.admits_facts(Some(size), modified)
+            {
+                continue;
+            }
+            let path = format!("{}{rel}", self.ask.under);
+            let text = azul_search_index::document_text(&self.ask.root, &path, self.extractors);
+            batch.searched += 1;
+            let line = text.and_then(|text| find::document_line(&text, self.matcher));
+            if line.is_some() || named {
+                let found = find::found_document(self.prefix, rel, size, modified, line);
+                self.hand_over(found, batch, &mut *emit);
+            }
+            batch.tick(&mut *emit);
+        }
+    }
+}
+
+/// The search box's search of a folder on this computer whose drive has an index (`ask`): the
+/// names as [`run_find`] finds them, then the contents - the files the index names first, at
+/// once (a plain file read again for its line, so it matches as the walk's would; a document's
+/// line from its text, or none when the index's words were apart), then the files the index
+/// has not read as they are now (new or changed since its update: a plain file read as the walk
+/// reads it, a document through its text) -, each once, at most [`find::FIND_MAX`]. An index
+/// that cannot be opened or asked is passed by: the files are read as without one.
+pub(crate) fn run_find_indexed(
+    serial: u64,
+    request: &azul_search::Request,
+    prefix: &str,
+    ask: &find::IndexAsk,
+    extractors: &Extractors,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(Outcome),
+) -> Outcome {
+    let Some(pattern) = request.contents.as_ref() else {
+        return run_find(serial, request, prefix, cancel, emit);
+    };
+    let index = match DriveIndex::open(&ask.dir) {
+        Ok(index) => index,
+        Err(e) => {
+            eprintln!("[azdrive] the index in {} is passed by: {e}", ask.dir.display());
+            return run_find(serial, request, prefix, cancel, emit);
+        }
+    };
+    let mut batch = FindBatch::new(serial);
+    let matcher = match azul_search::ContentMatcher::new(pattern) {
+        Ok(matcher) => matcher,
+        Err(e) => {
+            return batch.finish(FindEnd {
+                error: Some(e.to_string()),
+                ..FindEnd::default()
+            })
+        }
+    };
+    // The names, as without an index (a row found by its name gets its line below).
+    let names = azul_search::Request {
+        contents: None,
+        ..request.clone()
+    };
+    let result = azul_search::search(&names, cancel, &mut |event| match event {
+        azul_search::Event::Phase(_) => batch.phase(FindPhase::Names, &mut *emit),
+        azul_search::Event::Name(hit) => batch.push(find::found_name(prefix, hit), &mut *emit),
+        azul_search::Event::Content(_) => {}
+        azul_search::Event::Progress(progress) => {
+            batch.searched = progress.searched;
+            batch.tick(&mut *emit);
+        }
+    });
+    let summary = match result {
+        Ok(summary) => summary,
+        Err(e) => {
+            return batch.finish(FindEnd {
+                error: Some(e.to_string()),
+                ..FindEnd::default()
+            })
+        }
+    };
+    if summary.limited || cancel.load(Ordering::Relaxed) {
+        return batch.finish(FindEnd {
+            limited: summary.limited,
+            ..FindEnd::default()
+        });
+    }
+    batch.phase(FindPhase::Contents, emit);
+    let mut contents = IndexedContents {
+        request,
+        prefix,
+        ask,
+        matcher: &matcher,
+        extractors,
+        cancel,
+        found: summary.names,
+        limited: false,
+        keys: HashSet::new(),
+    };
+    // The index's files below the folder, best first.
+    let named = match index.query(&pattern.text, &ask.under, find::FIND_MAX) {
+        Ok(paths) => Some(paths),
+        Err(e) => {
+            eprintln!("[azdrive] the index in {} is passed by: {e}", ask.dir.display());
+            None
+        }
+    };
+    let below = |path: &String| path.strip_prefix(ask.under.as_str()).map(str::to_string);
+    if let Some(paths) = &named {
+        let rels: Vec<String> = paths
+            .iter()
+            .filter_map(below)
+            .filter(|rel| find::index_admits(&request.filters, rel))
+            .collect();
+        let (texts, documents): (Vec<String>, Vec<String>) =
+            rels.into_iter().partition(|rel| read_as_text(rel));
+        contents.read_texts(&texts, &mut batch, emit);
+        contents.read_documents(&documents, true, &mut batch, emit);
+    }
+    // The files the index has not read as they are now (all of them without the index).
+    let mut listed = Vec::new();
+    if !contents.full() {
+        let _ = azul_search::list_files(&request.root, &request.filters, cancel, &mut |file| {
+            listed.push(azul_search::FileEntry {
+                path: format!("{}{}", ask.under, file.path),
+                ..file
+            });
+        });
+    }
+    let mut rest: Vec<String> = match named {
+        Some(_) => index.unread(&listed).iter().filter_map(|f| below(&f.path)).collect(),
+        None => listed.iter().filter_map(|f| below(&f.path)).collect(),
+    };
+    rest.retain(|rel| !contents.keys.contains(&format!("{prefix}{rel}")));
+    rest.sort();
+    let (texts, documents): (Vec<String>, Vec<String>) =
+        rest.into_iter().partition(|rel| read_as_text(rel));
+    contents.read_texts(&texts, &mut batch, emit);
+    contents.read_documents(&documents, false, &mut batch, emit);
+    let limited = contents.limited;
+    batch.finish(FindEnd {
+        limited,
+        ..FindEnd::default()
+    })
+}
+
 /// Seconds between two questions about a checkout's payment.
 const PAYMENT_POLL_SECS: u64 = 3;
 /// How long the dialog waits for a payment before it gives up (the payment page stays valid).
@@ -1877,13 +2224,42 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             serial,
             request,
             prefix,
+            index,
             cancel,
         } => {
             if !debounce(&cancel) {
                 return FindBatch::new(serial).finish(FindEnd::default());
             }
             let mut emit = |outcome: Outcome| send(sender, outcome);
-            run_find(serial, &request, &prefix, &cancel, &mut emit)
+            match index.filter(|_| request.contents.is_some()) {
+                Some(ask) => run_find_indexed(
+                    serial,
+                    &request,
+                    &prefix,
+                    &ask,
+                    &extractors(),
+                    &cancel,
+                    &mut emit,
+                ),
+                None => run_find(serial, &request, &prefix, &cancel, &mut emit),
+            }
+        }
+        Job::IndexDrive {
+            drive_id,
+            root,
+            dir,
+            cancel,
+        } => {
+            let mut emit = |outcome: Outcome| send(sender, outcome);
+            run_index_update(&drive_id, &root, &dir, &extractors(), &cancel, &mut emit)
+        }
+        Job::RemoveIndex { drive_id, dir } => {
+            let error = match fs::remove_dir_all(&dir) {
+                Ok(()) => None,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => Some(e.to_string()),
+            };
+            Outcome::IndexRemoved { drive_id, error }
         }
         Job::FindRemote {
             find: search,
