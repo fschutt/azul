@@ -75,7 +75,7 @@ pub fn letter(c: &Contact, by: SortBy) -> char {
 #[must_use]
 pub fn initials(c: &Contact) -> String {
     let name = c.display_name();
-    let display = if name == "(no name)" { "" } else { name.as_str() };
+    let display = if name == crate::contact::NO_NAME { "" } else { name.as_str() };
     azul_pim::initials::person_initials(&c.given, &c.family, display)
 }
 

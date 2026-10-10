@@ -13,6 +13,8 @@
 //! (`item1.TEL` + `item1.X-ABLabel:_$!<Mobile>!$_`). A label vCard has no
 //! type for is written as `x-<label>`.
 
+use azul_appkit::phrase::{Phrase, Text};
+
 use crate::vcard::{self, escape_text, Card, Property, Version};
 
 /// A value with its label: a phone, an email, a web page, a custom field.
@@ -93,6 +95,10 @@ const MONTHS: [&str; 12] = [
 
 /// The year a birthday without one is shown in: a leap year.
 const LEAP_YEAR: i32 = 2000;
+
+/// What a contact without a name, an email or a phone number is called (its card's FN too);
+/// the app says it in the window's language.
+pub const NO_NAME: &str = "(no name)";
 
 impl Birthday {
     /// `1987-03-14`, `19870314`, `--0314`, `--03-14`, `1987-03-14T00:00:00Z`;
@@ -320,7 +326,7 @@ impl Contact {
         if let Some(p) = self.phones.first() {
             return p.value.clone();
         }
-        "(no name)".to_string()
+        NO_NAME.to_string()
     }
 
     /// A company card: no personal name, a company.
@@ -343,13 +349,13 @@ impl Contact {
             .join(" \u{b7} ")
     }
 
-    /// What the edit form refuses: no name at all, an email that is not one
+    /// What the edit form refuses (the app says it): no name at all, an email that is not one
     /// (`azul_pim::mail_address::is_email`), a birthday that is not a date.
     #[must_use]
-    pub fn problems(&self, birthday_text: Option<&str>) -> Vec<String> {
+    pub fn problems(&self, birthday_text: Option<&str>) -> Vec<Text> {
         let mut out = Vec::new();
         if self.composed_name().is_empty() && nonempty(&self.formatted).is_none() && nonempty(&self.org).is_none() {
-            out.push("A contact needs a name or a company.".to_string());
+            out.push(Text::key("azcontacts-problem-no-name"));
         }
         for e in &self.emails {
             let v = e.value.trim();
@@ -357,12 +363,12 @@ impl Contact {
                 continue;
             }
             if !azul_pim::mail_address::is_email(v) {
-                out.push(format!("\"{v}\" is not an email address."));
+                out.push(Phrase::new("azcontacts-problem-not-email").arg("value", v).into());
             }
         }
         if let Some(text) = birthday_text {
             if !text.trim().is_empty() && Birthday::parse(text).is_none() {
-                out.push(format!("\"{}\" is not a date (DD.MM.YYYY, or DD.MM. without a year).", text.trim()));
+                out.push(Phrase::new("azcontacts-problem-not-a-date").arg("value", text.trim()).into());
             }
         }
         out
@@ -645,7 +651,7 @@ fn photo_property(photo: &str, version: Version) -> Property {
 
 /// Every contact of a `.vcf` text, and what could not be read.
 #[must_use]
-pub fn parse_vcf(text: &str) -> (Vec<Contact>, Vec<String>) {
+pub fn parse_vcf(text: &str) -> (Vec<Contact>, Vec<Text>) {
     let (cards, problems) = vcard::parse(text);
     (cards.iter().map(Contact::from_card).collect(), problems)
 }

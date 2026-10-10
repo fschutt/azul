@@ -11,6 +11,8 @@
 //! keeps BOTH sides of the multi-valued fields - phones, emails, addresses,
 //! web pages, groups, custom fields - without repeating a value.
 
+use azul_appkit::phrase::{Phrase, Text};
+
 use crate::book::fold;
 use crate::contact::{Address, Contact, Labeled};
 
@@ -85,11 +87,11 @@ impl Keys {
 
 /// How alike two contacts are (0..=1) and why.
 #[must_use]
-pub fn similarity(a: &Contact, b: &Contact) -> (f32, Vec<String>) {
+pub fn similarity(a: &Contact, b: &Contact) -> (f32, Vec<Text>) {
     similarity_of(&Keys::of(a), &Keys::of(b))
 }
 
-fn similarity_of(a: &Keys, b: &Keys) -> (f32, Vec<String>) {
+fn similarity_of(a: &Keys, b: &Keys) -> (f32, Vec<Text>) {
     let mut score: f32 = 0.0;
     let mut reasons = Vec::new();
     let same_name = !a.name.is_empty() && a.name == b.name;
@@ -97,15 +99,15 @@ fn similarity_of(a: &Keys, b: &Keys) -> (f32, Vec<String>) {
         // Exactly the same name, or the same only after dropping a note such as "(imported)".
         let exact = a.folded_display == b.folded_display;
         score = score.max(if exact { 0.93 } else { 0.9 });
-        reasons.push("same name".to_string());
+        reasons.push(Text::key("azcontacts-dupe-same-name"));
     }
     if let Some(e) = a.emails.iter().find(|e| b.emails.contains(e)) {
         score = score.max(0.95);
-        reasons.push(format!("same email {e}"));
+        reasons.push(Phrase::new("azcontacts-dupe-same-email").arg("email", e.as_str()).into());
     }
     if a.phones.iter().any(|p| b.phones.contains(p)) {
         score = score.max(0.9);
-        reasons.push("same phone number".to_string());
+        reasons.push(Text::key("azcontacts-dupe-same-phone"));
     }
     if same_name && reasons.len() > 1 {
         score = 0.99;
@@ -119,7 +121,8 @@ pub struct Pair {
     pub a: usize,
     pub b: usize,
     pub score: f32,
-    pub reasons: Vec<String>,
+    /// Why (the app says them): the same name, email or phone number.
+    pub reasons: Vec<Text>,
 }
 
 /// Every pair at or above `threshold`, best first; pairs the user marked

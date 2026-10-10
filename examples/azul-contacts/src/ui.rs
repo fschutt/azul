@@ -59,7 +59,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
-    l10n::label,
+    l10n::{label, t_args, t_text, Arg, Phrase, Text},
     pieces::{block, button, column, flex_row, primary, strs, text},
     settings::AppSettings,
     shortcuts::Shortcut,
@@ -129,7 +129,8 @@ pub struct Form {
     pub original: Option<Contact>,
     pub birthday_text: String,
     pub new_group: String,
-    pub problems: Vec<String>,
+    /// What the form refuses (said at layout).
+    pub problems: Vec<Text>,
     /// Cancel was pressed with changes: ask before discarding.
     pub confirm_discard: bool,
 }
@@ -161,7 +162,8 @@ impl Form {
 pub struct ImportState {
     pub path: String,
     pub rows: Vec<ImportRow>,
-    pub problems: Vec<String>,
+    /// What the file or the reading said (said at layout).
+    pub problems: Vec<Text>,
     pub group: String,
     pub reading: bool,
     /// A CSV file's table and how its columns map to contact fields (`None`: a .vcf).
@@ -837,7 +839,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
                 "padding: 6px 8px; border-left: 3px solid #c0392b; @theme(flora) { border-left: \
                  3px solid #7E4A42; @media (prefers-color-scheme: dark) { border-left: 3px solid \
                  #B3837A; } }",
-                form.problems.iter().map(|p| Dom::create_div().with_child(text(p.as_str()))).collect(),
+                form.problems.iter().map(|p| Dom::create_div().with_child(text(t_text(p)))).collect(),
             )
                 .with_id(ids::EDIT_PROBLEMS),
         );
@@ -1081,13 +1083,16 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
         children.push(block("padding: 8px 0px;", text("Reading\u{2026}")));
     }
     for p in &st.problems {
-        children.push(block("font-size: 12px; opacity: 0.8;", text(p.as_str())));
+        children.push(block("font-size: 12px; opacity: 0.8;", text(t_text(p))));
     }
     if let Some(csv) = &st.csv {
         children.push(csv_mapping(app, csv));
     }
     if !st.rows.is_empty() {
-        children.push(block("padding: 8px 0px; font-weight: 600;", text(store::import_summary(&st.rows))).with_id(ids::IMPORT_SUMMARY));
+        children.push(
+            block("padding: 8px 0px; font-weight: 600;", text(t_text(&store::import_summary(&st.rows))))
+                .with_id(ids::IMPORT_SUMMARY),
+        );
         let mut table = Vec::new();
         for (i, r) in st.rows.iter().enumerate() {
             let c = &r.contact;
@@ -1202,7 +1207,7 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
                 a.display_name(),
                 b.display_name(),
                 pair.score,
-                pair.reasons.join(", ")
+                pair.reasons.iter().map(t_text).collect::<Vec<_>>().join(", ")
             )),
         )
         .with_id(ids::MERGE_PAIR),
@@ -1507,7 +1512,7 @@ fn export_contacts(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, i
 fn read_import_file(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, path: &Path) {
     let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
         if let Reading::Import(st) = &mut s.reading {
-            st.problems = vec![format!("\"{}\" is not a file.", path.display())];
+            st.problems = vec![Phrase::new("azcontacts-import-not-a-file").arg("path", path.display().to_string()).into()];
         }
         return;
     };
@@ -1611,7 +1616,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                 eprintln!("[azcontacts] {p}");
             }
             if !problems.is_empty() {
-                s.notice = format!("{} contact file(s) could not be read fully", problems.len());
+                s.notice = t_args("azcontacts-files-not-read", &[("count", Arg::from(problems.len()))]);
             }
             s.book = book;
             if s.book.is_empty() && s.sample {
@@ -1636,8 +1641,11 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
             for outcome in reply.outcomes {
                 match outcome {
                     FileOutcome::Got { result: Ok(Some(bytes)), .. } => text = Some(String::from_utf8_lossy(&bytes).into_owned()),
-                    FileOutcome::Got { result: Ok(None), key } => problem = Some(format!("\"{key}\" does not exist.")),
-                    FileOutcome::Got { result: Err(e), .. } => problem = Some(e),
+                    FileOutcome::Got { result: Ok(None), key } => {
+                        problem = Some(Text::from(Phrase::new("azcontacts-file-missing").arg("file", key.as_str())));
+                    }
+                    // The file thread's own words.
+                    FileOutcome::Got { result: Err(e), .. } => problem = Some(Text::plain(e)),
                     _ => {}
                 }
             }
@@ -1659,21 +1667,22 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                                 st.csv = Some(CsvImport { table, mapping });
                                 preview
                             }
-                            Err(e) => (Vec::new(), vec![e]),
+                            // The CSV reader's own words (appkit's csv).
+                            Err(e) => (Vec::new(), vec![Text::plain(e)]),
                         }
                     } else {
                         store::import_preview(&text, &book)
                     };
                     if rows.is_empty() && problems.is_empty() {
-                        st.problems.push(if st.csv.is_some() {
-                            "No row of the file names a person: map the columns below.".to_string()
+                        st.problems.push(Text::key(if st.csv.is_some() {
+                            "azcontacts-import-no-person"
                         } else {
-                            "The file holds no vCard.".to_string()
-                        });
+                            "azcontacts-import-no-vcard"
+                        }));
                     }
                     st.problems.extend(problems);
                     st.rows = rows;
-                    println!("AZCONTACTS_IMPORT_PREVIEW {} {}", st.rows.len(), store::import_summary(&st.rows));
+                    println!("AZCONTACTS_IMPORT_PREVIEW {} {}", st.rows.len(), t_text(&store::import_summary(&st.rows)));
                 }
             }
         }
@@ -2199,7 +2208,7 @@ extern "C" fn on_remove_group(data: RefAny, info: CallbackInfo, _state: ChipStat
 /// The draft as it is saved: empty rows dropped, the birthday from its text,
 /// a group still in the "add" field added.
 #[must_use]
-pub fn finished_draft(form: &Form) -> (Contact, Vec<String>) {
+pub fn finished_draft(form: &Form) -> (Contact, Vec<Text>) {
     let mut c = form.draft.clone();
     c.phones.retain(|p| !p.value.trim().is_empty());
     c.emails.retain(|e| !e.value.trim().is_empty());
@@ -2225,7 +2234,8 @@ extern "C" fn on_edit_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
         };
         let (contact, problems) = finished_draft(form);
         if !problems.is_empty() {
-            println!("AZCONTACTS_PROBLEMS {}", problems.join(" | "));
+            let said: Vec<String> = problems.iter().map(t_text).collect();
+            println!("AZCONTACTS_PROBLEMS {}", said.join(" | "));
             form.problems = problems;
             return;
         }
@@ -2353,7 +2363,7 @@ extern "C" fn on_import_read(mut data: RefAny, mut info: CallbackInfo) -> Update
         };
         if path.is_empty() {
             if let Reading::Import(st) = &mut s.reading {
-                st.problems = vec!["Type the path of a .vcf file, or choose one.".to_string()];
+                st.problems = vec![Text::key("azcontacts-import-type-path")];
             }
             return;
         }
@@ -2418,7 +2428,7 @@ extern "C" fn on_import_column(mut data: RefAny, mut info: CallbackInfo, choice:
                 let (rows, problems) = store::csv_preview(&csv.table, &csv.mapping, &book);
                 st.rows = rows;
                 st.problems = problems;
-                println!("AZCONTACTS_IMPORT_PREVIEW {} {}", st.rows.len(), store::import_summary(&st.rows));
+                println!("AZCONTACTS_IMPORT_PREVIEW {} {}", st.rows.len(), t_text(&store::import_summary(&st.rows)));
             }
         }
     })
@@ -2679,7 +2689,7 @@ mod tests {
         form.birthday_text = "32.13.".into();
         assert_eq!(finished_draft(&form).1.len(), 1);
         let empty = Form::new(None);
-        assert_eq!(finished_draft(&empty).1, vec!["A contact needs a name or a company."]);
+        assert_eq!(finished_draft(&empty).1, vec![Text::key("azcontacts-problem-no-name")]);
         assert!(!empty.changed());
     }
 

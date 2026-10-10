@@ -8,6 +8,8 @@
 //! leading byte-order mark dropped, the separator - comma, semicolon (Excel in many locales)
 //! or tab - the one the header line holds most of.
 
+use azul_appkit::phrase::{Phrase, Text};
+
 use crate::contact::{Address, Birthday, Contact, Labeled};
 
 /// What a CSV column becomes.
@@ -65,31 +67,31 @@ impl Field {
         Field::Groups,
     ];
 
-    /// What the mapping control says.
+    /// What the mapping control says: a key of AzContacts' resources.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Field::Skip => "Do not import",
-            Field::Given => "First name",
-            Field::Family => "Last name",
-            Field::FullName => "Full name",
-            Field::Nickname => "Nickname",
-            Field::Email => "E-mail",
-            Field::MobilePhone => "Mobile phone",
-            Field::WorkPhone => "Work phone",
-            Field::HomePhone => "Home phone",
-            Field::Org => "Company",
-            Field::Department => "Department",
-            Field::Title => "Job title",
-            Field::Birthday => "Birthday",
-            Field::Street => "Street",
-            Field::City => "City",
-            Field::Region => "State / region",
-            Field::PostalCode => "Postal code",
-            Field::Country => "Country",
-            Field::Url => "Web page",
-            Field::Notes => "Notes",
-            Field::Groups => "Groups",
+            Field::Skip => "azcontacts-field-skip",
+            Field::Given => "azcontacts-first-name",
+            Field::Family => "azcontacts-last-name",
+            Field::FullName => "azcontacts-field-full-name",
+            Field::Nickname => "azcontacts-nickname",
+            Field::Email => "azcontacts-field-email",
+            Field::MobilePhone => "azcontacts-field-mobile-phone",
+            Field::WorkPhone => "azcontacts-field-work-phone",
+            Field::HomePhone => "azcontacts-field-home-phone",
+            Field::Org => "azcontacts-company",
+            Field::Department => "azcontacts-department",
+            Field::Title => "azcontacts-job-title",
+            Field::Birthday => "azcontacts-birthday",
+            Field::Street => "azcontacts-street",
+            Field::City => "azcontacts-city",
+            Field::Region => "azcontacts-field-region",
+            Field::PostalCode => "azcontacts-field-postal-code",
+            Field::Country => "azcontacts-country",
+            Field::Url => "azcontacts-field-web-page",
+            Field::Notes => "azcontacts-notes",
+            Field::Groups => "azcontacts-groups",
         }
     }
 
@@ -183,7 +185,7 @@ fn label_of(header: &str) -> &'static str {
 /// without one is skipped), and what could not be read. A row with no name, e-mail or phone
 /// is left out (an empty line of a spreadsheet).
 #[must_use]
-pub fn contacts(table: &Table, mapping: &[Field]) -> (Vec<Contact>, Vec<String>) {
+pub fn contacts(table: &Table, mapping: &[Field]) -> (Vec<Contact>, Vec<Text>) {
     let mut out = Vec::new();
     let mut problems = Vec::new();
     for (n, row) in table.rows.iter().enumerate() {
@@ -237,11 +239,12 @@ pub fn contacts(table: &Table, mapping: &[Field]) -> (Vec<Contact>, Vec<String>)
                 Field::Title => c.title = v.to_string(),
                 Field::Birthday => match Birthday::parse(v) {
                     Some(b) => c.birthday = Some(b),
-                    None => problems.push(format!(
-                        "Row {}: the birthday {v:?} is no date; the contact is imported \
-                         without it.",
-                        n + 2
-                    )),
+                    None => problems.push(
+                        Phrase::new("azcontacts-csv-birthday-no-date")
+                            .arg("row", n + 2)
+                            .arg("value", v)
+                            .into(),
+                    ),
                 },
                 Field::Street => address(&|a| a.street = v.to_string()),
                 Field::City => address(&|a| a.locality = v.to_string()),
