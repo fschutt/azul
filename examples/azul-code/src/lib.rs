@@ -62,6 +62,8 @@ pub mod find_in_files;
 pub mod git;
 pub mod highlight;
 pub mod ids;
+#[cfg(test)]
+mod l10n_tests;
 pub mod menu;
 pub mod palette;
 pub mod sample;
