@@ -408,20 +408,17 @@ impl Sheet {
 
     /// The sheet's title: a new drive's (its purchase), else the code's.
     pub(crate) fn title(&self) -> String {
-        String::from(if self.new_drive {
-            "Your new drive's recovery code"
+        t(if self.new_drive {
+            "azdrive-enc-sheet-title-new"
         } else {
-            "Your recovery code"
+            "azdrive-enc-sheet-title"
         })
     }
 
     /// What the sheet says after "Copy".
     pub(crate) fn copied_note(&self) -> String {
         if self.copied {
-            String::from(
-                "Copied: paste it into your password manager now - the clipboard is cleared in a \
-                 minute.",
-            )
+            t("azdrive-enc-code-copied")
         } else {
             String::new()
         }
@@ -581,15 +578,11 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
             let mut body = column(Vec::new());
             if sheet.new_drive {
                 body.add_child(line(
-                    "Your new drive is encrypted on this computer: nobody else - Azlin included - \
-                     can open its files. This recovery code is the only way back in when every \
-                     computer with the drive is lost.",
+                    "azdrive-enc-your-new-drive-encrypted",
                 ));
             }
             body.add_child(line(
-                "Write it down, print it or save the emergency kit, and keep it apart from this \
-                 computer (a safe is a good place). It is stored nowhere: this is the one time \
-                 it shows.",
+                "azdrive-enc-write-down-print-save",
             ));
             // The code as text: selectable, and a "Copy" whose copy leaves the clipboard again.
             body.add_child(
@@ -606,7 +599,10 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                             )
                             .with_id(crate::ids::SHEET_CODE),
                     )
-                    .with_child(button("Copy", app, on_copy_code).with_id(crate::ids::SHEET_COPY)),
+                    .with_child(
+                        button("azdrive-bridge-copy", app, on_copy_code)
+                            .with_id(crate::ids::SHEET_COPY),
+                    ),
             );
             if sheet.copied {
                 body.add_child(line(&sheet.copied_note()).with_css("font-size: 12px;"));
@@ -686,12 +682,9 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
         } => {
             let mut body = column(vec![
                 line(
-                    "From a computer that lost the drive (its devices were taken over), the \
-                     recovery code locks it down: it takes no writes for 48 hours, during which \
-                     the recovery code may cancel it; then every other device and key loses the \
-                     drive and this computer keeps it.",
+                    "azdrive-enc-from-computer-lost-drive",
                 ),
-                label("The recovery code"),
+                label("azdrive-drill-code"),
                 TextInput::create()
                     .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
                     .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
@@ -734,11 +727,9 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
         } => {
             let mut body = column(vec![
                 line(
-                    "A lockdown started with the recovery code is cancelled only with the \
-                     recovery code: whoever has it wins. Type the drive's code from its \
-                     emergency kit.",
+                    "azdrive-enc-lockdown-started-recovery-code",
                 ),
-                label("The recovery code"),
+                label("azdrive-drill-code"),
                 TextInput::create()
                     .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
                     .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
@@ -749,9 +740,9 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 body.add_child(line(error).with_css("color: #C42B1C;"));
             }
             body.add_child(buttons(vec![
-                button("Close", app, on_cancel_popup),
+                button("azdrive-button-close", app, on_cancel_popup),
                 typed_button(
-                    "Cancel the lockdown",
+                    "azdrive-enc-cancel-lockdown",
                     ButtonType::Primary,
                     app,
                     on_cancel_lockdown_signed,
@@ -759,40 +750,33 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 .with_id(crate::ids::LOCKDOWN_CANCEL_CONFIRM),
             ]));
             (
-                format!("Cancel the lockdown of \"{}\"", drive_name(s, drive_id)),
+                t_args("azdrive-enc-cancel-title", &[("name", Arg::from(drive_name(s, drive_id)))]),
                 body,
             )
         }
         Dialog::ConfirmRotate {
             drive_id, error, ..
         } => (
-            format!("New keys for \"{}\"?", drive_name(s, drive_id)),
+            t_args("azdrive-enc-rotate-title", &[("name", Arg::from(drive_name(s, drive_id)))]),
             column(vec![
                 line(
-                    "Use this when a computer, a phone or a key of this drive may be in someone \
-                     else's hands.",
+                    "azdrive-enc-use-when-computer-phone",
                 ),
                 line(
-                    "1. The drive is locked down: every other computer, every key and every \
-                     shared link loses access at once.",
+                    "azdrive-enc-1-drive-locked-down",
                 ),
                 line(
-                    "2. The drive gets a new key, and you get a NEW RECOVERY CODE. The old code \
-                     stops working.",
+                    "azdrive-enc-2-drive-gets-new",
                 ),
                 line(
-                    "3. Your other computers join again with a new join code from this one; \
-                     links are shared again; incoming mail gets a new drop key.",
+                    "azdrive-enc-3-your-other-computers",
                 ),
                 line(
-                    "Then re-encrypting every file is recommended: afterwards nothing in the \
-                     drive opens with the old key.",
+                    "azdrive-enc-then-re-encrypting-every",
                 ),
-                label("Your current recovery code, if you have it"),
+                label("azdrive-enc-your-current-recovery-code"),
                 line(
-                    "The token server takes the new code only signed with the current one. \
-                     Without it the drive still gets new keys, but the old code keeps locking \
-                     the drive down and cancelling lockdowns.",
+                    "azdrive-enc-token-server-takes-new",
                 )
                 .with_css("font-size: 12px;"),
                 TextInput::create()
@@ -890,11 +874,8 @@ pub(crate) fn guard_unfinished_setup(
     if s.popup.is_none() {
         s.popups_opened += 1;
         s.popup = Some(Popup::Encryption(Dialog::Busy {
-            title: String::from("Finishing the drive's encryption"),
-            text: String::from(
-                "The drive's recovery code was never confirmed, so the drive waits for it: \
-                 making a new code (the old one opens nothing any more)...",
-            ),
+            title: t("azdrive-enc-finishing-title"),
+            text: t("azdrive-enc-finishing"),
         }));
     }
     spawn(
@@ -976,11 +957,8 @@ pub(crate) fn encrypt_new_drive(
     if s.popup.is_none() {
         s.popups_opened += 1;
         s.popup = Some(Popup::Encryption(Dialog::Busy {
-            title: String::from("Setting up the drive's encryption"),
-            text: String::from(
-                "Every file of the drive is encrypted on this computer before it leaves it. \
-                 Making the drive's keys and its recovery code (a few seconds)...",
-            ),
+            title: t("azdrive-enc-setting-up-title"),
+            text: t("azdrive-enc-setting-up"),
         }));
     }
     spawn(
@@ -1341,9 +1319,7 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
             s.popup = None;
             let name = drive_name(s, &drive_id);
             println!("AZDRIVE_ENCRYPTED_NEW_DRIVE {drive_id}");
-            s.success(format!(
-                "\"{name}\" is ready: encrypted on this computer, its recovery kit set up."
-            ));
+            s.success(Phrase::new("azdrive-enc-new-drive-ready").arg("name", name));
             crate::refresh(info, app, s);
             return;
         }
@@ -1752,7 +1728,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 let bucket = Arc::clone(auto.bucket());
                 let key = device::unlock(bucket.as_ref(), &keyring, auto.drive())
                     .map_err(|e| e.to_string())?
-                    .ok_or_else(|| String::from("this computer has no key for the drive"))?;
+                    .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
                 let code = RecoveryCode::generate().map_err(|e| e.to_string())?;
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 let wrap = RecoveryWrap::seal(&key, auto.drive(), &code, kdf)
@@ -1770,7 +1746,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
         EncryptionJob::Totals { azlin_id, auto } => {
             let result = (|| -> Result<(u64, u64), String> {
                 let provider = index_provider()
-                    .ok_or_else(|| String::from("this build of AzDrive has no drive index"))?;
+                    .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 let drive = open_encrypted(
                     Arc::clone(auto.bucket()),
                     &keyring,
@@ -1842,11 +1818,9 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                         .map_err(|e| e.to_string())
                         .and_then(|answer| {
                             answer.map_err(|e| match &e {
-                                TokenError::Refused { status: 401, .. } => String::from(
-                                    "the token server keeps the drive's previous recovery code: \
-                                     it takes a new one only signed with the current one (type \
-                                     it under \"I was hacked: new keys\")",
-                                ),
+                                TokenError::Refused { status: 401, .. } => {
+                                    String::from("azdrive-enc-err-keeps-previous-code")
+                                }
                                 _ => e.to_string(),
                             })
                         })
@@ -1931,15 +1905,10 @@ pub(crate) fn current_code(
     typed: &str,
 ) -> Result<RecoveryCode, String> {
     let Some(code) = RecoveryCode::parse(typed) else {
-        return Err(String::from(
-            "That is not a recovery code: 26 letters and digits, in five groups.",
-        ));
+        return Err(t("azdrive-drill-not-a-code"));
     };
     match crate::recovery::drill_answer(known_key, drive_id, typed) {
-        crate::recovery::DrillAnswer::NotTheCode => Err(String::from(
-            "That is not this drive's current recovery code (an older code opens nothing any \
-             more).",
-        )),
+        crate::recovery::DrillAnswer::NotTheCode => Err(t("azdrive-enc-not-current-code")),
         _ => Ok(code),
     }
 }
@@ -1984,9 +1953,9 @@ fn cancel_lockdown(drive_id: &str, code: &RecoveryCode, token_url: &str) -> Resu
     match server.lockdown_cancel_signed(drive_id, |message| Ok(key.sign_base64(message))) {
         Ok(_) => Ok(()),
         Err(TokenError::Refused { code, .. }) if code == "no_pending_lockdown" => Ok(()),
-        Err(TokenError::Refused { status: 401, .. }) => Err(String::from(
-            "That recovery code does not match the drive's recovery key.",
-        )),
+        Err(TokenError::Refused { status: 401, .. }) => {
+            Err(String::from("azdrive-enc-err-code-mismatch"))
+        }
         Err(e) => Err(e.to_string()),
     }
 }
@@ -2062,16 +2031,14 @@ pub(crate) fn on_outcome(
                 }
             }
             Err(why) => {
+                let why = t_label(&why);
                 let text = if new_drive {
-                    format!(
-                        "{why}. The drive was made, but it is not encrypted yet: \"Encrypt this \
-                         drive...\" in its menu does it before anything goes into it."
-                    )
+                    t_args("azdrive-enc-new-drive-not-encrypted", &[("why", Arg::from(why))])
                 } else {
                     why
                 };
                 s.popup = Some(Popup::Encryption(Dialog::Message {
-                    title: String::from("The drive was not encrypted"),
+                    title: t("azdrive-enc-not-encrypted"),
                     text,
                 }));
             }
@@ -2212,7 +2179,7 @@ pub(crate) fn on_outcome(
                 s.popup = Some(Popup::Encryption(Dialog::CancelLockdown {
                     drive_id,
                     typed: Zeroizing::new(String::new()),
-                    error: why,
+                    error: t_label(&why),
                 }));
             }
         },
@@ -2224,13 +2191,8 @@ pub(crate) fn on_outcome(
                         until.map_or_else(|| String::from("none"), azul_storage::time::iso8601);
                     println!("AZDRIVE_RECOVERY_LOCKDOWN {drive_id}");
                     Dialog::Message {
-                        title: format!("\"{name}\" is locked down"),
-                        text: format!(
-                            "The lockdown with the recovery code is pending{until}: the drive \
-                             takes no writes, and the recovery code may still cancel it. Then \
-                             every other device and key loses the drive, and this computer \
-                             keeps it."
-                        ),
+                        title: t_args("azdrive-enc-locked-title", &[("name", Arg::from(name))]),
+                        text: t_args("azdrive-enc-locked", &[("until", Arg::from(until))]),
                     }
                 }
                 Err(why) => Dialog::Message {
@@ -2329,7 +2291,7 @@ extern "C" fn on_cancel_lockdown_signed(mut data: RefAny, mut info: CallbackInfo
         let checked = current_code(known.as_deref(), &drive_id, typed).and_then(|code| {
             token_url_of(s, &drive_id)
                 .map(|url| (code, url))
-                .ok_or_else(|| String::from("The drive's token server is not known here."))
+                .ok_or_else(|| t("azdrive-enc-no-token-server-here"))
         });
         let (code, token_url) = match checked {
             Ok(found) => found,
@@ -2343,8 +2305,8 @@ extern "C" fn on_cancel_lockdown_signed(mut data: RefAny, mut info: CallbackInfo
             }
         };
         s.popup = Some(Popup::Encryption(Dialog::Busy {
-            title: String::from("Cancelling the lockdown"),
-            text: String::from("Signing the cancel with the recovery code..."),
+            title: t("azdrive-enc-cancelling-title"),
+            text: t("azdrive-enc-cancelling"),
         }));
         let job = EncryptionJob::CancelLockdown {
             drive_id,
@@ -2472,6 +2434,7 @@ mod tests {
     /// anything is signed; a code this computer has no public key of goes to the server.
     #[test]
     fn only_the_drives_current_recovery_code_cancels_a_lockdown_or_signs_a_new_one() {
+        crate::l10n::in_english();
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         let old = RecoveryCode::from_bytes([0x11; 16]);
         let known = recovery_key_of(&code, "d_1").public_base64();
@@ -2535,6 +2498,7 @@ mod tests {
     /// is not used until a new code's sheet does.
     #[test]
     fn a_new_drives_sheet_is_the_purchases_and_the_drive_waits_for_it() {
+        crate::l10n::in_english();
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         let sheet = Sheet::new("d_new", code.to_text()).for_new_drive();
         assert_eq!(sheet.title(), "Your new drive's recovery code");

@@ -1003,10 +1003,10 @@ azdrive-recovery-used = The recovery code of "{ $drive }" was used to lock it do
         [one] an hour
        *[other] { $hours } hours
     } ({ $at }) that device takes the drive and every other device loses it. If that was not you, cancel it in AzDrive now.
-azdrive-lockdown-pending = A lockdown with the recovery code is pending until { $until }: then every other device loses this drive. If that was not you, cancel it now.
+azdrive-lockdown-pending = A lockdown with the recovery code is pending until { $until }: then every other device loses this drive. If that was not you, cancel it now with your recovery code.
 azdrive-lockdown-cancel = Cancel lockdown
 azdrive-lockdown-no-token-server = The drive's token server is not known: the lockdown cannot be cancelled here.
-azdrive-lockdown-cancelled = The lockdown with the recovery code was cancelled. If you did not start it, someone has your recovery code: make a new one.
+azdrive-lockdown-cancelled = The lockdown with the recovery code was cancelled. If you did not start it, someone has your recovery code: make a new one (the drive's menu: I was hacked: new keys).
 azdrive-lockdown-not-cancelled = The lockdown could not be cancelled:
 
 ## Use with other programs
@@ -1308,3 +1308,72 @@ azdrive-err-unsupported = Not supported yet: { $detail }
 ## The sync on a metered network
 
 azdrive-sync-status-metered = Paused (metered network)
+
+## Encrypted drives at the purchase
+
+azdrive-enc-your-new-drive-encrypted = Your new drive is encrypted on this computer: nobody else - Azlin included - can open its files. This recovery code is the only way back in when every computer with the drive is lost.
+azdrive-enc-write-down-print-save = Write it down, print it or save the emergency kit, and keep it apart from this computer (a safe is a good place). It is stored nowhere: this is the one time it shows.
+azdrive-enc-from-computer-lost-drive = From a computer that lost the drive (its devices were taken over), the recovery code locks it down: it takes no writes for 48 hours, during which the recovery code may cancel it; then every other device and key loses the drive and this computer keeps it.
+azdrive-enc-lockdown-started-recovery-code = A lockdown started with the recovery code is cancelled only with the recovery code: whoever has it wins. Type the drive's code from its emergency kit.
+azdrive-enc-cancel-lockdown = Cancel the lockdown
+azdrive-enc-use-when-computer-phone = Use this when a computer, a phone or a key of this drive may be in someone else's hands.
+azdrive-enc-1-drive-locked-down = 1. The drive is locked down: every other computer, every key and every shared link loses access at once.
+azdrive-enc-2-drive-gets-new = 2. The drive gets a new key, and you get a NEW RECOVERY CODE. The old code stops working.
+azdrive-enc-3-your-other-computers = 3. Your other computers join again with a new join code from this one; links are shared again; incoming mail gets a new drop key.
+azdrive-enc-then-re-encrypting-every = Then re-encrypting every file is recommended: afterwards nothing in the drive opens with the old key.
+azdrive-enc-your-current-recovery-code = Your current recovery code, if you have it
+azdrive-enc-token-server-takes-new = The token server takes the new code only signed with the current one. Without it the drive still gets new keys, but the old code keeps locking the drive down and cancelling lockdowns.
+azdrive-enc-sheet-title-new = Your new drive's recovery code
+azdrive-enc-code-copied = Copied: paste it into your password manager now - the clipboard is cleared in a minute.
+azdrive-enc-cancel-title = Cancel the lockdown of "{ $name }"
+azdrive-enc-finishing-title = Finishing the drive's encryption
+azdrive-enc-finishing = The drive's recovery code was never confirmed, so the drive waits for it: making a new code (the old one opens nothing any more)…
+azdrive-enc-setting-up-title = Setting up the drive's encryption
+azdrive-enc-setting-up = Every file of the drive is encrypted on this computer before it leaves it. Making the drive's keys and its recovery code (a few seconds)…
+azdrive-enc-new-drive-ready = "{ $name }" is ready: encrypted on this computer, its recovery kit set up.
+azdrive-enc-err-keeps-previous-code = the token server keeps the drive's previous recovery code: it takes a new one only signed with the current one (type it under "I was hacked: new keys")
+azdrive-enc-not-current-code = That is not this drive's current recovery code (an older code opens nothing any more).
+azdrive-enc-new-drive-not-encrypted = { $why }. The drive was made, but it is not encrypted yet: "Encrypt this drive…" in its menu does it before anything goes into it.
+azdrive-enc-no-token-server-here = The drive's token server is not known here.
+azdrive-enc-cancelling-title = Cancelling the lockdown
+azdrive-enc-cancelling = Signing the cancel with the recovery code…
+
+## Lockdowns, the metered network, paper
+
+azdrive-lockdown-needs-encryption = A lockdown with the recovery code is cancelled with the code, which this AzDrive (built without encryption) cannot read.
+azdrive-sync-metered-note = On a metered or low-data network (a phone's hotspot, a capped plan, Low Data Mode) files over { $mb } MB wait for a free one; smaller files sync as always.
+azdrive-sync-anyway = Sync anyway on this network
+azdrive-paper-send-to = Send it to:
+
+## A banned drive, a drive's space
+
+azdrive-ban-banner = Due to { $reason }, your account has been banned, but you have { $hours ->
+        [one] 1 hour
+       *[other] { $hours } hours
+    } to migrate your files.
+azdrive-ban-banner-no-end = Due to { $reason }, your account has been banned: copy your files to this computer now.
+azdrive-ban-closed = This drive was closed on { $day } because { $reason }.
+azdrive-ban-closed-no-day = This drive was closed because { $reason }.
+azdrive-ban-refused = This drive is banned ({ $reason }): it takes no uploads, new folders or links. Copy your files to this computer before it closes.
+azdrive-ban-sync-paused = Uploads paused: this drive is banned ({ $reason }) and takes nothing new.
+azdrive-ban-copy-folder = Azlin drive
+azdrive-ban-copy-everything = Copy everything to this computer…
+azdrive-ban-copy-title = Copy everything to this computer
+azdrive-ban-copy-not-opened = The drive could not be opened to copy its files.
+azdrive-usage-available = { $about ->
+        [yes] about { $size } available
+       *[no] { $size } available
+    }
+azdrive-usage-used = { $about ->
+        [yes] about { $used } used of { $quota } (estimated on this computer)
+       *[no] { $used } used of { $quota }
+    }
+azdrive-usage-original = your files are { $size } before compression
+azdrive-usage-nearly-full = "{ $name }": The drive is nearly full ({ $about ->
+        [yes] about { $used } of { $quota } used, counted after compression, estimated on this computer
+       *[no] { $used } of { $quota } used, counted after compression
+    }): free up space or choose a bigger tier.
+azdrive-usage-full = "{ $name }": The drive is full ({ $about ->
+        [yes] about { $used } of { $quota } used, counted after compression, estimated on this computer
+       *[no] { $used } of { $quota } used, counted after compression
+    }): new files are refused until space is freed or the tier is bigger.

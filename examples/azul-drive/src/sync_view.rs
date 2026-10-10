@@ -1396,13 +1396,7 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                     )
                     .dom(),
             )
-            .with_child(
-                line(
-                    "The least recently used files are freed first; files kept on this device \
-                     (pinned) never are.",
-                )
-                .with_css(small),
-            )
+            .with_child(line("azdrive-sync-keep-gb-note").with_css(small))
             .with_child(
                 Dom::create_div()
                     .with_css(
@@ -1410,7 +1404,7 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                     )
                     .with_child(
                         CheckBox::create(setup.sync_on_metered)
-                            .with_accessibility_name(AzString::from(SYNC_ANYWAY))
+                            .with_accessibility_name(l10n::label(SYNC_ANYWAY))
                             .with_on_toggle(
                                 setting_ref(app, id),
                                 on_sync_on_metered as CheckBoxOnToggleCallbackType,
@@ -1419,15 +1413,12 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                             .with_id(ids::sync_on_metered(id)),
                     )
                     .with_child(
-                        Dom::create_span_with_text(AzString::from(SYNC_ANYWAY))
+                        Dom::create_span_with_text(l10n::label(SYNC_ANYWAY))
                             .with_css("margin-left: 8px;"),
                     ),
             )
             .with_child(
-                line(&format!(
-                    "On a metered or low-data network (a phone's hotspot, a capped plan, Low Data \
-                     Mode) files over {mb} MB wait for a free one; smaller files sync as always."
-                ))
+                line(&l10n::t_args("azdrive-sync-metered-note", &[("mb", l10n::Arg::from(mb))]))
                 .with_css(small),
             );
         if names_its_files(s, id) {
@@ -1511,7 +1502,7 @@ extern "C" fn on_drive_action(mut data: RefAny, mut info: CallbackInfo) -> Updat
 }
 
 /// The Options' check box that syncs a drive on a metered network too.
-const SYNC_ANYWAY: &str = "Sync anyway on this network";
+const SYNC_ANYWAY: &str = "azdrive-sync-anyway";
 
 /// "Sync anyway on this network" ticked or not: kept with the drive's sync settings; the status
 /// line says so at once, and a drive now free syncs its big files right away.

@@ -631,8 +631,8 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                     .filter(|usage| usage.quota > 0)
                 {
                     pane = pane.with_property(
-                        AzString::from("Space used"),
-                        AzString::from(usage.text()),
+                        label("azdrive-details-used"),
+                        AzString::from(crate::usage_view::usage_text(&usage)),
                     );
                 }
                 match &slot.entry.location {

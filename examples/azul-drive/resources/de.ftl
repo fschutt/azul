@@ -1001,10 +1001,10 @@ azdrive-recovery-used = Der Wiederherstellungscode von „{ $drive }“ wurde be
         [one] einer Stunde
        *[other] { $hours } Stunden
     } ({ $at }) übernimmt dieses Gerät das Laufwerk, und jedes andere Gerät verliert es. Wenn du das nicht warst, brich es jetzt in AzDrive ab.
-azdrive-lockdown-pending = Eine Sperrung mit dem Wiederherstellungscode steht bis { $until } an: Dann verliert jedes andere Gerät dieses Laufwerk. Wenn du das nicht warst, brich sie jetzt ab.
+azdrive-lockdown-pending = Eine Sperrung mit dem Wiederherstellungscode steht bis { $until } an: Dann verliert jedes andere Gerät dieses Laufwerk. Wenn du das nicht warst, brich sie jetzt mit deinem Wiederherstellungscode ab.
 azdrive-lockdown-cancel = Sperrung abbrechen
 azdrive-lockdown-no-token-server = Der Tokenserver des Laufwerks ist nicht bekannt: Die Sperrung kann hier nicht abgebrochen werden.
-azdrive-lockdown-cancelled = Die Sperrung mit dem Wiederherstellungscode wurde abgebrochen. Wenn du sie nicht gestartet hast, hat jemand deinen Wiederherstellungscode: Erstelle einen neuen.
+azdrive-lockdown-cancelled = Die Sperrung mit dem Wiederherstellungscode wurde abgebrochen. Wenn du sie nicht gestartet hast, hat jemand deinen Wiederherstellungscode: Erstelle einen neuen (im Menü des Laufwerks: Ich wurde gehackt: neue Schlüssel).
 azdrive-lockdown-not-cancelled = Die Sperrung konnte nicht abgebrochen werden:
 
 ## Use with other programs
@@ -1306,3 +1306,72 @@ azdrive-err-unsupported = Noch nicht unterstützt: { $detail }
 ## The sync on a metered network
 
 azdrive-sync-status-metered = Angehalten (getaktetes Netzwerk)
+
+## Encrypted drives at the purchase
+
+azdrive-enc-your-new-drive-encrypted = Dein neues Laufwerk ist auf diesem Computer verschlüsselt: Niemand sonst – auch Azlin nicht – kann seine Dateien öffnen. Dieser Wiederherstellungscode ist der einzige Weg zurück, wenn jeder Computer mit dem Laufwerk verloren ist.
+azdrive-enc-write-down-print-save = Schreib ihn auf, drucke ihn aus oder speichere das Notfallkit, und bewahre ihn getrennt von diesem Computer auf (ein Tresor ist ein guter Ort). Er wird nirgends gespeichert: Dies ist das einzige Mal, dass er angezeigt wird.
+azdrive-enc-from-computer-lost-drive = Von einem Computer aus, der das Laufwerk verloren hat (seine Geräte wurden übernommen), sperrt der Wiederherstellungscode es: 48 Stunden lang nimmt es keine Schreibvorgänge an, in denen der Wiederherstellungscode sie abbrechen kann; dann verliert jedes andere Gerät und jeder Schlüssel das Laufwerk, und dieser Computer behält es.
+azdrive-enc-lockdown-started-recovery-code = Eine mit dem Wiederherstellungscode gestartete Sperrung wird nur mit dem Wiederherstellungscode abgebrochen: Wer ihn hat, gewinnt. Tippe den Code des Laufwerks aus seinem Notfallkit ein.
+azdrive-enc-cancel-lockdown = Sperrung abbrechen
+azdrive-enc-use-when-computer-phone = Verwende das, wenn ein Computer, ein Telefon oder ein Schlüssel dieses Laufwerks in fremden Händen sein könnte.
+azdrive-enc-1-drive-locked-down = 1. Das Laufwerk wird gesperrt: Jeder andere Computer, jeder Schlüssel und jeder freigegebene Link verliert sofort den Zugriff.
+azdrive-enc-2-drive-gets-new = 2. Das Laufwerk bekommt einen neuen Schlüssel, und du bekommst einen NEUEN WIEDERHERSTELLUNGSCODE. Der alte Code funktioniert nicht mehr.
+azdrive-enc-3-your-other-computers = 3. Deine anderen Computer treten mit einem neuen Beitrittscode von diesem erneut bei; Links werden erneut freigegeben; eingehende E-Mails bekommen einen neuen Ablageschlüssel.
+azdrive-enc-then-re-encrypting-every = Danach wird empfohlen, jede Datei neu zu verschlüsseln: Dann öffnet sich nichts im Laufwerk mehr mit dem alten Schlüssel.
+azdrive-enc-your-current-recovery-code = Dein aktueller Wiederherstellungscode, falls du ihn hast
+azdrive-enc-token-server-takes-new = Der Tokenserver nimmt den neuen Code nur mit der Signatur des aktuellen an. Ohne ihn bekommt das Laufwerk trotzdem neue Schlüssel, aber der alte Code kann das Laufwerk weiterhin sperren und Sperrungen abbrechen.
+azdrive-enc-sheet-title-new = Der Wiederherstellungscode deines neuen Laufwerks
+azdrive-enc-code-copied = Kopiert: Füge ihn jetzt in deinen Passwort-Manager ein – die Zwischenablage wird in einer Minute geleert.
+azdrive-enc-cancel-title = Sperrung von „{ $name }“ abbrechen
+azdrive-enc-finishing-title = Die Verschlüsselung des Laufwerks wird abgeschlossen
+azdrive-enc-finishing = Der Wiederherstellungscode des Laufwerks wurde nie bestätigt, deshalb wartet das Laufwerk darauf: Es wird ein neuer Code erstellt (der alte öffnet nichts mehr)…
+azdrive-enc-setting-up-title = Die Verschlüsselung des Laufwerks wird eingerichtet
+azdrive-enc-setting-up = Jede Datei des Laufwerks wird auf diesem Computer verschlüsselt, bevor sie ihn verlässt. Die Schlüssel des Laufwerks und sein Wiederherstellungscode werden erstellt (ein paar Sekunden)…
+azdrive-enc-new-drive-ready = „{ $name }“ ist bereit: auf diesem Computer verschlüsselt, sein Notfallkit eingerichtet.
+azdrive-enc-err-keeps-previous-code = der Tokenserver behält den bisherigen Wiederherstellungscode des Laufwerks: Er nimmt einen neuen nur mit der Signatur des aktuellen an (tippe ihn unter „Ich wurde gehackt: neue Schlüssel“ ein)
+azdrive-enc-not-current-code = Das ist nicht der aktuelle Wiederherstellungscode dieses Laufwerks (ein älterer Code öffnet nichts mehr).
+azdrive-enc-new-drive-not-encrypted = { $why }. Das Laufwerk wurde erstellt, ist aber noch nicht verschlüsselt: „Dieses Laufwerk verschlüsseln…“ in seinem Menü erledigt das, bevor etwas hineinkommt.
+azdrive-enc-no-token-server-here = Der Tokenserver des Laufwerks ist hier nicht bekannt.
+azdrive-enc-cancelling-title = Die Sperrung wird abgebrochen
+azdrive-enc-cancelling = Der Abbruch wird mit dem Wiederherstellungscode signiert…
+
+## Lockdowns, the metered network, paper
+
+azdrive-lockdown-needs-encryption = Eine Sperrung mit dem Wiederherstellungscode wird mit dem Code abgebrochen, den dieses AzDrive (ohne Verschlüsselung gebaut) nicht lesen kann.
+azdrive-sync-metered-note = In einem getakteten Netzwerk oder einem mit geringem Datenvolumen (der Hotspot eines Telefons, ein begrenzter Tarif, der Modus „Wenig Daten“) warten Dateien über { $mb } MB auf ein freies; kleinere Dateien werden wie immer synchronisiert.
+azdrive-sync-anyway = In diesem Netzwerk trotzdem synchronisieren
+azdrive-paper-send-to = Senden an:
+
+## A banned drive, a drive's space
+
+azdrive-ban-banner = Wegen { $reason } wurde dein Konto gesperrt, aber du hast noch { $hours ->
+        [one] 1 Stunde
+       *[other] { $hours } Stunden
+    }, um deine Dateien zu übertragen.
+azdrive-ban-banner-no-end = Wegen { $reason } wurde dein Konto gesperrt: Kopiere deine Dateien jetzt auf diesen Computer.
+azdrive-ban-closed = Dieses Laufwerk wurde am { $day } geschlossen, wegen { $reason }.
+azdrive-ban-closed-no-day = Dieses Laufwerk wurde geschlossen, wegen { $reason }.
+azdrive-ban-refused = Dieses Laufwerk ist gesperrt ({ $reason }): Es nimmt keine Uploads, neuen Ordner oder Links an. Kopiere deine Dateien auf diesen Computer, bevor es geschlossen wird.
+azdrive-ban-sync-paused = Hochladen angehalten: Dieses Laufwerk ist gesperrt ({ $reason }) und nimmt nichts Neues an.
+azdrive-ban-copy-folder = Azlin-Laufwerk
+azdrive-ban-copy-everything = Alles auf diesen Computer kopieren…
+azdrive-ban-copy-title = Alles auf diesen Computer kopieren
+azdrive-ban-copy-not-opened = Das Laufwerk konnte nicht geöffnet werden, um seine Dateien zu kopieren.
+azdrive-usage-available = { $about ->
+        [yes] etwa { $size } verfügbar
+       *[no] { $size } verfügbar
+    }
+azdrive-usage-used = { $about ->
+        [yes] etwa { $used } von { $quota } belegt (auf diesem Computer geschätzt)
+       *[no] { $used } von { $quota } belegt
+    }
+azdrive-usage-original = deine Dateien sind vor der Komprimierung { $size } groß
+azdrive-usage-nearly-full = „{ $name }“: Das Laufwerk ist fast voll ({ $about ->
+        [yes] etwa { $used } von { $quota } belegt, nach der Komprimierung gezählt, auf diesem Computer geschätzt
+       *[no] { $used } von { $quota } belegt, nach der Komprimierung gezählt
+    }): Gib Speicherplatz frei oder wähle eine größere Stufe.
+azdrive-usage-full = „{ $name }“: Das Laufwerk ist voll ({ $about ->
+        [yes] etwa { $used } von { $quota } belegt, nach der Komprimierung gezählt, auf diesem Computer geschätzt
+       *[no] { $used } von { $quota } belegt, nach der Komprimierung gezählt
+    }): Neue Dateien werden abgelehnt, bis Speicherplatz frei wird oder die Stufe größer ist.

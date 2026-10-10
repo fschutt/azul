@@ -21,6 +21,7 @@ use azul::{
     prelude::*,
     str::String as AzString,
 };
+use azul_appkit::l10n::{label, t, t_args, Arg, Phrase, Text};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
@@ -32,8 +33,35 @@ use crate::{
 
 // ==== The words ====
 
-// The banner's and the closed drive's words are the kit's (AzMail shows the same).
+// The kit's words of the banner and of a closed drive (AzMail's, the tests'); AzDrive says them
+// in the window's language ([`banner_phrase`], [`closed_phrase`]).
+#[cfg(test)]
 pub(crate) use azcloud_kit::token::{banner_text, closed_text};
+
+/// The banner in the window's language: why, and the hours left to copy the files.
+#[must_use]
+pub(crate) fn banner_phrase(reason: &str, hours: Option<u64>) -> Phrase {
+    match hours {
+        Some(hours) => Phrase::new("azdrive-ban-banner")
+            .arg("reason", reason)
+            .arg("hours", hours),
+        None => Phrase::new("azdrive-ban-banner-no-end").arg("reason", reason),
+    }
+}
+
+/// What a closed drive says in the window's language: when (the ban's end) and why.
+#[must_use]
+pub(crate) fn closed_phrase(until: Option<u64>, reason: &str) -> Phrase {
+    match until {
+        Some(until) => {
+            let when = azul_storage::time::iso8601(until);
+            Phrase::new("azdrive-ban-closed")
+                .arg("day", when.get(..10).unwrap_or(&when))
+                .arg("reason", reason)
+        }
+        None => Phrase::new("azdrive-ban-closed-no-day").arg("reason", reason),
+    }
+}
 
 /// Why `action` cannot run on a drive under `ban` at `now`: what writes, during the grace
 /// period; what writes or reads, once it is closed.
@@ -69,27 +97,19 @@ pub(crate) fn refusal(action: &Action, ban: &Ban, now: u64) -> Option<String> {
             | Action::Email
     );
     if ban.is_closed(now) {
-        return (writes || reads).then(|| closed_text(ban.until, &ban.reason));
+        return (writes || reads)
+            .then(|| azul_appkit::l10n::t_phrase(&closed_phrase(ban.until, &ban.reason)));
     }
-    writes.then(|| {
-        format!(
-            "This drive is banned ({}): it takes no uploads, new folders or links. Copy your \
-             files to this computer before it closes.",
-            ban.reason
-        )
-    })
+    writes.then(|| t_args("azdrive-ban-refused", &[("reason", Arg::from(ban.reason.as_str()))]))
 }
 
 /// The status line of a banned drive's sync.
 #[must_use]
-pub(crate) fn sync_text(ban: &Ban, now: u64) -> String {
+pub(crate) fn sync_text(ban: &Ban, now: u64) -> Phrase {
     if ban.is_closed(now) {
-        return closed_text(ban.until, &ban.reason);
+        return closed_phrase(ban.until, &ban.reason);
     }
-    format!(
-        "Uploads paused: this drive is banned ({}) and takes nothing new.",
-        ban.reason
-    )
+    Phrase::new("azdrive-ban-sync-paused").arg("reason", ban.reason.as_str())
 }
 
 /// The folder "Copy everything" fills: the drive's name as a folder name (`Photos 2026/`).
@@ -109,7 +129,7 @@ pub(crate) fn copy_prefix(drive_name: &str) -> String {
         .collect();
     let cleaned = cleaned.trim().trim_matches('.').trim();
     if cleaned.is_empty() {
-        String::from("Azlin drive/")
+        format!("{}/", t("azdrive-ban-copy-folder"))
     } else {
         format!("{cleaned}/")
     }
@@ -140,7 +160,7 @@ pub(crate) fn refuses_writes_to(s: &DriveState, drive_id: &str) -> Option<String
 
 /// The sync's status line of drive `drive_id`, if it is banned (its uploads are paused).
 #[must_use]
-pub(crate) fn sync_status(s: &DriveState, drive_id: &str) -> Option<String> {
+pub(crate) fn sync_status(s: &DriveState, drive_id: &str) -> Option<Phrase> {
     ban_of(s, drive_id).map(|ban| sync_text(ban, now_secs()))
 }
 
@@ -199,15 +219,17 @@ pub(crate) fn banner(s: &DriveState, app: &RefAny) -> Option<Dom> {
                 Dom::create_div()
                     .with_css("flex-grow: 1; margin-right: 12px;")
                     .with_child(
-                        Dom::create_span_with_text(AzString::from(banner_text(
-                            &ban.reason,
-                            ban.until.map(|_| ban.hours_left(now)),
-                        )))
+                        Dom::create_span_with_text(AzString::from(
+                            azul_appkit::l10n::t_phrase(&banner_phrase(
+                                &ban.reason,
+                                ban.until.map(|_| ban.hours_left(now)),
+                            )),
+                        ))
                         .with_id(ids::BAN_TEXT),
                     ),
             )
             .with_child(
-                Button::create(AzString::from("Copy everything to this computer\u{2026}"))
+                Button::create(label("azdrive-ban-copy-everything"))
                     .with_on_click(
                         RefAny::new(CopyRef {
                             app: app.clone(),
@@ -238,10 +260,9 @@ pub(crate) fn closed_view(s: &DriveState) -> Option<Dom> {
                 "display: flex; flex-direction: column; align-items: center; \
                  justify-content: center; flex-grow: 1; padding: 40px; font-size: 14px;",
             )
-            .with_child(Dom::create_span_with_text(AzString::from(closed_text(
-                ban.until,
-                &ban.reason,
-            )))),
+            .with_child(Dom::create_span_with_text(AzString::from(
+                azul_appkit::l10n::t_phrase(&closed_phrase(ban.until, &ban.reason)),
+            ))),
     )
 }
 
@@ -260,7 +281,7 @@ extern "C" fn on_copy_everything(mut data: RefAny, _info: CallbackInfo) -> Updat
         return Update::DoNothing;
     };
     let _request = FileDialog::open_directory(
-        AzString::from("Copy everything to this computer"),
+        label("azdrive-ban-copy-title"),
         OptionString::None,
         RefAny::new(CopyRef { app, drive_id }),
         on_copy_folder,
@@ -298,7 +319,7 @@ pub(crate) fn copy_everything(
     folder: PathBuf,
 ) {
     let Some(source) = crate::open_drive(s, drive_id) else {
-        s.error("The drive could not be opened to copy its files.");
+        s.error(Text::key("azdrive-ban-copy-not-opened"));
         return;
     };
     let prefix = copy_prefix(&s.drive_name(&Place::folder(drive_id, "")));

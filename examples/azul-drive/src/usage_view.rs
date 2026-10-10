@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use azcloud_kit::{
-    usage::{Level, Usage},
+    usage::{size_text, Level, Usage},
     DriveStatus,
 };
 use azul::prelude::*;
@@ -137,11 +137,68 @@ pub(crate) fn space_due(usage: Option<&DriveUsage>, now: u64) -> bool {
 }
 
 /// The status line's part: "38 GB available" (of the quota, in stored bytes; an estimate:
-/// "about 38 GB available").
+/// "about 38 GB available"), in the window's language.
 #[must_use]
 pub(crate) fn available_part(usage: &DriveUsage) -> Option<String> {
     let usage = usage.usage();
-    (usage.quota > 0).then(|| usage.available_text())
+    (usage.quota > 0).then(|| {
+        azul_appkit::l10n::t_args(
+            "azdrive-usage-available",
+            &[
+                ("size", azul_appkit::l10n::Arg::from(size_text(usage.available()))),
+                ("about", azul_appkit::l10n::Arg::from(yes(usage.estimate))),
+            ],
+        )
+    })
+}
+
+/// A flag as a message's argument (`yes`, `no`).
+fn yes(on: bool) -> &'static str {
+    if on {
+        "yes"
+    } else {
+        "no"
+    }
+}
+
+/// The details pane's line: "62 GB used of 100 GB, your files are 99 GB before compression"
+/// (the second part when the original size is known and bigger than what is stored).
+#[must_use]
+pub(crate) fn usage_text(usage: &Usage) -> String {
+    use azul_appkit::l10n::{t_args, Arg};
+    let used = size_text(usage.used);
+    let mut text = t_args(
+        "azdrive-usage-used",
+        &[
+            ("used", Arg::from(used.as_str())),
+            ("quota", Arg::from(size_text(usage.quota))),
+            ("about", Arg::from(yes(usage.estimate))),
+        ],
+    );
+    if let Some(original) = usage.original.filter(|o| *o > usage.used) {
+        let original = size_text(original);
+        if original != used {
+            text.push_str(", ");
+            text.push_str(&t_args("azdrive-usage-original", &[("size", Arg::from(original))]));
+        }
+    }
+    text
+}
+
+/// A warning for a drive that is nearly full or full, in the window's language.
+fn usage_warning(name: &str, usage: &Usage) -> Option<azul_appkit::l10n::Phrase> {
+    let said = match usage.level() {
+        Level::Fine => return None,
+        Level::NearlyFull => "azdrive-usage-nearly-full",
+        Level::Full => "azdrive-usage-full",
+    };
+    Some(
+        azul_appkit::l10n::Phrase::new(said)
+            .arg("name", name)
+            .arg("used", size_text(usage.used))
+            .arg("quota", size_text(usage.quota))
+            .arg("about", yes(usage.estimate)),
+    )
 }
 
 /// `seen` is the space of the Azlin drive `azlin_id` now: a drive nearly full or full says so
@@ -149,13 +206,13 @@ pub(crate) fn available_part(usage: &DriveUsage) -> Option<String> {
 fn store(s: &mut DriveState, azlin_id: &str, mut seen: DriveUsage) {
     let usage = seen.usage();
     if usage.level() != Level::Fine && !seen.warned {
-        if let Some(warning) = usage.warning() {
-            let name = s.drive_name(&crate::browse::Place::folder(
-                &slot_id_of(s, azlin_id).unwrap_or_else(|| azlin_id.to_string()),
-                "",
-            ));
+        let name = s.drive_name(&crate::browse::Place::folder(
+            &slot_id_of(s, azlin_id).unwrap_or_else(|| azlin_id.to_string()),
+            "",
+        ));
+        if let Some(warning) = usage_warning(&name, &usage) {
             println!("AZDRIVE_DRIVE_NEARLY_FULL {azlin_id}");
-            s.warn(format!("\"{name}\": {warning}"));
+            s.warn(warning);
         }
         seen.warned = true;
     }
@@ -252,6 +309,7 @@ mod tests {
 
     #[test]
     fn the_space_left_is_the_quota_less_the_stored_bytes_the_server_counted() {
+        crate::l10n::in_english();
         let seen = merge_status(None, &status(Some(100 * GB), Some(62 * GB))).unwrap();
         assert_eq!((seen.usage().quota, seen.usage().used), (100 * GB, 62 * GB));
         assert!(!seen.usage().estimate);
@@ -272,6 +330,7 @@ mod tests {
     /// the files' size before compression, and the token server's word does not replace it.
     #[test]
     fn the_nodes_count_is_the_space_used_and_the_index_only_adds_the_original_size() {
+        crate::l10n::in_english();
         let node = BucketSpace {
             used_bytes: Some(62 * GB),
             quota_bytes: Some(100 * GB),
@@ -303,6 +362,7 @@ mod tests {
     /// objects stands in - an estimate, and the lines say so.
     #[test]
     fn without_the_nodes_count_the_index_stored_bytes_are_an_estimate() {
+        crate::l10n::in_english();
         let seen = merge_status(None, &status(Some(100 * GB), None)).unwrap();
         let seen = merge_space(Some(seen), &BucketSpace::default()).unwrap();
         let seen = merge_totals(Some(seen), 30 * GB, 20 * GB, 5).unwrap();
