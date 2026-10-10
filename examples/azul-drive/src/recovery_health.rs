@@ -133,60 +133,195 @@ impl RecoveryState {
         }
     }
 
-    pub fn code_made(&mut self, _now: u64, _recovery_key: Option<String>) {}
+    /// A new recovery code (the setup, a rotation): made `now`, not checked yet, its recovery
+    /// key `recovery_key`. The drills count from it again, and the shares trusted contacts hold
+    /// of the old code no longer open anything.
+    pub fn code_made(&mut self, now: u64, recovery_key: Option<String>) {
+        self.code_made = Some(now);
+        self.code_checked = None;
+        self.drills_done = 0;
+        self.postponed_until = None;
+        self.recovery_key = recovery_key;
+        self.contacts_set = None;
+        self.contacts.clear();
+        self.drills_off = false;
+    }
 
-    pub fn setup_verified(&mut self, _now: u64) {}
+    /// The setup's check passed: the code was typed back right `now`.
+    pub fn setup_verified(&mut self, now: u64) {
+        self.code_checked = Some(now);
+    }
 
-    pub fn drill_passed(&mut self, _now: u64) {}
+    /// A drill passed `now` (the code typed back right): the next one comes later.
+    pub fn drill_passed(&mut self, now: u64) {
+        self.code_checked = Some(now);
+        self.drills_done = self.drills_done.saturating_add(1);
+        self.postponed_until = None;
+    }
 
+    /// When the next drill is due: a week after the code was made, three months after it, then
+    /// a year after the last check - or later when it was postponed. `None` for a code never
+    /// checked (it needs a new code, not a drill).
     #[must_use]
     pub fn next_drill(&self) -> Option<u64> {
-        None
+        let made = self.code_made?;
+        let checked = self.code_checked?;
+        let due = match self.drills_done {
+            0 => made.saturating_add(FIRST_DRILL),
+            1 => made.saturating_add(SECOND_DRILL),
+            _ => checked.saturating_add(YEARLY),
+        };
+        Some(self.postponed_until.map_or(due, |later| due.max(later)))
     }
 
+    /// Whether a drill is due `now`.
     #[must_use]
-    pub fn drill_due(&self, _now: u64) -> bool {
-        false
+    pub fn drill_due(&self, now: u64) -> bool {
+        if self.drills_off && self.may_stop_drills() {
+            return false;
+        }
+        self.next_drill().is_some_and(|due| now >= due)
     }
 
-    pub fn postpone(&mut self, _now: u64) {}
+    /// "Later": the drill asks again a week after `now`.
+    pub fn postpone(&mut self, now: u64) {
+        self.postponed_until = Some(now.saturating_add(POSTPONE));
+    }
 
+    /// Shares handed over (`kind`: of that kind only).
+    fn shares_handed(&self, kind: Option<ShareKind>) -> usize {
+        self.contacts
+            .iter()
+            .filter(|c| c.handed.is_some() && kind.is_none_or(|k| c.kind == k))
+            .count()
+    }
+
+    /// Methods that need no device and no account: the checked code, and enough printed
+    /// shares to open it.
+    #[must_use]
+    pub fn offline_methods(&self) -> usize {
+        usize::from(self.code_checked.is_some())
+            + usize::from(self.shares_handed(Some(ShareKind::Printed)) >= SHARES_NEEDED)
+    }
+
+    /// Whether the drills may stop: not while the code is the only offline method.
     #[must_use]
     pub fn may_stop_drills(&self) -> bool {
-        true
+        self.offline_methods() >= 2
     }
 
+    /// Stops the drills when they may stop (whether they did).
     pub fn stop_drills(&mut self) -> bool {
-        true
+        self.drills_off = self.may_stop_drills();
+        self.drills_off
     }
 
+    /// The drive's methods: the code once checked, trusted contacts once enough shares to
+    /// open it were handed over, other devices with the key.
     #[must_use]
     pub fn methods(&self) -> Vec<Method> {
-        Vec::new()
+        let mut methods = Vec::new();
+        if self.code_checked.is_some() {
+            methods.push(Method::Code);
+        }
+        if self.shares_handed(None) >= SHARES_NEEDED {
+            methods.push(Method::Contacts);
+        }
+        if self.other_devices > 0 {
+            methods.push(Method::OtherDevice);
+        }
+        methods
     }
 
+    /// The traffic light `now` (see the module documentation).
     #[must_use]
-    pub fn health(&self, _now: u64) -> Health {
-        Health::Green
+    pub fn health(&self, now: u64) -> Health {
+        let methods = self.methods();
+        if methods.is_empty() {
+            return Health::Red;
+        }
+        let fresh = self
+            .code_checked
+            .is_some_and(|at| now.saturating_sub(at) <= YEARLY);
+        if methods.len() >= 2 && fresh {
+            Health::Green
+        } else {
+            Health::Yellow
+        }
+    }
+}
+
+impl Health {
+    #[must_use]
+    pub fn word(self) -> &'static str {
+        match self {
+            Health::Green => "Green",
+            Health::Yellow => "Yellow",
+            Health::Red => "Red",
+        }
+    }
+}
+
+impl Method {
+    /// The method as the methods list names it.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Method::Code => "Recovery code",
+            Method::Contacts => "Trusted contacts",
+            Method::OtherDevice => "Another device",
+            Method::Passkey => "Passkey",
+        }
     }
 }
 
 /// The recovery of `drive_id`, if this computer keeps one.
 #[must_use]
-pub fn state_of<'a>(_states: &'a [RecoveryState], _drive_id: &str) -> Option<&'a RecoveryState> {
-    None
+pub fn state_of<'a>(states: &'a [RecoveryState], drive_id: &str) -> Option<&'a RecoveryState> {
+    states.iter().find(|state| state.drive_id == drive_id)
 }
 
 /// The recovery of `drive_id`, made when there is none.
 pub fn state_mut<'a>(states: &'a mut Vec<RecoveryState>, drive_id: &str) -> &'a mut RecoveryState {
-    states.push(RecoveryState::new(drive_id));
-    states.last_mut().expect("just pushed")
+    let index = match states.iter().position(|state| state.drive_id == drive_id) {
+        Some(index) => index,
+        None => {
+            states.push(RecoveryState::new(drive_id));
+            states.len() - 1
+        }
+    };
+    &mut states[index]
 }
 
-/// The info panel's line: `Green: 2 methods, the code checked on 2026-10-10`.
+/// A day as the info panel writes it (UTC): `2026-10-10`.
+fn day(at: u64) -> String {
+    let text = azul_storage::time::iso8601(at);
+    text.get(..10).unwrap_or(&text).to_string()
+}
+
+/// The info panel's line: `Green: 2 methods, the code checked on 2026-10-10`; `None` for a
+/// drive this computer keeps no recovery of.
 #[must_use]
-pub fn health_line(_states: &[RecoveryState], _drive_id: &str, _now: u64) -> Option<String> {
-    None
+pub fn health_line(states: &[RecoveryState], drive_id: &str, now: u64) -> Option<String> {
+    let state = state_of(states, drive_id)?;
+    let health = state.health(now);
+    let methods = state.methods().len();
+    let checked = state.code_checked.map_or_else(
+        || String::from("the code never checked"),
+        |at| format!("the code checked on {}", day(at)),
+    );
+    let advice = match health {
+        Health::Green => String::new(),
+        Health::Yellow if methods < 2 => String::from(" - add a second method"),
+        Health::Yellow => String::from(" - check the code (Options > Drives > Test)"),
+        Health::Red => String::from(" - make a new recovery code"),
+    };
+    let counted = if methods == 1 {
+        String::from("1 method")
+    } else {
+        format!("{methods} methods")
+    };
+    Some(format!("{}: {counted}, {checked}{advice}", health.word()))
 }
 
 #[cfg(test)]
