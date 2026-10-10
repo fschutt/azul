@@ -9,6 +9,7 @@ mod drive;
 #[cfg(feature = "encryption")]
 mod encryption;
 mod endpoints;
+mod failover;
 mod fake_s3;
 mod lock;
 mod lockdown;

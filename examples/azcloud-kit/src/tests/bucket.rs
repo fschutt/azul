@@ -172,9 +172,9 @@ fn a_block_endpoint_without_an_answer_hands_the_request_to_the_next_endpoint() {
 }
 
 #[test]
-fn a_bucket_no_endpoint_answers_says_so_and_a_503_of_the_last_one_is_the_services_answer() {
+fn a_bucket_no_endpoint_answers_says_so_and_a_busy_service_asked_again_has_the_last_word() {
     let dead = Fake::new(|_, _| Err(String::from("connection refused")));
-    match bucket_on(&dead).get("a.txt") {
+    match bucket_on(&dead).with_sleep(Arc::new(|_| {})).get("a.txt") {
         Err(CloudError::Drive(DriveError::Transport(why))) => {
             assert!(why.contains(S3) && why.contains("refused"), "{why}")
         }
@@ -187,11 +187,15 @@ fn a_bucket_no_endpoint_answers_says_so_and_a_503_of_the_last_one_is_the_service
             body: b"<Error><Code>SlowDown</Code><Message>later</Message></Error>".to_vec(),
         })
     });
-    match bucket_on(&busy).put("a.txt", b"x") {
+    match bucket_on(&busy).with_sleep(Arc::new(|_| {})).put("a.txt", b"x") {
         Err(CloudError::Drive(DriveError::Service(e))) => assert_eq!(e.code, "SlowDown"),
         other => panic!("not the service's refusal: {other:?}"),
     }
-    assert_eq!(busy.calls().len(), 1, "no alternatives, one request");
+    assert_eq!(
+        busy.calls().len(),
+        crate::failover::ROUNDS as usize,
+        "no alternatives: the one endpoint is asked again after a backoff"
+    );
     assert!(
         bucket_on(&busy).probe(".azlin/probe").is_ok(),
         "any answer means the pipe works"
