@@ -130,6 +130,8 @@ mod vouchers;
 mod periods_tests;
 #[cfg(test)]
 mod problems_tests;
+#[cfg(test)]
+mod restore_tests;
 /// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
 #[cfg(feature = "encryption")]
 mod encryption;
