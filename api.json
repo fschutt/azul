@@ -11095,6 +11095,44 @@
                                     "type": "HttpClientConfig"
                                 },
                                 "fn_body": "object.get_config()"
+                            },
+                            "add_fallback_address": {
+                                "doc": [
+                                    "Connects to `host` at `address` (an IP address, `ip:port` or `[ipv6]:port`) whenever",
+                                    "the host's name does not resolve: the request still goes to `host` - its Host header",
+                                    "and the TLS server name, so the certificate is verified for that name, not for the",
+                                    "address. A host collects up to 16 addresses. Returns false when `address` is no address",
+                                    "(or this build has no HTTP client)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "host": "String"
+                                    },
+                                    {
+                                        "address": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.add_fallback_address(host.as_str(), address.as_str())"
+                            },
+                            "clear_fallback_addresses": {
+                                "doc": [
+                                    "Forgets the fallback addresses of `host`: its name is looked up only."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "host": "String"
+                                    }
+                                ],
+                                "fn_body": "object.clear_fallback_addresses(host.as_str())"
                             }
                         },
                         "repr": "C"
