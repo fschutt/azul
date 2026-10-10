@@ -499,3 +499,11 @@ azmail-remote-style-sheets = { $count ->
 azmail-remote-and = { $first } and { $last }
 azmail-shortcut-leave-file = Leave the File tab
 azmail-shortcut-save-draft = Save the draft
+
+## Send/Receive's errors
+
+azmail-sync-connect = could not connect: { $detail }
+azmail-sync-auth = the server refused the sign-in: { $detail }
+azmail-sync-protocol = the server answered unexpectedly: { $detail }
+azmail-sync-storage = could not write the mail folder: { $detail }
+azmail-sync-stopped = stopped

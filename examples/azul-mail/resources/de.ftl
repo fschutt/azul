@@ -499,3 +499,11 @@ azmail-remote-style-sheets = { $count ->
 azmail-remote-and = { $first } und { $last }
 azmail-shortcut-leave-file = Die Registerkarte „Datei“ verlassen
 azmail-shortcut-save-draft = Den Entwurf speichern
+
+## Send/Receive's errors
+
+azmail-sync-connect = keine Verbindung möglich: { $detail }
+azmail-sync-auth = der Server hat die Anmeldung abgelehnt: { $detail }
+azmail-sync-protocol = der Server hat unerwartet geantwortet: { $detail }
+azmail-sync-storage = der E-Mail-Ordner konnte nicht geschrieben werden: { $detail }
+azmail-sync-stopped = angehalten

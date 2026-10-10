@@ -1457,12 +1457,12 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
                 ui_account::open_settings_with_error(
                     s,
                     &account,
-                    t_args("azmail-sign-in-failed", &[("why", Arg::from(e.to_string()))]),
+                    t_args("azmail-sign-in-failed", &[("why", Arg::from(sync_error_text(&e)))]),
                 );
             }
             s.sync = SyncState::Failed(t_args(
                 "azmail-send-receive-error",
-                &[("why", Arg::from(e.to_string()))],
+                &[("why", Arg::from(sync_error_text(&e)))],
             ));
             s.reload_folders();
             s.reload_messages();
@@ -1519,6 +1519,18 @@ pub(crate) fn send_local_outbox(s: &mut MailApp, info: &mut CallbackInfo, app: R
         root: s.root.clone(),
     };
     info.add_thread(thread, Thread::create(RefAny::new(job), app, local_outbox_thread));
+}
+
+/// Why Send/Receive stopped, in the window's language (the server's own words as they are).
+fn sync_error_text(e: &SyncError) -> String {
+    let said = |key: &str, detail: &str| t_args(key, &[("detail", Arg::from(detail))]);
+    match e {
+        SyncError::Connect(detail) => said("azmail-sync-connect", detail),
+        SyncError::Auth(detail) => said("azmail-sync-auth", detail),
+        SyncError::Protocol(detail) => said("azmail-sync-protocol", detail),
+        SyncError::Storage(detail) => said("azmail-sync-storage", detail),
+        SyncError::Stopped => t("azmail-sync-stopped"),
+    }
 }
 
 /// What a pass over an Outbox did, as the status bar says it.
