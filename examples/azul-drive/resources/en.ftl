@@ -827,3 +827,85 @@ azdrive-details-selected = { $count ->
     }
 azdrive-details-files = Files
 azdrive-details-folders = Folders
+
+## Places, columns, kinds, layouts and groups
+
+azdrive-column-name = Name
+azdrive-column-modified = Date modified
+azdrive-column-type = Type
+azdrive-column-size = Size
+azdrive-column-path = Folder path
+azdrive-column-tag = ETag
+azdrive-kind-folder = File folder
+azdrive-kind-file = File
+azdrive-kind-other = { $ext } File
+azdrive-kind-text = Text Document
+azdrive-kind-markdown = Markdown File
+azdrive-kind-pdf = PDF Document
+azdrive-kind-jpeg = JPEG image
+azdrive-kind-png = PNG image
+azdrive-kind-gif = GIF image
+azdrive-kind-bmp = BMP image
+azdrive-kind-webp = WEBP image
+azdrive-kind-svg = SVG Document
+azdrive-kind-video = Video
+azdrive-kind-audio = Audio
+azdrive-kind-zip = Compressed (zipped) Folder
+azdrive-kind-html = HTML Document
+azdrive-kind-json = JSON File
+azdrive-kind-csv = CSV File
+azdrive-kind-email = E-mail Message
+azdrive-kind-icalendar = iCalendar File
+azdrive-kind-word = Word Document
+azdrive-kind-excel = Excel Worksheet
+azdrive-kind-powerpoint = PowerPoint Presentation
+azdrive-layout-extra-large-icons = Extra large icons
+azdrive-layout-large-icons = Large icons
+azdrive-layout-medium-icons = Medium icons
+azdrive-layout-small-icons = Small icons
+azdrive-layout-list = List
+azdrive-layout-details = Details
+azdrive-layout-tiles = Tiles
+azdrive-layout-content = Content
+azdrive-group-by-none = (None)
+azdrive-group-by-name = Name
+azdrive-group-by-type = Type
+azdrive-group-by-size = Size
+azdrive-group-by-modified = Date modified
+azdrive-group-other = Other
+azdrive-group-folders = Folders
+azdrive-group-size-unspecified = Unspecified
+azdrive-group-date-unknown = Unknown date
+azdrive-group-date-today = Today
+azdrive-group-date-yesterday = Yesterday
+azdrive-group-date-earlier-this-week = Earlier this week
+azdrive-group-date-last-week = Last week
+azdrive-group-date-earlier-this-month = Earlier this month
+azdrive-group-date-last-month = Last month
+azdrive-group-date-earlier-this-year = Earlier this year
+azdrive-group-date-long-ago = A long time ago
+azdrive-tile-at-root = { $kind }, { $count ->
+        [one] one item
+       *[other] { $count } items
+    } at the root
+azdrive-this-pc-devices = Devices and drives
+azdrive-this-pc-network = Network locations
+azdrive-this-pc-no-cloud = No cloud drive yet.
+azdrive-this-pc-no-cloud-detail = Buy Azlin storage, or connect S3, WebDAV, Google Drive, GitHub or a database; keys and passwords stay in the system keyring.
+azdrive-this-pc-add-drive = Add drive
+azdrive-quick-access-none = Nothing is pinned yet.
+azdrive-quick-access-none-detail = Open a folder and choose See more (...) > Pin to Quick access.
+azdrive-quick-access-pinned = Pinned folders
+azdrive-quick-access-recent = Recent places
+azdrive-rename-field = New name
+azdrive-content-items = { $count ->
+        [one] one item
+       *[other] { $count } items
+    }
+azdrive-content-size = Size: { $size }
+azdrive-content-modified = Date modified: { $date }
+azdrive-folder-unreadable = This folder could not be read.
+azdrive-folder-unreadable-detail = The message above says why; Refresh (F5) tries again.
+azdrive-folder-empty = This folder is empty.
+azdrive-folder-empty-detail = Drop files here from your computer, or use New folder (or Upload) on the ribbon's Home tab.
+azdrive-folder-filter-none-detail = The search looks at the names in this folder.

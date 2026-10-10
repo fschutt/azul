@@ -985,11 +985,11 @@ impl DriveState {
             .collect()
     }
 
-    /// The name of the place's drive.
+    /// The name of the place's drive (This PC and Quick access in the window's language).
     pub fn drive_name(&self, place: &Place) -> String {
         match place {
-            Place::QuickAccess => String::from(browse::QUICK_ACCESS),
-            Place::ThisPc => String::from(browse::THIS_PC),
+            Place::QuickAccess => browse::quick_access(),
+            Place::ThisPc => browse::this_pc(),
             Place::Folder { drive, .. } => self
                 .slot_index(drive)
                 .map(|i| self.slots[i].entry.name.clone())
@@ -1000,8 +1000,8 @@ impl DriveState {
     /// What a place is called: the drive, or its folder.
     pub fn place_title(&self, place: &Place) -> String {
         match place {
-            Place::QuickAccess => String::from(browse::QUICK_ACCESS),
-            Place::ThisPc => String::from(browse::THIS_PC),
+            Place::QuickAccess => browse::quick_access(),
+            Place::ThisPc => browse::this_pc(),
             Place::Folder { prefix, .. } if prefix.is_empty() => self.drive_name(place),
             Place::Folder { prefix, .. } => key::last_segment(prefix).to_string(),
         }

@@ -78,6 +78,13 @@ pub(crate) fn token_error_text(e: &TokenError) -> Text {
     UserError::from_token_error(e).map_or_else(|| Text::plain(e.to_string()), |u| error_text(&u))
 }
 
+/// The words of AzDrive in English on this thread (a test of words the window says).
+#[cfg(test)]
+pub(crate) fn in_english() {
+    l10n::keep(&sources());
+    l10n::set_locale("en-US");
+}
+
 /// An Azlin call's error ([`drive_error_text`]'s rule).
 #[must_use]
 pub(crate) fn cloud_error_text(e: &CloudError) -> Text {

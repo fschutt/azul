@@ -36,6 +36,8 @@ use azul::{
         TextInputValid, Tile, TileCapacity,
     },
 };
+use azul_appkit::l10n::{t_args, Arg};
+
 use crate::{
     actions::{self, action_ref, on_action, Action},
     browse::{self, Column, Entry, Place},
@@ -302,7 +304,7 @@ fn groups(s: &DriveState, app: &RefAny, sections: Vec<(String, usize, Dom)>) -> 
         .into_iter()
         .map(|(label, count, content)| {
             let open = !s.groups_closed.contains(&label);
-            AccordionSection::create(AzString::from(label.as_str()), content)
+            AccordionSection::create(azul_appkit::l10n::label(&label), content)
                 .with_count(count)
                 .with_open(open)
         })
@@ -398,10 +400,9 @@ fn drive_tile(s: &DriveState, app: &RefAny, index: usize) -> Dom {
     match (s.disk.get(&slot.entry.id), s.root_counts.get(&slot.entry.id)) {
         (Some((total, free)), _) => tile = tile.with_capacity(TileCapacity::create(*total, *free)),
         (None, Some(count)) => {
-            tile = tile.with_detail(AzString::from(format!(
-                "{}, {} at the root",
-                slot.kind(),
-                browse::counted(*count, "item", "items")
+            tile = tile.with_detail(AzString::from(t_args(
+                "azdrive-tile-at-root",
+                &[("kind", Arg::from(slot.kind())), ("count", Arg::from(*count))],
             )));
         }
         (None, None) => tile = tile.with_detail(AzString::from(slot.kind())),
@@ -429,21 +430,18 @@ fn this_pc(s: &DriveState, app: &RefAny) -> Dom {
     let cloud: Vec<usize> = (0..s.slots.len()).filter(|i| !s.slots[*i].is_local()).collect();
     let tiles = |indices: &[usize]| wrap_row(indices.iter().map(|i| drive_tile(s, app, *i)).collect());
     let mut sections = vec![(
-        String::from("Devices and drives"),
+        String::from("azdrive-this-pc-devices"),
         local.len(),
         tiles(&local),
     )];
     sections.push((
-        String::from("Network locations"),
+        String::from("azdrive-this-pc-network"),
         cloud.len(),
         if cloud.is_empty() {
-            ShellEmptyState::create(AzString::from("No cloud drive yet."))
+            ShellEmptyState::create(azul_appkit::l10n::label("azdrive-this-pc-no-cloud"))
                 .with_icon(AzString::from("cloud_queue"))
-                .with_detail(AzString::from(
-                    "Buy Azlin storage, or connect S3, WebDAV, Google Drive, GitHub or a \
-                     database; keys and passwords stay in the system keyring.",
-                ))
-                .with_action_label(AzString::from("Add drive"))
+                .with_detail(azul_appkit::l10n::label("azdrive-this-pc-no-cloud-detail"))
+                .with_action_label(azul_appkit::l10n::label("azdrive-this-pc-add-drive"))
                 .with_on_action(action_ref(app, Action::AddDrive), on_action as ButtonOnClickCallbackType)
                 .dom()
         } else {
@@ -477,11 +475,9 @@ fn quick_access(s: &DriveState, app: &RefAny) -> Dom {
         })
         .collect();
     let pinned = if pins.is_empty() {
-        ShellEmptyState::create(AzString::from("Nothing is pinned yet."))
+        ShellEmptyState::create(azul_appkit::l10n::label("azdrive-quick-access-none"))
             .with_icon(AzString::from("push_pin"))
-            .with_detail(AzString::from(
-                "Open a folder and choose See more (...) > Pin to Quick access.",
-            ))
+            .with_detail(azul_appkit::l10n::label("azdrive-quick-access-none-detail"))
             .dom()
     } else {
         wrap_row(pins)
@@ -509,8 +505,8 @@ fn quick_access(s: &DriveState, app: &RefAny) -> Dom {
         s,
         app,
         vec![
-            (String::from("Pinned folders"), s.settings.pinned.len(), pinned),
-            (String::from("Recent places"), recent_count, wrap_row(recent)),
+            (String::from("azdrive-quick-access-pinned"), s.settings.pinned.len(), pinned),
+            (String::from("azdrive-quick-access-recent"), recent_count, wrap_row(recent)),
         ],
     )
     .with_id(ids::QUICK_ACCESS)
@@ -690,7 +686,7 @@ fn rename_field(s: &DriveState, app: &RefAny) -> Dom {
         .with_on_text_input(app.clone(), on_rename_text as TextInputOnTextInputCallbackType)
         .with_on_virtual_key_down(app.clone(), on_rename_key as TextInputOnVirtualKeyDownCallbackType)
         .with_on_focus_lost(app.clone(), on_rename_blur as TextInputOnFocusLostCallbackType)
-        .with_accessibility_name(AzString::from("New name"))
+        .with_accessibility_name(azul_appkit::l10n::label("azdrive-rename-field"))
         .dom()
         .with_id(ids::RENAME_FIELD)
         .with_css("min-width: 120px; flex-grow: 1;")
@@ -838,7 +834,7 @@ fn details_header(s: &DriveState, app: &RefAny) -> Dom {
                 if sorted { look::COLUMN_SORTED } else { "" }
             ))
             .with_child(
-                Dom::create_span_with_text(AzString::from(c.column.label())).with_css(
+                Dom::create_span_with_text(azul_appkit::l10n::label(c.column.label())).with_css(
                     "flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
                 ),
             );
@@ -963,7 +959,7 @@ pub(crate) extern "C" fn on_column_drag_end(mut data: RefAny, mut info: Callback
                     .columns
                     .columns
                     .iter()
-                    .map(|c| format!("{}={:.0}", c.column.label(), c.width))
+                    .map(|c| format!("{}={:.0}", c.column.english(), c.width))
                     .collect::<Vec<_>>()
                     .join(",")
             );
@@ -1033,10 +1029,13 @@ fn content_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     let size = if entry.is_folder {
         s.counts
             .get(&entry.key)
-            .map(|n| browse::counted(*n, "item", "items"))
+            .map(|n| t_args("azdrive-content-items", &[("count", Arg::from(*n))]))
             .unwrap_or_default()
     } else if entry.known {
-        format!("Size: {}", browse::format_size(entry.size))
+        t_args(
+            "azdrive-content-size",
+            &[("size", Arg::from(browse::format_size(entry.size)))],
+        )
     } else {
         String::new()
     };
@@ -1044,7 +1043,7 @@ fn content_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     let modified = if modified.is_empty() {
         String::new()
     } else {
-        format!("Date modified: {modified}")
+        t_args("azdrive-content-modified", &[("date", Arg::from(modified))])
     };
     row.add_child(
         Dom::create_div()
@@ -1465,7 +1464,7 @@ fn group_header(s: &DriveState, app: &RefAny, label: &str, count: usize) -> Dom 
             listing::HEADER_PX,
             look::ITEM
         ))
-        .with_accessibility_name(label)
+        .with_accessibility_name(azul_appkit::l10n::label(label))
         .with_child(
             Dom::create_icon(AzString::from(if open {
                 "expand_more"
@@ -1474,7 +1473,7 @@ fn group_header(s: &DriveState, app: &RefAny, label: &str, count: usize) -> Dom 
             }))
             .with_css("font-size: 16px; margin-right: 4px; opacity: 0.7; flex-shrink: 0;"),
         )
-        .with_child(Dom::create_span_with_text(AzString::from(label)))
+        .with_child(Dom::create_span_with_text(azul_appkit::l10n::label(label)))
         .with_child(
             Dom::create_span_with_text(AzString::from(format!(" ({count})")))
                 .with_css("opacity: 0.6; font-weight: 400; margin-right: 8px;"),
@@ -1618,32 +1617,25 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
         if s.loading || !s.listing_done {
             return Dom::create_div()
                 .with_css("padding: 16px; opacity: 0.7;")
-                .with_child(Dom::create_span_with_text(AzString::from("Loading...")));
+                .with_child(Dom::create_span_with_text(azul_appkit::l10n::label(
+                    "azdrive-status-loading",
+                )));
         }
         if s.listing_failed {
-            return ShellEmptyState::create(AzString::from("This folder could not be read."))
+            return ShellEmptyState::create(azul_appkit::l10n::label("azdrive-folder-unreadable"))
                 .with_icon(AzString::from("folder_off"))
-                .with_detail(AzString::from(
-                    "The message above says why; Refresh (F5) tries again.",
-                ))
+                .with_detail(azul_appkit::l10n::label("azdrive-folder-unreadable-detail"))
                 .dom()
                 .with_id(ids::EMPTY_FOLDER);
         }
         let (title, detail) = if s.search.trim().is_empty() {
-            (
-                "This folder is empty.",
-                "Drop files here from your computer, or use New folder (or Upload) on the \
-                 ribbon's Home tab.",
-            )
+            ("azdrive-folder-empty", "azdrive-folder-empty-detail")
         } else {
-            (
-                "No items match your search.",
-                "The search looks at the names in this folder.",
-            )
+            ("azdrive-find-none", "azdrive-folder-filter-none-detail")
         };
-        return ShellEmptyState::create(AzString::from(title))
+        return ShellEmptyState::create(azul_appkit::l10n::label(title))
             .with_icon(AzString::from("folder_open"))
-            .with_detail(AzString::from(detail))
+            .with_detail(azul_appkit::l10n::label(detail))
             .dom()
             .with_id(ids::EMPTY_FOLDER);
     }

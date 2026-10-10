@@ -4,6 +4,8 @@
 
 use std::{borrow::Cow, cmp::Ordering, path::Path};
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 use azul_storage::{
     config::{DriveAuth, DriveEntry, DriveLocation},
     key, sigv4, Credentials, HttpCall, HttpReply, ListPage, S3Config, S3Drive, Transport,
@@ -50,8 +52,22 @@ impl Column {
         Column::ALL.get(index).copied()
     }
 
+    /// The column's header (a key of the resources).
     #[must_use]
     pub fn label(self) -> &'static str {
+        match self {
+            Column::Name => "azdrive-column-name",
+            Column::Modified => "azdrive-column-modified",
+            Column::Type => "azdrive-column-type",
+            Column::Size => "azdrive-column-size",
+            Column::Path => "azdrive-column-path",
+            Column::Tag => "azdrive-column-tag",
+        }
+    }
+
+    /// The column's English name, for the stdout markers (`AZDRIVE_SORT Name asc`).
+    #[must_use]
+    pub fn english(self) -> &'static str {
         match self {
             Column::Name => "Name",
             Column::Modified => "Date modified",
@@ -137,14 +153,14 @@ impl Entry {
         }
     }
 
-    /// The Type column: "File folder", "Text Document", "RS File".
+    /// The Type column in the window's language: "File folder", "Text Document", "RS File".
     #[must_use]
     pub fn kind(&self) -> String {
-        kind_of(&self.name, self.is_folder)
+        kind_shown(&self.name, self.is_folder)
     }
 
-    /// [`Self::kind`] without an allocation for the kinds Explorer names (what a sort by Type
-    /// compares, once per pair of rows).
+    /// [`Self::kind`] in English without an allocation for the kinds Explorer names (what a
+    /// sort by Type compares, once per pair of rows).
     #[must_use]
     pub fn kind_label(&self) -> Cow<'static, str> {
         kind_label(&self.name, self.is_folder)
@@ -167,10 +183,52 @@ pub fn extension_of(name: &str) -> Option<&str> {
     }
 }
 
-/// What Explorer's Type column says for a name.
+/// What Explorer's Type column says for a name, in English.
 #[must_use]
 pub fn kind_of(name: &str, is_folder: bool) -> String {
     kind_label(name, is_folder).into_owned()
+}
+
+/// What Explorer's Type column says for a name, in the window's language.
+#[must_use]
+pub fn kind_shown(name: &str, is_folder: bool) -> String {
+    if is_folder {
+        return t("azdrive-kind-folder");
+    }
+    let Some(ext) = extension_of(name) else {
+        return t("azdrive-kind-file");
+    };
+    match kind_key(ext) {
+        Some(key) => t(key),
+        None => t_args("azdrive-kind-other", &[("ext", Arg::from(ext.to_ascii_uppercase()))]),
+    }
+}
+
+/// The key of the words of a kind of file Explorer names, by its extension.
+fn kind_key(ext: &str) -> Option<&'static str> {
+    Some(match ext.to_ascii_lowercase().as_str() {
+        "txt" => "azdrive-kind-text",
+        "md" => "azdrive-kind-markdown",
+        "pdf" => "azdrive-kind-pdf",
+        "jpg" | "jpeg" => "azdrive-kind-jpeg",
+        "png" => "azdrive-kind-png",
+        "gif" => "azdrive-kind-gif",
+        "bmp" => "azdrive-kind-bmp",
+        "webp" => "azdrive-kind-webp",
+        "svg" => "azdrive-kind-svg",
+        "mp4" | "m4v" | "mov" => "azdrive-kind-video",
+        "mp3" | "wav" | "flac" | "ogg" | "m4a" => "azdrive-kind-audio",
+        "zip" => "azdrive-kind-zip",
+        "html" | "htm" => "azdrive-kind-html",
+        "json" => "azdrive-kind-json",
+        "csv" => "azdrive-kind-csv",
+        "eml" => "azdrive-kind-email",
+        "ics" => "azdrive-kind-icalendar",
+        "docx" => "azdrive-kind-word",
+        "xlsx" => "azdrive-kind-excel",
+        "pptx" => "azdrive-kind-powerpoint",
+        _ => return None,
+    })
 }
 
 /// [`kind_of`], borrowed for the kinds Explorer names: only an unknown extension ("RS File")
@@ -416,19 +474,37 @@ pub fn matches_search(entry: &Entry, search: &str) -> bool {
     needle.is_empty() || entry.name.to_lowercase().contains(&needle)
 }
 
-/// The overview of the drives, as the address bar names it.
+/// The overview of the drives, as the address bar names it in English (a typed path takes it
+/// in any language).
 pub const THIS_PC: &str = "This PC";
 
-/// The pinned folders, as the address bar names them.
+/// The pinned folders, as the address bar names them in English.
 pub const QUICK_ACCESS: &str = "Quick access";
 
+/// The overview of the drives in the window's language ("Dieser PC").
+#[must_use]
+pub fn this_pc() -> String {
+    t("azdrive-this-pc")
+}
+
+/// The pinned folders in the window's language ("Schnellzugriff").
+#[must_use]
+pub fn quick_access() -> String {
+    t("azdrive-quick-access")
+}
+
+/// Whether a typed `part` names a place: its English name or the window's language's.
+fn names(part: &str, english: &str, shown: &str) -> bool {
+    part.eq_ignore_ascii_case(english) || part.to_lowercase() == shown.to_lowercase()
+}
+
 /// The address bar's editable text for `place`: `This PC`, `Home`,
-/// `Home/mail/inbox`.
+/// `Home/mail/inbox` (the places' names in the window's language).
 #[must_use]
 pub fn path_text(place: &Place, drive_name: Option<&str>) -> String {
     match place {
-        Place::QuickAccess => QUICK_ACCESS.to_string(),
-        Place::ThisPc => THIS_PC.to_string(),
+        Place::QuickAccess => quick_access(),
+        Place::ThisPc => this_pc(),
         Place::Folder { drive, prefix } => {
             let name = drive_name.unwrap_or(drive);
             let folder = prefix.trim_end_matches('/');
@@ -441,12 +517,13 @@ pub fn path_text(place: &Place, drive_name: Option<&str>) -> String {
     }
 }
 
-/// The place a typed path names: `This PC`; `Home`, `Home/mail`,
-/// `This PC/Home/mail/` or with backslashes - the drive by name, without case;
-/// `None` for an unknown drive. `drives` are `(id, name)`.
+/// The place a typed path names: `This PC` (or the window's language's name, "Dieser PC");
+/// `Home`, `Home/mail`, `This PC/Home/mail/` or with backslashes - the drive by name, without
+/// case; `None` for an unknown drive. `drives` are `(id, name)`.
 #[must_use]
 pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
-    if text.trim().eq_ignore_ascii_case(QUICK_ACCESS) {
+    let (this_pc, quick_access) = (this_pc(), quick_access());
+    if names(text.trim(), QUICK_ACCESS, &quick_access) {
         return Some(Place::QuickAccess);
     }
     let text = text.trim().replace('\\', "/");
@@ -455,14 +532,11 @@ pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .peekable();
-    if parts.peek().is_some_and(|part| part.eq_ignore_ascii_case(THIS_PC)) {
+    if parts.peek().is_some_and(|part| names(part, THIS_PC, &this_pc)) {
         parts.next();
     }
     let Some(name) = parts.next() else {
-        return text
-            .trim()
-            .eq_ignore_ascii_case(THIS_PC)
-            .then_some(Place::ThisPc);
+        return names(text.trim(), THIS_PC, &this_pc).then_some(Place::ThisPc);
     };
     let (id, _) = drives
         .iter()
@@ -501,9 +575,9 @@ pub fn place_of_path(path: &Path, drives: &[(String, std::path::PathBuf)]) -> Op
 #[must_use]
 pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
     if *place == Place::QuickAccess {
-        return vec![(QUICK_ACCESS.to_string(), Place::QuickAccess)];
+        return vec![(quick_access(), Place::QuickAccess)];
     }
-    let mut trail = vec![(THIS_PC.to_string(), Place::ThisPc)];
+    let mut trail = vec![(this_pc(), Place::ThisPc)];
     if let Place::Folder { drive, prefix } = place {
         trail.push((drive_name.to_string(), Place::folder(drive, "")));
         for (label, folder) in key::folder_trail(prefix) {
@@ -928,6 +1002,7 @@ mod tests {
 
     #[test]
     fn the_path_text_names_the_place_and_a_typed_path_finds_it_again() {
+        crate::l10n::in_english();
         let drives = vec![
             ("home".to_string(), "Home".to_string()),
             ("s3-1".to_string(), "S3 Drive".to_string()),
@@ -955,6 +1030,7 @@ mod tests {
 
     #[test]
     fn the_trail_starts_at_this_pc_then_the_drive_then_the_folders() {
+        crate::l10n::in_english();
         assert_eq!(
             crumbs_of(&Place::ThisPc, ""),
             vec![("This PC".to_string(), Place::ThisPc)]
@@ -1067,6 +1143,7 @@ mod tests {
 
     #[test]
     fn quick_access_is_a_place_of_its_own_in_the_trail_and_the_typed_path() {
+        crate::l10n::in_english();
         let drives = vec![("home".to_string(), "Home".to_string())];
         assert_eq!(path_text(&Place::QuickAccess, None), "Quick access");
         assert_eq!(parse_path("quick access", &drives), Some(Place::QuickAccess));
@@ -1085,7 +1162,28 @@ mod tests {
         assert_eq!(kind_of("main.rs", false), "RS File");
         assert_eq!(kind_of("README", false), "File");
         assert_eq!(kind_of(".bashrc", false), "File", "a leading dot is not an extension");
+        crate::l10n::in_english();
         assert_eq!(file("a.png", 1, 0).kind(), "PNG image");
+        assert_eq!(file("main.rs", 1, 0).kind(), "RS File");
+        assert_eq!(folder("inbox").kind(), "File folder");
+    }
+
+    #[test]
+    fn a_typed_path_names_this_pc_in_english_or_in_the_windows_language() {
+        azul_appkit::l10n::keep(&crate::l10n::sources());
+        azul_appkit::l10n::set_locale("de-DE");
+        let drives = vec![("home".to_string(), "Home".to_string())];
+        assert_eq!(path_text(&Place::ThisPc, None), "Dieser PC");
+        assert_eq!(parse_path("Dieser PC", &drives), Some(Place::ThisPc));
+        assert_eq!(parse_path("This PC", &drives), Some(Place::ThisPc));
+        assert_eq!(
+            parse_path("dieser pc/Home/mail", &drives),
+            Some(Place::folder("home", "mail/"))
+        );
+        assert_eq!(parse_path("Schnellzugriff", &drives), Some(Place::QuickAccess));
+        assert_eq!(file("notes.txt", 1, 0).kind(), "Textdokument");
+        assert_eq!(file("main.rs", 1, 0).kind(), "RS-Datei");
+        azul_appkit::l10n::set_locale("en-US");
     }
 
     #[test]
@@ -1125,7 +1223,8 @@ mod tests {
             assert_eq!(Column::from_index(i), Some(*column));
             assert!(!column.label().is_empty());
         }
-        assert_eq!(Column::Modified.label(), "Date modified");
+        assert_eq!(Column::Modified.label(), "azdrive-column-modified");
+        assert_eq!(Column::Modified.english(), "Date modified");
         assert_eq!(Column::from_index(99), None);
     }
 }

@@ -493,7 +493,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::GroupMenu => open_menu_below(info, group_items(app, s)),
         Action::GroupBy(group) => {
             s.settings.group_by = group;
-            println!("AZDRIVE_GROUP {}", group.label());
+            println!("AZDRIVE_GROUP {}", group.english());
             // Groups by size or date need every item's stat (the scan reads names only).
             if needs_all_stats(s) {
                 request_sort_stats(info, app, s);
@@ -3145,7 +3145,7 @@ pub(crate) fn sort_by(
     request_view_work(info, app, s);
     println!(
         "AZDRIVE_SORT {} {}",
-        s.settings.sort.column.label(),
+        s.settings.sort.column.english(),
         if s.settings.sort.descending {
             "desc"
         } else {

@@ -825,3 +825,85 @@ azdrive-details-selected = { $count ->
     }
 azdrive-details-files = Dateien
 azdrive-details-folders = Ordner
+
+## Places, columns, kinds, layouts and groups
+
+azdrive-column-name = Name
+azdrive-column-modified = Änderungsdatum
+azdrive-column-type = Typ
+azdrive-column-size = Größe
+azdrive-column-path = Ordnerpfad
+azdrive-column-tag = ETag
+azdrive-kind-folder = Dateiordner
+azdrive-kind-file = Datei
+azdrive-kind-other = { $ext }-Datei
+azdrive-kind-text = Textdokument
+azdrive-kind-markdown = Markdown-Datei
+azdrive-kind-pdf = PDF-Dokument
+azdrive-kind-jpeg = JPEG-Bild
+azdrive-kind-png = PNG-Bild
+azdrive-kind-gif = GIF-Bild
+azdrive-kind-bmp = BMP-Bild
+azdrive-kind-webp = WEBP-Bild
+azdrive-kind-svg = SVG-Dokument
+azdrive-kind-video = Video
+azdrive-kind-audio = Audio
+azdrive-kind-zip = ZIP-komprimierter Ordner
+azdrive-kind-html = HTML-Dokument
+azdrive-kind-json = JSON-Datei
+azdrive-kind-csv = CSV-Datei
+azdrive-kind-email = E-Mail-Nachricht
+azdrive-kind-icalendar = iCalendar-Datei
+azdrive-kind-word = Word-Dokument
+azdrive-kind-excel = Excel-Arbeitsblatt
+azdrive-kind-powerpoint = PowerPoint-Präsentation
+azdrive-layout-extra-large-icons = Extra große Symbole
+azdrive-layout-large-icons = Große Symbole
+azdrive-layout-medium-icons = Mittelgroße Symbole
+azdrive-layout-small-icons = Kleine Symbole
+azdrive-layout-list = Liste
+azdrive-layout-details = Details
+azdrive-layout-tiles = Kacheln
+azdrive-layout-content = Inhalt
+azdrive-group-by-none = (Keine)
+azdrive-group-by-name = Name
+azdrive-group-by-type = Typ
+azdrive-group-by-size = Größe
+azdrive-group-by-modified = Änderungsdatum
+azdrive-group-other = Andere
+azdrive-group-folders = Ordner
+azdrive-group-size-unspecified = Nicht angegeben
+azdrive-group-date-unknown = Unbekanntes Datum
+azdrive-group-date-today = Heute
+azdrive-group-date-yesterday = Gestern
+azdrive-group-date-earlier-this-week = Früher in dieser Woche
+azdrive-group-date-last-week = Letzte Woche
+azdrive-group-date-earlier-this-month = Früher in diesem Monat
+azdrive-group-date-last-month = Letzter Monat
+azdrive-group-date-earlier-this-year = Früher in diesem Jahr
+azdrive-group-date-long-ago = Vor langer Zeit
+azdrive-tile-at-root = { $kind }, { $count ->
+        [one] ein Element
+       *[other] { $count } Elemente
+    } im Stammverzeichnis
+azdrive-this-pc-devices = Geräte und Laufwerke
+azdrive-this-pc-network = Netzwerkadressen
+azdrive-this-pc-no-cloud = Noch kein Cloud-Laufwerk.
+azdrive-this-pc-no-cloud-detail = Kaufe Azlin-Speicher oder verbinde S3, WebDAV, Google Drive, GitHub oder eine Datenbank; Schlüssel und Kennwörter bleiben im Schlüsselbund des Systems.
+azdrive-this-pc-add-drive = Laufwerk hinzufügen
+azdrive-quick-access-none = Noch nichts angeheftet.
+azdrive-quick-access-none-detail = Öffne einen Ordner und wähle Mehr anzeigen (...) > An Schnellzugriff anheften.
+azdrive-quick-access-pinned = Angeheftete Ordner
+azdrive-quick-access-recent = Zuletzt verwendete Orte
+azdrive-rename-field = Neuer Name
+azdrive-content-items = { $count ->
+        [one] ein Element
+       *[other] { $count } Elemente
+    }
+azdrive-content-size = Größe: { $size }
+azdrive-content-modified = Änderungsdatum: { $date }
+azdrive-folder-unreadable = Dieser Ordner konnte nicht gelesen werden.
+azdrive-folder-unreadable-detail = Die Meldung oben sagt, warum; Aktualisieren (F5) versucht es erneut.
+azdrive-folder-empty = Dieser Ordner ist leer.
+azdrive-folder-empty-detail = Lege Dateien von deinem Computer hier ab oder verwende „Neuer Ordner“ (oder „Hochladen“) auf der Registerkarte „Start“.
+azdrive-folder-filter-none-detail = Die Suche betrachtet die Namen in diesem Ordner.
