@@ -13,36 +13,64 @@ use std::path::Path;
 
 use super::{BatteryState, ThermalState};
 
-/// `NSProcessInfoThermalState` (0 nominal, 1 fair, 2 serious, 3 critical).
-pub(crate) fn thermal_of_apple(state: isize) -> ThermalState {
-    let _ = state;
-    ThermalState::Unknown
+/// A sysfs attribute's text without its new line; empty when it cannot be read (the power
+/// state's Linux reading shares it).
+pub(crate) fn read_trimmed(path: &Path) -> String {
+    std::fs::read_to_string(path)
+        .map(|text| text.trim().to_string())
+        .unwrap_or_default()
 }
 
-/// `PowerManager.getCurrentThermalStatus()` (`THERMAL_STATUS_NONE` 0 ... `SHUTDOWN` 6).
+/// `NSProcessInfoThermalState` (0 nominal, 1 fair, 2 serious, 3 critical).
+pub(crate) fn thermal_of_apple(state: isize) -> ThermalState {
+    match state {
+        0 => ThermalState::Nominal,
+        1 => ThermalState::Fair,
+        2 => ThermalState::Serious,
+        3 => ThermalState::Critical,
+        _ => ThermalState::Unknown,
+    }
+}
+
+/// `PowerManager.getCurrentThermalStatus()` (`THERMAL_STATUS_NONE` 0 ... `SHUTDOWN` 6): light
+/// and moderate throttling "do not largely impact" the user (Fair), severe does (Serious),
+/// critical, emergency and shutdown are Critical.
 pub(crate) fn thermal_of_android(status: i32) -> ThermalState {
-    let _ = status;
-    ThermalState::Unknown
+    match status {
+        0 => ThermalState::Nominal,
+        1 | 2 => ThermalState::Fair,
+        3 => ThermalState::Serious,
+        4..=6 => ThermalState::Critical,
+        _ => ThermalState::Unknown,
+    }
 }
 
 /// A level from a fraction of 1 (`UIDevice.batteryLevel`: -1 when unknown).
 pub(crate) fn level_of_fraction(fraction: f32) -> u8 {
-    let _ = fraction;
-    BatteryState::LEVEL_UNKNOWN
+    if (0.0..=1.0).contains(&fraction) {
+        // 0.0..=100.0 after the multiplication: the cast cannot truncate.
+        (fraction * 100.0).round() as u8
+    } else {
+        BatteryState::LEVEL_UNKNOWN
+    }
 }
 
 /// A level from a current and a maximum capacity (IOKit's `Current Capacity` / `Max
-/// Capacity`).
+/// Capacity`), rounded down; a battery over its maximum is full.
 pub(crate) fn level_of_capacity(current: i64, max: i64) -> u8 {
-    let _ = (current, max);
-    BatteryState::LEVEL_UNKNOWN
+    if max <= 0 || current < 0 {
+        return BatteryState::LEVEL_UNKNOWN;
+    }
+    level_of_percent((current.saturating_mul(100) / max).min(100))
 }
 
 /// A level from a percent the platform may not know (Android's `BATTERY_PROPERTY_CAPACITY`:
 /// `Integer.MIN_VALUE` when unsupported; Windows' `BatteryLifePercent`: 255 when unknown).
 pub(crate) fn level_of_percent(percent: i64) -> u8 {
-    let _ = percent;
-    BatteryState::LEVEL_UNKNOWN
+    match u8::try_from(percent) {
+        Ok(level) if level <= 100 => level,
+        _ => BatteryState::LEVEL_UNKNOWN,
+    }
 }
 
 /// `SYSTEM_POWER_STATUS` (winbase.h): `ACLineStatus` (0 off, 1 on, 255 unknown),
@@ -54,13 +82,22 @@ pub(crate) fn of_windows_status(
     battery_life_percent: u8,
     system_status_flag: u8,
 ) -> BatteryState {
-    let _ = (
-        ac_line_status,
-        battery_flag,
-        battery_life_percent,
-        system_status_flag,
-    );
-    BatteryState::UNKNOWN
+    /// `BatteryFlag`: charging, no system battery, unknown.
+    const CHARGING: u8 = 8;
+    const NO_SYSTEM_BATTERY: u8 = 128;
+    const UNKNOWN: u8 = 255;
+    let present = battery_flag != NO_SYSTEM_BATTERY && battery_flag != UNKNOWN;
+    BatteryState {
+        present,
+        charging: present && (battery_flag & CHARGING != 0 || ac_line_status == 1),
+        level_percent: if present {
+            level_of_percent(i64::from(battery_life_percent))
+        } else {
+            BatteryState::LEVEL_UNKNOWN
+        },
+        low_power_mode: system_status_flag == 1,
+        thermal: ThermalState::Unknown,
+    }
 }
 
 /// The system batteries under `root` (`/sys/class/power_supply`): `(present, charging,
@@ -68,8 +105,50 @@ pub(crate) fn of_windows_status(
 /// count. On its charger: one battery `Charging`, or `Full` / `Not charging` while a mains or
 /// USB supply is online. The level is the mean `capacity` of the batteries that say one.
 pub(crate) fn of_power_supplies(root: &Path) -> (bool, bool, u8) {
-    let _ = root;
-    (false, false, BatteryState::LEVEL_UNKNOWN)
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return (false, false, BatteryState::LEVEL_UNKNOWN);
+    };
+    let (mut present, mut charging_now, mut full_or_held, mut mains_online) =
+        (false, false, false, false);
+    let mut levels: Vec<u32> = Vec::new();
+    for entry in entries.flatten() {
+        let supply = entry.path();
+        match read_trimmed(&supply.join("type")).as_str() {
+            "Mains" | "USB" => {
+                if read_trimmed(&supply.join("online")) == "1" {
+                    mains_online = true;
+                }
+            }
+            "Battery" => {
+                if read_trimmed(&supply.join("scope")) == "Device"
+                    || read_trimmed(&supply.join("present")) == "0"
+                {
+                    continue;
+                }
+                present = true;
+                match read_trimmed(&supply.join("status")).as_str() {
+                    "Charging" => charging_now = true,
+                    "Full" | "Not charging" => full_or_held = true,
+                    _ => {}
+                }
+                let level = read_trimmed(&supply.join("capacity"))
+                    .parse::<i64>()
+                    .map_or(BatteryState::LEVEL_UNKNOWN, level_of_percent);
+                if level != BatteryState::LEVEL_UNKNOWN {
+                    levels.push(u32::from(level));
+                }
+            }
+            _ => {}
+        }
+    }
+    let level = match u32::try_from(levels.len()) {
+        Ok(count) if count > 0 => {
+            u8::try_from(levels.iter().sum::<u32>() / count).unwrap_or(BatteryState::LEVEL_UNKNOWN)
+        }
+        _ => BatteryState::LEVEL_UNKNOWN,
+    };
+    let charging = present && (charging_now || (full_or_held && mains_online));
+    (present, charging, level)
 }
 
 /// The hottest thermal zone under `root` (`/sys/class/thermal`), each zone's `temp` against
@@ -77,14 +156,62 @@ pub(crate) fn of_power_supplies(root: &Path) -> (bool, bool, u8) {
 /// the kernel slows the processor) Serious, an `active` one (a fan) Fair, else Nominal.
 /// Unknown without a zone that has a trip point.
 pub(crate) fn thermal_of_zones(root: &Path) -> ThermalState {
-    let _ = root;
-    ThermalState::Unknown
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return ThermalState::Unknown;
+    };
+    // 0 nominal, 1 fair, 2 serious, 3 critical; `None` while no zone has a trip point.
+    let mut hottest: Option<u8> = None;
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("thermal_zone")
+        {
+            continue;
+        }
+        let zone = entry.path();
+        // Millidegrees Celsius; a sensor that cannot be read says nothing.
+        let Ok(temp) = read_trimmed(&zone.join("temp")).parse::<i64>() else {
+            continue;
+        };
+        let mut level: Option<u8> = None;
+        for n in 0..64 {
+            let kind = read_trimmed(&zone.join(format!("trip_point_{n}_type")));
+            if kind.is_empty() {
+                break;
+            }
+            let step = match kind.as_str() {
+                "active" => 1,
+                "passive" => 2,
+                "hot" | "critical" => 3,
+                _ => continue,
+            };
+            // A trip point at 0 (or below) is a disabled one.
+            let trip = read_trimmed(&zone.join(format!("trip_point_{n}_temp")))
+                .parse::<i64>()
+                .unwrap_or(0);
+            if trip <= 0 {
+                continue;
+            }
+            let reached = if temp >= trip { step } else { 0 };
+            level = Some(level.map_or(reached, |l| l.max(reached)));
+        }
+        if let Some(level) = level {
+            hottest = Some(hottest.map_or(level, |h| h.max(level)));
+        }
+    }
+    match hottest {
+        None => ThermalState::Unknown,
+        Some(0) => ThermalState::Nominal,
+        Some(1) => ThermalState::Fair,
+        Some(2) => ThermalState::Serious,
+        Some(_) => ThermalState::Critical,
+    }
 }
 
 /// Whether `/sys/firmware/acpi/platform_profile` says the power saver (`low-power`).
 pub(crate) fn low_power_of_platform_profile(profile: &str) -> bool {
-    let _ = profile;
-    false
+    profile.trim() == "low-power"
 }
 
 #[cfg(test)]
@@ -115,14 +242,29 @@ mod tests {
         assert_eq!(level_of_fraction(0.234), 23);
         assert_eq!(level_of_fraction(1.0), 100);
         assert_eq!(level_of_fraction(0.0), 0);
-        assert_eq!(level_of_fraction(-1.0), BatteryState::LEVEL_UNKNOWN, "unknown");
+        assert_eq!(
+            level_of_fraction(-1.0),
+            BatteryState::LEVEL_UNKNOWN,
+            "unknown"
+        );
         assert_eq!(level_of_fraction(f32::NAN), BatteryState::LEVEL_UNKNOWN);
         assert_eq!(level_of_capacity(46, 100), 46);
         assert_eq!(level_of_capacity(2_500, 5_000), 50, "capacities in mAh");
-        assert_eq!(level_of_capacity(5_100, 5_000), 100, "a battery over its maximum");
-        assert_eq!(level_of_capacity(10, 0), BatteryState::LEVEL_UNKNOWN, "no maximum");
+        assert_eq!(
+            level_of_capacity(5_100, 5_000),
+            100,
+            "a battery over its maximum"
+        );
+        assert_eq!(
+            level_of_capacity(10, 0),
+            BatteryState::LEVEL_UNKNOWN,
+            "no maximum"
+        );
         assert_eq!(level_of_percent(64), 64);
-        assert_eq!(level_of_percent(i64::from(i32::MIN)), BatteryState::LEVEL_UNKNOWN);
+        assert_eq!(
+            level_of_percent(i64::from(i32::MIN)),
+            BatteryState::LEVEL_UNKNOWN
+        );
         assert_eq!(level_of_percent(255), BatteryState::LEVEL_UNKNOWN);
     }
 
@@ -156,10 +298,8 @@ mod tests {
 
     impl Tree {
         fn new(name: &str) -> Tree {
-            let root = std::env::temp_dir().join(format!(
-                "azul-battery-{name}-{}",
-                std::process::id()
-            ));
+            let root =
+                std::env::temp_dir().join(format!("azul-battery-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(&root).unwrap();
             Tree(root)
@@ -206,7 +346,11 @@ mod tests {
             .file("BAT1/type", "Battery")
             .file("BAT1/status", "Charging")
             .file("BAT1/capacity", "60");
-        assert_eq!(of_power_supplies(charging.path()), (true, true, 50), "two batteries");
+        assert_eq!(
+            of_power_supplies(charging.path()),
+            (true, true, 50),
+            "two batteries"
+        );
 
         let held = Tree::new("held");
         held.file("BAT0/type", "Battery")
@@ -254,7 +398,11 @@ mod tests {
             .file("thermal_zone1/trip_point_1_temp", "90000")
             .file("thermal_zone1/trip_point_2_type", "critical")
             .file("thermal_zone1/trip_point_2_temp", "105000");
-        assert_eq!(thermal_of_zones(hot.path()), ThermalState::Serious, "the hottest zone");
+        assert_eq!(
+            thermal_of_zones(hot.path()),
+            ThermalState::Serious,
+            "the hottest zone"
+        );
 
         let fan = Tree::new("fan");
         fan.file("thermal_zone0/temp", "65000")
@@ -288,7 +436,10 @@ mod tests {
     fn linux_says_low_power_for_the_power_saver_profile_only() {
         assert!(low_power_of_platform_profile("low-power\n"));
         assert!(!low_power_of_platform_profile("balanced"));
-        assert!(!low_power_of_platform_profile("quiet"), "quiet is about the fans");
+        assert!(
+            !low_power_of_platform_profile("quiet"),
+            "quiet is about the fans"
+        );
         assert!(!low_power_of_platform_profile(""));
     }
 }

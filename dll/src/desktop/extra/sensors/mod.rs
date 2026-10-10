@@ -52,6 +52,69 @@ pub mod network;
 /// since the last input), per platform; a fixed reading in headless runs.
 pub mod power;
 
+/// A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`; the biometric module's test,
+/// the same variables): the device-state readings answer fixed values or a test's switch file,
+/// never the machine's own.
+pub(crate) fn headless_run() -> bool {
+    std::env::var("AZ_BACKEND").as_deref() == Ok("headless") || std::env::var("AZ_E2E_TEST").is_ok()
+}
+
+/// The words of a headless run's switch file at `path` (the battery's, the network's), read at
+/// every query so a test changes them while the app runs; `None` without a file, or one that
+/// cannot be read.
+pub(crate) fn switch_file_words(path: Option<&std::path::Path>) -> Option<String> {
+    path.and_then(|path| std::fs::read_to_string(path).ok())
+}
+
+/// One reading through JNI on this thread, attached to the app's Java VM for it (detached
+/// again after, which frees the reading's local references); `None` before the activity
+/// published its VM and when `read` cannot ask (its pending exception cleared). The network's
+/// and the battery's monitor threads read their services this way.
+#[cfg(target_os = "android")]
+pub(crate) fn with_activity<T>(
+    read: impl FnOnce(&mut jni::JNIEnv<'_>, &jni::objects::JObject<'_>) -> Option<T>,
+) -> Option<T> {
+    let vm_ptr = crate::desktop::shell2::android::java_vm_ptr();
+    let activity_ptr = crate::desktop::shell2::android::activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return None;
+    }
+    // SAFETY: the VM and the activity (a global reference the activity layer keeps alive) the
+    // activity published.
+    let vm = unsafe { jni::JavaVM::from_raw(vm_ptr.cast()) }.ok()?;
+    let mut env = vm.attach_current_thread().ok()?;
+    // SAFETY: as above.
+    let activity = unsafe { jni::objects::JObject::from_raw(activity_ptr.cast()) };
+    let answer = read(&mut env, &activity);
+    if answer.is_none() {
+        let _ = env.exception_clear();
+    }
+    answer
+}
+
+/// The activity's system service `name` (`Context.getSystemService`: "connectivity",
+/// "batterymanager", "power"); `None` when it cannot be asked or there is none.
+#[cfg(target_os = "android")]
+pub(crate) fn system_service<'local>(
+    env: &mut jni::JNIEnv<'local>,
+    activity: &jni::objects::JObject<'_>,
+    name: &str,
+) -> Option<jni::objects::JObject<'local>> {
+    use jni::objects::{JObject, JValue};
+
+    let name = JObject::from(env.new_string(name).ok()?);
+    let service = env
+        .call_method(
+            activity,
+            "getSystemService",
+            "(Ljava/lang/String;)Ljava/lang/Object;",
+            &[JValue::Object(&name)],
+        )
+        .and_then(|v| v.l())
+        .ok()?;
+    (!service.is_null()).then_some(service)
+}
+
 #[cfg(target_os = "android")]
 pub mod android;
 #[cfg(any(target_os = "ios", target_os = "macos"))]

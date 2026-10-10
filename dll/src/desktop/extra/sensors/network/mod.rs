@@ -95,7 +95,7 @@ impl NetworkState {
     /// The network state now (see the module documentation).
     #[must_use]
     pub fn query() -> NetworkState {
-        if headless_run() {
+        if super::headless_run() {
             return headless_reading();
         }
         platform::read().unwrap_or(NetworkState::UNKNOWN)
@@ -164,11 +164,6 @@ impl NetworkState {
     }
 }
 
-/// A headless or E2E run (the power and biometric modules' test, the same variables).
-fn headless_run() -> bool {
-    std::env::var("AZ_BACKEND").as_deref() == Ok("headless") || std::env::var("AZ_E2E_TEST").is_ok()
-}
-
 /// A headless run's network: the switch file's words, else [`NetworkState::HEADLESS`].
 fn headless_reading() -> NetworkState {
     let path = std::env::var_os(NETWORK_STATE_FILE_VAR);
@@ -178,10 +173,9 @@ fn headless_reading() -> NetworkState {
 /// The network the file at `path` says ([`NetworkState::from_words`]); without a file, or one
 /// that cannot be read, [`NetworkState::HEADLESS`].
 fn reading_of_file(path: Option<&Path>) -> NetworkState {
-    path.and_then(|path| std::fs::read_to_string(path).ok())
-        .map_or(NetworkState::HEADLESS, |text| {
-            NetworkState::from_words(&text)
-        })
+    super::switch_file_words(path).map_or(NetworkState::HEADLESS, |text| {
+        NetworkState::from_words(&text)
+    })
 }
 
 /// What the platform monitor saw last; `None` before its first reading.

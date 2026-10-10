@@ -19,7 +19,13 @@
 //! * iOS, Android: not yet ([`PowerState::UNKNOWN`]).
 //! * A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): the fixed
 //!   [`PowerState::HEADLESS`] - on mains, never idle - so no test depends on the machine it runs
-//!   on and no background pass starts behind a test's back.
+//!   on and no background pass starts behind a test's back. On battery when the battery's
+//!   switch file (`AZ_BATTERY_STATE_FILE`, see `super::battery`) names a battery off its
+//!   charger: one file drains a test's battery and unplugs its power.
+//!
+//! The battery's own reading (its level, Low Power Mode, the thermal state) is
+//! `super::battery`'s; on macOS and Windows it reads the power sources this module loads
+//! (the platform module's `internal_battery` / `system_power_status`).
 
 /// The computer's power state (see the module documentation).
 #[repr(C)]
@@ -49,8 +55,9 @@ impl PowerState {
     /// The power state now (see the module documentation).
     #[must_use]
     pub fn query() -> PowerState {
-        if headless() {
-            return PowerState::HEADLESS;
+        if super::headless_run() {
+            let path = std::env::var_os(super::battery::BATTERY_STATE_FILE_VAR);
+            return power_of_battery_file(path.as_deref().map(std::path::Path::new));
         }
         let (on_mains, idle_secs) = platform::read();
         PowerState {
@@ -77,22 +84,29 @@ impl PowerState {
 /// switch file at `path` (`AZ_BATTERY_STATE_FILE`, [`super::battery::BatteryState::from_words`])
 /// names a battery off its charger, so one file drains a test's battery and unplugs its power.
 fn power_of_battery_file(path: Option<&std::path::Path>) -> PowerState {
-    let _ = path;
-    PowerState::HEADLESS
+    let battery = super::battery::reading_of_file(path);
+    if battery.present && !battery.charging {
+        PowerState {
+            on_mains: false,
+            ..PowerState::HEADLESS
+        }
+    } else {
+        PowerState::HEADLESS
+    }
 }
 
-/// A headless or E2E run (the biometric module's test, the same variables).
-fn headless() -> bool {
-    std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
-        || std::env::var("AZ_E2E_TEST").is_ok()
-}
-
+/// macOS: the power sources (IOKit) and the session's idle time; the battery's reading shares
+/// the power sources ([`platform::internal_battery`]).
 #[cfg(target_os = "macos")]
-mod platform {
+pub(super) mod platform {
     use std::ffi::{c_char, c_void, CStr};
+
+    use crate::desktop::extra::sensors::battery::{readings, BatteryState};
 
     type CFTypeRef = *const c_void;
     type CFStringRef = *const c_void;
+    type CFArrayRef = *const c_void;
+    type CFDictionaryRef = *const c_void;
 
     #[link(name = "IOKit", kind = "framework")]
     extern "C" {
@@ -100,6 +114,11 @@ mod platform {
         fn IOPSCopyPowerSourcesInfo() -> CFTypeRef;
         /// "AC Power", "Battery Power" or "UPS Power" (Get rule: owned by the snapshot).
         fn IOPSGetProvidingPowerSourceType(snapshot: CFTypeRef) -> CFStringRef;
+        /// The snapshot's power sources (Copy rule: the caller releases the array).
+        fn IOPSCopyPowerSourcesList(snapshot: CFTypeRef) -> CFArrayRef;
+        /// A power source's description (Get rule: owned by the snapshot).
+        fn IOPSGetPowerSourceDescription(snapshot: CFTypeRef, source: CFTypeRef)
+            -> CFDictionaryRef;
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -111,7 +130,26 @@ mod platform {
             buffer_size: isize,
             encoding: u32,
         ) -> u8;
+        fn CFStringCreateWithBytes(
+            allocator: CFTypeRef,
+            bytes: *const u8,
+            length: isize,
+            encoding: u32,
+            is_external_representation: u8,
+        ) -> CFStringRef;
+        fn CFArrayGetCount(array: CFArrayRef) -> isize;
+        fn CFArrayGetValueAtIndex(array: CFArrayRef, index: isize) -> CFTypeRef;
+        fn CFDictionaryGetValue(dictionary: CFDictionaryRef, key: CFTypeRef) -> CFTypeRef;
+        fn CFGetTypeID(cf: CFTypeRef) -> usize;
+        fn CFStringGetTypeID() -> usize;
+        fn CFNumberGetTypeID() -> usize;
+        fn CFBooleanGetTypeID() -> usize;
+        fn CFNumberGetValue(number: CFTypeRef, the_type: isize, value: *mut c_void) -> u8;
+        fn CFBooleanGetValue(boolean: CFTypeRef) -> u8;
     }
+
+    /// `kCFNumberSInt64Type`.
+    const K_CF_NUMBER_SINT64_TYPE: isize = 4;
 
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
@@ -124,8 +162,141 @@ mod platform {
     /// `kCGAnyInputEventType` (`~0`).
     const K_CG_ANY_INPUT_EVENT_TYPE: u32 = u32::MAX;
 
-    fn on_mains() -> Option<bool> {
+    /// `string` as UTF-8 (at most 63 bytes); `None` when it is no string.
+    ///
+    /// # Safety
+    ///
+    /// `string` is a live CF object or null.
+    unsafe fn text_of(string: CFTypeRef) -> Option<String> {
         let mut buffer = [0 as c_char; 64];
+        // SAFETY: the caller's; the buffer's size is passed.
+        unsafe {
+            if string.is_null() || CFGetTypeID(string) != CFStringGetTypeID() {
+                return None;
+            }
+            if CFStringGetCString(
+                string,
+                buffer.as_mut_ptr(),
+                buffer.len() as isize,
+                K_CF_STRING_ENCODING_UTF8,
+            ) == 0
+            {
+                return None;
+            }
+            Some(CStr::from_ptr(buffer.as_ptr()).to_string_lossy().into_owned())
+        }
+    }
+
+    /// The value of `description`'s key `key` (a power source key: "Type", "Is Charging").
+    ///
+    /// # Safety
+    ///
+    /// `description` is a live CFDictionary; the value is owned by it.
+    unsafe fn value_of(description: CFDictionaryRef, key: &str) -> CFTypeRef {
+        // SAFETY: the key string is made and released here; the dictionary is the caller's.
+        unsafe {
+            let key = CFStringCreateWithBytes(
+                std::ptr::null(),
+                key.as_ptr(),
+                key.len() as isize,
+                K_CF_STRING_ENCODING_UTF8,
+                0,
+            );
+            if key.is_null() {
+                return std::ptr::null();
+            }
+            let value = CFDictionaryGetValue(description, key);
+            CFRelease(key);
+            value
+        }
+    }
+
+    /// `description`'s number `key`.
+    ///
+    /// # Safety
+    ///
+    /// As [`value_of`].
+    unsafe fn number_of(description: CFDictionaryRef, key: &str) -> Option<i64> {
+        // SAFETY: the caller's; the value's type is checked before it is read.
+        unsafe {
+            let value = value_of(description, key);
+            if value.is_null() || CFGetTypeID(value) != CFNumberGetTypeID() {
+                return None;
+            }
+            let mut number = 0_i64;
+            (CFNumberGetValue(
+                value,
+                K_CF_NUMBER_SINT64_TYPE,
+                std::ptr::addr_of_mut!(number).cast(),
+            ) != 0)
+                .then_some(number)
+        }
+    }
+
+    /// `description`'s boolean `key`.
+    ///
+    /// # Safety
+    ///
+    /// As [`value_of`].
+    unsafe fn flag_of(description: CFDictionaryRef, key: &str) -> Option<bool> {
+        // SAFETY: the caller's; the value's type is checked before it is read.
+        unsafe {
+            let value = value_of(description, key);
+            if value.is_null() || CFGetTypeID(value) != CFBooleanGetTypeID() {
+                return None;
+            }
+            Some(CFBooleanGetValue(value) != 0)
+        }
+    }
+
+    /// The internal battery among the power sources: `(present, charging, level_percent)`
+    /// (IOKit's `Current Capacity` of its `Max Capacity`; on its charger: `Is Charging`, or its
+    /// power source state "AC Power"). A Mac without one (a desktop) has no battery; `None`
+    /// without a snapshot.
+    pub(in crate::desktop::extra::sensors) fn internal_battery() -> Option<(bool, bool, u8)> {
+        // SAFETY: the snapshot and the list are released after their descriptions were read;
+        // each description is only read while the snapshot lives.
+        unsafe {
+            let snapshot = IOPSCopyPowerSourcesInfo();
+            if snapshot.is_null() {
+                return None;
+            }
+            let mut battery = (false, false, BatteryState::LEVEL_UNKNOWN);
+            let list = IOPSCopyPowerSourcesList(snapshot);
+            if !list.is_null() {
+                for index in 0..CFArrayGetCount(list) {
+                    let source = CFArrayGetValueAtIndex(list, index);
+                    let description = IOPSGetPowerSourceDescription(snapshot, source);
+                    if description.is_null()
+                        || text_of(value_of(description, "Type")).as_deref()
+                            != Some("InternalBattery")
+                    {
+                        continue;
+                    }
+                    if flag_of(description, "Is Present") == Some(false) {
+                        continue;
+                    }
+                    let on_charger = flag_of(description, "Is Charging") == Some(true)
+                        || text_of(value_of(description, "Power Source State")).as_deref()
+                            == Some("AC Power");
+                    let level = match (
+                        number_of(description, "Current Capacity"),
+                        number_of(description, "Max Capacity"),
+                    ) {
+                        (Some(current), Some(max)) => readings::level_of_capacity(current, max),
+                        _ => BatteryState::LEVEL_UNKNOWN,
+                    };
+                    battery = (true, on_charger, level);
+                    break;
+                }
+                CFRelease(list);
+            }
+            CFRelease(snapshot);
+            Some(battery)
+        }
+    }
+
+    fn on_mains() -> Option<bool> {
         // SAFETY: the snapshot is released after its string was copied out; the string is
         // only read while the snapshot lives.
         unsafe {
@@ -133,19 +304,9 @@ mod platform {
             if snapshot.is_null() {
                 return None;
             }
-            let kind = IOPSGetProvidingPowerSourceType(snapshot);
-            let copied = !kind.is_null()
-                && CFStringGetCString(
-                    kind,
-                    buffer.as_mut_ptr(),
-                    buffer.len() as isize,
-                    K_CF_STRING_ENCODING_UTF8,
-                ) != 0;
+            let kind = text_of(IOPSGetProvidingPowerSourceType(snapshot));
             CFRelease(snapshot);
-            if !copied {
-                return None;
-            }
-            Some(CStr::from_ptr(buffer.as_ptr()).to_bytes() == b"AC Power")
+            Some(kind? == "AC Power")
         }
     }
 
@@ -165,8 +326,10 @@ mod platform {
     }
 }
 
+/// Windows: `GetSystemPowerStatus` and the session's last input; the battery's reading shares
+/// the power status ([`platform::system_power_status`]).
 #[cfg(target_os = "windows")]
-mod platform {
+pub(super) mod platform {
     use std::sync::OnceLock;
 
     use crate::desktop::shell2::{
@@ -177,11 +340,11 @@ mod platform {
     #[repr(C)]
     #[derive(Default)]
     #[allow(dead_code)]
-    struct SystemPowerStatus {
-        ac_line_status: u8,
-        battery_flag: u8,
-        battery_life_percent: u8,
-        system_status_flag: u8,
+    pub(in crate::desktop::extra::sensors) struct SystemPowerStatus {
+        pub(in crate::desktop::extra::sensors) ac_line_status: u8,
+        pub(in crate::desktop::extra::sensors) battery_flag: u8,
+        pub(in crate::desktop::extra::sensors) battery_life_percent: u8,
+        pub(in crate::desktop::extra::sensors) system_status_flag: u8,
         battery_life_time: u32,
         battery_full_life_time: u32,
     }
@@ -231,13 +394,19 @@ mod platform {
         })
     }
 
-    fn on_mains(f: &Functions) -> Option<bool> {
-        let get = f.get_system_power_status?;
+    /// `GetSystemPowerStatus` now; `None` where kernel32 lacks it or the call fails.
+    pub(in crate::desktop::extra::sensors) fn system_power_status() -> Option<SystemPowerStatus> {
+        let get = functions().get_system_power_status?;
         let mut status = SystemPowerStatus::default();
         // SAFETY: `status` is a valid SYSTEM_POWER_STATUS.
         if unsafe { get(&mut status) } == 0 {
             return None;
         }
+        Some(status)
+    }
+
+    fn on_mains() -> Option<bool> {
+        let status = system_power_status()?;
         match status.ac_line_status {
             1 => Some(true),
             0 => Some(false),
@@ -262,8 +431,7 @@ mod platform {
     }
 
     pub(super) fn read() -> (Option<bool>, Option<u64>) {
-        let f = functions();
-        (on_mains(&f), idle_secs(&f))
+        (on_mains(), idle_secs(&functions()))
     }
 }
 
@@ -271,20 +439,16 @@ mod platform {
 mod platform {
     use std::{
         ffi::{c_char, c_int, c_ulong, c_void},
-        path::Path,
         sync::OnceLock,
     };
 
-    use crate::desktop::shell2::{
-        common::{dlopen::load_first_available, DynamicLibrary as DynamicLibraryTrait},
-        linux::x11::dlopen::Library,
+    use crate::desktop::{
+        extra::sensors::battery::readings::read_trimmed,
+        shell2::{
+            common::{dlopen::load_first_available, DynamicLibrary as DynamicLibraryTrait},
+            linux::x11::dlopen::Library,
+        },
     };
-
-    fn read_trimmed(path: &Path) -> String {
-        std::fs::read_to_string(path)
-            .map(|text| text.trim().to_string())
-            .unwrap_or_default()
-    }
 
     /// From `/sys/class/power_supply`: a mains or USB supply online is mains; without one, a
     /// system battery that discharges is battery power, and no system battery at all (a

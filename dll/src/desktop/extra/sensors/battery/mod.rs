@@ -36,7 +36,7 @@
 
 use std::{
     path::Path,
-    sync::{Mutex, PoisonError},
+    sync::{Mutex, OnceLock, PoisonError},
     time::Duration,
 };
 
@@ -109,7 +109,11 @@ impl BatteryState {
     /// The battery now (see the module documentation).
     #[must_use]
     pub fn query() -> BatteryState {
-        BatteryState::UNKNOWN
+        if super::headless_run() {
+            return headless_reading();
+        }
+        start_monitor();
+        last_seen().unwrap_or(BatteryState::UNKNOWN)
     }
 
     /// [`BatteryState::HEADLESS`].
@@ -123,8 +127,10 @@ impl BatteryState {
     /// battery and while its level is unknown.
     #[must_use]
     pub fn runs_low(&self, below_percent: u8) -> bool {
-        let _ = below_percent;
-        false
+        self.present
+            && !self.charging
+            && self.level_percent != BatteryState::LEVEL_UNKNOWN
+            && self.level_percent < below_percent
     }
 
     /// A headless run's battery in words, any case, separated by spaces, commas or new lines: a
@@ -136,8 +142,44 @@ impl BatteryState {
     /// Low Power Mode, `charging 80 serious` a hot phone on its charger.
     #[must_use]
     pub fn from_words(text: &str) -> BatteryState {
-        let _ = text;
-        BatteryState::HEADLESS
+        let mut state = BatteryState::HEADLESS;
+        let mut no_battery = false;
+        let words = text
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|word| !word.is_empty());
+        for word in words {
+            match word.to_ascii_lowercase().as_str() {
+                "battery" => state.present = true,
+                "no-battery" => no_battery = true,
+                "charging" => {
+                    state.present = true;
+                    state.charging = true;
+                }
+                "discharging" => {
+                    state.present = true;
+                    state.charging = false;
+                }
+                "low-power" => state.low_power_mode = true,
+                "nominal" => state.thermal = ThermalState::Nominal,
+                "fair" => state.thermal = ThermalState::Fair,
+                "serious" => state.thermal = ThermalState::Serious,
+                "critical" => state.thermal = ThermalState::Critical,
+                other => {
+                    if let Ok(level) = other.trim_end_matches('%').parse::<u8>() {
+                        state.present = true;
+                        if level <= 100 {
+                            state.level_percent = level;
+                        }
+                    }
+                }
+            }
+        }
+        if no_battery {
+            state.present = false;
+            state.charging = false;
+            state.level_percent = BatteryState::LEVEL_UNKNOWN;
+        }
+        state
     }
 }
 
@@ -149,9 +191,10 @@ pub(super) fn headless_reading() -> BatteryState {
 
 /// The battery the file at `path` says ([`BatteryState::from_words`]); without a file, or one
 /// that cannot be read, [`BatteryState::HEADLESS`].
-fn reading_of_file(path: Option<&Path>) -> BatteryState {
-    let _ = path;
-    BatteryState::HEADLESS
+pub(super) fn reading_of_file(path: Option<&Path>) -> BatteryState {
+    super::switch_file_words(path).map_or(BatteryState::HEADLESS, |text| {
+        BatteryState::from_words(&text)
+    })
 }
 
 /// What the monitor saw last; `None` before its first reading.
@@ -173,9 +216,67 @@ fn seen(state: BatteryState) {
 }
 
 /// What the monitor saw last; `None` before its first reading.
-#[allow(dead_code)]
 fn last_seen() -> Option<BatteryState> {
     *LAST_SEEN.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Whether this target has a platform reading (the other targets answer UNKNOWN, and start no
+/// monitor thread).
+const HAS_PLATFORM_READING: bool = cfg!(any(
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "windows"
+));
+
+/// Starts the monitor thread once: a platform reading now, then every [`POLL`].
+fn start_monitor() {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    if !HAS_PLATFORM_READING {
+        return;
+    }
+    STARTED.get_or_init(|| {
+        let spawned = std::thread::Builder::new()
+            .name(String::from("azul-battery-monitor"))
+            .spawn(|| loop {
+                platform::refresh();
+                std::thread::sleep(POLL);
+            });
+        if let Err(e) = spawned {
+            crate::plog_warn!("[battery] no monitor thread ({e}): no battery readings");
+        }
+    });
+}
+
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod apple;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "windows")]
+mod windows;
+
+#[cfg(target_os = "android")]
+use self::android as platform;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use self::apple as platform;
+#[cfg(target_os = "linux")]
+use self::linux as platform;
+#[cfg(target_os = "windows")]
+use self::windows as platform;
+
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "windows"
+)))]
+mod platform {
+    /// No reading on this target.
+    pub(super) fn refresh() {}
 }
 
 #[cfg(test)]
