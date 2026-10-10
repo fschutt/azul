@@ -34,7 +34,7 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
-use azul_core::refany::RefAny;
+use azul_core::{refany::RefAny, webview::url_query_param};
 use azul_css::{impl_option, AzString};
 
 /// How long a sign-in waits for its redirect when the request names no time: five minutes.
@@ -211,8 +211,15 @@ impl AuthPkce {
     /// fewer. The same entropy makes the same values: draw it fresh for every sign-in.
     #[must_use]
     pub fn from_entropy(entropy: &[u8]) -> Option<Self> {
-        let _ = entropy;
-        None
+        let verifier_bytes = entropy.get(..32)?;
+        let state_bytes = entropy.get(32..PKCE_ENTROPY_LEN)?;
+        let code_verifier = base64url(verifier_bytes);
+        let code_challenge = code_challenge_s256(&code_verifier);
+        Some(Self {
+            code_verifier: AzString::from(code_verifier),
+            code_challenge: AzString::from(code_challenge),
+            state: AzString::from(base64url(state_bytes)),
+        })
     }
 
     /// The authorization request at `endpoint` (the provider's authorize URL; a query it has
@@ -227,8 +234,17 @@ impl AuthPkce {
         client_id: AzString,
         scope: AzString,
     ) -> AzString {
-        let _ = (endpoint, client_id, scope);
-        AzString::default()
+        let mut url = endpoint.as_str().trim().to_string();
+        push_param(&mut url, "response_type", "code");
+        push_param(&mut url, "client_id", client_id.as_str().trim());
+        let scope = scope.as_str().trim();
+        if !scope.is_empty() {
+            push_param(&mut url, "scope", scope);
+        }
+        push_param(&mut url, "code_challenge", self.code_challenge.as_str());
+        push_param(&mut url, "code_challenge_method", "S256");
+        push_param(&mut url, "state", self.state.as_str());
+        AzString::from(url)
     }
 
     /// The URL the browser came back to, read: its `state` must be this sign-in's (else
@@ -237,11 +253,39 @@ impl AuthPkce {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)] // C API: api.json hands the AzString over by value
     pub fn read_redirect(&self, redirect_url: AzString) -> AuthCode {
-        let _ = redirect_url;
-        AuthCode {
-            status: AuthCodeStatus::NoCode,
-            code: AzString::default(),
-            message: AzString::default(),
+        let url = redirect_url.as_str();
+        let state = url_query_param(url, "state");
+        if !state
+            .as_deref()
+            .is_some_and(|state| same_secret(state, self.state.as_str()))
+        {
+            return AuthCode::without(
+                AuthCodeStatus::StateMismatch,
+                "the redirect does not carry this sign-in's state: it is ignored",
+            );
+        }
+        if let Some(error) = url_query_param(url, "error").filter(|e| !e.trim().is_empty()) {
+            let error = error.trim();
+            let message =
+                match url_query_param(url, "error_description").filter(|d| !d.trim().is_empty()) {
+                    Some(description) => format!(
+                        "the provider refused the sign-in ({error}): {}",
+                        description.trim()
+                    ),
+                    None => format!("the provider refused the sign-in ({error})"),
+                };
+            return AuthCode::without(AuthCodeStatus::ProviderError, &message);
+        }
+        match url_query_param(url, "code").filter(|c| !c.is_empty()) {
+            Some(code) => AuthCode {
+                status: AuthCodeStatus::Code,
+                code: AzString::from(code),
+                message: AzString::default(),
+            },
+            None => AuthCode::without(
+                AuthCodeStatus::NoCode,
+                "the redirect carries no authorization code",
+            ),
         }
     }
 }
@@ -249,8 +293,31 @@ impl AuthPkce {
 /// `BASE64URL(SHA256(verifier))` without padding: the S256 code challenge of RFC 7636.
 #[must_use]
 pub fn code_challenge_s256(verifier: &str) -> String {
-    let _ = verifier;
-    String::new()
+    use sha2::{Digest as _, Sha256};
+    base64url(&Sha256::digest(verifier.as_bytes()))
+}
+
+/// `bytes` as base64url without padding (RFC 4648 section 5).
+fn base64url(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+/// Whether two secrets are equal, compared in a time that does not depend on where they
+/// differ (a state is compared with what a page sent).
+fn same_secret(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0_u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Appends `name=value` (the value escaped) to `url`'s query.
+fn push_param(url: &mut String, name: &str, value: &str) {
+    if !(url.ends_with('?') || url.ends_with('&')) {
+        url.push(if url.contains('?') { '&' } else { '?' });
+    }
+    url.push_str(name);
+    url.push('=');
+    url.push_str(&percent_encode(value));
 }
 
 /// What a redirect said.
@@ -303,6 +370,15 @@ impl AuthCode {
     pub const fn is_code(&self) -> bool {
         matches!(self.status, AuthCodeStatus::Code)
     }
+
+    /// A redirect without a code, and why.
+    fn without(status: AuthCodeStatus, message: &str) -> Self {
+        Self {
+            status,
+            code: AzString::default(),
+            message: AzString::from(message),
+        }
+    }
 }
 
 // ==== What the platform half does with a request ====
@@ -326,8 +402,10 @@ impl Redirect {
     /// A loopback redirect's URI with `port`; a custom scheme's is the request's own.
     #[must_use]
     pub fn uri_with_port(&self, port: u16) -> Option<String> {
-        let _ = port;
-        None
+        match self {
+            Self::Loopback { host, path, .. } => Some(format!("http://{host}:{port}{path}")),
+            Self::CustomScheme { .. } => None,
+        }
     }
 }
 
@@ -335,22 +413,107 @@ impl Redirect {
 /// `https` or `http` address on another host (only the provider's own web apps can use one),
 /// a loopback address with a query or a fragment, a scheme that is no scheme.
 pub fn parse_redirect(redirect_uri: &str) -> Result<Redirect, String> {
-    let _ = redirect_uri;
-    Err(String::from("not yet"))
+    let uri = redirect_uri.trim();
+    let Some((scheme, rest)) = uri.split_once(':') else {
+        return Err(format!("{uri:?} is no redirect URI: it has no scheme"));
+    };
+    if !is_scheme(scheme) {
+        return Err(format!(
+            "{uri:?} is no redirect URI: {scheme:?} is no scheme"
+        ));
+    }
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return Ok(Redirect::CustomScheme { scheme });
+    }
+    let Some(rest) = rest.strip_prefix("//") else {
+        return Err(format!("{uri:?} is no web address"));
+    };
+    if rest.contains(['?', '#']) {
+        return Err(format!(
+            "a loopback redirect URI has no query and no fragment: {uri:?}"
+        ));
+    }
+    let (authority, path) = rest
+        .find('/')
+        .map_or((rest, "/"), |slash| (&rest[..slash], &rest[slash..]));
+    let (host, port) = split_host_port(authority)
+        .ok_or_else(|| format!("{uri:?} has no host and port a browser can reach"))?;
+    let host = host.to_ascii_lowercase();
+    if !matches!(host.as_str(), "127.0.0.1" | "localhost" | "[::1]") {
+        return Err(format!(
+            "a sign-in comes back to this computer (http://127.0.0.1/...) or to a custom \
+             scheme, not to {host}"
+        ));
+    }
+    if scheme != "http" {
+        return Err(format!(
+            "a loopback redirect is plain http, not {scheme}: nothing on this computer has a \
+             certificate for {host}"
+        ));
+    }
+    Ok(Redirect::Loopback {
+        host,
+        port,
+        path: path.to_string(),
+    })
+}
+
+/// Whether `scheme` is one (RFC 3986: a letter, then letters, digits, `+`, `-`, `.`).
+fn is_scheme(scheme: &str) -> bool {
+    let mut chars = scheme.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
+/// An authority's host (an IPv6 one in its brackets) and port (`None` for none, or `0`);
+/// `None` when it is no host and port (user info, an empty host, a port that is no port).
+fn split_host_port(authority: &str) -> Option<(&str, Option<u16>)> {
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let (host, port) = if authority.starts_with('[') {
+        let close = authority.find(']')?;
+        let (host, after) = authority.split_at(close + 1);
+        if after.is_empty() {
+            (host, None)
+        } else {
+            (host, Some(after.strip_prefix(':')?))
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }
+    };
+    if host.is_empty() {
+        return None;
+    }
+    let port = match port {
+        None => None,
+        Some(digits) => Some(digits.parse::<u16>().ok()?).filter(|&p| p != 0),
+    };
+    Some((host, port))
 }
 
 /// `authorize_url` with `redirect_uri` added to its query - refused when it names one already
 /// (the session adds the address it listens on; a second one would be the provider's choice).
 pub fn with_redirect_uri(authorize_url: &str, redirect_uri: &str) -> Result<String, String> {
-    let _ = (authorize_url, redirect_uri);
-    Err(String::from("not yet"))
+    if url_query_param(authorize_url, "redirect_uri").is_some() {
+        return Err(String::from(
+            "the authorize URL names a redirect_uri already: the session adds the address it \
+             listens on",
+        ));
+    }
+    let mut url = authorize_url.trim().to_string();
+    push_param(&mut url, "redirect_uri", redirect_uri.trim());
+    Ok(url)
 }
 
 /// The `state` parameter of an authorization request, if it has one.
 #[must_use]
 pub fn state_of(authorize_url: &str) -> Option<String> {
-    let _ = authorize_url;
-    None
+    url_query_param(authorize_url, "state").filter(|state| !state.is_empty())
 }
 
 /// Whether `url` (where the browser came back to) is `redirect_uri` exactly: the same scheme
@@ -358,8 +521,40 @@ pub fn state_of(authorize_url: &str) -> Option<String> {
 /// fragment do not count.
 #[must_use]
 pub fn matches_redirect(url: &str, redirect_uri: &str) -> bool {
-    let _ = (url, redirect_uri);
-    false
+    match (redirect_base(url), redirect_base(redirect_uri)) {
+        (Some(came), Some(expected)) => came == expected,
+        _ => false,
+    }
+}
+
+/// `url` without its query and fragment.
+fn without_query(url: &str) -> &str {
+    url.find(['?', '#']).map_or(url, |end| &url[..end]).trim()
+}
+
+/// `url` as a redirect is compared: without its query and fragment, the scheme and the
+/// authority in lowercase, an empty web path as `/`. `None` for no URL.
+fn redirect_base(url: &str) -> Option<String> {
+    let (scheme, rest) = without_query(url).split_once(':')?;
+    if !is_scheme(scheme) {
+        return None;
+    }
+    let scheme = scheme.to_ascii_lowercase();
+    let Some(rest) = rest.strip_prefix("//") else {
+        return Some(format!("{scheme}:{rest}"));
+    };
+    let (authority, path) = rest
+        .find('/')
+        .map_or((rest, ""), |slash| (&rest[..slash], &rest[slash..]));
+    let path = if path.is_empty() && (scheme == "http" || scheme == "https") {
+        "/"
+    } else {
+        path
+    };
+    Some(format!(
+        "{scheme}://{}{path}",
+        authority.to_ascii_lowercase()
+    ))
 }
 
 /// The session's answer for the URL the browser came back to: `Redirected` when it is the
@@ -368,15 +563,48 @@ pub fn matches_redirect(url: &str, redirect_uri: &str) -> bool {
 /// not.
 #[must_use]
 pub fn finish(url: &str, redirect_uri: &str, authorize_url: &str) -> AuthSessionResult {
-    let _ = (url, authorize_url);
-    AuthSessionResult::ended(AuthSessionStatus::Failed, redirect_uri, "not yet")
+    if !matches_redirect(url, redirect_uri) {
+        return AuthSessionResult::ended(
+            AuthSessionStatus::Failed,
+            redirect_uri,
+            &format!(
+                "the browser came back to {} instead of {redirect_uri}",
+                without_query(url)
+            ),
+        );
+    }
+    if let Some(expected) = state_of(authorize_url) {
+        let came = url_query_param(url, "state");
+        if !came
+            .as_deref()
+            .is_some_and(|state| same_secret(state, &expected))
+        {
+            return AuthSessionResult::ended(
+                AuthSessionStatus::Failed,
+                redirect_uri,
+                "the redirect does not carry this sign-in's state: it is ignored",
+            );
+        }
+    }
+    AuthSessionResult::redirected(url, redirect_uri)
 }
 
 /// `component` escaped for a URL's query: the unreserved characters of RFC 3986 (`A-Z a-z 0-9
 /// - . _ ~`) as they are, every other byte as `%XX`.
 #[must_use]
 pub fn percent_encode(component: &str) -> String {
-    component.to_string()
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(component.len());
+    for &byte in component.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push('%');
+            out.push(char::from(HEX[usize::from(byte >> 4)]));
+            out.push(char::from(HEX[usize::from(byte & 0x0F)]));
+        }
+    }
+    out
 }
 
 /// The one-shot HTTP listener of a loopback redirect (RFC 8252 section 7.3): bound to the
@@ -384,18 +612,47 @@ pub fn percent_encode(component: &str) -> String {
 /// small page, then closed.
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 pub mod loopback {
-    use std::time::{Duration, Instant};
+    use std::{
+        io::{ErrorKind, Read, Write},
+        net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream},
+        time::{Duration, Instant},
+    };
 
-    use super::{AuthSessionResult, AuthSessionStatus, Redirect};
+    use super::{finish, AuthSessionResult, AuthSessionStatus, Redirect};
 
     /// How long a connection may take to send its request before it is dropped (and does not
     /// count as THE request: a browser's preconnect sends nothing).
     pub const IDLE_SECS: u64 = 5;
 
+    /// The longest request head read: a redirect's request line and its headers.
+    const MAX_HEAD: usize = 16 * 1024;
+
+    /// How often the listener looks for a connection.
+    const POLL: Duration = Duration::from_millis(25);
+
+    /// The page of the redirect the app waited for (whatever the provider answered: the app
+    /// says what happened).
+    const PAGE_DONE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+        <title>Back to the app</title></head><body style=\"font-family: sans-serif; margin: \
+        3em; line-height: 1.5;\"><h1>You can close this tab</h1><p>The app has the answer of \
+        the sign-in.</p></body></html>";
+
+    /// The page of any other request: the sign-in did not finish.
+    const PAGE_FAILED: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+        <title>Sign-in not finished</title></head><body style=\"font-family: sans-serif; \
+        margin: 3em; line-height: 1.5;\"><h1>The sign-in did not finish</h1><p>This is not the \
+        answer the app waited for. You can close this tab and sign in again from the app.</p>\
+        </body></html>";
+
     /// A bound listener, waiting to be [`Loopback::wait`]ed on.
     #[derive(Debug)]
     pub struct Loopback {
+        /// One listener; two for `localhost` (127.0.0.1 and ::1, the same port), which a
+        /// browser may resolve to either.
+        listeners: Vec<TcpListener>,
         redirect_uri: String,
+        /// `http://<host>:<port>`: what a request's target is appended to.
+        origin: String,
         port: u16,
     }
 
@@ -403,8 +660,54 @@ pub mod loopback {
         /// Listens for `redirect` (a [`Redirect::Loopback`]) on the loopback interface: on its
         /// port, or a free one the system picks when it names none.
         pub fn bind(redirect: &Redirect) -> Result<Self, String> {
-            let _ = redirect;
-            Err(String::from("not yet"))
+            let Redirect::Loopback { host, port, .. } = redirect else {
+                return Err(String::from(
+                    "a custom-scheme redirect is not answered on this computer's loopback \
+                     interface",
+                ));
+            };
+            let wanted = port.unwrap_or(0);
+            let first_ip: IpAddr = if host == "[::1]" {
+                Ipv6Addr::LOCALHOST.into()
+            } else {
+                Ipv4Addr::LOCALHOST.into()
+            };
+            let first = TcpListener::bind(SocketAddr::new(first_ip, wanted)).map_err(|e| {
+                if wanted == 0 {
+                    format!("no port on this computer could be opened for the sign-in: {e}")
+                } else {
+                    format!(
+                        "the sign-in's port {wanted} cannot be opened (another program may use \
+                         it): {e}"
+                    )
+                }
+            })?;
+            let bound = first
+                .local_addr()
+                .map_err(|e| format!("the sign-in's listener has no address: {e}"))?
+                .port();
+            let mut listeners = vec![first];
+            if host == "localhost" {
+                if let Ok(second) =
+                    TcpListener::bind(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), bound))
+                {
+                    listeners.push(second);
+                }
+            }
+            for listener in &listeners {
+                listener
+                    .set_nonblocking(true)
+                    .map_err(|e| format!("the sign-in's listener cannot wait: {e}"))?;
+            }
+            let redirect_uri = redirect
+                .uri_with_port(bound)
+                .ok_or_else(|| String::from("not a loopback redirect"))?;
+            Ok(Self {
+                listeners,
+                redirect_uri,
+                origin: format!("http://{host}:{bound}"),
+                port: bound,
+            })
         }
 
         /// The redirect URI with the port it listens on.
@@ -435,9 +738,121 @@ pub mod loopback {
             idle: Duration,
             authorize_url: &str,
         ) -> AuthSessionResult {
-            let _ = (deadline, idle, authorize_url);
-            AuthSessionResult::ended(AuthSessionStatus::Failed, &self.redirect_uri, "not yet")
+            loop {
+                for listener in &self.listeners {
+                    match listener.accept() {
+                        Ok((stream, peer)) => {
+                            if !peer.ip().is_loopback() {
+                                continue;
+                            }
+                            if let Some(result) = self.serve(stream, idle, authorize_url) {
+                                return result;
+                            }
+                        }
+                        Err(e)
+                            if matches!(
+                                e.kind(),
+                                ErrorKind::WouldBlock | ErrorKind::Interrupted
+                            ) => {}
+                        Err(e) => {
+                            return AuthSessionResult::ended(
+                                AuthSessionStatus::Failed,
+                                &self.redirect_uri,
+                                &format!("the sign-in's listener failed: {e}"),
+                            );
+                        }
+                    }
+                }
+                if Instant::now() >= deadline {
+                    return AuthSessionResult::ended(
+                        AuthSessionStatus::TimedOut,
+                        &self.redirect_uri,
+                        "the sign-in did not come back in time",
+                    );
+                }
+                std::thread::sleep(POLL);
+            }
         }
+
+        /// One connection: `None` when it sent no complete request within `idle` (it does not
+        /// count), else the session's answer - the request answered with its page.
+        fn serve(
+            &self,
+            mut stream: TcpStream,
+            idle: Duration,
+            authorize_url: &str,
+        ) -> Option<AuthSessionResult> {
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(idle));
+            let _ = stream.set_write_timeout(Some(idle));
+            let head = read_head(&mut stream, Instant::now() + idle)?;
+            let request_line = head.lines().next().unwrap_or_default();
+            let mut parts = request_line.split(' ');
+            let method = parts.next().unwrap_or_default();
+            let target = parts.next().unwrap_or_default();
+            let result = if method != "GET" {
+                let method: String = method.chars().take(16).collect();
+                AuthSessionResult::ended(
+                    AuthSessionStatus::Failed,
+                    &self.redirect_uri,
+                    &format!("the browser sent a {method} request, not the sign-in's redirect"),
+                )
+            } else if !target.starts_with('/') {
+                AuthSessionResult::ended(
+                    AuthSessionStatus::Failed,
+                    &self.redirect_uri,
+                    "the browser's request names no path",
+                )
+            } else {
+                finish(
+                    &format!("{}{target}", self.origin),
+                    &self.redirect_uri,
+                    authorize_url,
+                )
+            };
+            respond(&mut stream, result.is_redirected());
+            Some(result)
+        }
+    }
+
+    /// A request's head (the request line and the headers), read until its empty line;
+    /// `None` when the connection ends, stays silent until `until` or sends more than a head.
+    fn read_head(stream: &mut TcpStream, until: Instant) -> Option<String> {
+        let mut head: Vec<u8> = Vec::with_capacity(1024);
+        let mut buf = [0_u8; 1024];
+        loop {
+            if head.windows(4).any(|w| w == b"\r\n\r\n") || head.windows(2).any(|w| w == b"\n\n") {
+                return Some(String::from_utf8_lossy(&head).into_owned());
+            }
+            if head.len() >= MAX_HEAD || Instant::now() >= until {
+                return None;
+            }
+            match stream.read(&mut buf) {
+                Ok(0) => return None,
+                Ok(n) => head.extend_from_slice(buf.get(..n)?),
+                Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                Err(_) => return None,
+            }
+        }
+    }
+
+    /// Answers the request with the page for `done` (the redirect) or the one for anything
+    /// else, and closes the connection.
+    fn respond(stream: &mut TcpStream, done: bool) {
+        let (status, page) = if done {
+            ("200 OK", PAGE_DONE)
+        } else {
+            ("400 Bad Request", PAGE_FAILED)
+        };
+        let answer = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \
+             {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: \
+             close\r\n\r\n{page}",
+            page.len()
+        );
+        let _ = stream.write_all(answer.as_bytes());
+        let _ = stream.flush();
+        let _ = stream.shutdown(Shutdown::Write);
     }
 }
 
