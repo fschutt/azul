@@ -122,6 +122,15 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     48 h, a `recovery-pending` family (401 a bad
                                                     signature, 409 nonce_used, 400
                                                     no_recovery_key)
+    POST /v1/drives/<id>/claim {"ticket"}, NO       201 {"member": "owner", "drive_token",
+        token                                       "claims_left"}: a paid drive picked up on
+                                                    another computer gets a token family of its
+                                                    own by the ticket its sealed sign-up carries
+                                                    ("claim": {"ticket", "max": 3,
+                                                    "window_days": 30}); 401 another ticket or a
+                                                    drive without one, 409 claims_used after
+                                                    three, 410 claim_expired 30 days after the
+                                                    first, 403 drive_banned
     POST /v1/drives/<id>/lockdown/cancel            200 {"cancelled": true}: signed by one of the
         {"nonce", "signature", "key_id"?}, NO       drive's recovery keys over
         token (F12)                                 lockdown-cancel:<drive>:<nonce> (403
@@ -271,6 +280,10 @@ RECOVERY_CHALLENGE_SECS = 300
 RECOVERY_RATE_LIMIT = 20
 RECOVERY_RATE_WINDOW_SECS = 600
 LOCKDOWN_DELETE_PAUSE_SECS = 24 * 3600
+# A paid drive's pick-ups by its claim ticket (SRV17): at most this many, within this long of the
+# first.
+CLAIMS_MAX = 3
+CLAIM_WINDOW_SECS = 30 * 86400
 # Cash by post (cash contract v1): how long a cash checkout waits for its letter, and the address
 # its slip names - a made-up test operator's.
 CASH_KEEP_SECS = 60 * 86400
@@ -1195,6 +1208,14 @@ class TokenState:
         issue_key, issue_key_hash = azlin_period.new_issue_key()
         bundle['period_tokens'] = {'checkout_id': checkout_id, 'months': checkout['months'],
                                    'issue_key': issue_key}
+        # Each pick-up of the paid drive claims a token family of its own with this ticket
+        # (SRV17's drive_claims): three within 30 days of the first; the drive keeps its hash.
+        ticket = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('ascii').rstrip('=')
+        bundle['claim'] = {'ticket': ticket, 'max': CLAIMS_MAX,
+                           'window_days': CLAIM_WINDOW_SECS // 86400}
+        with self.lock:
+            self.drives[bundle['drive']['id']]['claim'] = {
+                'ticket_hash': token_hash(ticket), 'claims': 0, 'until': None}
         sealed = azlin_claim.seal(json.dumps(bundle).encode('utf-8'), checkout['claim_key'],
                                   checkout_id)
         with self.lock:
@@ -1459,6 +1480,39 @@ class TokenState:
                 family['member'] = 'owner'
         drive['lockdown_pending_until'] = None
         drive['lockdown_completed'] = now
+
+    def claim(self, drive_id, body):
+        """POST /v1/drives/<id>/claim {"ticket"} (drives.rs `claim`, no drive token): a token
+        family of the claiming computer's own for a paid drive, by the ticket of its sealed
+        sign-up - 201 {member, drive_token, claims_left}; 401 another ticket or a drive without
+        one (a development sign-up, a drive from before the tickets), 403 drive_banned, 409
+        claims_used after three, 410 claim_expired 30 days after the first."""
+        ticket = body.get('ticket')
+        with self.lock:
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            claim = drive.get('claim')
+            if not claim or not isinstance(ticket, str) or not ticket \
+                    or not hmac.compare_digest(token_hash(ticket), claim['ticket_hash']):
+                raise ApiError(401, 'unauthorized', 'unknown claim ticket')
+            ban = drive.get('ban')
+            if ban:
+                raise ApiError(403, 'drive_banned', 'this drive is banned',
+                               {'ban_reason': ban['reason'], 'ban_until': rfc3339(ban['until'])})
+            if claim['claims'] >= CLAIMS_MAX:
+                raise ApiError(409, 'claims_used',
+                               'this drive was picked up %d times already' % CLAIMS_MAX)
+            now = self.now()
+            if claim['until'] is not None and now >= claim['until']:
+                raise ApiError(410, 'claim_expired',
+                               'the pick-ups of this drive ended 30 days after the first')
+            claim['claims'] += 1
+            if claim['until'] is None:
+                claim['until'] = now // 86400 * 86400 + CLAIM_WINDOW_SECS
+            token = self.new_family(drive_id, 'owner')
+            return {'member': 'owner', 'drive_token': token,
+                    'claims_left': CLAIMS_MAX - claim['claims']}
 
     def add_member(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/members (a grant): a token family for another device."""
@@ -2109,6 +2163,10 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         if self.command == 'GET' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'restore':
             self.answer(200, state.restore_status(segments[2], self.bearer(), segments[4]))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'claim':
+            self.answer(201, state.claim(segments[2], self.body() or {}))
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'members':
