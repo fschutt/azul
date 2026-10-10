@@ -1097,6 +1097,16 @@ mod tests {
         assert_eq!(search_index_dir(None, "drive-a"), None, "no cache folder, no index");
     }
 
+    /// This computer's copies of the drives' indexes (and the search indexes beside them) live
+    /// in the run's cache folder - `--cache-dir`, else `<cache>/AzDrive` - so a test run keeps
+    /// them in its own folder; a run without one (`--shot`) keeps them in memory.
+    #[test]
+    fn the_drive_index_copies_live_in_the_runs_cache_folder() {
+        let cache = PathBuf::from("/run/cache");
+        assert_eq!(drive_index_root_in(Some(&cache)), Some(cache.join("drive-index")));
+        assert_eq!(drive_index_root_in(None), None);
+    }
+
     #[test]
     fn a_rotations_sheet_offers_re_encryption_next() {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
