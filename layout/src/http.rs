@@ -330,6 +330,8 @@ impl HttpClient {
     /// and the TLS server name, so the certificate is verified for that name, not for the
     /// address. A host collects up to 16 addresses. Returns false when `address` is no address
     /// (or this build has no HTTP client).
+    // const only in the stub without the `http` feature; the real one locks a mutex.
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn add_fallback_address(&self, host: &str, address: &str) -> bool {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
@@ -358,6 +360,8 @@ impl HttpClient {
     }
 
     /// Forgets the fallback addresses of `host`: its name is looked up only.
+    // const only in the stub without the `http` feature; the real one locks a mutex.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn clear_fallback_addresses(&self, host: &str) {
         #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
         if let Ok(mut known) = self.ptr.fallback.lock() {
