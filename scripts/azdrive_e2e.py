@@ -88,7 +88,12 @@ node layout, AzDrive's stdout markers and the files on disk:
         a metered network (the headless network file
         AZ_NETWORK_STATE_FILE: "cellular metered") says "Paused (metered network)", a 26 MB file
         waits while a small one goes up, "Sync anyway on this network" (Options > Drives > Sync,
-        kept in view.json) sends it, a Low Data Mode Wi-Fi pauses too, a free Wi-Fi syncs.
+        kept in view.json) sends it, a Low Data Mode Wi-Fi pauses too, a free Wi-Fi syncs; a
+        laptop at 23 % on a phone's hotspot (the headless battery file AZ_BATTERY_STATE_FILE:
+        "battery 23 discharging", the network file: "hotspot") has a client health of 35 - one
+        transfer at a time, the recompression and the index upkeep held
+        (AZDRIVE_CLIENT_HEALTH 35 transfers=1 recompress=held index=held), a small file still
+        goes up, and Options > Drives > Sync says so in one line; charged on a free Wi-Fi: 100.
         The drives of steps 24 and 25 are made at the mock directly, with no keys: plaintext
         drives like the ones made before encryption ("we always encrypt" makes every NEW drive
         encrypted). AzDrive is built with its default features - `encryption` among them - and
@@ -1306,6 +1311,16 @@ def write_network(path, words):
     os.replace(tmp, path)
 
 
+def write_battery(path, words):
+    """The headless battery azul reads (AZ_BATTERY_STATE_FILE, at every query; the headless
+    power follows it): words such as "battery 23 discharging", "charging 90" or
+    "battery 8 discharging low-power serious"."""
+    tmp = path + ".e2e-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(words + "\n")
+    os.replace(tmp, path)
+
+
 def last_status(app, drive_id):
     """What drive `drive_id`'s status line said last (AZDRIVE_SYNC_STATUS), or None."""
     said = app.printed("AZDRIVE_SYNC_STATUS", re.escape(drive_id) + r" .*")
@@ -1437,10 +1452,12 @@ def sync_step(args, logs, binary, out):
         "--dialogs", "inline",
         "--cache-dir", os.path.join(base, "cache"),
     ]
-    # The headless network azul reads at every query (no file yet: wired and free).
+    # The headless network and battery azul reads at every query (no files yet: wired and free,
+    # no battery - a desktop on mains).
     network_file = os.path.join(base, "network.txt")
+    battery_file = os.path.join(base, "battery.txt")
     env = {"AZ_KEYRING_FILE": keyring, "AZDRIVE_SYNC_POLL": "2", "AZCLOUD_DEVICE": SYNC_DEVICE,
-           "AZ_NETWORK_STATE_FILE": network_file}
+           "AZ_NETWORK_STATE_FILE": network_file, "AZ_BATTERY_STATE_FILE": battery_file}
     app = Drive("azdrive-sync", binary, switches, args.debug_port, logs, args.timeout,
                 extra_env=env)
     folder = os.path.join(home, "AzDrive", SYNC_NAME)
@@ -1884,6 +1901,53 @@ def sync_step(args, logs, binary, out):
         app.until("the status line says it", lambda: "metered" not in status())
         log("25m. a Low Data Mode Wi-Fi paused the big files too; on a free Wi-Fi the drive is "
             "up to date")
+
+        # 25n. A laptop at 23 % on a phone's hotspot (azul's BatteryState and NetworkState,
+        # through the headless battery and network files): AzDrive's client health falls to 35
+        # - one transfer at a time, the recompression pass and the drive index's upkeep held,
+        # the search index's catch-up too; a small file still goes up; the one line of Options >
+        # Drives > Sync says why. Charged on a free Wi-Fi again: 100, full speed.
+        healthy = r"100 transfers=4 recompress=allowed index=allowed"
+        app.until("a desktop on a free network at first", lambda: app.printed(
+            "AZDRIVE_CLIENT_HEALTH", healthy))
+        write_battery(battery_file, "battery 23 discharging")
+        write_network(network_file, "hotspot")
+        app.until("the phone's hotspot read", lambda: app.printed(
+            "AZDRIVE_NETWORK",
+            r"WiFi connected=true metered=true constrained=false hotspot=true"))
+        app.until("a drained laptop on a hotspot: fewer transfers, the recompression held",
+                  lambda: app.printed("AZDRIVE_CLIENT_HEALTH",
+                                      r"35 transfers=1 recompress=held index=held"))
+        app.until("paused for the hotspot", lambda: last_status(app, SYNC_DRIVE)
+                  == "azdrive-sync-status-metered")
+        jot = os.path.join(folder, "jot.txt")
+        with open(jot, "wb") as f:
+            f.write(b"a jot, sent from a laptop at 23 percent on a phone's hotspot\n")
+        app.until("a small file still went up", lambda: "jot.txt" in sync_index(s3_root).get(
+            "files", {}))
+        app.tab("View")
+        app.ribbon("Options")
+        app.until("the Options", lambda: app.has("#" + I("settings")))
+        app.click_exact("Drives")
+        computer = "#" + I("sync-health")
+        said = "This computer: on battery, 23%, on a phone's hotspot - syncing slowly, big files wait"
+        app.until("the computer's line", lambda: app.has(computer))
+        app.until("it says the battery, the hotspot and the pace",
+                  lambda: " ".join(app.texts_within(computer)) == said)
+        app.op("scroll_into_view", selector=computer, block="center", behavior="instant")
+        app.frame(2)
+        app.screenshot(os.path.join(out, "25-sync-health.png"))
+        app.key("escape")
+        app.until("the Options closed", lambda: not app.has("#" + I("settings")))
+        before = app.count("AZDRIVE_CLIENT_HEALTH", healthy)
+        write_battery(battery_file, "charging 90")
+        write_network(network_file, "wifi")
+        app.until("charged on a free Wi-Fi: full speed again", lambda: app.count(
+            "AZDRIVE_CLIENT_HEALTH", healthy) > before)
+        app.until("synced at full speed", lambda: settled(last_status(app, SYNC_DRIVE)))
+        log("25n. a laptop at 23 %% on a phone's hotspot: client health 35 - one transfer at a "
+            "time, recompression and index upkeep held, jot.txt went up, the Options said "
+            "\"%s\"; charged on a free Wi-Fi: 100" % said)
         if missed:
             raise Failure("the sync steps ran, but a click missed what the window showed: "
                           + " | ".join(missed))
