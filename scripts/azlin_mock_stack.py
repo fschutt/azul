@@ -161,8 +161,10 @@ APPROVING_CARD = '4242424242424242'
 DECLINING_CARD = '4000000000000002'
 # How long an approved checkout keeps its sealed sign-up (then it answers "expired").
 SEALED_KEEP_SECS = 30 * 86400
-# How long a recovery-key lockdown waits for a device of the owner to cancel it.
+# How long a recovery-key lockdown waits for a device of the owner to cancel it, and how long
+# deletes pause after a lockdown.
 LOCKDOWN_PENDING_SECS = 48 * 3600
+LOCKDOWN_DELETE_PAUSE_SECS = 24 * 3600
 # A development token server's test vouchers (azlin-proto's voucher module): never used up.
 TEST_VOUCHERS = {
     'AZLIN-TEST-1M': {'months': 1, 'value_cents': 0, 'tier': None},
@@ -952,8 +954,11 @@ class TokenState:
         return self.family_of(drive_id, bearer, previous_ok)[0]
 
     def family_of(self, drive_id, bearer, previous_ok=False):
-        """`authenticate`: the drive and the family of the token."""
+        """`authenticate`: the drive and the family of the token (a recovery-key lockdown
+        whose 48 hours are over applied first, as the token server's tick would have)."""
         drive = self.drives.get(drive_id)
+        if drive is not None:
+            self.finish_lockdown(drive, time.time())
         if drive is None:
             raise ApiError(404, 'no_such_drive', 'unknown drive')
         if not bearer or not bearer.startswith('dt_'):
@@ -1032,9 +1037,8 @@ class TokenState:
                 raise ApiError(404, 'no_such_drive', 'unknown drive')
             if 'signature' not in body:
                 _, state = self.family_of(drive_id, bearer)
-                for other in self.families.values():
-                    if other['drive'] == drive_id:
-                        other['revoked'] = other['revoked'] or 'lockdown'
+                # every family (the caller's too: it gets the new one), key and link at once
+                self.revoke_all(drive, lambda family: True)
                 token = self.new_family(drive_id, state.get('member', 'owner'))
                 drive['lockdown_pending_until'] = None
                 return 200, self.bundle(drive, token)
@@ -1058,6 +1062,80 @@ class TokenState:
                          'drive_token': token,
                          'note': 'existing devices can cancel within 48 h; the drive is '
                                  'read-only meanwhile'}
+
+    def revoke_all(self, drive, which):
+        """drives.rs's lockdown: the drive's families `which` takes, every access key and public
+        link of its bucket revoked; deletes paused for a day. The caller holds the lock."""
+        now = int(time.time())
+        for family in self.families.values():
+            if family['drive'] == drive['id'] and which(family):
+                family['revoked'] = family['revoked'] or 'lockdown'
+        for key in drive.setdefault('access_keys', {}).values():
+            key['revoked_at'] = key['revoked_at'] or now
+        for link in drive.setdefault('public_links', {}).values():
+            link['revoked_at'] = link['revoked_at'] or now
+        drive['lockdown_until'] = now + LOCKDOWN_DELETE_PAUSE_SECS
+
+    def finish_pending_lockdowns(self, now=None):
+        """drives.rs's `finish_pending_lockdowns` (the tick): a recovery-key lockdown past its 48
+        hours revokes every family but the recovering one, which becomes the owner's, and every
+        key and link."""
+        now = time.time() if now is None else now
+        with self.lock:
+            for drive in self.drives.values():
+                self.finish_lockdown(drive, now)
+
+    def finish_lockdown(self, drive, now):
+        """`drive`'s recovery-key lockdown, when its 48 hours are over. The caller holds the
+        lock."""
+        until = drive.get('lockdown_pending_until')
+        if not until or until > now:
+            return
+        self.revoke_all(drive, lambda family: family.get('member') != 'recovery-pending')
+        for family in self.families.values():
+            if family['drive'] == drive['id'] and family.get('member') == 'recovery-pending' \
+                    and not family['revoked']:
+                family['member'] = 'owner'
+        drive['lockdown_pending_until'] = None
+
+    def add_member(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/members (a grant): a token family for another device."""
+        with self.lock:
+            self.authenticate(drive_id, bearer)
+            member = body.get('member') or random_id('m_')
+            return {'member': member, 'drive_token': self.new_family(drive_id, member)}
+
+    def create_key(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/keys (a grant): a long-lived access key of the bucket."""
+        with self.lock:
+            drive = self.authenticate(drive_id, bearer)
+            days = max(1, min(366, int(body.get('expires_days') or 365)))
+            akid = 'AZK' + b32(secrets.token_bytes(10)).upper()
+            expires_at = int(time.time()) + days * 86400
+            drive.setdefault('access_keys', {})[akid] = {
+                'perms': body.get('perms') or 'rw', 'expires_at': expires_at, 'revoked_at': None}
+            return {'access_key_id': akid,
+                    'secret_access_key': base64.urlsafe_b64encode(secrets.token_bytes(30))
+                    .decode('ascii').rstrip('='),
+                    'perms': body.get('perms') or 'rw', 'expires_at': rfc3339(expires_at)}
+
+    def revoke_key(self, drive_id, bearer, key):
+        """DELETE /v1/drives/<id>/keys/<key> (a grant)."""
+        with self.lock:
+            drive = self.authenticate(drive_id, bearer)
+            found = drive.setdefault('access_keys', {}).get(key)
+            if found is None:
+                raise ApiError(404, 'no_such_key', 'unknown key')
+            found['revoked_at'] = found['revoked_at'] or int(time.time())
+            return {'revoked': key}
+
+    def add_public_link(self, drive_id):
+        """A public link of the drive's bucket (the switch: the token server makes none itself,
+        its lockdown revokes them); its id."""
+        with self.lock:
+            link = random_id('l_')
+            self.drives[drive_id].setdefault('public_links', {})[link] = {'revoked_at': None}
+            return link
 
     def lockdown_cancel(self, drive_id, bearer):
         """POST /v1/drives/<id>/lockdown/cancel (a grant): the owner's other devices call a
@@ -1346,6 +1424,18 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             self.body()
             self.answer(200, state.lockdown_cancel(segments[2], self.bearer()))
             return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'members':
+            self.answer(201, state.add_member(segments[2], self.bearer(), self.body() or {}))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'keys':
+            self.answer(201, state.create_key(segments[2], self.bearer(), self.body() or {}))
+            return
+        if self.command == 'DELETE' and len(segments) == 5 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'keys':
+            self.answer(200, state.revoke_key(segments[2], self.bearer(), segments[4]))
+            return
         if self.command == 'POST' and segments == ['v1', 'vouchers', 'redeem']:
             self.answer(*state.redeem_voucher(self.bearer(), self.body() or {}))
             return
@@ -1359,6 +1449,7 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
 
     do_GET = handle_any
     do_POST = handle_any
+    do_DELETE = handle_any
 
 
 class TokenServer(http.server.ThreadingHTTPServer):
