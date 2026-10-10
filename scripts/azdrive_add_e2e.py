@@ -31,7 +31,9 @@ sheet of `--dialogs inline`:
        keyring's list, its bucket listed. Each paid checkout's period tokens (AZLINSEC17 F24)
        are issued against the issue key of its sealed sign-up before its checkout leaves the
        list, and AzDrive keeps them (a 0600 file per drive beside the drives file), each one
-       a token the mock's issuer key verifies.
+       a token the mock's issuer key verifies. The first drive's period ends in two days: a
+       token buys it a month at once (redeemed under the drive's lock), the second one's is a
+       month away: its tokens wait.
 
     7. A card payment in the popover (CHECKOUT-PLAN §4.3, the mock's fake providers on): Buy
        storage shows the pills (direct debit via Fake GoCardless, card via Fake Stripe), the card
@@ -79,6 +81,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 
 import azlin_claim
 import azlin_e2e as e2e
@@ -211,16 +214,21 @@ def pending_checkouts(path):
     return {c["checkout_id"]: c for c in json.loads(text).get("checkouts") or []}
 
 
-def check_period_tokens(stack, drives_file, checkout, drive_id):
+def check_period_tokens(stack, drives_file, checkout, drive_id, redeemed=0):
     """AZLINSEC17 F24: the paid checkout's period tokens were issued (against the issue key of
-    its sealed sign-up) and AzDrive keeps them - one 0600 file per drive beside the drives file -
-    each one a token the mock's issuer key verifies. How many."""
+    its sealed sign-up) and AzDrive keeps those not `redeemed` yet - one 0600 file per drive
+    beside the drives file, none once all are spent - each one a token the mock's issuer key
+    verifies. How many were issued."""
     record = stack.token.state.checkouts.get(checkout) or {}
     months = record.get("months")
     if not months or record.get("tokens_issued") != months:
         raise Failure("the checkout %s's period tokens were not issued: %s of %r"
                       % (checkout, record.get("tokens_issued"), months))
     path = os.path.join(os.path.dirname(drives_file), "period-tokens", drive_id + ".json")
+    if months == redeemed:
+        if os.path.exists(path):
+            raise Failure("every period token of %s is spent, but %s is left" % (drive_id, path))
+        return months
     try:
         with open(path, "r", encoding="utf-8") as f:
             tokens = json.load(f).get("tokens") or []
@@ -229,9 +237,9 @@ def check_period_tokens(stack, drives_file, checkout, drive_id):
     if os.name == "posix" and os.stat(path).st_mode & 0o077:
         raise Failure("the period tokens file is readable by others: %o" % os.stat(path).st_mode)
     n, e, _ = stack.token.state.issuer
-    if len(tokens) != months or not all(azlin_period.verify(n, e, t) for t in tokens):
+    if len(tokens) != months - redeemed or not all(azlin_period.verify(n, e, t) for t in tokens):
         raise Failure("the kept period tokens of %s are %d, not %d that verify"
-                      % (drive_id, len(tokens), months))
+                      % (drive_id, len(tokens), months - redeemed))
     return months
 
 
@@ -531,7 +539,11 @@ def run(args, logs):
         # 6a. Paid after "Stop waiting": the drive joins the list in the background.
         place_lines = app.count("AZDRIVE_PLACE")
         first, dialog = buy_and_stop_waiting(app, stack, keyring_file, "Paid later")
+        drives_before = set(stack.token.state.drives)
         stack.token.state.pay(first, {"card_number": azlin_mock_stack.APPROVING_CARD})
+        # Its period ends in two days (a free month nearly gone): the first token is due.
+        for new in set(stack.token.state.drives) - drives_before:
+            stack.token.state.drives[new]["period_until"] = int(time.time()) + 2 * 86400
         late = app.until("the drive paid after Stop waiting", lambda: [
             d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d != bought])[-1]
         app.until("its row in CLOUD", lambda: app.has(side_drive(late)))
@@ -542,13 +554,20 @@ def run(args, logs):
             raise Failure("the late drive closed the dialog it did not come from")
         app.until("the checkout off the keyring's list",
                   lambda: first not in pending_checkouts(keyring_file))
-        months = check_period_tokens(stack, drives_file, first, late)
+        # Due: one token redeemed at once, under the drive's lock, with its newest token.
+        app.until("the period token redeemed", lambda: app.printed(
+            "AZDRIVE_PERIOD_REDEEMED", r"%s 1 \S+" % re.escape(late)))
+        months = check_period_tokens(stack, drives_file, first, late, redeemed=1)
+        until = stack.token.state.drives[late]["period_until"]
+        if until < int(time.time()) + 29 * 86400 or len(stack.token.state.redeemed) != 1:
+            raise Failure("the redemption did not reach the mock: period until %s, %d redeemed"
+                          % (until, len(stack.token.state.redeemed)))
         dialog.click("cancel")
         wait_closed(app)
         log("6a. Buy -> Stop waiting -> paid at the token server: %s joined the source list in "
             "the background (the window stayed where it was), its %d period token(s) issued "
-            "against the sealed issue key and kept, then its checkout left the keyring's list"
-            % (late, months))
+            "against the sealed issue key and kept, then its checkout left the keyring's list; "
+            "its period due in two days, one token bought it a month" % (late, months))
 
         # 6b. Paid while AzDrive is closed: the drive arrives at the next start.
         second, dialog = buy_and_stop_waiting(app, stack, keyring_file, "Paid while closed")
