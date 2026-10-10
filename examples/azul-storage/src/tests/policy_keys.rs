@@ -9,12 +9,16 @@ use std::sync::Arc;
 use crate::{
     crypto::{
         device::{self, adopt_invite, drive_key_entry, load_member_secret, seal_invite, setup_new_drive, unlock},
-        keys::{MemberSecret, MemberWrap, RecoveryKdf, KEYS_PREFIX},
+        keys::{store_member_wrap, MemberSecret, MemberWrap, RecoveryKdf, KEYS_PREFIX},
         DriveKey,
     },
     encrypted::open_encrypted,
     keyring::{KeyringStore, MemoryKeyring},
-    meta::{keys, MemoryBucket, MetaIndexProvider, MetaRepo},
+    meta::{
+        keys,
+        policy::{MemberChange, MemberRecord},
+        MemoryBucket, MetaIndexProvider, MetaRepo,
+    },
     rotation::rotate,
     Drive,
 };
@@ -129,6 +133,45 @@ fn a_drive_without_an_index_keeps_its_key_files_as_its_members() {
         device::members(bucket.as_ref(), &key).unwrap(),
         sorted(vec![member_id(&laptop), member_id(&phone)])
     );
+}
+
+#[test]
+fn a_member_that_missed_a_rotation_catches_up_from_its_wrap_of_the_new_key() {
+    let (bucket, laptop, old) = drive_with_index();
+    let phone = join(&bucket, &old);
+    let plain: Arc<dyn Drive> = bucket.clone();
+    let phone_index = MetaIndexProvider::new("Phone");
+    let drive = open_encrypted(Arc::clone(&plain), &phone, DRIVE, &phone_index).unwrap();
+    assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
+
+    // The laptop rotates while the phone is away; the phone keeps the old key.
+    let laptop_index = MetaIndexProvider::new("Laptop");
+    rotate(Arc::clone(&plain), &laptop, DRIVE, &laptop_index, cheap()).unwrap();
+    assert!(
+        open_encrypted(Arc::clone(&plain), &phone, DRIVE, &phone_index).is_err(),
+        "the rotation removed the phone: there is nothing to catch up from"
+    );
+    assert_eq!(device::load_drive_key(&phone, DRIVE).unwrap(), Some(old.clone()));
+
+    // A rotation that keeps the phone seals the new key to it.
+    let new = device::load_drive_key(&laptop, DRIVE).unwrap().unwrap();
+    let secret = load_member_secret(&phone, DRIVE).unwrap().unwrap();
+    let phone_id = secret.public().id();
+    let wrap = MemberWrap::seal(&new, DRIVE, &phone_id, &secret.public()).unwrap();
+    let change = MemberChange::Add {
+        member: phone_id,
+        wrap: wrap.to_bytes(),
+    };
+    MemberRecord::open(bucket.as_ref(), &new)
+        .unwrap()
+        .unwrap()
+        .record(&[change])
+        .unwrap();
+    store_member_wrap(bucket.as_ref(), &wrap).unwrap();
+
+    let drive = open_encrypted(plain, &phone, DRIVE, &phone_index).unwrap();
+    assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
+    assert_eq!(device::load_drive_key(&phone, DRIVE).unwrap(), Some(new));
 }
 
 #[test]

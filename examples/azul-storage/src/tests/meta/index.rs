@@ -10,7 +10,7 @@ use crate::{
         merge::keep_both, open_encrypted_drive, pointer, Maintenance, MemoryBucket, MetaIndex,
         MetaIndexProvider, MetaRepo, RepoOptions,
     },
-    Drive, DriveError, ListRequest, Precondition,
+    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 type Index = MetaIndex<MemoryBucket, DriveKey>;
@@ -312,6 +312,66 @@ fn the_provider_maintains_a_drives_index_while_a_copy_of_it_is_open() {
     drive.put("d.txt", b"d").unwrap();
     assert_eq!(drive.get("a.txt").unwrap(), b"a.txt");
     assert_eq!(drive.get("d.txt").unwrap(), b"d");
+}
+
+/// A bucket out of reach: every request fails the way a lost connection does.
+struct OutOfReach;
+
+fn no_connection() -> DriveError {
+    DriveError::Transport("no connection to the storage".to_string())
+}
+
+impl Drive for OutOfReach {
+    fn list(&self, _: &ListRequest) -> Result<ListPage, DriveError> {
+        Err(no_connection())
+    }
+    fn get(&self, _: &str) -> Result<Vec<u8>, DriveError> {
+        Err(no_connection())
+    }
+    fn get_range(&self, _: &str, _: ByteRange) -> Result<Vec<u8>, DriveError> {
+        Err(no_connection())
+    }
+    fn put(&self, _: &str, _: &[u8]) -> Result<(), DriveError> {
+        Err(no_connection())
+    }
+    fn delete(&self, _: &str) -> Result<(), DriveError> {
+        Err(no_connection())
+    }
+    fn head(&self, _: &str) -> Result<ObjectInfo, DriveError> {
+        Err(no_connection())
+    }
+}
+
+#[test]
+fn a_copy_sealed_before_a_rotation_opens_offline_in_the_rotation_window_only() {
+    let dir = TempDir::new("meta-window");
+    let provider = MetaIndexProvider::new("Phone").with_cache_root(Some(dir.path().to_path_buf()));
+    let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    let old = DriveKey::generate().unwrap();
+    let new = DriveKey::generate().unwrap();
+    let index = provider
+        .open_index("drive-1", Arc::clone(&bucket), &old)
+        .unwrap();
+    EncryptedDrive::new(Arc::clone(&bucket), old.clone(), index)
+        .put("a.txt", b"a")
+        .unwrap();
+
+    let away: Arc<dyn Drive> = Arc::new(OutOfReach);
+    assert!(
+        provider
+            .open_index("drive-1", Arc::clone(&away), &new)
+            .is_err(),
+        "the new key alone does not open the copy"
+    );
+    let index = provider
+        .open_index_in_window("drive-1", Arc::clone(&away), &new, &old)
+        .unwrap();
+    assert!(index.get("a.txt").unwrap().is_some());
+    // The window is the rotation's: a key from no rotation opens nothing.
+    let stranger = DriveKey::generate().unwrap();
+    assert!(provider
+        .open_index_in_window("drive-1", away, &new, &stranger)
+        .is_err());
 }
 
 #[test]

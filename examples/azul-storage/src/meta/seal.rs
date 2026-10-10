@@ -302,4 +302,37 @@ mod drive_key {
             *blake3::keyed_hash(&self.derive(NAME_CONTEXT), data).as_bytes()
         }
     }
+
+    /// The drive key across a rotation (`crate::rotation`).
+    #[derive(Clone)]
+    pub struct KeyWindow {
+        current: DriveKey,
+        previous: Option<DriveKey>,
+    }
+
+    impl KeyWindow {
+        /// The window of the rotation from `previous` to `current` (`None`: closed).
+        #[must_use]
+        pub fn new(current: DriveKey, previous: Option<DriveKey>) -> KeyWindow {
+            KeyWindow { current, previous }
+        }
+    }
+
+    impl Sealer for KeyWindow {
+        fn seal(&self, context: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, SealError> {
+            self.current.seal(context, plaintext)
+        }
+
+        fn open(&self, context: &[u8], sealed: &[u8]) -> Result<Vec<u8>, SealError> {
+            let _ = &self.previous;
+            self.current.open(context, sealed)
+        }
+
+        fn name_hash(&self, data: &[u8]) -> [u8; 32] {
+            self.current.name_hash(data)
+        }
+    }
 }
+
+#[cfg(feature = "encryption")]
+pub use drive_key::KeyWindow;

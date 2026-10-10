@@ -194,6 +194,19 @@ pub trait IndexProvider: Send + Sync {
             "this drive index cannot be sealed under a new drive key yet",
         )))
     }
+
+    /// [`IndexProvider::open_index`] in a key rotation's window, from `previous` (the drive
+    /// key before the rotation) to `drive_key`.
+    fn open_index_in_window(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        previous: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        let _ = previous;
+        self.open_index(drive, bucket, drive_key)
+    }
 }
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
