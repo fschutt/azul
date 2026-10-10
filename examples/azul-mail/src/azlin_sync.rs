@@ -1343,4 +1343,28 @@ mod tests {
             SyncError::Protocol(_)
         ));
     }
+
+    // ==== A banned drive (ban contract v1) ====
+
+    #[test]
+    fn an_azlin_account_on_a_banned_drive_sends_nothing_and_says_why() {
+        let until = 1_791_799_200; // 2026-10-12T10:00:00Z
+        let ban = azcloud_kit::Ban {
+            reason: String::from("spam distribution"),
+            until: Some(until),
+            closed: false,
+        };
+        let why = sending_refused(Some(&ban), until - 10 * 3_600).expect("sending stops");
+        assert!(
+            why.starts_with(
+                "Due to spam distribution, your account has been banned, but you have 10 hours \
+                 to migrate your files."
+            ),
+            "the same banner as AzDrive's: {why}"
+        );
+        assert!(why.contains("AzMail sends nothing"), "{why}");
+        let closed = sending_refused(Some(&ban), until + 1).expect("closed");
+        assert!(closed.starts_with("This drive was closed on 2026-10-12"), "{closed}");
+        assert_eq!(sending_refused(None, until), None, "a drive in good standing sends");
+    }
 }

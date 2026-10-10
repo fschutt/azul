@@ -142,3 +142,28 @@ fn a_refused_write_of_a_banned_drive_is_read_only_in_english_and_german() {
         );
     }
 }
+
+#[test]
+fn every_app_words_a_ban_the_same_counting_its_hours_down_then_closed() {
+    let until = parse_iso8601(UNTIL).unwrap();
+    let ban = Ban {
+        reason: String::from("spam distribution"),
+        until: Some(until),
+        closed: false,
+    };
+    assert_eq!(
+        ban.banner(until - 36 * 3_600),
+        "Due to spam distribution, your account has been banned, but you have 36 hours to \
+         migrate your files."
+    );
+    assert_eq!(
+        ban.banner(until - 60),
+        "Due to spam distribution, your account has been banned, but you have 1 hour to \
+         migrate your files."
+    );
+    assert_eq!(
+        ban.banner(until),
+        "This drive was closed on 2026-10-12 because spam distribution."
+    );
+    assert_eq!(ban.closed_text(), ban.banner(until + 1));
+}
