@@ -752,6 +752,8 @@ pub struct Settings {
     pub search_subfolders: bool,
     /// The drives whose full-text index is kept (the Search tab's "Index this drive"), by id.
     pub indexed_drives: Vec<String>,
+    /// The Search tab's saved searches, in the order they were saved.
+    pub saved_searches: Vec<crate::find::SavedSearch>,
 }
 
 impl Default for Settings {
@@ -774,6 +776,7 @@ impl Default for Settings {
             search_ignore_files: true,
             search_subfolders: true,
             indexed_drives: Vec::new(),
+            saved_searches: Vec::new(),
         }
     }
 }

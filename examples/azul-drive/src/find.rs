@@ -27,10 +27,12 @@ use azul_search::{
 use azul_search_index::{IndexStatus, UpdateProgress};
 use azul_storage::{key, ListPage, ObjectInfo};
 use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    browse::{self, Entry, Sort},
+    browse::{self, Entry, Place, Sort},
     listing,
+    model::Settings,
 };
 
 /// The most results a search shows ("the first ones" after that).
@@ -347,7 +349,8 @@ pub fn result_sync(
 // ==== Refine (the Search tab's Date modified, Kind and Size) ====
 
 /// Explorer's Date modified.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DateRefine {
     #[default]
     Any,
@@ -391,7 +394,8 @@ impl DateRefine {
 }
 
 /// Explorer's Kind: the files of a kind's extensions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum KindRefine {
     #[default]
     Any,
@@ -460,7 +464,8 @@ const MB: u64 = 1024 * KB;
 const GB: u64 = 1024 * MB;
 
 /// Explorer's Size buckets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SizeRefine {
     #[default]
     Any,
@@ -1204,5 +1209,117 @@ impl std::fmt::Debug for RemoteContents {
             .field("dir", &self.dir)
             .field("drive_id", &self.drive_id)
             .finish_non_exhaustive()
+    }
+}
+
+// ==== Saved searches (the Search tab's Save search) ====
+
+/// The longest name a saved search takes from its text (characters, the ellipsis included).
+const SAVED_NAME_CHARS: usize = 40;
+
+/// A search kept in AzDrive's settings (Save search): its name, the search box's text, the
+/// Search tab's choices and the place it searched; Saved searches runs it again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedSearch {
+    pub name: String,
+    /// The search box's text.
+    pub query: String,
+    /// File contents.
+    pub contents: bool,
+    /// All subfolders (`false`: Current folder).
+    pub subfolders: bool,
+    /// Skip ignored files.
+    pub ignore_files: bool,
+    pub date: DateRefine,
+    pub kind: KindRefine,
+    pub size: SizeRefine,
+    /// The drive searched (`""`: This PC, every drive on this computer).
+    pub drive: String,
+    /// Its folder (`""`: its root).
+    pub prefix: String,
+}
+
+impl Default for SavedSearch {
+    fn default() -> Self {
+        SavedSearch {
+            name: String::new(),
+            query: String::new(),
+            contents: false,
+            subfolders: true,
+            ignore_files: true,
+            date: DateRefine::Any,
+            kind: KindRefine::Any,
+            size: SizeRefine::Any,
+            drive: String::new(),
+            prefix: String::new(),
+        }
+    }
+}
+
+impl SavedSearch {
+    /// The search of `text` in `place` as the Search tab sets it (`settings`, `refines`), named
+    /// after the text (cut to [`SAVED_NAME_CHARS`] with an ellipsis when longer).
+    #[must_use]
+    pub fn of(text: &str, settings: &Settings, refines: Refines, place: &Place) -> SavedSearch {
+        let query = text.trim().to_string();
+        let name = if query.chars().count() > SAVED_NAME_CHARS {
+            let kept: String = query.chars().take(SAVED_NAME_CHARS - 1).collect();
+            format!("{kept}\u{2026}")
+        } else {
+            query.clone()
+        };
+        let (drive, prefix) = match place {
+            Place::Folder { drive, prefix } => (drive.clone(), prefix.clone()),
+            Place::ThisPc | Place::QuickAccess => (String::new(), String::new()),
+        };
+        SavedSearch {
+            name,
+            query,
+            contents: settings.search_contents,
+            subfolders: settings.search_subfolders,
+            ignore_files: settings.search_ignore_files,
+            date: refines.date,
+            kind: refines.kind,
+            size: refines.size,
+            drive,
+            prefix,
+        }
+    }
+
+    /// Its Refine.
+    #[must_use]
+    pub fn refines(&self) -> Refines {
+        Refines {
+            date: self.date,
+            kind: self.kind,
+            size: self.size,
+        }
+    }
+
+    /// The place it searches.
+    #[must_use]
+    pub fn place(&self) -> Place {
+        if self.drive.is_empty() {
+            Place::ThisPc
+        } else {
+            Place::folder(&self.drive, &self.prefix)
+        }
+    }
+}
+
+/// Where the saved search named `name` (without case) is in `list`.
+#[must_use]
+pub fn saved_position(list: &[SavedSearch], name: &str) -> Option<usize> {
+    let name = name.to_lowercase();
+    list.iter().position(|saved| saved.name.to_lowercase() == name)
+}
+
+/// Keeps `saved` in `list`: in place of the saved search of its name (without case), else at
+/// the end.
+pub fn save_search(list: &mut Vec<SavedSearch>, saved: SavedSearch) {
+    match saved_position(list, &saved.name) {
+        Some(at) => list[at] = saved,
+        None => list.push(saved),
     }
 }
