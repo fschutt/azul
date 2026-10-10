@@ -1224,7 +1224,12 @@ mod tests {
             code: code.to_string(),
             message: String::from("raw"),
         };
-        assert!(token_text(&refused("last_recovery_key")).contains("last recovery key"));
+        // The table's row, in the language of this computer's locale (English or German).
+        let last = token_text(&refused("last_recovery_key"));
+        assert!(
+            last.contains("last recovery key") || last.contains("letzte Wiederherstellungsschl"),
+            "{last}"
+        );
         assert!(
             token_text(&refused("frobnicated")).contains("raw"),
             "as it is otherwise"
