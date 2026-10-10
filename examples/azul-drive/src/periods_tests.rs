@@ -1,10 +1,14 @@
 //! When AzDrive looks at an Azlin drive's period: at the start, then once a day while it runs,
 //! an hour after a look that failed, and at the moment a period becomes due when that comes
-//! before the next daily look. No window.
+//! before the next daily look. What a look tells the owner: a new device, a recovery-key
+//! lockdown and how long is left to cancel it. No window.
 
-use azcloud_kit::{period::REDEEM_AHEAD_SECS, Redeemed};
+use azcloud_kit::{period::REDEEM_AHEAD_SECS, token::RECOVERY_MEMBER, Redeemed};
+use azul_storage::time::iso8601;
 
-use crate::periods::{check_every, Schedule, DAY_SECS, RETRY_SECS};
+use crate::periods::{
+    check_every, new_device_text, new_devices, recovery_text, Schedule, DAY_SECS, RETRY_SECS,
+};
 
 const NOW: u64 = 1_791_450_000;
 
@@ -71,4 +75,30 @@ fn the_daily_look_can_be_made_more_often_for_a_test_run() {
     let mut schedule = Schedule::new(5);
     schedule.looked("d_1", &Redeemed::Kept(String::from("busy")), NOW);
     assert_eq!(schedule.due(["d_1"], NOW + 5), vec!["d_1"]);
+}
+
+#[test]
+fn a_new_device_is_announced_with_the_drive_and_what_to_do_if_it_was_not_you() {
+    let text = new_device_text("Work", "m_laptop");
+    assert!(text.contains("\"Work\"") && text.contains("m_laptop"), "{text}");
+    assert!(text.contains("Not you?"), "{text}");
+}
+
+#[test]
+fn the_recovery_codes_device_is_announced_as_a_lockdown_not_as_a_new_device() {
+    let new = [String::from("m_laptop"), String::from(RECOVERY_MEMBER)];
+    assert_eq!(new_devices(&new), vec!["m_laptop"]);
+}
+
+#[test]
+fn a_recovery_lockdown_says_how_long_the_owner_has_to_cancel_it() {
+    let until = NOW + 48 * 3_600;
+    let text = recovery_text("Work", until, NOW);
+    assert!(text.contains("\"Work\"") && text.contains("48 hours"), "{text}");
+    assert!(text.contains(&iso8601(until)), "{text}");
+    assert!(text.contains("cancel"), "{text}");
+    let soon = recovery_text("Work", NOW + 90 * 60, NOW);
+    assert!(soon.contains("2 hours"), "{soon}");
+    let now = recovery_text("Work", NOW + 600, NOW);
+    assert!(now.contains("less than an hour"), "{now}");
 }

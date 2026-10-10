@@ -57,7 +57,8 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     `voucher_invalid`. A server that takes no test code (a production one) skips the section;
     `--skip-vouchers` skips it anyway; `--mock` never skips it.
 14. A lockdown by a drive token (§18.7): with a member family (POST /v1/drives/<id>/members, 201)
-    and an access key (POST /v1/drives/<id>/keys, 201, `AZK...`) made first, the owner's lockdown
+    and an access key (POST /v1/drives/<id>/keys, 201, `AZK...`) made first - the drive's
+    members (GET /v1/drives/<id>) name the new member, `you` the caller -, the owner's lockdown
     is 200 with a new drive token for the caller; the member's token and the caller's old one
     are refused (401) and the new one refreshes.
 
@@ -214,6 +215,12 @@ def lockdown_checks(suite, client):
     member_token = (member or {}).get('drive_token') or ''
     suite.check('the owner adds a member family (201)', status == 201 and bool(member_token),
                 '(HTTP %d %r)' % (status, error_code(member)))
+    status, info, _ = client.call('GET', path, bearer=member_token)
+    names = [m.get('member') for m in (info or {}).get('members') or [] if isinstance(m, dict)]
+    suite.check("the drive's members name the new one, and `you` the caller",
+                status == 200 and 'conformance' in names and len(names) >= 2
+                and (info or {}).get('you') == 'conformance',
+                '(HTTP %d members %r you %r)' % (status, names, (info or {}).get('you')))
     status, key, _ = client.call('POST', path + '/keys', {'perms': 'r', 'expires_days': 1},
                                  bearer=owner)
     suite.check('the owner makes an access key (201, AZK...)',

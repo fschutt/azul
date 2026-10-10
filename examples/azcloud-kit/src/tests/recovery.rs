@@ -9,7 +9,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use super::{header, json, Fake, Shared, TOKEN};
 use crate::{
     recovery::RecoveryKey,
-    token::{recovery_lockdown_message, DriveStatus, TokenServer},
+    token::{recovery_lockdown_message, DriveStatus, TokenServer, RECOVERY_MEMBER},
 };
 
 const CODE: [u8; 16] = [0x5A; 16];
@@ -86,7 +86,7 @@ fn the_recovery_key_is_registered_with_the_drive_token_and_signs_a_lockdown_with
 }
 
 #[test]
-fn the_drives_status_names_its_period_and_a_pending_lockdown() {
+fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
     let fake = Fake::new(|call, n| {
         assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1"));
         Ok(json(
@@ -94,7 +94,13 @@ fn the_drives_status_names_its_period_and_a_pending_lockdown() {
             if n == 0 {
                 r#"{"id": "d_1", "tier": "100GB", "read_only": false, "status": "active",
                     "period_until": "2026-11-07T00:00:00Z",
-                    "lockdown_pending_until": "2026-10-13T09:00:00Z", "members": []}"#
+                    "lockdown_pending_until": "2026-10-13T09:00:00Z", "you": "owner",
+                    "members": [
+                        {"member": "owner", "role": "member", "added_at": "2026-10-01T00:00:00Z"},
+                        {"member": "recovery-pending", "role": "member",
+                         "added_at": "2026-10-11T00:00:00Z"},
+                        {"member": "m_laptop", "role": "member", "added_at": "2026-10-05T00:00:00Z"}
+                    ]}"#
             } else {
                 r#"{"id": "d_1", "tier": "1TB", "read_only": true,
                     "period_until": null, "lockdown_pending_until": null}"#
@@ -111,6 +117,12 @@ fn the_drives_status_names_its_period_and_a_pending_lockdown() {
             period_until: parse("2026-11-07T00:00:00Z"),
             lockdown_pending_until: parse("2026-10-13T09:00:00Z"),
             read_only: false,
+            members: vec![
+                String::from("m_laptop"),
+                String::from("owner"),
+                String::from(RECOVERY_MEMBER),
+            ],
+            you: Some(String::from("owner")),
         }
     );
     assert_eq!(
@@ -120,6 +132,8 @@ fn the_drives_status_names_its_period_and_a_pending_lockdown() {
             period_until: None,
             lockdown_pending_until: None,
             read_only: true,
+            members: Vec::new(),
+            you: None,
         }
     );
 }
