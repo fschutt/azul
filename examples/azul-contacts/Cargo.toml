@@ -24,6 +24,9 @@ azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 azul-pim = { path = "../azul-pim" }
 # The seed of the ids that name files (azul_storage::ids::random_seed).
 azul-storage = { path = "../azul-storage" }
+# The address book without azul types (vCard, the contact, the list, duplicates, CSV, the files),
+# shared with the Azlin Bridge's CardDAV.
+azul-contacts-core = { path = "../azul-contacts-core" }
 
 [lib]
 name = "azcontacts"

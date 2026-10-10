@@ -830,6 +830,12 @@ jobs:
           cargo test -p AzCalculator --lib --no-fail-fast 2>&1 | tee azul-calculator-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-calculator-tests.txt
 
+      - name: Run azul-contacts-core tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-contacts-core --no-fail-fast 2>&1 | tee azul-contacts-core-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-contacts-core-tests.txt
+
       - name: Run AzContacts tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi

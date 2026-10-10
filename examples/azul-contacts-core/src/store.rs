@@ -47,14 +47,13 @@ pub fn uid_of_key(key: &str) -> Option<String> {
     is_safe_uid(uid).then(|| uid.to_string())
 }
 
-/// A new contact UID, which names the contact's file: a random version 4 UUID from the mint
-/// every Azlin app names its files with (house rule 2026-10-02: `Uuid::from_seed` of
-/// `azul_storage::ids::random_seed`).
+/// A new contact UID, which names the contact's file: a random version 4 UUID (lower case,
+/// hyphenated) of two `azul_storage::ids::random_seed`s - the seed every Azlin app mints file ids
+/// from (house rule 2026-10-02), the same kind of id azul's `Uuid::from_seed` makes, without
+/// libazul.
 #[must_use]
 pub fn new_uid() -> String {
-    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
-        .as_str()
-        .to_string()
+    azul_storage::ids::new_uuid()
 }
 
 /// Gives a contact a new UID if it has none that can name a file.
