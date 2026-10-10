@@ -15,7 +15,10 @@ use std::{
     fmt,
     io::Read,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 use serde::{Deserialize, Serialize};
@@ -419,7 +422,7 @@ pub struct S3Drive {
     /// The part size of a streamed upload ([`PART_SIZE`]).
     part_size: usize,
     /// Parts in flight at once ([`PARALLEL_PARTS`]).
-    parallel: usize,
+    parallel: AtomicUsize,
     /// Where the state files of resumable uploads go; `None`: the app's
     /// ([`crate::multipart::resume_folder`]).
     resume_dir: Option<PathBuf>,
@@ -457,7 +460,7 @@ impl S3Drive {
             transport,
             clock: Box::new(now_unix),
             part_size: PART_SIZE,
-            parallel: PARALLEL_PARTS,
+            parallel: AtomicUsize::new(PARALLEL_PARTS),
             resume_dir: None,
             router: None,
         })
@@ -481,9 +484,14 @@ impl S3Drive {
     /// Sends up to `parallel` parts of an upload at once (at least one) instead of
     /// [`PARALLEL_PARTS`].
     #[must_use]
-    pub fn with_parallel(mut self, parallel: usize) -> Self {
-        self.parallel = parallel.max(1);
+    pub fn with_parallel(self, parallel: usize) -> Self {
+        self.set_parallel(parallel);
         self
+    }
+
+    /// Sends up to `parallel` parts of an upload at once (at least one) from now on.
+    pub fn set_parallel(&self, parallel: usize) {
+        self.parallel.store(parallel.max(1), Ordering::Relaxed);
     }
 
     /// Keeps the state files of resumable uploads ([`Drive::put_file`]) in `folder` instead of
@@ -511,7 +519,18 @@ impl S3Drive {
     /// Parts of an upload in flight at once.
     #[must_use]
     pub fn parallel(&self) -> usize {
-        self.parallel
+        self.parallel.load(Ordering::Relaxed)
+    }
+
+    /// [`Drive::put_from`] with the new version's ETag (without its quotes) when the service
+    /// said it: one PUT for a body of one part or less, else a multipart upload.
+    pub fn put_stream(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+    ) -> Result<(u64, Option<String>), DriveError> {
+        check_s3_key(key)?;
+        crate::multipart::upload_stream(self, key, body, None)
     }
 
     /// Where the state files of resumable uploads go, if anywhere.

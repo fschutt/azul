@@ -3,112 +3,52 @@
 //! [`azul_storage::Transport`] (azul's HTTP client in the apps, a fake in the tests, whatever
 //! the `azcloud` command line plugs in).
 //!
-//! - Every request goes to the block endpoint first, then to the drive's direct node URLs and
-//!   failover addresses ([`crate::DriveBundle::node_urls`]) and to what an answer's
-//!   `x-azlin-alt-endpoints` named: the next one is asked when one gives no answer or answers
-//!   503.
+//! - Every request goes through the drive's [`Failover`]: the block endpoint first, the nodes an
+//!   answer's `x-azlin-alt-endpoints` names (in the same request), the drive's nodes
+//!   ([`Bucket::with_nodes`]: the node list of the last refresh, reached at their addresses when
+//!   their names do not resolve) and failover URLs ([`Bucket::with_alternatives`]), retried by
+//!   the class of the answer (busy: again after a backoff; a pause the node asks for; a drive
+//!   that moved; see [`crate::failover`]).
 //! - Conditional writes (`If-Match`, `If-None-Match: *`; a 412 says another writer won) and
 //!   conditional reads (`If-None-Match`; a 304 says nothing changed): the sync's
 //!   compare-and-swap.
-//! - An object above twice the part size goes up as a multipart upload; one above the part size
-//!   comes down in ranges; either moves several parts at once, on threads of its own.
+//! - An object above twice the part size goes up as a multipart upload (azul-storage's: parts of
+//!   16 MiB, four at once, each failing over on its own); one above the part size comes down in
+//!   ranges, several at once; a file goes up resumably ([`Bucket::put_file`]) and comes down
+//!   into a file ([`Bucket::download_to`]) without the object in memory.
 //!
 //! Blocking: call it from an azul `Thread`, never from a UI callback.
 
-use std::{
-    fmt,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Mutex, MutexGuard, PoisonError,
-    },
-};
+use std::{fmt, io::Read, path::Path, sync::Arc};
 
 use azul_storage::{
-    s3::parse_listing, ByteRange, Credentials, DriveError, HttpReply, ListPage, Method,
-    ObjectInfo, S3Config, S3Drive,
+    multipart::in_parallel, s3::parse_listing, transfer, ByteRange, Credentials, DriveError,
+    HttpReply, ListPage, Method, ObjectInfo, S3Config, S3Drive,
 };
 
 use crate::{
     drive::TransportFactory,
     error::{CloudError, CloudResult},
+    failover::{Clock, Failover, Node, Retry, Sleep},
     store::{Conditional, RemoteObject, RemoteStore, BIG_BLOB},
 };
 
-/// The part size of a multipart upload and of a ranged download.
-pub const PART_SIZE: usize = 8 * 1024 * 1024;
+/// The part size of a multipart upload and of a ranged download (azul-storage's).
+pub const PART_SIZE: usize = azul_storage::s3::PART_SIZE;
 /// Parts or ranges of one object in flight at once.
-pub const PARALLEL: usize = 4;
+pub const PARALLEL: usize = azul_storage::s3::PARALLEL_PARTS;
 /// The content type of every object the bucket writes (the sync's blobs and index, the
 /// command line's uploads).
 const OCTETS: &str = "application/octet-stream";
-
-/// The mutex's value, also after a thread panicked while holding it.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-/// The text of the first `<tag>...</tag>` of an XML answer.
-fn xml_text<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
-    let open = format!("<{tag}>");
-    let close = format!("</{tag}>");
-    let start = xml.find(&open)? + open.len();
-    let end = xml[start..].find(&close)? + start;
-    Some(&xml[start..end])
-}
-
-fn xml_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
 
 /// The pair of a query parameter or a header.
 fn pair(name: &str, value: impl Into<String>) -> (String, String) {
     (name.to_string(), value.into())
 }
 
-/// Runs `job(0)`, `job(1)`, ... `job(count - 1)` on up to `parallel` threads; the answers in
-/// index order, or the first error (no new job starts after one failed).
-fn in_parallel<T: Send>(
-    count: usize,
-    parallel: usize,
-    job: impl Fn(usize) -> CloudResult<T> + Sync,
-) -> CloudResult<Vec<T>> {
-    let next = AtomicUsize::new(0);
-    let results: Mutex<Vec<Option<CloudResult<T>>>> =
-        Mutex::new((0..count).map(|_| None).collect());
-    let workers = parallel.max(1).min(count.max(1));
-    std::thread::scope(|scope| {
-        for _ in 0..workers {
-            scope.spawn(|| loop {
-                let i = next.fetch_add(1, Ordering::SeqCst);
-                if i >= count {
-                    break;
-                }
-                let result = job(i);
-                let failed = result.is_err();
-                lock(&results)[i] = Some(result);
-                if failed {
-                    next.store(count, Ordering::SeqCst);
-                    break;
-                }
-            });
-        }
-    });
-    let mut out = Vec::with_capacity(count);
-    for slot in results.into_inner().unwrap_or_else(PoisonError::into_inner) {
-        match slot {
-            Some(Ok(value)) => out.push(value),
-            Some(Err(e)) => return Err(e),
-            None => {
-                return Err(CloudError::failed(
-                    "a part was left out after another part failed",
-                ))
-            }
-        }
-    }
-    Ok(out)
+/// An ETag as S3 sends it: in quotes (empty when the service said none).
+fn quoted(etag: Option<String>) -> String {
+    etag.map(|e| format!("\"{e}\"")).unwrap_or_default()
 }
 
 /// One bucket of a drive. `Debug` shows no secret.
@@ -116,88 +56,158 @@ pub struct Bucket {
     config: S3Config,
     credentials: Credentials,
     transports: TransportFactory,
-    /// The endpoints after the block endpoint: the node URLs, the failover, what answers named.
-    alternatives: Mutex<Vec<String>>,
-    /// The drive of every endpoint asked so far.
-    drives: Mutex<Vec<(String, Arc<S3Drive>)>>,
+    failover: Arc<Failover>,
+    /// The bucket, every request through the failover.
+    drive: S3Drive,
+    /// The block endpoint, asked once (a probe: any answer means the pipe works).
+    direct: S3Drive,
     part_size: usize,
-    parallel: AtomicUsize,
-    clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
+    clock: Option<Clock>,
 }
 
 impl fmt::Debug for Bucket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Bucket")
             .field("config", &self.config)
-            .field("alternatives", &*lock(&self.alternatives))
+            .field("failover", &self.failover)
             .field("part_size", &self.part_size)
             .field("parallel", &self.parallel())
             .finish_non_exhaustive()
     }
 }
 
+/// The routed drive and the direct one of a bucket.
+fn open(
+    config: &S3Config,
+    credentials: &Credentials,
+    transports: &TransportFactory,
+    failover: &Arc<Failover>,
+    clock: Option<&Clock>,
+    part_size: usize,
+) -> Result<(S3Drive, S3Drive), DriveError> {
+    let mut drive = S3Drive::new(config.clone(), credentials.clone(), transports())?
+        .with_router(failover.clone())
+        .with_part_size(part_size);
+    let mut direct = S3Drive::new(config.clone(), credentials.clone(), transports())?;
+    if let Some(clock) = clock {
+        let signing = clock.clone();
+        drive = drive.with_clock(move || signing());
+        let signing = clock.clone();
+        direct = direct.with_clock(move || signing());
+    }
+    Ok((drive, direct))
+}
+
 impl Bucket {
-    /// The bucket `config` (its endpoint is the block endpoint) with `credentials`; every
-    /// endpoint it asks gets a transport from `transports`. Refused when the endpoint or the
-    /// bucket name cannot be one; sends nothing.
+    /// The bucket `config` (its endpoint is the block endpoint) with `credentials`; its requests
+    /// go through transports from `transports`. Refused when the endpoint or the bucket name
+    /// cannot be one; sends nothing.
     pub fn new(
         config: S3Config,
         credentials: Credentials,
         transports: TransportFactory,
     ) -> CloudResult<Bucket> {
-        S3Drive::new(config.clone(), credentials.clone(), transports())?;
+        let failover = Arc::new(Failover::new(&config.endpoint));
+        let (drive, direct) = open(
+            &config,
+            &credentials,
+            &transports,
+            &failover,
+            None,
+            PART_SIZE,
+        )?;
         Ok(Bucket {
             config,
             credentials,
             transports,
-            alternatives: Mutex::new(Vec::new()),
-            drives: Mutex::new(Vec::new()),
+            failover,
+            drive,
+            direct,
             part_size: PART_SIZE,
-            parallel: AtomicUsize::new(PARALLEL),
             clock: None,
         })
     }
 
-    /// Asks `urls` too, in their order, when the block endpoint does not answer (the drive's
-    /// node URLs and failover).
+    /// Opens the drives again (a new clock or part size), keeping how many parts travel at once.
+    fn reopen(&mut self) {
+        let parallel = self.parallel();
+        if let Ok((drive, direct)) = open(
+            &self.config,
+            &self.credentials,
+            &self.transports,
+            &self.failover,
+            self.clock.as_ref(),
+            self.part_size,
+        ) {
+            drive.set_parallel(parallel);
+            self.drive = drive;
+            self.direct = direct;
+        }
+    }
+
+    /// Asks `urls` too, in their order, after the nodes, when the block endpoint does not
+    /// answer (the drive's failover URLs).
     #[must_use]
     pub fn with_alternatives(self, urls: Vec<String>) -> Bucket {
-        {
-            let mut alternatives = lock(&self.alternatives);
-            for url in urls {
-                let url = url.trim().trim_end_matches('/').to_string();
-                if !url.is_empty() && url != self.config.endpoint && !alternatives.contains(&url)
-                {
-                    alternatives.push(url);
-                }
-            }
-        }
+        self.failover.add_alternatives(urls);
         self
     }
 
-    /// Signs with this clock (seconds since 1970) instead of the system's.
+    /// Asks the drive's nodes (the node list of the last credential refresh) when the block
+    /// endpoint does not answer; a node whose name does not resolve at its addresses.
+    #[must_use]
+    pub fn with_nodes(self, nodes: Vec<Node>) -> Bucket {
+        self.failover.set_nodes(nodes);
+        self
+    }
+
+    /// Tries every request this often, with these pauses.
+    #[must_use]
+    pub fn with_retry(self, retry: Retry) -> Bucket {
+        self.failover.set_retry(retry);
+        self
+    }
+
+    /// Takes the pauses between retries with `sleep` instead of sleeping (tests).
+    #[must_use]
+    pub fn with_sleep(self, sleep: Sleep) -> Bucket {
+        self.failover.set_sleep(sleep);
+        self
+    }
+
+    /// Signs with this clock (seconds since 1970) instead of the system's; the failover's
+    /// sticky node keeps its time too.
     #[must_use]
     pub fn with_clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Bucket {
-        self.clock = Some(Arc::new(clock));
-        lock(&self.drives).clear();
+        let clock: Clock = Arc::new(clock);
+        self.failover.set_clock(clock.clone());
+        self.clock = Some(clock);
+        self.reopen();
         self
+    }
+
+    /// The failover every request of the bucket goes through.
+    #[must_use]
+    pub fn failover(&self) -> &Arc<Failover> {
+        &self.failover
     }
 
     /// Sets how many parts or ranges of one big object are in flight (at least one).
     pub fn set_parallel(&self, parallel: usize) {
-        self.parallel.store(parallel.max(1), Ordering::Relaxed);
+        self.drive.set_parallel(parallel);
     }
 
     /// How many parts or ranges of one big object are in flight.
     #[must_use]
     pub fn parallel(&self) -> usize {
-        self.parallel.load(Ordering::Relaxed)
+        self.drive.parallel()
     }
 
     /// Sets the part size of multipart uploads and ranged downloads (at least one byte; S3
     /// takes parts of 5 MiB and more but the last).
     pub fn set_part_size(&mut self, part_size: usize) {
         self.part_size = part_size.max(1);
+        self.reopen();
     }
 
     /// Where the bucket is: its block endpoint, region, name, URL style.
@@ -212,48 +222,21 @@ impl Bucket {
         &self.config.bucket
     }
 
-    /// The endpoints after the block endpoint, as they are now.
+    /// The endpoints after the block endpoint and the nodes, as they are now: the failover
+    /// URLs, then what answers named.
     #[must_use]
     pub fn alternatives(&self) -> Vec<String> {
-        lock(&self.alternatives).clone()
+        self.failover.alternatives()
     }
 
-    /// The drive of `endpoint`, opened on first use.
-    fn drive_at(&self, endpoint: &str) -> Result<Arc<S3Drive>, DriveError> {
-        let mut drives = lock(&self.drives);
-        if let Some((_, drive)) = drives.iter().find(|(e, _)| e == endpoint) {
-            return Ok(drive.clone());
-        }
-        let config = S3Config {
-            endpoint: endpoint.to_string(),
-            ..self.config.clone()
-        };
-        let mut drive = S3Drive::new(config, self.credentials.clone(), (self.transports)())?;
-        if let Some(clock) = &self.clock {
-            let clock = clock.clone();
-            drive = drive.with_clock(move || clock());
-        }
-        let drive = Arc::new(drive);
-        drives.push((endpoint.to_string(), drive.clone()));
-        Ok(drive)
+    /// The bucket as an azul-storage drive (its requests through the failover).
+    #[must_use]
+    pub fn drive(&self) -> &S3Drive {
+        &self.drive
     }
 
-    /// Remembers the endpoints an answer's `x-azlin-alt-endpoints` names.
-    fn learn(&self, reply: &HttpReply) {
-        let Some(named) = reply.header("x-azlin-alt-endpoints") else {
-            return;
-        };
-        let mut alternatives = lock(&self.alternatives);
-        for url in named.split(',').map(str::trim).filter(|u| !u.is_empty()) {
-            let url = url.trim_end_matches('/');
-            if url != self.config.endpoint && !alternatives.iter().any(|a| a == url) {
-                alternatives.push(url.to_string());
-            }
-        }
-    }
-
-    /// One request: the block endpoint first, then every alternative while there is no answer
-    /// or a 503. A key S3 cannot take is refused before anything is sent.
+    /// One request through the failover. A key S3 cannot take is refused before anything is
+    /// sent.
     fn send(
         &self,
         method: Method,
@@ -263,41 +246,8 @@ impl Bucket {
         body: &[u8],
         content_type: &str,
     ) -> Result<HttpReply, DriveError> {
-        let mut endpoints = vec![self.config.endpoint.clone()];
-        endpoints.extend(lock(&self.alternatives).iter().cloned());
-        let mut last: Option<DriveError> = None;
-        for (i, endpoint) in endpoints.iter().enumerate() {
-            let drive = match self.drive_at(endpoint) {
-                Ok(drive) => drive,
-                Err(e) => {
-                    last = Some(e);
-                    continue;
-                }
-            };
-            let sent = drive.send_raw(
-                method,
-                key,
-                query.clone(),
-                extra.clone(),
-                body.to_vec(),
-                content_type,
-            );
-            match sent {
-                Ok(reply) => {
-                    self.learn(&reply);
-                    if reply.status == 503 && i + 1 < endpoints.len() {
-                        last = Some(S3Drive::failure_of(&reply, key));
-                        continue;
-                    }
-                    return Ok(reply);
-                }
-                Err(DriveError::Transport(why)) => {
-                    last = Some(DriveError::Transport(format!("{endpoint}: {why}")));
-                }
-                Err(other) => return Err(other),
-            }
-        }
-        Err(last.unwrap_or_else(|| DriveError::Transport(String::from("no endpoint to ask"))))
+        self.drive
+            .send_raw(method, key, query, extra, body.to_vec(), content_type)
     }
 
     /// The error of a failed answer about `key` (an Azlin node's own code, pause and request ID
@@ -309,13 +259,56 @@ impl Bucket {
     /// PUT (a multipart upload above twice the part size); the ETag the service answered.
     pub fn put(&self, key: &str, data: &[u8]) -> CloudResult<String> {
         if data.len() > self.part_size.saturating_mul(2) {
-            return self.put_multipart(key, data);
+            let (_, etag) = self.drive.put_stream(key, &mut &data[..])?;
+            return Ok(quoted(etag));
         }
         let reply = self.send(Method::Put, Some(key), Vec::new(), Vec::new(), data, OCTETS)?;
         if !reply.is_success() {
             return Err(Self::failure(&reply, key));
         }
         Ok(reply.header("etag").unwrap_or_default().to_string())
+    }
+
+    /// PUT of what `body` reads, to its end: one PUT for a body of one part or less, else a
+    /// multipart upload, the parts read a few ahead (never the whole body in memory); the ETag.
+    pub fn put_from(&self, key: &str, body: &mut dyn Read) -> CloudResult<String> {
+        let (_, etag) = self.drive.put_stream(key, body)?;
+        Ok(quoted(etag))
+    }
+
+    /// PUT of the local file `path`: its parts several at once, resumable after the app was
+    /// killed (azul-storage's resume folder); the bytes sent. `progress` hears the bytes sent so
+    /// far, from the parts' threads.
+    pub fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> CloudResult<u64> {
+        Ok(azul_storage::Drive::put_file(
+            &self.drive,
+            key,
+            path,
+            progress,
+        )?)
+    }
+
+    /// GET of `key` into the file `dest`: ranged GETs several at once into a hidden file next
+    /// to it, resumed by the next download of the same version; the bytes written.
+    pub fn download_to(
+        &self,
+        key: &str,
+        dest: &Path,
+        progress: &mut dyn FnMut(u64),
+    ) -> CloudResult<u64> {
+        Ok(transfer::download_with_progress(
+            &self.drive,
+            key,
+            None,
+            dest,
+            self.part_size as u64,
+            progress,
+        )?)
     }
 
     /// Conditional PUT: `If-Match: <etag>`, or `If-None-Match: *` without one (the key must be
@@ -435,7 +428,15 @@ impl Bucket {
     /// One signed HEAD of `key`: `Ok` for any answer at all (the pipe works), the reason
     /// otherwise.
     pub fn probe(&self, key: &str) -> Result<(), String> {
-        self.send(Method::Head, Some(key), Vec::new(), Vec::new(), &[], "")
+        self.direct
+            .send_raw(
+                Method::Head,
+                Some(key),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                "",
+            )
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -480,78 +481,6 @@ impl Bucket {
                 _ => return Ok(out),
             }
         }
-    }
-
-    /// A multipart upload: started, its parts sent several at once, completed; the ETag.
-    fn put_multipart(&self, key: &str, data: &[u8]) -> CloudResult<String> {
-        let reply = self.send(
-            Method::Post,
-            Some(key),
-            vec![pair("uploads", "")],
-            vec![pair("content-type", OCTETS)],
-            &[],
-            "",
-        )?;
-        if !reply.is_success() {
-            return Err(Self::failure(&reply, key));
-        }
-        let started = String::from_utf8_lossy(&reply.body).into_owned();
-        let upload_id = xml_text(&started, "UploadId")
-            .map(str::trim)
-            .filter(|id| !id.is_empty())
-            .ok_or_else(|| {
-                DriveError::Protocol(format!(
-                    "{key}: the service started no multipart upload (no UploadId)"
-                ))
-            })?
-            .to_string();
-        let parts: Vec<&[u8]> = data.chunks(self.part_size).collect();
-        let etags = in_parallel(parts.len(), self.parallel(), |i| {
-            let query = vec![
-                pair("partNumber", (i + 1).to_string()),
-                pair("uploadId", upload_id.as_str()),
-            ];
-            let reply = self.send(Method::Put, Some(key), query, Vec::new(), parts[i], OCTETS)?;
-            if !reply.is_success() {
-                return Err(Self::failure(&reply, key));
-            }
-            Ok(reply.header("etag").unwrap_or_default().to_string())
-        })?;
-        let mut xml = String::from("<CompleteMultipartUpload>");
-        for (i, etag) in etags.iter().enumerate() {
-            xml.push_str(&format!(
-                "<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>",
-                i + 1,
-                xml_escape(etag)
-            ));
-        }
-        xml.push_str("</CompleteMultipartUpload>");
-        let reply = self.send(
-            Method::Post,
-            Some(key),
-            vec![pair("uploadId", upload_id.as_str())],
-            Vec::new(),
-            xml.as_bytes(),
-            "application/xml",
-        )?;
-        if !reply.is_success() {
-            return Err(Self::failure(&reply, key));
-        }
-        // A 200 can still carry an error: the service answers early and finishes later.
-        let done = String::from_utf8_lossy(&reply.body).into_owned();
-        if done.contains("<Error>") {
-            let failed = HttpReply {
-                status: 500,
-                headers: reply.headers.clone(),
-                body: reply.body.clone(),
-            };
-            return Err(Self::failure(&failed, key));
-        }
-        Ok(reply
-            .header("etag")
-            .map(str::to_string)
-            .or_else(|| xml_text(&done, "ETag").map(|e| e.trim().replace("&quot;", "\"")))
-            .unwrap_or_default())
     }
 }
 

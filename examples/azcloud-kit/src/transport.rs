@@ -40,6 +40,7 @@ use crate::{
     bucket::Bucket,
     drive::TransportFactory,
     error::{fail, CloudError, CloudResult},
+    failover::{Node, Retry},
     now,
     settings::{redact_url, Settings},
     state::{read_json, write_json},
@@ -315,8 +316,10 @@ fn try_iroh(
     let dialed: Arc<dyn Transport> = Arc::from(dialer.dial(target, relay)?);
     let transports: TransportFactory =
         Arc::new(move || Box::new(Dialed(dialed.clone())) as Box<dyn Transport>);
+    // One attempt per request: a failed request falls back to HTTPS on its own (CloudDrive::run).
     let bucket = Bucket::new(config.clone(), credentials.clone(), transports)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .with_retry(Retry::once());
     let bucket = Arc::new(bucket);
     probe(&bucket)?;
     Ok(bucket)
@@ -382,7 +385,8 @@ impl CloudDrive {
             credentials.clone(),
             account.transports().clone(),
         )?
-        .with_alternatives(record.node_urls());
+        .with_nodes(Node::list(&record.nodes))
+        .with_alternatives(record.failover.clone());
         let target = iroh_target(settings, &record.nodes);
         let memory_path = account.state().transport_file();
         let memory: Option<TransportMemory> = read_json(&memory_path).ok().flatten();

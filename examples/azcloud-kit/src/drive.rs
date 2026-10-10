@@ -12,11 +12,16 @@
 //! `on_rotated`, with whether the keyring has it. Within the process the session is behind a
 //! lock as well, so two calls that find the credentials running out at once refresh ONCE - the
 //! second sees the first's answer. Blocking, like every drive: call it from an azul `Thread`.
+//!
+//! Every request goes through the drive's [`Failover`] (the block endpoint, a node's hint, the
+//! node list, the nodes' addresses; retries by the class of the answer): each refresh hands it
+//! the node list it answered with, and with a nodes file ([`AzlinDrive::with_nodes_file`]) the
+//! list outlives the app - the next start fails over before its first refresh.
 
 use std::{
     fmt,
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -29,6 +34,7 @@ use azul_storage::{
 
 use crate::{
     bundle::DriveBundle,
+    failover::{read_nodes, write_nodes, Failover, Node},
     session::AzlinSession,
     shared::SharedKeyring,
     token::{TokenError, TokenServer},
@@ -66,6 +72,10 @@ pub struct AzlinDrive {
     transports: TransportFactory,
     on_rotated: OnRotated,
     clock: Box<dyn Fn() -> u64 + Send + Sync>,
+    /// Where every request of the bucket goes (the node list of the last refresh).
+    failover: Arc<Failover>,
+    /// Where the node list is kept between starts, if anywhere.
+    nodes_file: Option<PathBuf>,
 }
 
 impl fmt::Debug for AzlinDrive {
@@ -118,12 +128,12 @@ impl AzlinDrive {
         transports: TransportFactory,
         on_rotated: OnRotated,
     ) -> Result<AzlinDrive, DriveError> {
-        if entry.s3_config().is_none() {
+        let Some(config) = entry.s3_config() else {
             return Err(DriveError::InvalidConfig(format!(
                 "\"{}\" is not a bucket",
                 entry.name
             )));
-        }
+        };
         let named = entry.azlin().map(|(_, url)| url.trim()).unwrap_or_default();
         let token_url = if named.is_empty() {
             token_url.trim()
@@ -147,7 +157,43 @@ impl AzlinDrive {
             transports,
             on_rotated,
             clock: Box::new(now_unix),
+            failover: Arc::new(Failover::new(&config.endpoint)),
+            nodes_file: None,
         })
+    }
+
+    /// Keeps the node list of every refresh in `path` (not secret: the app's state or cache
+    /// folder), and starts with the list kept there.
+    #[must_use]
+    pub fn with_nodes_file(mut self, path: &Path) -> Self {
+        let kept = read_nodes(path);
+        if !kept.is_empty() {
+            self.failover.set_nodes(kept);
+        }
+        self.nodes_file = Some(path.to_path_buf());
+        self
+    }
+
+    /// The node list the requests fail over to (of the last refresh, or the nodes file).
+    #[must_use]
+    pub fn nodes(&self) -> Vec<Node> {
+        self.failover.nodes()
+    }
+
+    /// The failover every request of the drive goes through.
+    #[must_use]
+    pub fn failover(&self) -> &Arc<Failover> {
+        &self.failover
+    }
+
+    /// Takes a bundle's node list and failover URLs (and keeps the list in the nodes file).
+    fn learn_nodes(&self, bundle: &DriveBundle) {
+        let nodes = Node::list(&bundle.nodes);
+        if let Some(path) = &self.nodes_file {
+            write_nodes(path, &nodes);
+        }
+        self.failover.set_nodes(nodes);
+        self.failover.set_alternatives(bundle.failover.clone());
     }
 
     /// Reads the time from `clock` (seconds since 1970) instead of the system's.
@@ -189,11 +235,10 @@ impl AzlinDrive {
             .entry
             .s3_config()
             .ok_or_else(|| DriveError::InvalidConfig(String::from("not a bucket")))?;
-        let drive = Arc::new(S3Drive::new(
-            config,
-            current.session.credentials(),
-            (self.transports)(),
-        )?);
+        let drive = Arc::new(
+            S3Drive::new(config, current.session.credentials(), (self.transports)())?
+                .with_router(self.failover.clone()),
+        );
         current.drive = Some(drive.clone());
         Ok(drive)
     }
@@ -229,6 +274,7 @@ impl AzlinDrive {
         let bundle = server
             .refresh(&current.session.drive_id, &current.session.drive_token)
             .map_err(|e| drive_error_of(&e))?;
+        self.learn_nodes(&bundle);
         let session = bundle.session();
         // In the keyring BEFORE the lock is let go: the token just spent is dead, and the next
         // process to refresh must find this one.
@@ -267,9 +313,9 @@ impl AzlinDrive {
         let answer = server
             .lockdown(&current.session.drive_id, &current.session.drive_token)
             .map_err(|e| drive_error_of(&e))?;
-        let session = DriveBundle::from_value(&answer)
-            .map_err(|e| drive_error_of(&e))?
-            .session();
+        let bundle = DriveBundle::from_value(&answer).map_err(|e| drive_error_of(&e))?;
+        self.learn_nodes(&bundle);
+        let session = bundle.session();
         let saved = self
             .keyring
             .set(&key, &session.to_keyring_secret())
@@ -374,5 +420,32 @@ impl Drive for AzlinDrive {
     }
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.with_bucket(|b| b.metadata(key))
+    }
+    /// The bucket's resumable upload of a file: after a refusal of the credentials it is sent
+    /// again with fresh ones (and resumes with the parts already up).
+    fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        self.with_bucket(|b| b.put_file(key, path, progress))
+    }
+    /// The bucket's streamed conditional upload; like [`AzlinDrive::put_from`], a refusal of the
+    /// credentials half way refreshes them for the next call and is the caller's to retry.
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let (bucket, access_key) = self.bucket()?;
+        match bucket.put_from_if(key, body, condition) {
+            Err(e) if refused_credentials(&e) => {
+                self.after_refusal(&access_key)?;
+                Err(e)
+            }
+            other => other,
+        }
     }
 }
