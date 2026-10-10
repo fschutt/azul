@@ -897,7 +897,8 @@ jobs:
       - name: Run azul-mail-core tests
         run: |
           set -o pipefail
-          cargo test -p azul-mail-core --no-fail-fast 2>&1 | tee azul-mail-core-tests.txt
+          # With the encryption: the mail drive's encrypted path and its drops (mail_drive.rs).
+          cargo test -p azul-mail-core --features encryption --no-fail-fast 2>&1 | tee azul-mail-core-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-mail-core-tests.txt
 
       - name: Run azul-bridge tests

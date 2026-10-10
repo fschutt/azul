@@ -13,6 +13,8 @@
 //!   the drive's folders.
 //! - [`dkim`]: the DKIM key pair and its DNS record, the DNS checks.
 //! - [`folders`]: which folder a mailbox is and what it is for (inbox, sent, spam, ...).
+//! - [`mail_drive`]: the drive an Azlin account's mail lives in - through the encryption when it
+//!   is encrypted (feature `encryption`), its incoming-mail drops filed into it.
 //! - [`message`]: MIME parsing for the index lines and the reading pane's model.
 //! - [`mutf7`]: IMAP's modified UTF-7 mailbox names.
 //! - [`send`]: sending: the outbox, the route, DKIM, the per-domain policy, the Sent folder.
@@ -28,6 +30,7 @@ pub mod auth;
 pub mod azlin;
 pub mod dkim;
 pub mod folders;
+pub mod mail_drive;
 pub mod message;
 pub mod mutf7;
 pub mod send;
