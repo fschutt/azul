@@ -446,3 +446,14 @@ pub fn forget_request_key(keyring: &dyn KeyringStore, drive: &str) -> Result<(),
     let entry = request_key_entry(drive);
     keyring.delete(&entry).map_err(|e| keyring_error(&entry, e))
 }
+
+/// Members of the drive other than this device - its other devices (and, in a shared drive,
+/// the other people): the member key files in `.azlin/keys/`, the recovery code's and the
+/// invites' left out.
+pub fn other_devices(
+    _bucket: &dyn Drive,
+    _keyring: &dyn KeyringStore,
+    _drive: &str,
+) -> Result<u32, DriveError> {
+    Ok(0)
+}

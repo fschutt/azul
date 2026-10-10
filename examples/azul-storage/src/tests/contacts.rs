@@ -1,6 +1,7 @@
 //! Trusted contacts: a recovery code split 2-of-3, its shares printed or sealed to a contact's
 //! key, a recovery request answered by sealing a share to the request's key.
 
+use super::mem_bucket::MemBucket;
 use crate::crypto::{
     contacts::{
         contact_from_text, contact_text, open_reply, open_share, read_share, request_from_text,
@@ -8,13 +9,16 @@ use crate::crypto::{
         REPLY_PREFIX, SHARES, SHARE_PREFIX,
     },
     device::{
-        contact_key_entry, forget_request_key, load_contact_key, new_contact_key, request_key,
-        request_key_entry,
+        contact_key_entry, enroll, forget_request_key, load_contact_key, new_contact_key,
+        other_devices, request_key, request_key_entry, seal_invite, setup_new_drive,
     },
     keys::{MemberSecret, RecoveryCode},
     CryptoError,
 };
-use crate::keyring::{KeyringStore, MemoryKeyring};
+use crate::{
+    crypto::keys::RecoveryKdf,
+    keyring::{KeyringStore, MemoryKeyring},
+};
 
 fn code() -> RecoveryCode {
     RecoveryCode::from_bytes([0x5A; 16])
@@ -228,5 +232,39 @@ fn contact_keys_and_a_drives_request_key_live_in_the_keyring() {
     assert_ne!(
         request_key(&keyring, "d_1").unwrap().public(),
         first.public()
+    );
+}
+
+#[test]
+fn another_device_is_a_member_wrap_beside_this_ones_and_invites_do_not_count() {
+    let bucket = MemBucket::new();
+    let first = MemoryKeyring::new();
+    let (drive_key, _code) = setup_new_drive(
+        &bucket,
+        &first,
+        "d_1",
+        RecoveryKdf::with_cost(64, 1, 1).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        other_devices(&bucket, &first, "d_1").unwrap(),
+        0,
+        "only this device"
+    );
+    let second = MemoryKeyring::new();
+    enroll(&bucket, &second, "d_1", &drive_key).unwrap();
+    assert_eq!(other_devices(&bucket, &first, "d_1").unwrap(), 1);
+    assert_eq!(other_devices(&bucket, &second, "d_1").unwrap(), 1);
+    let _invite = seal_invite(&bucket, "d_1", &drive_key).unwrap();
+    assert_eq!(
+        other_devices(&bucket, &first, "d_1").unwrap(),
+        1,
+        "an invite is no device"
+    );
+    let stranger = MemoryKeyring::new();
+    assert_eq!(
+        other_devices(&bucket, &stranger, "d_1").unwrap(),
+        2,
+        "a computer without a wrap"
     );
 }
