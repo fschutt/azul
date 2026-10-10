@@ -1710,6 +1710,9 @@ pub(crate) fn go(
     place: Place,
     remember: bool,
 ) {
+    // A drive whose encryption setup never passed its sheet is not used until a new code's does.
+    #[cfg(feature = "encryption")]
+    encryption::guard_unfinished_setup(info, app, s, &place);
     if remember && place != s.place {
         let leaving = s.place.clone();
         s.history.visit(leaving);

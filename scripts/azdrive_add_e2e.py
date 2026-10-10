@@ -497,6 +497,15 @@ def finish_new_drive_sheet(app, drive_id, out=None, thorough=False, stack=None, 
     if len(numbers) != 4 or len(set(numbers)) != 4 or not all(1 <= n <= 5 for n in numbers):
         raise Failure("the sheet asks for groups %r: four of five, each once" % numbers)
     if thorough:
+        # Item 7: the code as text with a Copy (cleared again in a minute), the kit, the groups.
+        if not popup.has("#__azdrive_sheet_code"):
+            raise Failure("the sheet shows its code as no selectable text")
+        if not popup.shows("Your new drive's recovery code") and not popup.shows(
+                "Your new drive is encrypted"):
+            raise Failure("the sheet is not the purchase's (a new drive's)")
+        app.after("the code copied", "AZDRIVE_CODE_COPIED", re.escape(drive_id),
+                  lambda: popup.click(selector="#__azdrive_sheet_copy"))
+        popup.until("the copy's note", lambda: popup.shows("cleared in a minute"))
         app.op("mock", set={"save_bytes": {"accept": True}})
         app.after("the kit saved", "AZDRIVE_KIT_SAVED", r"\d+",
                   lambda: popup.click(selector="#__azdrive_kit_save"))

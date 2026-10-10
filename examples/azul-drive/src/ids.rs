@@ -357,6 +357,9 @@ pub fn sheet_group(slot: usize) -> AzString {
 }
 /// The recovery sheet's "I have written it down".
 pub const SHEET_DONE: AzString = AzString::from_const_str("__azdrive_sheet_done");
+/// The recovery sheet's code (selectable text) and its "Copy".
+pub const SHEET_CODE: AzString = AzString::from_const_str("__azdrive_sheet_code");
+pub const SHEET_COPY: AzString = AzString::from_const_str("__azdrive_sheet_copy");
 /// A drill's code, "Later" and "Check".
 pub const DRILL_CODE: AzString = AzString::from_const_str("__azdrive_drill_code");
 pub const DRILL_LATER: AzString = AzString::from_const_str("__azdrive_drill_later");
