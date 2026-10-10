@@ -484,7 +484,7 @@ const NOW: u64 = 1_791_450_000;
 const DAY: u64 = 86_400;
 
 /// A keyring with drive `d_1`'s session (its drive token `token`), and its locks.
-fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring {
+pub(crate) fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring {
     let keyring = Arc::new(MemoryKeyring::new());
     let session = AzlinSession {
         drive_id: String::from("d_1"),

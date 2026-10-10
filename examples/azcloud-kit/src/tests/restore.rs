@@ -1,5 +1,6 @@
-//! "Restore the drive as of <time>" (D42) over an encrypted drive's metadata repository: the
-//! whole drive back as it was, as one more commit, its policy and keys left as they are.
+//! "Restore the drive as of <time>" (D42): an encrypted drive over its metadata repository -
+//! the whole drive back as it was, as one more commit, its policy and keys left as they are -
+//! and a plain drive's bucket by the token server and the drive's node.
 
 use std::{
     collections::BTreeMap,
@@ -7,13 +8,19 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
+    time::Duration,
 };
 
-use azul_storage::meta::{
-    merge::keep_both, tree::walk, Change, MemoryBucket, MetaRepo, Mode, TestSealer,
+use azul_storage::{
+    meta::{merge::keep_both, tree::walk, Change, MemoryBucket, MetaRepo, Mode, TestSealer},
+    testing::TempDir,
 };
 
-use crate::restore::{restore_drive_as_of, state_at};
+use super::{header, json, period::keyring_with_session, Fake, Shared, TOKEN};
+use crate::{
+    restore::{restore_bucket_as_of, restore_drive_as_of, state_at, BucketRestore},
+    token::TokenServer,
+};
 
 type Repo = MetaRepo<MemoryBucket, TestSealer>;
 
@@ -160,4 +167,72 @@ fn the_state_at_a_time_is_the_newest_commit_made_then_or_before() {
     assert_eq!(state_at(&history, (T0 + 99) as i64), Some(init));
     assert_eq!(state_at(&history, (T0 + 100) as i64), Some(attack));
     assert_eq!(state_at(&history, (T0 - 1) as i64), None);
+}
+
+/// A token server whose restore of `d_1` is `r_1`, its progress `states` one after the other (the
+/// last one from then on); every call with the newest drive token.
+fn restoring_server(states: &'static [&'static str]) -> Fake {
+    Fake::new(move |call, n| {
+        assert_eq!(header(call, "authorization"), Some("Bearer dt_f.4.newest"));
+        if n == 0 {
+            assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/restore"));
+            let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+            assert_eq!(body["prefix"], "", "the whole bucket");
+            assert_eq!(body["as_of"], "2026-10-10T08:00:00Z");
+            return Ok(json(202, r#"{"request_id": "r_1", "status": "queued"}"#));
+        }
+        assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/restore/r_1"));
+        Ok(json(200, states[(n - 1).min(states.len() - 1)]))
+    })
+}
+
+#[test]
+fn a_plain_drives_bucket_is_restored_by_the_token_server_and_its_progress_followed() {
+    let dir = TempDir::new("azcloud-restore");
+    let shared = keyring_with_session(&dir, "dt_f.4.newest");
+    let as_of = crate::parse_rfc3339("2026-10-10T08:00:00Z").unwrap();
+    let transport = Shared(restoring_server(&[
+        r#"{"request_id": "r_1", "status": "queued"}"#,
+        r#"{"request_id": "r_1", "status": "done", "objects": 3}"#,
+    ]));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let wait = Duration::from_secs(5);
+    assert_eq!(
+        restore_bucket_as_of(&server, &shared, "d_1", as_of, Duration::ZERO, wait).unwrap(),
+        BucketRestore::Done {
+            request: String::from("r_1"),
+            objects: 3
+        }
+    );
+    // Refused by the node: its word.
+    let transport = Shared(restoring_server(&[
+        r#"{"request_id": "r_1", "status": "failed", "error": "version vanished"}"#,
+    ]));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert_eq!(
+        restore_bucket_as_of(&server, &shared, "d_1", as_of, Duration::ZERO, wait).unwrap(),
+        BucketRestore::Failed {
+            request: String::from("r_1"),
+            error: String::from("version vanished")
+        }
+    );
+    // Still queued when the wait is over: the request, to ask about later.
+    let transport = Shared(restoring_server(&[
+        r#"{"request_id": "r_1", "status": "queued"}"#,
+    ]));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert_eq!(
+        restore_bucket_as_of(
+            &server,
+            &shared,
+            "d_1",
+            as_of,
+            Duration::ZERO,
+            Duration::ZERO
+        )
+        .unwrap(),
+        BucketRestore::Queued {
+            request: String::from("r_1")
+        }
+    );
 }
