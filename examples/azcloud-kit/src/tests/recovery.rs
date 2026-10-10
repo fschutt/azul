@@ -123,6 +123,7 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
                 String::from(RECOVERY_MEMBER),
             ],
             you: Some(String::from("owner")),
+            ban: None,
         }
     );
     assert_eq!(
@@ -134,6 +135,7 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             read_only: true,
             members: Vec::new(),
             you: None,
+            ban: None,
         }
     );
 }
