@@ -14,7 +14,11 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
         Authorization: Bearer <drive token>         the old token is dead: using it again revokes
                                                     the whole family (401 token_reuse), after
                                                     which every token of it is refused (401
-                                                    credentials_revoked)
+                                                    credentials_revoked); a recovery-pending
+                                                    family gets none until its lockdown's 48 h
+                                                    are over (403 lockdown_pending, D42) - then
+                                                    the drive is handed over to it (every other
+                                                    family revoked; finish_pending_lockdowns)
     GET /health, GET /v1/health
     GET /v1/tiers                                   200 the price ladder (tiers.rs: sizes, cents
                                                     a month / a year, EUR, the methods)
@@ -420,6 +424,9 @@ class TokenState:
         # refresh tokens it issued, by token -> provider.
         self.oauth_requests = []
         self.oauth_refresh = {}
+        # Seconds the token server's clock is ahead of this computer's (advance): a test lets
+        # a recovery-key lockdown's 48 h pass without waiting.
+        self.clock_offset = 0
 
     def oauth_token(self, provider, form):
         """The fake OAuth token endpoint (see the module documentation): (status, answer)."""
@@ -1074,6 +1081,7 @@ class TokenState:
     def info(self, drive_id, bearer):
         """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too)."""
         with self.lock:
+            self.finish_pending_lockdowns()
             drive = self.authenticate(drive_id, bearer, previous_ok=True)
             pending = drive.get('lockdown_pending_until')
             return {'id': drive['id'], 'tier': drive['tier'],
@@ -1129,7 +1137,7 @@ class TokenState:
                 raise ApiError(409, 'nonce_used', 'this lockdown request was used before')
             used.add(nonce)
             token = self.new_family(drive_id, 'recovery-pending')
-            drive['lockdown_pending_until'] = int(time.time()) + LOCKDOWN_PENDING_SECS
+            drive['lockdown_pending_until'] = self.now() + LOCKDOWN_PENDING_SECS
             return 202, {'pending_until': rfc3339(drive['lockdown_pending_until']),
                          'drive_token': token,
                          'note': 'existing devices can cancel within 48 h; the drive is '
@@ -1149,6 +1157,36 @@ class TokenState:
                     other['revoked'] = other['revoked'] or 'lockdown_cancelled'
             drive['lockdown_pending_until'] = None
             return {'cancelled': True}
+
+    def now(self):
+        """The token server's clock: this computer's, `clock_offset` ahead."""
+        return int(time.time()) + self.clock_offset
+
+    def advance(self, secs):
+        """Moves the token server's clock `secs` ahead (a lockdown's 48 h in a test)."""
+        with self.lock:
+            self.clock_offset += int(secs)
+            self.finish_pending_lockdowns()
+
+    def finish_pending_lockdowns(self):
+        """drives.rs `finish_pending_lockdowns` (the upkeep): a recovery-key lockdown past its
+        48 h hands the drive over - every other family revoked (`lockdown`), the pending family
+        the owner's. The caller holds the lock."""
+        now = self.now()
+        for drive_id, drive in self.drives.items():
+            until = drive.get('lockdown_pending_until')
+            if not until or until > now:
+                continue
+            for family in self.families.values():
+                if family['drive'] != drive_id:
+                    continue
+                if family.get('member') == 'recovery-pending':
+                    if not family['revoked']:
+                        family['member'] = 'owner'
+                else:
+                    family['revoked'] = family['revoked'] or 'lockdown'
+            drive['lockdown_pending_until'] = None
+            drive['lockdown_completed'] = now
 
     def add_voucher(self, code, months=1, value_cents=0, tier=None):
         """A voucher the mock takes (an E2E's switch): `months` and a value in cents, for
@@ -1193,6 +1231,7 @@ class TokenState:
 
     def refresh(self, drive_id, bearer):
         with self.lock:
+            self.finish_pending_lockdowns()
             drive = self.drives.get(drive_id)
             if drive is None:
                 raise ApiError(404, 'no_such_drive', 'unknown drive')
@@ -1206,6 +1245,11 @@ class TokenState:
                 raise ApiError(401, 'unauthorized', 'unknown token')
             if state['revoked']:
                 raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
+            if state.get('member') == 'recovery-pending' and drive.get('lockdown_pending_until'):
+                # D42: the drive (its bucket, so its recovery wrap) is handed over only when the
+                # notice ends; the owner's devices may cancel meanwhile.
+                raise ApiError(403, 'lockdown_pending',
+                               'the drive is handed over when its 48 h notice ends')
             digest = token_hash(bearer)
             if digest == state['current']:
                 state['used'] = (state['used'] + [state['current']])[-20:]
