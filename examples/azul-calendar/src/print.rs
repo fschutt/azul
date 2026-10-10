@@ -393,8 +393,11 @@ pub fn job(
                         let e = &events[o.index];
                         let calendar = calendar_of(e);
                         let (id, name, colour) = calendar.map_or_else(
-                            || (String::new(), String::from(calendars::DEFAULT_NAME), Colour::Blue),
-                            |c| (c.id.clone(), c.name.clone(), c.colour),
+                            || {
+                                let default = Calendar::default_calendar();
+                                (String::new(), crate::calendar_name(&default), Colour::Blue)
+                            },
+                            |c| (c.id.clone(), crate::calendar_name(c), c.colour),
                         );
                         if !legend_ids.contains(&id) {
                             legend_ids.push(id);

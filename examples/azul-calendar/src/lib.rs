@@ -143,6 +143,16 @@ const REMINDER_TICK_MS: u64 = 20_000;
 /// The main window's id, and the editor window's (what a script routes a request by).
 pub(crate) const MAIN_WINDOW_ID: &str = "azcalendar";
 pub(crate) const EDITOR_WINDOW_ID: &str = "azcalendar-editor";
+/// What a calendar is called in the window: its name; the default calendar's own name (as no
+/// one renamed it, `calendars::DEFAULT_NAME`) in the window's language.
+pub(crate) fn calendar_name(c: &calendars::Calendar) -> String {
+    if c.is_default() && c.name == calendars::DEFAULT_NAME {
+        azul_appkit::l10n::t("azcalendar-default-calendar")
+    } else {
+        c.name.clone()
+    }
+}
+
 /// What an event without a title is called (a key: its title is said in the window's language).
 pub(crate) const UNTITLED: &str = "azcalendar-untitled";
 

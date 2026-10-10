@@ -513,7 +513,7 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
             on_reminder,
         )],
     ));
-    let calendars: Vec<String> = s.calendars.iter().map(|c| c.name.clone()).collect();
+    let calendars: Vec<String> = s.calendars.iter().map(crate::calendar_name).collect();
     let calendar = s
         .calendars
         .iter()

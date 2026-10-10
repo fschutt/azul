@@ -299,3 +299,7 @@ azcalendar-import-not-events = { $count ->
     [one] 1 item that is no event (a task, a journal entry) is left out.
    *[other] { $count } items that are no events (tasks, journal entries) are left out.
  }
+
+## Calendars
+
+azcalendar-default-calendar = Calendar

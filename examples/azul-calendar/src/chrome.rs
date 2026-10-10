@@ -270,7 +270,7 @@ fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
                 )
                 .with_child(
                     CheckBox::create(!s.hidden.contains(&c.id))
-                        .with_accessibility_name(c.name.as_str())
+                        .with_accessibility_name(crate::calendar_name(c))
                         .with_on_toggle(target, on_calendar_shown as CheckBoxOnToggleCallbackType)
                         .dom(),
                 )
@@ -280,7 +280,7 @@ fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
                     c.colour.swatch_css()
                 )))
                 .with_child(
-                    Dom::create_span_with_text(c.name.as_str()).with_css(
+                    Dom::create_span_with_text(crate::calendar_name(c)).with_css(
                         "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;",
                     ),
                 ),
@@ -507,7 +507,7 @@ fn info_page(s: &CalState, app: &RefAny) -> Dom {
 
 /// The calendars' names for a list, with one choice more at the end (`last`).
 fn calendar_names(s: &CalState, last: &str) -> Vec<String> {
-    let mut names: Vec<String> = s.calendars.iter().map(|c| c.name.clone()).collect();
+    let mut names: Vec<String> = s.calendars.iter().map(crate::calendar_name).collect();
     names.push(last.to_string());
     names
 }
@@ -611,10 +611,10 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0; margin-right: 8px;")
                 .with_child(
                     TextInput::create()
-                        .with_text(c.name.as_str())
+                        .with_text(crate::calendar_name(c).as_str())
                         .with_accessibility_name(t_args(
                             "azcalendar-calendar-name-of",
-                            &[("name", Arg::from(c.name.as_str()))],
+                            &[("name", Arg::from(crate::calendar_name(c)))],
                         ))
                         .with_on_virtual_key_down(target(), on_calendar_rename as TextInputOnVirtualKeyDownCallbackType)
                         .dom()
@@ -623,7 +623,10 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
             crate::drop_down(
                 colours.clone(),
                 Colour::ALL.iter().position(|x| *x == c.colour).unwrap_or(0),
-                &t_args("azcalendar-calendar-colour-of", &[("name", Arg::from(c.name.as_str()))]),
+                &t_args(
+                    "azcalendar-calendar-colour-of",
+                    &[("name", Arg::from(crate::calendar_name(c)))],
+                ),
                 ids::calendar_colour(index),
                 target(),
                 on_calendar_colour,
@@ -1455,7 +1458,7 @@ pub(crate) fn import_note(note: &ics::ImportNote) -> String {
 fn export_name(s: &CalState) -> String {
     s.calendars
         .get(s.export_calendar)
-        .map_or_else(|| String::from("AzCalendar"), |c| c.name.clone())
+        .map_or_else(|| String::from("AzCalendar"), crate::calendar_name)
 }
 
 /// Export: the chosen calendar's events (or all) as an .ics file, at the path given (else in
@@ -1614,10 +1617,12 @@ extern "C" fn on_calendar_add(mut data: RefAny, _info: CallbackInfo) -> Update {
         }
         if s.calendars
             .iter()
-            .any(|c| c.name.eq_ignore_ascii_case(&name))
+            .any(|c| crate::calendar_name(c).eq_ignore_ascii_case(&name))
         {
-            s.calendar_error =
-                t_args("azcalendar-calendar-exists", &[("name", Arg::from(name.as_str()))]);
+            s.calendar_error = t_args(
+                "azcalendar-calendar-exists",
+                &[("name", Arg::from(name.as_str()))],
+            );
             return Update::RefreshDom;
         }
         let made = Calendar {

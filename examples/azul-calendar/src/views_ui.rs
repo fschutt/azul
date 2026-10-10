@@ -437,7 +437,7 @@ fn schedule_view(s: &CalState, app: &RefAny) -> Dom {
                             calendar.colour.swatch_css()
                         )))
                         .with_child(
-                            Dom::create_span_with_text(calendar.name.as_str())
+                            Dom::create_span_with_text(crate::calendar_name(calendar))
                                 .with_css(CLIPPED_LINE),
                         ),
                 )
