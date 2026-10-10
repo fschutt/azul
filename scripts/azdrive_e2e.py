@@ -1329,6 +1329,68 @@ def synced_setting(view, drive_id, name):
     return None
 
 
+def press_or_explain(app, out, selector, key, pattern, what, shot, question=None,
+                     under=None, missed=None):
+    """Clicks `selector` once it stands still and waits a few seconds for a new `<key>
+    <pattern>` line. When none comes, the window is examined: a screenshot before
+    (`<shot>-before.png`) and after (`<shot>-after.png`) the click, whether `question` (the
+    dialog) and the node still show, the node's rect, what each DOM has at its centre, the
+    scrollbars of `under` (the node the dialog lies over) - and whether a click at the node's
+    left edge, or Enter on it, does what the click did not: that tells a click that missed the
+    node from a node whose callback did nothing. When one of them did it, the notes go to
+    `missed` and the step goes on - it still fails at its end with them, after the steps
+    behind this one ran; otherwise it fails here. A click that missed before (the same `shot`)
+    is only noted again, so a dozen misses do not use up the step's time."""
+    tag = "[%s] " % shot
+    again = missed is not None and any(m.startswith(tag) for m in missed)
+    if not again:
+        app.screenshot(os.path.join(out, shot + "-before.png"))
+    before = app.count(key, pattern)
+    came = lambda: app.count(key, pattern) > before
+    app.click(selector=selector)
+    end = time.time() + 4.0
+    while time.time() < end:
+        if came():
+            return
+        time.sleep(0.25)
+    notes = [tag + "%s: no %s line after a click at the centre of %s" % (what, key, selector)]
+    if not again:
+        app.screenshot(os.path.join(out, shot + "-after.png"))
+    if question:
+        notes.append("%s shows: %s" % (question, app.has(question)))
+    notes.append("%s shows: %s" % (selector, app.has(selector)))
+    layout = app.op("get_node_layout", selector=selector)
+    value = (layout.get("data") or {}).get("value") if isinstance(layout, dict) else None
+    rect = (value or {}).get("rect") or {}
+    notes.append("its rect: %s" % json.dumps(rect))
+    if under and not again:
+        bars = app.op("get_scrollbar_info", selector=under, orientation="both")
+        notes.append("the scrollbars of %s: %s" % (
+            under, json.dumps((bars or {}).get("data"))[:400]))
+    if rect.get("width"):
+        cx = rect["x"] + rect["width"] / 2.0
+        cy = rect["y"] + rect["height"] / 2.0
+        for dom in ([] if again else app.dom_ids()):
+            hit = app.op("hit_test", x=cx, y=cy, dom_id=dom)
+            notes.append("hit_test dom %s at (%.0f, %.0f): %s" % (
+                dom, cx, cy, json.dumps((hit or {}).get("data"))[:160]))
+        app.must("click", x=rect["x"] + 6.0, y=cy)
+        app.frame(2)
+        time.sleep(1.5)
+        notes.append("a click at its left edge: %s" % ("did it" if came() else "nothing"))
+    if not came():
+        app.must("focus_node", selector=selector)
+        app.frame(2)
+        app.key("enter")
+        time.sleep(1.5)
+        notes.append("Enter on it: %s" % ("did it" if came() else "nothing"))
+    if came() and missed is not None:
+        log("NOTE: " + "; ".join(notes))
+        missed.append("; ".join(notes))
+        return
+    raise Failure("; ".join(notes))
+
+
 def read_file(path):
     try:
         with open(path, "rb") as f:
@@ -1614,6 +1676,9 @@ def sync_step(args, logs, binary, out):
         os.makedirs(paid_folder, exist_ok=True)
         prose = (b"the quarterly report says the numbers look fine for now " * 40)[:2048]
         paid_row = "#__azdrive_side_drive_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid_id).lower()
+        # Clicks that missed a button the window showed (press_or_explain): the step fails
+        # with them once the rest ran.
+        missed = []
 
         def text_files(stem):
             """12 text files `<stem><i>.txt` in the Azlin drive's folder, up on the drive, and
@@ -1687,8 +1752,10 @@ def sync_step(args, logs, binary, out):
         # files left to send): the dialog changed its height and its buttons slide to their new
         # place. `app.click` waits until they stand still - a click mid-slide hits nothing.
         app.until("the guard's question still open", lambda: app.has("#" + I("sync-burst")))
-        app.after("I was hacked...", "AZDRIVE_SYNC_HACKED", re.escape(paid_id),
-                  lambda: app.click(selector="#" + I("sync-burst-hacked")))
+        press_or_explain(app, out, "#" + I("sync-burst-hacked"), "AZDRIVE_SYNC_HACKED",
+                         re.escape(paid_id), "I was hacked...", "25-sync-hacked",
+                         question="#" + I("sync-burst"), under="#" + I("folder-rows"),
+                         missed=missed)
         app.until("lock down / restore", lambda: app.has("#" + I("sync-hacked")))
         app.click(selector="#" + I("sync-hacked-restore"))
         app.until("the restore's time field", lambda: app.has("#__azdrive_restore_time"))
@@ -1717,9 +1784,11 @@ def sync_step(args, logs, binary, out):
         # ends by itself, and no question is left open for the next steps.
         for n in range(12):
             app.until("choice %d of 12" % (n + 1), lambda: app.has("#" + I("sync-conflict")))
-            app.after("Take the drive's version", "AZDRIVE_SYNC_RESOLVED",
-                      re.escape(paid_id) + r" theirs q\d+\.txt",
-                      lambda: app.click(selector="#" + I("sync-take-theirs")))
+            press_or_explain(app, out, "#" + I("sync-take-theirs"), "AZDRIVE_SYNC_RESOLVED",
+                             re.escape(paid_id) + r" theirs q\d+\.txt",
+                             "Take the drive's version (%d of 12)" % (n + 1),
+                             "25-sync-take-theirs", question="#" + I("sync-conflict"),
+                             under="#" + I("folder-rows"), missed=missed)
         for i in range(12):
             path = os.path.join(paid_folder, "q%d.txt" % i)
             app.until("q%d.txt restored here" % i, lambda: read_file(path)
@@ -1808,6 +1877,9 @@ def sync_step(args, logs, binary, out):
         app.until("the status line says it", lambda: "metered" not in status())
         log("25m. a Low Data Mode Wi-Fi paused the big files too; on a free Wi-Fi the drive is "
             "up to date")
+        if missed:
+            raise Failure("the sync steps ran, but a click missed what the window showed: "
+                          + " | ".join(missed))
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):

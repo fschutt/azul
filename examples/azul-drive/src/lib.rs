@@ -2158,6 +2158,8 @@ pub(crate) fn changed(
     drive_id: &str,
     prefix: &str,
 ) {
+    // An Azlin drive's space as its node counts it after the write.
+    usage_view::drive_written(info, app, s, drive_id);
     if showing(s, drive_id, prefix) {
         // Read again behind the rows that show: they stay until the new ones are in.
         start_listing(info, app, s, true);
@@ -2653,11 +2655,18 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::DriveProblem { serial, problem } => {
             problems::drive_problem(&mut info, s, serial, problem);
         }
-        Outcome::BucketSpace { azlin_id, result } => match result {
-            Ok(space) => usage_view::space_seen(s, &azlin_id, &space),
-            // Quiet: the line keeps what it knew; the next listing asks again.
-            Err(why) => eprintln!("AZDRIVE_SPACE_UNKNOWN {azlin_id}: {why}"),
-        },
+        Outcome::BucketSpace { azlin_id, result } => {
+            match result {
+                Ok(space) => usage_view::space_seen(s, &azlin_id, &space),
+                // Quiet: the line keeps what it knew; the next listing asks again.
+                Err(why) => {
+                    eprintln!("AZDRIVE_SPACE_UNKNOWN {azlin_id}: {why}");
+                    usage_view::space_failed(s, &azlin_id);
+                }
+            }
+            // Writes while the ask ran: once more.
+            usage_view::request_space(&mut info, &handle, s);
+        }
         Outcome::VoucherRedeemed { drive_id, result } => {
             vouchers::redeemed(s, &drive_id, result);
         }

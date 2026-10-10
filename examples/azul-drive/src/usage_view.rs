@@ -43,11 +43,33 @@ pub(crate) struct DriveUsage {
     pub totals_at: Option<u64>,
     /// When the node was asked for its count.
     pub space_at: Option<u64>,
+    /// The node's answer is still out (one ask at a time).
+    pub asking: bool,
+    /// Writes changed the drive since the last ask: its count is due at once.
+    pub written: bool,
     /// The nearly-full or full warning was said this run.
     pub warned: bool,
 }
 
 impl DriveUsage {
+    /// The node is asked for its count at `now`.
+    pub(crate) fn asked(&mut self, now: u64) {
+        self.space_at = Some(now);
+        self.asking = true;
+        self.written = false;
+    }
+
+    /// The node's answer (or why there is none) came.
+    pub(crate) fn answered(&mut self) {
+        self.asking = false;
+    }
+
+    /// Writes changed the drive (its encryption's keys, files uploaded, deleted): its count is
+    /// due at once, the minute's wait aside.
+    pub(crate) fn written(&mut self) {
+        self.written = true;
+    }
+
     /// The space as the lines show it: the node's count, else the token server's, else the
     /// estimate; the quota the node's, else the token server's.
     #[must_use]
@@ -128,12 +150,18 @@ pub(crate) fn totals_due(usage: Option<&DriveUsage>, now: u64) -> bool {
         .map_or(true, |at| now.saturating_sub(at) >= TOTALS_EVERY_SECS)
 }
 
-/// Whether the node's count is due again.
+/// Whether the node's count is due again: never while an ask runs; at once after writes;
+/// else [`SPACE_EVERY_SECS`] after the last ask.
 #[must_use]
 pub(crate) fn space_due(usage: Option<&DriveUsage>, now: u64) -> bool {
-    usage
-        .and_then(|u| u.space_at)
-        .map_or(true, |at| now.saturating_sub(at) >= SPACE_EVERY_SECS)
+    let Some(usage) = usage else {
+        return true;
+    };
+    !usage.asking
+        && (usage.written
+            || usage
+                .space_at
+                .map_or(true, |at| now.saturating_sub(at) >= SPACE_EVERY_SECS))
 }
 
 /// The status line's part: "38 GB available" (of the quota, in stored bytes; an estimate:
@@ -172,7 +200,13 @@ pub(crate) fn status_seen(s: &mut DriveState, azlin_id: &str, status: &DriveStat
 }
 
 /// The drive index's totals of the Azlin drive `azlin_id` arrived.
-pub(crate) fn totals_seen(s: &mut DriveState, azlin_id: &str, original: u64, stored: u64, now: u64) {
+pub(crate) fn totals_seen(
+    s: &mut DriveState,
+    azlin_id: &str,
+    original: u64,
+    stored: u64,
+    now: u64,
+) {
     let previous = s.usage.get(azlin_id).copied();
     if let Some(seen) = merge_totals(previous, original, stored, now) {
         store(s, azlin_id, seen);
@@ -188,14 +222,45 @@ pub(crate) fn space_seen(s: &mut DriveState, azlin_id: &str, space: &BucketSpace
         said(space.used_bytes),
         said(space.quota_bytes)
     );
-    let previous = s.usage.get(azlin_id).copied();
+    let mut previous = s.usage.get(azlin_id).copied();
+    if let Some(known) = previous.as_mut() {
+        known.answered();
+    }
     if let Some(seen) = merge_space(previous, space) {
         store(s, azlin_id, seen);
     }
 }
 
+/// The node of the Azlin drive `azlin_id` did not answer its count: the line keeps what it
+/// knew; the next listing (or write) asks again.
+pub(crate) fn space_failed(s: &mut DriveState, azlin_id: &str) {
+    if let Some(known) = s.usage.get_mut(azlin_id) {
+        known.answered();
+    }
+}
+
+/// Writes changed the drive `drive_id` (a slot's id, or an Azlin drive's): when it is an Azlin
+/// drive its node is asked for its count at once (the minute's wait aside; after the ask that
+/// runs, if one does).
+pub(crate) fn drive_written(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    let Some(azlin_id) = s.slots.iter().find_map(|slot| {
+        let (azlin_id, _) = slot.entry.azlin()?;
+        (slot.entry.id == drive_id || azlin_id == drive_id).then(|| azlin_id.to_string())
+    }) else {
+        return;
+    };
+    s.usage.entry(azlin_id).or_default().written();
+    request_space(info, app, s);
+}
+
 /// Asks the node of every opened Azlin drive whose count is due what it stores (one HeadBucket
-/// each, in the background): after a listing and at the periods' look.
+/// each, in the background): after a listing, a write ([`drive_written`]), an answer (a write
+/// during the ask) and at the periods' look.
 pub(crate) fn request_space(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let now = azul_storage::time::now_unix();
     let due: Vec<(String, Arc<azcloud_kit::AzlinDrive>)> = s
@@ -209,14 +274,7 @@ pub(crate) fn request_space(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
         .collect();
     for (azlin_id, azlin) in due {
         // Asked once: a second listing before the answer does not ask again.
-        let previous = s.usage.get(&azlin_id).copied().unwrap_or_default();
-        s.usage.insert(
-            azlin_id.clone(),
-            DriveUsage {
-                space_at: Some(now),
-                ..previous
-            },
-        );
+        s.usage.entry(azlin_id.clone()).or_default().asked(now);
         spawn(info, app, s, Job::BucketSpace { azlin_id, azlin });
     }
 }
@@ -331,5 +389,33 @@ mod tests {
         };
         assert!(!space_due(Some(&asked), 10 + SPACE_EVERY_SECS - 1));
         assert!(space_due(Some(&asked), 10 + SPACE_EVERY_SECS));
+    }
+
+    /// RECOVERY17's find: a new drive's space was read once, as it arrived - before its
+    /// encryption wrote the keys - and said "0 bytes used" from then on. Writes ask the node
+    /// again at once (the minute's wait aside), one ask at a time: a write during an ask asks
+    /// once more after its answer.
+    #[test]
+    fn writes_ask_the_node_again_at_once_and_one_ask_runs_at_a_time() {
+        let mut seen = DriveUsage::default();
+        assert!(space_due(Some(&seen), 100));
+        seen.asked(100);
+        assert!(
+            !space_due(Some(&seen), 100 + SPACE_EVERY_SECS),
+            "one ask at a time: the answer is still out"
+        );
+        seen.answered();
+        assert!(!space_due(Some(&seen), 110), "within the minute");
+        seen.written();
+        assert!(space_due(Some(&seen), 110), "writes changed the drive: at once");
+        seen.asked(110);
+        seen.written();
+        assert!(!space_due(Some(&seen), 111), "the ask runs");
+        seen.answered();
+        assert!(space_due(Some(&seen), 111), "the write during the ask asks once more");
+        seen.asked(111);
+        seen.answered();
+        assert!(!space_due(Some(&seen), 112), "then the minute's wait again");
+        assert!(space_due(Some(&seen), 111 + SPACE_EVERY_SECS));
     }
 }
