@@ -238,6 +238,13 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.3.3:259434a690fff6fb354d82ab7ed38a2ec909b02813ddc0865021aaeb4a9cec67", "0.4.2:d6467e81e3a3ecd632cd16cd6e5894b60a706ec85e4f2f1181fd0bea2e16d97f"]
 
+[crate."bon-macros"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc-macro for bon's builder derives (tantivy); pure syn/quote expansion, include_str of its README only, no file, env, process or network use"
+reviewed = ["3.10.1:507f43d4d38b40a3006ffc5b5895f2c13725b473f963ee6c47cadb1d828773c7"]
+
 [crate."branches"]  # build-script
 allow = true
 risk = "low"
@@ -579,7 +586,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "proc-macro forwarding derive input to darling_core; pure syn/quote expansion"
-reviewed = ["0.23.0:5f76b2f053a8d1d12afccc5e0618eee499af848295ad935aaadf1ce27442a55a"]
+reviewed = ["0.23.0:5f76b2f053a8d1d12afccc5e0618eee499af848295ad935aaadf1ce27442a55a", "0.24.1:5f76b2f053a8d1d12afccc5e0618eee499af848295ad935aaadf1ce27442a55a"]
 
 [crate."data-encoding-macro-internal"]  # proc-macro
 allow = true
@@ -1818,7 +1825,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "emits check-cfg lines and exports its version as links metadata; no file or process I/O"
-reviewed = ["0.2.37:860bcda83de3b2b1bdefed962fa2438a5ed94a89b658448edd5b7dc19a3d3018"]
+reviewed = ["0.2.37:860bcda83de3b2b1bdefed962fa2438a5ed94a89b658448edd5b7dc19a3d3018", "0.3.0:d0871477e5b757c4e185e1690a3c3055db6699a2050168b0588e3b448ec14c3e"]
 
 [crate."proc-macro2"]  # build-script
 allow = true
@@ -2351,6 +2358,20 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["1.20.1:37983f834fab3374333a68509518fd48a325f17284bfd36079c3d5ae07c63151"]
+
+[crate."typetag"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "build.rs writes OUT_DIR/private.rs, a module named after its patch version; no other file, env (beyond OUT_DIR / CARGO_PKG_VERSION_PATCH), process or network use"
+reviewed = ["0.2.23:e2e99d82d7029bd5ef9e7ac193c7c80a4fc6def1b962be6e406a4490cdbc61ea"]
+
+[crate."typetag-impl"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc-macro for typetag's trait-object serde (tantivy); pure syn/quote expansion, env! of its own patch version only"
+reviewed = ["0.2.23:86c38c757eef9f932f697842b5f1645536195d2640eef01d79aca7ad56e0caf4"]
 
 [crate."uncased"]  # build-script
 allow = true
