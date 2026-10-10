@@ -2268,7 +2268,7 @@ fn scanned(
     s: &mut DriveState,
     batch: Vec<Entry>,
     done: bool,
-    error: Option<String>,
+    error: Option<azul_appkit::l10n::Text>,
 ) {
     let sort = s.settings.sort;
     match s.refreshing.as_mut() {
