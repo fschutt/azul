@@ -1,6 +1,9 @@
 //! AzMaps' model without azul types: the viewport kept across restarts, the
 //! pins file in the data tree, the travel panel's places and distances, the
-//! stdout lines for scripts. Tested without a window.
+//! stdout lines for scripts. Tested without a window; its words are keys of AzMaps'
+//! resources (`azul_appkit::l10n`).
+
+use azul_appkit::l10n::{t_args, Arg};
 
 /// The pins file, in the app's folder of the data tree (`maps/pins.json`):
 /// a JSON list of `[latitude, longitude]` pairs, oldest first.
@@ -32,14 +35,17 @@ pub fn pins_to_json(pins: &[(f64, f64)]) -> String {
 /// What is wrong with the file.
 pub fn pins_from_json(text: &str) -> Result<Vec<(f64, f64)>, String> {
     let pairs: Vec<[f64; 2]> =
-        serde_json::from_str(text).map_err(|e| format!("not a pins file: {e}"))?;
+        serde_json::from_str(text).map_err(|e| t_args("azmaps-not-pins-file", &[("why", Arg::from(e.to_string()))]))?;
     pairs
         .into_iter()
         .map(|[lat, lon]| {
             if lat.is_finite() && lon.is_finite() && lat.abs() <= 90.0 && lon.abs() <= 180.0 {
                 Ok((lat, lon))
             } else {
-                Err(format!("{lat}, {lon} is not a place on the map"))
+                Err(t_args(
+                    "azmaps-not-a-place",
+                    &[("lat", Arg::from(lat.to_string())), ("lon", Arg::from(lon.to_string()))],
+                ))
             }
         })
         .collect()
@@ -133,14 +139,14 @@ impl TravelMode {
         }
     }
 
-    /// The button's accessible name (it shows no text).
+    /// The button's accessible name (it shows no text): a key of AzMaps' resources.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Car => "Drive",
-            Self::Walk => "Walk",
-            Self::Bike => "Cycle",
-            Self::Transit => "Public transport",
+            Self::Car => "azmaps-mode-drive",
+            Self::Walk => "azmaps-mode-walk",
+            Self::Bike => "azmaps-mode-cycle",
+            Self::Transit => "azmaps-mode-transit",
         }
     }
 }
@@ -196,13 +202,14 @@ pub fn distance_km(a: (f64, f64), b: (f64, f64)) -> f64 {
     2.0 * EARTH_RADIUS_KM * h.sqrt().min(1.0).asin()
 }
 
-/// A distance the way the travel panel shows it: `850 m`, `4.2 km`, `412 km`.
+/// A distance the way the travel panel shows it: `850 m`, `4.2 km` (`4,2 km` in German),
+/// `412 km`.
 #[must_use]
 pub fn distance_text(km: f64) -> String {
     if km < 1.0 {
         format!("{:.0} m", km * 1000.0)
     } else if km < 10.0 {
-        format!("{km:.1} km")
+        format!("{} km", azul_appkit::l10n::decimal(&format!("{km:.1}")))
     } else {
         format!("{km:.0} km")
     }
@@ -299,10 +306,11 @@ pub fn duration_text(minutes: f64) -> String {
         1
     };
     let (h, m) = (total / 60, total % 60);
+    let n = |v: u64| Arg::from(v.to_string());
     match (h, m) {
-        (0, m) => format!("~ {m} min"),
-        (h, 0) => format!("~ {h} h"),
-        (h, m) => format!("~ {h} h {m} min"),
+        (0, m) => t_args("azmaps-duration-min", &[("min", n(m))]),
+        (h, 0) => t_args("azmaps-duration-h", &[("h", n(h))]),
+        (h, m) => t_args("azmaps-duration-h-min", &[("h", n(h)), ("min", n(m))]),
     }
 }
 
@@ -379,6 +387,7 @@ mod tests {
 
     #[test]
     fn distances_are_great_circles_and_read_short() {
+        crate::l10n::in_english();
         let berlin = (52.52, 13.405);
         let munich = (48.1351, 11.582);
         let km = distance_km(berlin, munich);
@@ -439,6 +448,7 @@ mod tests {
 
     #[test]
     fn a_route_is_first_estimated_from_the_crow_flies_distance_at_the_modes_speed() {
+        crate::l10n::in_english();
         let vienna = (48.2082, 16.3738);
         let munich = (48.1372, 11.5756);
         let crow = distance_km(vienna, munich);

@@ -86,7 +86,7 @@ def body(args, logs, out):
 
     def start(name):
         app = e2e.App(name, binary,
-                      ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--stats"],
+                      ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--stats", "--language", "en"],
                       args.debug_port, logs, args.timeout)
         app.until("AzMaps' window", lambda: app.has_id(MAP))
         app.frame(2)
