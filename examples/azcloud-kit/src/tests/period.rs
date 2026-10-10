@@ -31,7 +31,8 @@ use crate::{
     bundle::PeriodTokens,
     lock::LockDir,
     period::{
-        issue_tokens, redeem_due, token_message, Issuer, PeriodToken, PeriodTokenStore, Redeemed,
+        issue_tokens, look_at_drive, redeem_due, token_message, Issuer, PeriodToken,
+        PeriodTokenStore, Redeemed,
     },
     shared::SharedKeyring,
     token::{TokenError, TokenServer},
@@ -644,4 +645,44 @@ fn a_drive_token_call_runs_under_the_drives_lock_with_the_newest_token() {
     assert_eq!(seen, "dt_f.7.newest");
     assert!(locks.lock(&keyring_key("d_1"), Duration::ZERO).is_ok(), "released after");
     assert!(shared.with_drive_token("d_2", |_| ()).is_err(), "no session of d_2");
+}
+
+#[test]
+fn a_look_at_a_drive_reads_its_status_even_without_kept_tokens_and_redeems_when_due() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    // No token kept: the status still comes (a pending lockdown is news to the owner).
+    let fake = Fake::new(|call, _| {
+        assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1"));
+        assert_eq!(header(call, "authorization"), Some("Bearer dt_f.3.newest"));
+        let answer = serde_json::json!({
+            "id": "d_1", "tier": "100GB",
+            "period_until": rfc3339(NOW + 20 * DAY),
+            "lockdown_pending_until": rfc3339(NOW + 2 * DAY),
+        });
+        Ok(json(200, &answer.to_string()))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    assert_eq!(look.redeemed, Redeemed::Nothing);
+    let status = look.status.expect("the drive's status");
+    assert_eq!(status.lockdown_pending_until, Some(NOW + 2 * DAY));
+    assert_eq!(status.period_until, Some(NOW + 20 * DAY));
+    // A kept token and a period due: redeemed in the same look; the status has the new end.
+    store.add("d_1", &[stored("aa")]).unwrap();
+    let fake = redeeming_server(shared.locks().clone(), "dt_f.3.newest", NOW + 2 * DAY, |_| None);
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    assert!(
+        matches!(look.redeemed, Redeemed::Extended { count: 1, .. }),
+        "{:?}",
+        look.redeemed
+    );
+    assert_eq!(look.status.unwrap().period_until, Some(NOW + 32 * DAY));
+    // No session of the drive: no status, kept for the next look.
+    let look = look_at_drive(&server, &shared, &store, "d_2", NOW);
+    assert!(look.status.is_none() && matches!(look.redeemed, Redeemed::Kept(_)));
 }

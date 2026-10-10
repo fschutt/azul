@@ -14,6 +14,7 @@ mod lock;
 mod lockdown;
 mod pending;
 mod period;
+mod recovery;
 mod secrets;
 mod session;
 mod settings;
