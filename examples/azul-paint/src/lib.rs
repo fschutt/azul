@@ -57,6 +57,9 @@ const SHORTCUTS: [Shortcut; 5] = [
     Shortcut::new("File", "Mod+Shift+S", "Export SVG into the data folder"),
 ];
 
+#[cfg(test)]
+mod l10n_tests;
+
 /// Every DOM id and marker AzPaint sets, defined ONCE with the app's prefix
 /// (`__azpaint_`, like the widgets' `__azul_`).
 mod ids {
