@@ -909,3 +909,45 @@ azdrive-folder-unreadable-detail = The message above says why; Refresh (F5) trie
 azdrive-folder-empty = This folder is empty.
 azdrive-folder-empty-detail = Drop files here from your computer, or use New folder (or Upload) on the ribbon's Home tab.
 azdrive-folder-filter-none-detail = The search looks at the names in this folder.
+
+## The navigation pane
+
+azdrive-side-favorites = Favorites
+azdrive-side-locations = Locations
+azdrive-side-cloud = Cloud
+azdrive-standard-desktop = Desktop
+azdrive-standard-documents = Documents
+azdrive-standard-downloads = Downloads
+azdrive-standard-pictures = Pictures
+azdrive-standard-music = Music
+azdrive-standard-videos = Videos
+azdrive-standard-movies = Movies
+azdrive-side-add-drive = Add drive…
+azdrive-side-unpin = Remove from Favorites
+azdrive-side-encrypt = Encrypt this drive…
+azdrive-side-unlock = Unlock with the recovery code…
+azdrive-side-rotate = I was hacked: new keys…
+azdrive-side-lockdown = Lock down with the recovery code…
+azdrive-side-contacts-recover = Recover with trusted contacts…
+azdrive-side-remove-drive = Remove "{ $name }"…
+azdrive-side-unpinned = "{ $name }" left Favorites.
+azdrive-side-drop-folders = Drop folders on Favorites to pin them.
+azdrive-side-pinned = { $count ->
+        [one] One folder pinned
+       *[other] { $count } folders pinned
+    } to Favorites.
+azdrive-side-unpin-place = Remove "{ $name }" from Favorites
+azdrive-side-pin-place = Pin "{ $name }" to Favorites
+azdrive-side-state-busy = Syncing
+azdrive-side-state-locked = Its keys are in the keyring
+azdrive-side-state-connected = Connected
+azdrive-side-state-not-opened = Not opened yet
+azdrive-side-collapse = Close
+azdrive-side-expand = Open
+azdrive-side-eject = Remove "{ $name }"
+azdrive-side-activity-progress = { $done } of { $total ->
+        [one] one file
+       *[other] { $total } files
+    } ({ $percent }%)
+azdrive-side-add = Add a drive or pin a folder
+azdrive-side-sources = Sources

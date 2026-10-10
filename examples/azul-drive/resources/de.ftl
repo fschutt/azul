@@ -907,3 +907,45 @@ azdrive-folder-unreadable-detail = Die Meldung oben sagt, warum; Aktualisieren (
 azdrive-folder-empty = Dieser Ordner ist leer.
 azdrive-folder-empty-detail = Lege Dateien von deinem Computer hier ab oder verwende „Neuer Ordner“ (oder „Hochladen“) auf der Registerkarte „Start“.
 azdrive-folder-filter-none-detail = Die Suche betrachtet die Namen in diesem Ordner.
+
+## The navigation pane
+
+azdrive-side-favorites = Favoriten
+azdrive-side-locations = Orte
+azdrive-side-cloud = Cloud
+azdrive-standard-desktop = Schreibtisch
+azdrive-standard-documents = Dokumente
+azdrive-standard-downloads = Downloads
+azdrive-standard-pictures = Bilder
+azdrive-standard-music = Musik
+azdrive-standard-videos = Videos
+azdrive-standard-movies = Filme
+azdrive-side-add-drive = Laufwerk hinzufügen…
+azdrive-side-unpin = Aus Favoriten entfernen
+azdrive-side-encrypt = Dieses Laufwerk verschlüsseln…
+azdrive-side-unlock = Mit dem Wiederherstellungscode entsperren…
+azdrive-side-rotate = Ich wurde gehackt: neue Schlüssel…
+azdrive-side-lockdown = Mit dem Wiederherstellungscode sperren…
+azdrive-side-contacts-recover = Mit vertrauenswürdigen Kontakten wiederherstellen…
+azdrive-side-remove-drive = „{ $name }“ entfernen…
+azdrive-side-unpinned = „{ $name }“ wurde aus den Favoriten entfernt.
+azdrive-side-drop-folders = Lege Ordner auf den Favoriten ab, um sie anzuheften.
+azdrive-side-pinned = { $count ->
+        [one] Ein Ordner wurde
+       *[other] { $count } Ordner wurden
+    } an die Favoriten angeheftet.
+azdrive-side-unpin-place = „{ $name }“ aus den Favoriten entfernen
+azdrive-side-pin-place = „{ $name }“ an die Favoriten anheften
+azdrive-side-state-busy = Wird synchronisiert
+azdrive-side-state-locked = Seine Schlüssel liegen im Schlüsselbund
+azdrive-side-state-connected = Verbunden
+azdrive-side-state-not-opened = Noch nicht geöffnet
+azdrive-side-collapse = Zuklappen
+azdrive-side-expand = Aufklappen
+azdrive-side-eject = „{ $name }“ entfernen
+azdrive-side-activity-progress = { $done } von { $total ->
+        [one] einer Datei
+       *[other] { $total } Dateien
+    } ({ $percent } %)
+azdrive-side-add = Laufwerk hinzufügen oder Ordner anheften
+azdrive-side-sources = Quellen
