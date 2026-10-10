@@ -1455,7 +1455,20 @@ mod tests {
         assert!(bad(b"A3 FETCH 1 (FLAGS").message.contains("list"));
         assert!(bad(b"A4 FETCH 1 BODY[MIME]").message.contains("section"));
         assert!(bad(b"A5 FETCH 0 FLAGS").message.contains("number"));
-        assert!(bad(b"A6 FETCH 1 BINARY[1]").message.contains("BINARY"));
+        // BINARY (RFC 3516) takes part numbers only: a text section is refused.
+        assert_eq!(
+            parse("A6 FETCH 1 BINARY[1]"),
+            CommandKind::Fetch {
+                uid: false,
+                set: set(&[(Bound::Num(1), Bound::Num(1))]),
+                atts: vec![FetchAtt::Binary {
+                    peek: false,
+                    path: vec![1],
+                    partial: None,
+                }],
+            }
+        );
+        assert!(bad(b"A7 FETCH 1 BINARY[HEADER]").message.contains("number"));
     }
 
     #[test]
@@ -1662,8 +1675,8 @@ mod tests {
             CommandKind::Fetch {
                 uid: true,
                 set: SequenceSet::saved(),
+                // The parser takes the items as named; the session adds UID to a UID FETCH.
                 atts: vec![
-                    FetchAtt::Uid,
                     FetchAtt::Binary {
                         peek: true,
                         path: vec![1, 2],
