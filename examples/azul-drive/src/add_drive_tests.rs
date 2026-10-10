@@ -8,11 +8,15 @@ use azul_pay::{
 use azul_storage::{
     catalog::ServiceGroup,
     config::{DriveAuth, DriveEntry, DriveLocation},
+    oauth::{self, Tokens},
 };
 
-use crate::add_drive::{
-    country_from, country_of_locale, source_groups, AddDialog, AddPage, OfferState, TiersState,
-    COUNTRIES,
+use crate::{
+    add_drive::{
+        country_from, country_of_locale, source_groups, AddDialog, AddPage, OfferState,
+        TiersState, COUNTRIES,
+    },
+    sign_in::{self, PendingSignIn, SignInSettings, SignInStep},
 };
 
 fn tiers() -> Tiers {
@@ -366,5 +370,247 @@ fn the_dialog_is_busy_while_a_payment_runs_and_its_debug_text_holds_no_secret() 
     let text = format!("{dialog:?}");
     for secret in ["SECRETPK", "SECRETCS", "Felix"] {
         assert!(!text.contains(secret), "{secret}: {text}");
+    }
+}
+
+// ==== Connect data source > a consumer cloud's sign-in ====
+
+/// The environment `pairs` describe, as `SignInSettings::resolve` reads it.
+fn vars(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+    move |name: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| (*v).to_string())
+    }
+}
+
+fn settings(pairs: &'static [(&'static str, &'static str)]) -> SignInSettings {
+    SignInSettings::resolve(&vars(pairs), None)
+}
+
+fn tokens(refresh: Option<&str>) -> Tokens {
+    Tokens {
+        access_token: String::from("ya29.ACCESS"),
+        refresh_token: refresh.map(String::from),
+        expires_in: Some(3599),
+        scope: None,
+    }
+}
+
+#[test]
+fn a_consumer_cloud_without_a_client_id_says_which_setting_is_missing() {
+    for (scheme, var, key, name) in [
+        ("gdrive", "AZDRIVE_GOOGLE_CLIENT_ID", "\"google\"", "Google Drive"),
+        ("dropbox", "AZDRIVE_DROPBOX_CLIENT_ID", "\"dropbox\"", "Dropbox"),
+        ("onedrive", "AZDRIVE_ONEDRIVE_CLIENT_ID", "\"onedrive\"", "OneDrive"),
+    ] {
+        let why = sign_in::plan(scheme, &settings(&[])).unwrap_err();
+        for part in [var, key, "client_id", name, ".azlin/config.json"] {
+            assert!(why.contains(part), "{scheme}: {part} in {why}");
+        }
+        let provider = oauth::provider(scheme).unwrap();
+        assert_eq!(sign_in::missing_client(provider), why);
+    }
+}
+
+#[test]
+fn a_client_id_from_the_environment_plans_a_sign_in_at_the_providers_endpoints() {
+    let plan = sign_in::plan(
+        "gdrive",
+        &settings(&[
+            ("AZDRIVE_GOOGLE_CLIENT_ID", "123-abc.apps.googleusercontent.com"),
+            ("AZDRIVE_GOOGLE_CLIENT_SECRET", "GOCSPX-x"),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(plan.provider, &oauth::GOOGLE);
+    assert_eq!(plan.client.client_id, "123-abc.apps.googleusercontent.com");
+    assert_eq!(plan.client.client_secret.as_deref(), Some("GOCSPX-x"));
+    assert_eq!(plan.authorize_endpoint, oauth::GOOGLE.authorize_url);
+    assert_eq!(plan.token_url, oauth::GOOGLE.token_url);
+    assert_eq!(plan.scope, oauth::GOOGLE.scope);
+    assert_eq!(plan.redirect_uri, sign_in::DEFAULT_REDIRECT_URI);
+    assert_eq!(plan.extras_query(), "&access_type=offline&prompt=consent");
+    assert_eq!(plan.token_url_option(), None, "the provider's own endpoint");
+    let dropbox = sign_in::plan("dropbox", &settings(&[("AZDRIVE_DROPBOX_CLIENT_ID", "d")]));
+    assert_eq!(dropbox.unwrap().extras_query(), "&token_access_type=offline");
+}
+
+#[test]
+fn the_settings_name_another_redirect_token_endpoint_and_scope() {
+    let plan = sign_in::plan(
+        "dropbox",
+        &settings(&[
+            ("AZDRIVE_DROPBOX_CLIENT_ID", "dbx"),
+            ("AZDRIVE_DROPBOX_REDIRECT_URI", "http://localhost:53682/"),
+            ("AZDRIVE_DROPBOX_TOKEN_URL", "http://127.0.0.1:8081/oauth/dropbox/token"),
+            ("AZDRIVE_DROPBOX_AUTHORIZE_URL", "http://127.0.0.1:8081/oauth/dropbox/authorize"),
+            ("AZDRIVE_DROPBOX_SCOPE", "files.content.read"),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(plan.redirect_uri, "http://localhost:53682/");
+    assert_eq!(
+        plan.authorize_endpoint,
+        "http://127.0.0.1:8081/oauth/dropbox/authorize"
+    );
+    assert_eq!(plan.scope, "files.content.read");
+    assert_eq!(
+        plan.token_url_option(),
+        Some("http://127.0.0.1:8081/oauth/dropbox/token")
+    );
+}
+
+#[test]
+fn a_source_without_a_sign_in_has_no_plan() {
+    assert!(sign_in::plan("webdav", &settings(&[])).is_err());
+    assert!(sign_in::plan("s3", &settings(&[])).is_err());
+}
+
+#[test]
+fn the_client_ids_come_from_the_shared_config_under_the_environment() {
+    let dir = azul_storage::testing::TempDir::new("azdrive-sign-in-settings");
+    let path = dir.0.join("config.json");
+    std::fs::write(
+        &path,
+        r#"{"oauth": {"google": {"client_id": "file-google"}, "onedrive": {"client_id": "file-onedrive"}}}"#,
+    )
+    .unwrap();
+    let resolved = SignInSettings::resolve(
+        &vars(&[("AZDRIVE_GOOGLE_CLIENT_ID", "env-google")]),
+        Some(&path),
+    );
+    let id = |scheme: &str| sign_in::plan(scheme, &resolved).map(|p| p.client.client_id);
+    assert_eq!(id("gdrive").as_deref(), Ok("env-google"));
+    assert_eq!(id("onedrive").as_deref(), Ok("file-onedrive"));
+    assert!(id("dropbox").is_err());
+}
+
+#[test]
+fn a_token_answer_without_a_refresh_token_cannot_keep_a_drive_signed_in() {
+    let plan = sign_in::plan("gdrive", &settings(&[("AZDRIVE_GOOGLE_CLIENT_ID", "id")])).unwrap();
+    let why = sign_in::form_settings(&plan, &tokens(None)).unwrap_err();
+    assert!(why.contains("refresh token"), "{why}");
+    assert!(why.contains("Google Drive"), "{why}");
+    let filled = sign_in::form_settings(&plan, &tokens(Some("1//R"))).unwrap();
+    assert!(filled.contains(&("refresh_token", String::from("1//R"))));
+    assert!(filled.contains(&("client_id", String::from("id"))));
+    assert!(filled.contains(&("access_token", String::new())), "no fixed token");
+}
+
+fn signing_in_dialog(pairs: &'static [(&'static str, &'static str)]) -> Option<AddDialog> {
+    let mut dialog = AddDialog::new(3);
+    dialog.choose_connect();
+    if !dialog.open_service("gdrive") {
+        assert!(!cfg!(feature = "opendal"), "Google Drive is a source of this build");
+        return None;
+    }
+    assert_eq!(dialog.sign_in_provider(), Some(&oauth::GOOGLE));
+    let plan = sign_in::plan("gdrive", &settings(pairs)).unwrap();
+    dialog.sign_in_waiting(PendingSignIn {
+        plan,
+        code_verifier: String::from("VERIFIER-dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1g"),
+        code_challenge: String::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
+        state: String::from("st4te"),
+    });
+    Some(dialog)
+}
+
+#[test]
+fn a_sign_in_fills_the_forms_refresh_token_and_client_and_the_drive_keeps_them_apart() {
+    let Some(mut dialog) = signing_in_dialog(&[
+        ("AZDRIVE_GOOGLE_CLIENT_ID", "id.apps.googleusercontent.com"),
+        ("AZDRIVE_GOOGLE_CLIENT_SECRET", "GOCSPX-s"),
+    ]) else {
+        return;
+    };
+    assert_eq!(dialog.sign_in, SignInStep::Waiting);
+    assert!(dialog.signing_in());
+    dialog.sign_in_exchanging();
+    assert_eq!(dialog.sign_in, SignInStep::Exchanging);
+    dialog.signed_in(&tokens(Some("1//REFRESH"))).unwrap();
+    assert_eq!(dialog.sign_in, SignInStep::SignedIn);
+    assert!(!dialog.signing_in());
+    assert!(dialog.pending_sign_in.is_none(), "the verifier is gone");
+    assert_eq!(dialog.value("refresh_token"), "1//REFRESH");
+    assert_eq!(dialog.value("client_id"), "id.apps.googleusercontent.com");
+    assert_eq!(dialog.value("client_secret"), "GOCSPX-s");
+    let new = dialog.build("g1").unwrap();
+    let DriveLocation::Opendal {
+        scheme,
+        options,
+        keyring,
+    } = &new.entry.location
+    else {
+        panic!("{:?}", new.entry.location);
+    };
+    assert_eq!(scheme, "gdrive");
+    assert!(*keyring);
+    assert_eq!(
+        options.get("client_id").map(String::as_str),
+        Some("id.apps.googleusercontent.com")
+    );
+    assert!(!options.contains_key("token_url"), "the provider's own endpoint");
+    let entry_text = serde_json::to_string(&new.entry).unwrap();
+    assert!(
+        !entry_text.contains("1//REFRESH") && !entry_text.contains("GOCSPX"),
+        "{entry_text}"
+    );
+    let secret = new.secret.unwrap();
+    assert!(secret.contains("1//REFRESH"), "the keyring's text holds it");
+}
+
+#[test]
+fn a_drive_signed_in_at_another_token_endpoint_keeps_it() {
+    let Some(mut dialog) = signing_in_dialog(&[
+        ("AZDRIVE_GOOGLE_CLIENT_ID", "id"),
+        ("AZDRIVE_GOOGLE_TOKEN_URL", "http://127.0.0.1:8081/oauth/google/token"),
+    ]) else {
+        return;
+    };
+    dialog.signed_in(&tokens(Some("R"))).unwrap();
+    let new = dialog.build("g2").unwrap();
+    let DriveLocation::Opendal { options, .. } = &new.entry.location else {
+        panic!("not an OpenDAL drive");
+    };
+    assert_eq!(
+        options.get("token_url").map(String::as_str),
+        Some("http://127.0.0.1:8081/oauth/google/token")
+    );
+}
+
+#[test]
+fn a_failed_sign_in_says_why_and_choosing_the_source_again_forgets_it() {
+    let Some(mut dialog) = signing_in_dialog(&[("AZDRIVE_GOOGLE_CLIENT_ID", "id")]) else {
+        return;
+    };
+    dialog.sign_in_failed("The sign-in was cancelled.");
+    assert_eq!(
+        dialog.sign_in,
+        SignInStep::Failed(String::from("The sign-in was cancelled."))
+    );
+    assert!(dialog.pending_sign_in.is_none());
+    assert!(dialog.signed_in(&tokens(Some("R"))).is_err(), "no sign-in waits");
+    dialog.back();
+    assert!(dialog.open_service("gdrive"));
+    assert_eq!(dialog.sign_in, SignInStep::Idle);
+}
+
+#[test]
+fn the_dialogs_debug_text_shows_no_verifier_and_no_refresh_token() {
+    let Some(mut dialog) = signing_in_dialog(&[
+        ("AZDRIVE_GOOGLE_CLIENT_ID", "id"),
+        ("AZDRIVE_GOOGLE_CLIENT_SECRET", "GOCSPX-secret"),
+    ]) else {
+        return;
+    };
+    let waiting = format!("{dialog:?}");
+    assert!(!waiting.contains("VERIFIER"), "{waiting}");
+    assert!(!waiting.contains("GOCSPX"), "{waiting}");
+    dialog.signed_in(&tokens(Some("1//REFRESH"))).unwrap();
+    let signed_in = format!("{dialog:?}");
+    for secret in ["1//REFRESH", "GOCSPX", "ya29"] {
+        assert!(!signed_in.contains(secret), "{secret}: {signed_in}");
     }
 }

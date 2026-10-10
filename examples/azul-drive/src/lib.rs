@@ -107,6 +107,8 @@ mod add_drive;
 mod add_drive_tests;
 /// What the Add drive dialog's buttons start, and the answers of its jobs.
 mod add_flow;
+/// Add drive > Google Drive / Dropbox / OneDrive: the sign-in as data.
+mod sign_in;
 pub mod args;
 pub mod browse;
 pub mod fileops;

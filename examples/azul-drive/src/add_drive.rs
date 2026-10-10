@@ -30,9 +30,12 @@ use azul_pay::{
     State as PayState,
 };
 use azul_storage::{
-    catalog::{self, FieldKind, FormValues, NewDrive, ServiceGroup, ServiceSpec},
+    catalog::{self, Backend, FieldKind, FormValues, NewDrive, ServiceGroup, ServiceSpec},
     config::DriveEntry,
+    oauth::{self, OAuthProvider, Tokens},
 };
+
+use crate::sign_in::{PendingSignIn, SignInStep};
 
 /// The name a bought drive gets unless the user types another.
 pub(crate) const DEFAULT_CLOUD_NAME: &str = "Azlin Storage";
@@ -131,6 +134,15 @@ pub(crate) struct AddDialog {
     pub kept: Option<PendingCheckout>,
     /// The look the fields page should take (`flora-light`, `flat-dark`).
     pub look_name: String,
+
+    // ---- Connect data source: a consumer cloud's sign-in (`sign_in`) ----
+    /// What the form shows of its sign-in.
+    pub sign_in: SignInStep,
+    /// The sign-in under way (its PKCE verifier and state: never printed).
+    pub pending_sign_in: Option<PendingSignIn>,
+    /// The token endpoint the drive keeps when it was signed in at another one than its
+    /// provider's (a test's); `None`: the provider's own.
+    pub token_url: Option<String>,
 }
 
 /// The surfaces AzDrive can show: the popover's hosted fields, a hosted page in the web view,
@@ -246,6 +258,9 @@ impl fmt::Debug for AddDialog {
             .field("consent", &self.consent)
             .field("pay", &self.pay)
             .field("card_name", &"<hidden>")
+            .field("sign_in", &self.sign_in)
+            .field("pending_sign_in", &self.pending_sign_in)
+            .field("token_url", &self.token_url)
             .finish_non_exhaustive()
     }
 }
@@ -279,6 +294,9 @@ impl AddDialog {
             card_name: String::new(),
             kept: None,
             look_name: String::from("flat-light"),
+            sign_in: SignInStep::Idle,
+            pending_sign_in: None,
+            token_url: None,
         }
     }
 
@@ -330,6 +348,9 @@ impl AddDialog {
         self.tested = None;
         self.error.clear();
         self.page = AddPage::Form;
+        self.sign_in = SignInStep::Idle;
+        self.pending_sign_in = None;
+        self.token_url = None;
         true
     }
 
@@ -404,6 +425,44 @@ impl AddDialog {
             .spec()
             .ok_or_else(|| String::from("Choose a source first."))?;
         catalog::build_entry(spec, id, &self.name, &self.values)
+    }
+
+    // ---- A consumer cloud's sign-in ----
+
+    /// The provider the chosen source signs in at (Google Drive, Dropbox, OneDrive); `None` for
+    /// every other source.
+    #[must_use]
+    pub(crate) fn sign_in_provider(&self) -> Option<&'static OAuthProvider> {
+        match self.spec()?.backend {
+            Backend::Opendal(scheme) => oauth::provider(scheme),
+            _ => None,
+        }
+    }
+
+    /// Whether a sign-in runs (the button waits).
+    #[must_use]
+    pub(crate) fn signing_in(&self) -> bool {
+        matches!(self.sign_in, SignInStep::Waiting | SignInStep::Exchanging)
+    }
+
+    /// The browser is open for `pending`.
+    pub(crate) fn sign_in_waiting(&mut self, pending: PendingSignIn) {
+        let _ = pending;
+    }
+
+    /// The redirect brought a code: it is being exchanged.
+    pub(crate) fn sign_in_exchanging(&mut self) {}
+
+    /// The sign-in ended without tokens: why.
+    pub(crate) fn sign_in_failed(&mut self, why: &str) {
+        let _ = why;
+    }
+
+    /// The token endpoint answered with `tokens`: the refresh token and the client into the
+    /// form, the token endpoint kept when it is not the provider's.
+    pub(crate) fn signed_in(&mut self, tokens: &Tokens) -> Result<(), String> {
+        let _ = tokens;
+        Err(String::new())
     }
 
     /// The page for scripts: `choose`, `buy`, `sources`, `form <source>`.
