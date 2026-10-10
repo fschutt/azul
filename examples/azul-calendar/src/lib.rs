@@ -86,6 +86,8 @@ mod print_ui;
 mod timegrid;
 mod views_ui;
 mod writes;
+#[cfg(test)]
+mod l10n_tests;
 
 /// AzMeet's invite secrets (`invite.rs`, CRYPTO.md section 4): a link made here carries one, and
 /// its room is registered with the invite key, so the meeting is end-to-end encrypted.
