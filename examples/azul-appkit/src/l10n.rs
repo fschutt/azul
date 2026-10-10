@@ -19,7 +19,7 @@
 //! - **The language:** the engine's (the system's), or the Language setting / `--language`
 //!   (`ui` applies it with `CallbackInfo::set_locale`).
 
-use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
+use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 
 use azul::{
     fluent::{FluentArg, FluentArgKV, FluentLocalizerHandle},
@@ -43,10 +43,9 @@ thread_local! {
     static LOCALIZER: RefCell<Option<FluentLocalizerHandle>> = const { RefCell::new(None) };
     /// The language of the layout pass ([`begin_layout`]).
     static LOCALE: RefCell<String> = RefCell::new(String::from("en-US"));
+    /// The resources the localizer was made of, for a [`Voice`] made on this thread.
+    static KEPT: RefCell<Option<Arc<Vec<(String, String)>>>> = const { RefCell::new(None) };
 }
-
-/// The resources [`keep`] was given last (on any thread), for a worker's [`Voice::adopt`].
-static KEPT: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
 /// The resources per language: appkit's first, then `resources` in their order, each
 /// language's joined into one resource; English first (the engine's fallback).
@@ -83,43 +82,76 @@ pub fn register(config: &mut AppConfig, resources: &[(&str, &str)]) {
 
 /// Keeps `sources` for [`t`] on this thread (without an `AppConfig`: a test).
 pub fn keep(sources: &[(String, String)]) {
+    keep_shared(Arc::new(sources.to_vec()));
+}
+
+fn keep_shared(sources: Arc<Vec<(String, String)>>) {
     let localizer = FluentLocalizerHandle::default();
-    for (tag, source) in sources {
+    for (tag, source) in sources.iter() {
         let _ = localizer.add_resource(tag.as_str(), source.as_str());
     }
     LOCALIZER.with(|l| *l.borrow_mut() = Some(localizer));
-    if let Ok(mut kept) = KEPT.lock() {
-        *kept = sources.to_vec();
-    }
+    KEPT.with(|k| *k.borrow_mut() = Some(sources));
 }
 
 /// A thread's language, for a worker thread that writes words itself (a printout laid out off
 /// the UI thread): [`Voice::here`] on the UI thread, [`Voice::adopt`] on the worker, and the
 /// worker's [`t`] says what the UI thread's would. (A worker's answers for the UI stay keys or
-/// [`Text`]s, said by the UI thread.) Two voices are equal when they speak one language: a
-/// printout made in another language is another printout.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// [`Text`]s, said by the UI thread.) A voice brings its thread's resources along; two voices
+/// are equal when they speak one language with the same resources: a printout made in another
+/// language is another printout.
+#[derive(Clone)]
 pub struct Voice {
     locale: String,
+    sources: Option<Arc<Vec<(String, String)>>>,
 }
 
 impl Voice {
-    /// This thread's language ([`locale`]).
+    /// This thread's language ([`locale`]) and resources.
     #[must_use]
     pub fn here() -> Self {
-        Self { locale: locale() }
+        Self {
+            locale: locale(),
+            sources: KEPT.with(|k| k.borrow().clone()),
+        }
     }
 
-    /// This thread says its words as the voice's thread does: the app's resources (the ones
-    /// kept last, once per thread) in the voice's language.
+    /// This thread says its words as the voice's thread does: its resources (made into this
+    /// thread's localizer unless they are already) in its language.
     pub fn adopt(&self) {
-        if LOCALIZER.with(|l| l.borrow().is_none()) {
-            let kept = KEPT.lock().map(|k| k.clone()).unwrap_or_default();
-            if !kept.is_empty() {
-                keep(&kept);
+        if let Some(sources) = &self.sources {
+            let kept_here = KEPT.with(|k| {
+                k.borrow()
+                    .as_ref()
+                    .is_some_and(|here| Arc::ptr_eq(here, sources))
+            });
+            if !kept_here {
+                keep_shared(Arc::clone(sources));
             }
         }
         set_locale(&self.locale);
+    }
+}
+
+impl PartialEq for Voice {
+    fn eq(&self, other: &Self) -> bool {
+        let same_sources = match (&self.sources, &other.sources) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b) || a == b,
+            (None, None) => true,
+            _ => false,
+        };
+        self.locale == other.locale && same_sources
+    }
+}
+
+impl Eq for Voice {}
+
+/// The language alone: the resources are long.
+impl std::fmt::Debug for Voice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Voice")
+            .field("locale", &self.locale)
+            .finish_non_exhaustive()
     }
 }
 
