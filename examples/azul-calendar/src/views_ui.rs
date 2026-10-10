@@ -485,7 +485,7 @@ fn agenda_view(s: &CalState, app: &RefAny) -> Dom {
                 details.push(e.location.clone());
             }
             if let Some(rule) = &e.repeat {
-                details.push(rule.describe(e.date));
+                details.push(azul_appkit::l10n::t_said(&rule.description(e.date)));
             }
             if !details.is_empty() {
                 text.add_child(

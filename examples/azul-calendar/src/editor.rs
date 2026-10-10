@@ -574,7 +574,10 @@ pub fn repeat_label(repeat: Repeat, date: NaiveDate, custom: Option<&Rule>) -> S
         }
         Repeat::Yearly => format!("Yearly on {}", date.format("%-d %B")),
         Repeat::Custom => match custom {
-            Some(rule) => format!("Custom: {}", rule.describe(date)),
+            Some(rule) => format!(
+                "Custom: {}",
+                azul_appkit::l10n::t_said(&rule.description(date))
+            ),
             None => String::from("Custom"),
         },
     }
@@ -732,6 +735,7 @@ mod tests {
 
     #[test]
     fn a_rule_the_form_has_no_choice_for_is_kept_as_it_is() {
+        crate::l10n::in_english();
         let mut event = form().event(None).unwrap();
         let rule = Rule::parse("FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU").unwrap();
         event.repeat = Some(rule.clone());

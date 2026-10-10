@@ -29,6 +29,8 @@ use azul::{
     vec::{DomVec, FluentArgKVVec, FmtArgVec, StringPairVec, StringVec},
 };
 
+pub use azul_pim::said::{Said, SaidArg};
+
 pub use crate::phrase::{Arg, Part, Phrase, Text};
 
 /// appkit's own words (the settings page, the About box), in English.
@@ -452,6 +454,57 @@ pub fn date_text(style: DateStyle, year: i32, month: u32, day: u32, weekday: u32
             ("month", Arg::from(t(&format!("kit-month-{month_name}")))),
             ("mon", Arg::from(short_month)),
             ("year", Arg::from(year)),
+        ],
+    )
+}
+
+/// Words azul-pim knows to say ([`Said`]: a message of these resources and its arguments, such
+/// as a repeat rule's description) in the language of the layout pass.
+#[must_use]
+pub fn t_said(said: &Said) -> String {
+    let args: Vec<(&str, Arg)> = said
+        .args
+        .iter()
+        .map(|(name, value)| (*name, said_arg(value)))
+        .collect();
+    t_args(said.id, &args)
+}
+
+fn said_arg(value: &SaidArg) -> Arg {
+    use chrono::Datelike;
+    let day = |style, date: &chrono::NaiveDate| {
+        date_text(
+            style,
+            date.year(),
+            date.month(),
+            date.day(),
+            date.weekday().num_days_from_monday(),
+        )
+    };
+    match value {
+        SaidArg::Number(n) => Arg::from(*n),
+        SaidArg::Said(said) => Arg::from(t_said(said)),
+        SaidArg::List(items) => Arg::from(and_list(items.iter().map(t_said).collect())),
+        SaidArg::DayMonth(date) => Arg::from(day(DateStyle::DayMonth, date)),
+        SaidArg::Date(date) => Arg::from(day(DateStyle::Date, date)),
+    }
+}
+
+/// `items` as a list in the language of the layout pass: "a, b and c" (`kit-list-and`), one
+/// as it is, none empty.
+#[must_use]
+pub fn and_list(mut items: Vec<String>) -> String {
+    let Some(last) = items.pop() else {
+        return String::new();
+    };
+    if items.is_empty() {
+        return last;
+    }
+    t_args(
+        "kit-list-and",
+        &[
+            ("first", Arg::from(items.join(", "))),
+            ("last", Arg::from(last)),
         ],
     )
 }

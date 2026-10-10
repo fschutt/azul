@@ -37,6 +37,7 @@ pub mod initials;
 pub mod mail_address;
 pub mod repeat;
 pub mod rrule;
+pub mod said;
 pub mod search;
 pub mod task;
 pub mod task_store;
