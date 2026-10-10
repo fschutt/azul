@@ -109,3 +109,20 @@ fn the_language_is_the_systems_english_or_german() {
     settings.set_language(LanguagePref::System);
     assert_eq!(settings.language(), LanguagePref::System);
 }
+
+#[test]
+fn plain_words_are_a_text_as_they_are_and_a_phrase_keeps_its_key_and_arguments() {
+    use crate::phrase::{Arg, Phrase, Text};
+
+    let plain = Text::from("report.pdf");
+    assert_eq!(plain.keys(), Vec::<&str>::new());
+    assert_eq!(plain.to_string(), "report.pdf");
+    let text = Text::from(String::from("3 failed: ")).then(Phrase::new("kit-a").arg("count", 3));
+    assert_eq!(text.keys(), vec!["kit-a"]);
+    assert_eq!(
+        text.phrase("kit-a").and_then(|p| p.get("count")),
+        Some(&Arg::Int(3))
+    );
+    assert_eq!(text.to_string(), "3 failed: kit-a(count=3)");
+    assert!(Text::default().is_empty() && !text.is_empty());
+}

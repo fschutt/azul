@@ -177,6 +177,20 @@ impl From<Phrase> for Text {
     }
 }
 
+/// Plain words (a name, a server's own sentence) as they are.
+impl From<String> for Text {
+    fn from(text: String) -> Text {
+        Text::plain(text)
+    }
+}
+
+/// Plain words as they are.
+impl From<&str> for Text {
+    fn from(text: &str) -> Text {
+        Text::plain(text)
+    }
+}
+
 /// A log line's or a terminal's rendering: plain text as it is, a phrase as its key and
 /// arguments (`kit-save-failed(detail=disk full)`) - never shown in a window.
 impl std::fmt::Display for Text {

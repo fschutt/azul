@@ -86,7 +86,7 @@ pub fn keep(sources: &[(String, String)]) {
 
 /// At the start of an app's layout callback: the window's language for [`t`] in this pass
 /// (asking for it makes the layout depend on it: a language switch builds it again).
-pub fn begin_layout(info: &mut LayoutCallbackInfo) {
+pub fn begin_layout(info: &LayoutCallbackInfo) {
     let locale = info.get_locale();
     set_locale(locale.as_str());
 }
