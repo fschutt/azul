@@ -122,6 +122,35 @@ pub fn weekday_name(weekday: Weekday) -> &'static str {
     }
 }
 
+/// "Monday"'s message in azul-appkit's resources (`kit-weekday-monday`): an app says it in the
+/// window's language.
+#[must_use]
+pub fn weekday_message_id(weekday: Weekday) -> &'static str {
+    match weekday {
+        Weekday::Mon => "kit-weekday-monday",
+        Weekday::Tue => "kit-weekday-tuesday",
+        Weekday::Wed => "kit-weekday-wednesday",
+        Weekday::Thu => "kit-weekday-thursday",
+        Weekday::Fri => "kit-weekday-friday",
+        Weekday::Sat => "kit-weekday-saturday",
+        Weekday::Sun => "kit-weekday-sunday",
+    }
+}
+
+/// "Mon"'s message in azul-appkit's resources (`kit-weekday-short-mon`).
+#[must_use]
+pub fn weekday_short_message_id(weekday: Weekday) -> &'static str {
+    match weekday {
+        Weekday::Mon => "kit-weekday-short-mon",
+        Weekday::Tue => "kit-weekday-short-tue",
+        Weekday::Wed => "kit-weekday-short-wed",
+        Weekday::Thu => "kit-weekday-short-thu",
+        Weekday::Fri => "kit-weekday-short-fri",
+        Weekday::Sat => "kit-weekday-short-sat",
+        Weekday::Sun => "kit-weekday-short-sun",
+    }
+}
+
 /// "Mon", as a row or a button shows a weekday.
 #[must_use]
 pub fn weekday_short(weekday: Weekday) -> &'static str {
@@ -176,6 +205,29 @@ pub fn weekday_from_code(code: &str) -> Option<Weekday> {
     WEEKDAYS
         .into_iter()
         .find(|d| weekday_code(*d).eq_ignore_ascii_case(code))
+}
+
+/// The month's message in azul-appkit's resources (`kit-month-january` for 1); January's for
+/// anything else, as [`month_name`].
+#[must_use]
+pub fn month_message_id(month: u32) -> &'static str {
+    const IDS: [&str; 12] = [
+        "kit-month-january",
+        "kit-month-february",
+        "kit-month-march",
+        "kit-month-april",
+        "kit-month-may",
+        "kit-month-june",
+        "kit-month-july",
+        "kit-month-august",
+        "kit-month-september",
+        "kit-month-october",
+        "kit-month-november",
+        "kit-month-december",
+    ];
+    IDS.get(month.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or(IDS[0])
 }
 
 /// "January" for 1 .. "December" for 12; "January" for anything else.
@@ -266,6 +318,22 @@ impl DateGroup {
             DateGroup::ThreeWeeksAgo => "Three Weeks Ago",
             DateGroup::LastMonth => "Last Month",
             DateGroup::Older => "Older",
+        })
+    }
+
+    /// The group header's message in azul-appkit's resources (`kit-date-today`, a weekday's
+    /// `kit-weekday-monday`): an app says it in the window's language.
+    #[must_use]
+    pub fn message_id(self) -> String {
+        String::from(match self {
+            DateGroup::Today => "kit-date-today",
+            DateGroup::Yesterday => "kit-date-yesterday",
+            DateGroup::Weekday(day) => weekday_message_id(day),
+            DateGroup::LastWeek => "kit-date-last-week",
+            DateGroup::TwoWeeksAgo => "kit-date-two-weeks-ago",
+            DateGroup::ThreeWeeksAgo => "kit-date-three-weeks-ago",
+            DateGroup::LastMonth => "kit-date-last-month",
+            DateGroup::Older => "kit-date-older",
         })
     }
 }

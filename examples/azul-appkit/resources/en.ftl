@@ -98,3 +98,40 @@ kit-number-group-separator = ,
 kit-number-decimal-separator = .
 # An amount of money: the currency's code (EUR) and the amount with its decimals.
 kit-money = { $currency } { $amount }
+
+## Dates: a list's date groups, the weekdays (long and short) and the months (azul-pim
+## names them by these ids)
+
+kit-date-today = Today
+kit-date-yesterday = Yesterday
+kit-date-last-week = Last Week
+kit-date-two-weeks-ago = Two Weeks Ago
+kit-date-three-weeks-ago = Three Weeks Ago
+kit-date-last-month = Last Month
+kit-date-older = Older
+kit-weekday-monday = Monday
+kit-weekday-tuesday = Tuesday
+kit-weekday-wednesday = Wednesday
+kit-weekday-thursday = Thursday
+kit-weekday-friday = Friday
+kit-weekday-saturday = Saturday
+kit-weekday-sunday = Sunday
+kit-weekday-short-mon = Mon
+kit-weekday-short-tue = Tue
+kit-weekday-short-wed = Wed
+kit-weekday-short-thu = Thu
+kit-weekday-short-fri = Fri
+kit-weekday-short-sat = Sat
+kit-weekday-short-sun = Sun
+kit-month-january = January
+kit-month-february = February
+kit-month-march = March
+kit-month-april = April
+kit-month-may = May
+kit-month-june = June
+kit-month-july = July
+kit-month-august = August
+kit-month-september = September
+kit-month-october = October
+kit-month-november = November
+kit-month-december = December
