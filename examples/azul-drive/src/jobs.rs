@@ -230,6 +230,17 @@ pub(crate) enum Job {
         entry: DriveEntry,
         secret: Option<String>,
     },
+    /// A consumer cloud's sign-in: the authorization `code` (with the PKCE verifier and the
+    /// exact redirect URI the sign-in went out with) exchanged for tokens at the plan's token
+    /// endpoint - azul-storage's `oauth::exchange_code` through azul's HTTP client, to that
+    /// endpoint only. Holds one-time secrets; never printed.
+    OAuthExchange {
+        serial: u64,
+        plan: Box<crate::sign_in::SignInPlan>,
+        code: String,
+        code_verifier: String,
+        redirect_uri: String,
+    },
     /// Buy storage's tier list from the token server at `token_url`.
     Tiers { serial: u64, token_url: String },
     /// A test drive without payment (a development token server), its session into `keyring`
@@ -452,6 +463,11 @@ pub(crate) enum Outcome {
     Tested {
         serial: u64,
         result: Result<String, DriveError>,
+    },
+    /// A sign-in's tokens (or why there are none). The tokens are secrets: never printed.
+    SignedIn {
+        serial: u64,
+        result: Result<azul_storage::oauth::Tokens, String>,
     },
     /// Buy storage's tier list (or why there is none).
     Tiers {
@@ -2358,6 +2374,24 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                     }
                 });
             Outcome::Tested { serial, result }
+        }
+        Job::OAuthExchange {
+            serial,
+            plan,
+            code,
+            code_verifier,
+            redirect_uri,
+        } => {
+            let result = azul_storage::oauth::exchange_code(
+                &AzulTransport::new(USER_AGENT),
+                &plan.token_url,
+                &plan.client,
+                &code,
+                &code_verifier,
+                &redirect_uri,
+            )
+            .map_err(|e| e.to_string());
+            Outcome::SignedIn { serial, result }
         }
         Job::Tiers { serial, token_url } => {
             let transport = AzulTransport::new(USER_AGENT);

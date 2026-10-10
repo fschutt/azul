@@ -12,9 +12,10 @@
 //!            for a card the artwork (brand, number, name) and Name on card; the provider's
 //!            page in a <webview>; the price; [Open in browser instead] [Pay ...]
 //! Sources    < Back   the sources of this build in their groups (a tile each)
-//! Form       < Back   the source, Name, one field per setting (text, password, a switch, a
-//!            choice, a path with Choose...), the test's sentence  [Test connection] [Cancel]
-//!            [Add drive]
+//! Form       < Back   the source, Name, [Sign in to <provider>] and what the sign-in does
+//!            (Google Drive, Dropbox, OneDrive), one field per setting (text, password, a
+//!            switch, a choice, a path with Choose...), the test's sentence  [Test connection]
+//!            [Cancel] [Add drive]
 //! ```
 //!
 //! The dialog is azul's modal `Dialog` - a `<transient-window>` over AzDrive's window (or the
@@ -47,18 +48,23 @@ use azul_pay::{
     offer::amount_text,
     pills, Event as PayEvent, Method, SecretUrl, State as PayState, SurfaceKind,
 };
-use azul_storage::catalog::{FieldKind, FieldSpec, ServiceSpec};
+use azul_storage::{
+    catalog::{FieldKind, FieldSpec, ServiceSpec},
+    oauth::OAuthProvider,
+};
 
 use crate::{
     add_drive::{source_groups, AddDialog, AddPage, BuyStep, OfferState, TiersState, COUNTRIES},
     add_flow::{self, AddEvent},
-    ids, look, with_state, DriveState, Popup,
+    ids, look,
+    sign_in::{self, SignInSettings, SignInStep},
+    with_state, DriveState, Popup,
 };
 
 // ==== Pieces ====
 
 /// Every rebuild the dialog asks for reaches the window that holds its content.
-fn everywhere(update: Update) -> Update {
+pub(crate) fn everywhere(update: Update) -> Update {
     match update {
         Update::RefreshDom => Update::RefreshDomAllWindows,
         other => other,
@@ -240,7 +246,12 @@ fn text_field(app: &RefAny, value: &str, placeholder: &str, secret: bool, target
 
 /// The dialog's title and content for `d`; `development`: the token server is a development one
 /// (Buy storage offers a test drive).
-pub(crate) fn dialog(d: &AddDialog, development: bool, app: &RefAny) -> (String, Dom) {
+pub(crate) fn dialog(
+    d: &AddDialog,
+    development: bool,
+    sign_in: &SignInSettings,
+    app: &RefAny,
+) -> (String, Dom) {
     let (title, page) = match d.page {
         AddPage::Choose => (String::from("Add a drive"), choose(app)),
         AddPage::Buy => (String::from("Buy storage"), buy(d, development, app)),
@@ -251,7 +262,7 @@ pub(crate) fn dialog(d: &AddDialog, development: bool, app: &RefAny) -> (String,
                 (None, Some(spec)) => format!("Connect {}", spec.name),
                 (None, None) => String::from("Connect a data source"),
             };
-            (title, form(d, app))
+            (title, form(d, sign_in, app))
         }
     };
     // Text that sets no size of its own (a check box's label, a status line) takes the dialog
@@ -955,8 +966,67 @@ fn field(d: &AddDialog, app: &RefAny, f: &'static FieldSpec) -> Dom {
     column(parts)
 }
 
+/// A consumer cloud's sign-in: "Sign in to <provider>" and what it does - or which setting
+/// its OAuth client needs (the button is off then, and says it too).
+fn sign_in_row(
+    d: &AddDialog,
+    settings: &SignInSettings,
+    app: &RefAny,
+    provider: &OAuthProvider,
+) -> Dom {
+    let missing = sign_in::plan(provider.scheme, settings).err();
+    let (text, failed) = match (&d.sign_in, &missing) {
+        (SignInStep::Idle, Some(why)) => (why.clone(), true),
+        (SignInStep::Idle, None) => (
+            String::from(
+                "Sign in with your browser; AzDrive keeps the refresh token in this computer's \
+                 keyring, never in its files.",
+            ),
+            false,
+        ),
+        (SignInStep::Waiting, _) => (
+            String::from("Waiting for the sign-in in your browser ..."),
+            false,
+        ),
+        (SignInStep::Exchanging, _) => (String::from("Signing in ..."), false),
+        (SignInStep::SignedIn, _) => (
+            format!(
+                "Signed in to {}. Add drive keeps the refresh token in this computer's keyring.",
+                provider.name
+            ),
+            false,
+        ),
+        (SignInStep::Failed(why), _) => (why.clone(), true),
+    };
+    let why_not = missing
+        .as_deref()
+        .or_else(|| d.signing_in().then_some("The sign-in runs."));
+    let label = if matches!(d.sign_in, SignInStep::SignedIn) {
+        format!("Sign in to {} again", provider.name)
+    } else {
+        format!("Sign in to {}", provider.name)
+    };
+    let mut status = note(&text).with_id(ids::ADD_SIGN_IN_STATUS);
+    if failed {
+        status = status.with_css("color: #C42B1C; opacity: 1;");
+    }
+    column(vec![
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; margin-top: 8px;")
+            .with_child(button(
+                app,
+                &label,
+                ButtonType::Primary,
+                AddEvent::SignIn,
+                ids::ADD_SIGN_IN,
+                why_not,
+            )),
+        status,
+    ])
+}
+
 /// A source's form: its name, its fields, the test's sentence, Test connection / Add drive.
-fn form(d: &AddDialog, app: &RefAny) -> Dom {
+fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
     let Some(spec) = d.spec() else {
         return column(vec![back(app), error_line("Choose a source first.")]);
     };
@@ -965,6 +1035,9 @@ fn form(d: &AddDialog, app: &RefAny) -> Dom {
         children.push(back(app));
     }
     children.push(header(spec));
+    if let Some(provider) = d.sign_in_provider() {
+        children.push(sign_in_row(d, sign_in, app, provider));
+    }
     let mut fields = vec![
         label("Name"),
         text_field(app, &d.name, spec.name, false, TextTarget::Name).with_id(ids::ADD_NAME),

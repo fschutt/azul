@@ -13,7 +13,15 @@
 //! page's commands, the system browser, the next surface of the same checkout, the abandon of
 //! a checkout nobody pays, the wait for the drive. Then the claim flow takes over unchanged.
 //!
+//! A consumer cloud's form (Google Drive, Dropbox, OneDrive) has "Sign in": azul's
+//! `AuthSession` opens the provider's page in the system browser (or the platform's sign-in
+//! sheet) with a PKCE pair and a state of its own (`AuthPkce`), the redirect comes back to
+//! [`on_sign_in_redirect`], its code is exchanged for tokens on a worker thread
+//! (`Job::OAuthExchange`), and the refresh token lands in the form's secrets (`sign_in`).
+//!
 //! On stdout, for scripts: `AZDRIVE_ADD_PAGE <page>`, `AZDRIVE_TESTED ok|error`,
+//! `AZDRIVE_SIGN_IN <scheme> <step>` (`waiting`, `exchanging`, `cancelled`, `timed-out`,
+//! `unsupported`, `failed`, `no-client`), `AZDRIVE_SIGNED_IN <scheme> ok|error`,
 //! `AZDRIVE_TIERS <n>`, `AZDRIVE_PILLS <method>:<provider> ...` (`-` for none: the v1 checkout),
 //! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_PAY <state>`, `AZDRIVE_PAY_SURFACE <kind> <host>`,
 //! `AZDRIVE_PAY_BLOCKED <host>`, `AZDRIVE_OPEN_BROWSER <host>`, `AZDRIVE_ABANDONED <checkout id>
@@ -31,7 +39,15 @@ use azcloud_kit::{
     pending::{Claimed, Finished},
     PendingCheckout, Redeemed, Tiers,
 };
-use azul::{css::DarkLightMode, prelude::*, str::String as AzString, url::Url};
+use azul::{
+    css::DarkLightMode,
+    prelude::*,
+    str::String as AzString,
+    url::{
+        AuthCodeStatus, AuthPkce, AuthRequest, AuthSession, AuthSessionResult,
+        AuthSessionStatus, Url,
+    },
+};
 use azul_pay::{
     machine::Notice,
     offer::{Offer, OfferContext},
@@ -39,6 +55,7 @@ use azul_pay::{
 };
 use azul_storage::{
     config::{self, DriveAuth, DriveEntry, DriveLocation, DrivesFile},
+    oauth::Tokens,
     time::iso8601,
     DriveError,
 };
@@ -48,7 +65,9 @@ use crate::{
     browse::Place,
     go, ids,
     jobs::{BoughtDrive, Job, PayVia, Started},
-    keyring, refresh_disks, spawn, DriveState, KeyringCall, KeyringOp, Popup, Slot,
+    keyring, refresh_disks,
+    sign_in::{self, PendingSignIn},
+    spawn, with_state, DriveState, KeyringCall, KeyringOp, Popup, Slot,
 };
 
 /// What a button or a tile of the dialog asks for.
@@ -66,6 +85,8 @@ pub(crate) enum AddEvent {
     /// "Try again" after the tier list failed.
     RetryTiers,
     Test,
+    /// A consumer cloud's "Sign in".
+    SignIn,
     Save,
     Cancel,
     CreateTestDrive,
@@ -171,6 +192,7 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
         }
         AddEvent::RetryTiers => load_tiers(info, app, s, true),
         AddEvent::Test => test(info, app, s),
+        AddEvent::SignIn => sign_in(info, app, s),
         AddEvent::Save => save(info, app, s),
         AddEvent::Cancel => close(info, app, s),
         AddEvent::CreateTestDrive => create_test_drive(info, app, s),
@@ -275,6 +297,181 @@ fn test(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         }
         Err(problem) => d.error = problem,
     }
+}
+
+/// What a sign-in's answer finds: the app and the dialog that asked.
+struct SignInRef {
+    app: RefAny,
+    serial: u64,
+}
+
+fn print_sign_in(scheme: &str, step: &str) {
+    println!("AZDRIVE_SIGN_IN {scheme} {step}");
+}
+
+/// "Sign in" of a consumer cloud's form: the provider's OAuth client from the settings (a
+/// missing one is said), a fresh PKCE pair and state, the authorization request, azul's
+/// sign-in session. Its answer comes back to [`on_sign_in_redirect`]; nothing is sent from
+/// here but the browser's visit to the provider's page.
+fn sign_in(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let settings = s.sign_in_settings.clone();
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    let Some(provider) = d.sign_in_provider() else {
+        return;
+    };
+    if d.signing_in() {
+        return;
+    }
+    let plan = match sign_in::plan(provider.scheme, &settings) {
+        Ok(plan) => plan,
+        Err(why) => {
+            d.sign_in_failed(&why);
+            print_sign_in(provider.scheme, "no-client");
+            return;
+        }
+    };
+    let pkce = AuthPkce::create();
+    let authorize_url = format!(
+        "{}{}",
+        pkce.authorize_url(
+            plan.authorize_endpoint.as_str(),
+            plan.client.client_id.as_str(),
+            plan.scope.as_str(),
+        )
+        .as_str(),
+        plan.extras_query()
+    );
+    let request = AuthRequest::create(authorize_url.as_str(), plan.redirect_uri.as_str());
+    d.sign_in_waiting(PendingSignIn {
+        plan,
+        code_verifier: pkce.code_verifier.as_str().to_string(),
+        code_challenge: pkce.code_challenge.as_str().to_string(),
+        state: pkce.state.as_str().to_string(),
+    });
+    let serial = d.serial;
+    print_sign_in(provider.scheme, "waiting");
+    let _request = AuthSession::start(
+        *info,
+        request,
+        RefAny::new(SignInRef {
+            app: app.clone(),
+            serial,
+        }),
+        on_sign_in_redirect,
+    );
+}
+
+/// The sign-in session's answer (azul's `ResumeCallback`): the redirect read with the sign-in's
+/// state, its code exchanged on a worker thread - or why there is none.
+extern "C" fn on_sign_in_redirect(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    result: RefAny,
+) -> Update {
+    let Some((mut app, serial)) = data
+        .downcast_ref::<SignInRef>()
+        .map(|r| (r.app.clone(), r.serial))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(result) = AuthSessionResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    crate::ui_add_drive::everywhere(with_state(&mut app, &mut info, |info, app, s| {
+        sign_in_returned(info, app, s, serial, &result);
+    }))
+}
+
+/// What the sign-in session answered, for the dialog `serial`.
+fn sign_in_returned(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: u64,
+    result: &AuthSessionResult,
+) {
+    let Some(d) = dialog_of(s, serial) else {
+        return;
+    };
+    let Some(pending) = d.pending_sign_in.clone() else {
+        return;
+    };
+    let scheme = pending.plan.provider.scheme;
+    let ended = match result.status {
+        AuthSessionStatus::Redirected => None,
+        AuthSessionStatus::Cancelled => Some(("cancelled", String::from("The sign-in was cancelled."))),
+        AuthSessionStatus::TimedOut => Some((
+            "timed-out",
+            String::from("The sign-in did not come back in time. Try again."),
+        )),
+        AuthSessionStatus::Unsupported => Some((
+            "unsupported",
+            format!("This computer cannot run the sign-in: {}.", result.message.as_str()),
+        )),
+        AuthSessionStatus::Failed => Some((
+            "failed",
+            format!("The sign-in did not finish: {}.", result.message.as_str()),
+        )),
+    };
+    if let Some((word, why)) = ended {
+        d.sign_in_failed(&why);
+        print_sign_in(scheme, word);
+        return;
+    }
+    let pkce = AuthPkce {
+        code_verifier: AzString::from(pending.code_verifier.as_str()),
+        code_challenge: AzString::from(pending.code_challenge.as_str()),
+        state: AzString::from(pending.state.as_str()),
+    };
+    let code = pkce.read_redirect(result.redirect_url.clone());
+    if !matches!(code.status, AuthCodeStatus::Code) {
+        d.sign_in_failed(&format!(
+            "The sign-in did not finish: {}.",
+            code.message.as_str()
+        ));
+        print_sign_in(scheme, "failed");
+        return;
+    }
+    d.sign_in_exchanging();
+    print_sign_in(scheme, "exchanging");
+    spawn(
+        info,
+        app,
+        s,
+        Job::OAuthExchange {
+            serial,
+            plan: Box::new(pending.plan),
+            code: code.code.as_str().to_string(),
+            code_verifier: pending.code_verifier,
+            redirect_uri: result.redirect_uri.as_str().to_string(),
+        },
+    );
+}
+
+/// The token endpoint's answer for the dialog `serial`: the refresh token into the form - or
+/// why not.
+pub(crate) fn signed_in(s: &mut DriveState, serial: u64, result: Result<Tokens, String>) {
+    let Some(d) = dialog_of(s, serial) else {
+        return;
+    };
+    let scheme = d
+        .pending_sign_in
+        .as_ref()
+        .map_or("-", |p| p.plan.provider.scheme);
+    let done = match result {
+        Ok(tokens) => d.signed_in(&tokens),
+        Err(why) => {
+            let why = format!("The sign-in's token request failed: {why}");
+            d.sign_in_failed(&why);
+            Err(why)
+        }
+    };
+    println!(
+        "AZDRIVE_SIGNED_IN {scheme} {}",
+        if done.is_ok() { "ok" } else { "error" }
+    );
 }
 
 /// A connection test's answer.

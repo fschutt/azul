@@ -125,6 +125,9 @@ pub const ADD_BACK: AzString = AzString::from_const_str("__azdrive_add_back");
 /// The drive's name (a form's, and Buy storage's).
 pub const ADD_NAME: AzString = AzString::from_const_str("__azdrive_add_name");
 pub const ADD_TEST: AzString = AzString::from_const_str("__azdrive_add_test");
+/// A consumer cloud's "Sign in" (Google Drive, Dropbox, OneDrive) and its status line.
+pub const ADD_SIGN_IN: AzString = AzString::from_const_str("__azdrive_add_sign_in");
+pub const ADD_SIGN_IN_STATUS: AzString = AzString::from_const_str("__azdrive_add_sign_in_status");
 pub const ADD_SAVE: AzString = AzString::from_const_str("__azdrive_add_save");
 pub const ADD_CANCEL: AzString = AzString::from_const_str("__azdrive_add_cancel");
 pub const ADD_YEARLY: AzString = AzString::from_const_str("__azdrive_add_yearly");
