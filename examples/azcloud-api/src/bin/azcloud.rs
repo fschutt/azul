@@ -51,7 +51,7 @@ commands:
                                  CODE, shown once (--out writes it to a file only you can read)
   unlock                         the drive key from this device's own wrap in the bucket
   recover <code> | --code-file F | -   this device gets the drive key with the recovery code
-  rotate --yes [--out F]         "I was hacked": locks the drive down (every other device, key and
+  rotate --yes [--out F]         \"I was hacked\": locks the drive down (every other device, key and
                                  link), then a new drive key; the new RECOVERY CODE shows once
   reencrypt                      after rotate: every file into a new object (recommended)
   mail-drop [--cloudflare-account ID --cloudflare-token-file F] [--worker W]
