@@ -94,7 +94,8 @@ sheet of `--dialogs inline`:
        operator activates it through the mock's switch and the next daily look
        (AZDRIVE_PERIOD_CHECK_SECS) brings the drive; on a second AzDrive profile (its own drives
        file and keyring) "Pick up a paid drive with a claim code" takes the code as typed (lower
-       case, blanks) and the drive arrives there too.
+       case, blanks) and the drive arrives there too - as a device of its own: it claimed a token
+       family with the sealed sign-up's ticket (POST /v1/drives/<id>/claim), never the buyer's.
    15. A ban with a grace period (ban contract v1) on step 14's drive: the mock bans it for 48
        hours; the next look shows the banner with its hours, a paste into it and a new folder
        are refused with the reason (nothing reaches its bucket), "Copy everything to this
@@ -1053,6 +1054,8 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
         picker = open_dialog(second, "the source list",
                              lambda: second.click(selector="#" + I("side-add-drive")))
         picker.page("claim-code", lambda: picker.click("choice_claim"))
+        picker.win.until("the page says each computer gets its own key",
+                         lambda: picker.shows("gets a key of its own"))
         picker.type_into("claim_code", code.lower().replace("-", " "))
         picker.type_into("name", "Picked up", clear=len("Azlin Storage"))
         second.after("the code picked up", "AZDRIVE_PICKED_UP", re.escape(checkout),
@@ -1061,6 +1064,20 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
             "AZDRIVE_CLAIMED", r"%s \S+" % re.escape(checkout)))[-1]
         if claimed.split()[-1] != drive_id:
             raise Failure("the claim code brought %s, not %s" % (claimed, drive_id))
+        # Two devices, not one family: the second claimed its own with the drive's ticket.
+        def family_of(path):
+            text = keyring_entries(path).get("azul-storage/s3/" + drive_id) or "{}"
+            token = json.loads(text).get("drive_token") or ""
+            return token[3:].split(".")[0] if token.startswith("dt_") else ""
+        first_family = family_of(keyring_file)
+        second_family = second.until("the picked-up drive's session",
+                                     lambda: family_of(other_env["AZ_KEYRING_FILE"]))
+        if not first_family or first_family == second_family:
+            raise Failure("the buyer's computer and the one that picked the drive up share the "
+                          "token family %r" % first_family)
+        claims = (stack.token.state.drives[drive_id].get("claim") or {}).get("claims")
+        if claims != 1:
+            raise Failure("the mock counted %r pick-ups of %s, not 1" % (claims, drive_id))
         picker.click("cancel")
         wait_closed(second)
         second.after("the picked-up drive's bucket", "AZDRIVE_LISTED",
