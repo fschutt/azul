@@ -26,7 +26,7 @@ use azul_core::{
     hit_test::{FullHitTest, HitTest},
     window::{CursorPosition, VirtualKeyCode},
 };
-use azul_layout::managers::hover::InputPointId;
+use azul_layout::managers::{hover::InputPointId, webview::WebViewPointer};
 
 use super::{
     super::{super::common::debug_server::LogCategory, common::compose::ComposeAction},
@@ -678,6 +678,17 @@ impl X11Window {
         // Update hit test
         self.update_hit_test(position);
 
+        // A composited `<webview>` page under the pointer gets the press
+        // too (the window's own events for its node still run).
+        let _ = PlatformWindow::route_webview_pointer(
+            self,
+            position,
+            WebViewPointer::Button {
+                button,
+                pressed: is_down,
+            },
+        );
+
         // Check for right-click context menu (before event processing).
         // The pass below runs EITHER WAY: returning early here left
         // `right_down: true -> false` sitting in the un-consumed delta, so
@@ -797,6 +808,10 @@ impl X11Window {
 
         // Update hit test
         self.update_hit_test(position);
+
+        // A composited `<webview>` page under the pointer (or holding it
+        // since a press) follows it.
+        let _ = PlatformWindow::route_webview_pointer(self, position, WebViewPointer::Move);
 
         // Update cursor based on CSS cursor properties
         // This is done BEFORE callbacks so callbacks can override the cursor
@@ -926,6 +941,16 @@ impl X11Window {
         // Update hit test
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             self.update_hit_test(position);
+            // A composited `<webview>` page under the pointer scrolls itself
+            // (its delta: positive y scrolls the content up; X11's is the
+            // other way round).
+            let _ = PlatformWindow::route_webview_pointer(
+                self,
+                position,
+                WebViewPointer::Wheel {
+                    delta: LogicalPosition::new(-delta_x, -delta_y),
+                },
+            );
         } else {
             use crate::desktop::shell2::common::event::PlatformWindow;
             self.update_seat_hit_test_at(seat_id, position);
@@ -1019,6 +1044,36 @@ impl X11Window {
     /// Handle keyboard events (key press/release)
     pub fn handle_keyboard(&mut self, event: &mut XKeyEvent) -> ProcessEventResult {
         let is_down = event.type_ == KeyPress;
+
+        // A composited `<webview>` page with the keyboard focus takes the
+        // key as a keysym (no input method inside the page yet), and the
+        // window's own key handling does not see it.
+        let webview_focused = self.common.layout_window.as_ref().is_some_and(|lw| {
+            lw.webviews.is_composited()
+                && lw
+                    .focus_manager
+                    .get_focused_node()
+                    .is_some_and(|node| lw.webviews.view_at(*node).is_some())
+        });
+        if webview_focused {
+            let mut keysym: KeySym = 0;
+            let mut buffer = [0; 8];
+            unsafe {
+                (self.xlib.XLookupString)(
+                    event,
+                    buffer.as_mut_ptr(),
+                    buffer.len() as i32,
+                    &mut keysym,
+                    std::ptr::null_mut(),
+                );
+            }
+            self.update_modifiers_from_x11_state(event.state);
+            #[allow(clippy::cast_possible_truncation)]
+            let keysym = keysym as u32;
+            if PlatformWindow::route_webview_key(self, keysym, event.keycode, is_down) {
+                return ProcessEventResult::DoNothing;
+            }
+        }
 
         // Use IME for character translation. XmbLookupString can fire the
         // XIM preedit callbacks (e.g. when the IM updates the composition in

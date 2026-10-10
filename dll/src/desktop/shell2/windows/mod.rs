@@ -295,6 +295,10 @@ pub struct Win32Window {
     /// Tooltip window (for programmatic tooltip display)
     pub tooltip: Option<tooltip::TooltipWindow>,
 
+    /// The window's `<webview>`s (`webview::WebView2Views`), made at the
+    /// first one: an app without a web view never loads WebView2.
+    webviews: Option<webview::WebView2Views>,
+
     // Accessibility
     /// Windows accessibility adapter
     #[cfg(feature = "a11y")]
@@ -868,6 +872,7 @@ impl Win32Window {
             app_config: config.clone(),
             pending_window_creates: Vec::new(),
             tooltip: None, // Created lazily when first needed
+            webviews: None,
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::WindowsAccessibilityAdapter::new(),
         };
@@ -1575,6 +1580,12 @@ impl Win32Window {
                 self.request_redraw();
             }
 
+            // `<webview>`s where this frame put them (after its layout and
+            // its scroll): placements and queued ops to WebView2.
+            if crate::desktop::shell2::common::webview::sync(self) {
+                self.request_redraw();
+            }
+
             // CI testing
             if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
                 std::process::exit(0);
@@ -1810,6 +1821,12 @@ impl Win32Window {
                 .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
                 .unwrap_or(false);
             if needs_fade_frame {
+                self.request_redraw();
+            }
+
+            // `<webview>`s where this frame put them (after its layout and
+            // its scroll): placements and queued ops to WebView2.
+            if crate::desktop::shell2::common::webview::sync(self) {
                 self.request_redraw();
             }
 
@@ -7117,6 +7134,21 @@ impl Win32Window {
         }
     }
 
+    /// One turn of the window's `<webview>`s (`common::webview::pump`):
+    /// placements and ops to WebView2, its reports to the views' callbacks.
+    /// Only while a web view exists or is owed something.
+    pub(crate) fn pump_webviews_if_any(&mut self) {
+        let busy = self.common.layout_window.as_ref().is_some_and(|lw| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        });
+        if !busy {
+            return;
+        }
+        if PlatformWindow::pump_webviews(self) != azul_core::events::ProcessEventResult::DoNothing {
+            self.request_redraw();
+        }
+    }
+
     pub fn request_redraw(&mut self) {
         // Use per-rect damage when available (reduces compositor work)
         if !self.gpu_damage_rects.is_empty() {
@@ -7285,6 +7317,32 @@ impl Win32Window {
 // PlatformWindow Trait Implementation
 
 impl PlatformWindow for Win32Window {
+    /// Microsoft Edge WebView2 (`webview::WebView2Views`), made at the first
+    /// call.
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        let user32 = webview::User32 {
+            create_window_ex_w: self.win32.user32.CreateWindowExW,
+            destroy_window: self.win32.user32.DestroyWindow,
+            show_window: self.win32.user32.ShowWindow,
+            set_window_pos: self.win32.user32.SetWindowPos,
+        };
+        let (hwnd, instance) = (self.hwnd, self.hinstance);
+        let views = self
+            .webviews
+            .get_or_insert_with(|| webview::WebView2Views::new(hwnd, instance, user32, scale));
+        views.set_scale(scale);
+        Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
+
     /// Hand the drag to the window manager (`WM_NCLBUTTONDOWN` + `HTCAPTION`).
     ///
     /// Forwarder to the inherent implementation, which was unreachable for

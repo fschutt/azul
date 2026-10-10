@@ -24,52 +24,49 @@
 //!
 //! # Backends
 //!
-//! | platform | backend | state |
+//! | platform | backend | how |
 //! |---|---|---|
-//! | headless | [`HeadlessWebViews`]: the shared recorder, no browser | done |
-//! | macOS | `macos::webview` - `WKWebView`, `WebKit.framework` dlopen'd at the first view | done |
-//! | Linux (X11, Wayland) | WPE `WebKit` via dlopen (`linux::webview`), the loading layer | probe |
-//! | Windows | `WebView2` via `WebView2Loader.dll` (`windows::webview`) | probe |
-//! | iOS | `WKWebView` in a `UIView`, the macOS shape | none yet |
-//! | Android | `android.webkit.WebView` through JNI | none yet |
+//! | headless | [`HeadlessWebViews`] | the shared recorder, no browser |
+//! | macOS | `macos::webview` | `WKWebView` subviews, `WebKit.framework` dlopen'd |
+//! | iOS | `ios::webview` | the macOS shape with `UIKit` |
+//! | Linux (X11, Wayland) | `linux::webview` | WPE `WebKit` composited, on its own thread |
+//! | Windows | `windows::webview` | a `WebView2` controller on a clip child window |
+//! | Android | `android::webview` | `android.webkit.WebView` in a `PopupWindow`, via JNI |
 //!
-//! A platform without a backend never reaches this module: its windows say
-//! so through `WebViewPlatform` (the default `Absent`, or a `Probe` naming
-//! the missing library), and the engine alone fails the views - the view
-//! shows the reason and the app hears `WebViewLoadFailed`.
+//! A native view (macOS, iOS, Windows, Android) draws itself over the
+//! window: its placement is the visible part of its box (a clip view / clip
+//! window holding the page at its whole box), `transform` keeps a scaled
+//! page at its own size (Android also turns it). A composited one (Linux)
+//! is drawn by the window: its frames come back through [`pump`]
+//! (`poll_frames` -> `LayoutWindow::set_webview_frame`) and its input goes
+//! to it (`PlatformWindow::route_webview_pointer` / `route_webview_key`).
 //!
-//! # iOS and Android (design)
+//! A navigation request is answered after the app's callbacks ran: macOS
+//! and iOS hold `WebKit`'s decision handler, Linux holds the policy
+//! decision, Windows decides inside `NavigationStarting` itself
+//! ([`deliver_now`]), Android loads an allowed page only after the answer.
 //!
-//! - iOS: `macos::webview` with `UIKit` - a clip container `UIView`
-//!   (`clipsToBounds`) holding a `WKWebView`, subviews of the render view
-//!   (flipped like azul, no y conversion), the same navigation delegate,
-//!   stores and decision-handler rules. `WebKit` is a system framework there
-//!   too; it is loaded the same lazy way.
-//! - Android: an `android.webkit.WebView` through JNI, a child of the
-//!   activity's content `FrameLayout` positioned with layout params and
-//!   clipped by a wrapping `FrameLayout` (`setClipChildren`). A Java
-//!   `WebViewClient` subclass (`shouldOverrideUrlLoading`, `onPageFinished`,
-//!   `onReceivedError`) and `WebChromeClient.onReceivedTitle` post reports to
-//!   a native queue; `shouldOverrideUrlLoading` must answer synchronously,
-//!   so the shell dispatches the report inside it on the UI thread. No
-//!   `addJavascriptInterface` (no bridge), `setAllowFileAccess(false)`;
-//!   ephemeral = clear the per-app `CookieManager` / `WebStorage` when the
-//!   last ephemeral view goes (Android has one store per app process).
+//! A window without a backend says so through `WebViewPlatform` (the
+//! default `Absent`), and the engine alone fails the views - the view shows
+//! the reason and the app hears `WebViewLoadFailed`.
 //!
-//! Both: an OAuth provider that refuses embedded views (Google, Facebook)
-//! goes through the system auth session (`ASWebAuthenticationSession`,
-//! Custom Tabs) instead - a different API, not this node.
+//! An OAuth provider that refuses embedded views (Google, Facebook, Sign in
+//! with Apple on iOS) goes through the system's auth session
+//! (`ASWebAuthenticationSession`, Custom Tabs, the system browser with a
+//! loopback redirect) instead - a different API, not this node.
 
 use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     callbacks::{RelayoutReason, Update},
     events::ProcessEventResult,
+    resources::ImageRef,
     webview::WebViewConfig,
 };
 use azul_css::AzString;
 use azul_layout::managers::webview::{
-    WebViewId, WebViewOp, WebViewPlacement, WebViewRecorder, WebViewReport,
+    WebViewId, WebViewInput, WebViewOp, WebViewPlacement, WebViewRecorder, WebViewReport,
+    WebViewTransform,
 };
 
 use super::event::PlatformWindow;
@@ -92,6 +89,20 @@ pub trait WebViewBackend {
     fn create(&mut self, id: WebViewId, config: WebViewConfig, src: &str) -> Result<(), String>;
     /// Move, resize, clip, show or hide view `id` (window logical px).
     fn place(&mut self, id: WebViewId, placement: &WebViewPlacement);
+    /// How view `id`'s page maps into its placement changed (a CSS
+    /// transform above it): show the page at its own `size`, zoomed - or
+    /// turned, where the native view can turn. Not called for a view that
+    /// was never transformed. The default shows it untransformed at its
+    /// placement (a native view that cannot zoom).
+    fn transform(&mut self, id: WebViewId, transform: &WebViewTransform) {
+        let _ = (id, transform);
+    }
+    /// Input aimed at view `id`'s page - only for a backend whose window
+    /// composites its pages (`WebViewPlatform::Composited`); a native view
+    /// takes its input itself.
+    fn input(&mut self, id: WebViewId, input: &WebViewInput) {
+        let _ = (id, input);
+    }
     /// Load `url` in view `id`.
     fn navigate(&mut self, id: WebViewId, url: &str);
     /// Load view `id`'s page again.
@@ -105,6 +116,12 @@ pub trait WebViewBackend {
     fn destroy(&mut self, id: WebViewId);
     /// What the views reported since the last call, oldest first.
     fn poll_reports(&mut self) -> Vec<WebViewReport>;
+    /// The newest frame of each composited view since the last call, for
+    /// the window to draw (`LayoutWindow::set_webview_frame`). A native
+    /// view draws itself: none.
+    fn poll_frames(&mut self) -> Vec<(WebViewId, ImageRef)> {
+        Vec::new()
+    }
 
     /// Apply one engine op. `Err` only from [`Self::create`].
     fn apply(&mut self, op: &WebViewOp) -> Result<(), String> {
@@ -114,6 +131,8 @@ pub trait WebViewBackend {
             WebViewOp::Reload { id } => self.reload(*id),
             WebViewOp::GoBack { id } => self.go_back(*id),
             WebViewOp::Place { id, placement } => self.place(*id, placement),
+            WebViewOp::Transform { id, transform } => self.transform(*id, transform),
+            WebViewOp::Input { id, input } => self.input(*id, input),
             WebViewOp::Destroy { id } => self.destroy(*id),
         }
         Ok(())
@@ -149,6 +168,18 @@ impl WebViewBackend for HeadlessWebViews {
         self.recorder.apply(&WebViewOp::Place {
             id,
             placement: *placement,
+        });
+    }
+    fn transform(&mut self, id: WebViewId, transform: &WebViewTransform) {
+        self.recorder.apply(&WebViewOp::Transform {
+            id,
+            transform: *transform,
+        });
+    }
+    fn input(&mut self, id: WebViewId, input: &WebViewInput) {
+        self.recorder.apply(&WebViewOp::Input {
+            id,
+            input: input.clone(),
         });
     }
     fn navigate(&mut self, id: WebViewId, url: &str) {
@@ -243,6 +274,45 @@ pub fn pump<W: PlatformWindow + ?Sized>(window: &mut W) -> ProcessEventResult {
             result = result.max(deliver(window, &report));
         }
     }
+    // A composited backend's new frames, drawn by the window: what each
+    // costs is a content change's (a repaint; the first frame a display
+    // list), never a layout.
+    let frames = window
+        .webview_backend()
+        .map(|backend| backend.poll_frames())
+        .unwrap_or_default();
+    if !frames.is_empty() {
+        let tier = window.get_layout_window_mut().and_then(|lw| {
+            frames
+                .iter()
+                .map(|(id, frame)| lw.set_webview_frame(*id, frame))
+                .max()
+        });
+        result = result.max(window.content_change_result(tier));
+    }
+    if matches!(
+        result,
+        ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows
+            | ProcessEventResult::ShouldIncrementalRelayout
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain
+    ) {
+        window
+            .get_common_mut()
+            .request_regeneration(RelayoutReason::RefreshDom);
+    }
+    result
+}
+
+/// Dispatch `report` NOW - for a backend that must answer inside its own
+/// callback (`WebView2`'s `NavigationStarting`, whose arguments are valid
+/// only there) - and hand the answer to the backend's `decide_navigation`
+/// before returning. A DOM rebuild the callbacks asked for is requested.
+pub fn deliver_now<W: PlatformWindow + ?Sized>(
+    window: &mut W,
+    report: &WebViewReport,
+) -> ProcessEventResult {
+    let result = deliver(window, report);
     if matches!(
         result,
         ProcessEventResult::ShouldRegenerateDomCurrentWindow

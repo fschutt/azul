@@ -1,41 +1,29 @@
-//! The macOS `<webview>` backend: one `WKWebView` per view (WEBVIEW17).
+//! The iOS `<webview>` backend: one `WKWebView` per view - the macOS
+//! backend's shape (`macos::webview`) with `UIKit` instead of `AppKit`.
 //!
-//! `WebKit.framework` is dlopen'd at the FIRST view ([`webkit`]) and every
-//! class is looked up at runtime (`AnyClass::get`), the ScreenCaptureKit
-//! way (`extra/screencap/macos.rs`): an app without a `<webview>` never loads
-//! WebKit, and nothing links it.
+//! `WebKit.framework` is dlopen'd at the FIRST view and every class is
+//! looked up at runtime: an app without a `<webview>` never loads `WebKit`.
+//! Each view is a clip container `UIView` (`clipsToBounds`) at the visible
+//! part of the view's box holding the `WKWebView` at the box's full size;
+//! both are subviews of the render view (`AzulView`), whose coordinates are
+//! azul's own (top-left origin, points), so nothing is flipped.
 //!
-//! Each view is a clip container `NSView` - its frame the visible part of
-//! the web view's box, `masksToBounds` on - holding the `WKWebView` at the
-//! box's full size, so a view scrolled half out of its scroll box is cut
-//! exactly where azul cuts its own content. Both are subviews of the window's
-//! render view (`GLView` / `CPUView`, layer-backed, NOT flipped: y is
-//! converted here). The page takes its own mouse and keyboard input; a press
-//! back on azul's content takes the keyboard back
-//! (`MacOSWindow::reclaim_keyboard_from_webviews`).
+//! The navigation delegate turns `WebKit`'s callbacks into reports on a
+//! mailbox shared with the backend and asks the render view for a display
+//! pass (`setNeedsDisplay`); the pass pumps the web views first
+//! (`IOSWindow::pump_webviews_if_any`), so the views' callbacks run on the
+//! main thread outside any `WebKit` call. A navigation's decision handler is
+//! copied and called once the app's callbacks have run, exactly once (a
+//! view or a window going away cancels what is pending).
 //!
-//! The navigation delegate ([`NavigationDelegate`], `define_class!`; the
-//! `WKNavigationDelegate` protocol is attached once WebKit is loaded, as
-//! `SCStreamOutput` is) turns WebKit's callbacks into reports on a shared
-//! mailbox and wakes the run loop; the shell's pump (`common::webview`)
-//! dispatches them on its next turn (`MacOSWindow::drain_loop_work`). A
-//! navigation's decision handler is COPIED and called once the app's
-//! callbacks have run ([`WebViewBackend::decide_navigation`]) - WebKit allows
-//! that, and it is what lets a callback cancel the redirect that carries a
-//! sign-in code. Every copied handler is called exactly once: a view or a
-//! window going away cancels what is still pending (WebKit raises on a
-//! handler that is released uncalled).
+//! Policy before the app is asked, as on macOS: `file:` refused, sub-frames
+//! allowed, a new window loaded in this view. One `nonPersistentDataStore`
+//! per process for ephemeral views, `defaultDataStore` for persistent ones;
+//! no script message handler (no bridge).
 //!
-//! Policy before the app is asked: a `file:` page is refused; a sub-frame's
-//! navigation is allowed (the app decides about the page, not its iframes);
-//! a link that targets a new window (`target=_blank`, `window.open` - some
-//! sign-in pages use one) loads in this view instead. A server redirect is
-//! told from a fresh navigation by a provisional navigation being under way
-//! (`WKNavigationAction` has no public `isRedirect`). The store is ONE
-//! `nonPersistentDataStore` per process for ephemeral views (in memory, the
-//! app's alone) and `defaultDataStore` (the app's own, on disk) for
-//! persistent ones. No script message handler is installed: there is no
-//! bridge between the page and the app.
+//! An OAuth provider that refuses embedded views (Google, Facebook, Sign in
+//! with Apple) needs `ASWebAuthenticationSession`, a different API: this
+//! node is for the providers that allow a web view.
 
 use std::{
     cell::{Cell, RefCell},
@@ -55,13 +43,13 @@ use objc2::{
     define_class, msg_send,
     rc::Retained,
     runtime::{AnyClass, AnyObject, AnyProtocol, Bool},
-    sel, AllocAnyThread, ClassType, DefinedClass,
+    AllocAnyThread, ClassType, DefinedClass,
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 
 use crate::desktop::shell2::common::webview::WebViewBackend;
 
-/// Where WebKit lives on every macOS since 10.10.
+/// Where `WebKit` lives on iOS.
 const WEBKIT_PATH: &str = "/System/Library/Frameworks/WebKit.framework/WebKit";
 /// `WKNavigationActionPolicyCancel`.
 const POLICY_CANCEL: isize = 0;
@@ -72,18 +60,14 @@ const POLICY_ALLOW: isize = 1;
 const NAVIGATION_TYPE_OTHER: isize = -1;
 /// `NSKeyValueObservingOptionNew`.
 const KVO_OPTION_NEW: usize = 1;
-/// The page title, observed by key-value observing (a script can change it
-/// at any time, not only on a load).
+/// The page title, observed by key-value observing.
 const TITLE_KEY: &str = "title";
 
 /// `WebKit.framework`, loaded once - at the first web view of the process.
 fn webkit() -> Option<&'static libloading::Library> {
     static LIB: OnceLock<Option<libloading::Library>> = OnceLock::new();
     LIB.get_or_init(|| match unsafe { libloading::Library::new(WEBKIT_PATH) } {
-        Ok(lib) => {
-            crate::plog_info!("[webview] WebKit.framework loaded");
-            Some(lib)
-        }
+        Ok(lib) => Some(lib),
         Err(e) => {
             crate::plog_warn!("[webview] WebKit.framework could not be loaded: {e}");
             None
@@ -118,7 +102,7 @@ unsafe fn url_string(url: *mut AnyObject) -> String {
     unsafe { ns_string(absolute) }.unwrap_or_default()
 }
 
-/// The page `web_view` is on (`-[WKWebView URL]`); empty before any.
+/// The page `web_view` is on; empty before any.
 unsafe fn current_url(web_view: *mut AnyObject) -> String {
     if web_view.is_null() {
         return String::new();
@@ -134,27 +118,24 @@ fn is_file_url(url: &str) -> bool {
 }
 
 /// What the delegates of one window share with its backend.
-#[derive(Default)]
 struct Mailbox {
-    /// Reports not taken yet (`poll_reports`).
     reports: Vec<WebViewReport>,
-    /// Copied decision handlers waiting for the app's answer, by request
-    /// handle, with the view they are for.
+    /// Copied decision handlers waiting for the app's answer, by handle.
     decisions: BTreeMap<u64, (WebViewId, RcBlock<dyn Fn(isize)>)>,
-    /// The last request handle handed out; handles start at 1.
     last_request: u64,
+    /// The render view: a report asks it for a display pass, which pumps
+    /// the web views. Not retained (the window owns it, and the backend).
+    wake_view: *mut AnyObject,
 }
 
 impl Mailbox {
-    fn report(&mut self, id: WebViewId, event: WebViewEvent) {
-        self.reports.push(WebViewReport {
-            id,
-            request: 0,
-            event,
-        });
+    fn report(&mut self, id: WebViewId, request: u64, event: WebViewEvent) {
+        self.reports.push(WebViewReport { id, request, event });
+        if !self.wake_view.is_null() {
+            let _: () = unsafe { msg_send![self.wake_view, setNeedsDisplay] };
+        }
     }
 
-    /// Take every pending decision of view `id` (or of every view).
     fn take_decisions_of(&mut self, id: Option<WebViewId>) -> Vec<RcBlock<dyn Fn(isize)>> {
         let requests: Vec<u64> = self
             .decisions
@@ -171,26 +152,18 @@ impl Mailbox {
 
 type SharedMailbox = Rc<RefCell<Mailbox>>;
 
-/// What WebKit's policy question gets.
 enum Policy {
-    /// Answered here, without the app.
     Now(isize),
-    /// The app decides: a main-frame navigation to `url`.
     AskTheApp { url: String, is_redirect: bool },
 }
 
-/// Ivars of [`NavigationDelegate`]: the view it reports for, and where.
 struct DelegateIvars {
     id: WebViewId,
     mailbox: SharedMailbox,
-    /// A provisional navigation is under way: a policy question now is a
-    /// server redirect of it.
     provisional: Cell<bool>,
 }
 
 define_class!(
-    // No `thread_kind`: created like the other runtime delegates
-    // (`AllocAnyThread`); WebKit calls it on the main thread.
     #[unsafe(super(NSObject))]
     #[name = "AzulWebViewNavigationDelegate"]
     #[ivars = DelegateIvars]
@@ -199,8 +172,6 @@ define_class!(
     unsafe impl NSObjectProtocol for NavigationDelegate {}
 
     impl NavigationDelegate {
-        /// `-[WKNavigationDelegate webView:decidePolicyForNavigationAction:
-        /// decisionHandler:]`.
         #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
         unsafe fn decide_policy(
             &self,
@@ -215,21 +186,18 @@ define_class!(
                 Policy::Now(policy) => handler.call((policy,)),
                 Policy::AskTheApp { url, is_redirect } => {
                     let ivars = self.ivars();
-                    {
-                        let mut mailbox = ivars.mailbox.borrow_mut();
-                        mailbox.last_request += 1;
-                        let request = mailbox.last_request;
-                        mailbox.decisions.insert(request, (ivars.id, handler.copy()));
-                        mailbox.reports.push(WebViewReport {
-                            id: ivars.id,
-                            request,
-                            event: WebViewEvent::NavigationRequested(WebViewNavigation {
-                                url: AzString::from(url),
-                                is_redirect,
-                            }),
-                        });
-                    }
-                    crate::desktop::loop_waker::wake();
+                    let mut mailbox = ivars.mailbox.borrow_mut();
+                    mailbox.last_request += 1;
+                    let request = mailbox.last_request;
+                    mailbox.decisions.insert(request, (ivars.id, handler.copy()));
+                    mailbox.report(
+                        ivars.id,
+                        request,
+                        WebViewEvent::NavigationRequested(WebViewNavigation {
+                            url: AzString::from(url),
+                            is_redirect,
+                        }),
+                    );
                 }
             }
         }
@@ -289,7 +257,6 @@ define_class!(
             }));
         }
 
-        /// Key-value observing of the page title.
         #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
         unsafe fn observe_value(
             &self,
@@ -318,30 +285,23 @@ impl NavigationDelegate {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// Attach the (runtime-only) `WKNavigationDelegate` protocol to the
-    /// class, for WebKit's `conformsToProtocol:` checks. Once, after WebKit
-    /// is loaded.
+    /// Attach the runtime-only `WKNavigationDelegate` protocol, once, after
+    /// `WebKit` is loaded.
     fn attach_protocol() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| unsafe {
             if let Some(protocol) = AnyProtocol::get(c"WKNavigationDelegate") {
                 let cls = Self::class();
-                objc2::ffi::class_addProtocol(
-                    cls as *const AnyClass as *mut AnyClass,
-                    protocol,
-                );
+                objc2::ffi::class_addProtocol(cls as *const AnyClass as *mut AnyClass, protocol);
             }
         });
     }
 
-    /// Report `event` for this delegate's view and wake the run loop.
     fn report(&self, event: WebViewEvent) {
         let ivars = self.ivars();
-        ivars.mailbox.borrow_mut().report(ivars.id, event);
-        crate::desktop::loop_waker::wake();
+        ivars.mailbox.borrow_mut().report(ivars.id, 0, event);
     }
 
-    /// WebKit's policy question, answered here or handed to the app.
     unsafe fn policy_for(&self, web_view: *mut AnyObject, action: *mut AnyObject) -> Policy {
         if action.is_null() {
             return Policy::Now(POLICY_CANCEL);
@@ -358,8 +318,7 @@ impl NavigationDelegate {
         }
         let frame: *mut AnyObject = unsafe { msg_send![action, targetFrame] };
         if frame.is_null() {
-            // A new window (`target=_blank`, `window.open`): this view loads
-            // it instead, and is asked about it like any navigation.
+            // A new window: this view loads it instead.
             if !web_view.is_null() && !request.is_null() {
                 let _: *mut AnyObject = unsafe { msg_send![web_view, loadRequest: request] };
             }
@@ -376,9 +335,6 @@ impl NavigationDelegate {
         }
     }
 
-    /// A load failed - unless it was a navigation somebody cancelled (the
-    /// app's `prevent_default`, a policy answer), which WebKit also ends
-    /// with an error.
     unsafe fn failed(&self, web_view: *mut AnyObject, error: *mut AnyObject) {
         self.ivars().provisional.set(false);
         if error.is_null() {
@@ -394,8 +350,8 @@ impl NavigationDelegate {
             return;
         }
         let description: *mut AnyObject = unsafe { msg_send![error, localizedDescription] };
-        let reason = unsafe { ns_string(description) }
-            .unwrap_or_else(|| format!("{domain} error {code}"));
+        let reason =
+            unsafe { ns_string(description) }.unwrap_or_else(|| format!("{domain} error {code}"));
         let url = unsafe { current_url(web_view) };
         self.report(WebViewEvent::LoadFailed(WebViewLoadError {
             url: AzString::from(url),
@@ -405,12 +361,10 @@ impl NavigationDelegate {
 }
 
 thread_local! {
-    /// The process's ephemeral store: one for every ephemeral view, so a
-    /// sign-in's cookies are shared by the app's views and gone at exit.
+    /// The process's ephemeral store, shared by every ephemeral view.
     static EPHEMERAL_STORE: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
 }
 
-/// The `WKWebsiteDataStore` for `storage` (nil if it cannot be made).
 unsafe fn data_store(store_cls: &AnyClass, storage: WebViewStorage) -> *mut AnyObject {
     match storage {
         WebViewStorage::Persistent => unsafe { msg_send![store_cls, defaultDataStore] },
@@ -426,19 +380,13 @@ unsafe fn data_store(store_cls: &AnyClass, storage: WebViewStorage) -> *mut AnyO
     }
 }
 
-/// One native view.
-struct MacWebView {
-    /// The clip container (frame = the visible part of the box).
+struct IosWebView {
     container: Retained<AnyObject>,
-    /// The `WKWebView` (frame = the whole box, in the container).
     web_view: Retained<AnyObject>,
-    /// Its navigation delegate - WebKit holds it weakly.
     delegate: Retained<NavigationDelegate>,
 }
 
-impl MacWebView {
-    /// Unhook it: no more title observation or delegate calls, the load
-    /// stopped, both views out of the window.
+impl IosWebView {
     unsafe fn tear_down(&self) {
         let key = NSString::from_str(TITLE_KEY);
         let nil: *mut AnyObject = core::ptr::null_mut();
@@ -455,32 +403,29 @@ impl MacWebView {
     }
 }
 
-/// The web views of one macOS window (see the module docs).
-pub struct MacWebViews {
-    /// The window's render view: the views' superview.
+/// The web views of the iOS window (see the module docs).
+pub struct IosWebViews {
     parent: Retained<AnyObject>,
-    views: BTreeMap<WebViewId, MacWebView>,
+    views: BTreeMap<WebViewId, IosWebView>,
     mailbox: SharedMailbox,
 }
 
-impl MacWebViews {
-    /// The backend of the window whose render view is `parent`. Loads
-    /// nothing: WebKit is loaded by the first `create`.
+impl IosWebViews {
+    /// The backend of the window whose render view is `parent`.
     pub fn new(parent: Retained<AnyObject>) -> Self {
+        let wake_view = Retained::as_ptr(&parent) as *mut AnyObject;
         Self {
             parent,
             views: BTreeMap::new(),
-            mailbox: Rc::new(RefCell::new(Mailbox::default())),
+            mailbox: Rc::new(RefCell::new(Mailbox {
+                reports: Vec::new(),
+                decisions: BTreeMap::new(),
+                last_request: 0,
+                wake_view,
+            })),
         }
     }
 
-    /// Whether no native view exists.
-    pub fn is_empty(&self) -> bool {
-        self.views.is_empty()
-    }
-
-    /// Cancel every decision still pending for `id` (or for every view):
-    /// WebKit raises on a decision handler released uncalled.
     fn cancel_pending(&self, id: Option<WebViewId>) {
         let pending = self.mailbox.borrow_mut().take_decisions_of(id);
         for handler in pending {
@@ -489,21 +434,18 @@ impl MacWebViews {
     }
 }
 
-impl WebViewBackend for MacWebViews {
+impl WebViewBackend for IosWebViews {
     fn create(&mut self, id: WebViewId, config: WebViewConfig, src: &str) -> Result<(), String> {
         if webkit().is_none() {
-            return Err(String::from(
-                "WebKit.framework could not be loaded \
-                 (/System/Library/Frameworks/WebKit.framework)",
-            ));
+            return Err(String::from("WebKit.framework could not be loaded"));
         }
         let (Some(web_view_cls), Some(config_cls), Some(store_cls), Some(view_cls)) = (
             class("WKWebView"),
             class("WKWebViewConfiguration"),
             class("WKWebsiteDataStore"),
-            class("NSView"),
+            class("UIView"),
         ) else {
-            return Err(String::from("WebKit has no WKWebView here (it needs macOS 10.10)"));
+            return Err(String::from("WebKit has no WKWebView here"));
         };
         NavigationDelegate::attach_protocol();
         let zero = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0));
@@ -528,16 +470,7 @@ impl WebViewBackend for MacWebViews {
                 return Err(String::from("the web view's container could not be created"));
             };
             // Cut the web view to the container: the visible part of its box.
-            let _: () = msg_send![&*container, setWantsLayer: Bool::YES];
-            let layer: *mut AnyObject = msg_send![&*container, layer];
-            if !layer.is_null() {
-                let _: () = msg_send![layer, setMasksToBounds: Bool::YES];
-            }
-            let clips: Bool = msg_send![&*container, respondsToSelector: sel!(setClipsToBounds:)];
-            if clips.as_bool() {
-                let _: () = msg_send![&*container, setClipsToBounds: Bool::YES];
-            }
-            // Hidden until the engine places it.
+            let _: () = msg_send![&*container, setClipsToBounds: Bool::YES];
             let _: () = msg_send![&*container, setHidden: Bool::YES];
 
             let delegate = NavigationDelegate::create(id, Rc::clone(&self.mailbox));
@@ -553,7 +486,7 @@ impl WebViewBackend for MacWebViews {
             ];
             let _: () = msg_send![&*container, addSubview: &*web_view];
             let _: () = msg_send![&*self.parent, addSubview: &*container];
-            MacWebView {
+            IosWebView {
                 container,
                 web_view,
                 delegate,
@@ -575,22 +508,16 @@ impl WebViewBackend for MacWebViews {
                 let _: () = msg_send![&*view.container, setHidden: Bool::YES];
                 return;
             }
-            // The render view is not flipped: its origin is bottom-left.
-            let bounds: NSRect = msg_send![&*self.parent, bounds];
+            // UIKit's coordinates are azul's: top-left origin, points.
             let (clip, rect) = (placement.clip, placement.rect);
             let container_frame = NSRect::new(
-                NSPoint::new(
-                    f64::from(clip.origin.x),
-                    bounds.size.height - f64::from(clip.origin.y + clip.size.height),
-                ),
+                NSPoint::new(f64::from(clip.origin.x), f64::from(clip.origin.y)),
                 NSSize::new(f64::from(clip.size.width), f64::from(clip.size.height)),
             );
             let web_view_frame = NSRect::new(
                 NSPoint::new(
                     f64::from(rect.origin.x - clip.origin.x),
-                    f64::from(
-                        (clip.origin.y + clip.size.height) - (rect.origin.y + rect.size.height),
-                    ),
+                    f64::from(rect.origin.y - clip.origin.y),
                 ),
                 NSSize::new(f64::from(rect.size.width), f64::from(rect.size.height)),
             );
@@ -600,11 +527,8 @@ impl WebViewBackend for MacWebViews {
         }
     }
 
-    /// A transformed page: the web view already fills the transformed box's
-    /// bounds (`place`), so the page is zoomed to keep its own size inside
-    /// it (`pageZoom`, macOS 11+) - by the smaller of the two scales when
-    /// they differ. An `NSView` subview does not turn: a turned page shows
-    /// upright in its bounds.
+    /// A scaled page keeps its own size in the scaled box (`pageZoom`,
+    /// iOS 14+); a turn shows upright in its bounds.
     fn transform(&mut self, id: WebViewId, transform: &WebViewTransform) {
         let Some(view) = self.views.get(&id) else {
             return;
@@ -615,7 +539,8 @@ impl WebViewBackend for MacWebViews {
             return;
         }
         unsafe {
-            let zooms: Bool = msg_send![&*view.web_view, respondsToSelector: sel!(setPageZoom:)];
+            let zooms: Bool =
+                msg_send![&*view.web_view, respondsToSelector: objc2::sel!(setPageZoom:)];
             if zooms.as_bool() {
                 let _: () = msg_send![&*view.web_view, setPageZoom: zoom];
             }
@@ -643,6 +568,7 @@ impl WebViewBackend for MacWebViews {
         if !loaded {
             self.mailbox.borrow_mut().report(
                 id,
+                0,
                 WebViewEvent::LoadFailed(WebViewLoadError {
                     url: AzString::from(url),
                     reason: AzString::from("not a URL a web view can load"),
@@ -684,7 +610,7 @@ impl WebViewBackend for MacWebViews {
     }
 }
 
-impl Drop for MacWebViews {
+impl Drop for IosWebViews {
     fn drop(&mut self) {
         self.cancel_pending(None);
         for view in self.views.values() {
