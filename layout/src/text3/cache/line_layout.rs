@@ -1584,10 +1584,21 @@ pub fn position_one_line<T: ParsedFontTrait>(
             segment_items
         };
 
-        // Recalculate width in case kashida changed the item list
+        // Recalculate width in case kashida changed the item list. The width
+        // the line is positioned at: each cluster's advance AND the letter- /
+        // word-spacing `position_one_line` adds after it (an outside marker
+        // advances nothing), the width the line breaker and the max-content
+        // scan measured (`get_item_measure_with_spacing`). With the bare
+        // advances, `text-align: center` put a letter-spaced line half its
+        // spacing right of centre (`right`: all of it, past the box's edge).
         let final_segment_width: f32 = justified_segment_items
             .iter()
-            .map(|item| get_item_measure(item, is_vertical))
+            .map(|item| match item {
+                ShapedItem::Cluster(c) if c.marker_position_outside == Some(true) => {
+                    get_item_measure(item, is_vertical)
+                }
+                _ => get_item_measure_with_spacing(item, is_vertical),
+            })
             .sum();
 
         // +spec:line-breaking:155a96 - pre-wrap hanging spaces: unconditionally hang without forced

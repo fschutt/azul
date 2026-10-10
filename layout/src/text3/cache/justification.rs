@@ -340,7 +340,8 @@ pub(super) fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: boo
             ShapedItem::Cluster(c) if c.marker_position_outside.is_some()
         );
         if is_collapsible_whitespace(item) && !is_marker {
-            trailing_ws += get_item_measure(item, is_vertical);
+            // with its spacing: the line's width it is taken from counts it
+            trailing_ws += get_item_measure_with_spacing(item, is_vertical);
         } else {
             break;
         }

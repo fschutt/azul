@@ -89,6 +89,8 @@ enum TextTarget {
     CardName,
     /// A form's field.
     Field(&'static str),
+    /// "I have a voucher"'s code.
+    VoucherCode,
 }
 
 /// The app, for a callback that builds its event from what it is given (a choice's index, the
@@ -245,6 +247,7 @@ pub(crate) fn dialog(d: &AddDialog, development: bool, app: &RefAny) -> (String,
         AddPage::Choose => (String::from("Add a drive"), choose(app)),
         AddPage::Buy => (String::from("Buy storage"), buy(d, development, app)),
         AddPage::Sources => (String::from("Connect a data source"), sources(app)),
+        AddPage::Voucher => (String::from("Redeem a voucher"), voucher(d, app)),
         AddPage::Form => {
             let title = match (&d.editing, d.spec()) {
                 (Some(_), _) => format!("Enter the keys of \"{}\" again", d.name),
@@ -483,7 +486,61 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         ));
     }
     children.push(buttons(row));
+    // A voucher is never a pill: a line of its own (azul-pay's pills).
+    if !d.paying() {
+        children.push(buttons(vec![button(
+            app,
+            "I have a voucher",
+            ButtonType::Default,
+            AddEvent::VoucherPage,
+            ids::ADD_VOUCHER,
+            d.busy().then_some("Wait for the step that runs."),
+        )]));
+    }
     column(children).with_id(ids::ADD_BUY)
+}
+
+/// "I have a voucher": its code, then the new drive it buys - the voucher's months (or its
+/// value) of the tier it names, else of the tier chosen; named as Buy storage's name says.
+fn voucher(d: &AddDialog, app: &RefAny) -> Dom {
+    let mut children = vec![
+        back(app),
+        note(
+            "A voucher buys a new drive: its months, or its value, of the tier it names (else of \
+             the tier chosen in Buy storage).",
+        ),
+        label("The voucher's code"),
+        text_field(
+            app,
+            &d.voucher_code,
+            "AZ-XXXX-XXXX",
+            false,
+            TextTarget::VoucherCode,
+        )
+        .with_id(ids::ADD_VOUCHER_CODE),
+    ];
+    if !d.notice.is_empty() {
+        children.push(line(&d.notice).with_id(ids::ADD_STATUS));
+    }
+    children.push(buttons(vec![
+        button(
+            app,
+            "Cancel",
+            ButtonType::Default,
+            AddEvent::Cancel,
+            ids::ADD_CANCEL,
+            None,
+        ),
+        button(
+            app,
+            "Redeem",
+            ButtonType::Primary,
+            AddEvent::RedeemVoucher,
+            ids::ADD_VOUCHER_REDEEM,
+            d.busy().then_some("Wait for the step that runs."),
+        ),
+    ]));
+    column(children)
 }
 
 // ==== Buy storage's payment ====
@@ -1166,6 +1223,10 @@ extern "C" fn on_text(
                 redraw = true;
             }
             TextTarget::Field(key) => d.set_value(key, &text),
+            TextTarget::VoucherCode => {
+                d.voucher_code = text;
+                d.notice.clear();
+            }
         }
     }
     OnTextInputReturn {

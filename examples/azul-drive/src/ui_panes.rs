@@ -279,6 +279,10 @@ extern "C" fn on_crumb_drop(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// "3 of 12 selected (1.5 MB), 45.3 GB available".
 pub(crate) fn status_text(s: &DriveState) -> String {
     let mut parts = Vec::new();
+    // The drive in view's storage problem first, in the table's words with its error ID.
+    if let Some(problem) = crate::problems::status_of(s) {
+        parts.push(problem);
+    }
     if let Some(find) = &s.find {
         // The search's own line: "Searching... 1,234 found", then the count; the refine.
         parts.push(find.status_text());

@@ -425,12 +425,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                           "At least one of the pre-conditions you specified did not hold",
                           Condition="If-Match")
 
-    def fail(self, error, resource):
+    def fail(self, error, resource, headers=None):
         body = b"" if self.command == "HEAD" else error.body(resource, self.request_id)
         self.respond(
             error.status,
             body,
-            {"Content-Type": "application/xml", "Content-Length": len(body)},
+            dict({"Content-Type": "application/xml", "Content-Length": len(body)},
+                 **(headers or {})),
         )
 
     # -- authentication -----------------------------------------------------------------------
@@ -505,6 +506,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise S3Error(400, "InvalidRequest", "Missing required header for this request: "
                                                      "x-amz-content-sha256")
             self.authenticate(raw_path, query_pairs, payload_hash or EMPTY_SHA256)
+            fault = self.server.fault_of(bucket)
+            if fault is not None:
+                status, code, message, headers = fault
+                record["op"] = "Fault"
+                self.fail(S3Error(status, code, message), resource, headers)
+                return
             if payload_hash and payload_hash.startswith("STREAMING-"):
                 raise S3Error(501, "NotImplemented", "streaming (chunked) uploads are not supported")
             if payload_hash and payload_hash != UNSIGNED_PAYLOAD and payload_hash != sha256_hex(body):
@@ -521,6 +528,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.status = 499
         finally:
             record["status"] = self.status
+            record["request_id"] = self.request_id
             self.server.record(record)
 
     def dispatch(self, bucket, key, query, body):
@@ -693,6 +701,23 @@ class Server(http.server.ThreadingHTTPServer):
         self._log = []
         self._lock = threading.Lock()
         self._thread = None
+        # Buckets answering an error to every request (an E2E's switch): bucket -> (status,
+        # code, message, extra headers).
+        self._faults = {}
+
+    def fail_bucket(self, bucket, status, code, message, headers=None):
+        """Every request to `bucket` answers this S3 error (with `headers`, e.g. an Azlin
+        node's `x-azlin-error` and `Retry-After`) until `clear_faults`."""
+        with self._lock:
+            self._faults[bucket] = (status, code, message, dict(headers or {}))
+
+    def clear_faults(self):
+        with self._lock:
+            self._faults.clear()
+
+    def fault_of(self, bucket):
+        with self._lock:
+            return self._faults.get(bucket)
 
     @property
     def url(self):

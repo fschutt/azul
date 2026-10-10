@@ -49,6 +49,10 @@ zeroize = { version = "1.8", features = ["alloc"] }
 # crates: AzMail's rsa 0.9 (+pem) and the num-bigint-dig it is built on (Cargo.lock has both).
 rsa = { version = "0.9", features = ["pem"] }
 num-bigint-dig = { version = "0.8", default-features = false }
+# A drive's recovery key at the token server (recovery.rs): Ed25519 from the recovery code, what
+# signs a lockdown without a drive token. No new crate: AzMeet's and AzCalendar's version and
+# features (Cargo.lock has 2.2.0).
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize", "fast"] }
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).

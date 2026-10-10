@@ -381,7 +381,10 @@ def run(args, logs):
     # The headless keyring in a file of this run: it outlives AzDrive's restart (step 6). The
     # payer pays from Germany whatever this machine's locale is (the pills of steps 7 - 11).
     keyring_file = os.path.join(logs, "keyring.json")
-    env = {"AZ_KEYRING_FILE": keyring_file, "AZLIN_COUNTRY": "DE"}
+    # The daily look at the drives' periods every 3 s (step 6c); English texts whatever the
+    # computer's locale (step 6d reads them).
+    env = {"AZ_KEYRING_FILE": keyring_file, "AZLIN_COUNTRY": "DE",
+           "AZDRIVE_PERIOD_CHECK_SECS": "3", "LC_ALL": "en_US.UTF-8"}
     app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout, extra_env=env)
     try:
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
@@ -604,6 +607,92 @@ def run(args, logs):
         log("6b. Buy -> Stop waiting -> AzDrive closed -> paid -> AzDrive started: %s arrived at "
             "the start under the name typed, its session in the keyring, its period tokens "
             "kept, its checkout off the keyring's list, its bucket listed" % paid)
+
+        # 6c. While AzDrive runs, its daily look at the periods (every few seconds in this run:
+        # AZDRIVE_PERIOD_CHECK_SECS) finds the drive's period nearly over and buys a month.
+        stack.token.state.drives[paid]["period_until"] = int(time.time()) + 2 * 86400
+        app.until("the period token redeemed by the daily look", lambda: app.printed(
+            "AZDRIVE_PERIOD_REDEEMED", r"%s 1 \S+" % re.escape(paid)))
+        check_period_tokens(stack, drives_file, second, paid, redeemed=1)
+        if stack.token.state.drives[paid]["period_until"] < int(time.time()) + 29 * 86400:
+            raise Failure("the daily look's redemption did not reach the mock")
+        log("6c. AzDrive running, the period of %s nearly over at the token server: the next "
+            "look bought it a month with its kept token" % paid)
+
+        # 6d. The drive's node answers "read-only, unpaid" (x-azlin-error): AzDrive says it in
+        # the table's words with the request ID as the error ID, and notifies once.
+        bucket = stack.token.state.drives[paid]["bucket"]
+        stack.s3.fail_bucket(bucket, 403, "AccessDenied", "the drive takes no writes",
+                             {"x-azlin-error": "read_only_unpaid"})
+        problem = app.after("the refused listing", "AZDRIVE_PROBLEM",
+                            r"%s read_only_unpaid \S+" % re.escape(paid), lambda: app.key("f5"))
+        refused = [r for r in stack.s3.requests() if r.get("bucket") == bucket][-1]
+        if problem.split()[-1] != refused.get("request_id"):
+            raise Failure("the error ID %r is not the node's request ID %r"
+                          % (problem.split()[-1], refused.get("request_id")))
+        app.until("the table's text with the error ID", lambda: app.shows(
+            "Your last payment didn't go through") and app.shows(
+            "Error ID: %s" % refused.get("request_id")))
+        try:
+            answer = app.op("assert_notification", title="AzDrive")
+            if isinstance(answer, dict) and answer.get("status") == "error":
+                log("WARN assert_notification: %s" % json.dumps(answer)[:200])
+        except (OSError, ValueError) as e:
+            log("WARN assert_notification unavailable: %s" % e)
+        stack.s3.clear_faults()
+        app.after("the drive answering again", "AZDRIVE_PROBLEM_GONE", re.escape(paid),
+                  lambda: app.key("f5"))
+        log("6d. The node refused %s as unpaid (x-azlin-error read_only_unpaid): the table's "
+            "text with error ID %s; after it answered again the problem left the status line"
+            % (paid, refused.get("request_id")))
+
+        # 6e. A pending recovery-key lockdown (made elsewhere, with the recovery code): this
+        # device of the owner shows it with Cancel at its next look, and cancels it.
+        stack.token.state.drives[paid]["lockdown_pending_until"] = int(time.time()) + 2 * 86400
+        app.until("the pending lockdown seen", lambda: app.printed(
+            "AZDRIVE_LOCKDOWN_PENDING", r"%s \S+" % re.escape(paid)))
+        app.until("its bar", lambda: app.has("#__azdrive_lockdown_bar"))
+        if not app.shows("lockdown with the recovery code is pending"):
+            raise Failure("the pending lockdown's bar does not say what it is")
+        app.after("the lockdown cancelled", "AZDRIVE_LOCKDOWN_CANCELLED", re.escape(paid),
+                  lambda: app.click(selector="#__azdrive_lockdown_cancel"))
+        if stack.token.state.drives[paid].get("lockdown_pending_until"):
+            raise Failure("the mock still has the lockdown pending")
+        app.until("the bar gone", lambda: not app.has("#__azdrive_lockdown_bar"))
+        log("6e. A recovery-key lockdown of %s pending at the token server: AzDrive's next look "
+            "showed it with Cancel, and Cancel called it off" % paid)
+
+        # 6f. Vouchers: one buys a new drive in Add drive > Buy storage ("I have a voucher"),
+        # one adds days to a drive in Options > Drives.
+        stack.token.state.add_voucher("AZ-E2E-NEW", months=1)
+        dialog = open_dialog(app, "the source list",
+                             lambda: app.click(selector="#" + I("side-add-drive")))
+        app.after("the tiers", "AZDRIVE_TIERS", r"\d+",
+                  lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+        dialog.page("voucher", lambda: dialog.click("voucher"))
+        dialog.type_into("voucher_code", "AZ-E2E-NEW")
+        gift = app.after("the voucher's drive", "AZDRIVE_VOUCHER", r"new d_\S+",
+                         lambda: dialog.click("voucher_redeem")).split()[1]
+        app.until("its row in CLOUD", lambda: app.has(side_drive(gift)))
+        wait_closed(app)
+        if gift not in stack.token.state.drives or "AZ-E2E-NEW" in stack.token.state.vouchers:
+            raise Failure("the voucher made no drive at the mock")
+        stack.token.state.add_voucher("AZ-E2E-DAYS", months=2)
+        before = stack.token.state.drives[paid]["period_until"]
+        app.tab("View")
+        app.ribbon("Options")
+        app.click(text="Drives")
+        app.click(selector="#__azdrive_voucher_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid).lower())
+        popup = e2e.modal_window(app)
+        popup.until("the voucher field", lambda: popup.has("#__azdrive_voucher_code"))
+        popup.text_input("#__azdrive_voucher_code", "AZ-E2E-DAYS")
+        days = app.after("the voucher's days", "AZDRIVE_VOUCHER", r"%s \d+" % re.escape(paid),
+                         lambda: popup.click(selector="#__azdrive_voucher_redeem")).split()[-1]
+        if int(days) != 60 or stack.token.state.drives[paid]["period_until"] <= before:
+            raise Failure("the voucher added %s days; the mock's period %s -> %s"
+                          % (days, before, stack.token.state.drives[paid]["period_until"]))
+        log("6f. Vouchers: AZ-E2E-NEW bought %s in Add drive, AZ-E2E-DAYS added %s days to %s "
+            "in Options > Drives" % (gift, days, paid))
 
         # 7. A card payment in the popover: Fake Stripe's fields in the web view.
         stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))

@@ -273,6 +273,11 @@ pub struct ServiceError {
     pub region: Option<String>,
     /// `PermanentRedirect`: the endpoint to use instead.
     pub endpoint: Option<String>,
+    /// An Azlin node's own code (`x-azlin-error`: `unavailable`, `quota_exceeded`, ...), which
+    /// azcloud-kit's `user_errors` turns into what the user sees.
+    pub azlin_error: Option<String>,
+    /// `Retry-After` in seconds, when the service sent a number.
+    pub retry_after: Option<u64>,
 }
 
 impl ServiceError {
@@ -310,7 +315,10 @@ impl fmt::Display for ServiceError {
         } else {
             self.code.as_str()
         };
-        write!(f, "{code} (HTTP {})", self.status)?;
+        match &self.azlin_error {
+            Some(azlin) => write!(f, "{code} (HTTP {}, x-azlin-error {azlin})", self.status)?,
+            None => write!(f, "{code} (HTTP {})", self.status)?,
+        }
         if !self.message.is_empty() {
             write!(f, ": {}", self.message)?;
         }

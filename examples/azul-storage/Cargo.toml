@@ -102,6 +102,9 @@ argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "ze
 getrandom = { version = "0.2", optional = true }
 # Wiping keys and plaintext buffers.
 zeroize = { version = "1.8", features = ["alloc"], optional = true }
+# The drive's policy file, `.azlin/policy.toml` in the drive index (src/meta/policy.rs);
+# toml 0.9 is in Cargo.lock already (azul-doc).
+toml = { version = "0.9", optional = true }
 # ---- feature `index-cache`: the drive index's local query cache (src/meta/cache.rs) ----
 # The SQLite azul's own `Db` runs on (the dll's `db-sqlite`): turso, pure Rust, as the
 # published fork `turso-azul` 0.7.2 with default features off (no mimalloc, no FTS, no
@@ -137,6 +140,7 @@ encryption = [
     "dep:zeroize",
     "dep:aes-gcm",
     "dep:hkdf",
+    "dep:toml",
 ]
 # The drive index's query cache (search, largest, recent, totals) in a local SQLite.
 index-cache = ["encryption", "dep:turso", "dep:aegis"]
@@ -144,3 +148,9 @@ index-cache = ["encryption", "dep:turso", "dep:aegis"]
 [lib]
 name = "azul_storage"
 path = "src/lib.rs"
+
+# git's remote helper for a drive index: `git clone azlin::folder://<path>` (src/meta/git.rs).
+[[bin]]
+name = "git-remote-azlin"
+path = "src/bin/git-remote-azlin.rs"
+required-features = ["encryption"]

@@ -2416,7 +2416,7 @@ n27 p23 d30 InlineBlock @13,113 120x40 ic=120/120 rel=5,0
 n28 p23 d31 Inline @8,113 -x- ic=0/0
 n29 p1 d32 Block { establishes_new_context: false } @8,156 10x10 ov=0x0 ic=10/10 rel=0,148
 n30 p1 d34 Block { establishes_new_context: false } @8,166 784x0 ov=0x0 ic=0/0 rel=0,158
-n31 p1 d- Inline anon=InlineWrapper @8,166 784x16 ov=10x16 bl=13 ic=62.40625/186.8125 rel=0,158
+n31 p1 d- Inline anon=InlineWrapper @8,166 784x16 ov=10x16 bl=13 ic=10/10 rel=0,158
   line 0 y=3 items=1 glyphs=0 x=0..10
 n32 p31 d35 Inline @8,166 -x- ic=0/0
 n33 p31 d36 Inline @8,166 -x- ic=0/0

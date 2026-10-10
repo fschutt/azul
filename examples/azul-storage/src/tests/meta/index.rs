@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::TempDir;
+use super::{TempDir, Unplugged};
 use crate::{
     crypto::DriveKey,
     encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex},
@@ -274,4 +274,39 @@ fn the_provider_opens_a_drives_index_and_keeps_this_devices_copy_and_id() {
     assert_eq!(names.len(), 1, "{names:?}");
     assert_eq!(names[0].len(), 32);
     assert!(names[0].bytes().all(|b| b.is_ascii_hexdigit()));
+}
+
+#[test]
+fn an_index_whose_bucket_cannot_be_reached_still_answers_reads_from_the_copy() {
+    let bucket = Arc::new(Unplugged::default());
+    let key = DriveKey::generate().unwrap();
+    let repo = MetaRepo::create(bucket.clone(), key, "laptop", "Laptop").unwrap();
+    let index = MetaIndex::new(repo).with_poll_every(0);
+    let entry = IndexEntry {
+        size: 1,
+        modified: Some(1_760_000_000),
+        object: None,
+    };
+    index
+        .apply(vec![IndexChange::Put {
+            path: "docs/a.txt".to_string(),
+            entry: entry.clone(),
+            expect: Expect::Absent,
+        }])
+        .unwrap();
+
+    bucket.set_down(true);
+    assert_eq!(index.get("docs/a.txt").unwrap(), Some(entry.clone()));
+    let page = index.list(&ListRequest::folder("docs/")).unwrap();
+    assert_eq!(page.entries.len(), 2, "the folder's marker and its file");
+    // A change needs the bucket.
+    let change = IndexChange::Put {
+        path: "docs/b.txt".to_string(),
+        entry,
+        expect: Expect::Absent,
+    };
+    assert!(matches!(
+        index.apply(vec![change]),
+        Err(DriveError::Transport(_))
+    ));
 }

@@ -487,6 +487,9 @@ enum SideAction {
     /// "I was hacked: new keys...".
     #[cfg(feature = "encryption")]
     Rotate(String),
+    /// "Lock down with the recovery code...".
+    #[cfg(feature = "encryption")]
+    RecoveryLockdown(String),
     /// The folder sync of the drive: pair it with a folder, sync now, pause, stop, open the
     /// synced folder.
     Sync(String, crate::sync_view::SyncAction),
@@ -549,6 +552,10 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
             entries.push((
                 String::from("I was hacked: new keys\u{2026}"),
                 SideAction::Rotate(slot.entry.id.clone()),
+            ));
+            entries.push((
+                String::from("Lock down with the recovery code\u{2026}"),
+                SideAction::RecoveryLockdown(slot.entry.id.clone()),
             ));
         }
         if !slot.is_local() {
@@ -625,6 +632,10 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
         SideAction::Unlock(drive_id) => crate::encryption::ask_unlock(s, &drive_id),
         #[cfg(feature = "encryption")]
         SideAction::Rotate(drive_id) => crate::encryption::ask_rotate(s, &drive_id),
+        #[cfg(feature = "encryption")]
+        SideAction::RecoveryLockdown(drive_id) => {
+            crate::encryption::ask_recovery_lockdown(s, &drive_id);
+        }
         SideAction::Sync(drive_id, what) => {
             crate::sync_jobs::run_action(info, app, s, Some(drive_id), what);
         }

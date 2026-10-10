@@ -798,7 +798,7 @@ n3 p2 d4 Inline @8,16 -x- ic=48/158.40625
 n4 p2 d5 Inline @8,16 -x- ic=24/44
 n5 p4 d6 Inline @8,16 -x- ic=24/44
 n6 p2 d7 Inline @8,16 -x- ic=3.203125/3.203125
-n7 p1 d9 Inline @8,48 784x0 ov=0x0 ic=2.109375/8.953125 rel=0,32
+n7 p1 d9 Inline @8,48 784x0 ov=0x0 ic=0/0 rel=0,32
 n8 p7 d10 Inline @8,48 -x- ic=0/0
 n9 p7 d11 Inline @8,48 4.359375x96 ov=4.34375x96 bl=76.796875 ic=2.109375/4.359375
 n10 p9 d12 Inline @8,48 -x- ic=2.109375/4.359375
@@ -833,7 +833,7 @@ n3 p2 d4 Inline @8,16 -x- ic=48/158.40625
 n4 p2 d5 Inline @8,16 -x- ic=24/44
 n5 p4 d6 Inline @8,16 -x- ic=24/44
 n6 p2 d7 Inline @8,16 -x- ic=3.203125/3.203125
-n7 p1 d9 Inline @8,48 784x0 ov=0x0 ic=2.109375/8.953125 rel=0,32
+n7 p1 d9 Inline @8,48 784x0 ov=0x0 ic=0/0 rel=0,32
 n8 p7 d10 Inline @8,48 -x- ic=0/0
 n9 p7 d11 Inline @8,48 4.359375x96 ov=4.34375x96 bl=76.796875 ic=2.109375/4.359375
 n10 p9 d12 Inline @8,48 -x- ic=2.109375/4.359375
@@ -10298,7 +10298,7 @@ n5 p4 d6 Inline @8,16 -x- ic=24/24
 n6 p2 d7 Inline @8,16 -x- ic=99.203125/301.60938
 n7 p1 d9 Block { establishes_new_context: false } @8,64 784x0 ov=0x0 ic=0/0 rel=0,48
 n8 p7 d11 Block { establishes_new_context: true } @8,96 0x0 ov=0x0 ic=0/0 rel=0,0
-n9 p8 d13 Inline @8,96 791.375x38.671875 ov=363.6875x38.671875 bl=32.671875 ic=791.375/791.375 rel=0,0
+n9 p8 d13 Inline @8,96 363.6875x38.671875 ov=363.6875x38.671875 bl=32.671875 ic=363.6875/363.6875 rel=0,0
 n10 p9 d14 Inline @8,96 -x- ic=243.20313/243.20313
 n11 p9 d15 Inline @8,96 -x- ic=106.09375/106.09375
 n12 p11 d16 Inline @8,96 -x- ic=92.8125/92.8125
@@ -10318,7 +10318,7 @@ n25 p24 d29 Inline @8,96 -x- ic=13.28125/13.28125
 n26 p16 d30 Inline @8,96 -x- ic=0/0
 n27 p9 d31 Inline @8,96 -x- ic=0/0
 n28 p7 d34 Block { establishes_new_context: true } @8,160 0x0 ov=0x0 ic=0/0 rel=0,0
-n29 p28 d36 Inline @8,160 1009.9375x38.671875 ov=470.23438x38.671875 bl=32.671875 ic=1009.9375/1009.9375 rel=0,0
+n29 p28 d36 Inline @8,160 470.25x38.671875 ov=470.23438x38.671875 bl=32.671875 ic=470.25/470.25 rel=0,0
 n30 p29 d37 Inline @8,160 -x- ic=32/32
 n31 p29 d38 Inline @8,160 -x- ic=151.84375/151.84375
 n32 p31 d39 Inline @8,160 -x- ic=16/16
@@ -10360,12 +10360,12 @@ n56 p29 d63 Inline @8,160 -x- ic=0/0
   dl11 HitTestArea 8,16 0x0
   dl12 HitTestArea 8,64 784x0
   dl13 HitTestArea 8,96 0x0
-  dl14 PushClip 8,96 791.375x38.671875
-  dl15 HitTestArea 8,96 791.375x38.671875
-  dl16 Text 8,96 791.375x38.671875 glyphs=19 fs=32
-  dl17 Text 8,96 791.375x38.671875 glyphs=6 fs=32
-  dl18 Text 8,96 791.375x38.671875 glyphs=1 fs=26.5625
-  dl19 Text 8,96 791.375x38.671875 glyphs=1 fs=32
+  dl14 PushClip 8,96 363.6875x38.671875
+  dl15 HitTestArea 8,96 363.6875x38.671875
+  dl16 Text 8,96 363.6875x38.671875 glyphs=19 fs=32
+  dl17 Text 8,96 363.6875x38.671875 glyphs=6 fs=32
+  dl18 Text 8,96 363.6875x38.671875 glyphs=1 fs=26.5625
+  dl19 Text 8,96 363.6875x38.671875 glyphs=1 fs=32
   dl20 HitTestArea 8,103.0625 251.20313x32
   dl21 HitTestArea 259.20313,103.0625 92.796875x32
   dl22 HitTestArea 352,95.75 13.28125x26.5625
@@ -10373,7 +10373,7 @@ n56 p29 d63 Inline @8,160 -x- ic=0/0
   dl24 HitTestArea 8,96 0x0
   dl25 HitTestArea 8,96 0x0
   dl26 PopClip
-  dl27 PushClip 8,96 791.375x38.671875
+  dl27 PushClip 8,96 363.6875x38.671875
   dl28 HitTestArea 8,96 419.6875x38.671875
   dl29 Text -24,96 483.6875x38.671875 glyphs=1 fs=32
   dl30 HitTestArea 8,103.0625 398.40625x32
@@ -10384,18 +10384,18 @@ n56 p29 d63 Inline @8,160 -x- ic=0/0
   dl35 HitTestArea 8,96 0x0
   dl36 PopClip
   dl37 HitTestArea 8,160 0x0
-  dl38 PushClip 8,160 1009.9375x38.671875
-  dl39 HitTestArea 8,160 1009.9375x38.671875
-  dl40 Text 8,160 1009.9375x38.671875 glyphs=3 fs=32
-  dl41 Text 8,160 1009.9375x38.671875 glyphs=1 fs=32
-  dl42 Text 8,160 1009.9375x38.671875 glyphs=1 fs=26.5625
-  dl43 Text 8,160 1009.9375x38.671875 glyphs=4 fs=32
-  dl44 Text 8,160 1009.9375x38.671875 glyphs=1 fs=26.5625
-  dl45 Text 8,160 1009.9375x38.671875 glyphs=4 fs=32
-  dl46 Text 8,160 1009.9375x38.671875 glyphs=1 fs=26.5625
-  dl47 Text 8,160 1009.9375x38.671875 glyphs=15 fs=32
-  dl48 Text 8,160 1009.9375x38.671875 glyphs=1 fs=32
-  dl49 Text 8,160 1009.9375x38.671875 glyphs=5 fs=32
+  dl38 PushClip 8,160 470.25x38.671875
+  dl39 HitTestArea 8,160 470.25x38.671875
+  dl40 Text 8,160 470.25x38.671875 glyphs=3 fs=32
+  dl41 Text 8,160 470.25x38.671875 glyphs=1 fs=32
+  dl42 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
+  dl43 Text 8,160 470.25x38.671875 glyphs=4 fs=32
+  dl44 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
+  dl45 Text 8,160 470.25x38.671875 glyphs=4 fs=32
+  dl46 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
+  dl47 Text 8,160 470.25x38.671875 glyphs=15 fs=32
+  dl48 Text 8,160 470.25x38.671875 glyphs=1 fs=32
+  dl49 Text 8,160 470.25x38.671875 glyphs=5 fs=32
   dl50 HitTestArea 8,167.0625 40x32
   dl51 HitTestArea 48,167.0625 16x32
   dl52 HitTestArea 64,159.75 13.28125x26.5625
@@ -10412,7 +10412,7 @@ n56 p29 d63 Inline @8,160 -x- ic=0/0
   dl63 HitTestArea 8,160 0x0
   dl64 HitTestArea 8,160 0x0
   dl65 PopClip
-  dl66 PushClip 8,160 1009.9375x38.671875
+  dl66 PushClip 8,160 470.25x38.671875
   dl67 HitTestArea 8,160 531.6875x38.671875
   dl68 Text -24,160 595.6875x38.671875 glyphs=1 fs=32
   dl69 HitTestArea 8,167.0625 510.40625x32

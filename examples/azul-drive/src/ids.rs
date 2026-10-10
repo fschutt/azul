@@ -203,6 +203,25 @@ pub const CONFIRM_DELETE: AzString = AzString::from_const_str("__azdrive_confirm
 /// "Move to / Copy to > Choose location" and its typed path.
 pub const CHOOSE_LOCATION: AzString = AzString::from_const_str("__azdrive_choose_location");
 pub const LOCATION_PATH: AzString = AzString::from_const_str("__azdrive_location_path");
+/// The bar over the drive in view while a recovery-key lockdown of it is pending, and its
+/// Cancel.
+pub const LOCKDOWN_BAR: AzString = AzString::from_const_str("__azdrive_lockdown_bar");
+pub const LOCKDOWN_CANCEL: AzString = AzString::from_const_str("__azdrive_lockdown_cancel");
+/// The voucher dialog of a drive (Options > Drives): its code and Redeem.
+pub const VOUCHER: AzString = AzString::from_const_str("__azdrive_voucher");
+pub const VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_voucher_code");
+pub const VOUCHER_REDEEM: AzString = AzString::from_const_str("__azdrive_voucher_redeem");
+/// Add drive > Buy storage's "I have a voucher", its code and Redeem.
+pub const ADD_VOUCHER: AzString = AzString::from_const_str("__azdrive_add_voucher");
+pub const ADD_VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_add_voucher_code");
+pub const ADD_VOUCHER_REDEEM: AzString =
+    AzString::from_const_str("__azdrive_add_voucher_redeem");
+
+/// Options > Drives' "Redeem a voucher" of a drive: `__azdrive_voucher_<id>`.
+#[must_use]
+pub fn voucher_button(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_voucher_{}", id_part(drive_id)))
+}
 /// "Replace or Skip Files" and its three answers.
 pub const CONFLICT: AzString = AzString::from_const_str("__azdrive_conflict");
 pub const CONFLICT_REPLACE: AzString = AzString::from_const_str("__azdrive_conflict_replace");

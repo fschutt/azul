@@ -304,6 +304,11 @@ impl MailApp {
         let today = local_today();
         let n = accounts.len();
         let data_root = kit_data_root(&kit);
+        // The drive index keeps this computer's copies of encrypted drives in the user's
+        // cache folder between runs, as AzDrive does.
+        mail_drive::set_index_cache_root(
+            user_cache_dir().map(|dir| dir.join("AzMail").join("drive-index")),
+        );
         // The locks of the account sessions beside the data root's own bookkeeping (`.azlin`
         // is never synced): every AzMail on this data root takes turns there.
         let shared_keyring = azcloud_kit::SharedKeyring::new(
@@ -1881,6 +1886,13 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
 
 fn user_data_dir() -> Option<PathBuf> {
     FilePath::get_data_dir()
+        .into_option()
+        .map(|dir| PathBuf::from(dir.inner.as_str()))
+        .filter(|p| !p.as_os_str().is_empty())
+}
+
+fn user_cache_dir() -> Option<PathBuf> {
+    FilePath::get_cache_dir()
         .into_option()
         .map(|dir| PathBuf::from(dir.inner.as_str()))
         .filter(|p| !p.as_os_str().is_empty())

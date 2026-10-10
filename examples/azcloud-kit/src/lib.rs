@@ -61,6 +61,8 @@
 //!   through azul-storage's `EncryptedDrive` with the index an `IndexProvider` opens.
 //! - [`error`]: [`CloudError`], what went wrong, telling a drive token to sign in again for
 //!   from everything else.
+//! - [`user_errors`]: the errors users see - one table from the token server's and the
+//!   storage's codes to a class, a behaviour and an English and German text with the error ID.
 //!
 //! Every call blocks and goes through azul-storage's `Transport` (azul's HTTP client in the
 //! apps, a fake in the tests): call it from an azul `Thread`, never from a UI callback.
@@ -82,6 +84,7 @@ pub mod error;
 pub mod lock;
 pub mod pending;
 pub mod period;
+pub mod recovery;
 pub mod secrets;
 pub mod session;
 pub mod settings;
@@ -92,6 +95,7 @@ pub mod store;
 pub mod sync;
 pub mod token;
 pub mod transport;
+pub mod user_errors;
 
 #[cfg(test)]
 mod tests;
@@ -106,19 +110,21 @@ pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
 pub use pending::{Finished, PendingCheckout, PendingTokens, Polled};
 pub use period::{
-    issue_tokens, redeem_due, IssueRequest, Issuer, IssuerKey, PeriodToken, PeriodTokenStore,
-    Redeemed,
+    issue_tokens, look_at_drive, redeem_due, IssueRequest, Issuer, IssuerKey, Look, PeriodToken,
+    PeriodTokenStore, Redeemed,
 };
+pub use recovery::RecoveryKey;
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, IssueAnswer, OptionsQuery,
-    RecoveryLockdown, Tier, Tiers, TokenError, TokenServer, VoucherRedeemed,
+    BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, DriveStatus, IssueAnswer,
+    OptionsQuery, RecoveryLockdown, Tier, Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
+pub use user_errors::{Lang, UserError};
 
 /// Now, in seconds since 1970-01-01 UTC.
 #[must_use]

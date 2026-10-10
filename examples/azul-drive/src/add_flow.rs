@@ -29,7 +29,7 @@ use std::sync::{
 
 use azcloud_kit::{
     pending::{Claimed, Finished},
-    PendingCheckout, Redeemed, Tiers,
+    PendingCheckout, Tiers,
 };
 use azul::{css::DarkLightMode, prelude::*, str::String as AzString, url::Url};
 use azul_pay::{
@@ -38,8 +38,7 @@ use azul_pay::{
     Effect, Event, Method, SecretUrl, State as PayState,
 };
 use azul_storage::{
-    config::{self, DriveAuth, DriveEntry, DriveLocation, DrivesFile},
-    time::iso8601,
+    config::{self, DriveEntry, DrivesFile},
     DriveError,
 };
 
@@ -87,6 +86,10 @@ pub(crate) enum AddEvent {
     ClosePopover,
     /// "Check again" after the dialog stopped waiting.
     CheckAgain,
+    /// Buy storage's "I have a voucher".
+    VoucherPage,
+    /// The voucher page's Redeem.
+    RedeemVoucher,
 }
 
 /// The open dialog, if the popup is it.
@@ -220,6 +223,12 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
         AddEvent::CheckAgain => {
             let _ = pay(info, app, s, Event::CheckAgain);
         }
+        AddEvent::VoucherPage => {
+            if !d.busy() {
+                d.choose_voucher();
+            }
+        }
+        AddEvent::RedeemVoucher => redeem_voucher(info, app, s),
     }
     if let Some(d) = dialog(s) {
         if d.page_line() != page_before {
@@ -550,6 +559,45 @@ fn buy_parts(s: &mut DriveState) -> Option<(String, String, String, u64)> {
 }
 
 /// "Create test drive": a drive without payment (a development token server).
+/// "I have a voucher"'s Redeem: the voucher's new drive (its tier, else the one chosen), its
+/// session into the keyring like a test drive's; the answer is a bought drive's.
+fn redeem_voucher(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let token_url = s.token.url.clone();
+    let keyring = s.keyring.clone();
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    if d.busy() {
+        return;
+    }
+    let Some(token_url) = token_url else {
+        d.notice = no_token_server();
+        return;
+    };
+    let code = d.voucher_code.trim().to_string();
+    if code.is_empty() {
+        d.notice = String::from("Type the voucher's code.");
+        return;
+    }
+    let tier = d.chosen_tier().map(|t| t.id.clone()).unwrap_or_default();
+    let serial = d.serial;
+    d.step = BuyStep::Creating;
+    d.notice = String::from("Redeeming the voucher...");
+    spawn(
+        info,
+        app,
+        s,
+        Job::RedeemVoucher {
+            serial,
+            token_url,
+            code,
+            tier,
+            drive: None,
+            keyring,
+        },
+    );
+}
+
 fn create_test_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some((tier, name, token_url, serial)) = buy_parts(s) else {
         return;
@@ -1222,7 +1270,7 @@ pub(crate) fn checkout_finished(
         Ok(Some(Finished::Issued { drive_id, count })) => {
             println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
             // A drive whose free month is nearly gone gets its first paid one at once.
-            start_redemptions(info, app, s, Some(&drive_id));
+            crate::periods::start_redemptions(info, app, s, Some(&drive_id));
         }
         Ok(Some(Finished::Dropped(why))) => s.warn(format!(
             "The paid months of the checkout {checkout_id} could not be fetched: {why}."
@@ -1237,76 +1285,5 @@ pub(crate) fn checkout_finished(
             "The checkout {checkout_id} could not be finished in the keyring's list ({why}); \
              AzDrive asks about it again at its next start."
         )),
-    }
-}
-
-// ==== The period tokens: a paid month bought when the period nears its end ====
-
-/// The Azlin drive of `entry`: its id at the token server and that server (the entry's
-/// `account_url`, else `fallback`); `None` for every other drive.
-fn azlin_drive(entry: &DriveEntry, fallback: Option<&str>) -> Option<(String, String)> {
-    let DriveLocation::S3 {
-        auth:
-            DriveAuth::Azlin {
-                drive_id,
-                account_url,
-            },
-        ..
-    } = &entry.location
-    else {
-        return None;
-    };
-    let url = if account_url.trim().is_empty() {
-        fallback?.to_string()
-    } else {
-        account_url.clone()
-    };
-    Some((drive_id.clone(), url))
-}
-
-/// Redeems the period tokens of the Azlin drives (`only`: of that drive) whose periods near
-/// their ends - at every start, and once a paid checkout's tokens are kept. Nothing runs
-/// without an Azlin drive; a drive without kept tokens asks the token server nothing.
-pub(crate) fn start_redemptions(
-    info: &mut CallbackInfo,
-    app: &RefAny,
-    s: &mut DriveState,
-    only: Option<&str>,
-) {
-    let fallback = s.token.url.clone();
-    let drives: Vec<(String, String)> = s
-        .slots
-        .iter()
-        .filter_map(|slot| azlin_drive(&slot.entry, fallback.as_deref()))
-        .filter(|(drive_id, _)| only.is_none_or(|only| only == drive_id.as_str()))
-        .collect();
-    if drives.is_empty() {
-        return;
-    }
-    let job = Job::RedeemPeriods {
-        keyring: s.keyring.clone(),
-        store: s.period_tokens.clone(),
-        drives,
-    };
-    spawn(info, app, s, job);
-}
-
-/// What the redemptions did: a month bought is printed (`AZDRIVE_PERIOD_REDEEMED <drive>
-/// <count> <until>`), a try that failed waits for the next start, quietly.
-pub(crate) fn periods_redeemed(results: Vec<(String, Redeemed)>) {
-    for (drive_id, redeemed) in results {
-        match redeemed {
-            Redeemed::Extended {
-                count,
-                period_until,
-            } => {
-                let until = period_until.map_or_else(|| String::from("-"), iso8601);
-                println!("AZDRIVE_PERIOD_REDEEMED {drive_id} {count} {until}");
-            }
-            Redeemed::Kept(why) => {
-                eprintln!("[azdrive] the period of {drive_id} waits for the next try: {why}");
-            }
-            Redeemed::Nothing | Redeemed::NotDue { .. } => {}
-        }
     }
 }

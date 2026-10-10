@@ -43,9 +43,29 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
         "nonce", "signature", "randomizer"}         bad_token / wrong_tier, 409 token_used); the
         Authorization: Bearer <drive token>         drive token is checked, not spent - the one
                                                     the family rotated from last counts too
-    GET /v1/drives/<id>                             200 the drive's tier, quota and period (a read:
-        Authorization: Bearer <drive token>         the previous token counts too; an older one
-                                                    is a reuse)
+    GET /v1/drives/<id>                             200 the drive's tier, quota and period and a
+        Authorization: Bearer <drive token>         pending recovery-key lockdown (a read: the
+                                                    previous token counts too; an older one is a
+                                                    reuse)
+    POST /v1/drives/<id>/recovery                   200 the drive's recovery key (Ed25519,
+        {"recovery_pubkey"}, a drive token          standard base64; scripts/azlin_ed25519.py)
+    POST /v1/drives/<id>/lockdown                   with a drive token: every other family
+        {"nonce", "signature"} or a drive token     revoked, a new one for the caller (200, a
+                                                    bundle); with the recovery key's signature
+                                                    over lockdown:<drive>:<nonce>: 202
+                                                    {pending_until, drive_token} - frozen for
+                                                    48 h, a `recovery-pending` family (401 a bad
+                                                    signature, 409 nonce_used, 400
+                                                    no_recovery_key)
+    POST /v1/drives/<id>/lockdown/cancel            200 {"cancelled": true} by another family of
+        Authorization: Bearer <drive token>         the drive (403 by the pending one, 409
+                                                    no_pending_lockdown)
+    POST /v1/vouchers/redeem {"code", "drive_id"?,  with a drive (its token, a read): 200 the days
+        "tier"?}                                    added (months and value pro rata); without:
+                                                    201 a new drive's sign-up; 400
+                                                    voucher_invalid / voucher_too_small. The
+                                                    codes it takes: add_voucher(code, months,
+                                                    value_cents, tier)
 
   With fake payment providers (`--providers`, `set_providers`; CHECKOUT-PLAN §3.11, §4.2 - see
   "The fake payment providers" below for their pages and webhooks):
@@ -117,6 +137,7 @@ sys.path.insert(0, os.path.join(REPO, 'examples', 'azul-drive', 'scripts'))
 sys.path.insert(0, HERE)
 
 import azlin_claim  # noqa: E402
+import azlin_ed25519  # noqa: E402
 import azlin_period  # noqa: E402
 import s3_server  # noqa: E402
 
@@ -140,6 +161,8 @@ APPROVING_CARD = '4242424242424242'
 DECLINING_CARD = '4000000000000002'
 # How long an approved checkout keeps its sealed sign-up (then it answers "expired").
 SEALED_KEEP_SECS = 30 * 86400
+# How long a recovery-key lockdown waits for a device of the owner to cancel it.
+LOCKDOWN_PENDING_SECS = 48 * 3600
 
 # ==== The fake payment providers (CHECKOUT-PLAN §4.2) ====
 #
@@ -349,6 +372,8 @@ class TokenState:
         # The answers of POST /v1/tokens/issue by checkout and request hash: the identical
         # request again gets the same signatures, counted once (F37).
         self.issue_answers = {}
+        # The vouchers it takes (add_voucher): code -> months, value, tier.
+        self.vouchers = {}
         # The fake payment providers offered (none: no payment options, the v1 checkout).
         self.providers = []
         # Checkout ids by their provider reference (what the providers see).
@@ -429,11 +454,16 @@ class TokenState:
             }
             self.s3.store.create_bucket(drive['bucket'])
             self.drives[drive_id] = drive
-            family = random_id('f_')
-            self.families[family] = {'drive': drive_id, 'generation': 0, 'current': '',
-                                     'used': [], 'revoked': None}
-            token = self.new_token(family)
+            token = self.new_family(drive_id, 'owner')
             return self.bundle(drive, token)
+
+    def new_family(self, drive_id, member):
+        """A new token family of `drive_id` for `member`: its first token. The caller holds the
+        lock."""
+        family = random_id('f_')
+        self.families[family] = {'drive': drive_id, 'member': member, 'generation': 0,
+                                 'current': '', 'used': [], 'revoked': None}
+        return self.new_token(family)
 
     def checkout(self, body):
         """POST /v1/checkout (payments.rs `create_checkout`): a checkout to pay on its page, its
@@ -914,6 +944,10 @@ class TokenState:
         rotated one is a reuse: the family is revoked) - on a read (`previous_ok`:
         `authenticate_read`, F37) the token the family rotated from last too. The caller holds
         the lock."""
+        return self.family_of(drive_id, bearer, previous_ok)[0]
+
+    def family_of(self, drive_id, bearer, previous_ok=False):
+        """`authenticate`: the drive and the family of the token."""
         drive = self.drives.get(drive_id)
         if drive is None:
             raise ApiError(404, 'no_such_drive', 'unknown drive')
@@ -926,9 +960,9 @@ class TokenState:
             raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
         digest = token_hash(bearer)
         if digest == state['current']:
-            return drive
+            return drive, state
         if previous_ok and state['used'] and digest == state['used'][-1]:
-            return drive
+            return drive, state
         if digest in state['used']:
             state['revoked'] = 'reuse'
             raise ApiError(401, 'token_reuse',
@@ -960,10 +994,121 @@ class TokenState:
         """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too)."""
         with self.lock:
             drive = self.authenticate(drive_id, bearer, previous_ok=True)
+            pending = drive.get('lockdown_pending_until')
             return {'id': drive['id'], 'tier': drive['tier'],
-                    'quota_bytes': drive['quota_bytes'], 'read_only': False,
+                    'quota_bytes': drive['quota_bytes'], 'read_only': pending is not None,
                     'status': 'active', 'period_until': rfc3339(drive['period_until']),
-                    'lockdown_pending_until': None, 'members': [], 'usage_bytes': None}
+                    'lockdown_pending_until': rfc3339(pending) if pending else None,
+                    'members': [], 'usage_bytes': None}
+
+    def set_recovery(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/recovery (drives.rs `set_recovery`, a grant): the drive's
+        recovery key, an Ed25519 public key in standard base64."""
+        public = body.get('recovery_pubkey')
+        with self.lock:
+            drive = self.authenticate(drive_id, bearer)
+            try:
+                raw = base64.b64decode(str(public) + '=' * (-len(str(public)) % 4), validate=True)
+            except ValueError:
+                raw = b''
+            if not public or len(raw) != 32:
+                raise ApiError(400, 'bad_request', 'recovery_pubkey (Ed25519, base64) required')
+            drive['recovery_pubkey'] = public
+            return {'ok': True}
+
+    def lockdown(self, drive_id, bearer, body):
+        """POST /v1/drives/<id>/lockdown (drives.rs `lockdown`): by the recovery key
+        (`{"nonce", "signature"}` over `lockdown:<drive>:<nonce>`) the drive is frozen for 48 h
+        and a new `recovery-pending` family made (202); by a drive token every other family is
+        revoked at once and the caller gets a new one (200, a bundle)."""
+        with self.lock:
+            drive = self.drives.get(drive_id)
+            if drive is None:
+                raise ApiError(404, 'no_such_drive', 'unknown drive')
+            if 'signature' not in body:
+                _, state = self.family_of(drive_id, bearer)
+                for other in self.families.values():
+                    if other['drive'] == drive_id:
+                        other['revoked'] = other['revoked'] or 'lockdown'
+                token = self.new_family(drive_id, state.get('member', 'owner'))
+                drive['lockdown_pending_until'] = None
+                return 200, self.bundle(drive, token)
+            public = drive.get('recovery_pubkey')
+            if not public:
+                raise ApiError(400, 'no_recovery_key', 'no recovery key registered')
+            nonce = str(body.get('nonce') or '')
+            message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
+            if not azlin_ed25519.verify_b64(public, message, str(body.get('signature') or '')):
+                raise ApiError(401, 'unauthorized', 'bad recovery signature')
+            if not 16 <= len(nonce) <= 128:
+                raise ApiError(400, 'bad_request',
+                               'nonce: 16 to 128 characters, new for every request')
+            used = drive.setdefault('recovery_nonces', set())
+            if nonce in used:
+                raise ApiError(409, 'nonce_used', 'this lockdown request was used before')
+            used.add(nonce)
+            token = self.new_family(drive_id, 'recovery-pending')
+            drive['lockdown_pending_until'] = int(time.time()) + LOCKDOWN_PENDING_SECS
+            return 202, {'pending_until': rfc3339(drive['lockdown_pending_until']),
+                         'drive_token': token,
+                         'note': 'existing devices can cancel within 48 h; the drive is '
+                                 'read-only meanwhile'}
+
+    def lockdown_cancel(self, drive_id, bearer):
+        """POST /v1/drives/<id>/lockdown/cancel (a grant): the owner's other devices call a
+        pending recovery-key lockdown off; the pending family cannot."""
+        with self.lock:
+            drive, state = self.family_of(drive_id, bearer)
+            if state.get('member') == 'recovery-pending':
+                raise ApiError(403, 'forbidden', 'the pending device cannot cancel its own lockdown')
+            if not drive.get('lockdown_pending_until'):
+                raise ApiError(409, 'no_pending_lockdown', 'no recovery-key lockdown is pending')
+            for other in self.families.values():
+                if other['drive'] == drive_id and other.get('member') == 'recovery-pending':
+                    other['revoked'] = other['revoked'] or 'lockdown_cancelled'
+            drive['lockdown_pending_until'] = None
+            return {'cancelled': True}
+
+    def add_voucher(self, code, months=1, value_cents=0, tier=None):
+        """A voucher the mock takes (an E2E's switch): `months` and a value in cents, for
+        `tier` (None: any)."""
+        with self.lock:
+            self.vouchers[code] = {'months': months, 'value_cents': value_cents, 'tier': tier}
+
+    def redeem_voucher(self, bearer, body):
+        """POST /v1/vouchers/redeem (payments.rs `redeem_voucher`): on a drive (`drive_id`, its
+        token - a read) the days it adds (its months, its value pro rata); without one a new
+        drive of its tier (201, the sign-up). Redeemed once."""
+        code = body.get('code')
+        if not isinstance(code, str):
+            raise ApiError(400, 'bad_request', 'code required')
+        drive_id = body.get('drive_id')
+        with self.lock:
+            drive = self.authenticate(drive_id, bearer, previous_ok=True) if drive_id else None
+            voucher = self.vouchers.get(code.strip())
+            if voucher is None:
+                raise ApiError(400, 'voucher_invalid', 'this voucher is not valid')
+            tier = drive['tier'] if drive else (voucher['tier'] or body.get('tier') or DEFAULT_TIER)
+            if tier not in TIERS:
+                raise ApiError(400, 'bad_tier', 'unknown tier')
+            cents_month = next(m for t, _, m, _ in TIER_LADDER if t == tier)
+            days = 30 * voucher['months'] + voucher['value_cents'] * 30 // cents_month
+            if days == 0:
+                raise ApiError(400, 'voucher_too_small',
+                               'this voucher is worth less than a day of this tier; it was not '
+                               'redeemed')
+            del self.vouchers[code.strip()]
+            if drive is not None:
+                tomorrow = (int(time.time()) // 86400 + 1) * 86400
+                drive['period_until'] = max(drive['period_until'], tomorrow) + days * 86400
+                return 200, {'months_added': days // 30, 'days_added': days,
+                             'period_until': rfc3339(drive['period_until'])}
+        bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
+        with self.lock:
+            made = self.drives[bundle['drive']['id']]
+            made['period_until'] += days * 86400
+            bundle['period_until'] = rfc3339(made['period_until'])
+        return 201, bundle
 
     def refresh(self, drive_id, bearer):
         with self.lock:
@@ -1178,6 +1323,22 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.command == 'GET' and len(segments) == 3 and segments[:2] == ['v1', 'drives']:
             self.answer(200, state.info(segments[2], self.bearer()))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'recovery':
+            self.answer(200, state.set_recovery(segments[2], self.bearer(), self.body() or {}))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
+                and segments[3] == 'lockdown':
+            self.answer(*state.lockdown(segments[2], self.bearer(), self.body() or {}))
+            return
+        if self.command == 'POST' and segments[:2] == ['v1', 'drives'] and len(segments) == 5 \
+                and segments[3:] == ['lockdown', 'cancel']:
+            self.body()
+            self.answer(200, state.lockdown_cancel(segments[2], self.bearer()))
+            return
+        if self.command == 'POST' and segments == ['v1', 'vouchers', 'redeem']:
+            self.answer(*state.redeem_voucher(self.bearer(), self.body() or {}))
             return
         raise ApiError(404, 'not_found', 'no route for %s /%s' % (self.command, path))
 
