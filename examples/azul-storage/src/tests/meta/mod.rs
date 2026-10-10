@@ -2,6 +2,7 @@
 //! objects and its merges.
 
 mod bucket;
+mod cache;
 mod merge;
 mod objects;
 mod pack;

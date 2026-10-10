@@ -190,12 +190,26 @@ pub struct LeaseGuard {
 }
 
 /// The repository as a device knows it: the refs after `head_seq`, and the live packs.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoState {
     pub head_seq: u64,
     pub revision: u64,
     pub refs: BTreeMap<String, String>,
     pub packs: Vec<PackRef>,
+}
+
+/// What a device keeps of its store between runs ([`MetaStore::snapshot`],
+/// [`MetaStore::resume`]): the manifest it last saw and its version (so the
+/// next poll is a conditional read), the state, and the highest revision seen
+/// (so an older manifest is refused after a restart too).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoreSnapshot {
+    #[serde(default)]
+    pub manifest: Option<Manifest>,
+    #[serde(default)]
+    pub version: Option<Version>,
+    pub state: RepoState,
+    pub seen_revision: u64,
 }
 
 /// What a poll found.
@@ -267,26 +281,72 @@ pub struct Packs<'a, B: Bucket, S: Sealer> {
 impl<B: Bucket, S: Sealer> Packs<'_, B, S> {
     /// Opens the index of `pack`.
     pub fn index(&self, pack: &PackRef) -> Result<PackIndex, MetaError> {
-        let key = keys::idx(&pack.name);
-        let (bytes, _) = self
-            .bucket
-            .read(&key)?
-            .ok_or_else(|| corrupt(&key, "the manifest names it, but it is missing"))?;
-        PackIndex::open(self.sealer, &pack.name, &bytes)
+        PackIndex::open(self.sealer, &pack.name, &self.idx_bytes(pack)?)
     }
 
     /// Reads every object of `pack` into `objects`, each checked against its
     /// id; the ids the pack holds.
     pub fn fetch(&self, pack: &PackRef, objects: &mut Objects) -> Result<Vec<ObjectId>, MetaError> {
-        let index = self.index(pack)?;
-        let key = keys::pack(&pack.name);
-        let (bytes, _) = self
-            .bucket
-            .read(&key)?
-            .ok_or_else(|| corrupt(&key, "the manifest names it, but it is missing"))?;
-        index.read_into(self.sealer, &bytes, objects)?;
-        Ok(index.entries().iter().map(|e| e.id).collect())
+        let (idx, bytes) = self.download(pack)?;
+        load_pack(self.sealer, &pack.name, &idx, &bytes, objects)
     }
+
+    /// The sealed `.idx` and `.pack` of `pack`, as the bucket holds them (a
+    /// device's cache keeps them so, encrypted).
+    pub fn download(&self, pack: &PackRef) -> Result<(Vec<u8>, Vec<u8>), MetaError> {
+        Ok((self.idx_bytes(pack)?, self.pack_bytes(pack)?))
+    }
+
+    /// The sealed `.idx` of `pack`.
+    pub fn idx_bytes(&self, pack: &PackRef) -> Result<Vec<u8>, MetaError> {
+        self.object(&keys::idx(&pack.name))
+    }
+
+    /// The sealed `.pack` of `pack`.
+    pub fn pack_bytes(&self, pack: &PackRef) -> Result<Vec<u8>, MetaError> {
+        self.object(&keys::pack(&pack.name))
+    }
+
+    fn object(&self, key: &str) -> Result<Vec<u8>, MetaError> {
+        self.bucket
+            .read(key)?
+            .map(|(bytes, _)| bytes)
+            .ok_or_else(|| corrupt(key, "the manifest names it, but it is missing"))
+    }
+
+    /// The sealer that opens the packs.
+    #[must_use]
+    pub fn sealer(&self) -> &S {
+        self.sealer
+    }
+
+    /// The sealed bytes of chunk `chunk` of `pack`: one ranged GET (C6).
+    pub fn read_chunk(
+        &self,
+        pack: &PackRef,
+        index: &PackIndex,
+        chunk: u32,
+    ) -> Result<Vec<u8>, MetaError> {
+        let key = keys::pack(&pack.name);
+        let range = index
+            .chunk_range(chunk)
+            .ok_or_else(|| corrupt(&key, "a chunk the pack does not have"))?;
+        self.bucket.read_range(&key, range)
+    }
+}
+
+/// Opens the sealed `idx` and reads every object of the sealed `pack` of the
+/// pack called `name` into `objects`, each checked; the ids it holds.
+pub fn load_pack(
+    sealer: &dyn Sealer,
+    name: &str,
+    idx: &[u8],
+    pack: &[u8],
+    objects: &mut Objects,
+) -> Result<Vec<ObjectId>, MetaError> {
+    let index = PackIndex::open(sealer, name, idx)?;
+    index.read_into(sealer, pack, objects)?;
+    Ok(index.entries().iter().map(|e| e.id).collect())
 }
 
 /// The manifest as this device last read or wrote it.
@@ -384,6 +444,36 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         Ok(store)
     }
 
+    /// What this device keeps of the store between runs.
+    #[must_use]
+    pub fn snapshot(&self) -> StoreSnapshot {
+        StoreSnapshot {
+            manifest: self.synced.as_ref().map(|s| s.manifest.clone()),
+            version: self.synced.as_ref().and_then(|s| s.version.clone()),
+            state: self.state.clone(),
+            seen_revision: self.seen_revision,
+        }
+    }
+
+    /// The store as [`MetaStore::snapshot`] left it, without a request: the
+    /// next [`MetaStore::sync`] is one conditional read.
+    pub fn resume(bucket: B, sealer: S, device: &str, snapshot: StoreSnapshot) -> Self {
+        let mut store = MetaStore::new(bucket, sealer, device);
+        store.synced = snapshot.manifest.map(|manifest| Synced {
+            manifest,
+            version: snapshot.version,
+        });
+        store.state = snapshot.state;
+        store.seen_revision = snapshot.seen_revision;
+        store
+    }
+
+    /// Seconds since 1970 by this store's clock.
+    #[must_use]
+    pub fn now(&self) -> u64 {
+        (self.clock)()
+    }
+
     /// Sets the clock (seconds since 1970): the tests' time.
     #[must_use]
     pub fn with_clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
@@ -396,10 +486,6 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     pub fn with_attempts(mut self, attempts: u32) -> Self {
         self.attempts = attempts.max(1);
         self
-    }
-
-    fn now(&self) -> u64 {
-        (self.clock)()
     }
 
     #[must_use]

@@ -90,12 +90,12 @@ pub use bucket::{
 pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
-pub use repo::{CommitOutcome, MetaRepo};
+pub use repo::{CommitOutcome, MetaRepo, RepoOptions};
 pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;
 pub use wal::{
     LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Packs, Publish, Published, RefUpdate,
-    RepoState, SyncReport,
+    RepoState, StoreSnapshot, SyncReport,
 };
 
 use crate::DriveError;
