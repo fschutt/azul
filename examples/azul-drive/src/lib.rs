@@ -115,6 +115,8 @@ pub mod find;
 #[cfg(test)]
 mod find_tests;
 mod ids;
+/// The Azlin drives' paid months: when their periods are looked at, the redemptions.
+mod periods;
 #[cfg(test)]
 mod periods_tests;
 /// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
@@ -696,6 +698,8 @@ pub(crate) struct DriveState {
     /// The paid checkouts' period tokens until each buys its drive a month: one 0600 file per
     /// drive in `period-tokens` beside the drives file.
     pub period_tokens: azcloud_kit::PeriodTokenStore,
+    /// When each Azlin drive's period is looked at next (a day, an hour after a failure).
+    pub redemptions: periods::Schedule,
 }
 
 impl DriveState {
@@ -2265,7 +2269,7 @@ pub(crate) extern "C" fn on_job_done(
             result,
             ..
         } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
-        Outcome::PeriodsRedeemed { results } => add_flow::periods_redeemed(results),
+        Outcome::PeriodsRedeemed { results } => periods::periods_redeemed(s, results),
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -2559,8 +2563,10 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         s.backstage = backstage;
         // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
         add_flow::start_claims(info, app, s);
-        // An Azlin drive whose period nears its end gets its next month from a kept token.
-        add_flow::start_redemptions(info, app, s, None);
+        // An Azlin drive whose period nears its end gets its next month from a kept token: now,
+        // then once a day while AzDrive runs.
+        periods::start_redemptions(info, app, s, None);
+        periods::start_timer(info, app, s);
         // Encrypted drives get smaller while the computer is idle on mains power.
         #[cfg(feature = "encryption")]
         encryption::start_recompression(info, app);
@@ -2844,6 +2850,7 @@ pub fn start() {
         keyring,
         claiming: false,
         period_tokens,
+        redemptions: periods::Schedule::default(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

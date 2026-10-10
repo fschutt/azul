@@ -1,0 +1,223 @@
+//! The Azlin drives' paid months (AZLINSEC17 F24): a period token kept for a drive buys it a
+//! month when its period nears its end. AzDrive looks at every Azlin drive's period at its
+//! start, once a day while it runs, an hour after a look that failed, at the moment a period
+//! becomes due when that comes before the next daily look, and as soon as a paid checkout's
+//! tokens are kept - each look a [`Job::RedeemPeriods`], under the drive's keyring lock with
+//! its newest drive token ([`azcloud_kit::redeem_due`]). A drive without kept tokens asks the
+//! token server nothing.
+//!
+//! On stdout: `AZDRIVE_PERIOD_REDEEMED <drive id> <count> <until>` for a month bought.
+//! `AZDRIVE_PERIOD_CHECK_SECS` (a positive number of seconds) makes the daily look more often,
+//! for a test run.
+
+use std::collections::HashMap;
+
+use azcloud_kit::{period::REDEEM_AHEAD_SECS, Redeemed};
+use azul::{
+    callbacks::{TimerCallbackInfo, TimerCallbackReturn},
+    prelude::*,
+    task::{Timer, TimerId},
+    time::{Duration, SystemTimeDiff},
+};
+use azul_storage::{
+    config::{DriveAuth, DriveEntry, DriveLocation},
+    time::iso8601,
+};
+
+use crate::{actions::now_secs, jobs::Job, spawn, DriveState};
+
+/// A day: how often a drive's period is looked at while AzDrive runs.
+pub(crate) const DAY_SECS: u64 = 86_400;
+/// After a look that failed (no answer, a refusal): an hour.
+pub(crate) const RETRY_SECS: u64 = 3_600;
+/// The longest the timer sleeps between two glances at the schedule.
+const TICK_SECS: u64 = 600;
+
+/// The interval of the daily look: `AZDRIVE_PERIOD_CHECK_SECS` when it is a positive number of
+/// seconds, else a day.
+#[must_use]
+pub(crate) fn check_every(value: Option<&str>) -> u64 {
+    value
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(DAY_SECS)
+}
+
+/// When each Azlin drive's period is looked at next (seconds since 1970); a drive never looked
+/// at is due at once.
+#[derive(Debug, Clone)]
+pub(crate) struct Schedule {
+    every: u64,
+    next: HashMap<String, u64>,
+    /// A look runs (one job at a time from the timer).
+    pub running: bool,
+}
+
+impl Default for Schedule {
+    fn default() -> Schedule {
+        Schedule::new(check_every(
+            std::env::var("AZDRIVE_PERIOD_CHECK_SECS").ok().as_deref(),
+        ))
+    }
+}
+
+impl Schedule {
+    /// Looks every `every` seconds (a day, or a test run's interval).
+    #[must_use]
+    pub(crate) fn new(every: u64) -> Schedule {
+        Schedule {
+            every: every.max(1),
+            next: HashMap::new(),
+            running: false,
+        }
+    }
+
+    /// Of `drives`, those to look at `now`, in their order.
+    #[must_use]
+    pub(crate) fn due<'a>(
+        &self,
+        drives: impl IntoIterator<Item = &'a str>,
+        now: u64,
+    ) -> Vec<String> {
+        drives
+            .into_iter()
+            .filter(|drive_id| self.next.get(*drive_id).is_none_or(|at| *at <= now))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// What the look at `drive_id` at `now` found: when to look again - a day later, an hour
+    /// after a failure, or when the period becomes due ([`REDEEM_AHEAD_SECS`] before its end)
+    /// if that comes sooner.
+    pub(crate) fn looked(&mut self, drive_id: &str, redeemed: &Redeemed, now: u64) {
+        let daily = now.saturating_add(self.every);
+        let next = match redeemed {
+            Redeemed::Kept(_) => now.saturating_add(RETRY_SECS.min(self.every)),
+            Redeemed::NotDue {
+                period_until: Some(until),
+            }
+            | Redeemed::Extended {
+                period_until: Some(until),
+                ..
+            } => daily.min(until.saturating_sub(REDEEM_AHEAD_SECS)).max(now + 1),
+            Redeemed::Nothing
+            | Redeemed::NotDue { period_until: None }
+            | Redeemed::Extended {
+                period_until: None, ..
+            } => daily,
+        };
+        self.next.insert(drive_id.to_string(), next);
+    }
+
+    /// Seconds between two glances of the timer at the schedule.
+    fn tick(&self) -> u64 {
+        self.every.min(TICK_SECS)
+    }
+}
+
+/// The Azlin drive of `entry`: its id at the token server and that server (the entry's
+/// `account_url`, else `fallback`); `None` for every other drive.
+fn azlin_drive(entry: &DriveEntry, fallback: Option<&str>) -> Option<(String, String)> {
+    let DriveLocation::S3 {
+        auth:
+            DriveAuth::Azlin {
+                drive_id,
+                account_url,
+            },
+        ..
+    } = &entry.location
+    else {
+        return None;
+    };
+    let url = if account_url.trim().is_empty() {
+        fallback?.to_string()
+    } else {
+        account_url.clone()
+    };
+    Some((drive_id.clone(), url))
+}
+
+/// Looks at the periods of the Azlin drives of the source list - `only` that drive (at once,
+/// whatever the schedule says: its paid checkout's tokens were just kept), else those the
+/// schedule has due (all of them at the start). Nothing runs without one.
+pub(crate) fn start_redemptions(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    only: Option<&str>,
+) {
+    let fallback = s.token.url.clone();
+    let azlin: Vec<(String, String)> = s
+        .slots
+        .iter()
+        .filter_map(|slot| azlin_drive(&slot.entry, fallback.as_deref()))
+        .collect();
+    let drives: Vec<(String, String)> = match only {
+        Some(only) => azlin.into_iter().filter(|(id, _)| id == only).collect(),
+        None => {
+            let due = s
+                .redemptions
+                .due(azlin.iter().map(|(id, _)| id.as_str()), now_secs());
+            azlin.into_iter().filter(|(id, _)| due.contains(id)).collect()
+        }
+    };
+    if drives.is_empty() {
+        return;
+    }
+    if only.is_none() {
+        s.redemptions.running = true;
+    }
+    let job = Job::RedeemPeriods {
+        keyring: s.keyring.clone(),
+        store: s.period_tokens.clone(),
+        drives,
+    };
+    spawn(info, app, s, job);
+}
+
+/// What the looks found: the schedule learns when to look again; a month bought is printed
+/// (`AZDRIVE_PERIOD_REDEEMED <drive> <count> <until>`), a look that failed is tried again an
+/// hour later, quietly.
+pub(crate) fn periods_redeemed(s: &mut DriveState, results: Vec<(String, Redeemed)>) {
+    s.redemptions.running = false;
+    let now = now_secs();
+    for (drive_id, redeemed) in results {
+        s.redemptions.looked(&drive_id, &redeemed, now);
+        match redeemed {
+            Redeemed::Extended {
+                count,
+                period_until,
+            } => {
+                let until = period_until.map_or_else(|| String::from("-"), iso8601);
+                println!("AZDRIVE_PERIOD_REDEEMED {drive_id} {count} {until}");
+            }
+            Redeemed::Kept(why) => {
+                eprintln!("[azdrive] the period of {drive_id} waits for the next try: {why}");
+            }
+            Redeemed::Nothing | Redeemed::NotDue { .. } => {}
+        }
+    }
+}
+
+/// Starts the timer of the looks (from the window's start, after the first look).
+pub(crate) fn start_timer(info: &mut CallbackInfo, app: &RefAny, s: &DriveState) {
+    let get_time = info.get_system_time_fn();
+    let tick_ms = s.redemptions.tick().saturating_mul(1000);
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(app.clone(), on_period_timer, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(tick_ms))),
+    );
+}
+
+extern "C" fn on_period_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let mut callback_info = info.callback_info;
+    let app = data.clone();
+    let Some(mut s) = data.downcast_mut::<DriveState>() else {
+        return TimerCallbackReturn::continue_unchanged();
+    };
+    if !s.redemptions.running {
+        start_redemptions(&mut callback_info, &app, &mut *s, None);
+    }
+    TimerCallbackReturn::continue_unchanged()
+}
