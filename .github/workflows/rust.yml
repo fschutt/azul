@@ -778,6 +778,12 @@ jobs:
           cargo test -p azul-search --no-fail-fast 2>&1 | tee azul-search-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-search-tests.txt
 
+      - name: Run azul-search-index tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-search-index --no-fail-fast 2>&1 | tee azul-search-index-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-search-index-tests.txt
+
       - name: Run azul-termkit tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi

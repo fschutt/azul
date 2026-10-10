@@ -1,0 +1,35 @@
+[package]
+name = "azul-search-index"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The full-text index of a drive for the Azlin apps' search (AzDrive's search box): one
+    tantivy index per drive in the app's cache folder, built and kept up to date from
+    azul-search's walk (only the files whose size or date changed are read again), with the
+    text of plain files, office documents (Word, Excel, PowerPoint, OpenDocument, EPUB: the
+    text of their XML), mail (.eml through mail-parser) and - handed in by the app, which links
+    azul's PDF reader - PDFs. A query is words and word beginnings ("quarterly rep" finds
+    "quarterly report"), below a folder of the drive, best first. Blocking, plain Rust (no azul
+    types): the apps run it on an azul `Thread`.
+"""
+publish = false
+
+[dependencies]
+# The walk: the same filters (hidden files, .gitignore, excludes) as the search box's.
+azul-search = { path = "../azul-search" }
+# The index. NEW in the tree (with its 33 dependencies the lock does not have yet: the
+# tantivy-* crates, bon, typetag, darling 0.24, ...; see scripts/SEARCH17.PROGRESS.md). No
+# default features: "mmap" alone (an index on disk); no zstd (its C build), no stemmer, no lz4.
+tantivy = { version = "0.26.2", default-features = false, features = ["mmap"] }
+# Office documents and EPUBs are zip files of XML (both already in the tree: azul-layout's
+# zip 2.4.2, azul-storage's roxmltree 0.21).
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+roxmltree = "0.21.1"
+# Mail (.eml): AzMail's parser, already in the tree.
+mail-parser = "0.11"
+
+[lib]
+name = "azul_search_index"
+path = "src/lib.rs"
