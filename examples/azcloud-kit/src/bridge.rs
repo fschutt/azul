@@ -15,7 +15,7 @@ use std::{
 
 use serde::Deserialize;
 
-use crate::{secrets::FileSecrets, state::SECRETS_FILE};
+use crate::{secrets::FileSecrets, state::SECRETS_FILE, user_errors::Lang};
 
 /// The variable naming the bridge's state folder.
 pub const HOME_VAR: &str = "AZUL_BRIDGE_HOME";
@@ -89,17 +89,78 @@ pub enum PasswordSource {
     File(PathBuf),
 }
 
-/// One setting a program is to be told: what the program calls it, and its value.
+/// One setting a program is to be told: what the program calls it, and its value - in English,
+/// and as the ids of their messages ([`fluent_source`]) for an app that says them in the
+/// window's language.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub label: String,
     pub value: String,
+    /// The label's message (`azlin-bridge-imap-port`).
+    pub label_id: &'static str,
+    /// A worded value's message (the connection security's "None"); `None` for a value as it
+    /// is (a port, an address).
+    pub value_id: Option<&'static str>,
 }
 
-fn row(label: &str, value: &str) -> Row {
+/// The rows' words: (message id, English, German).
+const WORDS: [(&str, &str, &str); 9] = [
+    ("azlin-bridge-imap-server", "IMAP server (incoming mail)", "IMAP-Server (eingehende E-Mails)"),
+    ("azlin-bridge-imap-port", "IMAP port", "IMAP-Port"),
+    ("azlin-bridge-smtp-server", "SMTP server (outgoing mail)", "SMTP-Server (ausgehende E-Mails)"),
+    ("azlin-bridge-smtp-port", "SMTP port", "SMTP-Port"),
+    ("azlin-bridge-security", "Connection security", "Verbindungssicherheit"),
+    (
+        "azlin-bridge-security-none",
+        "None (the bridge answers this computer only)",
+        "Keine (die Bridge antwortet nur diesem Computer)",
+    ),
+    ("azlin-bridge-user", "User name", "Benutzername"),
+    ("azlin-bridge-webdav", "Server address (WebDAV)", "Serveradresse (WebDAV)"),
+    (
+        "azlin-bridge-caldav",
+        "Server address (CalDAV / CardDAV)",
+        "Serveradresse (CalDAV / CardDAV)",
+    ),
+];
+
+/// The English of the message `id` of [`WORDS`].
+fn english(id: &str) -> &'static str {
+    WORDS
+        .iter()
+        .find(|(word, _, _)| *word == id)
+        .map_or("", |(_, en, _)| *en)
+}
+
+/// The rows' words as a Fluent resource in `lang`: an app gives it to the engine with the
+/// error table (`user_errors::fluent_source`) and says a row by its ids.
+#[must_use]
+pub fn fluent_source(lang: Lang) -> String {
+    let mut out = String::from("# The Azlin Bridge's settings (azcloud-kit bridge).\n");
+    for (id, en, de) in WORDS {
+        let text = match lang {
+            Lang::En => en,
+            Lang::De => de,
+        };
+        out.push_str(&format!("{id} = {text}\n"));
+    }
+    out
+}
+
+fn row(label_id: &'static str, value: &str) -> Row {
     Row {
-        label: label.to_string(),
+        label: english(label_id).to_string(),
         value: value.to_string(),
+        label_id,
+        value_id: None,
+    }
+}
+
+/// A row whose value is words of [`WORDS`] too.
+fn worded_row(label_id: &'static str, value_id: &'static str) -> Row {
+    Row {
+        value_id: Some(value_id),
+        ..row(label_id, english(value_id))
     }
 }
 
@@ -141,12 +202,12 @@ impl BridgeSettings {
     #[must_use]
     pub fn mail_rows(&self) -> Vec<Row> {
         vec![
-            row("IMAP server (incoming mail)", HOST),
-            row("IMAP port", &self.imap_port.to_string()),
-            row("SMTP server (outgoing mail)", HOST),
-            row("SMTP port", &self.smtp_port.to_string()),
-            row("Connection security", "None (the bridge answers this computer only)"),
-            row("User name", &self.address),
+            row("azlin-bridge-imap-server", HOST),
+            row("azlin-bridge-imap-port", &self.imap_port.to_string()),
+            row("azlin-bridge-smtp-server", HOST),
+            row("azlin-bridge-smtp-port", &self.smtp_port.to_string()),
+            worded_row("azlin-bridge-security", "azlin-bridge-security-none"),
+            row("azlin-bridge-user", &self.address),
         ]
     }
 
@@ -155,8 +216,8 @@ impl BridgeSettings {
     #[must_use]
     pub fn files_rows(&self) -> Vec<Row> {
         vec![
-            row("Server address (WebDAV)", &format!("http://{HOST}:{}/", self.dav_port)),
-            row("User name", &self.address),
+            row("azlin-bridge-webdav", &format!("http://{HOST}:{}/", self.dav_port)),
+            row("azlin-bridge-user", &self.address),
         ]
     }
 
@@ -164,8 +225,8 @@ impl BridgeSettings {
     #[must_use]
     pub fn calendar_rows(&self) -> Vec<Row> {
         vec![
-            row("Server address (CalDAV / CardDAV)", &format!("http://{HOST}:{}/", self.pim_port)),
-            row("User name", &self.address),
+            row("azlin-bridge-caldav", &format!("http://{HOST}:{}/", self.pim_port)),
+            row("azlin-bridge-user", &self.address),
         ]
     }
 
