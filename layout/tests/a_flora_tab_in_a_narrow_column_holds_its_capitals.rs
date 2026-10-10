@@ -183,7 +183,10 @@ fn assert_every_tab_holds_its_capitals(case: &str, laid: &Laid) {
         );
         assert!(
             right <= COLUMN + 0.5,
-            "{case}: the {label} tab ends inside the column: {right:.2}"
+            "{case}: the {label} tab ends inside the column: {right:.2} (tabs {:?}, glyph x of each \
+             run {:?})",
+            laid.tabs,
+            laid.runs.iter().map(|r| r.glyphs.iter().map(|g| g.0).collect::<Vec<_>>()).collect::<Vec<_>>()
         );
     }
 }
