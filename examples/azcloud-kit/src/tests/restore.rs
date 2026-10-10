@@ -171,7 +171,7 @@ fn the_state_at_a_time_is_the_newest_commit_made_then_or_before() {
 
 /// A token server whose restore of `d_1` is `r_1`, its progress `states` one after the other (the
 /// last one from then on); every call with the newest drive token.
-fn restoring_server(states: &'static [&'static str]) -> Fake {
+fn restoring_server(states: &'static [&'static str]) -> Arc<Fake> {
     Fake::new(move |call, n| {
         assert_eq!(header(call, "authorization"), Some("Bearer dt_f.4.newest"));
         if n == 0 {
