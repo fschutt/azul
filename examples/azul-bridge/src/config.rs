@@ -19,18 +19,18 @@ use azcloud_kit::{
 };
 use serde::{Deserialize, Serialize};
 
-/// The settings file's name.
-pub const CONFIG_FILE: &str = "bridge.json";
+/// The settings file's name (the apps read it: azcloud-kit's `bridge`, the same names).
+pub const CONFIG_FILE: &str = azcloud_kit::bridge::CONFIG_FILE;
 /// Its `format`.
-pub const CONFIG_FORMAT: &str = "azul-bridge.config";
+pub const CONFIG_FORMAT: &str = azcloud_kit::bridge::CONFIG_FORMAT;
 /// The variable naming the state folder.
-pub const HOME_VAR: &str = "AZUL_BRIDGE_HOME";
+pub const HOME_VAR: &str = azcloud_kit::bridge::HOME_VAR;
 /// The default ports: IMAP and submission as Proton Mail Bridge has them, WebDAV next to them.
 pub const IMAP_PORT: u16 = 1143;
 pub const SMTP_PORT: u16 = 1025;
 pub const DAV_PORT: u16 = 1180;
 /// CalDAV and CardDAV, next to WebDAV.
-pub const PIM_PORT: u16 = 1181;
+pub const PIM_PORT: u16 = azcloud_kit::bridge::PIM_PORT;
 /// The folders inside the state folder.
 pub const SPOOL_DIR: &str = "spool";
 
@@ -127,8 +127,7 @@ impl BridgeConfig {
 #[must_use]
 pub fn state_dir(flag: Option<PathBuf>, env: Option<String>, config_dir: Option<PathBuf>) -> Option<PathBuf> {
     flag.filter(|p| !p.as_os_str().is_empty())
-        .or_else(|| env.filter(|v| !v.trim().is_empty()).map(PathBuf::from))
-        .or_else(|| config_dir.map(|dir| dir.join("azul-bridge")))
+        .or_else(|| azcloud_kit::bridge::state_dir(env, config_dir))
 }
 
 #[cfg(test)]
@@ -164,5 +163,24 @@ mod tests {
         assert!(!text.to_ascii_lowercase().contains("password"), "{text}");
         std::fs::write(dir.0.join(CONFIG_FILE), b"{\"format\":\"other\",\"version\":1,\"address\":\"a\",\"account\":\"a\",\"imap_port\":1,\"smtp_port\":1,\"dav_port\":1}").unwrap();
         assert!(BridgeConfig::load(&dir.0).is_err());
+    }
+
+    #[test]
+    fn the_apps_read_what_the_bridge_writes() {
+        let dir = TempDir::new("bridge-config-apps");
+        let mut config = BridgeConfig::new("ada@example.org");
+        config.pim_port = 2181;
+        config.keyring = String::from("os");
+        config.save(&dir.0).unwrap();
+        let shown = azcloud_kit::bridge::BridgeSettings::load(&dir.0).expect("AzMail and AzDrive find it");
+        assert_eq!(shown.address, config.address);
+        assert_eq!(
+            (shown.imap_port, shown.smtp_port, shown.dav_port, shown.pim_port),
+            (config.imap_port, config.smtp_port, config.dav_port, 2181)
+        );
+        assert_eq!(
+            shown.password_source(),
+            azcloud_kit::bridge::PasswordSource::Keyring(crate::secrets::PASSWORD_ENTRY.to_string())
+        );
     }
 }

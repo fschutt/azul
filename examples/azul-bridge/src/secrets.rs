@@ -20,7 +20,7 @@ use azcloud_kit::secrets::FileSecrets;
 pub use azul_storage::keyring::{KeyringError, KeyringStore};
 
 /// The entry of the bridge's own password.
-pub const PASSWORD_ENTRY: &str = "AzulBridge/password";
+pub const PASSWORD_ENTRY: &str = azcloud_kit::bridge::PASSWORD_ENTRY;
 
 /// The entry of a mail account's DKIM private key: AzMail's keyring name for it.
 #[must_use]
