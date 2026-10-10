@@ -57,6 +57,9 @@ ed25519-dalek = { version = "2.2", default-features = false, features = ["std", 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+# The errors' Fluent resources parse (user_errors tests). No new crate: azul-layout's Fluent
+# parser, 0.12.0 in Cargo.lock.
+fluent-syntax = { version = "0.12", default-features = false }
 
 [features]
 default = []

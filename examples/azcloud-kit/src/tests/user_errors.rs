@@ -289,3 +289,65 @@ fn the_table_is_a_fluent_resource_in_english_and_german() {
     assert!(en.contains("{ $detail }"), "the placeholders as Fluent variables");
     assert_eq!(en.lines().filter(|l| l.starts_with("azlin-error-")).count(), ROWS.len());
 }
+
+#[test]
+fn every_code_has_an_english_and_a_german_message_and_both_resources_parse() {
+    use fluent_syntax::ast::Entry;
+
+    use crate::user_errors::ID_LABEL_MESSAGE;
+
+    assert_eq!(
+        Code::ReadOnlyUnpaid.message_id(),
+        "azlin-error-read-only-unpaid"
+    );
+    for lang in [Lang::En, Lang::De] {
+        let source = fluent_source(lang);
+        let resource = fluent_syntax::parser::parse(source.as_str())
+            .unwrap_or_else(|(_, errors)| panic!("{lang:?}: {errors:?}"));
+        let ids: Vec<String> = resource
+            .body
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Message(message) => Some(message.id.name.to_string()),
+                _ => None,
+            })
+            .collect();
+        for code in Code::ALL {
+            assert!(
+                ids.contains(&code.message_id()),
+                "{lang:?} lacks {}",
+                code.message_id()
+            );
+        }
+        assert!(
+            ids.iter().any(|id| id == ID_LABEL_MESSAGE),
+            "{lang:?}: {ids:?}"
+        );
+        assert_eq!(
+            ids.len(),
+            Code::ALL.len() + 1,
+            "{lang:?}: one message per code and the label"
+        );
+    }
+}
+
+#[test]
+fn a_user_error_names_its_message_its_arguments_and_its_error_id() {
+    let error = UserError {
+        code: Code::Other,
+        retry_after: None,
+        request_id: Some(String::from(" 075C54CD9331456E ")),
+        detail: String::from(" the node said no "),
+    };
+    assert_eq!(error.message_id(), "azlin-error-other");
+    assert_eq!(
+        error.fluent_args(),
+        vec![("detail", String::from("the node said no"))]
+    );
+    assert_eq!(error.error_id(), Some("075C54CD9331456E"));
+    let without = UserError {
+        request_id: Some(String::from("  ")),
+        ..error
+    };
+    assert_eq!(without.error_id(), None);
+}
