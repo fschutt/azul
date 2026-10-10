@@ -1296,3 +1296,11 @@ azdrive-enc-checking = Opening the drive's recovery key with the code (a few sec
 azdrive-enc-lockdown-bad-code = That is not a recovery code (26 letters and digits, in five groups), or the drive's token server is not known.
 azdrive-enc-locking-title = Locking the drive down
 azdrive-enc-locking = Signing the lockdown with the recovery code…
+
+## A user's own errors
+
+azdrive-err-not-found = "{ $name }" does not exist.
+azdrive-err-invalid-name = "{ $name }" is not a valid name: { $reason }
+azdrive-err-range = The requested range is outside "{ $name }".
+azdrive-err-io = File error: { $detail }
+azdrive-err-unsupported = Not supported yet: { $detail }

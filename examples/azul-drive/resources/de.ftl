@@ -1294,3 +1294,11 @@ azdrive-enc-checking = Der Wiederherstellungsschlüssel des Laufwerks wird mit d
 azdrive-enc-lockdown-bad-code = Das ist kein Wiederherstellungscode (26 Buchstaben und Ziffern in fünf Gruppen), oder der Tokenserver des Laufwerks ist nicht bekannt.
 azdrive-enc-locking-title = Das Laufwerk wird gesperrt
 azdrive-enc-locking = Die Sperrung wird mit dem Wiederherstellungscode signiert…
+
+## A user's own errors
+
+azdrive-err-not-found = „{ $name }“ existiert nicht.
+azdrive-err-invalid-name = „{ $name }“ ist kein gültiger Name: { $reason }
+azdrive-err-range = Der angeforderte Bereich liegt außerhalb von „{ $name }“.
+azdrive-err-io = Dateifehler: { $detail }
+azdrive-err-unsupported = Noch nicht unterstützt: { $detail }

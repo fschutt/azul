@@ -65,11 +65,33 @@ pub(crate) fn error_text(e: &UserError) -> Text {
     }
 }
 
-/// A drive's error: the table's ([`error_text`]) for a storage or token server error, the
-/// error's own words for one the user caused.
+/// A drive's error: the table's ([`error_text`]) for a storage or token server error, AzDrive's
+/// words for one the user caused ([`own_error_text`]).
 #[must_use]
 pub(crate) fn drive_error_text(e: &DriveError) -> Text {
-    UserError::from_drive_error(e).map_or_else(|| Text::plain(e.to_string()), |u| error_text(&u))
+    UserError::from_drive_error(e).map_or_else(|| own_error_text(e), |u| error_text(&u))
+}
+
+/// An error the user caused, in AzDrive's words: the item's name, the file system's or the
+/// settings' own words as they are.
+fn own_error_text(e: &DriveError) -> Text {
+    let said = match e {
+        DriveError::NotFound { key } => {
+            Phrase::new("azdrive-err-not-found").arg("name", azul_storage::key::last_segment(key))
+        }
+        DriveError::InvalidKey { key, reason } => Phrase::new("azdrive-err-invalid-name")
+            .arg("name", key.as_str())
+            .arg("reason", *reason),
+        DriveError::InvalidRange { key } => {
+            Phrase::new("azdrive-err-range").arg("name", azul_storage::key::last_segment(key))
+        }
+        DriveError::Io(why) => Phrase::new("azdrive-err-io").arg("detail", why.as_str()),
+        DriveError::Unsupported(what) => {
+            Phrase::new("azdrive-err-unsupported").arg("detail", what.as_str())
+        }
+        other => return Text::plain(other.to_string()),
+    };
+    said.into()
 }
 
 /// A token server's error ([`drive_error_text`]'s rule).
