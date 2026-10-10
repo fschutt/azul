@@ -69,13 +69,13 @@ impl Style {
         }
     }
 
-    /// The style's name for people, as Outlook's print page lists it.
+    /// The style's name for people, as Outlook's print page lists it (a key of the resources).
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Style::Daily => "Daily Style",
-            Style::Weekly => "Weekly Agenda Style",
-            Style::Monthly => "Monthly Style",
+            Style::Daily => "azcalendar-print-daily",
+            Style::Weekly => "azcalendar-print-weekly",
+            Style::Monthly => "azcalendar-print-monthly",
         }
     }
 

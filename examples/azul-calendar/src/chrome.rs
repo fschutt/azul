@@ -33,7 +33,7 @@ use azul::{
 };
 use azul_appkit::{
     args::LanguagePref,
-    l10n::label,
+    l10n::{label, t, t_args, t_label, Arg},
     pieces::{self, flex_row},
     ribbon::callback_button,
 };
@@ -52,12 +52,12 @@ const NAV_PX: f32 = 252.0;
 const NAV_FOLDED_PX: f32 = 56.0;
 /// How many coming appointments the To-Do bar lists.
 const TODO_APPOINTMENTS: usize = 8;
-/// The module switcher: Outlook's four, Calendar the one this is.
+/// The module switcher: Outlook's four, Calendar the one this is (keys of the resources).
 const MODULES: [(&str, &str); 4] = [
-    ("Mail", "mail"),
-    ("Calendar", "event"),
-    ("Contacts", "person"),
-    ("Tasks", "task_alt"),
+    ("azcalendar-module-mail", "mail"),
+    ("azcalendar-module-calendar", "event"),
+    ("azcalendar-module-contacts", "person"),
+    ("azcalendar-module-tasks", "task_alt"),
 ];
 const CALENDAR_MODULE: usize = 1;
 
@@ -74,7 +74,7 @@ pub(crate) fn office_shell(s: &CalState, app: &RefAny, window_height: f32) -> Do
         .with_pane(
             ShellPane::create(ids::NAVIGATION_PANE, navigation_pane(s, app))
                 .with_kind(ShellPaneKind::Navigation)
-                .with_label("Navigation pane")
+                .with_label(label("azcalendar-navigation-pane-label"))
                 .with_width(width),
         )
         .with_pane(
@@ -83,13 +83,13 @@ pub(crate) fn office_shell(s: &CalState, app: &RefAny, window_height: f32) -> Do
                 views_ui::calendar_pane(s, app, window_height),
             )
             .with_kind(ShellPaneKind::Main)
-            .with_label("Calendar"),
+            .with_label(label("azcalendar-module-calendar")),
         )
         .with_status_bar(status_bar(s, app));
     if s.todo_bar {
         shell = shell
             .with_right_bar(todo_bar(s, app))
-            .with_right_bar_label("To-Do Bar");
+            .with_right_bar_label(label("azcalendar-todo-bar"));
     }
     shell.dom()
 }
@@ -123,53 +123,53 @@ fn arrange_group(s: &CalState, app: &RefAny) -> RibbonGroup {
     ];
     views
         .into_iter()
-        .fold(RibbonGroup::create("Arrange"), |group, (view, cb)| {
+        .fold(RibbonGroup::create(label("azcalendar-arrange")), |group, (view, cb)| {
             group.with_item(toggled(app, view.icon(), view.label(), s.view == view, cb))
         })
 }
 
 /// FILE (the backstage), HOME and VIEW.
 fn ribbon(s: &CalState, app: &RefAny) -> Dom {
-    let home = RibbonTab::create("HOME")
+    let home = RibbonTab::create(label("azcalendar-tab-home"))
         .with_group(
-            RibbonGroup::create("New")
+            RibbonGroup::create(label("azcalendar-new"))
                 .with_item(large(
                     app,
                     "event",
-                    "New Appointment",
+                    "azcalendar-new-appointment",
                     editor_ui::on_new_appointment,
                 ))
                 .with_item(large(
                     app,
                     "video_call",
-                    "New Meeting",
+                    "azcalendar-new-meeting",
                     editor_ui::on_new_meeting,
                 )),
         )
         .with_group(
-            RibbonGroup::create("Go To")
-                .with_item(large(app, "today", "Today", on_today))
-                .with_item(large(app, "date_range", "Next 7 Days", on_next_seven_days)),
+            RibbonGroup::create(label("azcalendar-go-to"))
+                .with_item(large(app, "today", "azcalendar-today", on_today))
+                .with_item(large(app, "date_range", "azcalendar-next-7-days", on_next_seven_days)),
         )
         .with_group(arrange_group(s, app))
         .with_group(
-            RibbonGroup::create("Manage Calendars")
-                .with_item(large(app, "folder_open", "Open Calendar", on_open_page))
-                .with_item(large(app, "edit_calendar", "Calendars", on_calendars_page)),
+            RibbonGroup::create(label("azcalendar-manage-calendars"))
+                .with_item(large(app, "folder_open", "azcalendar-open-calendar", on_open_page))
+                .with_item(large(app, "edit_calendar", "azcalendar-file-calendars", on_calendars_page)),
         )
-        .with_group(RibbonGroup::create("Share").with_item(large(
+        .with_group(RibbonGroup::create(label("azcalendar-share")).with_item(large(
             app,
             "share",
-            "Share Calendar",
+            "azcalendar-share-calendar",
             on_share,
         )));
-    let view = RibbonTab::create("VIEW")
+    let view = RibbonTab::create(label("azcalendar-tab-view"))
         .with_group(
-            RibbonGroup::create("Current View")
+            RibbonGroup::create(label("azcalendar-current-view"))
                 .with_item(toggled(
                     app,
                     "calendar_month",
-                    "Calendar",
+                    "azcalendar-module-calendar",
                     s.view != ViewKind::Agenda,
                     on_view_calendar,
                 ))
@@ -183,31 +183,31 @@ fn ribbon(s: &CalState, app: &RefAny) -> Dom {
         )
         .with_group(arrange_group(s, app))
         .with_group(
-            RibbonGroup::create("Layout")
+            RibbonGroup::create(label("azcalendar-layout"))
                 .with_item(toggled(
                     app,
                     "view_sidebar",
-                    "Navigation Pane",
+                    "azcalendar-navigation-pane",
                     !s.nav_folded,
                     on_toggle_navigation,
                 ))
                 .with_item(toggled(
                     app,
                     "checklist",
-                    "To-Do Bar",
+                    "azcalendar-todo-bar",
                     s.todo_bar,
                     on_toggle_todo,
                 )),
         )
         .with_group(
-            RibbonGroup::create("Look")
-                .with_item(large(app, "crop_square", "Flat", on_flat))
-                .with_item(large(app, "local_florist", "Flora", on_flora))
-                .with_item(large(app, "light_mode", "Light", on_light))
-                .with_item(large(app, "dark_mode", "Dark", on_dark)),
+            RibbonGroup::create(label("azcalendar-look"))
+                .with_item(large(app, "crop_square", "kit-theme-flat", on_flat))
+                .with_item(large(app, "local_florist", "kit-theme-flora", on_flora))
+                .with_item(large(app, "light_mode", "kit-mode-light", on_light))
+                .with_item(large(app, "dark_mode", "kit-mode-dark", on_dark)),
         );
     Ribbon::create(vec![home, view])
-        .with_app_button(RibbonAppButton::create("FILE").with_on_click(app.clone(), on_file))
+        .with_app_button(RibbonAppButton::create(label("azcalendar-tab-file")).with_on_click(app.clone(), on_file))
         .with_active_tab(s.ribbon_tab)
         .with_on_tab_click(app.clone(), on_ribbon_tab)
         .dom_desktop()
@@ -242,7 +242,7 @@ fn date_navigator(s: &CalState, app: &RefAny) -> Dom {
         .with_week_start(DatePickerWeekStart::Monday)
         .with_today(s.today.year().max(1) as u32, s.today.month(), s.today.day())
         .with_range(state(first), state(last))
-        .with_accessibility_name("Date navigator")
+        .with_accessibility_name(label("azcalendar-date-navigator"))
         .with_on_change(app.clone(), on_nav_date)
         .dom()
         .with_id(ids::DATE_NAVIGATOR)
@@ -254,7 +254,7 @@ fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
         .with_id(ids::MY_CALENDARS)
         .with_css("display: flex; flex-direction: column; margin-top: 12px;")
         .with_child(
-            Dom::create_span_with_text("My calendars")
+            Dom::create_span_with_text(label("azcalendar-my-calendars"))
                 .with_css("font-size: 12px; font-weight: bold; margin-bottom: 4px;"),
         );
     for (index, c) in s.calendars.iter().enumerate() {
@@ -295,13 +295,13 @@ fn navigation_pane(s: &CalState, app: &RefAny) -> Dom {
         .with_child(date_navigator(s, app))
         .with_child(my_calendars(s, app));
     let mut pane = ShellNavigationPane::create()
-        .with_label("Navigation pane")
+        .with_label(label("azcalendar-navigation-pane-label"))
         .with_header(header)
         .with_active_module(CALENDAR_MODULE)
         .with_collapsed(s.nav_folded)
         .with_on_event(app.clone(), on_navigation_event);
-    for (label, icon) in MODULES {
-        pane = pane.with_module(ShellNavigationModule::create(label, icon));
+    for (name, icon) in MODULES {
+        pane = pane.with_module(ShellNavigationModule::create(label(name), icon));
     }
     pane.dom()
 }
@@ -314,32 +314,30 @@ fn status_bar(s: &CalState, app: &RefAny) -> Dom {
     let (first, last) = views::visible_range(s.view, s.anchor);
     let items = s.occurrences(first, last).len();
     let pending = s.pending_links();
-    let (label, kind) = if !s.syncing.is_empty() {
+    let count = |key: &str, n: usize| t_args(key, &[("count", Arg::from(n))]);
+    let (sync, kind) = if !s.syncing.is_empty() {
         (
-            format!("Sending {} meeting link(s)\u{2026}", s.syncing.len()),
+            count("azcalendar-status-sending", s.syncing.len()),
             StatusBarSyncKind::Syncing,
         )
     } else if pending == 0 {
-        (
-            String::from("Meeting links up to date"),
-            StatusBarSyncKind::Connected,
-        )
+        (t("azcalendar-status-links-done"), StatusBarSyncKind::Connected)
     } else if !s.sync_error.is_empty() {
         (
-            format!("{pending} meeting link(s) wait: the server is not reached"),
+            count("azcalendar-status-links-unreached", pending),
             StatusBarSyncKind::Error,
         )
     } else {
         (
-            format!("{pending} meeting link(s) wait for the server"),
+            count("azcalendar-status-links-waiting", pending),
             StatusBarSyncKind::Offline,
         )
     };
     StatusBar::create(vec![
-        StatusBarSegment::create(format!("Items: {items}")),
+        StatusBarSegment::create(count("azcalendar-status-items", items)),
         StatusBarSegment::create(views::title(s.view, s.anchor)),
     ])
-    .with_sync(StatusBarSync::create(label, kind).with_on_click(app.clone(), crate::on_sync_now))
+    .with_sync(StatusBarSync::create(sync, kind).with_on_click(app.clone(), crate::on_sync_now))
     .dom()
 }
 
@@ -365,11 +363,12 @@ fn todo_bar(s: &CalState, app: &RefAny) -> Dom {
         .map(|o| {
             let e = &s.events[o.index];
             let when = if e.all_day {
-                String::from("all day")
+                t("azcalendar-all-day-lower")
             } else {
                 e.start.format("%H:%M").to_string()
             };
-            AzString::from(format!("{} {when}  {}", o.first.format("%a %-d"), e.title))
+            let day = crate::day_text(azul_appkit::l10n::DateStyle::ShortWeekdayDay, o.first);
+            AzString::from(format!("{day} {when}  {}", e.title))
         })
         .collect();
     let tasks: Vec<ToDoTask> = s
@@ -387,10 +386,10 @@ fn todo_bar(s: &CalState, app: &RefAny) -> Dom {
     // The calendar's weeks run Monday to Sunday: so do the To-Do bar's rows (WIDGETS7).
     .with_week_start(DatePickerWeekStart::Monday)
     .with_appointments(StringVec::from(appointments))
-    .with_appointments_empty("No upcoming appointments.")
-    .with_task_line("Type a new task", s.task_text.as_str())
+    .with_appointments_empty(label("azcalendar-no-upcoming-appointments"))
+    .with_task_line(label("azcalendar-type-new-task"), s.task_text.as_str())
     .with_tasks(tasks)
-    .with_accessibility_name("To-Do Bar")
+    .with_accessibility_name(label("azcalendar-todo-bar"))
     .with_on_pick(app.clone(), on_todo_event)
     .with_on_task(app.clone(), on_todo_event)
     .with_on_appointment(app.clone(), on_todo_event)
@@ -405,7 +404,7 @@ fn backstage(s: &CalState, app: &RefAny, page: BackstagePage) -> Dom {
     let items: Vec<BackstageNavItem> = BackstagePage::ALL
         .iter()
         .map(|p| {
-            let item = BackstageNavItem::create(p.label());
+            let item = BackstageNavItem::create(label(p.label()));
             if *p == BackstagePage::Options {
                 item.with_gap_before()
             } else {
@@ -429,17 +428,19 @@ fn backstage(s: &CalState, app: &RefAny, page: BackstagePage) -> Dom {
         .dom()
 }
 
+// The pieces take keys of the resources, or words as they are (appkit's label).
+
 pub(crate) fn page_title(text: &str) -> Dom {
-    Dom::create_span_with_text(text).with_css("font-size: 28px; margin-bottom: 8px;")
+    Dom::create_span_with_text(label(text)).with_css("font-size: 28px; margin-bottom: 8px;")
 }
 
 fn heading(text: &str) -> Dom {
-    Dom::create_span_with_text(text)
+    Dom::create_span_with_text(label(text))
         .with_css("font-size: 16px; font-weight: bold; margin-top: 22px; margin-bottom: 4px;")
 }
 
 fn note(text: &str) -> Dom {
-    Dom::create_span_with_text(text)
+    Dom::create_span_with_text(label(text))
         .with_css(format!("font-size: 12px; {SECONDARY} margin-top: 4px;"))
 }
 
@@ -461,11 +462,12 @@ fn primary(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackTyp
 /// How the meeting links stand, in a sentence.
 fn sync_status(s: &CalState) -> String {
     match (s.pending_links(), s.sync_error.is_empty()) {
-        (0, _) => String::from("Every meeting link is on the meeting server."),
-        (1, true) => String::from("1 meeting link is being sent to the meeting server."),
-        (n, true) => format!("{n} meeting links are being sent to the meeting server."),
-        (1, false) => format!("1 meeting link waits: {}", s.sync_error),
-        (n, false) => format!("{n} meeting links wait: {}", s.sync_error),
+        (0, _) => t("azcalendar-sync-all-there"),
+        (n, true) => t_args("azcalendar-sync-sending", &[("count", Arg::from(n))]),
+        (n, false) => t_args(
+            "azcalendar-sync-waiting",
+            &[("count", Arg::from(n)), ("why", Arg::from(t_label(&s.sync_error)))],
+        ),
     }
 }
 
@@ -474,20 +476,26 @@ fn info_page(s: &CalState, app: &RefAny) -> Dom {
     let repeating = s.events.iter().filter(|e| e.repeat.is_some()).count();
     Dom::create_div()
         .with_css(PAGE)
-        .with_child(page_title("Calendar information"))
-        .with_child(heading("Calendar"))
-        .with_child(note(&format!(
-            "{} events ({repeating} repeating) in {} calendars, {} tasks.",
-            s.events.len(),
-            s.calendars.len(),
-            s.tasks.len()
+        .with_child(page_title("azcalendar-calendar-information"))
+        .with_child(heading("azcalendar-module-calendar"))
+        .with_child(note(&t_args(
+            "azcalendar-info-counts",
+            &[
+                ("events", Arg::from(s.events.len())),
+                ("repeating", Arg::from(repeating)),
+                ("calendars", Arg::from(s.calendars.len())),
+                ("tasks", Arg::from(s.tasks.len())),
+            ],
         )))
-        .with_child(note(&format!("Data folder: {}", s.data_dir.display())))
-        .with_child(heading("Meeting server"))
+        .with_child(note(&t_args(
+            "azcalendar-info-data-folder",
+            &[("folder", Arg::from(s.data_dir.display().to_string()))],
+        )))
+        .with_child(heading("azcalendar-meeting-server"))
         .with_child(note(&s.server))
         .with_child(note(&sync_status(s)))
         .with_child(line(vec![button(
-            "Sync meeting links now",
+            "azcalendar-sync-meeting-links-now",
             ids::INFO_SYNC,
             app,
             crate::on_sync_now,
@@ -506,59 +514,58 @@ fn calendar_names(s: &CalState, last: &str) -> Vec<String> {
 fn open_page(s: &CalState, app: &RefAny) -> Dom {
     let mut page = Dom::create_div()
         .with_css(PAGE)
-        .with_child(page_title("Open & Export"))
-        .with_child(heading("Import an iCalendar file (.ics)"))
+        .with_child(page_title("azcalendar-file-open"))
+        .with_child(heading("azcalendar-import-icalendar-file-ics"))
         .with_child(note(
-            "Events from Outlook, Google Calendar, Apple Calendar and others. An event imported \
-             again is updated, not added twice.",
+            "azcalendar-events-from-outlook-google",
         ))
         .with_child(line(vec![
             crate::text_field(
                 &s.import_path,
                 "/path/to/calendar.ics",
-                "File to import",
+                "azcalendar-file-import",
                 ids::IMPORT_PATH,
                 app.clone(),
                 on_import_path,
             ),
-            button("Browse\u{2026}", ids::IMPORT_BROWSE, app, on_import_browse),
+            button("azcalendar-browse", ids::IMPORT_BROWSE, app, on_import_browse),
         ]))
         .with_child(line(vec![
-            Dom::create_span_with_text("Into").with_css(format!("margin-right: 8px; {SECONDARY}")),
+            Dom::create_span_with_text(label("azcalendar-into")).with_css(format!("margin-right: 8px; {SECONDARY}")),
             crate::drop_down(
-                calendar_names(s, "A new calendar named after the file"),
+                calendar_names(s, "azcalendar-new-calendar-named-after"),
                 s.import_calendar.min(s.calendars.len()),
-                "Import into",
+                "azcalendar-import-into",
                 ids::IMPORT_CALENDAR,
                 app.clone(),
                 on_import_calendar,
             ),
-            primary("Import", ids::IMPORT_RUN, app, on_import_run),
+            primary("azcalendar-import", ids::IMPORT_RUN, app, on_import_run),
         ]))
-        .with_child(heading("Export a calendar as an iCalendar file"))
+        .with_child(heading("azcalendar-export-calendar-as-icalendar"))
         .with_child(line(vec![
             // Exports go into the data folder's `exports` folder (the data tree a sync sees).
             crate::text_field(
                 &s.export_path,
-                "calendar.ics (in the exports folder)",
-                "File name to export to",
+                "azcalendar-calendar-ics-exports-folder",
+                "azcalendar-file-name-export",
                 ids::EXPORT_PATH,
                 app.clone(),
                 on_export_path,
             ),
         ]))
         .with_child(line(vec![
-            Dom::create_span_with_text("Calendar")
+            Dom::create_span_with_text(label("azcalendar-module-calendar"))
                 .with_css(format!("margin-right: 8px; {SECONDARY}")),
             crate::drop_down(
-                calendar_names(s, "All calendars"),
+                calendar_names(s, "azcalendar-all-calendars"),
                 s.export_calendar.min(s.calendars.len()),
-                "Calendar to export",
+                "azcalendar-calendar-export",
                 ids::EXPORT_CALENDAR,
                 app.clone(),
                 on_export_calendar,
             ),
-            primary("Export", ids::EXPORT_RUN, app, on_export_run),
+            primary("azcalendar-export", ids::EXPORT_RUN, app, on_export_run),
         ]));
     if !s.io_message.is_empty() {
         let css = if s.io_failed {
@@ -579,10 +586,9 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
 fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
     let mut page = Dom::create_div()
         .with_css(PAGE)
-        .with_child(page_title("Calendars"))
+        .with_child(page_title("azcalendar-file-calendars"))
         .with_child(note(
-            "Press Enter in a name to rename its calendar. Removing a calendar moves its events \
-             into the first one.",
+            "azcalendar-press-enter-name-rename",
         ));
     let colours: Vec<String> = Colour::ALL.iter().map(|c| c.label().to_string()).collect();
     for (index, c) in s.calendars.iter().enumerate() {
@@ -603,7 +609,10 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
                 .with_child(
                     TextInput::create()
                         .with_text(c.name.as_str())
-                        .with_accessibility_name(format!("Name of {}", c.name))
+                        .with_accessibility_name(t_args(
+                            "azcalendar-calendar-name-of",
+                            &[("name", Arg::from(c.name.as_str()))],
+                        ))
                         .with_on_virtual_key_down(target(), on_calendar_rename as TextInputOnVirtualKeyDownCallbackType)
                         .dom()
                         .with_id(ids::calendar_name(index)),
@@ -611,7 +620,7 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
             crate::drop_down(
                 colours.clone(),
                 Colour::ALL.iter().position(|x| *x == c.colour).unwrap_or(0),
-                &format!("Colour of {}", c.name),
+                &t_args("azcalendar-calendar-colour-of", &[("name", Arg::from(c.name.as_str()))]),
                 ids::calendar_colour(index),
                 target(),
                 on_calendar_colour,
@@ -619,7 +628,7 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
         ];
         if !c.is_default() {
             row.push(
-                Button::create("Remove")
+                Button::create(label("azcalendar-remove"))
                     .with_on_click(target(), on_calendar_remove)
                     .dom()
                     .with_id(ids::calendar_remove(index)),
@@ -627,17 +636,17 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
         }
         page.add_child(line(row));
     }
-    page.add_child(heading("New calendar"));
+    page.add_child(heading("azcalendar-new-calendar"));
     page.add_child(line(vec![
         crate::text_field(
             &s.calendar_name,
-            "Name",
-            "New calendar's name",
+            "azcalendar-name",
+            "azcalendar-new-calendar-s-name",
             ids::CALENDAR_NEW,
             app.clone(),
             on_new_calendar_name,
         ),
-        primary("Add", ids::CALENDAR_ADD, app, on_calendar_add),
+        primary("azcalendar-add", ids::CALENDAR_ADD, app, on_calendar_add),
     ]));
     if !s.calendar_error.is_empty() {
         page.add_child(Dom::create_span_with_text(s.calendar_error.as_str()).with_css(ERROR));
@@ -649,55 +658,54 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
 fn options_page(s: &CalState, app: &RefAny) -> Dom {
     let mut server = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
-        .with_child(Dom::create_span_with_text("Meeting server").with_css(LABEL))
+        .with_child(Dom::create_span_with_text(label("azcalendar-meeting-server")).with_css(LABEL))
         .with_child(line(vec![crate::text_field(
             &s.server_text,
             "https://meet.example.com",
-            "Meeting server",
+            "azcalendar-meeting-server",
             ids::SETTINGS_SERVER,
             app.clone(),
             on_server_text,
         )]))
         .with_child(note(
-            "AzMeet links are made on this computer, so they work offline; this server gets \
-             them as soon as it answers.",
+            "azcalendar-azmeet-links-are-made",
         ))
         .with_child(note(&sync_status(s)));
     if !s.server_error.is_empty() {
         server.add_child(Dom::create_span_with_text(s.server_error.as_str()).with_css(ERROR));
     }
     let server = server.with_child(line(vec![
-        button("Sync now", ids::SETTINGS_SYNC, app, crate::on_sync_now),
-        primary("Save", ids::SETTINGS_SAVE, app, on_server_save),
+        button("azcalendar-sync-now", ids::SETTINGS_SYNC, app, crate::on_sync_now),
+        primary("azcalendar-save", ids::SETTINGS_SAVE, app, on_server_save),
     ]));
-    let check = |checked: bool, label: &str, id: AzString, cb: CheckBoxOnToggleCallbackType| {
+    let check = |checked: bool, text: &str, id: AzString, cb: CheckBoxOnToggleCallbackType| {
         line(vec![
             CheckBox::create(checked)
-                .with_accessibility_name(label)
+                .with_accessibility_name(label(text))
                 .with_on_toggle(app.clone(), cb)
                 .dom()
                 .with_id(id),
-            Dom::create_span_with_text(label).with_css("margin-left: 6px;"),
+            Dom::create_span_with_text(label(text)).with_css("margin-left: 6px;"),
         ])
     };
     let look = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
-        .with_child(Dom::create_span_with_text("Theme and mode").with_css(LABEL))
+        .with_child(Dom::create_span_with_text(label("azcalendar-theme-mode")).with_css(LABEL))
         .with_child(line(vec![
-            button("Flat", ids::SETTINGS_FLAT, app, on_flat),
-            button("Flora", ids::SETTINGS_FLORA, app, on_flora),
-            button("Light", ids::SETTINGS_LIGHT, app, on_light),
-            button("Dark", ids::SETTINGS_DARK, app, on_dark),
+            button("kit-theme-flat", ids::SETTINGS_FLAT, app, on_flat),
+            button("kit-theme-flora", ids::SETTINGS_FLORA, app, on_flora),
+            button("kit-mode-light", ids::SETTINGS_LIGHT, app, on_light),
+            button("kit-mode-dark", ids::SETTINGS_DARK, app, on_dark),
         ]))
         .with_child(check(
             s.todo_bar,
-            "Show the To-Do bar",
+            "azcalendar-show-todo-bar",
             ids::SETTINGS_TODO,
             on_todo_checked,
         ))
         .with_child(check(
             !s.nav_folded,
-            "Show the navigation pane",
+            "azcalendar-show-navigation-pane",
             ids::SETTINGS_NAVIGATION,
             on_navigation_checked,
         ))
@@ -712,11 +720,11 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0;")
         .with_child(
             ShellSettingsLayout::create(StringVec::from(vec![
-                AzString::from("Meeting server"),
-                AzString::from("Appearance"),
+                AzString::from(label("azcalendar-meeting-server")),
+                AzString::from(label("azcalendar-appearance")),
             ]))
-            .with_section(ShellSettingsSection::create("Meeting server", server))
-            .with_section(ShellSettingsSection::create("Appearance", look))
+            .with_section(ShellSettingsSection::create(label("azcalendar-meeting-server"), server))
+            .with_section(ShellSettingsSection::create(label("azcalendar-appearance"), look))
             .with_active_category(s.options_category)
             .with_on_category(app.clone(), on_options_category)
             .dom(),
@@ -763,35 +771,49 @@ extern "C" fn on_language_german(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// About: what this is, and its keys.
 fn about_page() -> Dom {
     let keys = [
-        ("Ctrl / Cmd + N", "New appointment"),
-        ("Ctrl / Cmd + Shift + Q", "New meeting"),
-        (
-            "Ctrl / Cmd + Alt + 1 .. 6",
-            "Day, Work Week, Week, Month, Schedule View, List",
-        ),
-        ("Ctrl / Cmd + T", "Today"),
-        ("Ctrl / Cmd + P", "Print"),
-        ("Alt + Left / Right", "Back, forward"),
-        ("F6 / Shift + F6", "The next / previous pane"),
-        ("Ctrl / Cmd + S", "Save & Close, in the event window"),
+        ("Ctrl / Cmd + N", "azcalendar-keys-new-appointment"),
+        ("Ctrl / Cmd + Shift + Q", "azcalendar-keys-new-meeting"),
+        ("Ctrl / Cmd + Alt + 1 .. 6", "azcalendar-keys-views"),
+        ("Ctrl / Cmd + T", "azcalendar-today"),
+        ("Ctrl / Cmd + P", "azcalendar-file-print"),
+        ("Alt + Left / Right", "azcalendar-keys-back-forward"),
+        ("F6 / Shift + F6", "azcalendar-keys-pane"),
+        ("Ctrl / Cmd + S", "azcalendar-keys-save-close"),
     ];
     let mut page = Dom::create_div()
         .with_css(PAGE)
         .with_child(page_title("AzCalendar"))
-        .with_child(note(&format!("Version {}", env!("CARGO_PKG_VERSION"))))
+        .with_child(note(&format!("{} {}", t("kit-about-version"), env!("CARGO_PKG_VERSION"))))
         .with_child(note(
-            "A calendar like Outlook's, on the azul GUI toolkit: events are files, AzMeet links \
-             are made offline, .ics files come in and go out.",
+            "azcalendar-calendar-like-outlook-s",
         ))
-        .with_child(heading("Keyboard shortcuts"));
+        .with_child(heading("azcalendar-keyboard-shortcuts"));
     for (key, what) in keys {
         page.add_child(line(vec![
-            Dom::create_span_with_text(key)
+            Dom::create_span_with_text(keys_said(key))
                 .with_css("width: 220px; flex-shrink: 0; font-weight: bold;"),
-            Dom::create_span_with_text(what),
+            Dom::create_span_with_text(label(what)),
         ]));
     }
     page
+}
+
+/// A key combination as the window's language names its keys (`Ctrl` is `Strg` in German):
+/// appkit's key names, other words as they are.
+fn keys_said(combo: &str) -> String {
+    combo
+        .split(' ')
+        .map(|part| {
+            if part.len() > 1 && part.chars().all(|c| c.is_ascii_alphabetic()) {
+                // `kit-key-ctrl`: its words, else the key's own name.
+                let what = format!("key-{}", part.to_ascii_lowercase());
+                azul_appkit::l10n::app_word("kit", &what, part)
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ==== Callbacks: ribbon, menu, views ====
@@ -870,10 +892,7 @@ extern "C" fn on_next_seven_days(mut data: RefAny, _info: CallbackInfo) -> Updat
 
 extern "C" fn on_share(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_state(&mut data, |s| {
-        s.notice = String::from(
-            "Sharing calendars comes later. Meanwhile, FILE > Open & Export saves a calendar as \
-             an .ics file anyone can import, and FILE > Print makes a PDF of it.",
-        );
+        s.notice = t("azcalendar-share-later");
         Update::RefreshDom
     })
 }
@@ -1082,12 +1101,17 @@ fn launch_app(s: &mut CalState, name: &str, variable: &str) {
             .spawn()
         {
             Ok(child) => {
-                s.notice = format!("Opening {name}\u{2026}");
+                s.notice = t_args("azcalendar-opening", &[("app", Arg::from(name))]);
                 s.launched.push(child);
             }
-            Err(e) => s.notice = format!("{name} could not be started: {e}"),
+            Err(e) => {
+                s.notice = t_args(
+                    "azcalendar-app-not-started",
+                    &[("app", Arg::from(name)), ("why", Arg::from(e.to_string()))],
+                );
+            }
         },
-        None => s.notice = format!("{name} is not installed next to AzCalendar."),
+        None => s.notice = t_args("azcalendar-app-missing", &[("app", Arg::from(name))]),
     }
 }
 
@@ -1108,8 +1132,8 @@ extern "C" fn on_navigation_event(
             other => {
                 let name = MODULES
                     .get(other)
-                    .map_or("This module", |(label, _)| *label);
-                s.notice = format!("{name} is not part of this build yet.");
+                    .map_or_else(|| t("azcalendar-this-module"), |(name, _)| t(name));
+                s.notice = t_args("azcalendar-module-not-built", &[("module", Arg::from(name))]);
                 Update::RefreshDom
             }
         },
@@ -1245,7 +1269,7 @@ extern "C" fn on_export_calendar(mut data: RefAny, _info: CallbackInfo, index: u
 /// Browse: the system's open dialog; the file picked goes into the path field.
 extern "C" fn on_import_browse(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::open_file(
-        "Import an iCalendar file",
+        label("azcalendar-import-dialog"),
         OptionString::None,
         OptionFileTypeList::None,
         data,
@@ -1287,12 +1311,12 @@ extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update 
             report(
                 s,
                 true,
-                String::from("Give the file to import, or Browse for it."),
+                t("azcalendar-import-give-file"),
             );
             return Update::RefreshDom;
         }
         // The file is read on a file thread; `import` goes on once it is here.
-        report(s, false, format!("Reading {typed}..."));
+        report(s, false, t_args("azcalendar-reading", &[("file", Arg::from(typed.as_str()))]));
         crate::writes::read_import(s, &mut info, &app, PathBuf::from(typed));
         Update::RefreshDom
     })
@@ -1318,7 +1342,7 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
                 path.file_stem()
                     .map(|stem| stem.to_string_lossy().into_owned())
             })
-            .unwrap_or_else(|| String::from("Imported"));
+            .unwrap_or_else(|| t("azcalendar-imported-name"));
         let made = Calendar {
             id: calendars::new_calendar_id(),
             name,
@@ -1345,7 +1369,10 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
         let made = match imported.to_event(&id, &calendar) {
             Ok(made) => made,
             Err(e) => {
-                problems.push(format!("{:?} is left out: {e}.", imported.title));
+                problems.push(t_args(
+                    "azcalendar-import-left-out",
+                    &[("title", Arg::from(imported.title.as_str())), ("why", Arg::from(e.to_string()))],
+                ));
                 continue;
             }
         };
@@ -1364,7 +1391,14 @@ pub(crate) fn import(s: &mut CalState, path: &std::path::Path, text: &str) {
     let file = path
         .file_name()
         .map_or(typed.clone(), |n| n.to_string_lossy().into_owned());
-    let mut message = format!("Imported {added} new and {updated} updated event(s) from {file}.");
+    let mut message = t_args(
+        "azcalendar-imported",
+        &[
+            ("added", Arg::from(added)),
+            ("updated", Arg::from(updated)),
+            ("file", Arg::from(file.as_str())),
+        ],
+    );
     for problem in problems.iter().take(5) {
         message.push(' ');
         message.push_str(problem);
@@ -1422,7 +1456,10 @@ fn export(s: &mut CalState) {
     report(
         s,
         false,
-        format!("Exported {count} event(s) to {}.", path.display()),
+        t_args(
+            "azcalendar-exported",
+            &[("count", Arg::from(count)), ("path", Arg::from(path.display().to_string()))],
+        ),
     );
 }
 
@@ -1453,7 +1490,7 @@ extern "C" fn on_calendar_rename(
     };
     let update = with_state(&mut app, |s| {
         if name.is_empty() {
-            s.calendar_error = String::from("A calendar needs a name.");
+            s.calendar_error = t("azcalendar-calendar-needs-name");
             return Update::RefreshDom;
         }
         let Some(c) = s.calendars.iter_mut().find(|c| c.id == id) else {
@@ -1533,14 +1570,15 @@ extern "C" fn on_calendar_add(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_state(&mut data, |s| {
         let name = s.calendar_name.trim().to_string();
         if name.is_empty() {
-            s.calendar_error = String::from("Give the new calendar a name.");
+            s.calendar_error = t("azcalendar-calendar-give-name");
             return Update::RefreshDom;
         }
         if s.calendars
             .iter()
             .any(|c| c.name.eq_ignore_ascii_case(&name))
         {
-            s.calendar_error = format!("There is a calendar named {name:?} already.");
+            s.calendar_error =
+                t_args("azcalendar-calendar-exists", &[("name", Arg::from(name.as_str()))]);
             return Update::RefreshDom;
         }
         let made = Calendar {
@@ -1565,8 +1603,7 @@ extern "C" fn on_server_save(mut data: RefAny, mut info: CallbackInfo) -> Update
     with_state(&mut data, |s| {
         let Some(server) = meet_rooms::normalize_server(&s.server_text) else {
             s.server_error = String::from(
-                "Give the meeting server's address, such as https://meet.example.com or \
-                 http://127.0.0.1:8787.",
+                "azcalendar-server-give-address",
             );
             return Update::RefreshDom;
         };

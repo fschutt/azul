@@ -564,8 +564,9 @@ pub(crate) fn text_field(
         .with_child(
             TextInput::create()
                 .with_text(text)
-                .with_placeholder(placeholder)
-                .with_accessibility_name(name)
+                // A key of the resources, or words as they are.
+                .with_placeholder(azul_appkit::l10n::label(placeholder))
+                .with_accessibility_name(azul_appkit::l10n::label(name))
                 .with_on_text_input(data, cb)
                 .dom()
                 .with_id(id),
@@ -582,18 +583,30 @@ pub(crate) fn drop_down(
     data: RefAny,
     cb: azul::callbacks::DropDownOnChoiceChangeCallbackType,
 ) -> Dom {
+    // Keys of the resources, or words as they are (a calendar's own name).
     azul::widgets::DropDown::create(azul::vec::StringVec::from(
         labels
-            .into_iter()
-            .map(AzString::from)
+            .iter()
+            .map(|l| azul_appkit::l10n::label(l))
             .collect::<Vec<AzString>>(),
     ))
     .with_selected(selected)
-    .with_accessibility_name(name)
+    .with_accessibility_name(azul_appkit::l10n::label(name))
     .with_on_choice_change(data, cb)
     .dom()
     .with_id(id)
     .with_css("margin-right: 8px;")
+}
+
+/// `day` in `style`, as the window's language writes a date (appkit's `date_text`).
+pub(crate) fn day_text(style: azul_appkit::l10n::DateStyle, day: NaiveDate) -> String {
+    azul_appkit::l10n::date_text(
+        style,
+        day.year(),
+        day.month(),
+        day.day(),
+        day.weekday().num_days_from_monday(),
+    )
 }
 
 /// Three 64-bit draws of `azul_storage::ids::random_seed` for a room id (130 of the bits are

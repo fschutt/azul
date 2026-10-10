@@ -17,12 +17,17 @@ use crate::{
     settings,
 };
 
+/// A string that looks like a key and is no word: the event window's id (the debug server and
+/// the scripts address the window by it).
+const NOT_KEYS: [&str; 1] = [crate::EDITOR_WINDOW_ID];
+
 #[test]
 fn every_key_of_azcalendars_source_is_in_english_and_german_and_both_parse() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let problems: Vec<String> = [manifest.join("src"), manifest.join("../azul-calendar-core/src")]
         .iter()
         .flat_map(|dir| check(dir, &["azcalendar"], EN, DE))
+        .filter(|problem| !NOT_KEYS.iter().any(|id| problem.starts_with(&format!("{id}: "))))
         .collect();
     assert!(problems.is_empty(), "{problems:#?}");
 }
@@ -42,9 +47,9 @@ fn the_engine_gets_azcalendars_words_and_appkits_in_english_and_german() {
 #[test]
 fn switching_the_language_changes_a_label_of_azcalendar() {
     crate::l10n::in_english();
-    assert_eq!(t("azcalendar-tab-home"), "Home");
+    assert_eq!(t("azcalendar-tab-home"), "HOME");
     set_locale("de-DE");
-    assert_eq!(t("azcalendar-tab-home"), "Start");
+    assert_eq!(t("azcalendar-tab-home"), "START");
     set_locale("en-US");
 }
 

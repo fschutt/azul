@@ -89,18 +89,19 @@ impl Colour {
         Colour::ALL.into_iter().find(|c| c.name() == name.trim())
     }
 
-    /// The colour's name for people: "Blue".
+    /// The colour's name for people: "Blue" - a key of AzCalendar's resources (the window says it
+    /// in its language).
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Colour::Blue => "Blue",
-            Colour::Green => "Green",
-            Colour::Purple => "Purple",
-            Colour::Orange => "Orange",
-            Colour::Red => "Red",
-            Colour::Teal => "Teal",
-            Colour::Olive => "Olive",
-            Colour::Grey => "Grey",
+            Colour::Blue => "azcalendar-colour-blue",
+            Colour::Green => "azcalendar-colour-green",
+            Colour::Purple => "azcalendar-colour-purple",
+            Colour::Orange => "azcalendar-colour-orange",
+            Colour::Red => "azcalendar-colour-red",
+            Colour::Teal => "azcalendar-colour-teal",
+            Colour::Olive => "azcalendar-colour-olive",
+            Colour::Grey => "azcalendar-colour-grey",
         }
     }
 

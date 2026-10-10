@@ -34,16 +34,16 @@ impl BackstagePage {
         BackstagePage::About,
     ];
 
-    /// What the page list says.
+    /// What the page list says (a key of the resources).
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            BackstagePage::Info => "Info",
-            BackstagePage::Open => "Open & Export",
-            BackstagePage::Print => "Print",
-            BackstagePage::Calendars => "Calendars",
-            BackstagePage::Options => "Options",
-            BackstagePage::About => "About",
+            BackstagePage::Info => "azcalendar-file-info",
+            BackstagePage::Open => "azcalendar-file-open",
+            BackstagePage::Print => "azcalendar-file-print",
+            BackstagePage::Calendars => "azcalendar-file-calendars",
+            BackstagePage::Options => "azcalendar-file-options",
+            BackstagePage::About => "azcalendar-file-about",
         }
     }
 

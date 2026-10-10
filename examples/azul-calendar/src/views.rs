@@ -57,16 +57,16 @@ impl ViewKind {
         ViewKind::ALL.into_iter().find(|v| v.name() == name.trim())
     }
 
-    /// The view's name for people, as the ribbon labels its button.
+    /// The view's name for people, as the ribbon labels its button (a key of the resources).
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            ViewKind::Day => "Day",
-            ViewKind::WorkWeek => "Work Week",
-            ViewKind::Week => "Week",
-            ViewKind::Month => "Month",
-            ViewKind::Schedule => "Schedule View",
-            ViewKind::Agenda => "List",
+            ViewKind::Day => "azcalendar-view-day",
+            ViewKind::WorkWeek => "azcalendar-view-work-week",
+            ViewKind::Week => "azcalendar-view-week",
+            ViewKind::Month => "azcalendar-view-month",
+            ViewKind::Schedule => "azcalendar-view-schedule",
+            ViewKind::Agenda => "azcalendar-view-list",
         }
     }
 
