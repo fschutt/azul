@@ -530,3 +530,52 @@ fn pinning_and_freeing_up_space_answer_the_new_states() {
     assert!(!a.folder.path().join("free.txt").exists());
     assert!(a.folder.path().join("keep.txt").exists());
 }
+
+/// The search sees the sync store through its seam (`SyncLookup`): no Status column while
+/// nothing syncs; a file's state in the search's words; the plain local copy of a file on this
+/// device, none of one in the cloud only.
+#[test]
+fn the_search_asks_the_sync_store_through_its_seam() {
+    use crate::sync_lookup::{SyncLookup, SyncState};
+
+    let folder = TempDir::new("azdrive-sync-seam");
+    let home = folder.path().parent().unwrap().to_path_buf();
+    let name = folder.path().file_name().unwrap().to_string_lossy().into_owned();
+    fs::write(folder.path().join("a.txt"), b"a").unwrap();
+    let store = SyncStore::default();
+    let seam: &dyn SyncLookup = &store;
+    assert!(!seam.syncs(), "nothing syncs yet");
+    store.set_pairs(
+        &[SyncSetup::new("d_photos", "", folder.path())],
+        &|_drive: &str| false,
+        vec![(String::from("home"), home)],
+    );
+    assert!(seam.syncs());
+    let mut states = SyncStates::default();
+    states.files.insert(String::from("a.txt"), FileRecord::default());
+    states.files.insert(
+        String::from("b.txt"),
+        FileRecord {
+            cloud_only: true,
+            ..FileRecord::default()
+        },
+    );
+    states.files.insert(
+        String::from("c.txt"),
+        FileRecord {
+            error: Some(String::from("the drive did not answer")),
+            ..FileRecord::default()
+        },
+    );
+    store.set_states("d_photos", states);
+    let key = |file: &str| format!("{name}/{file}");
+    assert_eq!(seam.sync_state("home", &key("a.txt")), Some(SyncState::OnThisDevice));
+    assert_eq!(seam.sync_state("home", &key("b.txt")), Some(SyncState::OnlineOnly));
+    assert_eq!(seam.sync_state("home", &key("c.txt")), Some(SyncState::Problem));
+    assert_eq!(seam.sync_state("home", "elsewhere.txt"), None);
+    assert_eq!(
+        seam.local_copy("home", &key("a.txt")),
+        Some(folder.path().join("a.txt"))
+    );
+    assert_eq!(seam.local_copy("home", &key("b.txt")), None);
+}
