@@ -68,32 +68,47 @@
 //! - [`objects`], [`pack`]: git objects and sealed, range-readable packs.
 //! - [`wal`]: the log in the bucket ([`MetaStore`]): poll, publish, checkpoint, lease,
 //!   compaction, garbage collection.
-//! - [`tree`], [`merge`]: folders as trees, changes, the three-way merge (D52 conflicts).
-//! - [`repo`]: one device's drive index ([`MetaRepo`]): commit, pull, merge, restore.
+//! - [`tree`], [`merge`]: folders as trees, changes, the three-way merge (D52 conflicts);
+//!   [`shard`]: huge folders in hidden fan-out subtrees.
+//! - [`repo`]: one device's drive index ([`MetaRepo`]): commit, pull, merge, restore; kept
+//!   on disk and read lazily ([`RepoOptions`]).
+//! - `index`, `pointer` (feature `encryption`): the encrypted drive's `NameIndex` over the
+//!   repository (`MetaIndex`, `open_encrypted_drive`) and its pointer files.
+//! - `cache` (feature `index-cache`): the local SQLite query cache (search, largest,
+//!   recent, totals), rebuilt from the tree.
 
 pub mod bucket;
+#[cfg(feature = "index-cache")]
+pub mod cache;
+#[cfg(feature = "encryption")]
+pub mod index;
 pub mod merge;
 pub mod objects;
 pub mod pack;
+#[cfg(feature = "encryption")]
+pub mod pointer;
 pub mod repo;
 pub mod seal;
+pub mod shard;
 pub mod tree;
 pub mod wal;
 
 use std::fmt;
 
 pub use bucket::{
-    Bucket, DriveBucket, Fetched, FolderBucket, MemoryBucket, RequestCounts, Version,
+    Bucket, DriveBucket, Fetched, FolderBucket, Listed, MemoryBucket, RequestCounts, Version,
 };
 pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
-pub use repo::{CommitOutcome, MetaRepo};
+#[cfg(feature = "encryption")]
+pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
+pub use repo::{CommitOutcome, MetaRepo, RepoOptions};
 pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;
 pub use wal::{
     LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Packs, Publish, Published, RefUpdate,
-    RepoState, SyncReport,
+    RepoState, StoreSnapshot, SyncReport,
 };
 
 use crate::DriveError;
@@ -182,6 +197,10 @@ pub enum MetaError {
     /// A conditional write lost: the object was there already, or it changed
     /// since it was read (S3: 412 Precondition Failed). Nothing was written.
     Conflict { key: String },
+    /// Another conditional write of the object was in progress (S3: 409
+    /// `ConditionalRequestConflict`): nothing was written, try again. Never
+    /// "the object is there".
+    Raced { key: String },
     /// The bucket's own error.
     Drive(DriveError),
     /// The object does not open with this drive key (another key, or a changed byte).
@@ -216,6 +235,9 @@ impl fmt::Display for MetaError {
         match self {
             MetaError::Conflict { key } => {
                 write!(f, "\"{key}\" was written by another device in the meantime")
+            }
+            MetaError::Raced { key } => {
+                write!(f, "\"{key}\" was being written by another device; try again")
             }
             MetaError::Drive(e) => write!(f, "{e}"),
             MetaError::Sealed { key, reason } => {

@@ -1,11 +1,10 @@
-//! Encrypted drives in AzDrive (feature `encryption`; off until the drive index - the bucket's
-//! encrypted metadata repository - is in).
+//! Encrypted drives in AzDrive (feature `encryption`, off by default).
 //!
 //! An Azlin drive opens through azul-storage's `AutoEncrypted`: its first call, on a worker
 //! thread, finds whether the drive is encrypted (this computer keeps its key, or the bucket
 //! holds key files) and then goes through the encryption, the index from
-//! [`index_provider`]; a plain drive is used as it is. A build without an index provider opens
-//! plain drives only, says so for encrypted ones, and offers neither flow below.
+//! [`index_provider`] - the bucket's encrypted metadata repository, browsed without listing
+//! the bucket; a plain drive is used as it is.
 //!
 //! The flows, from a cloud drive's menu in the source list:
 //! - "Encrypt this drive...": a question, then the drive's keys (its key and this computer's
@@ -33,6 +32,7 @@ use azul_storage::{
         random_bytes, Zeroizing,
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
+    meta::MetaIndexProvider,
     migrate::{migrate, MigrationState},
     Drive,
 };
@@ -45,11 +45,16 @@ use crate::{
     with_state, DriveState, Popup,
 };
 
-/// The provider of encrypted drives' indexes: the drive's encrypted metadata repository once
-/// it is in (azul-storage's metadata module); `None` until then - this build opens plain
-/// drives only.
+/// The provider of encrypted drives' indexes: the drive's encrypted metadata repository
+/// (azul-storage's `meta` module), this computer's copy of it kept in the user's cache folder
+/// between runs (`<cache>/AzDrive/drive-index`), so a drive opens with one conditional read and
+/// browses without listing the bucket.
 pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
-    None
+    let cache = crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
+        .map(|dir| dir.join("AzDrive").join("drive-index"));
+    Some(Arc::new(
+        MetaIndexProvider::new("AzDrive").with_cache_root(cache),
+    ))
 }
 
 /// An Azlin drive's bucket as the drive the app uses: decided plain or encrypted on its first
@@ -641,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_drive_index_the_flows_are_not_offered() {
-        assert!(!offered());
+    fn with_the_drive_index_the_flows_are_offered() {
+        assert!(offered());
     }
 }

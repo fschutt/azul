@@ -5,12 +5,14 @@
 //! A path is `/`-separated segments, each a valid tree entry name
 //! ([`is_valid_name`]). Folders are kept when they become empty, as in a
 //! file manager (git itself would drop them); a folder goes away when it is
-//! deleted.
+//! deleted. Huge folders are stored in hidden shards ([`super::shard`]); every
+//! function here sees the folder whole.
 
 use std::collections::BTreeMap;
 
 use super::{
     objects::{is_valid_name, Mode, ObjectId, Objects, Tree, TreeEntry},
+    shard::{self, SHARD_PREFIX},
     MetaError,
 };
 
@@ -25,10 +27,15 @@ pub enum Change {
     Delete { path: String },
 }
 
-/// The segments of `path`; an error for an empty path or an invalid segment.
+/// The segments of `path`; an error for an empty path, an invalid segment, or
+/// one that starts like a hidden shard ([`SHARD_PREFIX`]).
 pub fn segments(path: &str) -> Result<Vec<&str>, MetaError> {
     let parts: Vec<&str> = path.split('/').collect();
-    if path.is_empty() || parts.iter().any(|p| !is_valid_name(p)) {
+    if path.is_empty()
+        || parts
+            .iter()
+            .any(|p| !is_valid_name(p) || p.starts_with(SHARD_PREFIX))
+    {
         return Err(MetaError::Corrupt {
             key: path.to_string(),
             reason: "not a valid path in the drive".to_string(),
@@ -44,9 +51,9 @@ pub fn entry_at(
     path: &str,
 ) -> Result<Option<TreeEntry>, MetaError> {
     let parts = segments(path)?;
-    let mut tree = objects.tree(root)?;
+    let mut folder = *root;
     for (i, part) in parts.iter().enumerate() {
-        let Some(entry) = tree.get(part).cloned() else {
+        let Some(entry) = shard::lookup(objects, &folder, part)? else {
             return Ok(None);
         };
         if i + 1 == parts.len() {
@@ -55,7 +62,7 @@ pub fn entry_at(
         if entry.mode != Mode::Tree {
             return Ok(None);
         }
-        tree = objects.tree(&entry.id)?;
+        folder = entry.id;
     }
     Ok(None)
 }
@@ -63,10 +70,10 @@ pub fn entry_at(
 /// The folder at `path` (the root for `""`); `None` when there is no folder there.
 pub fn folder_at(objects: &Objects, root: &ObjectId, path: &str) -> Result<Option<Tree>, MetaError> {
     if path.is_empty() {
-        return objects.tree(root).map(Some);
+        return shard::read_folder(objects, root).map(Some);
     }
     match entry_at(objects, root, path)? {
-        Some(entry) if entry.mode == Mode::Tree => objects.tree(&entry.id).map(Some),
+        Some(entry) if entry.mode == Mode::Tree => shard::read_folder(objects, &entry.id).map(Some),
         _ => Ok(None),
     }
 }
@@ -79,7 +86,7 @@ pub fn walk(objects: &Objects, root: &ObjectId) -> Result<BTreeMap<String, (Mode
         prefix: &str,
         out: &mut BTreeMap<String, (Mode, ObjectId)>,
     ) -> Result<(), MetaError> {
-        for entry in objects.tree(id)?.entries() {
+        for entry in shard::read_folder(objects, id)?.entries() {
             let path = if prefix.is_empty() {
                 entry.name.clone()
             } else {
@@ -110,6 +117,8 @@ struct Dir {
     /// Its entries once read.
     entries: Option<BTreeMap<String, Node>>,
     changed: bool,
+    /// Whether its tree was stored in shards (it stays so down to `SHARD_BELOW`).
+    sharded: bool,
 }
 
 impl Dir {
@@ -118,6 +127,7 @@ impl Dir {
             id: None,
             entries: Some(BTreeMap::new()),
             changed: true,
+            sharded: false,
         }
     }
 
@@ -126,6 +136,7 @@ impl Dir {
             id: Some(id),
             entries: None,
             changed: false,
+            sharded: false,
         }
     }
 
@@ -134,7 +145,9 @@ impl Dir {
         if self.entries.is_none() {
             let mut map = BTreeMap::new();
             if let Some(id) = &self.id {
-                for entry in objects.tree(id)?.entries() {
+                let (folder, sharded) = shard::read_folder_sharded(objects, id)?;
+                self.sharded = sharded;
+                for entry in folder.entries() {
                     let node = match entry.mode {
                         Mode::File => Node::File(entry.id),
                         Mode::Tree => Node::Dir(Dir::of(entry.id)),
@@ -193,6 +206,7 @@ impl Dir {
         // A folder marked changed without being read (an existing folder a
         // `Folder` change named) keeps what it holds.
         self.entries(objects)?;
+        let sharded = self.sharded;
         let mut entries = Vec::new();
         for (name, node) in self.entries.unwrap_or_default() {
             let (mode, id) = match node {
@@ -201,7 +215,7 @@ impl Dir {
             };
             entries.push(TreeEntry { name, mode, id });
         }
-        Ok(objects.write_tree(&Tree::from_entries(entries)?))
+        shard::write_folder(objects, &Tree::from_entries(entries)?, sharded)
     }
 }
 
