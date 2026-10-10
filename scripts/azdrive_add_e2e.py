@@ -1620,6 +1620,22 @@ def run(args, logs):
         listed = app.after("the paid drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(paid),
                            lambda: app.click(selector=side_drive(paid)))
         before = int(listed.split()[-1])
+        if before == 0:
+            # The drive's index (its encrypted metadata repository) is made with its first file,
+            # and a restore goes back no further than it: one.txt first, so the time below is
+            # one the index knows (before it, the drive did not exist yet for the restore).
+            app.after("the folder of step 3", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(local_id),
+                      lambda: app.click(selector=side_drive(local_id)))
+            app.after("one.txt selected", "AZDRIVE_SELECTED", r"1 one\.txt",
+                      lambda: select_item(app, "one.txt"))
+            app.tab("Home")
+            app.after("Home > Copy", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.ribbon("Copy"))
+            app.after("the paid drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(paid),
+                      lambda: app.click(selector=side_drive(paid)))
+            app.after("Home > Paste", "AZDRIVE_TRANSFER", r"\d+ done 1",
+                      lambda: app.ribbon("Paste"))
+            app.after("F5", "AZDRIVE_LISTED", r"%s / 1" % re.escape(paid), lambda: app.key("f5"))
+            before = 1
         time.sleep(1.2)
         as_of = int(time.time())
         time.sleep(1.2)
@@ -1636,7 +1652,7 @@ def run(args, logs):
         app.after("F5", "AZDRIVE_LISTED", r"%s / %d" % (re.escape(paid), before + 1),
                   lambda: app.key("f5"))
         bucket_holds_ciphertext_only(stack, stack.token.state.drives[paid]["bucket"],
-                                     ["two.txt"])
+                                     ["one.txt", "two.txt"])
         app.tab("View")
         app.ribbon("Options")
         app.click(text="Drives")
