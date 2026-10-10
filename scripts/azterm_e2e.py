@@ -171,6 +171,7 @@ def body(args, logs, out):
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
     app = e2e.App(TAG, binary, ["--sample", "--data-dir", data_dir, "--size", "1100x700",
+                                "--language", "en",  # the clicks read English words
                                 "--theme", "flat", "--mode", "light"],
                   args.debug_port, logs, args.timeout)
     try:

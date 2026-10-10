@@ -51,6 +51,7 @@
 //! (the last tab closed: the window closes).
 
 pub mod ids;
+pub mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod scroll;
@@ -117,6 +118,7 @@ pub const APP_FOLDER: &str = "term";
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzTerm",
     version: env!("CARGO_PKG_VERSION"),
+    // The About page says it by `azterm-about-summary` (l10n::app_word).
     summary:
         "A terminal: your shell in tabs, xterm keys, 256 and true colours, a scrollback of any \
               length. The terminal engine is alacritty_terminal.",
@@ -125,20 +127,20 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 pub const SHORTCUTS: [Shortcut; 9] = [
-    Shortcut::new("Tabs", "Cmd+T / Ctrl+Shift+T", "New tab"),
-    Shortcut::new("Tabs", "Cmd+W / Ctrl+Shift+W", "Close the tab"),
-    Shortcut::new("Tabs", "Cmd+1..9 / Ctrl+Shift+1..9", "Tab 1 to 9"),
-    Shortcut::new("Tabs", "Cmd+Shift+] / Ctrl+Shift+]", "Next tab"),
-    Shortcut::new("Tabs", "Cmd+Shift+[ / Ctrl+Shift+[", "Previous tab"),
-    Shortcut::new("Terminal", "Cmd+C / Ctrl+Shift+C", "Copy the selection"),
-    Shortcut::new("Terminal", "Cmd+V / Ctrl+Shift+V", "Paste"),
+    Shortcut::new("azterm-shortcut-tabs", "Cmd+T / Ctrl+Shift+T", "azterm-new-tab"),
+    Shortcut::new("azterm-shortcut-tabs", "Cmd+W / Ctrl+Shift+W", "azterm-shortcut-close-tab"),
+    Shortcut::new("azterm-shortcut-tabs", "Cmd+1..9 / Ctrl+Shift+1..9", "azterm-shortcut-tab-n"),
+    Shortcut::new("azterm-shortcut-tabs", "Cmd+Shift+] / Ctrl+Shift+]", "azterm-shortcut-next-tab"),
+    Shortcut::new("azterm-shortcut-tabs", "Cmd+Shift+[ / Ctrl+Shift+[", "azterm-shortcut-previous-tab"),
+    Shortcut::new("azterm-shortcut-terminal", "Cmd+C / Ctrl+Shift+C", "azterm-shortcut-copy"),
+    Shortcut::new("azterm-shortcut-terminal", "Cmd+V / Ctrl+Shift+V", "azterm-shortcut-paste"),
     Shortcut::new(
-        "Terminal",
+        "azterm-shortcut-terminal",
         "The wheel, Shift+Page Up / Page Down / Home / End; on macOS Cmd+Up / Down / Page Up / \
          Page Down / Home / End",
-        "Scroll the scrollback",
+        "azterm-shortcut-scroll",
     ),
-    Shortcut::new("Terminal", "Mod+= / Mod+-", "Larger / smaller text"),
+    Shortcut::new("azterm-shortcut-terminal", "Mod+= / Mod+-", "azterm-shortcut-text-size"),
 ];
 
 /// Lines of scrollback a tab keeps.
@@ -342,7 +344,10 @@ impl AppState {
                     view: ViewScroll::default(),
                 }),
                 Err(e) => {
-                    self.notice = format!("The shell could not be started: {e}");
+                    self.notice = azul_appkit::l10n::t_args(
+                        "azterm-shell-failed",
+                        &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                    );
                     None
                 }
             }
@@ -529,12 +534,20 @@ pub fn start() {
     // TERM / COLORTERM for the shells (before any thread exists).
     alacritty_terminal::tty::setup_env();
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.clone());
+    // appkit's words and AzTerm's, before the first tab's notice could be said; the language
+    // chosen (Settings, `--language`) says them from here.
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let mut st = AppState::new(kit_ref.clone(), args.sample);
     st.open_tab();
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(
         &kit_ref,
         layout,
@@ -657,7 +670,10 @@ fn tab_dom(app: &RefAny, index: usize, tab: &Tab, active: bool) -> Dom {
     let close = Dom::create_div_with_text(AzString::from("\u{00d7}"))
         .with_id(AzString::from(format!("{}{index}", ids::TAB_CLOSE.as_str())))
         .with_css(TAB_CLOSE_CSS)
-        .with_accessibility_name(AzString::from(format!("Close {}", tab.title)))
+        .with_accessibility_name(AzString::from(azul_appkit::l10n::t_args(
+            "azterm-close-tab",
+            &[("title", azul_appkit::l10n::Arg::from(tab.title.as_str()))],
+        )))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
             click.clone(),
@@ -700,7 +716,7 @@ fn tab_bar(app: &RefAny, st: &AppState) -> Dom {
         Dom::create_div_with_text(AzString::from("+"))
             .with_id(ids::NEW_TAB)
             .with_css(NEW_TAB_CSS)
-            .with_accessibility_name(AzString::from("New tab"))
+            .with_accessibility_name(azul_appkit::l10n::label("azterm-new-tab"))
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::Click),
                 app.clone(),
@@ -713,7 +729,7 @@ fn tab_bar(app: &RefAny, st: &AppState) -> Dom {
 /// The last problem, until dismissed.
 fn notice_bar(app: &RefAny, st: &AppState) -> Dom {
     InfoBar::create(AzString::from(st.notice.as_str()))
-        .with_action(AzString::from("Dismiss"))
+        .with_action(azul_appkit::l10n::label("azterm-dismiss"))
         .with_on_action(app.clone(), on_dismiss_notice as ButtonOnClickCallbackType)
         .dom()
         .with_id(ids::NOTICE)
@@ -726,8 +742,8 @@ fn pane(app: &RefAny, st: &AppState) -> Dom {
     let pane = Dom::create_div().with_id(ids::PANE).with_css(PANE_CSS);
     let Some(tab) = st.tabs.get(st.active) else {
         return pane.with_child(
-            ShellEmptyState::create(AzString::from("No tab is open"))
-                .with_action_label(AzString::from("New tab"))
+            ShellEmptyState::create(azul_appkit::l10n::label("azterm-no-tab"))
+                .with_action_label(azul_appkit::l10n::label("azterm-new-tab"))
                 .with_on_action(app.clone(), on_new_tab as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::EMPTY),
@@ -748,25 +764,38 @@ fn pane(app: &RefAny, st: &AppState) -> Dom {
 
 /// The menu bar: what is not on the strip of tabs.
 fn menu_bar(app: &RefAny) -> Menu {
-    let item = |label: &str, callback: CallbackType| {
-        MenuItem::string(StringMenuItem::create(label).with_callback(app.clone(), callback))
+    use azul_appkit::l10n::label;
+    let item = |text: &str, callback: CallbackType| {
+        MenuItem::string(StringMenuItem::create(label(text)).with_callback(app.clone(), callback))
+    };
+    let menu = |text: &str, items: Vec<MenuItem>| {
+        MenuItem::string(StringMenuItem::create(label(text)).with_children(items))
     };
     Menu::create(vec![
-        MenuItem::string(StringMenuItem::create("Shell").with_children(vec![
-            item("New Tab", on_new_tab),
-            item("Close Tab", on_close_tab),
-            MenuItem::separator(),
-            item("Next Tab", on_next_tab),
-            item("Previous Tab", on_previous_tab),
-        ])),
-        MenuItem::string(StringMenuItem::create("View").with_children(vec![
-            item("Bigger Text", on_bigger_text),
-            item("Smaller Text", on_smaller_text),
-        ])),
-        MenuItem::string(StringMenuItem::create("Help").with_children(vec![
-            item("Settings\u{2026}", on_settings),
-            item("About AzTerm", on_about_open),
-        ])),
+        menu(
+            "azterm-menu-shell",
+            vec![
+                item("azterm-menu-new-tab", on_new_tab),
+                item("azterm-menu-close-tab", on_close_tab),
+                MenuItem::separator(),
+                item("azterm-menu-next-tab", on_next_tab),
+                item("azterm-menu-previous-tab", on_previous_tab),
+            ],
+        ),
+        menu(
+            "azterm-menu-view",
+            vec![
+                item("azterm-menu-bigger", on_bigger_text),
+                item("azterm-menu-smaller", on_smaller_text),
+            ],
+        ),
+        menu(
+            "azterm-menu-help",
+            vec![
+                item("azterm-menu-settings", on_settings),
+                item("azterm-about", on_about_open),
+            ],
+        ),
     ])
 }
 
@@ -774,10 +803,17 @@ fn menu_bar(app: &RefAny) -> Menu {
 fn about_modal(app: &RefAny, st: &AppState) -> Dom {
     let about = AboutDialog::create(
         AzString::from(ABOUT.name),
-        AzString::from(format!("Version {}", ABOUT.version)),
+        AzString::from(azul_appkit::l10n::t_args(
+            "azterm-version",
+            &[("version", azul_appkit::l10n::Arg::from(ABOUT.version))],
+        )),
     )
     .with_icon(AzString::from("terminal"))
-    .with_description(AzString::from(ABOUT.summary))
+    .with_description(AzString::from(azul_appkit::l10n::app_word(
+        ABOUT.name,
+        "about-summary",
+        ABOUT.summary,
+    )))
     .with_copyright(AzString::from("Copyright 2026 the azul contributors"))
     .with_credit(AzString::from("azul"), AzString::from("MIT"))
     .with_credit(
@@ -788,7 +824,7 @@ fn about_modal(app: &RefAny, st: &AppState) -> Dom {
     .dom()
     .with_id(ids::ABOUT);
     Modal::create(about)
-        .with_title(AzString::from("About AzTerm"))
+        .with_title(azul_appkit::l10n::label("azterm-about"))
         .with_open(st.about_open)
         .with_on_close(app.clone(), on_modal_close)
         .dom()
@@ -796,9 +832,10 @@ fn about_modal(app: &RefAny, st: &AppState) -> Dom {
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode and the theme makes a switch of either rebuild the
-    // window (the terminal palette is the theme's).
+    // window (the terminal palette is the theme's); the layout's language says the words.
     let _mode = info.get_mode();
     let _theme = info.get_theme();
+    azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<AppState>() else {
         return Dom::create_body();
