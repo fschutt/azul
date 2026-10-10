@@ -23,6 +23,9 @@
 //! customer's Email Worker, which has Web Crypto only: AZD1 is X25519, HKDF-SHA256 and
 //! AES-256-GCM ([`drops`]).
 //!
+//! A drive's recovery code can be split 2-of-3 to trusted contacts: Shamir's secret sharing over
+//! GF(256) ([`shamir`]), the shares sealed to each contact's X25519 key ([`contacts`]).
+//!
 //! No primitive is made here; each comes from its crate: XChaCha20-Poly1305 and aead's STREAM
 //! (`chacha20poly1305`), X25519 (`x25519-dalek`), BLAKE3's hash, keyed hash and key derivation
 //! (`blake3`), Argon2id (`argon2`), AES-256-GCM (`aes-gcm`), HKDF (`hkdf`) and SHA-256
@@ -37,6 +40,7 @@ pub mod device;
 pub mod drops;
 pub mod keys;
 pub mod share;
+pub mod shamir;
 
 use std::fmt;
 

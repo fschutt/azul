@@ -60,3 +60,6 @@ mod rotation_meta;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
+/// Shamir's secret sharing over GF(256) (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod shamir;
