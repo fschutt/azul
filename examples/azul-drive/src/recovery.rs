@@ -24,7 +24,7 @@ use azul::{
 use azul_appkit::qr::QrCode;
 use azul_storage::{
     config::DriveLocation,
-    crypto::{random_bytes, Zeroizing},
+    crypto::{keys::RecoveryCode, random_bytes, Zeroizing},
 };
 
 use crate::{
@@ -481,6 +481,29 @@ pub(crate) fn kit_saved(s: &mut DriveState, path: &Path, len: usize, result: Res
     set_kit_note(s, note);
 }
 
+// ==== Drills ====
+
+/// What a drill makes of the code typed.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DrillAnswer {
+    /// The drive's code.
+    Passed,
+    /// A recovery code, but not the drive's.
+    NotTheCode,
+    /// No recovery code at all (26 letters and digits in five groups).
+    NotACode,
+    /// This computer knows no recovery key of the drive (a setup from before the drills): the
+    /// bucket's recovery wrap is asked.
+    AskTheBucket(RecoveryCode),
+}
+
+/// The drill's answer to `typed` for the drive `drive_id` whose code's public recovery key is
+/// `recovery_key`: offline, without the bucket and without Argon2id's second.
+pub(crate) fn drill_answer(recovery_key: Option<&str>, drive_id: &str, typed: &str) -> DrillAnswer {
+    let _ = (recovery_key, drive_id, typed);
+    DrillAnswer::NotACode
+}
+
 #[cfg(test)]
 mod tests {
     use azul_appkit::qr::QrCode;
@@ -538,6 +561,26 @@ mod tests {
             assert!(!text.to_lowercase().contains("7k2m"), "{name}: {text}");
             assert!(text.contains("your Azlin drive"), "{name}: {text}");
         }
+    }
+
+    #[test]
+    fn a_drill_checks_the_code_typed_against_the_drives_recovery_key_offline() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let key = crate::encryption::recovery_key_of(&code, "d_1").public_base64();
+        let typed = code.to_text().replace('-', " ").to_lowercase();
+        assert_eq!(drill_answer(Some(&key), "d_1", &typed), DrillAnswer::Passed);
+        let other = RecoveryCode::from_bytes([0x11; 16]).to_text();
+        assert_eq!(drill_answer(Some(&key), "d_1", &other), DrillAnswer::NotTheCode);
+        assert_eq!(
+            drill_answer(Some(&key), "d_2", &code.to_text()),
+            DrillAnswer::NotTheCode,
+            "another drive's key"
+        );
+        assert_eq!(drill_answer(Some(&key), "d_1", "hello"), DrillAnswer::NotACode);
+        assert!(matches!(
+            drill_answer(None, "d_1", &code.to_text()),
+            DrillAnswer::AskTheBucket(_)
+        ));
     }
 
     #[test]
