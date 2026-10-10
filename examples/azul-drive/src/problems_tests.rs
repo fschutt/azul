@@ -8,7 +8,10 @@ use azcloud_kit::{
 };
 use azul_storage::{DriveError, ServiceError};
 
-use crate::problems::{describe_in, lang_from, Problems, NOTIFY_EVERY_SECS, TRANSIENT_QUIET_SECS};
+use crate::problems::{
+    describe_in, lang_from, Problems, NOTIFY_EVERY_SECS, TRANSIENT_NOTIFY_SECS,
+    TRANSIENT_QUIET_SECS,
+};
 
 const NOW: u64 = 1_791_450_000;
 
@@ -96,4 +99,46 @@ fn a_drive_notifies_at_most_once_an_hour() {
     );
     assert!(problems.record("d_1", user(&unpaid()), NOW + NOTIFY_EVERY_SECS));
     assert!(problems.record("d_2", user(&unpaid()), NOW + 60), "another drive");
+}
+
+#[test]
+fn a_transient_problem_that_lasts_half_an_hour_notifies_once() {
+    // D33: a transient error notifies only after 30 minutes, and once for as long as it lasts.
+    let mut problems = Problems::default();
+    let busy = user(&DriveError::Transport(String::from("refused")));
+    assert!(!problems.record("d_1", busy.clone(), NOW));
+    assert!(!problems.record("d_1", busy.clone(), NOW + TRANSIENT_NOTIFY_SECS - 1));
+    assert!(
+        problems.record("d_1", busy.clone(), NOW + TRANSIENT_NOTIFY_SECS),
+        "half an hour"
+    );
+    assert!(
+        !problems.record("d_1", busy.clone(), NOW + 2 * TRANSIENT_NOTIFY_SECS),
+        "once"
+    );
+    assert!(!problems.record("d_1", busy.clone(), NOW + 3 * NOTIFY_EVERY_SECS));
+    // It went away and came back: a new one, half an hour again.
+    problems.clear("d_1");
+    let back = NOW + 4 * NOTIFY_EVERY_SECS;
+    assert!(!problems.record("d_1", busy.clone(), back));
+    assert!(problems.record("d_1", busy, back + TRANSIENT_NOTIFY_SECS));
+}
+
+#[test]
+fn a_transient_problem_nobody_asked_about_again_notifies_when_its_half_hour_is_up() {
+    // The timer asks: a drive that failed once and was not listed since still notifies.
+    let mut problems = Problems::default();
+    let busy = user(&DriveError::Transport(String::from("refused")));
+    assert!(!problems.record("d_1", busy, NOW));
+    assert!(problems.record("d_2", user(&unpaid()), NOW + 1), "at once");
+    assert!(problems.due(NOW + TRANSIENT_NOTIFY_SECS - 1).is_empty());
+    let due = problems.due(NOW + TRANSIENT_NOTIFY_SECS);
+    assert_eq!(
+        due.iter()
+            .map(|(drive, p)| (drive.as_str(), p.code))
+            .collect::<Vec<_>>(),
+        vec![("d_1", Code::Network)],
+        "the transient one; the unpaid one notified when it came"
+    );
+    assert!(problems.due(NOW + TRANSIENT_NOTIFY_SECS + 1).is_empty(), "once");
 }
