@@ -80,6 +80,8 @@ pub mod sample;
 pub mod sending;
 pub mod sync;
 pub mod todo;
+#[cfg(test)]
+mod l10n_tests;
 mod ui_account;
 mod ui_backstage;
 mod ui_bridge;
