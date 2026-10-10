@@ -53,7 +53,8 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
 use super::{
-    hex_array, keys::associated_data, random_bytes, to_hex, CryptoError, DriveKey, KeyId, KEY_LEN, NONCE_LEN, TAG_LEN,
+    hex_array, keys::associated_data, random_bytes, to_hex, CryptoError, DriveKey, KeyId,
+    KEY_LEN, NONCE_LEN, TAG_LEN,
 };
 use crate::{ops::list_all, Drive, DriveError};
 
@@ -250,7 +251,7 @@ fn drop_key(
     salt[..KEY_LEN].copy_from_slice(ephemeral);
     salt[KEY_LEN..].copy_from_slice(drop_public);
     let mut key = Zeroizing::new([0u8; KEY_LEN]);
-    Hkdf::<Sha256>::new(Some(&salt), shared.as_bytes())
+    Hkdf::<Sha256>::new(Some(&salt[..]), shared.as_bytes())
         .expand(HKDF_INFO, &mut key[..])
         .map_err(|_| damaged("HKDF refused the length"))?;
     Ok(key)
