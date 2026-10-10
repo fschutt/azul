@@ -159,7 +159,7 @@ pub(crate) fn seen(s: &mut DriveState, azlin_id: &str, ban: Option<Ban>) {
     let closed = ban.is_closed(now);
     let changed = before
         .as_ref()
-        .map_or(true, |b| b.is_closed(now) != closed || b.until != ban.until);
+        .is_none_or(|b| b.is_closed(now) != closed || b.until != ban.until);
     if changed {
         if closed {
             println!("AZDRIVE_CLOSED {azlin_id}");
