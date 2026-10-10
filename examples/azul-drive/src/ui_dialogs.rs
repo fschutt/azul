@@ -165,8 +165,12 @@ extern "C" fn on_form_text(
 
 /// What closes a popup's window besides the app: its `closedby` (Escape is the dialog window's
 /// own, so only `None` keeps the window up) and whether it has a close box.
-pub(crate) fn window_close(_popup: &Popup) -> (DialogClosedBy, bool) {
-    (DialogClosedBy::Auto, true)
+pub(crate) fn window_close(popup: &Popup) -> (DialogClosedBy, bool) {
+    if popup.may_close() {
+        (DialogClosedBy::Auto, true)
+    } else {
+        (DialogClosedBy::None, false)
+    }
 }
 
 /// A dialog's title and content.

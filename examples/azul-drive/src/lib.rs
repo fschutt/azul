@@ -669,6 +669,18 @@ pub(crate) enum Popup {
     },
 }
 
+impl Popup {
+    /// Whether its close box and Escape take it away: every popup but the recovery sheet (its
+    /// code shows only this once - the setup finishes when its groups are typed back).
+    pub(crate) fn may_close(&self) -> bool {
+        #[cfg(feature = "encryption")]
+        if let Popup::Encryption(dialog) = self {
+            return dialog.may_close();
+        }
+        true
+    }
+}
+
 /// The source list: which sections are open, which drives and folders show their folders,
 /// whose folders are listed (the folder prefixes, one listing per opening), which are being
 /// listed.
@@ -2832,12 +2844,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         if s.inline_dialogs {
             body.add_child(ui_dialogs::inline_sheet(title, panel));
         } else {
+            let (closed_by, close_box) = ui_dialogs::window_close(popup);
             body.add_child(
                 Dialog::create(panel)
                     .with_title(AzString::from(title))
                     .with_open(true)
                     .with_modal(true)
-                    .with_close_button(true)
+                    .with_closed_by(closed_by)
+                    .with_close_button(close_box)
                     .with_on_close(app.clone(), ui_dialogs::on_dialog_closed)
                     .dom(),
             );
