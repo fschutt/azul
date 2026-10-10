@@ -28,7 +28,7 @@ use crate::{
     error::{fail, CloudError, CloudResult},
     period::{issue_tokens, PeriodTokenStore},
     shared::SharedKeyring,
-    token::{CheckoutStatus, TokenError, TokenServer},
+    token::{CheckoutStatus, TokenError, TokenServer, MAX_BLINDED},
 };
 
 /// The keyring entry of the unfinished checkouts.
@@ -425,6 +425,15 @@ pub fn finish(
         Ok(_) => finished,
         Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
     };
+    // A grant no token server issues: nothing to wait for.
+    let months_ok = usize::try_from(owed.months).is_ok_and(|m| (1..=MAX_BLINDED).contains(&m));
+    if !months_ok || owed.issue_key.trim().is_empty() {
+        return done(Finished::Dropped(format!(
+            "its sealed sign-up grants {} months without an issue key, or more than one issue \
+             takes: support can help",
+            owed.months
+        )));
+    }
     match issue_tokens(server, &owed.grant(id), &checkout.tier) {
         Ok(tokens) => match store.add(&owed.drive_id, &tokens) {
             Ok(_) => done(Finished::Issued {
@@ -449,7 +458,6 @@ pub fn finish(
         Err(TokenError::Refused { code, message, .. }) if code == "mandate_stopped" => {
             done(Finished::Dropped(message))
         }
-        Err(TokenError::Config(why)) => done(Finished::Dropped(why)),
         Err(TokenError::Connect(why)) => {
             Finished::Kept(format!("no answer from the token server: {why}"))
         }
