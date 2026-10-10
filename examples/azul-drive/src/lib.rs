@@ -156,6 +156,8 @@ mod ids;
 mod periods;
 /// A drive's errors as the user sees them: the table's words, the error ID, notifications.
 mod problems;
+/// An Azlin drive's space: the quota counts stored bytes, the original size as extra information.
+mod usage_view;
 /// Vouchers on a drive (Options > Drives).
 mod vouchers;
 /// "Restore as of..." of an Azlin drive (Options > Drives, the drive's menu).
