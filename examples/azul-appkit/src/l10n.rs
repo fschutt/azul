@@ -254,12 +254,7 @@ pub fn app_word(app: &str, what: &str, fallback: &str) -> String {
 /// the number, for the plural form).
 #[must_use]
 pub fn grouped(n: u64) -> String {
-    let separator = t("kit-number-group-separator");
-    let separator = if separator == "kit-number-group-separator" {
-        String::from(",")
-    } else {
-        separator
-    };
+    let separator = kit_word("kit-number-group-separator", ",");
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3 * separator.len());
     for (i, c) in digits.chars().enumerate() {
@@ -269,6 +264,64 @@ pub fn grouped(n: u64) -> String {
         out.push(c);
     }
     out
+}
+
+/// A number written with a decimal point (`1.5 TB`, `7.5`) with the decimal mark of the
+/// language of the layout pass (`kit-number-decimal-separator`: 1.5 in English, 1,5 in German):
+/// a point between two digits. For a text without grouped digits.
+#[must_use]
+pub fn decimal(text: &str) -> String {
+    let mark = kit_word("kit-number-decimal-separator", ".");
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    for (i, &c) in chars.iter().enumerate() {
+        let digit = |at: Option<usize>| {
+            at.and_then(|at| chars.get(at))
+                .is_some_and(char::is_ascii_digit)
+        };
+        if c == '.' && digit(i.checked_sub(1)) && digit(Some(i + 1)) {
+            out.push_str(&mark);
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `cents` of `currency` (`EUR`) as the language of the layout pass writes money (`kit-money`,
+/// its digits [`grouped`], its cents after the decimal mark): `EUR 1,234.50` in English,
+/// `1.234,50 EUR` in German.
+#[must_use]
+pub fn money(cents: u64, currency: &str) -> String {
+    let amount = format!(
+        "{}{}{:02}",
+        grouped(cents / 100),
+        kit_word("kit-number-decimal-separator", "."),
+        cents % 100
+    );
+    let said = t_args(
+        "kit-money",
+        &[
+            ("amount", Arg::from(amount.as_str())),
+            ("currency", Arg::from(currency)),
+        ],
+    );
+    if said == "kit-money" {
+        format!("{currency} {amount}")
+    } else {
+        said
+    }
+}
+
+/// The kit's word `key` in the language of the layout pass, else `fallback` (no resources on
+/// this thread).
+fn kit_word(key: &str, fallback: &str) -> String {
+    let said = t(key);
+    if said == key {
+        fallback.to_string()
+    } else {
+        said
+    }
 }
 
 /// `text`'s letters and digits in lower case; `hyphens`: a hyphen for each run of others.

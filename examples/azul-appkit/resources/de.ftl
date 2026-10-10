@@ -94,3 +94,7 @@ kit-key-right = Nach rechts
 
 # The separator of a big number's groups of three digits.
 kit-number-group-separator = .
+# The mark between a number's whole part and its decimals.
+kit-number-decimal-separator = ,
+# An amount of money: the currency's code (EUR) and the amount with its decimals.
+kit-money = { $amount } { $currency }
