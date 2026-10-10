@@ -82,11 +82,84 @@ impl Device {
     };
 }
 
+#[cfg(feature = "look")]
+impl Device {
+    /// The parts of azul's readings: on mains also on a charger (a phone, whose power state
+    /// azul does not read, says it through its battery); the battery's level where it has one
+    /// and says it.
+    #[must_use]
+    pub fn of_azul(
+        power: &azul::sensor::PowerState,
+        battery: &azul::sensor::BatteryState,
+        network: &azul::sensor::NetworkState,
+    ) -> Device {
+        use azul::sensor::ThermalState;
+        Device {
+            on_mains: power.on_mains || (battery.present && battery.charging),
+            battery_percent: (battery.present && battery.level_percent <= 100)
+                .then_some(battery.level_percent),
+            low_power_mode: battery.low_power_mode,
+            thermal: match battery.thermal {
+                ThermalState::Nominal => Thermal::Nominal,
+                ThermalState::Fair => Thermal::Fair,
+                ThermalState::Serious => Thermal::Serious,
+                ThermalState::Critical => Thermal::Critical,
+                ThermalState::Unknown => Thermal::Unknown,
+            },
+            connected: network.connected,
+            metered: network.metered,
+            constrained: network.constrained,
+            hotspot: network.hotspot,
+        }
+    }
+
+    /// The device now: azul's three readings ([`Device::of_azul`]), each a cached value.
+    #[must_use]
+    pub fn query() -> Device {
+        Device::of_azul(
+            &azul::sensor::PowerState::query(),
+            &azul::sensor::BatteryState::query(),
+            &azul::sensor::NetworkState::query(),
+        )
+    }
+}
+
 /// The client health of `device`, 0 to 100 (the weights are in the module documentation).
 #[must_use]
 pub fn client_health(device: &Device) -> u8 {
-    let _ = device;
-    100
+    if !device.connected {
+        return 0;
+    }
+    let mut less: u32 = 0;
+    if !device.on_mains {
+        less += 15;
+        less += match device.battery_percent {
+            Some(0..=10) => 45,
+            Some(11..=20) => 30,
+            Some(21..=40) => 15,
+            _ => 0,
+        };
+    }
+    if device.low_power_mode {
+        less += 20;
+    }
+    less += match device.thermal {
+        Thermal::Fair => 10,
+        Thermal::Serious => 30,
+        Thermal::Critical => 60,
+        Thermal::Nominal | Thermal::Unknown => 0,
+    };
+    if device.metered {
+        less += 20;
+    }
+    if device.hotspot {
+        less += 15;
+    }
+    if device.constrained {
+        less += 25;
+    }
+    // At most 100 after the subtraction, at least 1: the cast cannot truncate.
+    100_u32.saturating_sub(less).max(1) as u8
 }
 
 #[cfg(test)]
