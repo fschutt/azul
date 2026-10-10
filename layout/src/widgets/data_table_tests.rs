@@ -997,7 +997,7 @@ fn a_flora_table_heads_its_columns_in_capitals_and_stripes_and_selects_as_flora_
                     })
             })
             .map(|p| p.property.clone())
-            .last()
+            .next_back()
     }
     fn ink(props: &[CssPropertyWithConditions], dark: bool) -> Option<ColorU> {
         match at_rest(props, CssPropertyType::TextColor, dark)? {

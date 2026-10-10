@@ -1321,7 +1321,7 @@ impl TerminalViewEvent {
 
     /// A `Scroll` event to `pos`: its display offset and its slide.
     #[must_use]
-    pub(crate) fn scrolled_to(pos: ScrollPos) -> Self {
+    pub(crate) const fn scrolled_to(pos: ScrollPos) -> Self {
         let mut e = Self::scrolled(pos.lines);
         e.scroll_fraction = pos.fraction;
         e

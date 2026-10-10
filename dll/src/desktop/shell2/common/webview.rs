@@ -179,7 +179,7 @@ impl WebViewBackend for HeadlessWebViews {
     fn input(&mut self, id: WebViewId, input: &WebViewInput) {
         self.recorder.apply(&WebViewOp::Input {
             id,
-            input: input.clone(),
+            input: *input,
         });
     }
     fn navigate(&mut self, id: WebViewId, url: &str) {

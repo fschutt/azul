@@ -228,7 +228,7 @@ pub enum WebViewPointer {
 
 /// Input for a composited web view's page ([`WebViewOp::Input`]); points
 /// are in page CSS px from its top-left corner.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WebViewInput {
     /// The pointer moved to `at`.
     PointerMove { at: LogicalPosition },
@@ -992,7 +992,7 @@ impl WebViewRecorder {
                     if view.inputs.len() >= MAX_NAVIGATION_RECORDS {
                         view.inputs.remove(0);
                     }
-                    view.inputs.push(input.clone());
+                    view.inputs.push(*input);
                 }
             }
             WebViewOp::Destroy { id } => self.views.retain(|v| v.id != *id),
