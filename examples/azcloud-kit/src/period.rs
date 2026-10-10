@@ -456,7 +456,8 @@ fn pad(value: &BigUint, size: usize) -> Vec<u8> {
     out
 }
 
-fn hex(bytes: &[u8]) -> String {
+/// Lowercase hex.
+pub(crate) fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         let _ = write!(out, "{byte:02x}");

@@ -17,7 +17,9 @@
 //! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown        |
 //! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
 //! | `POST /v1/drives/{id}/lockdown`       | every other device, key and link revoked at once  |
+//! |                                       | (or by the recovery key: a fresh nonce, 48 h)     |
 //! | `POST /v1/drives/{id}/lockdown/cancel`| a pending recovery-key lockdown called off        |
+//! | `POST /v1/vouchers/redeem`            | a voucher: days on a drive, or a new drive        |
 //! | `POST /v1/drives/{id}/restore`        | a prefix as it was at a time (queued)             |
 //! | `GET /v1/drives/{id}/restore/{req}`   | a restore's progress                              |
 //!
@@ -252,6 +254,59 @@ pub struct BlindSignatures {
 
 /// The most blinded messages one `POST /v1/tokens/issue` takes (24 months, prepaid).
 pub const MAX_BLINDED: usize = 24;
+
+/// What a recovery-key lockdown answers (202): the drive is read-only until `pending_until`
+/// (every device may cancel until then), and `drive_token` is the new family this side gets
+/// after it. `Debug` shows no token.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RecoveryLockdown {
+    /// The request's nonce (new for every request).
+    pub nonce: String,
+    /// In seconds since 1970.
+    pub pending_until: Option<u64>,
+    pub drive_token: String,
+}
+
+impl fmt::Debug for RecoveryLockdown {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecoveryLockdown")
+            .field("nonce", &self.nonce)
+            .field("pending_until", &self.pending_until)
+            .field("drive_token", &"<hidden>")
+            .finish()
+    }
+}
+
+/// What a voucher bought.
+#[derive(Debug)]
+pub enum VoucherRedeemed {
+    /// The drive's period grew by `days_added` (its months and its value pro rata, AZLINSEC17
+    /// F29), to `period_until` (seconds since 1970).
+    Extended {
+        days_added: u32,
+        period_until: Option<u64>,
+    },
+    /// A new drive of the voucher's tier (its sign-up: save it before its first refresh).
+    NewDrive(Box<DriveBundle>),
+}
+
+/// What a recovery-key lockdown signs: `lockdown:<drive>:<nonce>`.
+#[must_use]
+pub fn recovery_lockdown_message(drive_id: &str, nonce: &str) -> String {
+    format!("lockdown:{drive_id}:{nonce}")
+}
+
+/// A lockdown nonce: 16 random bytes, hex (32 characters; the token server takes 16 to 128 and
+/// each once per drive).
+fn lockdown_nonce() -> Result<String, TokenError> {
+    let mut bytes = [0_u8; 16];
+    getrandom::getrandom(&mut bytes).map_err(|_| {
+        TokenError::Config(String::from(
+            "This computer's random source does not answer: no lockdown request can be made.",
+        ))
+    })?;
+    Ok(crate::period::hex(&bytes))
+}
 
 // ==== The client ====
 
@@ -759,6 +814,87 @@ impl<'a> TokenServer<'a> {
     pub fn lockdown(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
         let path = format!("/v1/drives/{}/lockdown", check_id(drive_id)?);
         self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&json!({})))
+    }
+
+    /// The lockdown by the drive's recovery key (`POST /v1/drives/{id}/lockdown {"nonce",
+    /// "signature"}`): `sign` signs [`recovery_lockdown_message`] of a nonce made new for this
+    /// request (the token server answers a request it saw before with 409 `nonce_used`) and
+    /// answers the signature as the token server takes it (base64). It takes effect after 48 h
+    /// unless a device cancels it; no drive token is sent.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] when `sign` cannot sign (nothing is sent); the token server's
+    /// refusals (`nonce_used`, `no_recovery_key`, a bad signature: 401 without a drive token is
+    /// a refusal too).
+    pub fn recovery_lockdown(
+        &self,
+        drive_id: &str,
+        sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<RecoveryLockdown, TokenError> {
+        let id = check_id(drive_id)?;
+        let nonce = lockdown_nonce()?;
+        let signature = sign(recovery_lockdown_message(id, &nonce).as_bytes())
+            .map_err(|e| TokenError::Config(format!("The lockdown request is not signed: {e}")))?;
+        let path = format!("/v1/drives/{id}/lockdown");
+        let body = json!({ "nonce": nonce, "signature": signature });
+        let value = self.call(Method::Post, &path, None, Some(&body))?;
+        Ok(RecoveryLockdown {
+            nonce,
+            pending_until: value["pending_until"]
+                .as_str()
+                .and_then(azul_storage::time::parse_iso8601),
+            drive_token: value["drive_token"].as_str().unwrap_or_default().to_string(),
+        })
+    }
+
+    /// A voucher `code` (`POST /v1/vouchers/redeem`): on the drive `drive` (its id and this
+    /// device's drive token, which it does not spend) the days it added; without one a new drive
+    /// of `tier` (empty: the voucher's own, else the token server's default).
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] for an empty code (nothing is sent); the token server's refusals
+    /// (`voucher_invalid`, `voucher_too_small`, `bad_tier`).
+    pub fn redeem_voucher(
+        &self,
+        code: &str,
+        drive: Option<(&str, &str)>,
+        tier: &str,
+    ) -> Result<VoucherRedeemed, TokenError> {
+        let code = code.trim();
+        if code.is_empty() {
+            return Err(TokenError::Config(String::from("There is no voucher code.")));
+        }
+        let Some((drive_id, drive_token)) = drive else {
+            let mut body = json!({ "code": code });
+            if !tier.trim().is_empty() {
+                body["tier"] = json!(tier.trim());
+            }
+            let value = self.call(Method::Post, "/v1/vouchers/redeem", None, Some(&body))?;
+            return Ok(VoucherRedeemed::NewDrive(Box::new(
+                DriveBundle::from_value(&value)?,
+            )));
+        };
+        let body = json!({ "code": code, "drive_id": check_id(drive_id)? });
+        let value = self.call(
+            Method::Post,
+            "/v1/vouchers/redeem",
+            Some(token_of(drive_token)?),
+            Some(&body),
+        )?;
+        // An older token server answers whole months only.
+        let days_added = value["days_added"]
+            .as_u64()
+            .or_else(|| value["months_added"].as_u64().map(|m| m.saturating_mul(30)))
+            .and_then(|d| u32::try_from(d).ok())
+            .unwrap_or(0);
+        Ok(VoucherRedeemed::Extended {
+            days_added,
+            period_until: value["period_until"]
+                .as_str()
+                .and_then(azul_storage::time::parse_iso8601),
+        })
     }
 
     /// Cancels a pending recovery-key lockdown (`POST /v1/drives/{id}/lockdown/cancel`; a 409

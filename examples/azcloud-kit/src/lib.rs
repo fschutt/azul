@@ -101,7 +101,10 @@ pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
-pub use token::{BlindSignatures, Checkout, CheckoutStatus, Tier, Tiers, TokenError, TokenServer};
+pub use token::{
+    BlindSignatures, Checkout, CheckoutStatus, RecoveryLockdown, Tier, Tiers, TokenError,
+    TokenServer, VoucherRedeemed,
+};
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 
 /// Now, in seconds since 1970-01-01 UTC.
