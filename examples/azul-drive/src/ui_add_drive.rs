@@ -97,6 +97,8 @@ enum TextTarget {
     Field(&'static str),
     /// "I have a voucher"'s code.
     VoucherCode,
+    /// "Pick up a paid drive with a claim code"'s code.
+    ClaimCode,
 }
 
 /// The app, for a callback that builds its event from what it is given (a choice's index, the
@@ -259,6 +261,7 @@ pub(crate) fn dialog(
         AddPage::Buy => (String::from("Buy storage"), buy(d, development, app)),
         AddPage::Sources => (String::from("Connect a data source"), sources(app)),
         AddPage::Voucher => (String::from("Redeem a voucher"), voucher(d, app)),
+        AddPage::ClaimCode => (String::from("Pick up a paid drive"), claim_code(d, app)),
         AddPage::Form => {
             let title = match (&d.editing, d.spec()) {
                 (Some(_), _) => format!("Enter the keys of \"{}\" again", d.name),
@@ -302,16 +305,77 @@ fn choose(app: &RefAny) -> Dom {
             css,
         )
         .with_id(ids::ADD_CHOICE_CONNECT),
-        buttons(vec![button(
+        buttons(vec![
+            button(
+                app,
+                "Pick up a paid drive with a claim code",
+                ButtonType::Default,
+                AddEvent::ClaimCodePage,
+                ids::ADD_CHOICE_CLAIM,
+                None,
+            ),
+            button(
+                app,
+                "Cancel",
+                ButtonType::Default,
+                AddEvent::Cancel,
+                ids::ADD_CANCEL,
+                None,
+            ),
+        ]),
+    ])
+    .with_id(ids::ADD_CHOOSE)
+}
+
+/// "Pick up a paid drive with a claim code": the code from the buyer's copy of a cash order,
+/// the drive's name, Pick up.
+fn claim_code(d: &AddDialog, app: &RefAny) -> Dom {
+    let mut children = vec![
+        back(app),
+        note(
+            "A drive paid in cash by post is picked up with the claim code on the buyer's copy: \
+             type it as the copy prints it, or scan its QR code. AzDrive asks for the drive \
+             now and then once a day until the money arrived.",
+        ),
+        label("The claim code"),
+        text_field(
+            app,
+            &d.claim_code,
+            "AZK1-XXXX-XXXX-...",
+            true,
+            TextTarget::ClaimCode,
+        )
+        .with_id(ids::ADD_CLAIM_CODE),
+        label("Name"),
+        text_field(app, &d.buy_name, "Azlin Storage", false, TextTarget::BuyName)
+            .with_id(ids::ADD_NAME),
+        note(
+            "Use the code only when the computer that bought the drive is lost: two computers \
+             that pick up one drive lock each other out of it.",
+        ),
+    ];
+    if !d.notice.is_empty() {
+        children.push(line(&d.notice).with_id(ids::ADD_STATUS));
+    }
+    children.push(buttons(vec![
+        button(
             app,
             "Cancel",
             ButtonType::Default,
             AddEvent::Cancel,
             ids::ADD_CANCEL,
             None,
-        )]),
-    ])
-    .with_id(ids::ADD_CHOOSE)
+        ),
+        button(
+            app,
+            "Pick up",
+            ButtonType::Primary,
+            AddEvent::PickUp,
+            ids::ADD_PICK_UP,
+            d.busy().then_some("Wait for the step that runs."),
+        ),
+    ]));
+    column(children)
 }
 
 /// Buy storage: the tiers and their prices, monthly or yearly, the name, Create test drive
@@ -416,6 +480,10 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
     // While the popover shows a page, it says what there is to say.
     if !d.notice.is_empty() && d.pay.presenting().is_none() {
         children.push(line(&d.notice).with_id(ids::ADD_STATUS));
+    }
+    // Cash by post: the posted order's claim code and its two pages.
+    if matches!(d.pay, PayState::Posted { .. }) {
+        children.extend(crate::cash::posted_pieces(d.kept.as_ref(), app));
     }
     let loaded = matches!(d.tiers, TiersState::Loaded(_))
         && !matches!(d.offer, OfferState::Loading);
@@ -1298,6 +1366,10 @@ extern "C" fn on_text(
             TextTarget::Field(key) => d.set_value(key, &text),
             TextTarget::VoucherCode => {
                 d.voucher_code = text;
+                d.notice.clear();
+            }
+            TextTarget::ClaimCode => {
+                d.claim_code = text;
                 d.notice.clear();
             }
         }

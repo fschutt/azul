@@ -844,6 +844,10 @@ pub(crate) struct DriveState {
     /// `AZDRIVE_<PROVIDER>_<KEY>` over the shared Azlin config's `oauth` section, read at the
     /// start (`sign_in`).
     pub sign_in_settings: sign_in::SignInSettings,
+    /// The cash orders this AzDrive waits for (cash by post): the drive list's lines.
+    pub cash_waits: Vec<cash::Wait>,
+    /// When the cash orders are asked about next: once a day (`AZDRIVE_PERIOD_CHECK_SECS`).
+    pub cash_looks: periods::Schedule,
 }
 
 impl DriveState {
@@ -2243,6 +2247,7 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Scanned { done: false, .. }
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
+            | Outcome::CashWaiting { .. }
             | Outcome::CheckoutFinished {
                 from_claims: true,
                 ..
@@ -2622,6 +2627,12 @@ pub(crate) extern "C" fn on_job_done(
             as_of,
             result,
         } => restore::restored(&mut info, &handle, s, &drive_id, as_of, result),
+        Outcome::CashWaiting { checkout } => cash::waiting(s, checkout),
+        Outcome::PickedUp {
+            serial,
+            checkout,
+            result,
+        } => add_flow::picked_up_answered(&mut info, &handle, s, serial, checkout, result),
     }
     Update::RefreshDom
 }
@@ -3155,6 +3166,8 @@ pub fn start() {
         pending_lockdowns: HashMap::new(),
         sync_view: sync_view::SyncView::default(),
         sign_in_settings,
+        cash_waits: Vec::new(),
+        cash_looks: periods::Schedule::default(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

@@ -68,6 +68,9 @@ pub(crate) fn qr_dom(symbol: &QrCode, module: usize) -> Dom {
 pub(crate) struct Paper {
     pub title: String,
     pub subtitle: String,
+    /// The lines of a postal address, set close together under the subtitle ("Send it to:");
+    /// empty for none.
+    pub address: Vec<String>,
     pub text: Vec<String>,
     /// The label over the secret, the secret as the page shows it (and its QR code holds), the
     /// words beside the QR code.
@@ -88,6 +91,12 @@ pub(crate) fn paper_dom(paper: &Paper, symbol: &QrCode) -> Dom {
         &paper.subtitle,
         "margin-top: 4px; padding-bottom: 10px; border-bottom: 2px solid #000000;",
     ));
+    if !paper.address.is_empty() {
+        body.add_child(block("Send it to:", "margin-top: 14px; font-weight: bold;"));
+        for line in &paper.address {
+            body.add_child(block(line, "margin-top: 2px; font-size: 15px;"));
+        }
+    }
     for text in &paper.text {
         body.add_child(block(text, "margin-top: 10px;"));
     }

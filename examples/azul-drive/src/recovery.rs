@@ -199,6 +199,7 @@ impl Kit {
         Paper {
             title: lines[0].clone(),
             subtitle: lines[1].clone(),
+            address: Vec::new(),
             text: lines[2..2 + KIT_TEXT.len()].to_vec(),
             label: KIT_CODE_LABEL,
             secret: self.qr_text(),

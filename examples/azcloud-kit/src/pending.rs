@@ -78,6 +78,9 @@ pub struct PendingCheckout {
 /// operator's address, the checkout's end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CashKept {
+    /// The months paid at once (0: not said).
+    #[serde(default)]
+    pub months: u32,
     pub amount_cents: u64,
     pub currency: String,
     pub activation_code: String,

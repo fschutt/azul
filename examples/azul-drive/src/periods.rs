@@ -115,6 +115,13 @@ impl Schedule {
         self.next.insert(drive_id.to_string(), next);
     }
 
+    /// `key` was looked at `now` (a cash order asked by the background claims): the next look
+    /// is a day later (or the test run's interval).
+    pub(crate) fn looked_at(&mut self, key: &str, now: u64) {
+        self.next
+            .insert(key.to_string(), now.saturating_add(self.every));
+    }
+
     /// Seconds between two glances of the timer at the schedule.
     fn tick(&self) -> u64 {
         self.every.min(TICK_SECS)
@@ -400,5 +407,7 @@ extern "C" fn on_period_timer(mut data: RefAny, info: TimerCallbackInfo) -> Time
     }
     // A transient storage problem nobody asked about again notifies once its half hour is up.
     crate::problems::notify_due(&mut callback_info, &mut *s);
+    // A cash order's daily look (its letter may have arrived).
+    crate::cash::look_if_due(&mut callback_info, &app, &mut *s);
     TimerCallbackReturn::continue_unchanged()
 }
