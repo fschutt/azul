@@ -136,6 +136,7 @@ pub struct NetworkState {
     pub connected: bool,
     pub metered: bool,
     pub constrained: bool,
+    pub hotspot: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -145,18 +146,21 @@ impl NetworkState {
         connected: true,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
     pub const UNKNOWN: NetworkState = NetworkState {
         kind: NetworkKind::Unknown,
         connected: true,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
     pub const OFFLINE: NetworkState = NetworkState {
         kind: NetworkKind::Unknown,
         connected: false,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
 
     #[must_use]

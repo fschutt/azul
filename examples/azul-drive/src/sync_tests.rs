@@ -833,6 +833,7 @@ fn network(kind: NetworkKind, metered: bool, constrained: bool) -> NetworkState 
         connected: true,
         metered,
         constrained,
+        hotspot: false,
     }
 }
 

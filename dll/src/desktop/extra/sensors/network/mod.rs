@@ -65,6 +65,14 @@ pub struct NetworkState {
     /// The user asked to save data on it: Low Data Mode, Data Saver, a plan near or over its
     /// data limit, roaming.
     pub constrained: bool,
+    /// An ESTIMATE that the connection is a phone's hotspot (or a tethered phone's data plan):
+    /// a Wi-Fi the system itself marks as costly (each platform's rule is in the module
+    /// documentation). Only the system's own flags and the kind are read - never a
+    /// network's name, an access point, a carrier or an address - so it can be wrong both ways:
+    /// a hotspot the system does not recognise is a free Wi-Fi, and a Wi-Fi the user's
+    /// router marks metered is a hotspot. Last in the struct: the FFI layout of the fields
+    /// before it is unchanged.
+    pub hotspot: bool,
 }
 
 impl NetworkState {
@@ -74,6 +82,7 @@ impl NetworkState {
         connected: true,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
 
     /// What a platform without a reading reports: connected and free, its kind unknown.
@@ -82,6 +91,7 @@ impl NetworkState {
         connected: true,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
 
     /// No connection.
@@ -90,6 +100,7 @@ impl NetworkState {
         connected: false,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
 
     /// The network state now (see the module documentation).
@@ -115,11 +126,12 @@ impl NetworkState {
     }
 
     /// A headless run's network in words, any case, separated by spaces, commas or new lines:
-    /// `offline` (or `online`), `metered`, `constrained`, and its kind - `wired`, `wifi`,
-    /// `cellular`, `other`, `unknown`. What the words leave out is [`NetworkState::HEADLESS`]'s
-    /// (an offline network without a kind is of the unknown kind); words it does not know are
-    /// left out. `cellular metered` is a phone's mobile data, `wifi constrained` a Wi-Fi in Low
-    /// Data Mode.
+    /// `offline` (or `online`), `metered`, `constrained`, `hotspot`, and its kind - `wired`,
+    /// `wifi`, `cellular`, `other`, `unknown`. What the words leave out is
+    /// [`NetworkState::HEADLESS`]'s (an offline network without a kind is of the unknown kind);
+    /// words it does not know are left out. `hotspot` is a phone's hotspot as the systems see
+    /// one: metered, and a Wi-Fi unless the words name another kind. `cellular metered` is a
+    /// phone's mobile data, `wifi constrained` a Wi-Fi in Low Data Mode.
     #[must_use]
     pub fn from_words(text: &str) -> NetworkState {
         let mut state = NetworkState::HEADLESS;
@@ -162,6 +174,15 @@ impl NetworkState {
         }
         state
     }
+}
+
+/// The hotspot estimate ([`NetworkState::hotspot`]): a Wi-Fi the system itself marks as costly
+/// (`system_says_costly`: Apple's expensive path, Windows' variable or roaming cost,
+/// NetworkManager's own metered guess, Android's metered network). A costly mobile network is
+/// the device's own data plan, not a hotspot; a costly wired one is the user's setting.
+fn hotspot_guess(kind: NetworkKind, system_says_costly: bool) -> bool {
+    let _ = (kind, system_says_costly);
+    false
 }
 
 /// A headless run's network: the switch file's words, else [`NetworkState::HEADLESS`].
@@ -246,14 +267,33 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{reading_of_file, NetworkKind, NetworkState};
+    use super::{hotspot_guess, reading_of_file, NetworkKind, NetworkState};
 
     const WIFI: NetworkState = NetworkState {
         kind: NetworkKind::WiFi,
         connected: true,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
+
+    #[test]
+    fn a_hotspot_is_a_wifi_the_system_itself_marks_costly() {
+        assert!(hotspot_guess(NetworkKind::WiFi, true));
+        assert!(!hotspot_guess(NetworkKind::WiFi, false), "a free Wi-Fi");
+        assert!(
+            !hotspot_guess(NetworkKind::Cellular, true),
+            "on the phone itself it is its data plan"
+        );
+        assert!(!hotspot_guess(NetworkKind::Wired, true), "a wired line set to metered");
+        assert!(!hotspot_guess(NetworkKind::Unknown, true));
+    }
+
+    #[test]
+    fn a_hotspot_holds_big_transfers_back_as_a_metered_network_does() {
+        let hotspot = NetworkState::from_words("hotspot");
+        assert!(!hotspot.allows_background_transfer(), "{hotspot:?}");
+    }
 
     #[test]
     fn big_transfers_wait_on_a_metered_or_low_data_network_and_while_offline() {
@@ -282,6 +322,21 @@ mod tests {
     #[test]
     fn a_headless_runs_network_is_written_in_words() {
         assert_eq!(NetworkState::from_words(""), NetworkState::HEADLESS);
+        let hotspot = NetworkState {
+            metered: true,
+            hotspot: true,
+            ..WIFI
+        };
+        assert_eq!(NetworkState::from_words("hotspot"), hotspot, "a Wi-Fi, metered");
+        assert_eq!(NetworkState::from_words("Hotspot wifi"), hotspot);
+        assert_eq!(
+            NetworkState::from_words("other hotspot"),
+            NetworkState {
+                kind: NetworkKind::Other,
+                ..hotspot
+            },
+            "Bluetooth tethering: the kind named"
+        );
         assert_eq!(
             NetworkState::from_words("wifi metered"),
             NetworkState {
@@ -296,6 +351,7 @@ mod tests {
                 connected: true,
                 metered: true,
                 constrained: true,
+                hotspot: false,
             }
         );
         assert_eq!(NetworkState::from_words("offline\n"), NetworkState::OFFLINE);
@@ -345,5 +401,11 @@ mod tests {
         assert_eq!(core::mem::size_of::<NetworkKind>(), 4);
         assert_eq!(core::mem::size_of::<NetworkState>(), 8);
         assert_eq!(core::mem::align_of::<NetworkState>(), 4);
+        assert_eq!(
+            core::mem::offset_of!(NetworkState, constrained),
+            6,
+            "the fields before the hotspot keep their places"
+        );
+        assert_eq!(core::mem::offset_of!(NetworkState, hotspot), 7);
     }
 }

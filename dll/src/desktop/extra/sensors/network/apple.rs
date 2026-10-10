@@ -81,6 +81,7 @@ unsafe fn reading_of(path: *mut c_void, f: &PathFns) -> NetworkState {
             connected: true,
             metered: (f.expensive)(path),
             constrained: f.constrained.is_some_and(|constrained| constrained(path)),
+            hotspot: false,
         }
     }
 }

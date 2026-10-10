@@ -86,6 +86,7 @@ fn reading() -> Option<NetworkState> {
         connected: true,
         metered,
         constrained,
+        hotspot: false,
     })
 }
 

@@ -2664,6 +2664,7 @@ mod tests {
                     connected: true,
                     metered,
                     constrained,
+                    hotspot: false,
                 },
             )
         };

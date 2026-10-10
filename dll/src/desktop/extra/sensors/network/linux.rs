@@ -54,6 +54,15 @@ fn kind_of(connection_type: &str) -> NetworkKind {
     }
 }
 
+/// NetworkManager's `Metered` (`None`: not read): whether the connection costs (yes,
+/// guess-yes), and whether that is NetworkManager's own guess - guess-yes: a mobile modem, or a
+/// Wi-Fi whose access point says it is a phone's hotspot (Android's DHCP option 43
+/// `ANDROID_METERED`, a vendor element of the access point) - rather than the user's setting
+/// (yes).
+fn metered_of(value: Option<u32>) -> (bool, bool) {
+    (matches!(value, Some(METERED_YES | METERED_GUESS_YES)), false)
+}
+
 /// NetworkManager's state now; `None` when it does not answer.
 fn reading(props: &Proxy<'_>) -> Option<NetworkState> {
     let connectivity: u32 = property(props, "Connectivity")?;
@@ -72,6 +81,7 @@ fn reading(props: &Proxy<'_>) -> Option<NetworkState> {
         connected,
         metered: connected && metered,
         constrained: false,
+        hotspot: false,
     })
 }
 
@@ -115,7 +125,16 @@ pub(super) fn read() -> Option<NetworkState> {
 
 #[cfg(test)]
 mod tests {
-    use super::{kind_of, NetworkKind};
+    use super::{kind_of, metered_of, NetworkKind};
+
+    #[test]
+    fn network_managers_own_metered_guess_tells_a_hotspot_from_the_users_setting() {
+        assert_eq!(metered_of(Some(3)), (true, true), "guess-yes");
+        assert_eq!(metered_of(Some(1)), (true, false), "yes: the user set it");
+        assert_eq!(metered_of(Some(4)), (false, false), "guess-no");
+        assert_eq!(metered_of(Some(2)), (false, false), "no");
+        assert_eq!(metered_of(None), (false, false));
+    }
 
     #[test]
     fn network_managers_connection_types_are_kinds() {

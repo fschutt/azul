@@ -102,6 +102,7 @@ fn read_with(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Option<NetworkStat
         connected,
         metered,
         constrained,
+        hotspot: false,
     })
 }
 
