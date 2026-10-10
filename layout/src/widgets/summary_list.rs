@@ -345,7 +345,7 @@ impl SummaryRow {
 
     /// A group header titled `title`.
     #[must_use]
-    pub fn create_group(title: AzString) -> Self {
+    pub const fn create_group(title: AzString) -> Self {
         let mut row = Self::create(0, AzString::from_const_str(""), title);
         row.kind = SummaryRowKind::Group;
         row
