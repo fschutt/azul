@@ -26,7 +26,8 @@ use crate::{
     jobs::Outcome,
     model::Settings,
     sync_jobs::{self, PassProgress, SyncChange, SyncJob, SyncOutcome, SyncWork},
-    sync_view::{self, DriveSync, Running},
+    sync_store::SyncStore,
+    sync_view::{self, Running},
 };
 
 const MB: u64 = 1024 * 1024;
@@ -39,12 +40,15 @@ fn setup() -> SyncSetup {
 
 #[test]
 fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
-    let mut sync = DriveSync::default();
+    let mut states = SyncStates::default();
     let mut paired = setup();
-    assert_eq!(sync_view::status_text(&paired, &sync, true), "Not synced yet");
-    sync.states.last_pass = Some(1);
-    assert_eq!(sync_view::status_text(&paired, &sync, true), "Up to date");
-    sync.running = Some(Running {
+    assert_eq!(
+        sync_view::status_text(&paired, &states, None, true),
+        "Not synced yet"
+    );
+    states.last_pass = Some(1);
+    assert_eq!(sync_view::status_text(&paired, &states, None, true), "Up to date");
+    let running = Running {
         cancel: Arc::new(AtomicBool::new(false)),
         progress: PassProgress {
             files_done: 3,
@@ -53,12 +57,11 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
             bytes_total: 340 * MB,
             moving: None,
         },
-    });
-    let syncing = sync_view::status_text(&paired, &sync, true);
+    };
+    let syncing = sync_view::status_text(&paired, &states, Some(&running), true);
     assert!(syncing.starts_with("Syncing 12 files ("), "{syncing}");
     assert!(syncing.contains("340"), "{syncing}");
-    sync.running = None;
-    sync.states.files.insert(
+    states.files.insert(
         String::from("a.jpg"),
         FileRecord {
             conflict: Some(HeldConflict {
@@ -72,17 +75,79 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
         },
     );
     assert_eq!(
-        sync_view::status_text(&paired, &sync, true),
+        sync_view::status_text(&paired, &states, None, true),
         "Waiting for you: 1 conflict"
     );
-    sync.states.read_only = true;
+    states.read_only = true;
     assert_eq!(
-        sync_view::status_text(&paired, &sync, true),
+        sync_view::status_text(&paired, &states, None, true),
         "Read-only (payment due)"
     );
-    assert_eq!(sync_view::status_text(&paired, &sync, false), "Read-only");
+    assert_eq!(sync_view::status_text(&paired, &states, None, false), "Read-only");
     paired.paused = true;
-    assert_eq!(sync_view::status_text(&paired, &sync, true), "Paused");
+    assert_eq!(sync_view::status_text(&paired, &states, None, true), "Paused");
+}
+
+/// The store the window and the search share: a synced folder's file through a drive on this
+/// computer and through an encrypted drive's own listing; its plain local copy only while it
+/// is on this device.
+#[test]
+fn the_sync_store_finds_a_file_through_the_folder_and_says_where_its_copy_is() {
+    let folder = TempDir::new("azdrive-sync-store");
+    let home = folder.path().parent().unwrap().to_path_buf();
+    let name = folder.path().file_name().unwrap().to_string_lossy().into_owned();
+    fs::write(folder.path().join("here.txt"), b"here").unwrap();
+    let store = SyncStore::default();
+    let paired = SyncSetup::new("d_photos", "Photos/", folder.path());
+    store.set_pairs(
+        &[paired],
+        &|_drive: &str| false,
+        vec![(String::from("home"), home.clone())],
+    );
+    assert!(store.any());
+    let mut states = SyncStates::default();
+    states.files.insert(String::from("here.txt"), FileRecord::default());
+    states.files.insert(
+        String::from("cloud.txt"),
+        FileRecord {
+            cloud_only: true,
+            ..FileRecord::default()
+        },
+    );
+    store.set_states("d_photos", states);
+    let key = |file: &str| format!("{name}/{file}");
+    assert_eq!(
+        store.locate("home", &key("here.txt")),
+        Some((String::from("d_photos"), String::from("here.txt")))
+    );
+    assert_eq!(store.file_state("home", &key("here.txt")), Some(FileState::OnDevice));
+    assert_eq!(store.file_state("home", &key("cloud.txt")), Some(FileState::CloudOnly));
+    assert_eq!(store.file_state("home", "elsewhere.txt"), None);
+    assert_eq!(
+        store.local_copy("home", &key("here.txt")),
+        Some(folder.path().join("here.txt"))
+    );
+    assert_eq!(store.local_copy("home", &key("cloud.txt")), None, "no bytes here");
+    // A plain drive's own listing holds the sync's blobs, not its files.
+    assert_eq!(store.file_state("d_photos", "Photos/here.txt"), None);
+    // An encrypted drive's own listing names its files.
+    store.set_pairs(
+        &[SyncSetup::new("d_photos", "Photos/", folder.path())],
+        &|drive: &str| drive == "d_photos",
+        vec![(String::from("home"), home)],
+    );
+    assert_eq!(store.file_state("d_photos", "Photos/here.txt"), Some(FileState::OnDevice));
+    assert_eq!(
+        store.local_copy("d_photos", "Photos/here.txt"),
+        Some(folder.path().join("here.txt"))
+    );
+    store.set_moving("d_photos", Some((String::from("here.txt"), true)));
+    assert!(matches!(
+        store.file_state("d_photos", "Photos/here.txt"),
+        Some(FileState::Uploading { .. })
+    ));
+    store.set_pairs(&[], &|_drive: &str| false, Vec::new());
+    assert!(!store.any());
 }
 
 #[test]
