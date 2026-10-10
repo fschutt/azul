@@ -134,6 +134,7 @@ fn a_drive_whose_keys_are_gone_opens_its_form_again_without_them() {
 
 #[test]
 fn buy_storage_shows_the_chosen_tier_and_its_price() {
+    crate::l10n::in_english();
     let mut dialog = AddDialog::new(1);
     dialog.choose_buy();
     assert_eq!(dialog.page_line(), "buy");
@@ -400,6 +401,7 @@ fn tokens(refresh: Option<&str>) -> Tokens {
 
 #[test]
 fn a_consumer_cloud_without_a_client_id_says_which_setting_is_missing() {
+    crate::l10n::in_english();
     for (scheme, var, key, name) in [
         ("gdrive", "AZDRIVE_GOOGLE_CLIENT_ID", "\"google\"", "Google Drive"),
         ("dropbox", "AZDRIVE_DROPBOX_CLIENT_ID", "\"dropbox\"", "Dropbox"),
@@ -489,6 +491,7 @@ fn the_client_ids_come_from_the_shared_config_under_the_environment() {
 
 #[test]
 fn a_token_answer_without_a_refresh_token_cannot_keep_a_drive_signed_in() {
+    crate::l10n::in_english();
     let plan = sign_in::plan("gdrive", &settings(&[("AZDRIVE_GOOGLE_CLIENT_ID", "id")])).unwrap();
     let why = sign_in::form_settings(&plan, &tokens(None)).unwrap_err();
     assert!(why.contains("refresh token"), "{why}");

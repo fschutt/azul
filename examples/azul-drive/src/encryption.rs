@@ -681,9 +681,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
             drive_id, error, ..
         } => {
             let mut body = column(vec![
-                line(
-                    "azdrive-enc-from-computer-lost-drive",
-                ),
+                line("azdrive-enc-from-computer-lost-drive"),
                 label("azdrive-drill-code"),
                 TextInput::create()
                     .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
@@ -726,9 +724,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
             drive_id, error, ..
         } => {
             let mut body = column(vec![
-                line(
-                    "azdrive-enc-lockdown-started-recovery-code",
-                ),
+                line("azdrive-enc-lockdown-started-recovery-code"),
                 label("azdrive-drill-code"),
                 TextInput::create()
                     .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
@@ -759,26 +755,13 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
         } => (
             t_args("azdrive-enc-rotate-title", &[("name", Arg::from(drive_name(s, drive_id)))]),
             column(vec![
-                line(
-                    "azdrive-enc-use-when-computer-phone",
-                ),
-                line(
-                    "azdrive-enc-1-drive-locked-down",
-                ),
-                line(
-                    "azdrive-enc-2-drive-gets-new",
-                ),
-                line(
-                    "azdrive-enc-3-your-other-computers",
-                ),
-                line(
-                    "azdrive-enc-then-re-encrypting-every",
-                ),
+                line("azdrive-enc-rotate-when"),
+                line("azdrive-enc-rotate-1"),
+                line("azdrive-enc-rotate-2"),
+                line("azdrive-enc-rotate-3"),
+                line("azdrive-enc-rotate-then"),
                 label("azdrive-enc-your-current-recovery-code"),
-                line(
-                    "azdrive-enc-token-server-takes-new",
-                )
-                .with_css("font-size: 12px;"),
+                line("azdrive-enc-token-server-takes-new").with_css("font-size: 12px;"),
                 TextInput::create()
                     .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
                     .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)

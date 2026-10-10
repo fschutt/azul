@@ -22,7 +22,10 @@
 
 use std::{fmt, path::Path};
 
-use azul_appkit::oauth_clients::{self, OAuthSettings};
+use azul_appkit::{
+    l10n::{t_args, Arg},
+    oauth_clients::{self, OAuthSettings},
+};
 use azul_storage::{
     oauth::{
         self, OAuthClient, OAuthProvider, Tokens, ACCESS_TOKEN, CLIENT_ID, CLIENT_SECRET,
@@ -105,8 +108,12 @@ impl SignInPlan {
 /// The sign-in of the OpenDAL service `scheme` with `settings`; why not, as a sentence that
 /// names the missing setting.
 pub(crate) fn plan(scheme: &str, settings: &SignInSettings) -> Result<SignInPlan, String> {
-    let provider = oauth::provider(scheme)
-        .ok_or_else(|| format!("A {scheme} source does not sign in; its form takes its keys."))?;
+    let provider = oauth::provider(scheme).ok_or_else(|| {
+        t_args(
+            "azdrive-add-no-sign-in-for",
+            &[("scheme", Arg::from(scheme))],
+        )
+    })?;
     let own = settings.of(provider);
     let client_id = own
         .client_id
@@ -125,13 +132,20 @@ pub(crate) fn plan(scheme: &str, settings: &SignInSettings) -> Result<SignInPlan
 
 /// The sentence a provider without a configured client shows: the variable and the config key.
 pub(crate) fn missing_client(provider: &OAuthProvider) -> String {
-    format!(
-        "To sign in to {}, AzDrive needs the OAuth client id registered for it: set {} or \
-         \"oauth\": {{\"{}\": {{\"client_id\": \"...\"}}}} in the shared Azlin config \
-         (~/.azlin/config.json).",
-        provider.name,
-        oauth_clients::env_var(ENV_PREFIX, provider.id, "client_id"),
+    let setting = format!(
+        "\"oauth\": {{\"{}\": {{\"client_id\": \"...\"}}}}",
         provider.id
+    );
+    t_args(
+        "azdrive-add-missing-client",
+        &[
+            ("provider", Arg::from(provider.name)),
+            (
+                "variable",
+                Arg::from(oauth_clients::env_var(ENV_PREFIX, provider.id, "client_id")),
+            ),
+            ("setting", Arg::from(setting)),
+        ],
     )
 }
 
@@ -183,10 +197,9 @@ pub(crate) fn form_settings(
         .map(str::trim)
         .filter(|t| !t.is_empty())
         .ok_or_else(|| {
-            format!(
-                "{} gave no refresh token, so the drive could not stay signed in. Sign in again \
-                 and allow offline access.",
-                plan.provider.name
+            t_args(
+                "azdrive-add-no-refresh-token",
+                &[("provider", Arg::from(plan.provider.name))],
             )
         })?;
     Ok(vec![
