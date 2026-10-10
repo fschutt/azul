@@ -53,12 +53,12 @@ use azul::{
         DropDownOnChoiceChangeCallbackType, TextInputOnTextInputCallbackType,
     },
     prelude::*,
+    sensor::NetworkState,
     str::String as AzString,
     vec::StringVec,
     widgets::{
         ButtonType, CheckBoxState, DropDown, OnTextInputReturn, TextInputState, TextInputValid,
     },
-    window::NetworkState,
 };
 
 use azul_appkit::l10n::{self, t, t_phrase, t_text, Phrase, Text};

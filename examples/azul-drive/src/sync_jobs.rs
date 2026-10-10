@@ -34,9 +34,9 @@ use azcloud_kit::sync::{
 use azul::{
     callbacks::{TimerCallbackInfo, TimerCallbackReturn},
     prelude::*,
+    sensor::NetworkState,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
-    window::NetworkState,
 };
 use azul_appkit::l10n::{Phrase, Text};
 use azul_storage::{key, Drive};

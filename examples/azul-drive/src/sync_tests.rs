@@ -17,7 +17,7 @@ use azcloud_kit::sync::{
     session::{AutoDownload, FileRecord, FileState, SyncSetup, SyncStates},
     HeldConflict,
 };
-use azul::window::{NetworkKind, NetworkState};
+use azul::sensor::{NetworkKind, NetworkState};
 use azul_storage::{
     testing::TempDir, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
     Precondition,

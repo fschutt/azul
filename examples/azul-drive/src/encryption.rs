@@ -50,8 +50,8 @@ use azul::{
     str::String as AzString,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
+    sensor::{NetworkState, PowerState},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
-    window::{NetworkState, PowerState},
 };
 use azcloud_kit::{TokenError, TokenServer};
 use azul_appkit::l10n::{t, t_args, t_label, Arg, Phrase, Text};
@@ -2476,7 +2476,7 @@ extern "C" fn on_recovery_lockdown(mut data: RefAny, mut info: CallbackInfo) -> 
 
 #[cfg(test)]
 mod tests {
-    use azul::window::NetworkKind;
+    use azul::sensor::NetworkKind;
 
     use super::*;
 

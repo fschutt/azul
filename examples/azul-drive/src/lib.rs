@@ -3312,7 +3312,7 @@ pub fn start() {
     window.window_state.title = AzString::from(window_title(&state));
     // azul's network monitor starts now, so it has read the network by the first sync pass at
     // the window's start (a metered one holds big files back).
-    let _ = azul::window::NetworkState::query();
+    let _ = azul::sensor::NetworkState::query();
     let app = App::create(RefAny::new(state), config);
     app.run(window);
 }
