@@ -150,9 +150,12 @@ fn row_dom(app: &RefAny, st: &AppState, index: usize, row: ResultRow) -> Dom {
                 .with_accessibility_info(AccessibilityInfo::named(format!("{}, {} matches", file.key, file.hits.len()), AccessibilityRole::ListItem))
                 .with_child(
                     Dom::create_icon(if folded { "chevron_right" } else { "expand_more" })
-                        .with_css("font-size: 16px; width: 16px; flex-shrink: 0;"),
+                        .with_css(format!("font-size: 16px; width: 16px; flex-shrink: 0; {}", ui::FLORA_GLYPH)),
                 )
-                .with_child(Dom::create_icon("description").with_css("font-size: 16px; padding: 0px 6px 0px 2px; opacity: 0.8;"))
+                .with_child(
+                    Dom::create_icon("description")
+                        .with_css(format!("font-size: 16px; padding: 0px 6px 0px 2px; {}", ui::SOFT_GLYPH)),
+                )
                 .with_child(label(file_name(&file.key), "flex-shrink: 0; padding-right: 6px;"))
                 .with_child(label(&folder, "font-size: 12px; opacity: 0.6; min-width: 0px; overflow: hidden; flex-grow: 1;"))
                 .with_child(label(

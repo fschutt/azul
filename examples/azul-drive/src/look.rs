@@ -143,13 +143,15 @@ pub(crate) const ROW_DROP: &str = themed!(
 pub(crate) const ROW_ICON: &str =
     "font-size: 16px; width: 18px; flex-shrink: 0; margin-right: 6px;";
 
-/// The tint of an icon at rest: Office's icon blue, flora's accent.
+/// The tint of a monochrome icon at rest: Office's icon blue, flora's small-icon ink
+/// (`system:icon`: `--fl-icon`, #56544C by day, #BEBEBE at night). A multicolour Haiku icon
+/// keeps its own colours under any tint.
 pub(crate) const ICON_TINT: &str = themed!(
     "",
     "color: #3D6AA8;",
     "color: #7AA7E0;",
-    "color: var(--az-accent, #2F4A85);",
-    "color: var(--az-accent-glow, #7A93C6);",
+    "color: system:icon;",
+    "color: system:icon;",
 );
 
 /// The room a row without a triangle keeps, so every icon of a level lines up.
@@ -449,13 +451,13 @@ pub(crate) const CRUMB: &str = themed!(
 /// The open place's own step: in full, bold.
 pub(crate) const CRUMB_LAST: &str = "flex-shrink: 0; font-weight: 600;";
 
-/// A step's icon.
+/// A step's icon: tinted as [`ICON_TINT`].
 pub(crate) const CRUMB_ICON: &str = themed!(
     "font-size: 14px; margin-right: 4px; flex-shrink: 0;",
     "color: #3D6AA8;",
     "color: #7AA7E0;",
-    "color: var(--az-accent, #2F4A85);",
-    "color: var(--az-accent-glow, #7A93C6);",
+    "color: system:icon;",
+    "color: system:icon;",
 );
 
 /// The chevron between two steps.

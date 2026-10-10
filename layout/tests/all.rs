@@ -997,6 +997,8 @@ mod a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window;
 mod the_first_background_layer_is_painted_on_top;
 #[path = "each_background_layer_is_clipped_to_its_own_box.rs"]
 mod each_background_layer_is_clipped_to_its_own_box;
+#[path = "a_flora_tab_in_a_narrow_column_holds_its_capitals.rs"]
+mod a_flora_tab_in_a_narrow_column_holds_its_capitals;
 #[path = "a_flora_tab_row_is_cut_from_the_websites_metal.rs"]
 mod a_flora_tab_row_is_cut_from_the_websites_metal;
 #[path = "a_flex_items_negative_margin_overhangs_its_row_without_growing_it.rs"]

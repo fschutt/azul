@@ -30,6 +30,7 @@
 //! | `selection-text-inactive`               | `--fl-ink`             | `--fl-ink`             |
 //! | `link`                                  | `--fl-qt` (brass ink)  | `--fl-qt`              |
 //! | `find-highlight`                        | `--fl-gla`             | `--fl-gla`             |
+//! | `icon` (a monochrome glyph's ink)       | `--fl-icon`            | `--fl-icon`            |
 //!
 //! Two choices the CSS does not spell out for a keyword:
 //!
@@ -99,6 +100,7 @@ pub const fn system_colors(dark: bool, ramp: FloraAccentRamp) -> SystemColors {
             f::LIGHT_QT,
         )
     };
+    let icon = if dark { f::DARK_ICON } else { f::LIGHT_ICON };
     let (accent, accent_text) = if dark {
         (ramp.glow, ramp.deep)
     } else {
@@ -134,6 +136,7 @@ pub const fn system_colors(dark: bool, ramp: FloraAccentRamp) -> SystemColors {
         control_background: some(fld),
         placeholder_text: some(soft2),
         text_selection_background: some(selection),
+        icon: some(icon),
     }
 }
 
@@ -154,7 +157,7 @@ mod tests {
     use crate::widgets::themes::spin::FloraSpin;
 
     /// Every `system:` keyword under flora, by day and at night.
-    const ALL: [R; 24] = [
+    const ALL: [R; 25] = [
         R::Text,
         R::Background,
         R::Accent,
@@ -179,6 +182,7 @@ mod tests {
         R::ControlBackground,
         R::PlaceholderText,
         R::TextSelectionBackground,
+        R::Icon,
     ];
 
     #[test]
@@ -253,6 +257,21 @@ mod tests {
         );
         assert_eq!(for_chain(&["flat"], false), None);
         assert_eq!(for_chain::<&str>(&[], true), None);
+    }
+
+    /// flora.css's small icons wear their own ink (`--fl-icon`: `#56544C`
+    /// by day, `#BEBEBE` at night), not the text's and not the stone's: an
+    /// app's monochrome icon says `system:icon` and sits with the widgets'
+    /// icons, in every spin.
+    #[test]
+    fn the_icon_keyword_is_floras_small_icon_ink() {
+        let icon = R::from_css_name("icon").expect("system:icon is a keyword");
+        for (dark, want) in [(false, f::LIGHT_ICON), (true, f::DARK_ICON)] {
+            for spin in FloraSpin::ALL {
+                let p = system_colors(dark, spin.ramp());
+                assert_eq!(icon.get(&p).into_option(), Some(want), "{spin:?} dark {dark}");
+            }
+        }
     }
 
     #[test]

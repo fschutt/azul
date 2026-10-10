@@ -153,7 +153,8 @@ fn layout_cell(layout: LayoutKind) -> RibbonGalleryCell {
 /// and its accent bar.
 fn theme_cell(index: usize, variant: usize, fonts: usize, label: &str) -> RibbonGalleryCell {
     let t = themes::theme(index, variant, fonts);
-    let preview = Dom::create_div()
+    // The theme's own colours, not the chrome's: a spin leaves them.
+    let preview = crate::render::content(Dom::create_div())
         .with_css(format!(
             "display: flex; flex-direction: column; justify-content: space-between; width: 58px; \
              height: 33px; background: {}; border: 1px solid #b8b8b8; padding: 2px; box-sizing: border-box;",
@@ -173,7 +174,8 @@ fn theme_cell(index: usize, variant: usize, fonts: usize, label: &str) -> Ribbon
 
 fn swatch_cell(color: &str, label: &str) -> RibbonGalleryCell {
     RibbonGalleryCell::create(
-        Dom::create_div().with_css(format!(
+        // A colour for the deck: the document's, which a spin leaves.
+        crate::render::content(Dom::create_div()).with_css(format!(
             "width: 40px; height: 24px; background: {color}; border: 1px solid #b8b8b8;"
         )),
         s(label),

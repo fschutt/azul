@@ -88,6 +88,10 @@ struct KeyRef {
     folder: bool,
 }
 
+/// The dialog kit's text size (azul's wizard pages, settings rows and standard dialogs: text and
+/// field values 13px, hints 12px): the dialog's text and its fields' values are set in it.
+const TEXT_SIZE: &str = "font-size: 13px;";
+
 fn label(text: &str) -> Dom {
     Dom::create_span_with_text(AzString::from(text))
         .with_css("font-size: 12px; opacity: 0.75; margin-top: 10px; margin-bottom: 4px;")
@@ -200,15 +204,18 @@ fn text_field(app: &RefAny, value: &str, placeholder: &str, secret: bool, target
             on_text as TextInputOnTextInputCallbackType,
         )
         .dom()
+        // The value in the dialog's text size, not the field's own (smaller) default.
+        .with_css(TEXT_SIZE)
 }
 
 // ==== The dialog ====
 
-/// The dialog's title and content for `d`.
-pub(crate) fn dialog(d: &AddDialog, s: &DriveState, app: &RefAny) -> (String, Dom) {
+/// The dialog's title and content for `d`; `development`: the token server is a development one
+/// (Buy storage offers a test drive).
+pub(crate) fn dialog(d: &AddDialog, development: bool, app: &RefAny) -> (String, Dom) {
     let (title, page) = match d.page {
         AddPage::Choose => (String::from("Add a drive"), choose(app)),
-        AddPage::Buy => (String::from("Buy storage"), buy(d, s, app)),
+        AddPage::Buy => (String::from("Buy storage"), buy(d, development, app)),
         AddPage::Sources => (String::from("Connect a data source"), sources(app)),
         AddPage::Form => {
             let title = match (&d.editing, d.spec()) {
@@ -219,9 +226,12 @@ pub(crate) fn dialog(d: &AddDialog, s: &DriveState, app: &RefAny) -> (String, Do
             (title, form(d, app))
         }
     };
+    // Text that sets no size of its own (a check box's label, a status line) takes the dialog
+    // kit's, not the dialog panel's larger one.
     let content = Dom::create_div()
         .with_id(ids::ADD_DRIVE)
         .with_css("display: flex; flex-direction: column; width: 460px; max-width: 100%;")
+        .with_css(TEXT_SIZE)
         .with_child(page);
     (title, content)
 }
@@ -264,7 +274,7 @@ fn choose(app: &RefAny) -> Dom {
 
 /// Buy storage: the tiers and their prices, monthly or yearly, the name, Create test drive
 /// (a development token server), Buy.
-fn buy(d: &AddDialog, s: &DriveState, app: &RefAny) -> Dom {
+fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
     let mut children = vec![
         back(app),
         Dom::create_span_with_text(AzString::from("Azlin cloud storage"))
@@ -371,7 +381,7 @@ fn buy(d: &AddDialog, s: &DriveState, app: &RefAny) -> Dom {
     } else {
         let busy = d.busy().then_some("Wait for the step that runs.");
         let not_loaded = (!loaded).then_some("The storage tiers are not loaded yet.");
-        if s.token.development {
+        if development {
             row.push(button(
                 app,
                 "Create test drive",
@@ -777,4 +787,84 @@ extern "C" fn on_path_picked(mut data: RefAny, mut info: CallbackInfo, result: R
             d.set_value(key, &text);
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use azcloud_kit::{Tier, Tiers};
+    use azul::css::{CssDeclaration, CssProperty, StyleFontSizeValue};
+
+    use super::*;
+
+    /// The font size (px) `dom`'s own sheets give it - the app's `with_css`, never a widget's
+    /// UA default (rule priority 0).
+    fn own_font_size(dom: &Dom) -> Option<f32> {
+        dom.css
+            .as_slice()
+            .iter()
+            .flat_map(|css| css.rules.as_slice().iter())
+            .filter(|rule| rule.priority > 0)
+            .flat_map(|rule| rule.declarations.as_slice().iter())
+            .filter_map(|declaration| match declaration {
+                CssDeclaration::Static(CssProperty::FontSize(StyleFontSizeValue::Exact(size))) => {
+                    Some(size.inner.number.get())
+                }
+                _ => None,
+            })
+            .next_back()
+    }
+
+    /// The size the text `text` is set in inside `dom`: the nearest of its boxes that sets one
+    /// (`None`: nothing inside `dom` does, the text takes what is around the dialog). `None`
+    /// outside: no such text.
+    fn size_of_text(dom: &Dom, text: &str, around: Option<f32>) -> Option<Option<f32>> {
+        let here = own_font_size(dom).or(around);
+        if dom.root.node_type.get_text().into_option().is_some_and(|t| t.as_str() == text) {
+            return Some(here);
+        }
+        dom.children.as_slice().iter().find_map(|child| size_of_text(child, text, here))
+    }
+
+    /// The box with the id `id` in `dom`.
+    fn with_id<'a>(dom: &'a Dom, id: &AzString) -> Option<&'a Dom> {
+        if dom.root.has_id(id.clone()) {
+            return Some(dom);
+        }
+        dom.children.as_slice().iter().find_map(|child| with_id(child, id))
+    }
+
+    /// Buy storage with two tiers loaded.
+    fn buy_page() -> Dom {
+        let tier = |id: &str, gb: u64| Tier {
+            id: id.to_string(),
+            quota_bytes: gb * 1_000_000_000,
+            price_cents_month: Some(99),
+            price_cents_year: Some(990),
+            currency: "EUR".to_string(),
+            first_month_free: true,
+        };
+        let mut d = AddDialog::new(1);
+        d.choose_buy();
+        d.tiers = TiersState::Loaded(Tiers {
+            tiers: vec![tier("100GB", 100), tier("1TB", 1000)],
+            methods: vec!["sepa".to_string()],
+            withdrawal_consent: None,
+        });
+        dialog(&d, false, &RefAny::new(())).1
+    }
+
+    /// The dialog kit's sizes (azul's wizard pages, settings rows and standard dialogs): text and
+    /// field values 13px, hints 12px. The yearly label took the dialog panel's 14px and the name
+    /// field its own 11px default.
+    #[test]
+    fn the_buy_pages_yearly_label_and_name_field_are_set_in_the_dialog_kits_text_size() {
+        let page = buy_page();
+        assert_eq!(
+            size_of_text(&page, "Pay yearly (two months for free)", None),
+            Some(Some(13.0)),
+            "the yearly label: the dialog's text size"
+        );
+        let name = with_id(&page, &ids::ADD_NAME).expect("the name field");
+        assert_eq!(own_font_size(name), Some(13.0), "the name: the dialog's text size");
+    }
 }

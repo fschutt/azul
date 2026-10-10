@@ -85,6 +85,17 @@ impl<'a> RenderOptions<'a> {
     }
 }
 
+/// The engine's mark for the app's DOCUMENT content: a flora spin repaints
+/// the chrome, never what carries it (a slide in its deck theme - the
+/// "Stone" theme is flora's own blue - or a theme's preview).
+pub const DOCUMENT_CONTENT: &str = "__azul-document-content";
+
+/// `dom` marked as the deck's content ([`DOCUMENT_CONTENT`]).
+#[must_use]
+pub fn content(dom: Dom) -> Dom {
+    dom.with_class(AzString::from_const_str(DOCUMENT_CONTENT))
+}
+
 /// A linear progress `p` (0..1) with a smooth start and end (smoothstep).
 #[must_use]
 pub fn ease(p: f32) -> f32 {
@@ -621,10 +632,10 @@ fn chart_placeholder(deck: &Deck, chart: ChartKind, title: &str, w: f32, h: f32,
 #[must_use]
 pub fn slide_dom(deck: &Deck, slide: &Slide, opts: &RenderOptions<'_>) -> Dom {
     let (w, h) = (deck.size.width() * opts.scale, deck.size.height() * opts.scale);
-    let mut root = Dom::create_div().with_css(format!(
+    let mut root = content(Dom::create_div().with_css(format!(
         "position: relative; width: {w:.2}px; height: {h:.2}px; overflow: hidden; flex-shrink: 0; {}",
         background_css(deck, slide)
-    ));
+    )));
     for element in &slide.elements {
         if let Some(step) = opts.step {
             let playing_exit = opts.playing.is_some_and(|(ids, _)| ids.contains(&element.id))
@@ -683,10 +694,10 @@ pub fn morph_dom(deck: &Deck, from: &Slide, from_step: usize, to: &Slide, p: f32
     let scale = opts.scale;
     let e = ease(p);
     let (w, h) = (deck.size.width() * scale, deck.size.height() * scale);
-    let mut root = Dom::create_div().with_css(format!(
+    let mut root = content(Dom::create_div().with_css(format!(
         "position: relative; width: {w:.2}px; height: {h:.2}px; overflow: hidden; flex-shrink: 0; {}",
         background_css(deck, to)
-    ));
+    )));
     let old_ground = background_css(deck, from);
     if old_ground != background_css(deck, to) {
         root.add_child(Dom::create_div().with_css(format!(

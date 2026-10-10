@@ -155,7 +155,7 @@ extern "C" fn on_form_text(
 pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (String, Dom) {
     match popup {
         Popup::AddDrive(dialog) => {
-            crate::ui_add_drive::dialog(dialog, s, app)
+            crate::ui_add_drive::dialog(dialog, s.token.development, app)
         }
         Popup::ConfirmDelete { drive_id, items } => {
             let what = match items.as_slice() {
