@@ -199,13 +199,21 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
   a session token and an expiry --ttl seconds ahead (the real token server: 12 hours, derived per
   drive).
 
+Every bundle (sign-up, refresh) names the drive's node list and failover URLs as the real token
+server does: each ready node's `name`, `url` (and `public_url`), `ipv4`, `ready` and - when the node
+runs iroh - `iroh_id` and `iroh_addrs` (its `ip:port` sockets, the fixed UDP port), and `failover`
+(the failover domains' URLs). The mock's one node is its S3 server; `--node URL[,IP...]` lists
+others instead (an E2E's unresolvable names with the addresses they are reached at), `--iroh-id` /
+`--iroh-addr` give the first node an iroh endpoint, `--failover-url` fills the failover list.
+
 scripts/azlin_token_conformance.py runs the same HTTP checks against this server and the real one
 (`azctl dev up --processes`), so the two cannot drift apart unnoticed.
 
 Usage:
 
     python3 scripts/azlin_mock_stack.py [--token-port 8081] [--s3-port 9000] [--root DIR]
-        [--ttl 43200] [--host 127.0.0.1]
+        [--ttl 43200] [--host 127.0.0.1] [--node URL[,IP...]]... [--iroh-id ID]
+        [--iroh-addr IP:PORT]... [--failover-url URL]...
 
 It prints `AZLIN_MOCK_TOKEN_URL <url>` and `AZLIN_MOCK_S3_URL <url>` once both listen (port 0 picks
 free ports). As a module:
@@ -221,6 +229,7 @@ import hashlib
 import hmac
 import html
 import http.server
+import ipaddress
 import json
 import os
 import secrets
@@ -228,6 +237,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -493,6 +503,32 @@ class ApiError(Exception):
         self.extra = extra or {}
 
 
+def node_entry(name, url, addresses=None, iroh_id=None, iroh_addrs=()):
+    """One node of a bundle's list, as the real token server names it: `name`, `url` and
+    `public_url`, `ipv4` / `ipv6` (`addresses`; by default the URL's host when it is an IP
+    address), `ready`, and with an iroh endpoint `iroh_id` and `iroh_addrs`."""
+    node = {'name': name, 'url': url, 'public_url': url, 'ready': True}
+    if addresses is None:
+        host = urllib.parse.urlsplit(url).hostname or ''
+        addresses = [host]
+    for address in addresses:
+        try:
+            ip = ipaddress.ip_address(address.strip('[]'))
+        except ValueError:
+            continue
+        node.setdefault('ipv%d' % ip.version, str(ip))
+    if iroh_id:
+        node['iroh_id'] = iroh_id
+        node['iroh_addrs'] = list(iroh_addrs)
+    return node
+
+
+def parse_node(text, index):
+    """`URL[,IP...]` as a node entry named n<index>."""
+    url, *addresses = [part.strip() for part in text.split(',')]
+    return node_entry('n%d' % index, url, addresses if addresses else None)
+
+
 class TokenState:
     """The drives and their token families, in memory (the real one keeps them in Turso)."""
 
@@ -501,6 +537,9 @@ class TokenState:
         self.s3_url = s3_url
         self.ttl = ttl
         self.lock = threading.Lock()
+        # The node list and the failover URLs every bundle names (set_nodes).
+        self.nodes = [node_entry('n1', s3_url)]
+        self.failover = []
         self.drives = {}
         self.families = {}
         self.checkouts = {}
@@ -617,6 +656,13 @@ class TokenState:
         state['current'] = token_hash(token)
         return token
 
+    def set_nodes(self, nodes, failover=()):
+        """Every bundle from now on names `nodes` (dicts as node_entry makes them) and the
+        failover URLs `failover`."""
+        with self.lock:
+            self.nodes = [dict(n) for n in nodes]
+            self.failover = list(failover)
+
     def bundle(self, drive, token):
         now = int(time.time())
         return {
@@ -639,8 +685,8 @@ class TokenState:
                 'session_token': 'azlin-mock-' + secrets.token_hex(12),
                 'expires_at': rfc3339(now + self.ttl),
             },
-            'failover': [],
-            'nodes': [],
+            'failover': list(self.failover),
+            'nodes': [dict(n) for n in self.nodes],
             'quota_bytes': drive['quota_bytes'],
             'read_only': False,
             'period_until': rfc3339(drive['period_until']),
@@ -2286,14 +2332,17 @@ class Stack:
 
 
 def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verbose=False,
-          providers=()):
+          providers=(), nodes=None, failover=()):
     """Both servers on `host` (port 0: a free one), serving in background threads; the S3 objects
     live under `root/<bucket>/<key>`; the fake payment providers `providers` offered (none: no
-    payment options, the v1 checkout)."""
+    payment options, the v1 checkout); the bundles' node list `nodes` (node_entry dicts; none:
+    the S3 server as node n1) and failover URLs `failover`."""
     s3 = s3_server.start(root, host=host, port=s3_port, access_key=ACCESS_KEY,
                          secret_key=SECRET_KEY, region=REGION, verbose=verbose,
                          keep_versions=True)
     state = TokenState(s3, s3.url, ttl)
+    if nodes is not None or failover:
+        state.set_nodes(nodes if nodes is not None else state.nodes, failover)
     # SRV17: the node answers HeadBucket with the stored bytes and the quota of the drive's tier.
     s3.space_quota = state.quota_of_bucket
     state.set_providers(providers)
@@ -2383,6 +2432,14 @@ def main(argv=None):
                              'list: %s)' % (', '.join(FAKE_PROVIDERS), ','.join(DEFAULT_PROVIDERS)))
     parser.add_argument('--self-test', action='store_true',
                         help="check the mock's own lockdown semantics and exit")
+    parser.add_argument('--node', action='append', default=[], metavar='URL[,IP...]',
+                        help="a node the bundles list, in order (instead of the S3 server), "
+                             "with the addresses it is reached at when its name does not resolve")
+    parser.add_argument('--iroh-id', help="the first node's iroh endpoint id (iroh_id)")
+    parser.add_argument('--iroh-addr', action='append', default=[], metavar='IP:PORT',
+                        help="the first node's iroh sockets (iroh_addrs)")
+    parser.add_argument('--failover-url', action='append', default=[], metavar='URL',
+                        help="a failover URL the bundles list")
     args = parser.parse_args(argv)
     if args.self_test:
         self_test()
@@ -2391,6 +2448,12 @@ def main(argv=None):
     providers = [p for p in args.providers.split(',') if p]
     stack = start(root, args.host, args.token_port, args.s3_port, args.ttl, args.verbose,
                   providers)
+    nodes = [parse_node(text, i + 1) for i, text in enumerate(args.node)] or [
+        dict(n) for n in stack.token.state.nodes]
+    if args.iroh_id:
+        nodes[0]['iroh_id'] = args.iroh_id
+        nodes[0]['iroh_addrs'] = list(args.iroh_addr)
+    stack.token.state.set_nodes(nodes, args.failover_url)
     print('AZLIN_MOCK_TOKEN_URL %s' % stack.token_url, flush=True)
     print('AZLIN_MOCK_S3_URL %s' % stack.s3_url, flush=True)
     print('[azlin-mock] token server %s, S3 %s, objects in %s' % (stack.token_url, stack.s3_url,
