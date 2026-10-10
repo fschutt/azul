@@ -20,7 +20,10 @@ data root are never read or written):
              endpoints and keeps B's; concurrent edits converge; a clash keeps both versions
   transport  https forced; iroh forced and auto (when the node's iroh id is known: --iroh-node /
              --iroh-addr, or discovered from the dev state's node admin port like `azctl test
-             client --iroh`); a dead iroh address falls back to https and is remembered
+             client --iroh`); a dead iroh address falls back to https and is remembered.
+             DNS down: the S3 endpoint is a name that never resolves (`.invalid`, as `azctl
+             chaos --no-dns`): over https the transfer still completes at the nodes' addresses
+             (the refresh's node list), over iroh it needs no DNS at all
 
 Nothing is hard-coded without a way around it: the token server is --token-url, else
 AZLIN_TOKEN_URL, else AZLIN_TOKEN_SERVER, else http://127.0.0.1:8081 (printed as a DEFAULT);
@@ -38,6 +41,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -537,11 +541,20 @@ def main():
         expect(t["lane"] == "https", "forced https: %s" % t)
         up, down = up_down(a, MIB, "e2e/https.bin", "--transport", "https")
         expect(up["transport"] == "https" and down["transport"] == "https", "not over https")
+        # DNS down: the S3 endpoint under a name that never resolves; the block host is reached
+        # at the addresses of the refresh's nodes, the request still naming it.
+        block = urllib.parse.urlsplit(t["endpoint"])
+        no_dns = ["--s3-url", "%s://blk.azlin-dns-test.invalid:%d" % (
+            block.scheme or "http", block.port or (443 if block.scheme == "https" else 80))]
+        up, down = up_down(a, MIB, "e2e/no-dns-https.bin", "--transport", "https", *no_dns)
+        expect(up["transport"] == "https" and down["transport"] == "https",
+               "DNS down: not over https")
         target, why = iroh_target(args)
         if not target:
             if args.require_iroh:
                 raise Failure("iroh: " + why)
-            raise Skip("https ok; iroh skipped: " + why)
+            raise Skip("https ok (and with DNS down, by the nodes' addresses); iroh skipped: "
+                       + why)
         node, addr, relay = target
         iroh_flags = ["--iroh-node", node, "--relay", relay]
         if addr:
@@ -552,6 +565,11 @@ def main():
         expect(up["transport"] == "iroh" and down["transport"] == "iroh", "not over iroh")
         upb, downb = up_down(a, args.big_mib * MIB, "e2e/iroh-big.bin", "--transport", "iroh",
                              *iroh_flags)
+        # DNS down over iroh: the node is dialed by its id at its socket, no name is looked up.
+        up, down = up_down(a, MIB, "e2e/no-dns-iroh.bin", "--transport", "iroh", *iroh_flags,
+                           *no_dns)
+        expect(up["transport"] == "iroh" and down["transport"] == "iroh",
+               "DNS down: not over iroh")
         auto = a.az("transport", *iroh_flags)
         expect(auto["lane"] == "iroh", "auto with a known node should take iroh: %s" % auto)
         # A dead iroh address: auto falls back to https and remembers it.
@@ -565,8 +583,9 @@ def main():
         remembered = a.az("transport", *dead)
         expect(remembered["lane"] == "https" and not remembered["probed"],
                "the failure was not remembered: %s" % remembered)
-        return "https and iroh (%s, %d MiB up %.1f s / down %.1f s); fallback remembered" % (
-            why, args.big_mib, upb["_seconds"], downb["_seconds"])
+        return ("https and iroh (%s, %d MiB up %.1f s / down %.1f s); fallback remembered; "
+                "DNS down: https by address and iroh" % (
+                    why, args.big_mib, upb["_seconds"], downb["_seconds"]))
 
     run.step("config: endpoints and sources", config_step)
     run.step("signup + refresh", signup_step)

@@ -11,7 +11,8 @@
 //! s3_transfer put-file-if-absent <file> <key>  a streamed conditional write
 //!
 //! --endpoint URL     the block endpoint (required)
-//! --node URL         a node to fail over to (repeatable, in order)
+//! --node URL[,IP...] a node to fail over to (repeatable, in order), with the addresses it is
+//!                    reached at when its name does not resolve (the block host at all of them)
 //! --bucket NAME      (required)
 //! --access-key K --secret-key S --region R (default us-east-1)
 //! --resume DIR       where the state files of resumable uploads go
@@ -93,13 +94,18 @@ fn drive(args: &Args) -> Result<S3Drive, DriveError> {
         args.nodes
             .iter()
             .enumerate()
-            .map(|(i, url)| Node {
-                name: format!("n{}", i + 1),
-                url: url.clone(),
-                addresses: Vec::new(),
-                ready: true,
-                iroh_id: None,
-                iroh_addrs: Vec::new(),
+            .map(|(i, node)| {
+                // `URL[,ADDRESS...]`: where the node is reached when its name does not resolve.
+                let mut parts = node.split(',').map(str::trim);
+                let url = parts.next().unwrap_or_default().to_string();
+                Node {
+                    name: format!("n{}", i + 1),
+                    url,
+                    addresses: parts.filter(|a| !a.is_empty()).map(String::from).collect(),
+                    ready: true,
+                    iroh_id: None,
+                    iroh_addrs: Vec::new(),
+                }
             })
             .collect(),
     );

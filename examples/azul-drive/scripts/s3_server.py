@@ -685,6 +685,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "key": key,
             "query": query,
             "range": self.headers.get("Range"),
+            "host": self.headers.get("Host"),
             "op": None,
         }
         resource = "/" + "/".join(p for p in (bucket, key) if p)
