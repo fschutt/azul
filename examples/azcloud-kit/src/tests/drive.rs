@@ -21,6 +21,7 @@ use crate::{
     drive::{AzlinDrive, TransportFactory},
     lock::LockDir,
     shared::SharedKeyring,
+    user_errors::{Code, UserError},
     AzlinSession, DriveBundle,
 };
 
@@ -454,4 +455,33 @@ fn an_azlin_drive_writes_conditionally_and_streams_through_its_bucket() {
     assert!(put.url.ends_with("/data/cd/object"), "{}", put.url);
     assert_eq!(put.body, b"streamed");
     assert_eq!(refreshes(&fake), 0);
+}
+
+#[test]
+fn a_token_server_that_cannot_refresh_now_is_a_busy_service_to_the_user() {
+    // The refresh's refusal keeps its status and code (C11): the user sees "we'll keep trying",
+    // not "something went wrong".
+    let dir = TempDir::new("azcloud-drive");
+    let fake = Fake::new(|call, _| {
+        Ok(if call.url.ends_with("/credentials") {
+            json(
+                429,
+                r#"{"error": "too_many_requests", "message": "slow down"}"#,
+            )
+        } else {
+            empty_listing()
+        })
+    });
+    let (drive, _, _) = drive(&fake, EXPIRES + 60, &dir);
+    let error = drive.list(&ListRequest::folder("")).unwrap_err();
+    match &error {
+        DriveError::Service(service) => {
+            assert_eq!((service.status, service.code.as_str()), (429, "too_many_requests"));
+        }
+        other => panic!("not a service error: {other:?}"),
+    }
+    assert_eq!(
+        UserError::from_drive_error(&error).map(|user| user.code),
+        Some(Code::Unavailable)
+    );
 }

@@ -164,6 +164,7 @@ fn each_storage_error_code_has_its_class_and_behaviour() {
 fn a_service_without_azlin_codes_is_read_by_its_status_only() {
     // Another S3 service: busy is busy, but an AccessDenied is no unpaid Azlin drive.
     assert_eq!(code_of(&azlin(503, "SlowDown", None)), Some(Code::Unavailable));
+    assert_eq!(code_of(&azlin(429, "TooManyRequests", None)), Some(Code::Unavailable));
     assert_eq!(code_of(&azlin(500, "InternalError", None)), Some(Code::Other));
     assert_eq!(code_of(&azlin(403, "AccessDenied", None)), Some(Code::Other));
 }
