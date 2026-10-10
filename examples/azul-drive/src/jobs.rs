@@ -2251,6 +2251,115 @@ mod tests {
         assert_eq!(end_of(&second).stale, vec![String::from("Docs/old/report-gone.txt")]);
     }
 
+    /// A drive with an index: the names first as before, then the contents - the index's
+    /// files at once (a text's line read again, a mail's from its text), then the files it has
+    /// not read as they are now (new since its update) -, each once with its line; nothing
+    /// outside the searched folder.
+    #[test]
+    fn an_indexed_drive_finds_contents_from_its_index_then_reads_what_changed() {
+        let drive = TempDir::new("azdrive-indexed");
+        let index_dir = TempDir::new("azdrive-index");
+        fs::create_dir_all(drive.path().join("Docs/mail")).expect("folders");
+        fs::write(drive.path().join("Docs/needle-notes.md"), b"nothing\n").expect("a file");
+        fs::write(drive.path().join("Docs/plan.txt"), b"one\nthe needle plan\n").expect("a file");
+        fs::write(drive.path().join("Docs/other.txt"), b"nothing\n").expect("a file");
+        fs::write(
+            drive.path().join("Docs/mail/0001.eml"),
+            b"Subject: Needle lunch\r\nFrom: ada@example.org\r\n\r\nPasta at noon?\r\n",
+        )
+        .expect("a mail");
+        fs::write(drive.path().join("Elsewhere.txt"), b"a needle outside\n").expect("a file");
+        let none = azul_search_index::Extractors::default();
+        let cancel = AtomicBool::new(false);
+        let index = azul_search_index::DriveIndex::open(index_dir.path()).expect("the index");
+        index
+            .update(drive.path(), &crate::find::index_filters(), &none, &cancel, &mut |_| {})
+            .expect("indexed");
+        drop(index);
+        fs::write(drive.path().join("Docs/new.txt"), b"a needle arrives\n").expect("a new file");
+
+        let request = crate::find::local_request(
+            drive.path().join("Docs"),
+            "needle",
+            false,
+            &crate::find::FindOptions {
+                contents: true,
+                ..crate::find::FindOptions::default()
+            },
+        );
+        let ask = crate::find::IndexAsk {
+            dir: index_dir.path().to_path_buf(),
+            root: drive.path().to_path_buf(),
+            under: String::from("Docs/"),
+        };
+        let mut outcomes = Vec::new();
+        let last = run_find_indexed(4, &request, "Docs/", &ask, &none, &cancel, &mut |o| {
+            outcomes.push(o)
+        });
+        outcomes.push(last);
+        let found = searched(&outcomes);
+        let keys: Vec<&str> = found.iter().map(|f| f.entry.key.as_str()).collect();
+        assert_eq!(keys.len(), 4, "{keys:?}");
+        assert_eq!(keys[0], "Docs/needle-notes.md", "the names first");
+        let mut from_index = keys[1..3].to_vec();
+        from_index.sort_unstable();
+        assert_eq!(from_index, vec!["Docs/mail/0001.eml", "Docs/plan.txt"], "the index's");
+        assert_eq!(keys[3], "Docs/new.txt", "then what it has not read");
+        let line = |key: &str| {
+            found
+                .iter()
+                .find(|f| f.entry.key == key)
+                .and_then(|f| f.line.clone())
+                .unwrap_or_else(|| panic!("{key} has a line"))
+        };
+        assert_eq!((line("Docs/plan.txt").line, line("Docs/plan.txt").text.as_str()), (2, "the needle plan"));
+        let mail = line("Docs/mail/0001.eml");
+        assert_eq!(&mail.text[mail.start..mail.end], "Needle");
+        assert_eq!(line("Docs/new.txt").line, 1);
+        assert!(end_of(&outcomes).error.is_none() && !end_of(&outcomes).limited);
+    }
+
+    /// A drive's index update says how far it got, and ends with what it read and what the
+    /// index holds now (no hidden items: the search box's defaults).
+    #[test]
+    fn an_index_update_says_how_far_it_got_and_what_the_index_holds() {
+        let drive = TempDir::new("azdrive-index-update");
+        let dir = TempDir::new("azdrive-index-folder");
+        fs::write(drive.path().join("a.txt"), b"alpha\n").expect("a file");
+        fs::write(drive.path().join("b.txt"), b"beta\n").expect("a file");
+        fs::write(drive.path().join(".hidden.txt"), b"gamma\n").expect("a hidden file");
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_index_update(
+            "home",
+            drive.path(),
+            dir.path(),
+            &azul_search_index::Extractors::default(),
+            &cancel,
+            &mut |o| outcomes.push(o),
+        );
+        assert!(outcomes
+            .iter()
+            .any(|o| matches!(o, Outcome::IndexProgress { drive_id, .. } if drive_id == "home")));
+        match last {
+            Outcome::Indexed {
+                drive_id,
+                result: Ok((summary, status)),
+            } => {
+                assert_eq!(drive_id, "home");
+                assert_eq!((summary.indexed, status.files), (2, 2), "hidden items are not read");
+                assert!(status.updated.is_some());
+            }
+            _ => panic!("the update did not end well"),
+        }
+    }
+
+    /// A PDF's text comes through azul's reader; bytes that are no PDF have none.
+    #[test]
+    fn bytes_that_are_no_pdf_have_no_text() {
+        assert_eq!(pdf_text(b"plain words, no PDF"), None);
+    }
+
     /// A search cancelled (a new key, Escape, another folder) hands over nothing.
     #[test]
     fn a_cancelled_find_hands_over_nothing() {

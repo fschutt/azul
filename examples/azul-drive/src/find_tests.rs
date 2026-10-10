@@ -572,3 +572,38 @@ fn stale_results_go_when_the_fresh_listing_has_not_got_them() {
     assert!(find.entry("Docs/b.txt").is_some(), "the others keep their keys");
     assert!(find.status_text().contains('1'));
 }
+
+/// A document's line for its result: the first line of its text the search's text is on, the
+/// match marked (without case); none when no line holds it; a long line cut around the match.
+#[test]
+fn a_documents_line_is_the_first_one_its_text_matches_on() {
+    let matcher = azul_search::ContentMatcher::new(&Pattern::literal("needle")).expect("compiles");
+    let line = find::document_line("Subject: lunch\nthe Needle is here\nneedle again\n", &matcher)
+        .expect("a line");
+    assert_eq!((line.line, line.text.as_str()), (2, "the Needle is here"));
+    assert_eq!(&line.text[line.start..line.end], "Needle");
+    assert_eq!(find::document_line("nothing here", &matcher), None);
+    let long = format!("{}needle{}", "\u{e9}".repeat(3000), "y".repeat(5000));
+    let cut = find::document_line(&long, &matcher).expect("a line");
+    assert!(cut.text.len() < 1000, "a long line is cut around the match");
+    assert_eq!(&cut.text[cut.start..cut.end], "needle");
+}
+
+/// A drive's index has a folder of its own in the cache (named safely after the drive; two
+/// ids that read alike do not share it), and reads what the search box reads by default: no
+/// hidden items, no ignored files, never the storage crate's temporary files or a drive's
+/// bookkeeping.
+#[test]
+fn a_drives_index_has_a_folder_of_its_own_and_reads_what_the_search_box_does() {
+    let dir = PathBuf::from("/cache/AzDrive/index");
+    let folder = find::index_dir(&dir, "s3:my/bucket");
+    assert!(folder.starts_with(&dir));
+    let name = folder.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    assert!(!name.contains('/') && !name.contains(':'), "{name}");
+    assert_ne!(find::index_dir(&dir, "a:b"), find::index_dir(&dir, "a_b"));
+    let filters = find::index_filters();
+    assert!(!filters.hidden && filters.ignore_files);
+    assert!(filters.exclude.iter().any(|glob| glob == find::TEMP_GLOB));
+    assert!(filters.exclude.iter().any(|glob| glob.contains(azul_storage::manifest::MANIFEST_DIR)));
+    assert_eq!(filters.max_depth, None, "every folder");
+}
