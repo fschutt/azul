@@ -1184,6 +1184,7 @@ dependencies = [
  "azcloud-kit",
  "azul-appkit",
  "azul-calendar-core",
+ "azul-contacts-core",
  "azul-dll",
  "azul-mail-core",
  "azul-storage",

@@ -46,6 +46,9 @@ md-5 = "0.11"
 # CalDAV: AzCalendar's events without azul types (the event and calendar files, iCalendar
 # import and export), so the bridge reads and writes them with AzCalendar's own code.
 azul-calendar-core = { path = "../azul-calendar-core" }
+# CardDAV: AzContacts' address book without azul types (the file rules, the vCard 3.0 / 4.0
+# forms of a contact), so a 4.0 file reaches a 3.0 program written by AzContacts' own model.
+azul-contacts-core = { path = "../azul-contacts-core" }
 # The dates of the events, this computer's zone for an imported time: the features
 # azul-calendar-core builds chrono with.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }

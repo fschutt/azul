@@ -519,6 +519,8 @@ struct Report {
     component: Option<String>,
     /// ...and its time range (UTC; either end may be open).
     range: Option<(Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>)>,
+    /// The vCard version address-data asks for (3.0 unless it says `version="4.0"`).
+    vcard: cards::Version,
 }
 
 /// Why a REPORT is not answered.
@@ -568,10 +570,20 @@ fn report_of(body: &[u8]) -> Result<Report, Refusal> {
         hrefs: Vec::new(),
         component: None,
         range: None,
+        vcard: cards::Version::V3,
     };
     for child in root.children().filter(roxmltree::Node::is_element) {
         if dav::is_dav(&child, "prop") {
             report.props = PropRequest::Some(prop_names(&child));
+            let asks_4 = child.children().any(|p| {
+                p.is_element()
+                    && p.tag_name().name() == "address-data"
+                    && p.tag_name().namespace() == Some(CARDDAV)
+                    && p.attribute("version").is_some_and(|v| v.trim() == "4.0")
+            });
+            if asks_4 {
+                report.vcard = cards::Version::V4;
+            }
         } else if dav::is_dav(&child, "propname") {
             report.props = PropRequest::Names;
         } else if dav::is_dav(&child, "href") {
@@ -680,7 +692,7 @@ impl Pim {
             }
             "PROPFIND" => self.propfind(head, &place, body),
             "REPORT" => self.report(&place, body),
-            "GET" | "HEAD" => self.get(&place),
+            "GET" | "HEAD" => self.get(head, &place),
             "PUT" => self.put(head, &place, body),
             "DELETE" => self.delete(head, &place),
             "PROPPATCH" => self.proppatch(&place, body),
@@ -750,7 +762,7 @@ impl Pim {
     }
 
     /// The property `(namespace, name)` of `item` as its element, if the item has it.
-    fn prop(&self, item: &Item, namespace: &str, name: &str) -> Option<String> {
+    fn prop(&self, item: &Item, namespace: &str, name: &str, vcard: cards::Version) -> Option<String> {
         let principal = matches!(item, Item::Principal);
         let value = match (namespace, name) {
             (DAV, "resourcetype") => element(DAV, name, item.resourcetype()),
@@ -812,7 +824,8 @@ impl Pim {
             }
             (CARDDAV, "address-data") => match item {
                 Item::Card { info, .. } => {
-                    let bytes = self.contacts.get(&info.key).ok()?;
+                    let uid = cards::uid_of_key(&info.key)?;
+                    let bytes = cards::card_as(&self.contacts.get(&info.key).ok()?, &uid, vcard);
                     element(CARDDAV, name, &dav::xml_escape(&String::from_utf8_lossy(&bytes)))
                 }
                 _ => return None,
@@ -836,27 +849,27 @@ impl Pim {
     }
 
     /// One `<D:response>` of `item` with the properties `request` asks for.
-    fn response_of(&self, item: &Item, request: &PropRequest) -> String {
+    fn response_of(&self, item: &Item, request: &PropRequest, vcard: cards::Version) -> String {
         let mut found = Vec::new();
         let mut missing = Vec::new();
         match request {
             PropRequest::All => {
                 for (namespace, name) in ALL_PROPS {
-                    if let Some(value) = self.prop(item, namespace, name) {
+                    if let Some(value) = self.prop(item, namespace, name, vcard) {
                         found.push(value);
                     }
                 }
             }
             PropRequest::Names => {
                 for (namespace, name) in PROP_NAMES {
-                    if self.prop(item, namespace, name).is_some() {
+                    if self.prop(item, namespace, name, vcard).is_some() {
                         found.push(element(namespace, name, ""));
                     }
                 }
             }
             PropRequest::Some(names) => {
                 for (namespace, name) in names {
-                    match self.prop(item, namespace, name) {
+                    match self.prop(item, namespace, name, vcard) {
                         Some(value) => found.push(value),
                         None => missing.push(dav::empty_element(namespace, name)),
                     }
@@ -881,10 +894,10 @@ impl Pim {
             return Ok(Response::text(Status::NOT_FOUND, "Not there."));
         };
         let mut out = String::from(MULTISTATUS);
-        out.push_str(&self.response_of(&item, &request));
+        out.push_str(&self.response_of(&item, &request, cards::Version::V3));
         if depth == "1" {
             for child in self.children(place)? {
-                out.push_str(&self.response_of(&child, &request));
+                out.push_str(&self.response_of(&child, &request, cards::Version::V3));
             }
         }
         Ok(multistatus(out))
@@ -910,7 +923,7 @@ impl Pim {
                         _ => None,
                     };
                     match item {
-                        Some(item) => out.push_str(&self.response_of(&item, &report.props)),
+                        Some(item) => out.push_str(&self.response_of(&item, &report.props, report.vcard)),
                         None => out.push_str(&missing_response(href)),
                     }
                 }
@@ -925,7 +938,7 @@ impl Pim {
                     for item in self.event_items(segment)? {
                         if let Item::Event { event, .. } = &item {
                             if events::may_overlap(event, from, to) {
-                                out.push_str(&self.response_of(&item, &report.props));
+                                out.push_str(&self.response_of(&item, &report.props, report.vcard));
                             }
                         }
                     }
@@ -940,17 +953,17 @@ impl Pim {
                         name: card.name,
                         info: card.info,
                     };
-                    out.push_str(&self.response_of(&item, &report.props));
+                    out.push_str(&self.response_of(&item, &report.props, report.vcard));
                 }
             }
         }
         Ok(multistatus(out))
     }
 
-    fn get(&self, place: &Place) -> Result<Response, DriveError> {
+    fn get(&self, head: &Head, place: &Place) -> Result<Response, DriveError> {
         match place {
             Place::Event(segment, name) => self.get_event(segment, name),
-            Place::Card(name) => self.get_card(name),
+            Place::Card(name) => self.get_card(name, head.header("Accept")),
             _ => match self.item(place)? {
                 Some(_) => Ok(Response::text(
                     Status::OK,
