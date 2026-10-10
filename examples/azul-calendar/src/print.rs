@@ -568,6 +568,7 @@ mod tests {
 
     #[test]
     fn a_monthly_page_has_the_weeks_of_its_month_and_dims_the_other_days() {
+        crate::l10n::in_english();
         // October 2026 starts on a Thursday and ends on a Saturday: five weeks.
         let days = month_days(d(2026, 10, 1));
         assert_eq!((days.len(), days[0], days[34]), (35, d(2026, 9, 28), d(2026, 11, 1)));
