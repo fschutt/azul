@@ -30,6 +30,8 @@ use azul_storage::{
     time::iso8601,
 };
 
+use azul_appkit::l10n::{label, t_args, translate_text, Arg, Phrase, Text};
+
 use crate::{actions::now_secs, browse::Place, ids, jobs::Job, spawn, DriveState};
 
 /// A day: how often a drive's period is looked at while AzDrive runs.
@@ -203,7 +205,8 @@ pub(crate) fn periods_redeemed(
         }
         for member in new_devices(&look.new_members) {
             println!("AZDRIVE_NEW_DEVICE {drive_id} {member}");
-            let body = new_device_text(&s.drive_name(&Place::folder(&drive_id, "")), member);
+            let said = new_device_text(&s.drive_name(&Place::folder(&drive_id, "")), member);
+            let body = translate_text(info, &said.into());
             info.post_notification(
                 Notification::create(format!("azdrive-device-{drive_id}-{member}"), "AzDrive")
                     .with_body(body),
@@ -245,7 +248,7 @@ fn lockdown_seen(
     }
     println!("AZDRIVE_LOCKDOWN_PENDING {drive_id} {}", iso8601(until));
     let name = s.drive_name(&Place::folder(drive_id, ""));
-    let body = recovery_text(&name, until, now_secs());
+    let body = translate_text(info, &recovery_text(&name, until, now_secs()).into());
     info.post_notification(
         Notification::create(format!("azdrive-lockdown-{drive_id}"), "AzDrive").with_body(body),
     );
@@ -265,30 +268,23 @@ pub(crate) fn new_devices(new_members: &[String]) -> Vec<&str> {
 /// The notice of a device the drive `drive` was given: what it is, and what to do when it was
 /// not the owner.
 #[must_use]
-pub(crate) fn new_device_text(drive: &str, member: &str) -> String {
-    format!(
-        "A new device was added to \"{drive}\" ({member}). Not you? Lock the drive down in \
-         AzDrive: the drive's menu, \"I was hacked\"."
-    )
+pub(crate) fn new_device_text(drive: &str, member: &str) -> Phrase {
+    Phrase::new("azdrive-new-device")
+        .arg("drive", drive)
+        .arg("member", member)
 }
 
 /// The notice of a use of `drive`'s recovery code: the lockdown takes the drive at `until`
-/// (the 48 hours the token server waits), and how long is left at `now` to cancel it.
+/// (the 48 hours the token server waits), and how long is left at `now` to cancel it (`$hours`
+/// 0 for less than an hour).
 #[must_use]
-pub(crate) fn recovery_text(drive: &str, until: u64, now: u64) -> String {
+pub(crate) fn recovery_text(drive: &str, until: u64, now: u64) -> Phrase {
     let left = until.saturating_sub(now);
-    let hours = left.div_ceil(3_600);
-    let left = match hours {
-        _ if left < 3_600 => String::from("less than an hour"),
-        1 => String::from("an hour"),
-        _ => format!("{hours} hours"),
-    };
-    format!(
-        "The recovery code of \"{drive}\" was used to lock it down. In {left} ({}) that device \
-         takes the drive and every other device loses it. If that was not you, cancel it in \
-         AzDrive now.",
-        iso8601(until)
-    )
+    let hours = if left < 3_600 { 0 } else { left.div_ceil(3_600) };
+    Phrase::new("azdrive-recovery-used")
+        .arg("drive", drive)
+        .arg("hours", hours)
+        .arg("at", iso8601(until))
 }
 
 /// The bar over the drive in view while a recovery-key lockdown of it is pending, with Cancel.
@@ -296,11 +292,7 @@ pub(crate) fn recovery_text(drive: &str, until: u64, now: u64) -> String {
 pub(crate) fn lockdown_bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
     let drive_id = s.current_drive_id()?;
     let until = *s.pending_lockdowns.get(&drive_id)?;
-    let text = format!(
-        "A lockdown with the recovery code is pending until {}: then every other device loses \
-         this drive. If that was not you, cancel it now.",
-        iso8601(until)
-    );
+    let text = t_args("azdrive-lockdown-pending", &[("until", Arg::from(iso8601(until)))]);
     Some(
         Dom::create_div()
             .with_id(ids::LOCKDOWN_BAR)
@@ -314,7 +306,7 @@ pub(crate) fn lockdown_bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
                     .with_child(Dom::create_span_with_text(AzString::from(text))),
             )
             .with_child(
-                Button::create(AzString::from("Cancel lockdown"))
+                Button::create(label("azdrive-lockdown-cancel"))
                     .with_on_click(
                         RefAny::new(LockdownRef {
                             app: app.clone(),
@@ -351,7 +343,7 @@ extern "C" fn on_cancel_lockdown(mut data: RefAny, mut info: CallbackInfo) -> Up
         .and_then(|index| azlin_drive(&s.slots[index].entry, fallback.as_deref()))
         .map(|(_, url)| url);
     let Some(token_url) = token_url else {
-        s.error("The drive's token server is not known: the lockdown cannot be cancelled here.");
+        s.error(Text::key("azdrive-lockdown-no-token-server"));
         return Update::RefreshDom;
     };
     let job = Job::CancelLockdown {
@@ -364,17 +356,14 @@ extern "C" fn on_cancel_lockdown(mut data: RefAny, mut info: CallbackInfo) -> Up
 }
 
 /// A pending lockdown called off (or why not).
-pub(crate) fn lockdown_cancelled(s: &mut DriveState, drive_id: &str, result: Result<(), String>) {
+pub(crate) fn lockdown_cancelled(s: &mut DriveState, drive_id: &str, result: Result<(), Text>) {
     match result {
         Ok(()) => {
             s.pending_lockdowns.remove(drive_id);
             println!("AZDRIVE_LOCKDOWN_CANCELLED {drive_id}");
-            s.info(
-                "The lockdown with the recovery code was cancelled. If you did not start it, \
-                 someone has your recovery code: make a new one.",
-            );
+            s.info(Text::key("azdrive-lockdown-cancelled"));
         }
-        Err(why) => s.error(format!("The lockdown could not be cancelled: {why}")),
+        Err(why) => s.error(Text::key("azdrive-lockdown-not-cancelled").then(" ").then(why)),
     }
 }
 

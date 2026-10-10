@@ -994,3 +994,42 @@ azdrive-name-reserved = "{ $name }" is reserved.
 azdrive-name-forbidden-chars = A name cannot contain any of these characters: \ / : * ? " < > |
 azdrive-name-control-chars = A name cannot contain control characters.
 azdrive-copy-word = Copy
+
+## Periods and lockdowns
+
+azdrive-new-device = A new device was added to "{ $drive }" ({ $member }). Not you? Lock the drive down in AzDrive: the drive's menu, "I was hacked".
+azdrive-recovery-used = The recovery code of "{ $drive }" was used to lock it down. In { $hours ->
+        [0] less than an hour
+        [one] an hour
+       *[other] { $hours } hours
+    } ({ $at }) that device takes the drive and every other device loses it. If that was not you, cancel it in AzDrive now.
+azdrive-lockdown-pending = A lockdown with the recovery code is pending until { $until }: then every other device loses this drive. If that was not you, cancel it now.
+azdrive-lockdown-cancel = Cancel lockdown
+azdrive-lockdown-no-token-server = The drive's token server is not known: the lockdown cannot be cancelled here.
+azdrive-lockdown-cancelled = The lockdown with the recovery code was cancelled. If you did not start it, someone has your recovery code: make a new one.
+azdrive-lockdown-not-cancelled = The lockdown could not be cancelled:
+
+## Use with other programs
+
+azdrive-bridge-imap-server = IMAP server (incoming mail)
+azdrive-bridge-imap-port = IMAP port
+azdrive-bridge-smtp-server = SMTP server (outgoing mail)
+azdrive-bridge-smtp-port = SMTP port
+azdrive-bridge-security = Connection security
+azdrive-bridge-security-none = None (the bridge answers this computer only)
+azdrive-bridge-user = User name
+azdrive-bridge-webdav = Server address (WebDAV)
+azdrive-bridge-caldav = Server address (CalDAV / CardDAV)
+azdrive-bridge-copy = Copy
+azdrive-bridge-not-set-up = The Azlin Bridge shows your Azlin drive to Finder, Explorer and the file managers (and its mail and calendars to other programs) on this computer. It is not set up here: run azul-bridge init --address <your address>, then azul-bridge serve (azul-bridge autostart enable starts it at every login).
+azdrive-bridge-running = The Azlin Bridge is running on this computer: connect to it with these settings and the bridge's password (Finder: Go > Connect to Server; Explorer: Map network drive).
+azdrive-bridge-not-running = The Azlin Bridge is set up but not running: start it with azul-bridge serve (azul-bridge autostart enable starts it at every login). Then connect with these settings and the bridge's password.
+azdrive-bridge-files = Files (Finder, Explorer, the file managers)
+azdrive-bridge-mail = Mail (Apple Mail, Thunderbird, Outlook)
+azdrive-bridge-calendars = Calendars and contacts
+azdrive-bridge-copy-all = Copy all settings
+azdrive-bridge-every-setting = every setting
+azdrive-bridge-copy-password = Copy password
+azdrive-bridge-copied = Copied: { $what }.
+azdrive-bridge-no-password = The bridge's secrets file has no password: azul-bridge password makes a new one.
+azdrive-bridge-password-copied = Copied the bridge's password: paste it where the other program asks for the password.

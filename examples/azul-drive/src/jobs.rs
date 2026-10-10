@@ -634,7 +634,7 @@ pub(crate) enum Outcome {
     /// A pending recovery-key lockdown of `drive_id` called off (or why not).
     LockdownCancelled {
         drive_id: String,
-        result: Result<(), String>,
+        result: Result<(), Text>,
     },
     /// A voucher on `drive_id`: the days it added and the period's new end (seconds since
     /// 1970), or why not.
@@ -2947,16 +2947,16 @@ fn cancel_lockdown(
     keyring: &SharedKeyring,
     drive_id: &str,
     token_url: &str,
-) -> Result<(), String> {
+) -> Result<(), Text> {
     let transport = AzulTransport::new(USER_AGENT);
-    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    let server = TokenServer::new(token_url, &transport).map_err(|e| token_error_text(&e))?;
     let answer = keyring
         .with_drive_token(drive_id, |token| server.lockdown_cancel(drive_id, token))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| cloud_error_text(&e))?;
     match answer {
         Ok(_) => Ok(()),
         Err(TokenError::Refused { code, .. }) if code == "no_pending_lockdown" => Ok(()),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(token_error_text(&e)),
     }
 }
 

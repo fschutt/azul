@@ -992,3 +992,42 @@ azdrive-name-reserved = „{ $name }“ ist reserviert.
 azdrive-name-forbidden-chars = Ein Name darf keines dieser Zeichen enthalten: \ / : * ? " < > |
 azdrive-name-control-chars = Ein Name darf keine Steuerzeichen enthalten.
 azdrive-copy-word = Kopie
+
+## Periods and lockdowns
+
+azdrive-new-device = Zu „{ $drive }“ wurde ein neues Gerät hinzugefügt ({ $member }). Nicht du? Sperre das Laufwerk in AzDrive: im Menü des Laufwerks, „Ich wurde gehackt“.
+azdrive-recovery-used = Der Wiederherstellungscode von „{ $drive }“ wurde benutzt, um es zu sperren. In { $hours ->
+        [0] weniger als einer Stunde
+        [one] einer Stunde
+       *[other] { $hours } Stunden
+    } ({ $at }) übernimmt dieses Gerät das Laufwerk, und jedes andere Gerät verliert es. Wenn du das nicht warst, brich es jetzt in AzDrive ab.
+azdrive-lockdown-pending = Eine Sperrung mit dem Wiederherstellungscode steht bis { $until } an: Dann verliert jedes andere Gerät dieses Laufwerk. Wenn du das nicht warst, brich sie jetzt ab.
+azdrive-lockdown-cancel = Sperrung abbrechen
+azdrive-lockdown-no-token-server = Der Tokenserver des Laufwerks ist nicht bekannt: Die Sperrung kann hier nicht abgebrochen werden.
+azdrive-lockdown-cancelled = Die Sperrung mit dem Wiederherstellungscode wurde abgebrochen. Wenn du sie nicht gestartet hast, hat jemand deinen Wiederherstellungscode: Erstelle einen neuen.
+azdrive-lockdown-not-cancelled = Die Sperrung konnte nicht abgebrochen werden:
+
+## Use with other programs
+
+azdrive-bridge-imap-server = IMAP-Server (eingehende E-Mails)
+azdrive-bridge-imap-port = IMAP-Port
+azdrive-bridge-smtp-server = SMTP-Server (ausgehende E-Mails)
+azdrive-bridge-smtp-port = SMTP-Port
+azdrive-bridge-security = Verbindungssicherheit
+azdrive-bridge-security-none = Keine (die Brücke antwortet nur diesem Computer)
+azdrive-bridge-user = Benutzername
+azdrive-bridge-webdav = Serveradresse (WebDAV)
+azdrive-bridge-caldav = Serveradresse (CalDAV / CardDAV)
+azdrive-bridge-copy = Kopieren
+azdrive-bridge-not-set-up = Die Azlin-Brücke zeigt dein Azlin-Laufwerk dem Finder, dem Explorer und den Dateimanagern (und seine E-Mails und Kalender anderen Programmen) auf diesem Computer. Sie ist hier nicht eingerichtet: Führe azul-bridge init --address <deine Adresse> aus, dann azul-bridge serve (azul-bridge autostart enable startet sie bei jeder Anmeldung).
+azdrive-bridge-running = Die Azlin-Brücke läuft auf diesem Computer: Verbinde dich mit diesen Einstellungen und dem Kennwort der Brücke (Finder: Gehe zu > Mit Server verbinden; Explorer: Netzlaufwerk verbinden).
+azdrive-bridge-not-running = Die Azlin-Brücke ist eingerichtet, läuft aber nicht: Starte sie mit azul-bridge serve (azul-bridge autostart enable startet sie bei jeder Anmeldung). Verbinde dich dann mit diesen Einstellungen und dem Kennwort der Brücke.
+azdrive-bridge-files = Dateien (Finder, Explorer, die Dateimanager)
+azdrive-bridge-mail = E-Mail (Apple Mail, Thunderbird, Outlook)
+azdrive-bridge-calendars = Kalender und Kontakte
+azdrive-bridge-copy-all = Alle Einstellungen kopieren
+azdrive-bridge-every-setting = alle Einstellungen
+azdrive-bridge-copy-password = Kennwort kopieren
+azdrive-bridge-copied = Kopiert: { $what }.
+azdrive-bridge-no-password = Die Geheimnisdatei der Brücke hat kein Kennwort: azul-bridge password erstellt ein neues.
+azdrive-bridge-password-copied = Das Kennwort der Brücke wurde kopiert: Füge es dort ein, wo das andere Programm nach dem Kennwort fragt.

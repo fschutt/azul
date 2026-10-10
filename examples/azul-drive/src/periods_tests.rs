@@ -4,6 +4,7 @@
 //! lockdown and how long is left to cancel it. No window.
 
 use azcloud_kit::{period::REDEEM_AHEAD_SECS, token::RECOVERY_MEMBER, Redeemed};
+use azul_appkit::l10n::Arg;
 use azul_storage::time::iso8601;
 
 use crate::periods::{
@@ -79,9 +80,13 @@ fn the_daily_look_can_be_made_more_often_for_a_test_run() {
 
 #[test]
 fn a_new_device_is_announced_with_the_drive_and_what_to_do_if_it_was_not_you() {
-    let text = new_device_text("Work", "m_laptop");
-    assert!(text.contains("\"Work\"") && text.contains("m_laptop"), "{text}");
-    assert!(text.contains("Not you?"), "{text}");
+    let said = new_device_text("Work", "m_laptop");
+    assert_eq!(said.key, "azdrive-new-device");
+    assert_eq!(said.get("drive"), Some(&Arg::from("Work")));
+    assert_eq!(said.get("member"), Some(&Arg::from("m_laptop")));
+    let english = crate::l10n::EN;
+    assert!(english.contains("azdrive-new-device = A new device was added to \"{ $drive }\""));
+    assert!(english.contains("Not you?"));
 }
 
 #[test]
@@ -93,12 +98,13 @@ fn the_recovery_codes_device_is_announced_as_a_lockdown_not_as_a_new_device() {
 #[test]
 fn a_recovery_lockdown_says_how_long_the_owner_has_to_cancel_it() {
     let until = NOW + 48 * 3_600;
-    let text = recovery_text("Work", until, NOW);
-    assert!(text.contains("\"Work\"") && text.contains("48 hours"), "{text}");
-    assert!(text.contains(&iso8601(until)), "{text}");
-    assert!(text.contains("cancel"), "{text}");
+    let said = recovery_text("Work", until, NOW);
+    assert_eq!(said.key, "azdrive-recovery-used");
+    assert_eq!(said.get("drive"), Some(&Arg::from("Work")));
+    assert_eq!(said.get("hours"), Some(&Arg::Int(48)));
+    assert_eq!(said.get("at"), Some(&Arg::from(iso8601(until))));
     let soon = recovery_text("Work", NOW + 90 * 60, NOW);
-    assert!(soon.contains("2 hours"), "{soon}");
+    assert_eq!(soon.get("hours"), Some(&Arg::Int(2)));
     let now = recovery_text("Work", NOW + 600, NOW);
-    assert!(now.contains("less than an hour"), "{now}");
+    assert_eq!(now.get("hours"), Some(&Arg::Int(0)), "less than an hour");
 }
