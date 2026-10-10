@@ -8062,6 +8062,8 @@ impl MacOSWindow {
             anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu
+            // The item picked in it runs in THIS window (`drain_loop_work`).
+            self.common.menu_picks.clone(),
         );
 
         // Queue window creation request
@@ -9220,6 +9222,19 @@ impl MacOSWindow {
         };
         for tag in pending_actions {
             self.handle_menu_action(tag);
+        }
+
+        // The items picked in this window's WINDOW-DRAWN menus (the fallback,
+        // `use_native_context_menus = false`) run here too, as a native item
+        // does above: the menu window only posted the pick
+        // (`desktop::menu::MenuPicks`), so what it does lands on this window.
+        if !self.common.menu_picks.is_empty() {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            if PlatformWindow::run_menu_picks(self)
+                != azul_core::events::ProcessEventResult::DoNothing
+            {
+                self.request_redraw();
+            }
         }
 
         // `<webview>`s: what WebKit reported (a navigation to decide, a

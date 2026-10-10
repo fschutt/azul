@@ -1543,6 +1543,8 @@ impl MacOSWindow {
             None,           // No trigger rect for context menus (they spawn at cursor)
             Some(position), // Cursor position for menu positioning
             None,           // No parent menu
+            // The item picked in it runs in THIS window (`drain_loop_work`).
+            self.common.menu_picks.clone(),
         );
 
         // Queue window creation request for processing in Phase 3 of the event loop

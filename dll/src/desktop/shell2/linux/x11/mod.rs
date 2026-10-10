@@ -8650,6 +8650,8 @@ impl X11Window {
             physical_anchor, // The node the menu was opened for (drives min-width)
             Some(physical_cursor), // Position for menu (physical px)
             None,            // No parent menu
+            // The item picked in it runs in THIS window (run.rs, `run_menu_picks`).
+            self.common.menu_picks.clone(),
         );
         // Parent the menu to THIS window so it reuses our X display (single
         // shared event pump) and is positioned relative to us.
