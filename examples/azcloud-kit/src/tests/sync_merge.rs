@@ -39,6 +39,7 @@ fn base(c: char) -> BaseEntry {
         hash: h(c),
         size: 1,
         mtime_ns: 1,
+        cloud_only: false,
     }
 }
 
