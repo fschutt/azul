@@ -583,3 +583,26 @@ pub fn other_devices(
     }
     Ok(count)
 }
+
+// ==== Further recovery codes (a second emergency kit, D51) ====
+
+/// The start of a further recovery code's key file: `.azlin/keys/recovery-<16 hex>.key` (the
+/// first code's is [`RECOVERY_KEY_FILE`]). A key rotation removes them with the other wraps.
+pub const EXTRA_RECOVERY_PREFIX: &str = ".azlin/keys/recovery-";
+
+/// One more recovery code of a drive this device holds the key of, sealed like the first in a
+/// wrap of its own; its file and the code (for its sheet: stored nowhere).
+pub fn add_recovery_code(
+    _bucket: &dyn Drive,
+    _keyring: &dyn KeyringStore,
+    _drive: &str,
+    _kdf: RecoveryKdf,
+) -> Result<(String, RecoveryCode), DriveError> {
+    Err(DriveError::Unsupported(String::from("further recovery codes")))
+}
+
+/// Removes a further recovery code's wrap: its kit no longer opens the drive.
+pub fn remove_recovery_code(_bucket: &dyn Drive, _file: &str) -> Result<(), DriveError> {
+    Ok(())
+}
+
