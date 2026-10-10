@@ -1176,9 +1176,11 @@ version = "0.1.0"
 dependencies = [
  "azcloud-kit",
  "azul-appkit",
+ "azul-calendar-core",
  "azul-mail-core",
  "azul-storage",
  "base64 0.22.1",
+ "chrono",
  "dirs",
  "getrandom 0.2.17",
  "md-5 0.11.0",

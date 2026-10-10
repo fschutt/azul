@@ -8,6 +8,8 @@
 //!   mail account whose keyring names and sending settings the bridge uses, the ports. No secret.
 //! - `spool/`: the outbox the submission port sends from (an AzMail folder of its own).
 //! - `imap-uids/`: the UID map of every mailbox ([`crate::uids`]).
+//! - `pim-names.json`: the names calendar and contacts programs gave events and cards whose files
+//!   are named otherwise ([`crate::pim::Names`]).
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +29,8 @@ pub const HOME_VAR: &str = "AZUL_BRIDGE_HOME";
 pub const IMAP_PORT: u16 = 1143;
 pub const SMTP_PORT: u16 = 1025;
 pub const DAV_PORT: u16 = 1180;
+/// CalDAV and CardDAV, next to WebDAV.
+pub const PIM_PORT: u16 = 1181;
 /// The folders inside the state folder.
 pub const SPOOL_DIR: &str = "spool";
 
@@ -46,6 +50,9 @@ pub struct BridgeConfig {
     pub imap_port: u16,
     pub smtp_port: u16,
     pub dav_port: u16,
+    /// CalDAV and CardDAV; a settings file of a bridge before them said nothing: 1181.
+    #[serde(default = "pim_port")]
+    pub pim_port: u16,
     /// AzMail's `sending.json` to send with; `None`: `spool/<account>/sending.json`, else
     /// direct delivery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,6 +67,10 @@ fn file_keyring() -> String {
     String::from("file")
 }
 
+fn pim_port() -> u16 {
+    PIM_PORT
+}
+
 impl BridgeConfig {
     #[must_use]
     pub fn new(address: &str) -> BridgeConfig {
@@ -72,6 +83,7 @@ impl BridgeConfig {
             imap_port: IMAP_PORT,
             smtp_port: SMTP_PORT,
             dav_port: DAV_PORT,
+            pim_port: PIM_PORT,
             sending_file: None,
             keyring: crate::secrets::KeyringChoice::default_for_build().name().to_string(),
         }

@@ -13,6 +13,8 @@
 //!   attempt, direct delivery or the relay) and the copy that went out is filed in Sent.
 //! - **WebDAV** class 1 and the minimal class 2 Finder and Windows Explorer need (LOCK /
 //!   UNLOCK) over the drive's files.
+//! - **CalDAV and CardDAV** (RFC 4791, RFC 6352) for Apple Calendar and Contacts, Thunderbird
+//!   and DAVx5 over AzCalendar's and AzContacts' files ([`pim`]), on a port of their own.
 //!
 //! Where mail and files live is behind two small seams, so the servers do not change when the
 //! storage does: [`store::MailStore`] (today [`store::DriveMailStore`], the plain `.eml` layout;
@@ -42,7 +44,7 @@
 //! 0600 secrets file). Sending ([`sender`]) is AzMail's own
 //! path, through azul-mail-core. Running it: [`cli`].
 //!
-//! Modules: [`imap`], [`smtp`], [`dav`] (+ [`http`]) are the servers; [`store`], [`uids`],
+//! Modules: [`imap`], [`smtp`], [`dav`] (+ [`http`]), [`pim`] are the servers; [`store`], [`uids`],
 //! [`mime`], [`sent`] serve mail; [`net`], [`auth`], [`limits`] keep the doors; [`config`],
 //! [`dates`], [`memory`] (a drive in memory for tests and `serve --memory`).
 
@@ -61,6 +63,7 @@ pub mod limits;
 pub mod memory;
 pub mod mime;
 pub mod net;
+pub mod pim;
 pub mod secrets;
 pub mod sender;
 pub mod sent;

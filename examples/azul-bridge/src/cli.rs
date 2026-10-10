@@ -4,7 +4,7 @@
 //! azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] <command> [options]
 //!
 //!   init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE]
-//!        [--imap-port N] [--smtp-port N] [--dav-port N]
+//!        [--imap-port N] [--smtp-port N] [--dav-port N] [--pim-port N]
 //!        The settings (bridge.json) and, the first time, the bridge's password - printed once
 //!        (`AZUL_BRIDGE_PASSWORD <password>`), then kept in the secret store.
 //!   password   A new password, printed once; the old one stops working.
@@ -12,10 +12,13 @@
 //!        A development drive of the bridge's own (development token servers only).
 //!   join --code-file FILE
 //!        Joins a drive with a code from `azcloud invite` (a token family of the bridge's own).
-//!   serve [--imap-port N] [--smtp-port N] [--dav-port N] [--folder DIR | --memory] [--idle-poll SECS]
-//!        Serves IMAP, SMTP submission and WebDAV on 127.0.0.1 (port 0: any free one) and prints
-//!        `AZUL_BRIDGE_READY imap=<port> smtp=<port> dav=<port>`. `--folder` serves a folder of
-//!        this computer as the drive, `--memory` an empty drive in memory (development).
+//!   serve [--imap-port N] [--smtp-port N] [--dav-port N] [--pim-port N] [--folder DIR | --memory]
+//!         [--calendar-folder DIR] [--idle-poll SECS]
+//!        Serves IMAP, SMTP submission, WebDAV and CalDAV / CardDAV on 127.0.0.1 (port 0: any free
+//!        one) and prints `AZUL_BRIDGE_READY imap=<port> smtp=<port> dav=<port> pim=<port>`.
+//!        `--folder` serves a folder of this computer as the drive, `--memory` an empty drive in
+//!        memory (development). The calendars are AzCalendar's files in the drive's `calendar/`,
+//!        or in the folder `--calendar-folder` names (AzCalendar's data folder on this computer).
 //!   status     What the bridge is set up with (no secret).
 //!   autostart enable|disable|status
 //!        The login item that starts `serve` at every login ([`crate::autostart`]).
@@ -36,7 +39,7 @@ use std::{
 
 use azcloud_kit::{drive::TransportFactory, Account, JoinCode, StateDir};
 use azul_appkit::azlin_config::{Endpoint, EndpointFlags};
-use azul_storage::{Drive, LocalDrive, Transport};
+use azul_storage::{Drive, LocalDrive, ScopedDrive, Transport};
 
 use crate::{
     account::AccountDrive,
@@ -48,6 +51,7 @@ use crate::{
     limits::Limits,
     memory::MemoryDrive,
     net,
+    pim::{self, Names, Pim},
     secrets::{self, FileKeyring, KeyringChoice, KeyringStore, PASSWORD_ENTRY},
     sender::AzMailSubmitter,
     sent::SentRegistry,
@@ -76,7 +80,10 @@ pub struct Options {
     pub imap_port: Option<u16>,
     pub smtp_port: Option<u16>,
     pub dav_port: Option<u16>,
+    pub pim_port: Option<u16>,
     pub folder: Option<PathBuf>,
+    /// AzCalendar's data folder on this computer, instead of the drive's `calendar/`.
+    pub calendar_folder: Option<PathBuf>,
     pub memory: bool,
     /// Seconds between IMAP IDLE's looks at the drive (the default: 30).
     pub idle_poll: Option<u64>,
@@ -89,9 +96,9 @@ pub struct Options {
 /// The usage text.
 pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] \
      <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
-     [--smtp-port N] [--dav-port N] | password | signup [--name NAME] [--tier TIER] | \
+     [--smtp-port N] [--dav-port N] [--pim-port N] | password | signup [--name NAME] [--tier TIER] | \
      join --code-file FILE | autostart enable|disable|status | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
-     [--folder DIR | --memory] [--idle-poll SECS] | status>";
+     [--pim-port N] [--folder DIR | --memory] [--calendar-folder DIR] [--idle-poll SECS] | status>";
 
 /// Reads the arguments (without the program's name).
 ///
@@ -127,7 +134,9 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--imap-port" => options.imap_port = Some(port(value(&mut i, arg)?, arg)?),
             "--smtp-port" => options.smtp_port = Some(port(value(&mut i, arg)?, arg)?),
             "--dav-port" => options.dav_port = Some(port(value(&mut i, arg)?, arg)?),
+            "--pim-port" => options.pim_port = Some(port(value(&mut i, arg)?, arg)?),
             "--folder" => options.folder = Some(PathBuf::from(value(&mut i, arg)?)),
+            "--calendar-folder" => options.calendar_folder = Some(PathBuf::from(value(&mut i, arg)?)),
             "--memory" => options.memory = true,
             "--keyring" => options.keyring = Some(value(&mut i, arg)?),
             "--idle-poll" => {
@@ -268,12 +277,13 @@ pub fn run(options: &Options) -> Result<(), String> {
             let config = BridgeConfig::load(&state).map_err(|e| e.to_string())?;
             match config {
                 Some(config) => say(&format!(
-                    "address={} account={} imap={} smtp={} dav={} state={}",
+                    "address={} account={} imap={} smtp={} dav={} pim={} state={}",
                     config.address,
                     config.account,
                     config.imap_port,
                     config.smtp_port,
                     config.dav_port,
+                    config.pim_port,
                     state.display()
                 )),
                 None => say("not set up: azul-bridge init --address <your address>"),
@@ -325,6 +335,10 @@ fn print_password(password: &str, config: Option<&BridgeConfig>) {
             "  WebDAV http://127.0.0.1:{}/ (Finder: Go > Connect to Server), user {}",
             config.dav_port, config.address
         ));
+        say(&format!(
+            "  CalDAV / CardDAV http://127.0.0.1:{}/ (a calendar or contacts account), user {}",
+            config.pim_port, config.address
+        ));
     }
     say("A new one: azul-bridge password");
 }
@@ -362,6 +376,9 @@ fn init(
     }
     if let Some(port) = options.dav_port {
         config.dav_port = port;
+    }
+    if let Some(port) = options.pim_port {
+        config.pim_port = port;
     }
     config.keyring = keyring.name().to_string();
     config.save(state).map_err(|e| e.to_string())?;
@@ -444,11 +461,13 @@ fn serve(
     let imap_listener = bind(options.imap_port.unwrap_or(config.imap_port), "IMAP")?;
     let smtp_listener = bind(options.smtp_port.unwrap_or(config.smtp_port), "SMTP")?;
     let dav_listener = bind(options.dav_port.unwrap_or(config.dav_port), "WebDAV")?;
+    let pim_listener = bind(options.pim_port.unwrap_or(config.pim_port), "CalDAV / CardDAV")?;
     let port_of = |listener: &std::net::TcpListener| listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    let (imap_port, smtp_port, dav_port) = (
+    let (imap_port, smtp_port, dav_port, pim_port) = (
         port_of(&imap_listener),
         port_of(&smtp_listener),
         port_of(&dav_listener),
+        port_of(&pim_listener),
     );
     let imap = Arc::new(Imap::new(
         store,
@@ -465,16 +484,36 @@ fn serve(
         limits: limits.clone(),
         senders: config.senders(),
     });
+    // AzCalendar's data folder: the drive's `calendar/`, or a folder of this computer.
+    let calendar: Arc<dyn Drive> = match &options.calendar_folder {
+        Some(folder) => Arc::new(LocalDrive::new(folder.clone())) as Arc<dyn Drive>,
+        None => Arc::new(
+            ScopedDrive::new(drive.clone(), pim::CALENDAR_FOLDER, true).map_err(|e| e.to_string())?,
+        ) as Arc<dyn Drive>,
+    };
+    let names = if options.memory {
+        Names::in_memory()
+    } else {
+        Names::in_file(state.join(pim::NAMES_FILE))
+    };
+    let pim = Arc::new(Dav::for_pim(
+        Pim::new(drive.clone(), calendar, names, &config.address),
+        credentials.clone(),
+        gate.clone(),
+        limits.clone(),
+        pim_port,
+    ));
     let dav = Arc::new(Dav::new(drive, credentials, gate, limits, dav_port));
     let mut threads = Vec::new();
     threads.push(std::thread::spawn(move || imap::serve(imap, imap_listener)));
     threads.push(std::thread::spawn(move || smtp::serve(smtp, smtp_listener)));
     threads.push(std::thread::spawn(move || dav::serve(dav, dav_listener)));
+    threads.push(std::thread::spawn(move || dav::serve(pim, pim_listener)));
     std::thread::spawn(move || loop {
         std::thread::sleep(RETRY_EVERY);
         submitter.retry();
     });
-    say(&format!("AZUL_BRIDGE_READY imap={imap_port} smtp={smtp_port} dav={dav_port}"));
+    say(&format!("AZUL_BRIDGE_READY imap={imap_port} smtp={smtp_port} dav={dav_port} pim={pim_port}"));
     for thread in threads {
         let _ = thread.join();
     }
@@ -506,6 +545,9 @@ mod tests {
         assert!(parse_args(&args("autostart sometimes")).is_err());
         let serve = parse_args(&args("serve --memory --dav-port 8080")).unwrap();
         assert!(serve.memory && serve.dav_port == Some(8080));
+        let pim = parse_args(&args("serve --pim-port 0 --calendar-folder /data/AzCalendar")).unwrap();
+        assert_eq!(pim.pim_port, Some(0));
+        assert_eq!(pim.calendar_folder, Some(PathBuf::from("/data/AzCalendar")));
         for bad in [
             "",
             "init",

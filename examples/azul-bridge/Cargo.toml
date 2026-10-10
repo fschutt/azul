@@ -43,6 +43,12 @@ getrandom = "0.2"
 # HTTP Digest for WebDAV (Windows' WebClient takes no Basic over http): RustCrypto's MD5, already in
 # the tree (lopdf, OpenDAL) and in scripts/dependency-justifications.toml.
 md-5 = "0.11"
+# CalDAV: AzCalendar's events without azul types (the event and calendar files, iCalendar
+# import and export), so the bridge reads and writes them with AzCalendar's own code.
+azul-calendar-core = { path = "../azul-calendar-core" }
+# The dates of the events, this computer's zone for an imported time: the features
+# azul-calendar-core builds chrono with.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # AUTH PLAIN / LOGIN and HTTP Basic credentials.
 base64 = "0.22"
 # The OS folders azcloud-kit's settings start from (the same `dirs` the azcloud CLI uses).

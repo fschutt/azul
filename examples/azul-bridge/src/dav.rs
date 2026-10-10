@@ -16,6 +16,8 @@
 //!   level, a backslash, NUL or a control character; PROPFIND / PROPPATCH / LOCK bodies are
 //!   limited in size and refused when they carry a DTD (no entity of any kind is expanded);
 //!   the sync's bookkeeping (`.azlin/`) is neither listed nor reachable.
+//! - The same doors serve CalDAV and CardDAV on a port of their own ([`Dav::for_pim`],
+//!   [`crate::pim`]).
 
 use std::{
     sync::{Arc, Mutex},
@@ -31,6 +33,7 @@ use crate::{
     http::{self, Framing, Head, HttpError, Response, Status},
     limits::Limits,
     net::{self, Conn, Input, RateLimiter},
+    pim::Pim,
 };
 
 /// The folder the Azlin sync keeps its bookkeeping in: hidden.
@@ -40,7 +43,7 @@ pub const MAX_LOCK_SECS: u64 = 3600;
 /// ...and this long when the client asks for none.
 pub const DEFAULT_LOCK_SECS: u64 = 600;
 
-const DAV: &str = "DAV:";
+pub(crate) const DAV: &str = "DAV:";
 
 /// A write lock.
 #[derive(Debug, Clone)]
@@ -93,6 +96,8 @@ pub struct Dav {
     locks: Mutex<Vec<Lock>>,
     /// HTTP Digest's nonces (Windows Explorer signs in that way).
     digest: DigestAuth,
+    /// CalDAV and CardDAV instead of the drive's files ([`Dav::for_pim`]).
+    pim: Option<Pim>,
 }
 
 impl std::fmt::Debug for Dav {
@@ -256,7 +261,7 @@ fn has_dtd(text: &str) -> bool {
 }
 
 /// A WebDAV request body as XML.
-fn parse_xml(body: &[u8]) -> Result<Option<String>, Status> {
+pub(crate) fn parse_xml(body: &[u8]) -> Result<Option<String>, Status> {
     let text = std::str::from_utf8(body).map_err(|_| Status::BAD_REQUEST)?;
     if text.trim().is_empty() {
         return Ok(None);
@@ -269,7 +274,7 @@ fn parse_xml(body: &[u8]) -> Result<Option<String>, Status> {
     Ok(Some(text.to_string()))
 }
 
-fn is_dav(node: &roxmltree::Node<'_, '_>, name: &str) -> bool {
+pub(crate) fn is_dav(node: &roxmltree::Node<'_, '_>, name: &str) -> bool {
     node.is_element()
         && node.tag_name().name() == name
         && node.tag_name().namespace() == Some(DAV)
@@ -277,14 +282,14 @@ fn is_dav(node: &roxmltree::Node<'_, '_>, name: &str) -> bool {
 
 /// What PROPFIND asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum PropRequest {
+pub(crate) enum PropRequest {
     All,
     Names,
     /// `(namespace, name)` of each property.
     Some(Vec<(String, String)>),
 }
 
-fn prop_request(body: &[u8]) -> Result<PropRequest, Status> {
+pub(crate) fn prop_request(body: &[u8]) -> Result<PropRequest, Status> {
     let Some(text) = parse_xml(body)? else {
         return Ok(PropRequest::All);
     };
@@ -336,7 +341,7 @@ const SUPPORTED_LOCK: &str = "<D:supportedlock>\
     </D:supportedlock>";
 
 /// An empty element of `(namespace, name)` for a response (its namespace declared on it).
-fn empty_element(namespace: &str, name: &str) -> String {
+pub(crate) fn empty_element(namespace: &str, name: &str) -> String {
     if namespace == DAV {
         format!("<D:{}/>", xml_escape(name))
     } else if namespace.is_empty() {
@@ -402,7 +407,17 @@ impl Dav {
             port,
             locks: Mutex::new(Vec::new()),
             digest: DigestAuth::new("Azlin Bridge"),
+            pim: None,
         }
+    }
+
+    /// CalDAV and CardDAV ([`crate::pim`]) behind the same doors as the drive's WebDAV: the
+    /// host, no browser, the sign-in, the limits - on a port of their own.
+    #[must_use]
+    pub fn for_pim(pim: Pim, credentials: Credentials, gate: Arc<FailureGate>, limits: Limits, port: u16) -> Dav {
+        let mut dav = Dav::new(pim.contacts_drive(), credentials, gate, limits, port);
+        dav.pim = Some(pim);
+        dav
     }
 
     fn locks(&self) -> std::sync::MutexGuard<'_, Vec<Lock>> {
@@ -530,6 +545,10 @@ impl Dav {
 
     /// The most a request's body may be.
     fn body_limit(&self, method: &str) -> u64 {
+        // An event or a card is held as a message is.
+        if method == "PUT" && self.pim.is_some() {
+            return self.limits.message_bytes as u64;
+        }
         if method == "PUT" {
             self.limits.put_bytes
         } else {
@@ -614,6 +633,9 @@ impl Dav {
     /// The answer to one request whose sign-in and body are done.
     #[must_use]
     pub fn respond(&self, head: &Head, body: &[u8]) -> Response {
+        if let Some(pim) = &self.pim {
+            return pim.respond(head, body);
+        }
         let (key, folder_syntax) = match key_of(&head.target) {
             Ok(found) => found,
             Err(status) => return Response::text(status, "Not a path of the drive."),
@@ -638,12 +660,7 @@ impl Dav {
             _ => Ok(Response::text(Status::METHOD_NOT_ALLOWED, "Not a WebDAV method the bridge offers.")
                 .with_header("Allow", "OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, PROPFIND, PROPPATCH, LOCK, UNLOCK")),
         };
-        result.unwrap_or_else(|e| match e {
-            DriveError::NotFound { .. } => Response::text(Status::NOT_FOUND, "Not there."),
-            DriveError::InvalidKey { reason, .. } => Response::text(Status::CONFLICT, reason),
-            DriveError::Denied { .. } => Response::text(Status::FORBIDDEN, "The drive refused."),
-            other => Response::text(Status::BAD_GATEWAY, &other.to_string()),
-        })
+        result.unwrap_or_else(drive_answer)
     }
 
     fn resource(&self, key: &str, folder_syntax: bool) -> Result<Resource, DriveError> {
@@ -1163,6 +1180,16 @@ impl Dav {
             return Ok(Response::text(Status::CONFLICT, "No such lock here."));
         }
         Ok(Response::new(Status::NO_CONTENT))
+    }
+}
+
+/// The answer to a request the drive failed.
+pub(crate) fn drive_answer(e: DriveError) -> Response {
+    match e {
+        DriveError::NotFound { .. } => Response::text(Status::NOT_FOUND, "Not there."),
+        DriveError::InvalidKey { reason, .. } => Response::text(Status::CONFLICT, reason),
+        DriveError::Denied { .. } => Response::text(Status::FORBIDDEN, "The drive refused."),
+        other => Response::text(Status::BAD_GATEWAY, &other.to_string()),
     }
 }
 

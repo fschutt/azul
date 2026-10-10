@@ -530,3 +530,45 @@ fn a_put_over_the_limit_is_refused_and_the_connection_closed() {
     assert_eq!(wire.response().0, 413);
     assert!(wire.closed());
 }
+
+#[test]
+fn the_calendar_and_contacts_port_has_the_same_doors() {
+    let pim = crate::pim::Pim::new(drive(), drive(), crate::pim::Names::in_memory(), USER);
+    let dav = Arc::new(Dav::for_pim(
+        pim,
+        Credentials::new(USER, PASSWORD),
+        Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
+        Limits::default(),
+        0,
+    ));
+    let mut wire = Wire::connect(dav.clone());
+    wire.send(b"OPTIONS / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    let (status, headers, _) = wire.response();
+    assert_eq!(status, 200);
+    assert!(headers.iter().any(|(n, v)| n == "dav" && v.contains("calendar-access")), "{headers:?}");
+    wire.send(b"PROPFIND /principal/ HTTP/1.1\r\nHost: 127.0.0.1\r\nDepth: 0\r\nContent-Length: 0\r\n\r\n");
+    assert_eq!(wire.response().0, 401);
+    let request = format!(
+        "PROPFIND /principal/ HTTP/1.1\r\nHost: 127.0.0.1\r\nDepth: 0\r\nAuthorization: {}\r\n\r\n",
+        basic(USER, PASSWORD)
+    );
+    wire.send(request.as_bytes());
+    let (status, _, body) = wire.response();
+    assert_eq!(status, 207, "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).contains("<D:href>/principal/</D:href>"));
+    // The drive's files are not behind this port.
+    let request = format!(
+        "GET /docs/a.txt HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: {}\r\n\r\n",
+        basic(USER, PASSWORD)
+    );
+    wire.send(request.as_bytes());
+    assert_eq!(wire.response().0, 404);
+
+    let mut wire = Wire::connect(dav);
+    let request = format!(
+        "PROPFIND /principal/ HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: http://attacker.example\r\nDepth: 0\r\nAuthorization: {}\r\n\r\n",
+        basic(USER, PASSWORD)
+    );
+    wire.send(request.as_bytes());
+    assert_eq!(wire.response().0, 403);
+}

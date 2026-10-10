@@ -25,6 +25,10 @@ data are never read or written: HOME points into the folder, AZLIN_CONFIG is off
            PUT into a missing folder refused, COPY / MOVE, LOCK / UNLOCK (a PUT without the
            token refused), DELETE, a body with a DTD refused, a foreign Host refused, `..`
            refused, the sync's .azlin hidden
+  pim      CalDAV / CardDAV over http.client on their own port: the well-known redirect, the
+           principal's homes, a vCard 3.0 PUT kept byte for byte as contacts/<uid>.vcf, an
+           event PUT under the program's own name read into AzCalendar's calendar/events/<id>.json
+           and served back as iCalendar, both deleted
   doors    the ports answer nothing but 127.0.0.1 (a connection to this computer's network
            address is refused), an HTTP request on the IMAP port is hung up on
 
@@ -159,7 +163,7 @@ class Bridge:
     def serve(self):
         self.process = subprocess.Popen(
             [self.binary, '--state-dir', self.state, 'serve', '--imap-port', '0',
-             '--smtp-port', '0', '--dav-port', '0', '--idle-poll', '1'],
+             '--smtp-port', '0', '--dav-port', '0', '--pim-port', '0', '--idle-poll', '1'],
             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         ready = {}
 
@@ -176,7 +180,7 @@ class Bridge:
                 raise Failure('azul-bridge serve stopped: %s' % self.process.stderr.read()[-800:])
             time.sleep(0.1)
         expect(ready, 'azul-bridge serve did not get ready: %s' % self.lines)
-        return int(ready['imap']), int(ready['smtp']), int(ready['dav'])
+        return int(ready['imap']), int(ready['smtp']), int(ready['dav']), int(ready['pim'])
 
     def stop(self):
         if self.process and self.process.poll() is None:
@@ -419,6 +423,56 @@ def step_webdav(port, password, drive):
            'the sync\'s folder is reachable')
 
 
+PIM_CARD = b'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:ada-e2e\r\nFN:Ada E2E\r\nEND:VCARD\r\n'
+PIM_EVENT = (b'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//e2e//EN\r\nBEGIN:VEVENT\r\n'
+             b'UID:e2e@example.org\r\nDTSTAMP:20261001T120000Z\r\nDTSTART:20261002T100000\r\n'
+             b'DTEND:20261002T110000\r\nSUMMARY:E2E dentist\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n')
+
+
+def step_pim(port, password, drive):
+    status, headers, _ = dav_request(port, 'PROPFIND', '/.well-known/caldav', headers={'Depth': '0'},
+                                     password=password)
+    expect(status == 301 and headers.get('location') == '/', 'the well-known redirect: %s %s' % (status, headers))
+    expect(dav_request(port, 'PROPFIND', '/principal/', headers={'Depth': '0'})[0] == 401,
+           'PROPFIND without signing in')
+    homes = (b'<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" '
+             b'xmlns:CR="urn:ietf:params:xml:ns:carddav"><D:prop><C:calendar-home-set/>'
+             b'<CR:addressbook-home-set/></D:prop></D:propfind>')
+    status, _, data = dav_request(port, 'PROPFIND', '/principal/', homes, headers={'Depth': '0'}, password=password)
+    expect(status == 207 and b'<D:href>/calendars/</D:href>' in data and b'<D:href>/addressbooks/</D:href>' in data,
+           'the principal: %s %s' % (status, data[:400]))
+
+    status, headers, _ = dav_request(port, 'PUT', '/addressbooks/contacts/ada-e2e.vcf', PIM_CARD,
+                                     headers={'If-None-Match': '*', 'Content-Type': 'text/vcard'}, password=password)
+    expect(status == 201 and 'etag' in headers, 'PUT a card: %s %s' % (status, headers))
+    expect(drive.has('contacts/ada-e2e.vcf') and drive.get('contacts/ada-e2e.vcf') == PIM_CARD,
+           'the card is not AzContacts\' file byte for byte: %s' % drive.keys('contacts/'))
+    status, _, data = dav_request(port, 'GET', '/addressbooks/contacts/ada-e2e.vcf', password=password)
+    expect(status == 200 and data == PIM_CARD, 'GET the card: %s' % status)
+
+    status, headers, _ = dav_request(port, 'PUT', '/calendars/default/E2E-EVENT.ics', PIM_EVENT,
+                                     headers={'If-None-Match': '*', 'Content-Type': 'text/calendar'}, password=password)
+    expect(status == 201, 'PUT an event: %s' % status)
+    files = drive.keys('calendar/events/')
+    expect(len(files) == 1 and files[0].endswith('.json'), 'AzCalendar\'s event file: %s' % files)
+    stored = json.loads(drive.get(files[0]))
+    expect(stored.get('format') == 'azcalendar.event' and stored.get('title') == 'E2E dentist'
+           and stored.get('uid') == 'e2e@example.org', 'the event file: %s' % stored)
+    status, _, data = dav_request(port, 'PROPFIND', '/calendars/default/', headers={'Depth': '1'}, password=password)
+    expect(status == 207 and b'<D:href>/calendars/default/E2E-EVENT.ics</D:href>' in data,
+           'the calendar lists the program\'s own name: %s' % data[:600])
+    status, _, data = dav_request(port, 'GET', '/calendars/default/E2E-EVENT.ics', password=password)
+    expect(status == 200 and b'UID:e2e@example.org' in data and b'SUMMARY:E2E dentist' in data,
+           'GET the event: %s %s' % (status, data[:400]))
+
+    expect(dav_request(port, 'DELETE', '/calendars/default/E2E-EVENT.ics', password=password)[0] == 204
+           and not drive.keys('calendar/events/'), 'DELETE the event')
+    expect(dav_request(port, 'DELETE', '/addressbooks/contacts/ada-e2e.vcf', password=password)[0] == 204
+           and not drive.has('contacts/ada-e2e.vcf'), 'DELETE the card')
+    expect(dav_request(port, 'PROPFIND', '/principal/', headers={'Depth': '0'}, password=password,
+                       host='attacker.example')[0] == 403, 'a foreign Host was answered')
+
+
 def step_doors(ports):
     # A connection to this computer's network address (not 127.0.0.1) finds nobody.
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -487,13 +541,14 @@ def main():
             name = object_name(data, now + i * 60)
             drive.put('mail/Inbox/' + name, data)
             seeded.append((name, data))
-        imap_port, smtp_port, dav_port = bridge.serve()
-        print('[azbridge-e2e] bridge on imap=%d smtp=%d dav=%d' % (imap_port, smtp_port, dav_port))
+        imap_port, smtp_port, dav_port, pim_port = bridge.serve()
+        print('[azbridge-e2e] bridge on imap=%d smtp=%d dav=%d pim=%d' % (imap_port, smtp_port, dav_port, pim_port))
         for name, step in (('imap', lambda: step_imap(imap_port, password, drive, seeded)),
                            ('smtp', lambda: step_smtp(smtp_port, password, imap_port, drive,
                                                       os.path.join(work, 'sink'))),
                            ('webdav', lambda: step_webdav(dav_port, password, drive)),
-                           ('doors', lambda: step_doors([imap_port, smtp_port, dav_port]))):
+                           ('pim', lambda: step_pim(pim_port, password, drive)),
+                           ('doors', lambda: step_doors([imap_port, smtp_port, dav_port, pim_port]))):
             try:
                 step()
                 print('[azbridge-e2e] PASS %s' % name)
