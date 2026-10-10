@@ -24,7 +24,7 @@ use std::{
 
 use azcloud_kit::{
     pending::{self, Claimed, Finished, PendingTokens, Polled},
-    look_at_drive, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, Look, OptionsQuery,
+    look_at_drive, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, OptionsQuery,
     PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
     TokenServer, UserError, VoucherRedeemed,
 };
@@ -527,7 +527,7 @@ pub(crate) enum Outcome {
         from_claims: bool,
     },
     /// What each drive's look found (drive id, its status and redemption).
-    PeriodsRedeemed { results: Vec<(String, Look)> },
+    PeriodsRedeemed { results: Vec<(String, azcloud_kit::Look)> },
     SettingsSaved {
         result: Result<(), DriveError>,
     },
