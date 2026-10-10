@@ -67,6 +67,7 @@ fn connect_lists_the_sources_and_a_source_opens_its_form_back_and_forth() {
 
 #[test]
 fn a_filled_form_builds_its_drive_and_typing_forgets_the_last_test() {
+    crate::l10n::in_english();
     let mut dialog = AddDialog::new(1);
     dialog.choose_connect();
     assert!(dialog.open_service("s3"));

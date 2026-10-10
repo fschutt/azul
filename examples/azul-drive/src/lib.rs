@@ -211,9 +211,10 @@ mod paper;
 mod pay_words;
 #[cfg(test)]
 mod pay_words_tests;
+pub mod preview;
+mod source_words;
 #[cfg(test)]
 mod source_words_tests;
-pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
 /// Options > Drives' "Use with other programs": the Azlin Bridge's settings to copy.
@@ -510,7 +511,7 @@ impl Slot {
     /// What the drive is: "Local Disk", "S3 bucket", "Azlin cloud drive", "WebDAV", "SQLite
     /// database".
     pub fn kind(&self) -> String {
-        azul_storage::catalog::kind_label(&self.entry)
+        crate::source_words::kind(&azul_storage::catalog::kind_of(&self.entry))
     }
 }
 

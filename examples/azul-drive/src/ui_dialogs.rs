@@ -120,7 +120,11 @@ pub(crate) fn source_rows(
         Some(spec) => spec
             .fields
             .iter()
-            .filter_map(|f| options.get(f.key).map(|v| (f.label.to_string(), v.clone())))
+            .filter_map(|f| {
+                options
+                    .get(f.key)
+                    .map(|v| (crate::source_words::field_label(f), v.clone()))
+            })
             .collect(),
         None => options.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
     }
