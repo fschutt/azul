@@ -126,6 +126,8 @@ pub fn write(card: &Card) -> String {
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::Arg;
+
     use super::*;
 
     #[test]
@@ -144,8 +146,11 @@ mod tests {
         let (cards, problems) = parse("BEGIN:VCARD\nVERSION:2.1\nFN:A\nthis is not a property\nEND:VCARD\nBEGIN:VCARD\nFN:B\n");
         assert_eq!(cards.len(), 1);
         assert_eq!(problems.len(), 3, "{problems:?}");
-        assert!(problems[0].contains("2.1"));
-        assert!(problems[2].contains("no END"));
+        assert_eq!(
+            problems[0].phrase("azcontacts-vcard-read-as-3").and_then(|p| p.get("version")),
+            Some(&Arg::from("2.1"))
+        );
+        assert_eq!(problems[2].keys(), vec!["azcontacts-vcard-last-no-end"]);
     }
 
     #[test]

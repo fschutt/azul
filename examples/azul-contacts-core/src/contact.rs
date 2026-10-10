@@ -658,6 +658,8 @@ pub fn write_vcf(contacts: &[Contact], version: Version) -> String {
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::Text;
+
     use super::*;
 
     /// The plan's sample card.
@@ -836,12 +838,15 @@ mod tests {
     #[test]
     fn the_edit_form_refuses_a_nameless_contact_and_bad_emails() {
         let mut c = Contact::default();
-        assert_eq!(c.problems(None), vec!["A contact needs a name or a company."]);
+        assert_eq!(c.problems(None), vec![Text::key("azcontacts-problem-no-name")]);
         c.given = "A".into();
         c.emails = vec![Labeled::new("work", "a@example.org"), Labeled::new("home", "not-an-email"), Labeled::new("home", "x@y")];
         let p = c.problems(Some("31.02.1990"));
         assert_eq!(p.len(), 3, "{p:?}");
-        assert!(p[0].contains("not-an-email") && p[1].contains("x@y") && p[2].contains("31.02.1990"));
+        let said: Vec<String> = p.iter().map(Text::to_string).collect();
+        assert!(said[0].contains("not-an-email") && said[1].contains("x@y") && said[2].contains("31.02.1990"));
+        assert_eq!(p[0].keys(), vec!["azcontacts-problem-not-email"]);
+        assert_eq!(p[2].keys(), vec!["azcontacts-problem-not-a-date"]);
         assert!(c.problems(Some("")).len() == 2, "an empty birthday is fine");
     }
 
@@ -857,7 +862,8 @@ mod tests {
         ];
         let p = c.problems(None);
         assert_eq!(p.len(), 2, "{p:?}");
-        assert!(p[0].contains("a@b@example.org") && p[1].contains("<a@example.org>"), "{p:?}");
+        let said: Vec<String> = p.iter().map(Text::to_string).collect();
+        assert!(said[0].contains("a@b@example.org") && said[1].contains("<a@example.org>"), "{p:?}");
     }
 
     #[test]

@@ -280,6 +280,8 @@ pub fn contacts(table: &Table, mapping: &[Field]) -> (Vec<Contact>, Vec<String>)
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::{Arg, Text};
+
     use super::*;
 
     const OUTLOOK: &str = "\u{feff}First Name,Last Name,Company,Job Title,E-mail Address,\
@@ -350,7 +352,7 @@ mod tests {
         }
         for f in Field::ALL {
             assert_eq!(Field::ALL[f.index()], f);
-            assert!(!f.label().is_empty());
+            assert!(f.label().starts_with("azcontacts-"), "a key: {}", f.label());
         }
     }
 
@@ -359,7 +361,7 @@ mod tests {
         let t = parse(OUTLOOK).unwrap();
         let mapping: Vec<Field> = t.headers.iter().map(|h| guess(h)).collect();
         let (cs, problems) = contacts(&t, &mapping);
-        assert_eq!(problems, Vec::<String>::new());
+        assert_eq!(problems, Vec::<Text>::new());
         assert_eq!(cs.len(), 2, "the empty row is left out");
         let ada = &cs[0];
         assert_eq!((ada.given.as_str(), ada.family.as_str()), ("Ada", "Lovelace"));
@@ -390,6 +392,10 @@ mod tests {
         assert_eq!(cs.len(), 1);
         assert_eq!(cs[0].birthday, None);
         assert_eq!(problems.len(), 1);
-        assert!(problems[0].contains("someday"), "{problems:?}");
+        assert_eq!(
+            problems[0].phrase("azcontacts-csv-birthday-no-date").and_then(|p| p.get("value")),
+            Some(&Arg::from("someday")),
+            "{problems:?}"
+        );
     }
 }

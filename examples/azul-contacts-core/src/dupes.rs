@@ -310,6 +310,8 @@ pub fn merge(a: &Contact, b: &Contact, plan: &MergePlan) -> Contact {
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::{Phrase, Text};
+
     use super::*;
     use crate::contact::Birthday;
 
@@ -356,7 +358,7 @@ mod tests {
         assert_eq!(name_key(&anna_imported()), "anna berg");
         let (score, reasons) = similarity(&anna(), &anna_imported());
         assert!((score - 0.9).abs() < 1e-6, "{score}");
-        assert_eq!(reasons, vec!["same name"]);
+        assert_eq!(reasons, vec![Text::key("azcontacts-dupe-same-name")]);
         let mut same = anna_imported();
         same.family = "Berg".into();
         same.phones.clear();
@@ -375,10 +377,13 @@ mod tests {
         };
         let (score, reasons) = similarity(&anna(), &other);
         assert!((score - 0.95).abs() < 1e-6);
-        assert_eq!(reasons, vec!["same email anna@example.org"]);
+        assert_eq!(
+            reasons,
+            vec![Text::from(Phrase::new("azcontacts-dupe-same-email").arg("email", "anna@example.org"))]
+        );
         other.emails.clear();
         other.phones = vec![Labeled::new("work", "0151 00000004")];
-        assert_eq!(similarity(&anna(), &other).1, vec!["same phone number"]);
+        assert_eq!(similarity(&anna(), &other).1, vec![Text::key("azcontacts-dupe-same-phone")]);
         let mut twin = anna();
         twin.uid = "d".into();
         assert!((similarity(&anna(), &twin).0 - 0.99).abs() < 1e-6, "name and email: almost certain");

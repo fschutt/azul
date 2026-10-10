@@ -201,6 +201,8 @@ pub fn export(contacts: &[Contact], indices: &[usize], version: Version) -> Stri
 
 #[cfg(test)]
 mod tests {
+    use azul_appkit::phrase::{Phrase, Text};
+
     use super::*;
     use crate::contact::Labeled;
 
@@ -238,7 +240,10 @@ mod tests {
         assert_eq!(contacts[0], a);
         assert_eq!(contacts[1].uid, "cccc", "the file's name is the contact's identity");
         assert_eq!(contacts[1].given, "Ben");
-        assert_eq!(problems, vec!["contacts/broken.vcf: no vCard in the file"]);
+        assert_eq!(
+            problems,
+            vec![Text::from(Phrase::new("azcontacts-load-no-vcard").arg("file", "contacts/broken.vcf"))]
+        );
     }
 
     #[test]
