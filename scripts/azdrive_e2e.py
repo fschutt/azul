@@ -57,6 +57,17 @@ node layout, AzDrive's stdout markers and the files on disk:
         word only a Word document holds finds nothing by the walk (a zip is binary to it); with
         the Home drive indexed (AZDRIVE_INDEXED, the status line's "Indexed:") the same search
         finds the document, its line from its text; turned off, the index's folder is gone.
+    23. the folder sync, in an AzDrive of its own whose drives file has one S3 drive on the mock
+        stack's S3 (scripts/azlin_mock_stack.py; its keys in the headless keyring file, the poll
+        every 2 s - $AZDRIVE_SYNC_POLL): Share > Sync with a folder pairs it with AzDrive/<name>
+        in Home (the pairing sheet, AZDRIVE_SYNC_PAIRED; the folder opens, "Up to date" on the
+        status line); a file written on disk goes up with the next poll (the drive's index names
+        its BLAKE3); a version another device commits (its blob and the index one generation
+        on, written into the mock S3's folder - scripts/azlin_blake3.py) comes down; paused,
+        both change it, resumed: the question (D52, "Someone changed this file"), Keep both -
+        the drive's version under the name, this computer's as "notes (conflict <device>
+        <date>).txt", on the drive too; Free up space: the file leaves this computer, its row
+        stays (cloud only), opening it downloads it first. `--sync-only` runs step 23 alone.
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
@@ -79,14 +90,18 @@ Every key_down has its key_up (the E2E key_up rule).
 
 import argparse
 import glob
+import json
 import zipfile
 import os
 import re
 import shutil
 import sys
 import tempfile
+import time
 
+import azlin_blake3
 import azlin_e2e as e2e
+import azlin_mock_stack
 from azlin_e2e import Failure
 
 # The key of the platform's shortcut modifier (KeyModifiers::primary_down):
@@ -385,6 +400,10 @@ def run(args, logs):
     log("logs and data: %s" % logs)
     out = args.out or os.path.join(logs, "shots")
     os.makedirs(out, exist_ok=True)
+    if args.sync_only:
+        sync_step(args, logs, binary, out)
+        log("PASS: the folder sync (step 23)")
+        return True
 
     home = os.path.join(logs, "home")
     os.makedirs(home)
@@ -1014,11 +1033,16 @@ def run(args, logs):
             "walk; the Home drive indexed (\"Indexed:\" on the status line), the same search "
             "found the Word document with its line; turned off, the index's folder went")
 
+        # 23. The folder sync, in an AzDrive of its own (one at a time on the debug port).
+        app.stop()
+        sync_step(args, logs, binary, out)
+
         log("PASS: AzDrive browsed, laid out, sorted, selected, renamed, created, copied, "
             "resolved a conflict, deleted and undid, walked the history, toggled the panes, "
             "showed Properties and the Options, took the editing keys, walked its source list, "
             "its breadcrumb and its File menu, opened 3,000 files at once, searched a folder "
-            "and every folder below it by name and by contents, and indexed a drive")
+            "and every folder below it by name and by contents, indexed a drive, and synced a "
+            "cloud drive with a folder")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
@@ -1028,6 +1052,229 @@ def run(args, logs):
         app.stop()
 
 
+# ==== 23. The folder sync ====
+
+SYNC_DRIVE = "e2e-sync"
+SYNC_BUCKET = "e2e-sync"
+SYNC_NAME = "Sync drive"
+# This computer's name in conflict copies (azcloud-kit's device_name: $AZCLOUD_DEVICE).
+SYNC_DEVICE = "e2e-laptop"
+
+
+def sync_drives_file(path, s3_url):
+    """A drives file with one S3 drive on the mock stack's S3 (its keys in the keyring file)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    entry = {
+        "id": SYNC_DRIVE,
+        "name": SYNC_NAME,
+        "location": {
+            "kind": "s3",
+            "endpoint": s3_url,
+            "region": azlin_mock_stack.REGION,
+            "bucket": SYNC_BUCKET,
+            "path_style": True,
+            "auth": {"type": "keyring"},
+        },
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"format": "azul-storage.drives", "version": 1, "drives": [entry]}, f)
+
+
+def sync_keyring_file(path):
+    """The headless keyring (AZ_KEYRING_FILE) holding the drive's keys."""
+    secret = json.dumps({"access_key_id": azlin_mock_stack.ACCESS_KEY,
+                         "secret_access_key": azlin_mock_stack.SECRET_KEY})
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"azul-storage/s3/" + SYNC_DRIVE: secret}, f)
+
+
+def sync_meta(s3_root):
+    """The bucket's folder of the sync's bookkeeping (the whole drive syncs: prefix "")."""
+    return os.path.join(s3_root, SYNC_BUCKET, ".azlin")
+
+
+def sync_index(s3_root):
+    with open(os.path.join(sync_meta(s3_root), "index.json"), "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def other_device_writes(s3_root, key, data, device="e2e-desktop"):
+    """Another device's commit of `key` = `data`: its blob (named by its BLAKE3) and the index
+    one generation on, written into the mock S3's folder as that device's sync would."""
+    meta = sync_meta(s3_root)
+    digest = azlin_blake3.hex_digest(data)
+    blob = os.path.join(meta, "blobs", digest[:2], digest)
+    os.makedirs(os.path.dirname(blob), exist_ok=True)
+    with open(blob, "wb") as f:
+        f.write(data)
+    index = sync_index(s3_root)
+    now = int(time.time())
+    index["generation"] += 1
+    index["files"][key] = {"hash": digest, "size": len(data), "mtime": now,
+                           "gen": index["generation"], "device": device}
+    index["updated_at"] = now
+    index["updated_by"] = device
+    path = os.path.join(meta, "index.json")
+    tmp = path + ".e2e-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(index, indent=2) + "\n")
+    os.replace(tmp, path)
+
+
+def read_file(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def sync_step(args, logs, binary, out):
+    """23. A cloud drive syncs with a folder: paired (the folder under Home), a file written on
+    disk goes up (the poll timer), a version another device committed comes down, a conflict
+    asks (D52) and "Keep both" keeps both, "Free up space" leaves the file in the cloud only - a
+    row of its folder still - and opening it brings it back."""
+    base = os.path.join(logs, "sync")
+    home = os.path.join(base, "home")
+    os.makedirs(home)
+    s3_root = os.path.join(base, "s3")
+    stack = azlin_mock_stack.start(s3_root)
+    os.makedirs(os.path.join(s3_root, SYNC_BUCKET), exist_ok=True)
+    drives = os.path.join(base, "config", "drives.json")
+    sync_drives_file(drives, stack.s3_url)
+    keyring = os.path.join(base, "keyring.json")
+    sync_keyring_file(keyring)
+    switches = [
+        "--screen", "this-pc", "--theme", "flat", "--mode", "light",
+        "--home", home,
+        "--downloads", os.path.join(base, "downloads"),
+        "--data-dir", os.path.join(base, "data"),
+        "--drives", drives,
+        "--dialogs", "inline",
+        "--cache-dir", os.path.join(base, "cache"),
+    ]
+    env = {"AZ_KEYRING_FILE": keyring, "AZDRIVE_SYNC_POLL": "2", "AZCLOUD_DEVICE": SYNC_DEVICE}
+    app = Drive("azdrive-sync", binary, switches, args.debug_port, logs, args.timeout,
+                extra_env=env)
+    folder = os.path.join(home, "AzDrive", SYNC_NAME)
+    notes = os.path.join(folder, "notes.txt")
+    status_key = "AZDRIVE_SYNC_STATUS"
+
+    def status():
+        return " ".join(app.texts_within("#" + I("status-line")))
+
+    try:
+        app.until("This PC", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
+        app.until("the debug server", lambda: app.op("get_dom_tree"))
+        app.must("resize", width=1280.0, height=800.0)
+        app.frame(3)
+        row = "#__azdrive_side_drive_" + SYNC_DRIVE
+        app.until("the drive in CLOUD", lambda: app.has(row))
+        app.after("the drive opens", "AZDRIVE_LISTED", re.escape(SYNC_DRIVE) + r" / \d+",
+                  lambda: app.click(selector=row))
+        # Share > Sync with a folder: the pairing sheet, its folder AzDrive/<name> in Home.
+        app.tab("Share")
+        app.ribbon("Sync with a folder")
+        app.until("the pairing sheet", lambda: app.has("#" + I("sync-pair")))
+        app.screenshot(os.path.join(out, "23-sync-pair.png"))
+        app.after("Sync", "AZDRIVE_SYNC_PAIRED", re.escape(SYNC_DRIVE) + r" .*",
+                  lambda: (app.must("click", selector="#" + I("sync-pair-ok")), app.frame()))
+        paired = app.last("AZDRIVE_SYNC_PAIRED").split(" ", 1)[1]
+        if os.path.realpath(paired) != os.path.realpath(folder):
+            raise Failure("paired with %s, not %s" % (paired, folder))
+        app.until("the synced folder opens",
+                  lambda: app.printed("AZDRIVE_PLACE", r"home AzDrive/%s/" % re.escape(SYNC_NAME)))
+        app.until("the first pass", lambda: app.printed("AZDRIVE_SYNC_DONE",
+                                                         re.escape(SYNC_DRIVE) + r" .*"))
+        app.until("Up to date", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) +
+                                                    r" Up to date"))
+        app.until("the status line says it", lambda: "Up to date" in status())
+        log("23a. paired: %s, the first pass, \"Up to date\" on the status line" % folder)
+
+        # A file written on disk goes up with the next poll.
+        with open(notes, "wb") as f:
+            f.write(b"first version\n")
+        app.until("notes.txt uploaded", lambda: app.printed(
+            "AZDRIVE_SYNC_FILE", re.escape(SYNC_DRIVE) + r" on-device notes\.txt"))
+        index = app.until("the drive's index names it",
+                          lambda: "notes.txt" in sync_index(s3_root).get("files", {})
+                          and sync_index(s3_root))
+        if index["files"]["notes.txt"]["hash"] != azlin_blake3.hex_digest(b"first version\n"):
+            raise Failure("the index names another content: %s" % index["files"]["notes.txt"])
+        app.until("notes.txt listed", lambda: "notes.txt" in item_names(app))
+        app.screenshot(os.path.join(out, "23-sync-uploaded.png"))
+        log("23b. a file written on disk went up with the poll (the index names its BLAKE3)")
+
+        # A version another device committed comes down.
+        before = app.count("AZDRIVE_SYNC_DONE")
+        other_device_writes(s3_root, "notes.txt", b"second version, from the desktop\n")
+        app.until("the other device's version here",
+                  lambda: read_file(notes) == b"second version, from the desktop\n")
+        app.until("a pass that brought it", lambda: any(
+            "down=1" in line for line in app.printed("AZDRIVE_SYNC_DONE")[before:]))
+        log("23c. a version committed by another device came down")
+
+        # Both change it: paused, both edits, resumed - the question (D52), Keep both.
+        app.tab("Share")
+        app.after("Pause syncing", "AZDRIVE_SYNC_PAUSED", re.escape(SYNC_DRIVE),
+                  lambda: app.ribbon("Pause syncing"))
+        app.until("Paused", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) + r" Paused"))
+        other_device_writes(s3_root, "notes.txt", b"third version, from the desktop\n")
+        with open(notes, "wb") as f:
+            f.write(b"third version, from the laptop!\n")
+        app.after("Resume syncing", "AZDRIVE_SYNC_CONFLICT", re.escape(SYNC_DRIVE) + r" notes\.txt",
+                  lambda: app.ribbon("Resume syncing"))
+        app.until("the question", lambda: app.has("#" + I("sync-conflict")))
+        app.until("it says who changed it", lambda: app.shows("Someone changed this file"))
+        if read_file(notes) != b"third version, from the laptop!\n":
+            raise Failure("mine changed before the question was answered")
+        app.screenshot(os.path.join(out, "23-sync-conflict.png"))
+        app.after("Keep both", "AZDRIVE_SYNC_RESOLVED",
+                  re.escape(SYNC_DRIVE) + r" both notes\.txt",
+                  lambda: (app.must("click", selector="#" + I("sync-keep-both")), app.frame()))
+        copies = os.path.join(folder, "notes (conflict %s *).txt" % SYNC_DEVICE)
+        app.until("both versions here", lambda: glob.glob(copies)
+                  and read_file(notes) == b"third version, from the desktop\n")
+        copy = glob.glob(copies)[0]
+        if read_file(copy) != b"third version, from the laptop!\n":
+            raise Failure("the conflict copy holds %r" % read_file(copy))
+        app.until("the copy on the drive too", lambda: any(
+            k.startswith("notes (conflict %s " % SYNC_DEVICE)
+            for k in sync_index(s3_root).get("files", {})))
+        log("23d. a conflict asked (D52); Keep both: the drive's version under the name, this "
+            "computer's as %s, on the drive too" % os.path.basename(copy))
+
+        # Free up space: the file leaves this computer, its row stays (cloud only); opening it
+        # brings it back.
+        app.until("notes.txt listed", lambda: "notes.txt" in item_names(app))
+        app.after("notes.txt selected", "AZDRIVE_SELECTED", r"1 .*notes\.txt",
+                  lambda: select_item(app, "notes.txt"))
+        app.tab("Share")
+        app.after("Free up space", "AZDRIVE_SYNC_FREED", re.escape(SYNC_DRIVE),
+                  lambda: app.ribbon("Free up space"))
+        app.until("cloud only", lambda: app.printed(
+            "AZDRIVE_SYNC_FILE", re.escape(SYNC_DRIVE) + r" cloud-only notes\.txt"))
+        if read_file(notes) is not None:
+            raise Failure("the freed file is still on this computer")
+        app.until("its row stays", lambda: "notes.txt" in item_names(app))
+        app.screenshot(os.path.join(out, "23-sync-cloud-only.png"))
+        app.after("opening it downloads it first", "AZDRIVE_SYNC_OPENED",
+                  re.escape(SYNC_DRIVE) + r" notes\.txt", lambda: open_item(app, "notes.txt"))
+        app.until("back on this computer",
+                  lambda: read_file(notes) == b"third version, from the desktop\n")
+        app.until("on this device", lambda: app.printed(
+            "AZDRIVE_SYNC_FILE", re.escape(SYNC_DRIVE) + r" on-device notes\.txt"))
+        log("23e. Free up space: notes.txt cloud only (its row stays); opened: downloaded first")
+        return True
+    except Failure:
+        for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
+            print("\n----- azdrive-sync %s (tail) -----\n%s" % (name, e2e.tail(path)))
+        raise
+    finally:
+        app.stop()
+        stack.stop()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--bin")
@@ -1035,6 +1282,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=240)
     parser.add_argument("--out")
     parser.add_argument("--keep-logs", action="store_true")
+    parser.add_argument("--sync-only", action="store_true",
+                        help="run step 23 (the folder sync) alone")
     args = parser.parse_args()
     logs = tempfile.mkdtemp(prefix="azdrive-e2e-")
     ok = False
