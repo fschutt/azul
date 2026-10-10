@@ -76,3 +76,6 @@ mod shamir;
 /// Trusted contacts: a recovery code's shares, sealed and printed (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod contacts;
+/// A drive's further recovery codes (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod recovery_codes;

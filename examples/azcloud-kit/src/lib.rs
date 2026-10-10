@@ -134,8 +134,9 @@ pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    Ban, BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, DriveStatus, IssueAnswer,
-    OptionsQuery, RecoveryLockdown, Tier, Tiers, TokenError, TokenServer, VoucherRedeemed,
+    Ban, BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, DriveStatus, FoundDrive,
+    IssueAnswer, OptionsQuery, RecoveryKeyInfo, RecoveryLockdown, Tier, Tiers, TokenError,
+    TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};

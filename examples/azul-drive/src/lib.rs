@@ -193,6 +193,10 @@ mod recovery;
 /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
 #[cfg(feature = "encryption")]
 mod recovery_contacts;
+/// A drive's several recovery keys: the kit's lookup on a computer that never had the drive,
+/// a second kit, removing a key.
+#[cfg(feature = "encryption")]
+mod recovery_keys;
 /// A drive's recovery state (the code's checks, the drills, the trusted contacts) and its
 /// Recovery health: plain data in the settings.
 pub mod recovery_health;
@@ -682,6 +686,18 @@ pub(crate) enum Popup {
         error: azul_appkit::l10n::Text,
         busy: bool,
     },
+}
+
+impl Popup {
+    /// Whether its close box and Escape take it away: every popup but the recovery sheet (its
+    /// code shows only this once - the setup finishes when its groups are typed back).
+    pub(crate) fn may_close(&self) -> bool {
+        #[cfg(feature = "encryption")]
+        if let Popup::Encryption(dialog) = self {
+            return dialog.may_close();
+        }
+        true
+    }
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -2184,6 +2200,8 @@ pub(crate) fn changed(
     drive_id: &str,
     prefix: &str,
 ) {
+    // An Azlin drive's space as its node counts it after the write.
+    usage_view::drive_written(info, app, s, drive_id);
     if showing(s, drive_id, prefix) {
         // Read again behind the rows that show: they stay until the new ones are in.
         start_listing(info, app, s, true);
@@ -2684,11 +2702,18 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::DriveProblem { serial, problem } => {
             problems::drive_problem(&mut info, s, serial, problem);
         }
-        Outcome::BucketSpace { azlin_id, result } => match result {
-            Ok(space) => usage_view::space_seen(s, &azlin_id, &space),
-            // Quiet: the line keeps what it knew; the next listing asks again.
-            Err(why) => eprintln!("AZDRIVE_SPACE_UNKNOWN {azlin_id}: {why}"),
-        },
+        Outcome::BucketSpace { azlin_id, result } => {
+            match result {
+                Ok(space) => usage_view::space_seen(s, &azlin_id, &space),
+                // Quiet: the line keeps what it knew; the next listing asks again.
+                Err(why) => {
+                    eprintln!("AZDRIVE_SPACE_UNKNOWN {azlin_id}: {why}");
+                    usage_view::space_failed(s, &azlin_id);
+                }
+            }
+            // Writes while the ask ran: once more.
+            usage_view::request_space(&mut info, &handle, s);
+        }
         Outcome::VoucherRedeemed { drive_id, result } => {
             vouchers::redeemed(s, &drive_id, result);
         }
@@ -2878,12 +2903,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         if s.inline_dialogs {
             body.add_child(ui_dialogs::inline_sheet(title, panel));
         } else {
+            let (closed_by, close_box) = ui_dialogs::window_close(popup);
             body.add_child(
                 Dialog::create(panel)
                     .with_title(AzString::from(title))
                     .with_open(true)
                     .with_modal(true)
-                    .with_close_button(true)
+                    .with_closed_by(closed_by)
+                    .with_close_button(close_box)
                     .with_on_close(app.clone(), ui_dialogs::on_dialog_closed)
                     .dom(),
             );

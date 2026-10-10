@@ -115,7 +115,59 @@ pub struct RecoveryState {
     pub other_devices: u32,
     /// The drills stopped (only with another offline method).
     pub drills_off: bool,
+    /// The code's FINDABLE public key (no drive in it): what a computer that never had the
+    /// drive looks it up by (POST /v1/recovery/lookup).
+    pub findable_key: Option<String>,
+    /// The drive's recovery keys at the token server, as last listed.
+    pub server_keys: Vec<ServerKey>,
+    /// When they were listed (seconds since 1970).
+    pub keys_checked: Option<u64>,
+    /// The further recovery codes (second kits) this computer added: their keys and wraps.
+    pub extra_codes: Vec<ExtraCode>,
 }
+
+/// One of a drive's recovery keys at the token server (public halves only).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerKey {
+    pub key_id: String,
+    pub label: String,
+    pub recovery_pubkey: String,
+    pub created_at: Option<u64>,
+    pub verified: bool,
+}
+
+/// A further recovery code (a second kit): its key at the token server and its wrap's file.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExtraCode {
+    pub key_id: String,
+    pub file: String,
+    pub made: u64,
+}
+
+/// A recovery this computer started for a drive it never had (by the kit's lookup, or two
+/// shares): the drive is handed over when its 48-hour notice ends, and "Finish" adds it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PendingRecovery {
+    pub drive_id: String,
+    pub token_url: String,
+    /// The lockdown's end (seconds since 1970).
+    pub until: Option<u64>,
+    pub started: u64,
+}
+
+/// Which of a code's two keys the drive has: the drive's own (derived with its id) or the
+/// findable one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeKey {
+    Drive,
+    Findable,
+}
+
+/// The label of a code's findable key at the token server.
+pub const FINDABLE_LABEL: &str = "recovery code (finds the drive)";
 
 /// The settings' part: each drive's recovery, and the shares held for others.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -123,6 +175,8 @@ pub struct RecoveryState {
 pub struct RecoverySettings {
     pub drives: Vec<RecoveryState>,
     pub held: Vec<HeldShare>,
+    /// Recoveries of drives this computer never had, until they are finished.
+    pub pending: Vec<PendingRecovery>,
 }
 
 impl RecoveryState {
@@ -146,6 +200,10 @@ impl RecoveryState {
         self.contacts_set = None;
         self.contacts.clear();
         self.drills_off = false;
+        // a new code: the further codes' wraps went with the old key, the findable key is the
+        // new code's (set by whoever registers it)
+        self.extra_codes.clear();
+        self.findable_key = None;
     }
 
     /// The setup's check passed: the code was typed back right `now`.
@@ -299,6 +357,81 @@ pub fn state_mut<'a>(states: &'a mut Vec<RecoveryState>, drive_id: &str) -> &'a 
 fn day(at: u64) -> String {
     let text = azul_storage::time::iso8601(at);
     text.get(..10).unwrap_or(&text).to_string()
+}
+
+impl RecoveryState {
+    /// Which key of a typed code - its drive key `drive_public` or its findable key
+    /// `findable_public` - is one of the drive's keys at the token server (as last listed;
+    /// before any listing, the keys this computer registered); `None`: the code is not the
+    /// drive's.
+    #[must_use]
+    pub fn signer_for(&self, drive_public: &str, findable_public: &str) -> Option<CodeKey> {
+        let (drive, findable) = if self.keys_checked.is_some() {
+            let listed =
+                |public: &str| self.server_keys.iter().any(|k| k.recovery_pubkey == public);
+            (listed(drive_public), listed(findable_public))
+        } else {
+            (
+                self.recovery_key.as_deref() == Some(drive_public),
+                self.findable_key.as_deref() == Some(findable_public),
+            )
+        };
+        if drive {
+            Some(CodeKey::Drive)
+        } else if findable {
+            Some(CodeKey::Findable)
+        } else {
+            None
+        }
+    }
+
+    /// Whether the drive's keys (as last listed) lack a findable one - one labelled so, the
+    /// stored findable key, a second kit's: a computer that never had the drive cannot find it
+    /// from a kit then. Nothing listed yet: nothing known (`false`).
+    #[must_use]
+    pub fn findable_missing(&self) -> bool {
+        if self.keys_checked.is_none() {
+            return false;
+        }
+        !self.server_keys.iter().any(|k| {
+            k.label == FINDABLE_LABEL
+                || self.findable_key.as_deref() == Some(k.recovery_pubkey.as_str())
+                || self.extra_code(&k.key_id).is_some()
+        })
+    }
+
+    /// The further recovery code whose key is `key_id`, if this computer added it.
+    #[must_use]
+    pub fn extra_code(&self, key_id: &str) -> Option<&ExtraCode> {
+        self.extra_codes.iter().find(|code| code.key_id == key_id)
+    }
+}
+
+/// The pending recovery of `drive_id`, made (or its lockdown's end updated) - one per drive.
+pub fn note_pending(
+    pending: &mut Vec<PendingRecovery>,
+    drive_id: &str,
+    token_url: &str,
+    until: Option<u64>,
+    now: u64,
+) {
+    match pending.iter_mut().find(|p| p.drive_id == drive_id) {
+        Some(known) => {
+            known.until = until;
+            known.token_url = token_url.to_string();
+        }
+        None => pending.push(PendingRecovery {
+            drive_id: drive_id.to_string(),
+            token_url: token_url.to_string(),
+            until,
+            started: now,
+        }),
+    }
+}
+
+/// The pending recovery of `drive_id` taken off the list (it was finished, or cancelled).
+pub fn forget_pending(pending: &mut Vec<PendingRecovery>, drive_id: &str) {
+    pending.retain(|p| p.drive_id != drive_id);
 }
 
 /// The info panel's line: `Green: 2 methods, the code checked on 2026-10-10`, then what to do
@@ -650,6 +783,115 @@ mod tests {
             "{}",
             rows[0].status
         );
+    }
+
+    fn server_key(key_id: &str, label: &str, public: &str) -> ServerKey {
+        ServerKey {
+            key_id: key_id.to_string(),
+            label: label.to_string(),
+            recovery_pubkey: public.to_string(),
+            created_at: Some(NOW),
+            verified: true,
+        }
+    }
+
+    #[test]
+    fn a_typed_code_signs_with_whichever_of_its_two_keys_the_drive_has() {
+        let mut state = checked();
+        // Before any listing: the keys this computer registered.
+        state.recovery_key = Some(String::from("DRIVE="));
+        state.findable_key = Some(String::from("FIND="));
+        assert_eq!(state.signer_for("DRIVE=", "FIND="), Some(CodeKey::Drive));
+        assert_eq!(state.signer_for("OTHER=", "ELSE="), None);
+        // Listed: the token server's keys decide.
+        state.server_keys = vec![server_key("rk_2", FINDABLE_LABEL, "FIND=")];
+        state.keys_checked = Some(NOW);
+        assert_eq!(state.signer_for("DRIVE=", "FIND="), Some(CodeKey::Findable));
+        state
+            .server_keys
+            .push(server_key("rk_1", "recovery code", "DRIVE="));
+        assert_eq!(
+            state.signer_for("DRIVE=", "FIND="),
+            Some(CodeKey::Drive),
+            "the drive's first"
+        );
+        // A second kit's key alone (only its findable key is registered).
+        assert_eq!(
+            state.signer_for("KIT2DRIVE=", "KIT2="),
+            None,
+            "not listed yet"
+        );
+        state
+            .server_keys
+            .push(server_key("rk_3", "second kit", "KIT2="));
+        assert_eq!(
+            state.signer_for("KIT2DRIVE=", "KIT2="),
+            Some(CodeKey::Findable)
+        );
+    }
+
+    #[test]
+    fn a_drive_without_a_findable_key_cannot_be_found_from_its_kit() {
+        let mut state = checked();
+        assert!(!state.findable_missing(), "not listed yet: nothing known");
+        state.server_keys = vec![server_key("rk_legacy", "recovery code", "DRIVE=")];
+        state.keys_checked = Some(NOW);
+        assert!(state.findable_missing());
+        state
+            .server_keys
+            .push(server_key("rk_2", FINDABLE_LABEL, "FIND="));
+        assert!(!state.findable_missing());
+        state.server_keys = vec![server_key("rk_3", "second kit", "KIT2=")];
+        state.findable_key = Some(String::from("KIT2="));
+        assert!(
+            !state.findable_missing(),
+            "the stored findable key is listed"
+        );
+    }
+
+    #[test]
+    fn further_codes_and_pending_recoveries_are_kept_by_their_ids() {
+        let mut state = checked();
+        state.extra_codes.push(ExtraCode {
+            key_id: String::from("rk_3"),
+            file: String::from(".azlin/keys/recovery-0011223344556677.key"),
+            made: NOW,
+        });
+        assert_eq!(
+            state.extra_code("rk_3").map(|c| c.file.as_str()),
+            Some(".azlin/keys/recovery-0011223344556677.key")
+        );
+        assert!(state.extra_code("rk_1").is_none());
+        let mut pending = Vec::new();
+        note_pending(
+            &mut pending,
+            "d_9",
+            "http://127.0.0.1:1",
+            Some(NOW + 48 * 3600),
+            NOW,
+        );
+        note_pending(
+            &mut pending,
+            "d_9",
+            "http://127.0.0.1:1",
+            Some(NOW + 49 * 3600),
+            NOW + 60,
+        );
+        assert_eq!(pending.len(), 1, "one per drive");
+        assert_eq!(pending[0].until, Some(NOW + 49 * 3600));
+        assert_eq!(pending[0].started, NOW, "started when it started");
+        note_pending(&mut pending, "d_8", "http://127.0.0.1:1", None, NOW);
+        forget_pending(&mut pending, "d_9");
+        assert_eq!(
+            pending
+                .iter()
+                .map(|p| p.drive_id.as_str())
+                .collect::<Vec<_>>(),
+            ["d_8"]
+        );
+        // A new code (a rotation) drops the further codes: their wraps went with it.
+        state.code_made(NOW + 100, Some(String::from("NEW=")));
+        assert!(state.extra_codes.is_empty() && state.findable_key.is_none());
     }
 
     #[test]

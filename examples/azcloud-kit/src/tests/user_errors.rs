@@ -351,3 +351,38 @@ fn a_user_error_names_its_message_its_arguments_and_its_error_id() {
     };
     assert_eq!(without.error_id(), None);
 }
+
+#[test]
+fn the_recovery_refusals_have_their_rows_and_texts() {
+    // SRV17's recovery shapes (D42, D51, F12): a recovery-pending device waits for the 48 h,
+    // a change of the recovery keys or a cancel needs the code, the last key stays, a lookup's
+    // challenge ran out.
+    let refused = |status: u16, code: &str| {
+        UserError::from_token_error(&TokenError::Refused {
+            status,
+            code: code.to_string(),
+            message: String::new(),
+        })
+        .unwrap()
+    };
+    let rows = [
+        (403, "lockdown_pending", Code::LockdownPending, Class::Retry),
+        (403, "recovery_key_required", Code::RecoveryKeyRequired, Class::Fatal),
+        (409, "last_recovery_key", Code::LastRecoveryKey, Class::Fatal),
+        (401, "bad_challenge", Code::BadChallenge, Class::Retry),
+    ];
+    for (status, text, code, class) in rows {
+        let user = refused(status, text);
+        assert_eq!((user.code, user.class()), (code, class), "{text}");
+        assert_eq!(Code::parse(text), Some(code));
+        assert!(!user.notifies(), "{text}: said in the app, no notification");
+        assert!(!user.message(Lang::De).is_empty());
+    }
+    assert!(refused(403, "lockdown_pending").message(Lang::En).contains("48-hour"));
+    assert!(refused(403, "recovery_key_required")
+        .message(Lang::En)
+        .contains("recovery code"));
+    assert!(refused(409, "last_recovery_key").message(Lang::En).contains("last"));
+    assert!(refused(401, "bad_challenge").message(Lang::En).contains("Try again"));
+    assert_eq!(Code::Other.row().code, Code::Other, "Other keeps its row");
+}

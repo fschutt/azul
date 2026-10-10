@@ -359,6 +359,9 @@ pub(crate) struct Sheet {
     /// The code this one replaces, as typed under "I was hacked: new keys": it signs the new
     /// code's registration at the token server (F12 C). A secret: never printed.
     pub previous_code: Option<Zeroizing<String>>,
+    /// The sheet of a further recovery code (a second kit): it only closes when its groups are
+    /// typed back - the drive was set up long ago.
+    pub extra: bool,
 }
 
 /// How long a copied recovery code stays on the clipboard.
@@ -403,7 +406,15 @@ impl Sheet {
             new_drive: false,
             copied: false,
             previous_code: None,
+            extra: false,
         }
+    }
+
+    /// The sheet of a further recovery code (a second kit).
+    #[must_use]
+    pub(crate) fn extra(mut self) -> Sheet {
+        self.extra = true;
+        self
     }
 
     /// The sheet's title: a new drive's (its purchase), else the code's.
@@ -532,6 +543,8 @@ pub(crate) enum Dialog {
     },
     /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
     Contacts(crate::recovery_contacts::Page),
+    /// The drive's recovery keys: the kit's lookup, a second kit, a key removed.
+    Keys(crate::recovery_keys::Page),
 }
 
 impl Dialog {
@@ -781,6 +794,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
         ),
         Dialog::Drill { .. } => crate::recovery::drill_parts(dialog, s, app),
         Dialog::Contacts(page) => crate::recovery_contacts::dialog_parts(page, s, app),
+        Dialog::Keys(page) => crate::recovery_keys::dialog_parts(page, s, app),
         Dialog::OfferReencrypt { drive_id } => (
             t("azdrive-enc-reencrypt-title"),
             column(vec![
@@ -958,6 +972,12 @@ pub(crate) fn encrypt_new_drive(
 
 /// The drive's `AutoEncrypted`, opening the drive first; `None` (with a message) when it cannot
 /// be opened yet.
+/// [`auto_of`] for the recovery modules: the drive's `AutoEncrypted`, opened first; `None`
+/// (with a message) when it cannot be opened yet.
+pub(crate) fn auto_for(s: &mut DriveState, drive_id: &str) -> Option<Arc<AutoEncrypted>> {
+    auto_of(s, drive_id)
+}
+
 fn auto_of(s: &mut DriveState, drive_id: &str) -> Option<Arc<AutoEncrypted>> {
     let index = s.slot_index(drive_id)?;
     if s.slots[index].locked() {
@@ -1275,6 +1295,14 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
             return;
         }
         let drive_id = sheet.drive_id.clone();
+        if sheet.extra {
+            // A second kit: its key is at the token server already; nothing else to set up.
+            crate::recovery::forget_print_copies();
+            println!("AZDRIVE_RECOVERY_CODE_VERIFIED {drive_id}");
+            s.popup = None;
+            s.success(Phrase::new("azdrive-keys-second-works"));
+            return;
+        }
         let code = RecoveryCode::parse(&sheet.code);
         // The code it replaces signs its registration (F12 C).
         let previous = sheet
@@ -1436,6 +1464,9 @@ pub(crate) enum EncryptionJob {
         public_key: String,
         token_url: String,
         keyring: azcloud_kit::SharedKeyring,
+        /// The code's findable key (its public half) and the drive key that signs its
+        /// registration: a computer that never had the drive finds it by it.
+        findable: Option<(String, azcloud_kit::RecoveryKey)>,
         /// The code the new one replaces: it signs the change (F12 C); `None` for a drive's
         /// first code.
         previous: Option<RecoveryCode>,
@@ -1477,6 +1508,8 @@ pub(crate) enum EncryptionJob {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
     },
+    /// A task of the recovery keys (the lookup, a second kit, a removal).
+    Keys(crate::recovery_keys::KeysJob),
 }
 
 /// What a rotation brings back to the UI thread.
@@ -1528,6 +1561,8 @@ pub(crate) enum EncryptionOutcome {
     RecoveryKeyRegistered {
         drive_id: String,
         result: Result<(), String>,
+        /// The findable key's registration: its public half, or why not.
+        findable: Option<Result<String, String>>,
     },
     /// The pending recovery-key lockdown called off (or why not).
     LockdownCancelled {
@@ -1563,6 +1598,8 @@ pub(crate) enum EncryptionOutcome {
         drive_id: String,
         result: Result<u32, String>,
     },
+    /// What a task of the recovery keys found.
+    Keys(crate::recovery_keys::KeysDone),
 }
 
 /// Runs on a worker thread.
@@ -1781,34 +1818,59 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             public_key,
             token_url,
             keyring,
+            findable,
             previous,
         } => {
             let transport = AzulTransport::new(crate::USER_AGENT);
-            let result = TokenServer::new(&token_url, &transport)
-                .map_err(|e| e.to_string())
-                .and_then(|server| {
-                    keyring
-                        .with_drive_token(&drive_id, |token| match &previous {
-                            // F12 C: the code it replaces signs the change.
-                            Some(previous) => {
-                                let key = recovery_key_of(previous, &drive_id);
-                                server.replace_recovery_key(&drive_id, token, &public_key, |m| {
-                                    Ok(key.sign_base64(m))
-                                })
+            let server = TokenServer::new(&token_url, &transport).map_err(|e| e.to_string());
+            let result = server.as_ref().map_err(Clone::clone).and_then(|server| {
+                keyring
+                    .with_drive_token(&drive_id, |token| match &previous {
+                        // F12 C: the code it replaces signs the change.
+                        Some(previous) => {
+                            let key = recovery_key_of(previous, &drive_id);
+                            server.replace_recovery_key(&drive_id, token, &public_key, |m| {
+                                Ok(key.sign_base64(m))
+                            })
+                        }
+                        None => server.set_recovery_key(&drive_id, token, &public_key),
+                    })
+                    .map_err(|e| e.to_string())
+                    .and_then(|answer| {
+                        answer.map_err(|e| match &e {
+                            TokenError::Refused { status: 401, .. } => {
+                                String::from("azdrive-enc-err-keeps-previous-code")
                             }
-                            None => server.set_recovery_key(&drive_id, token, &public_key),
+                            _ => e.to_string(),
+                        })
+                    })
+            });
+            // Then the code's findable key, signed by the drive key just registered.
+            let findable = match (&result, &server, findable) {
+                (Ok(()), Ok(server), Some((public, signer))) => Some(
+                    keyring
+                        .with_drive_token(&drive_id, |token| {
+                            server.add_recovery_key(
+                                &drive_id,
+                                token,
+                                &public,
+                                crate::recovery_health::FINDABLE_LABEL,
+                                |message| Ok(signer.sign_base64(message)),
+                            )
                         })
                         .map_err(|e| e.to_string())
                         .and_then(|answer| {
-                            answer.map_err(|e| match &e {
-                                TokenError::Refused { status: 401, .. } => {
-                                    String::from("azdrive-enc-err-keeps-previous-code")
-                                }
-                                _ => e.to_string(),
-                            })
+                            answer.map_err(|e| crate::recovery_keys::token_text(&e))
                         })
-                });
-            EncryptionOutcome::RecoveryKeyRegistered { drive_id, result }
+                        .map(|_| public),
+                ),
+                _ => None,
+            };
+            EncryptionOutcome::RecoveryKeyRegistered {
+                drive_id,
+                result,
+                findable,
+            }
         }
         EncryptionJob::CancelLockdown {
             drive_id,
@@ -1869,6 +1931,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 .map_err(|e| e.to_string());
             EncryptionOutcome::DevicesCounted { drive_id, result }
         }
+        EncryptionJob::Keys(job) => EncryptionOutcome::Keys(crate::recovery_keys::run(job)),
     }
 }
 
@@ -1922,6 +1985,10 @@ fn register_recovery_key(
         public_key: recovery_key_of(code, drive_id).public_base64(),
         token_url,
         keyring: s.keyring.clone(),
+        findable: Some((
+            crate::recovery_keys::findable_key_of(code).public_base64(),
+            recovery_key_of(code, drive_id),
+        )),
         previous,
     };
     spawn(info, app, s, Job::Encryption(job));
@@ -1933,7 +2000,20 @@ fn cancel_lockdown(drive_id: &str, code: &RecoveryCode, token_url: &str) -> Resu
     let transport = AzulTransport::new(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let key = recovery_key_of(code, drive_id);
-    match server.lockdown_cancel_signed(drive_id, |message| Ok(key.sign_base64(message))) {
+    let findable = crate::recovery_keys::findable_key_of(code);
+    let cancelled = server
+        .lockdown_cancel_signed(drive_id, |message| Ok(key.sign_base64(message)))
+        .or_else(|e| {
+            // Not the drive key: the code's findable key (a second kit registers only that).
+            if matches!(e, TokenError::Refused { status: 401, .. }) {
+                server.lockdown_cancel_signed(drive_id, |message| {
+                    Ok(findable.sign_base64(message))
+                })
+            } else {
+                Err(e)
+            }
+        });
+    match cancelled {
         Ok(_) => Ok(()),
         Err(TokenError::Refused { code, .. }) if code == "no_pending_lockdown" => Ok(()),
         Err(TokenError::Refused { status: 401, .. }) => {
@@ -1955,8 +2035,17 @@ pub(crate) fn recovery_lockdown(
     let transport = AzulTransport::new(crate::USER_AGENT);
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
     let key = recovery_key_of(code, drive_id);
+    let findable = crate::recovery_keys::findable_key_of(code);
     let pending = server
         .recovery_lockdown(drive_id, |message| Ok(key.sign_base64(message)))
+        .or_else(|e| {
+            // Not the drive key: the code's findable key (a second kit registers only that).
+            if matches!(e, TokenError::Refused { status: 401, .. }) {
+                server.recovery_lockdown(drive_id, |message| Ok(findable.sign_base64(message)))
+            } else {
+                Err(e)
+            }
+        })
         .map_err(|e| match &e {
             TokenError::Refused { status: 401, .. } => {
                 String::from("azdrive-enc-err-code-mismatch")
@@ -1989,6 +2078,19 @@ pub(crate) fn on_outcome(
     s: &mut DriveState,
     outcome: EncryptionOutcome,
 ) {
+    // A task that wrote the drive's bucket (its keys, its objects, its index): the space used
+    // as its node counts it now.
+    if let EncryptionOutcome::SetUp { drive_id, .. }
+    | EncryptionOutcome::Recovered { drive_id, .. }
+    | EncryptionOutcome::Migrated { drive_id, .. }
+    | EncryptionOutcome::Recompressed { drive_id, .. }
+    | EncryptionOutcome::Rotated { drive_id, .. }
+    | EncryptionOutcome::Reencrypted { drive_id, .. }
+    | EncryptionOutcome::Maintained { drive_id, .. } = &outcome
+    {
+        let drive_id = drive_id.clone();
+        crate::usage_view::drive_written(info, app, s, &drive_id);
+    }
     match outcome {
         EncryptionOutcome::SetUp {
             drive_id,
@@ -2142,8 +2244,34 @@ pub(crate) fn on_outcome(
                 ),
             }
         }
-        EncryptionOutcome::RecoveryKeyRegistered { drive_id, result } => match result {
-            Ok(()) => println!("AZDRIVE_RECOVERY_KEY {drive_id}"),
+        EncryptionOutcome::RecoveryKeyRegistered {
+            drive_id,
+            result,
+            findable,
+        } => match result {
+            Ok(()) => {
+                println!("AZDRIVE_RECOVERY_KEY {drive_id}");
+                match findable {
+                    Some(Ok(public)) => {
+                        println!("AZDRIVE_RECOVERY_FINDABLE {drive_id}");
+                        crate::recovery_health::state_mut(
+                            &mut s.settings.recovery.drives,
+                            &drive_id,
+                        )
+                        .findable_key = Some(public);
+                        crate::save_settings(info, app, s);
+                    }
+                    Some(Err(why)) => {
+                        let name = drive_name(s, &drive_id);
+                        s.warn(
+                            Phrase::new("azdrive-keys-not-findable-yet")
+                                .arg("name", name.as_str())
+                                .arg("why", t_label(&why)),
+                        );
+                    }
+                    None => {}
+                }
+            }
             Err(why) => {
                 let name = drive_name(s, &drive_id);
                 s.warn(
@@ -2203,6 +2331,7 @@ pub(crate) fn on_outcome(
         EncryptionOutcome::DevicesCounted { drive_id, result } => {
             crate::recovery::devices_counted(info, app, s, &drive_id, result);
         }
+        EncryptionOutcome::Keys(done) => crate::recovery_keys::on_done(info, app, s, done),
     }
 }
 
@@ -2613,6 +2742,22 @@ mod tests {
             text: String::new()
         }
         .may_close());
+    }
+
+    #[test]
+    fn the_recovery_sheets_window_has_no_close_box_and_escape_leaves_it_open() {
+        // Escape is the dialog window's own (azul's Dialog closes its window before the app
+        // hears of it): keeping the popup in close_popup is too late, only closedby="none"
+        // keeps the window up.
+        use azul::widgets::DialogClosedBy;
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let sheet = crate::Popup::Encryption(Dialog::Sheet(Sheet::new("d_1", code.to_text())));
+        assert_eq!(crate::ui_dialogs::window_close(&sheet), (DialogClosedBy::None, false));
+        let message = crate::Popup::Encryption(Dialog::Message {
+            title: String::new(),
+            text: String::new(),
+        });
+        assert_eq!(crate::ui_dialogs::window_close(&message), (DialogClosedBy::Auto, true));
     }
 
     #[test]

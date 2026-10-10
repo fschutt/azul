@@ -84,11 +84,21 @@ pub enum Code {
     /// The drive is banned (ban contract v1): it takes no writes; its files can be read and
     /// copied until the ban's end.
     DriveBanned,
+    /// A recovery-key lockdown of this computer waits for its 48-hour notice (D42): the drive is
+    /// handed over when it ends - the token server's `lockdown_pending`.
+    LockdownPending,
+    /// A change of the drive's recovery keys, or a lockdown's cancel, needs a recovery key's
+    /// signature (F12) - `recovery_key_required`.
+    RecoveryKeyRequired,
+    /// The drive's last recovery key stays - `last_recovery_key`.
+    LastRecoveryKey,
+    /// A recovery lookup's challenge ran out or is not the server's - `bad_challenge`.
+    BadChallenge,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 16] = [
+    pub const ALL: [Code; 20] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -105,6 +115,10 @@ impl Code {
         Code::NewerFormat,
         Code::Other,
         Code::DriveBanned,
+        Code::LockdownPending,
+        Code::RecoveryKeyRequired,
+        Code::LastRecoveryKey,
+        Code::BadChallenge,
     ];
 
     /// `quota_exceeded`, ...
@@ -125,6 +139,10 @@ impl Code {
             Code::DeletePaused => "delete_paused",
             Code::WrongBlock => "wrong_block",
             Code::NewerFormat => "newer_format",
+            Code::LockdownPending => "lockdown_pending",
+            Code::RecoveryKeyRequired => "recovery_key_required",
+            Code::LastRecoveryKey => "last_recovery_key",
+            Code::BadChallenge => "bad_challenge",
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -291,6 +309,37 @@ pub const ROWS: &[Row] = &[
              copied to this computer until it closes.",
         de: "Dieses Laufwerk wurde gesperrt: Neues kann nicht hochgeladen werden. Seine Dateien \
              lassen sich noch lesen und auf diesen Computer kopieren, bis es geschlossen wird.",
+    },
+    Row {
+        code: Code::LockdownPending,
+        class: Class::Retry,
+        behaviour: Behaviour::RetryAfterPause,
+        en: "Your recovery is underway: this computer gets the drive when the 48-hour notice \
+             ends. Your other devices can still stop it until then.",
+        de: "Deine Wiederherstellung läuft: Dieser Computer bekommt das Laufwerk, wenn die \
+             48-Stunden-Frist endet. Bis dahin können deine anderen Geräte sie noch stoppen.",
+    },
+    Row {
+        code: Code::RecoveryKeyRequired,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This needs your recovery code: type it from your emergency kit.",
+        de: "Dafür brauchst du deinen Wiederherstellungscode: Gib ihn aus deinem Notfall-Kit ein.",
+    },
+    Row {
+        code: Code::LastRecoveryKey,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This is the drive's last recovery key. Add another one before you remove it.",
+        de: "Das ist der letzte Wiederherstellungsschlüssel des Laufwerks. Füge zuerst einen \
+             weiteren hinzu, bevor du ihn entfernst.",
+    },
+    Row {
+        code: Code::BadChallenge,
+        class: Class::Retry,
+        behaviour: Behaviour::RetryWithBackoff,
+        en: "The recovery request ran out. Try again.",
+        de: "Die Wiederherstellungsanfrage ist abgelaufen. Versuche es noch einmal.",
     },
 ];
 
