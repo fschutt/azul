@@ -37,33 +37,123 @@ impl fmt::Debug for Share {
 
 /// The product of `a` and `b` in GF(256) (the AES polynomial), without a branch on either.
 #[must_use]
-pub fn gf_mul(_a: u8, _b: u8) -> u8 {
-    0
+pub fn gf_mul(mut a: u8, mut b: u8) -> u8 {
+    let mut product = 0u8;
+    for _ in 0..8 {
+        product ^= a & 0u8.wrapping_sub(b & 1);
+        let carry = 0u8.wrapping_sub(a >> 7);
+        a = (a << 1) ^ (0x1B & carry);
+        b >>= 1;
+    }
+    product
 }
 
 /// The inverse of `a` in GF(256): `a^254` (0 for 0).
 #[must_use]
-pub fn gf_inv(_a: u8) -> u8 {
-    0
+pub fn gf_inv(a: u8) -> u8 {
+    // 254 = 0b1111_1110: square and multiply over a public exponent.
+    let mut result = 1u8;
+    let mut power = a;
+    for bit in 0..8 {
+        if (254u32 >> bit) & 1 == 1 {
+            result = gf_mul(result, power);
+        }
+        power = gf_mul(power, power);
+    }
+    result
 }
 
-/// `secret` split into `count` shares of which any `threshold` give it back.
-pub fn split(_secret: &[u8], _threshold: u8, _count: u8) -> Result<Vec<Share>, CryptoError> {
-    let _ = random_bytes;
-    Ok(Vec::new())
+fn check_split(threshold: u8, count: u8) -> Result<(), CryptoError> {
+    if threshold < 2 || threshold > count {
+        return Err(CryptoError::Unsupported(format!(
+            "a split of {threshold} of {count} shares (2 to {MAX_SHARES}, the threshold at most \
+             the count)"
+        )));
+    }
+    Ok(())
 }
 
-/// [`split`] with the coefficients from `random`.
+/// `secret` split into `count` shares of which any `threshold` give it back, the coefficients
+/// from the OS random source.
+pub fn split(secret: &[u8], threshold: u8, count: u8) -> Result<Vec<Share>, CryptoError> {
+    split_with(secret, threshold, count, &mut |buf: &mut [u8]| {
+        random_bytes(buf)
+    })
+}
+
+/// [`split`] with the coefficients from `random`: it fills one buffer, `threshold - 1`
+/// coefficients for each byte of the secret in turn (the lowest power first).
 pub fn split_with(
-    _secret: &[u8],
-    _threshold: u8,
-    _count: u8,
-    _random: &mut dyn FnMut(&mut [u8]) -> Result<(), CryptoError>,
+    secret: &[u8],
+    threshold: u8,
+    count: u8,
+    random: &mut dyn FnMut(&mut [u8]) -> Result<(), CryptoError>,
 ) -> Result<Vec<Share>, CryptoError> {
-    Ok(Vec::new())
+    check_split(threshold, count)?;
+    let degree = usize::from(threshold - 1);
+    let mut coefficients = Zeroizing::new(vec![0u8; secret.len() * degree]);
+    random(&mut coefficients[..])?;
+    let shares = (1..=count)
+        .map(|x| {
+            let y = secret
+                .iter()
+                .enumerate()
+                .map(|(i, &constant)| {
+                    // Horner's rule from the highest power down to the constant term.
+                    let own = &coefficients[i * degree..(i + 1) * degree];
+                    let tail = own.iter().rev().fold(0u8, |acc, &c| gf_mul(acc, x) ^ c);
+                    gf_mul(tail, x) ^ constant
+                })
+                .collect::<Vec<u8>>();
+            Share {
+                x,
+                y: Zeroizing::new(y),
+            }
+        })
+        .collect();
+    Ok(shares)
 }
 
-/// The secret of `shares`.
-pub fn combine(_shares: &[Share]) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
-    Ok(Zeroizing::new(Vec::new()))
+/// The secret of `shares` (at least the split's threshold of them, of one split): Lagrange's
+/// interpolation at 0 over every share given. `Damaged` for no share, a share at 0, two at the
+/// same `x` or shares of different lengths. Fewer shares than the threshold give some other
+/// bytes: whoever combines checks the result (AzDrive: against the split's id).
+pub fn combine(shares: &[Share]) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+    let Some(first) = shares.first() else {
+        return Err(CryptoError::Damaged(String::from("no share")));
+    };
+    let len = first.y.len();
+    for (i, share) in shares.iter().enumerate() {
+        if share.x == 0 {
+            return Err(CryptoError::Damaged(String::from("a share at x = 0")));
+        }
+        if share.y.len() != len {
+            return Err(CryptoError::Damaged(String::from(
+                "shares of different lengths",
+            )));
+        }
+        if shares[..i].iter().any(|other| other.x == share.x) {
+            return Err(CryptoError::Damaged(String::from("the same share twice")));
+        }
+    }
+    // Each share's Lagrange basis polynomial at 0: the product of x_j / (x_i + x_j).
+    let weights: Vec<u8> = shares
+        .iter()
+        .map(|share| {
+            let (numerator, denominator) = shares
+                .iter()
+                .filter(|other| other.x != share.x)
+                .fold((1u8, 1u8), |(n, d), other| {
+                    (gf_mul(n, other.x), gf_mul(d, share.x ^ other.x))
+                });
+            gf_mul(numerator, gf_inv(denominator))
+        })
+        .collect();
+    let mut secret = Zeroizing::new(vec![0u8; len]);
+    for (share, &weight) in shares.iter().zip(&weights) {
+        for (out, &y) in secret.iter_mut().zip(share.y.iter()) {
+            *out ^= gf_mul(y, weight);
+        }
+    }
+    Ok(secret)
 }
