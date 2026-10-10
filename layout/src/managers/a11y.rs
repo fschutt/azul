@@ -1127,12 +1127,20 @@ impl A11yManager {
         // Third pass: set the children (the root always gets its list), and
         // collect what differs from what was published.
         let mut changed = Vec::new();
+        // Each node's parent, for the focus check below; only built when
+        // there is a focus to check.
+        let mut parent_of: A11yIdMap<A11yNodeId> = A11yIdMap::default();
         for id in &order {
             let children = if *id == root_id {
                 Some(core::mem::take(&mut root_children))
             } else {
                 parent_children_map.remove(id)
             };
+            if inputs.focused_node.is_some() {
+                for kid in children.iter().flatten() {
+                    parent_of.insert(*kid, *id);
+                }
+            }
             let Some(r) = retained.nodes.get_mut(id) else {
                 continue;
             };
@@ -1161,12 +1169,15 @@ impl A11yManager {
         retained.nodes.retain(|_, r| r.seen == pass);
         let removed = before - retained.nodes.len();
 
-        // Focus: the focused DOM node (from the FocusManager) if the tree
-        // holds it, else the first visible content node - VoiceOver navigates
-        // to the focused element on activation - else the root. Focus MUST
-        // name a node in the tree (accesskit tree.rs:75): a `focused_node`
-        // from a DOM that regenerated between the focus write and this pass
-        // degrades instead of aborting.
+        // Focus: the focused DOM node (the FocusManager's) if the tree holds
+        // it under no hidden ancestor, else the root - accesskit's rule for
+        // "no node has the keyboard". A label that does not have the keyboard
+        // must not be announced as focused. A focus under a hidden ancestor
+        // is one the platform tree cannot reach: the consumer keeps the node,
+        // but its parent does not list it, and the VoiceOver cursor is
+        // stranded there. Focus MUST name a node in the tree (accesskit
+        // tree.rs:75): a `focused_node` from a DOM that regenerated between
+        // the focus write and this pass degrades instead of aborting.
         let focus = inputs
             .focused_node
             .and_then(|dom_node_id| {
@@ -1174,18 +1185,8 @@ impl A11yManager {
                 let id = Self::encode_a11y_node_id(dom_node_id.dom.inner, dom_idx);
                 retained.nodes.contains_key(&id).then_some(id)
             })
-            .unwrap_or_else(|| {
-                order
-                    .iter()
-                    .copied()
-                    .find(|id| {
-                        *id != root_id
-                            && retained.nodes.get(id).is_some_and(|r| {
-                                !matches!(r.content.role(), Role::GenericContainer | Role::Window)
-                            })
-                    })
-                    .unwrap_or(root_id)
-            });
+            .filter(|id| !Self::has_hidden_ancestor(retained, &parent_of, *id))
+            .unwrap_or(root_id);
         let focus_changed = retained.focus != Some(focus);
         retained.focus = Some(focus);
         retained.order = order;
@@ -1196,6 +1197,33 @@ impl A11yManager {
             removed,
             focus_changed,
         }
+    }
+
+    /// Whether an ancestor of `id` is hidden: accesskit leaves a hidden
+    /// node's whole subtree out of the platform tree.
+    fn has_hidden_ancestor(
+        retained: &A11yRetainedTree,
+        parent_of: &A11yIdMap<A11yNodeId>,
+        id: A11yNodeId,
+    ) -> bool {
+        let mut current = parent_of.get(&id).copied();
+        // A malformed parent map can hold a cycle; no real tree is this deep.
+        let mut steps = 0usize;
+        while let Some(parent) = current {
+            if retained
+                .nodes
+                .get(&parent)
+                .is_some_and(|r| r.content.is_hidden())
+            {
+                return true;
+            }
+            steps += 1;
+            if steps > 10_000 {
+                return false;
+            }
+            current = parent_of.get(&parent).copied();
+        }
+        false
     }
 
     /// Reuse the retained node `id` if its `inputs` are unchanged (marking
