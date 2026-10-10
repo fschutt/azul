@@ -357,6 +357,8 @@ pub(crate) enum Dialog {
         typed: Zeroizing<String>,
         error: String,
     },
+    /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
+    Contacts(crate::recovery_contacts::Page),
 }
 
 impl Dialog {
@@ -563,6 +565,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
             ]),
         ),
         Dialog::Drill { .. } => crate::recovery::drill_parts(dialog, s, app),
+        Dialog::Contacts(page) => crate::recovery_contacts::dialog_parts(page, s, app),
         Dialog::OfferReencrypt { drive_id } => (
             String::from("Re-encrypt every file?"),
             column(vec![
@@ -953,6 +956,8 @@ pub(crate) enum EncryptionJob {
         auto: Arc<AutoEncrypted>,
         code: RecoveryCode,
     },
+    /// A task of the trusted contacts (keys in the keyring, a recovery's lockdown).
+    Contacts(crate::recovery_contacts::ContactsJob),
 }
 
 /// What a rotation brings back to the UI thread.
@@ -1014,6 +1019,8 @@ pub(crate) enum EncryptionOutcome {
         recovery_key: String,
         result: Result<bool, String>,
     },
+    /// What a task of the trusted contacts found.
+    Contacts(crate::recovery_contacts::ContactsDone),
 }
 
 /// Runs on a worker thread.
@@ -1236,6 +1243,9 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 result,
             }
         }
+        EncryptionJob::Contacts(job) => {
+            EncryptionOutcome::Contacts(crate::recovery_contacts::run(job))
+        }
     }
 }
 
@@ -1246,7 +1256,7 @@ pub(crate) fn recovery_key_of(code: &RecoveryCode, drive_id: &str) -> azcloud_ki
 }
 
 /// The drive's token server, from its entry (else this run's).
-fn token_url_of(s: &DriveState, drive_id: &str) -> Option<String> {
+pub(crate) fn token_url_of(s: &DriveState, drive_id: &str) -> Option<String> {
     let fallback = s.token.url.clone();
     s.slot_index(drive_id)
         .and_then(|index| crate::periods::azlin_drive(&s.slots[index].entry, fallback.as_deref()))
@@ -1276,7 +1286,7 @@ fn register_recovery_key(
 /// A lockdown signed with the drive's recovery key (a fresh nonce, no drive token); the
 /// pending family's token kept as this computer's session (its credentials come with the
 /// first refresh, once the lockdown takes effect).
-fn recovery_lockdown(
+pub(crate) fn recovery_lockdown(
     drive_id: &str,
     code: &RecoveryCode,
     token_url: &str,
@@ -1488,6 +1498,7 @@ pub(crate) fn on_outcome(
             recovery_key,
             result,
         } => crate::recovery::bucket_answered(info, app, s, &drive_id, recovery_key, result),
+        EncryptionOutcome::Contacts(done) => crate::recovery_contacts::on_done(info, app, s, done),
     }
 }
 

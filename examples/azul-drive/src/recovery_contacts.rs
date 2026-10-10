@@ -24,10 +24,39 @@
 //! made), `AZDRIVE_CONTACT_KEY` (a key made), `AZDRIVE_SHARE_TAKEN <n>`, `AZDRIVE_SHARE_ANSWERED`,
 //! `AZDRIVE_CONTACTS_REQUEST <drive id>`, `AZDRIVE_CONTACTS_RECOVERED <drive id>`.
 
-use azul_storage::crypto::{
-    contacts::{contact_text, seal_reply, CodeShare},
-    keys::{MemberPublic, MemberSecret, RecoveryCode},
+use azul::{
+    callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType},
+    prelude::*,
+    str::String as AzString,
+    widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
 };
+use azul_storage::{
+    azul_keyring::AzulKeyring,
+    crypto::{
+        contacts::{
+            contact_from_text, contact_text, open_share, read_share, request_from_text,
+            request_text, safety_number, seal_reply, seal_share, share_recipient, CodeShare,
+            SHARES,
+        },
+        device::{forget_request_key, load_contact_key, new_contact_key, request_key},
+        keys::{MemberPublic, RecoveryCode},
+        Zeroizing,
+    },
+    time::now_unix,
+};
+
+use crate::{
+    encryption::{Dialog, EncryptionJob, EncryptionOutcome},
+    ids,
+    jobs::Job,
+    recovery::{drill_answer, kit_of, paper_buttons, DrillAnswer, Paper, Which},
+    recovery_health::{state_mut, state_of, HeldShare, ShareKind, TrustedContact},
+    save_settings, spawn,
+    ui_dialogs::{button, buttons, label, line, typed_button},
+    with_state, DriveState, Popup,
+};
+
+// ==== The pages ====
 
 /// One of the three people of the owner's "Add".
 #[derive(Default)]
@@ -37,22 +66,1248 @@ pub(crate) struct Person {
     pub key: String,
 }
 
-/// What the owner's three people are checked into: each one's contact key (`None`: printed).
-pub(crate) fn plan_shares(_people: &[Person]) -> Result<Vec<Option<MemberPublic>>, String> {
-    Err(String::new())
+/// A share made, on the "shares made" page.
+pub(crate) struct Made {
+    pub name: String,
+    pub index: u8,
+    /// The sealed share's text, to send (a contact with AzDrive).
+    pub sealed: Option<String>,
+    /// The printed share's text (a contact without AzDrive). A secret.
+    pub printed: Option<Zeroizing<String>>,
+    pub handed: bool,
 }
 
-/// The recovery code two shares give back.
+/// The trusted contacts' dialog pages.
+pub(crate) enum Page {
+    /// The owner: the code from the kit and three people.
+    Add {
+        drive_id: String,
+        code: Zeroizing<String>,
+        people: [Person; 3],
+        error: String,
+    },
+    /// The owner: the shares made, each to send or to print.
+    Made {
+        drive_id: String,
+        shares: Vec<Made>,
+        note: String,
+    },
+    /// A contact: the key just made for an owner, to send to them.
+    Key { text: String },
+    /// A contact: a sealed share to keep (`answer` false) or a request to answer, pasted.
+    Paste {
+        answer: bool,
+        typed: Zeroizing<String>,
+        error: String,
+    },
+    /// A contact: a request's safety number, the held shares to answer it with, the reply.
+    Answer {
+        request: String,
+        safety: String,
+        reply: Option<String>,
+        error: String,
+    },
+    /// The owner on a computer that lost the drive: the request, the shares that came back.
+    Recover {
+        drive_id: String,
+        request: String,
+        safety: String,
+        shares: [Zeroizing<String>; 2],
+        error: String,
+    },
+    /// The code two shares gave back, and the lockdown it started.
+    Rebuilt {
+        drive_id: String,
+        code: Zeroizing<String>,
+        until: Option<u64>,
+        note: String,
+    },
+}
+
+/// What the owner's three people are checked into: each one's contact key (`None`: printed).
+pub(crate) fn plan_shares(people: &[Person]) -> Result<Vec<Option<MemberPublic>>, String> {
+    let mut keys: Vec<Option<MemberPublic>> = Vec::new();
+    for (i, person) in people.iter().enumerate() {
+        let name = person.name.trim();
+        if name.is_empty() {
+            return Err(format!("Person {} has no name.", i + 1));
+        }
+        let key = person.key.trim();
+        let key = if key.is_empty() {
+            None
+        } else {
+            Some(contact_from_text(key).ok_or_else(|| {
+                format!(
+                    "That is not a contact key for {name}: their AzDrive shows one starting \
+                     with azlin-contact: (Options > Drives > Be someone's trusted contact)."
+                )
+            })?)
+        };
+        if key.is_some() && keys.iter().any(|known| *known == key) {
+            return Err(format!("{name} has the contact key of someone above."));
+        }
+        keys.push(key);
+    }
+    Ok(keys)
+}
+
+/// The recovery code two shares give back: replies opened with the request's key, printed
+/// shares as typed. The code signs the same lockdown as the code typed would.
 pub(crate) fn recovered_code(
-    _texts: &[&str],
-    _request: &MemberSecret,
+    texts: &[&str],
+    request: &azul_storage::crypto::keys::MemberSecret,
 ) -> Result<RecoveryCode, String> {
-    let _ = (contact_text, seal_reply, CodeShare::split);
-    Err(String::new())
+    let shares = texts
+        .iter()
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| read_share(text, request).map_err(|e| e.to_string()))
+        .collect::<Result<Vec<CodeShare>, String>>()?;
+    if shares.len() < 2 {
+        return Err(String::from(
+            "Two shares give the code back: paste the replies of two contacts (or type their \
+             printed shares).",
+        ));
+    }
+    CodeShare::combine(&shares).map_err(|e| match e {
+        azul_storage::crypto::CryptoError::Damaged(_) => String::from(
+            "These two shares do not give a code back: one is mistyped, or of a code made \
+             before the last one.",
+        ),
+        other => other.to_string(),
+    })
+}
+
+/// What a sealed share says it is from: the owner's words.
+fn label_of(s: &DriveState, drive_id: &str) -> String {
+    let kit = kit_of(s, drive_id, "");
+    if kit.named {
+        format!("the drive \"{}\"", kit.drive_name)
+    } else {
+        String::from("an Azlin drive")
+    }
+}
+
+/// A printed share's page.
+fn share_paper(drive_name: &str, made: &Made, secret: &Zeroizing<String>) -> Paper {
+    let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let mut safe: String = made
+        .name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    safe = safe.trim_matches('-').chars().take(40).collect();
+    Paper {
+        title: String::from("Azlin Recovery Share"),
+        subtitle: format!(
+            "Share {} of {SHARES}, for {}, made on {day}.",
+            made.index, made.name
+        ),
+        text: vec![
+            format!(
+                "This is one of three pieces of a recovery code for {drive_name}. Alone it \
+                 opens nothing: two of the three together give the code back."
+            ),
+            String::from(
+                "Keep it somewhere safe. The owner of the drive may ask you for it one day, \
+                 when their computers and their kit are lost. Give it only to them: meet them, \
+                 or call them on a number you know - never because of an email or a message \
+                 you did not expect.",
+            ),
+            String::from(
+                "They type the text below into AzDrive (the drive's menu, then \"Recover with \
+                 trusted contacts\"), or scan the QR code. Their devices are told, and the \
+                 recovery waits 48 hours.",
+            ),
+        ],
+        label: "The share",
+        secret: Zeroizing::new(secret.as_str().to_string()),
+        qr_label: "The same share as a QR code.",
+        file_name: if safe.is_empty() {
+            format!("Azlin Recovery Share {}.pdf", made.index)
+        } else {
+            format!("Azlin Recovery Share {} - {safe}.pdf", made.index)
+        },
+    }
+}
+
+/// The page a paper button of the contacts' dialog makes: the rebuilt code's kit, a printed
+/// share.
+pub(crate) fn paper_of(s: &DriveState, page: &Page, which: Which) -> Option<Paper> {
+    match (page, which) {
+        (Page::Rebuilt { drive_id, code, .. }, Which::Shown) => {
+            Some(kit_of(s, drive_id, code).paper())
+        }
+        (
+            Page::Made {
+                drive_id, shares, ..
+            },
+            Which::Share(row),
+        ) => {
+            let made = shares.get(row)?;
+            let secret = made.printed.as_ref()?;
+            Some(share_paper(&label_of(s, drive_id), made, secret))
+        }
+        _ => None,
+    }
+}
+
+/// The line under a page's paper buttons.
+pub(crate) fn set_note(page: &mut Page, text: String) {
+    match page {
+        Page::Made { note, .. } | Page::Rebuilt { note, .. } => *note = text,
+        _ => {}
+    }
+}
+
+/// A printed share was printed or saved: it counts as handed over.
+pub(crate) fn handed(s: &mut DriveState, which: Which) {
+    let Which::Share(row) = which else {
+        return;
+    };
+    let Some(Popup::Encryption(Dialog::Contacts(Page::Made {
+        drive_id, shares, ..
+    }))) = s.popup.as_mut()
+    else {
+        return;
+    };
+    let Some(made) = shares.get_mut(row) else {
+        return;
+    };
+    made.handed = true;
+    let (drive_id, index) = (drive_id.clone(), made.index);
+    let state = state_mut(&mut s.settings.recovery.drives, &drive_id);
+    if let Some(contact) = state.contacts.iter_mut().find(|c| c.index == index) {
+        contact.handed = Some(now_unix());
+    }
+}
+
+fn open(s: &mut DriveState, page: Page) {
+    if s.popup.is_none() {
+        s.popups_opened += 1;
+    }
+    s.popup = Some(Popup::Encryption(Dialog::Contacts(page)));
+}
+
+/// Options > Drives > "Trusted contacts: Add...".
+pub(crate) fn ask_add(s: &mut DriveState, drive_id: &str) {
+    open(
+        s,
+        Page::Add {
+            drive_id: drive_id.to_string(),
+            code: Zeroizing::new(String::new()),
+            people: Default::default(),
+            error: String::new(),
+        },
+    );
+}
+
+/// Options > Drives > "Remove" of the trusted contacts: this computer forgets them (their
+/// shares open the code until a new code is made).
+pub(crate) fn forget(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
+    let state = state_mut(&mut s.settings.recovery.drives, drive_id);
+    state.contacts.clear();
+    state.contacts_set = None;
+    s.warn(
+        "The trusted contacts are no longer counted. The shares they hold still give back the \
+         recovery code: to make them useless, make a new code (the drive's menu: I was hacked: \
+         new keys).",
+    );
+    save_settings(info, app, s);
+}
+
+/// "Be someone's trusted contact": a key made for them, on a worker thread.
+pub(crate) fn ask_be_contact(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    spawn(
+        info,
+        app,
+        s,
+        Job::Encryption(EncryptionJob::Contacts(ContactsJob::NewKey)),
+    );
+}
+
+/// "Take a share..." / "Help with a recovery...".
+pub(crate) fn ask_paste(s: &mut DriveState, answer: bool) {
+    open(
+        s,
+        Page::Paste {
+            answer,
+            typed: Zeroizing::new(String::new()),
+            error: String::new(),
+        },
+    );
+}
+
+/// The drive's menu: "Recover with trusted contacts...": the request first (its key from the
+/// keyring, or a new one), on a worker thread.
+pub(crate) fn ask_recover(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    let job = ContactsJob::Request {
+        drive_id: drive_id.to_string(),
+    };
+    spawn(info, app, s, Job::Encryption(EncryptionJob::Contacts(job)));
+}
+
+/// The fields of the pages' text boxes.
+#[derive(Clone, Copy)]
+enum Field {
+    Code,
+    Name(usize),
+    Key(usize),
+    Paste,
+    Share(usize),
+}
+
+struct FieldRef {
+    app: RefAny,
+    field: Field,
+}
+
+fn input(app: &RefAny, field: Field, text: &str, placeholder: &str, id: Option<AzString>) -> Dom {
+    let dom = TextInput::create()
+        .with_text(AzString::from(text))
+        .with_placeholder(AzString::from(placeholder))
+        .with_on_text_input(
+            RefAny::new(FieldRef {
+                app: app.clone(),
+                field,
+            }),
+            on_field as TextInputOnTextInputCallbackType,
+        )
+        .dom();
+    match id {
+        Some(id) => dom.with_id(id),
+        None => dom,
+    }
+}
+
+extern "C" fn on_field(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let keep = OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    };
+    let Some((mut app, field)) = data
+        .downcast_ref::<FieldRef>()
+        .map(|f| (f.app.clone(), f.field))
+    else {
+        return keep;
+    };
+    let Some(mut s) = app.downcast_mut::<DriveState>() else {
+        return keep;
+    };
+    let text = state.get_text().as_str().to_string();
+    let Some(Popup::Encryption(Dialog::Contacts(page))) = s.popup.as_mut() else {
+        return keep;
+    };
+    match (page, field) {
+        (Page::Add { code, error, .. }, Field::Code) => {
+            *code = Zeroizing::new(text);
+            error.clear();
+        }
+        (Page::Add { people, error, .. }, Field::Name(i)) => {
+            if let Some(person) = people.get_mut(i) {
+                person.name = text;
+            }
+            error.clear();
+        }
+        (Page::Add { people, error, .. }, Field::Key(i)) => {
+            if let Some(person) = people.get_mut(i) {
+                person.key = text;
+            }
+            error.clear();
+        }
+        (Page::Paste { typed, error, .. }, Field::Paste) => {
+            *typed = Zeroizing::new(text);
+            error.clear();
+        }
+        (Page::Recover { shares, error, .. }, Field::Share(i)) => {
+            if let Some(share) = shares.get_mut(i) {
+                *share = Zeroizing::new(text);
+            }
+            error.clear();
+        }
+        _ => {}
+    }
+    keep
+}
+
+fn column(children: Vec<Dom>) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; min-width: 460px; max-width: 560px;")
+        .with_children(DomVec::from(children))
+}
+
+fn red(text: &str) -> Dom {
+    line(text).with_css("color: #C42B1C;")
+}
+
+fn small(text: &str) -> Dom {
+    line(text).with_css("font-size: 12px; opacity: 0.75;")
+}
+
+/// A text to copy, with its Copy button.
+fn copy_row(app: &RefAny, text: &str, id: AzString) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 6px;")
+        .with_child(
+            Dom::create_span_with_text(AzString::from(text))
+                .with_css(
+                    "font-family: monospace; font-size: 11px; flex-grow: 1; overflow-wrap: \
+                     anywhere;",
+                )
+                .with_id(id),
+        )
+        .with_child(
+            Button::create(AzString::from("Copy"))
+                .with_on_click(
+                    RefAny::new(CopyRef {
+                        app: app.clone(),
+                        text: text.to_string(),
+                    }),
+                    on_copy as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_css("margin-left: 6px;"),
+        )
+}
+
+struct CopyRef {
+    app: RefAny,
+    text: String,
+}
+
+extern "C" fn on_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, text)) = data
+        .downcast_ref::<CopyRef>()
+        .map(|c| (c.app.clone(), c.text.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, _app, s| {
+        crate::ui_bridge::clipboard(info, &text);
+        // A sealed share copied counts as sent.
+        if let Some(Popup::Encryption(Dialog::Contacts(Page::Made {
+            drive_id, shares, ..
+        }))) = s.popup.as_mut()
+        {
+            if let Some(made) = shares
+                .iter_mut()
+                .find(|m| m.sealed.as_deref() == Some(text.as_str()))
+            {
+                made.handed = true;
+                let (drive_id, index) = (drive_id.clone(), made.index);
+                let state = state_mut(&mut s.settings.recovery.drives, &drive_id);
+                if let Some(contact) = state.contacts.iter_mut().find(|c| c.index == index) {
+                    contact.handed = Some(now_unix());
+                }
+            }
+        }
+        s.success("Copied: paste it into a message to that person.");
+    })
+}
+
+/// The dialog's title and content.
+pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String, Dom) {
+    let name_of = |drive_id: &str| s.drive_name(&crate::browse::Place::folder(drive_id, ""));
+    match page {
+        Page::Add {
+            drive_id,
+            code,
+            people,
+            error,
+        } => {
+            let mut body = column(vec![
+                line(
+                    "Three people you trust each get a piece of this drive's recovery code. Any \
+                     two of them together can give it back to you; one alone learns nothing. \
+                     A recovery with it still waits 48 hours for your devices.",
+                ),
+                line(
+                    "For someone with AzDrive, paste the contact key their AzDrive shows (Options \
+                     > Drives > Be someone's trusted contact). Leave it empty to print their \
+                     piece instead.",
+                ),
+                label("Your recovery code (from the emergency kit)"),
+                input(
+                    app,
+                    Field::Code,
+                    code,
+                    "XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX",
+                    Some(ids::CONTACTS_CODE),
+                ),
+            ]);
+            for (i, person) in people.iter().enumerate() {
+                body.add_child(label(&format!("Person {}", i + 1)));
+                body.add_child(
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: row;")
+                        .with_child(
+                            input(
+                                app,
+                                Field::Name(i),
+                                &person.name,
+                                "Name",
+                                Some(ids::contacts_name(i)),
+                            )
+                            .with_css("width: 140px; margin-right: 6px;"),
+                        )
+                        .with_child(
+                            input(
+                                app,
+                                Field::Key(i),
+                                &person.key,
+                                "azlin-contact:... (empty: print it)",
+                                Some(ids::contacts_key(i)),
+                            )
+                            .with_css("flex-grow: 1;"),
+                        ),
+                );
+            }
+            if !error.is_empty() {
+                body.add_child(red(error));
+            }
+            body.add_child(buttons(vec![
+                button("Cancel", app, crate::ui_dialogs::on_cancel_popup),
+                typed_button("Make the shares", ButtonType::Primary, app, on_make)
+                    .with_id(ids::CONTACTS_MAKE),
+            ]));
+            (
+                format!("Trusted contacts for \"{}\"", name_of(drive_id)),
+                body,
+            )
+        }
+        Page::Made {
+            drive_id,
+            shares,
+            note,
+        } => {
+            let mut body = column(vec![line(
+                "Hand each piece to its person. A sealed one opens only in their AzDrive: send \
+                 it by any message. A printed one is paper: give it to them yourself.",
+            )]);
+            for (row, made) in shares.iter().enumerate() {
+                body.add_child(
+                    line(&format!(
+                        "{} - share {} of {SHARES}{}",
+                        made.name,
+                        made.index,
+                        if made.handed { " (handed over)" } else { "" }
+                    ))
+                    .with_css("font-weight: bold; margin-top: 12px;"),
+                );
+                if let Some(sealed) = &made.sealed {
+                    body.add_child(copy_row(app, sealed, ids::contacts_share(row)));
+                } else if made.printed.is_some() {
+                    body.add_child(paper_buttons(app, Which::Share(row), false));
+                }
+            }
+            if !note.is_empty() {
+                body.add_child(small(note));
+            }
+            body.add_child(buttons(vec![typed_button(
+                "Done",
+                ButtonType::Primary,
+                app,
+                on_made_done,
+            )
+            .with_id(ids::CONTACTS_DONE)]));
+            (format!("The shares of \"{}\"", name_of(drive_id)), body)
+        }
+        Page::Key { text } => (
+            String::from("Your contact key for them"),
+            column(vec![
+                line(
+                    "Send this to the person who asked you to be their trusted contact. It is no \
+                     secret: it lets their AzDrive seal a piece of their recovery code that only \
+                     this computer opens. Then take the piece they send you (Options > Drives > \
+                     Take a share).",
+                ),
+                copy_row(app, text, ids::CONTACT_KEY_TEXT),
+                buttons(vec![typed_button(
+                    "Close",
+                    ButtonType::Primary,
+                    app,
+                    crate::ui_dialogs::on_cancel_popup,
+                )]),
+            ]),
+        ),
+        Page::Paste {
+            answer,
+            typed,
+            error,
+        } => {
+            let (title, text, placeholder) = if *answer {
+                (
+                    "Help with a recovery",
+                    "Paste the request your contact sent you (it starts with azlin-recover:).",
+                    "azlin-recover:...",
+                )
+            } else {
+                (
+                    "Take a share",
+                    "Paste the share someone sent you (it starts with azlin-share:). It stays \
+                     sealed on this computer; only your key opens it.",
+                    "azlin-share:...",
+                )
+            };
+            let mut body = column(vec![
+                line(text),
+                input(
+                    app,
+                    Field::Paste,
+                    typed,
+                    placeholder,
+                    Some(ids::CONTACT_PASTE),
+                ),
+            ]);
+            if !error.is_empty() {
+                body.add_child(red(error));
+            }
+            body.add_child(buttons(vec![
+                button("Cancel", app, crate::ui_dialogs::on_cancel_popup),
+                typed_button("Continue", ButtonType::Primary, app, on_paste)
+                    .with_id(ids::CONTACT_PASTE_OK),
+            ]));
+            (String::from(title), body)
+        }
+        Page::Answer {
+            safety,
+            reply,
+            error,
+            ..
+        } => {
+            let mut body = column(vec![
+                line(
+                    "Someone asks for your piece of a recovery code. Scammers pretend to be \
+                     friends: answer only if the owner asked you themselves - meet them, or call \
+                     them on a number you know - and their screen shows this safety number:",
+                ),
+                Dom::create_span_with_text(AzString::from(safety.as_str()))
+                    .with_css("font-family: monospace; font-size: 22px; margin-top: 10px;")
+                    .with_id(ids::SAFETY_NUMBER),
+                small(
+                    "Your piece alone opens nothing, and their devices are told and can stop \
+                     the recovery for 48 hours.",
+                ),
+            ]);
+            match reply {
+                Some(reply) => {
+                    body.add_child(line("Send them this answer:"));
+                    body.add_child(copy_row(app, reply, ids::CONTACT_REPLY));
+                    body.add_child(buttons(vec![typed_button(
+                        "Close",
+                        ButtonType::Primary,
+                        app,
+                        crate::ui_dialogs::on_cancel_popup,
+                    )]));
+                }
+                None => {
+                    let mut row = vec![button("Cancel", app, crate::ui_dialogs::on_cancel_popup)];
+                    for (index, held) in s.settings.recovery.held.iter().enumerate() {
+                        if held.sealed.is_empty() {
+                            continue;
+                        }
+                        row.push(
+                            Button::with_type(
+                                AzString::from(format!(
+                                    "The numbers match: answer for {}",
+                                    held.label
+                                )),
+                                ButtonType::Primary,
+                            )
+                            .with_on_click(
+                                RefAny::new(HeldRef {
+                                    app: app.clone(),
+                                    index,
+                                }),
+                                on_answer as ButtonOnClickCallbackType,
+                            )
+                            .dom()
+                            .with_id(ids::contact_answer(index))
+                            .with_css("margin-left: 6px;"),
+                        );
+                    }
+                    body.add_child(buttons(row));
+                }
+            }
+            if !error.is_empty() {
+                body.add_child(red(error));
+            }
+            (String::from("Is it really them?"), body)
+        }
+        Page::Recover {
+            drive_id,
+            request,
+            safety,
+            shares,
+            error,
+        } => {
+            let mut body = column(vec![
+                line(
+                    "Send this request to two of your trusted contacts, and call them or meet \
+                     them: they answer only when the safety number on their screen is this one.",
+                ),
+                copy_row(app, request, ids::CONTACTS_REQUEST),
+                Dom::create_span_with_text(AzString::from(safety.as_str()))
+                    .with_css("font-family: monospace; font-size: 22px; margin-top: 10px;")
+                    .with_id(ids::SAFETY_NUMBER),
+                label("Their answers (azlin-share-reply:...), or printed shares (S1-..., S2-...)"),
+            ]);
+            for (i, share) in shares.iter().enumerate() {
+                body.add_child(input(
+                    app,
+                    Field::Share(i),
+                    share,
+                    "azlin-share-reply:... or S1-XXXXXXXX-XXXXX-...",
+                    Some(ids::contacts_answer_box(i)),
+                ));
+            }
+            if !error.is_empty() {
+                body.add_child(red(error));
+            }
+            body.add_child(buttons(vec![
+                button("Cancel", app, crate::ui_dialogs::on_cancel_popup),
+                typed_button("Recover", ButtonType::Primary, app, on_recover)
+                    .with_id(ids::CONTACTS_RECOVER),
+            ]));
+            (
+                format!("Recover \"{}\" with trusted contacts", name_of(drive_id)),
+                body,
+            )
+        }
+        Page::Rebuilt {
+            drive_id,
+            code,
+            until,
+            note,
+        } => {
+            let until = until.map_or_else(String::new, |at| {
+                format!(" until {}", azul_storage::time::iso8601(at))
+            });
+            let mut body = column(vec![
+                line(&format!(
+                    "Your trusted contacts gave back the recovery code of \"{}\". The lockdown \
+                     with it is pending{until}: your other devices are told and may cancel it. \
+                     Then the drive is this computer's: open it with this code (the drive's \
+                     menu: Unlock with the recovery code).",
+                    name_of(drive_id)
+                )),
+                Dom::create_span_with_text(AzString::from(code.as_str()))
+                    .with_css(
+                        "font-family: monospace; font-size: 20px; margin-top: 14px; \
+                         margin-bottom: 8px; letter-spacing: 1px;",
+                    )
+                    .with_id(ids::REBUILT_CODE),
+                small("Write it down, or keep a new emergency kit:"),
+            ]);
+            for piece in crate::recovery::kit_pieces(app, code, note) {
+                body.add_child(piece);
+            }
+            body.add_child(buttons(vec![typed_button(
+                "Close",
+                ButtonType::Primary,
+                app,
+                crate::ui_dialogs::on_cancel_popup,
+            )]));
+            (String::from("Your recovery code is back"), body)
+        }
+    }
+}
+
+// ==== The owner: the shares ====
+
+extern "C" fn on_make(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::Contacts(Page::Add {
+            drive_id,
+            code,
+            people,
+            ..
+        }))) = s.popup.as_ref()
+        else {
+            return;
+        };
+        let drive_id = drive_id.clone();
+        let known = state_of(&s.settings.recovery.drives, &drive_id)
+            .and_then(|state| state.recovery_key.clone());
+        let checked = match drill_answer(known.as_deref(), &drive_id, code) {
+            DrillAnswer::Passed => RecoveryCode::parse(code).ok_or_else(String::new),
+            DrillAnswer::NotTheCode => Err(String::from("That is not this drive's recovery code.")),
+            DrillAnswer::NotACode => Err(String::from(
+                "That is not a recovery code: 26 letters and digits, in five groups.",
+            )),
+            DrillAnswer::AskTheBucket(_) => Err(String::from(
+                "This computer does not know the drive's recovery key yet: check the code once \
+                 first (Options > Drives > Test).",
+            )),
+        };
+        let plan = plan_shares(people);
+        let names: Vec<String> = people.iter().map(|p| p.name.trim().to_string()).collect();
+        let result = checked.and_then(|code| {
+            let keys = plan?;
+            let shares = CodeShare::split(&code).map_err(|e| e.to_string())?;
+            let label = label_of(s, &drive_id);
+            let mut made = Vec::new();
+            for ((share, key), name) in shares.iter().zip(keys).zip(&names) {
+                let (sealed, printed) = match key {
+                    Some(key) => (
+                        Some(seal_share(share, &label, &key).map_err(|e| e.to_string())?),
+                        None,
+                    ),
+                    None => (None, Some(share.to_text())),
+                };
+                made.push(Made {
+                    name: name.clone(),
+                    index: share.index(),
+                    sealed,
+                    printed,
+                    handed: false,
+                });
+            }
+            Ok((made, shares[0].set_hex()))
+        });
+        match result {
+            Ok((made, set)) => {
+                let state = state_mut(&mut s.settings.recovery.drives, &drive_id);
+                state.contacts_set = Some(set);
+                state.contacts = made
+                    .iter()
+                    .map(|m| TrustedContact {
+                        name: m.name.clone(),
+                        kind: if m.sealed.is_some() {
+                            ShareKind::App
+                        } else {
+                            ShareKind::Printed
+                        },
+                        index: m.index,
+                        handed: None,
+                    })
+                    .collect();
+                println!("AZDRIVE_CONTACTS_SHARED {drive_id} {}", made.len());
+                s.popup = Some(Popup::Encryption(Dialog::Contacts(Page::Made {
+                    drive_id,
+                    shares: made,
+                    note: String::new(),
+                })));
+                save_settings(info, app, s);
+            }
+            Err(why) => {
+                if let Some(Popup::Encryption(Dialog::Contacts(Page::Add { error, .. }))) =
+                    s.popup.as_mut()
+                {
+                    *error = why;
+                }
+            }
+        }
+    })
+}
+
+extern "C" fn on_made_done(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        s.popup = None;
+        save_settings(info, app, s);
+    })
+}
+
+// ==== A contact: the key, the share, the answer ====
+
+extern "C" fn on_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::Contacts(Page::Paste { answer, typed, .. }))) =
+            s.popup.as_ref()
+        else {
+            return;
+        };
+        let (answer, text) = (*answer, typed.trim().to_string());
+        let problem = if answer {
+            match request_from_text(&text) {
+                Some(request) => {
+                    if s.settings
+                        .recovery
+                        .held
+                        .iter()
+                        .all(|held| held.sealed.is_empty())
+                    {
+                        Some(String::from(
+                            "This computer holds no share for anyone (Take a share first).",
+                        ))
+                    } else {
+                        s.popup = Some(Popup::Encryption(Dialog::Contacts(Page::Answer {
+                            safety: safety_number(&request),
+                            request: text,
+                            reply: None,
+                            error: String::new(),
+                        })));
+                        None
+                    }
+                }
+                None => Some(String::from("That is not a request (azlin-recover:...).")),
+            }
+        } else if share_recipient(&text).is_some() {
+            let job = ContactsJob::Take { text };
+            spawn(info, app, s, Job::Encryption(EncryptionJob::Contacts(job)));
+            None
+        } else {
+            Some(String::from(
+                "That is not a sealed share (azlin-share:...).",
+            ))
+        };
+        if let Some(why) = problem {
+            if let Some(Popup::Encryption(Dialog::Contacts(Page::Paste { error, .. }))) =
+                s.popup.as_mut()
+            {
+                *error = why;
+            }
+        }
+    })
+}
+
+struct HeldRef {
+    app: RefAny,
+    index: usize,
+}
+
+extern "C" fn on_answer(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data
+        .downcast_ref::<HeldRef>()
+        .map(|held| (held.app.clone(), held.index))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::Contacts(Page::Answer { request, .. }))) =
+            s.popup.as_ref()
+        else {
+            return;
+        };
+        let Some(sealed) = s
+            .settings
+            .recovery
+            .held
+            .get(index)
+            .map(|h| h.sealed.clone())
+        else {
+            return;
+        };
+        let job = ContactsJob::Answer {
+            request: request.clone(),
+            sealed,
+        };
+        spawn(info, app, s, Job::Encryption(EncryptionJob::Contacts(job)));
+    })
+}
+
+// ==== The owner on another computer: the recovery ====
+
+extern "C" fn on_recover(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::Contacts(Page::Recover {
+            drive_id, shares, ..
+        }))) = s.popup.as_ref()
+        else {
+            return;
+        };
+        let drive_id = drive_id.clone();
+        let shares: Vec<Zeroizing<String>> = shares
+            .iter()
+            .map(|share| Zeroizing::new(share.as_str().to_string()))
+            .collect();
+        let Some(token_url) = crate::encryption::token_url_of(s, &drive_id) else {
+            if let Some(Popup::Encryption(Dialog::Contacts(Page::Recover { error, .. }))) =
+                s.popup.as_mut()
+            {
+                *error = String::from("The drive's token server is not known.");
+            }
+            return;
+        };
+        let job = ContactsJob::Recover {
+            drive_id,
+            shares,
+            token_url,
+            keyring: s.keyring.clone(),
+        };
+        spawn(info, app, s, Job::Encryption(EncryptionJob::Contacts(job)));
+    })
+}
+
+// ==== The jobs ====
+
+/// One blocking task of the trusted contacts (the keyring, the token server).
+pub(crate) enum ContactsJob {
+    /// A contact key made for an owner.
+    NewKey,
+    /// A sealed share opened once (with the key it names) and kept sealed.
+    Take { text: String },
+    /// A held share answered to a request.
+    Answer { request: String, sealed: String },
+    /// The drive's recovery request (its key from the keyring, else new).
+    Request { drive_id: String },
+    /// Two shares into the code, and the code's lockdown.
+    Recover {
+        drive_id: String,
+        shares: Vec<Zeroizing<String>>,
+        token_url: String,
+        keyring: azcloud_kit::SharedKeyring,
+    },
+}
+
+/// What a task of the trusted contacts found.
+pub(crate) enum ContactsDone {
+    NewKey(Result<(String, String), String>),
+    Taken {
+        text: String,
+        result: Result<(String, String, u8), String>,
+    },
+    Answered(Result<String, String>),
+    Request {
+        drive_id: String,
+        result: Result<(String, String), String>,
+    },
+    Recovered {
+        drive_id: String,
+        result: Result<(Zeroizing<String>, Option<u64>), String>,
+    },
+}
+
+/// Runs on a worker thread.
+pub(crate) fn run(job: ContactsJob) -> ContactsDone {
+    let keyring = AzulKeyring::new();
+    match job {
+        ContactsJob::NewKey => ContactsDone::NewKey(
+            new_contact_key(&keyring)
+                .map(|key| (key.id(), contact_text(&key)))
+                .map_err(|e| e.to_string()),
+        ),
+        ContactsJob::Take { text } => {
+            let result = (|| -> Result<(String, String, u8), String> {
+                let key = share_recipient(&text).ok_or("not a sealed share")?;
+                let secret = load_contact_key(&keyring, &key)
+                    .map_err(|e| e.to_string())?
+                    .ok_or("it is sealed to a key this computer does not have")?;
+                let (share, label) = open_share(&text, &secret).map_err(|e| e.to_string())?;
+                Ok((key.id(), label, share.index()))
+            })();
+            ContactsDone::Taken { text, result }
+        }
+        ContactsJob::Answer { request, sealed } => {
+            let result = (|| -> Result<String, String> {
+                let to = request_from_text(&request).ok_or("not a request")?;
+                let key = share_recipient(&sealed).ok_or("the share kept is damaged")?;
+                let secret = load_contact_key(&keyring, &key)
+                    .map_err(|e| e.to_string())?
+                    .ok_or("this computer's key for that share is gone")?;
+                let (share, _) = open_share(&sealed, &secret).map_err(|e| e.to_string())?;
+                seal_reply(&share, &to).map_err(|e| e.to_string())
+            })();
+            ContactsDone::Answered(result)
+        }
+        ContactsJob::Request { drive_id } => {
+            let result = request_key(&keyring, &drive_id)
+                .map(|secret| {
+                    let public = secret.public();
+                    (request_text(&public), safety_number(&public))
+                })
+                .map_err(|e| e.to_string());
+            ContactsDone::Request { drive_id, result }
+        }
+        ContactsJob::Recover {
+            drive_id,
+            shares,
+            token_url,
+            keyring: shared,
+        } => {
+            let result = (|| -> Result<(Zeroizing<String>, Option<u64>), String> {
+                let request = request_key(&keyring, &drive_id).map_err(|e| e.to_string())?;
+                let texts: Vec<&str> = shares.iter().map(|s| s.as_str()).collect();
+                let code = recovered_code(&texts, &request)?;
+                let until =
+                    crate::encryption::recovery_lockdown(&drive_id, &code, &token_url, &shared)?;
+                let _ = forget_request_key(&keyring, &drive_id);
+                Ok((code.to_text(), until))
+            })();
+            ContactsDone::Recovered { drive_id, result }
+        }
+    }
+}
+
+/// The UI thread takes a task's answer.
+pub(crate) fn on_done(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    done: ContactsDone,
+) {
+    match done {
+        ContactsDone::NewKey(Ok((key_id, text))) => {
+            println!("AZDRIVE_CONTACT_KEY");
+            s.settings.recovery.held.push(HeldShare {
+                key_id,
+                made: now_unix(),
+                ..HeldShare::default()
+            });
+            open(s, Page::Key { text });
+            save_settings(info, app, s);
+        }
+        ContactsDone::NewKey(Err(why)) => s.error(format!("No contact key was made: {why}")),
+        ContactsDone::Taken { text, result } => match result {
+            Ok((key_id, label, index)) => {
+                println!("AZDRIVE_SHARE_TAKEN {index}");
+                let held = match s
+                    .settings
+                    .recovery
+                    .held
+                    .iter()
+                    .position(|h| h.key_id == key_id)
+                {
+                    Some(at) => &mut s.settings.recovery.held[at],
+                    None => {
+                        s.settings.recovery.held.push(HeldShare {
+                            key_id,
+                            made: now_unix(),
+                            ..HeldShare::default()
+                        });
+                        let last = s.settings.recovery.held.len() - 1;
+                        &mut s.settings.recovery.held[last]
+                    }
+                };
+                held.label = label.clone();
+                held.sealed = text;
+                held.received = Some(now_unix());
+                s.popup = None;
+                s.success(format!(
+                    "You hold share {index} of {SHARES} of the recovery code of {label}. If they \
+                     ever ask you for it: Options > Drives > Help with a recovery."
+                ));
+                save_settings(info, app, s);
+            }
+            Err(why) => {
+                if let Some(Popup::Encryption(Dialog::Contacts(Page::Paste { error, .. }))) =
+                    s.popup.as_mut()
+                {
+                    *error = format!("The share was not taken: {why}.");
+                }
+            }
+        },
+        ContactsDone::Answered(result) => {
+            if let Some(Popup::Encryption(Dialog::Contacts(Page::Answer {
+                reply, error, ..
+            }))) = s.popup.as_mut()
+            {
+                match result {
+                    Ok(text) => {
+                        println!("AZDRIVE_SHARE_ANSWERED");
+                        *reply = Some(text);
+                    }
+                    Err(why) => *error = format!("No answer was made: {why}."),
+                }
+            }
+        }
+        ContactsDone::Request { drive_id, result } => match result {
+            Ok((request, safety)) => {
+                println!("AZDRIVE_CONTACTS_REQUEST {drive_id}");
+                open(
+                    s,
+                    Page::Recover {
+                        drive_id,
+                        request,
+                        safety,
+                        shares: Default::default(),
+                        error: String::new(),
+                    },
+                );
+            }
+            Err(why) => s.error(format!("No recovery request was made: {why}")),
+        },
+        ContactsDone::Recovered { drive_id, result } => match result {
+            Ok((code, until)) => {
+                println!("AZDRIVE_CONTACTS_RECOVERED {drive_id}");
+                println!("AZDRIVE_RECOVERY_LOCKDOWN {drive_id}");
+                open(
+                    s,
+                    Page::Rebuilt {
+                        drive_id,
+                        code,
+                        until,
+                        note: String::new(),
+                    },
+                );
+            }
+            Err(why) => {
+                if let Some(Popup::Encryption(Dialog::Contacts(Page::Recover { error, .. }))) =
+                    s.popup.as_mut()
+                {
+                    *error = why;
+                } else {
+                    s.error(why);
+                }
+            }
+        },
+    }
+}
+
+/// Options > Drives > "Shares you hold for others": each held share, and the contact's three
+/// doors.
+pub(crate) fn held_section(s: &DriveState, app: &RefAny) -> Dom {
+    let mut rows: Vec<Dom> = Vec::new();
+    for held in &s.settings.recovery.held {
+        let text = if held.sealed.is_empty() {
+            String::from("A contact key sent, no share taken yet")
+        } else {
+            let day = held.received.map_or_else(String::new, |at| {
+                let text = azul_storage::time::iso8601(at);
+                format!(", taken on {}", text.get(..10).unwrap_or(&text))
+            });
+            format!("A share of {}{day}", held.label)
+        };
+        rows.push(line(&text));
+    }
+    if rows.is_empty() {
+        rows.push(small(
+            "None. When someone asks you to be their trusted contact, make a key for them here.",
+        ));
+    }
+    rows.push(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; flex-wrap: wrap; margin-top: 8px;")
+            .with_child(
+                button("Be someone's trusted contact\u{2026}", app, on_be_contact)
+                    .with_id(ids::CONTACT_BE),
+            )
+            .with_child(button("Take a share\u{2026}", app, on_take).with_id(ids::CONTACT_TAKE))
+            .with_child(
+                button("Help with a recovery\u{2026}", app, on_help).with_id(ids::CONTACT_HELP),
+            ),
+    );
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_children(DomVec::from(rows))
+}
+
+extern "C" fn on_be_contact(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        ask_be_contact(info, app, s)
+    })
+}
+
+extern "C" fn on_take(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| ask_paste(s, false))
+}
+
+extern "C" fn on_help(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |_info, _app, s| ask_paste(s, true))
 }
 
 #[cfg(test)]
 mod tests {
+    use azul_storage::crypto::keys::MemberSecret;
+
     use super::*;
 
     fn person(name: &str, key: &str) -> Person {

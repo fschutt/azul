@@ -229,45 +229,70 @@ pub(crate) fn qr_dom(symbol: &QrCode, module: usize) -> Dom {
     rows
 }
 
-/// The kit on A4 paper (black on white whatever mode the window is in).
-pub(crate) fn kit_dom(kit: &Kit, symbol: &QrCode) -> Dom {
-    let lines = kit.lines();
+/// A page of paper with a secret on it: the recovery code's kit, or a trusted contact's share.
+pub(crate) struct Paper {
+    pub title: String,
+    pub subtitle: String,
+    pub text: Vec<String>,
+    /// The label over the secret, the secret as the page shows it (and its QR code holds), the
+    /// words beside the QR code.
+    pub label: &'static str,
+    pub secret: Zeroizing<String>,
+    pub qr_label: &'static str,
+    pub file_name: String,
+}
+
+impl Kit {
+    /// The kit as a page.
+    pub(crate) fn paper(&self) -> Paper {
+        let lines = self.lines();
+        Paper {
+            title: lines[0].clone(),
+            subtitle: lines[1].clone(),
+            text: lines[2..2 + KIT_TEXT.len()].to_vec(),
+            label: KIT_CODE_LABEL,
+            secret: self.qr_text(),
+            qr_label: KIT_QR_LABEL,
+            file_name: self.file_name(),
+        }
+    }
+}
+
+/// A page on A4 paper (black on white whatever mode the window is in).
+pub(crate) fn paper_dom(paper: &Paper, symbol: &QrCode) -> Dom {
     let mut body = Dom::create_body().with_css(
         "margin: 0px; padding: 56px; background: #ffffff; color: #000000; font-family: \
          sans-serif; font-size: 13px; display: flex; flex-direction: column;",
     );
-    body.add_child(block(&lines[0], "font-size: 26px; font-weight: bold;"));
+    body.add_child(block(&paper.title, "font-size: 26px; font-weight: bold;"));
     body.add_child(block(
-        &lines[1],
+        &paper.subtitle,
         "margin-top: 4px; padding-bottom: 10px; border-bottom: 2px solid #000000;",
     ));
-    for text in &lines[2..2 + KIT_TEXT.len()] {
+    for text in &paper.text {
         body.add_child(block(text, "margin-top: 10px;"));
     }
+    body.add_child(block(paper.label, "margin-top: 24px; font-weight: bold;"));
     body.add_child(block(
-        KIT_CODE_LABEL,
-        "margin-top: 24px; font-weight: bold;",
-    ));
-    body.add_child(block(
-        &kit.code,
+        &paper.secret,
         "margin-top: 6px; padding: 12px; border: 1px solid #000000; font-family: monospace; \
-         font-size: 24px; letter-spacing: 1px;",
+         font-size: 22px; letter-spacing: 1px;",
     ));
     body.add_child(
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 24px;")
             .with_child(qr_dom(symbol, KIT_MODULE_PX))
-            .with_child(block(KIT_QR_LABEL, "margin-left: 18px; flex-grow: 1;")),
+            .with_child(block(paper.qr_label, "margin-left: 18px; flex-grow: 1;")),
     );
     body
 }
 
-/// The kit's PDF (azul's writer lays the DOM out in this callback, with the window's fonts).
-fn kit_pdf(info: &mut CallbackInfo, kit: &Kit) -> Result<Zeroizing<Vec<u8>>, String> {
-    let symbol = QrCode::encode(kit.qr_text().as_bytes()).map_err(|e| e.to_string())?;
+/// The page's PDF (azul's writer lays the DOM out in this callback, with the window's fonts).
+fn paper_pdf(info: &mut CallbackInfo, paper: &Paper) -> Result<Zeroizing<Vec<u8>>, String> {
+    let symbol = QrCode::encode(paper.secret.as_bytes()).map_err(|e| e.to_string())?;
     let bytes = Zeroizing::new(
         Pdf::create()
-            .from_dom_in_callback(*info, kit_dom(kit, &symbol), A4.0, A4.1)
+            .from_dom_in_callback(*info, paper_dom(paper, &symbol), A4.0, A4.1)
             .as_ref()
             .to_vec(),
     );
@@ -280,31 +305,71 @@ fn kit_pdf(info: &mut CallbackInfo, kit: &Kit) -> Result<Zeroizing<Vec<u8>>, Str
     }
 }
 
-/// The kit of the code the open dialog shows (the recovery sheet), if it shows one.
-fn shown_kit(s: &DriveState) -> Option<Kit> {
-    match s.popup.as_ref()? {
-        Popup::Encryption(Dialog::Sheet(sheet)) => Some(kit_of(s, &sheet.drive_id, &sheet.code)),
+/// Which page a paper button makes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Which {
+    /// The code the dialog shows: the recovery sheet's, or the one trusted contacts gave back.
+    Shown,
+    /// A trusted contact's printed share on the "shares made" page (its row).
+    Share(usize),
+}
+
+/// What a paper button carries.
+struct PaperRef {
+    app: RefAny,
+    which: Which,
+}
+
+fn paper_ref(data: &mut RefAny) -> Option<(RefAny, Which)> {
+    data.downcast_ref::<PaperRef>()
+        .map(|paper| (paper.app.clone(), paper.which))
+}
+
+/// The page `which` of the dialog showing, if it shows one.
+fn shown_paper(s: &DriveState, which: Which) -> Option<Paper> {
+    match (s.popup.as_ref()?, which) {
+        (Popup::Encryption(Dialog::Sheet(sheet)), Which::Shown) => {
+            Some(kit_of(s, &sheet.drive_id, &sheet.code).paper())
+        }
+        (Popup::Encryption(Dialog::Contacts(page)), which) => {
+            crate::recovery_contacts::paper_of(s, page, which)
+        }
         _ => None,
     }
 }
 
-/// A line under the kit's buttons on the dialog showing it.
+/// A line under the paper buttons of the dialog showing them.
 fn set_kit_note(s: &mut DriveState, note: String) {
-    if let Some(Popup::Encryption(Dialog::Sheet(sheet))) = s.popup.as_mut() {
-        sheet.kit_note = note;
+    match s.popup.as_mut() {
+        Some(Popup::Encryption(Dialog::Sheet(sheet))) => sheet.kit_note = note,
+        Some(Popup::Encryption(Dialog::Contacts(page))) => {
+            crate::recovery_contacts::set_note(page, note);
+        }
+        _ => {}
     }
 }
 
-/// The kit's three buttons and its QR code, for a dialog that shows a code.
-pub(crate) fn kit_pieces(app: &RefAny, code: &str, note: &str) -> Vec<Dom> {
+/// The three paper buttons (Print, Save as PDF, Save to a USB stick) of page `which`; `ids`
+/// names them (the kit's own ids, or none).
+pub(crate) fn paper_buttons(app: &RefAny, which: Which, named: bool) -> Dom {
     let button = |text: &str, id: AzString, callback: ButtonOnClickCallbackType| {
-        Button::create(AzString::from(text))
-            .with_on_click(app.clone(), callback)
+        let dom = Button::create(AzString::from(text))
+            .with_on_click(
+                RefAny::new(PaperRef {
+                    app: app.clone(),
+                    which,
+                }),
+                callback,
+            )
             .dom()
-            .with_id(id)
-            .with_css("margin-right: 6px;")
+            .with_css("margin-right: 6px;");
+        if named {
+            dom.with_id(id)
+        } else {
+            dom
+        }
     };
-    let mut pieces = vec![Dom::create_div()
+    Dom::create_div()
         .with_css("display: flex; flex-direction: row; margin-top: 8px;")
         .with_child(button("Print\u{2026}", ids::KIT_PRINT, on_kit_print))
         .with_child(button("Save as PDF\u{2026}", ids::KIT_SAVE, on_kit_save))
@@ -312,7 +377,12 @@ pub(crate) fn kit_pieces(app: &RefAny, code: &str, note: &str) -> Vec<Dom> {
             "Save to a USB stick\u{2026}",
             ids::KIT_USB,
             on_kit_usb,
-        ))];
+        ))
+}
+
+/// The kit's three buttons and its QR code, for a dialog that shows a code.
+pub(crate) fn kit_pieces(app: &RefAny, code: &str, note: &str) -> Vec<Dom> {
+    let mut pieces = vec![paper_buttons(app, Which::Shown, true)];
     if !note.is_empty() {
         pieces.push(line(note).with_css("font-size: 12px; opacity: 0.75;"));
     }
@@ -334,7 +404,7 @@ pub(crate) fn kit_pieces(app: &RefAny, code: &str, note: &str) -> Vec<Dom> {
 
 // ==== Print, Save as PDF, Save to a USB stick ====
 
-/// Where Print's private copies of the kit wait for the PDF viewer: `kit-print/` in the run's
+/// Where Print's private copies of a page wait for the PDF viewer: `kit-print/` in the run's
 /// cache folder.
 fn print_dir() -> PathBuf {
     crate::encryption::run_cache_dir()
@@ -342,7 +412,7 @@ fn print_dir() -> PathBuf {
         .join("kit-print")
 }
 
-/// Deletes Print's copies of the kit (when the sheet closes, at the start).
+/// Deletes Print's copies (when the sheet closes, at the start).
 pub(crate) fn forget_print_copies() {
     let _ = std::fs::remove_dir_all(print_dir());
 }
@@ -361,8 +431,8 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
-/// Print's copy of the kit: `kit-print/<random>/<file name>` (a folder of this user's only).
-fn print_copy(kit: &Kit, bytes: &[u8]) -> Result<PathBuf, String> {
+/// Print's copy of a page: `kit-print/<random>/<file name>` (a folder of this user's only).
+fn print_copy(file_name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     let mut random = [0u8; 8];
     random_bytes(&mut random).map_err(|e| e.to_string())?;
     let folder: String = random.iter().map(|b| format!("{b:02x}")).collect();
@@ -375,77 +445,89 @@ fn print_copy(kit: &Kit, bytes: &[u8]) -> Result<PathBuf, String> {
         let _ = std::fs::set_permissions(print_dir(), private.clone());
         let _ = std::fs::set_permissions(&dir, private);
     }
-    let path = dir.join(kit.file_name());
+    let path = dir.join(file_name);
     write_private(&path, bytes).map_err(|e| e.to_string())?;
     Ok(path)
 }
 
-/// Print: the kit opens in the system's PDF viewer, which prints it.
+/// Print: the page opens in the system's PDF viewer, which prints it.
 extern "C" fn on_kit_print(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |info, _app, s| {
-        let Some(kit) = shown_kit(s) else {
+    let Some((mut app, which)) = paper_ref(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, _app, s| {
+        let Some(paper) = shown_paper(s, which) else {
             return;
         };
-        let note = match kit_pdf(info, &kit).and_then(|bytes| {
-            let path = print_copy(&kit, &bytes)?;
+        let note = match paper_pdf(info, &paper).and_then(|bytes| {
+            let path = print_copy(&paper.file_name, &bytes)?;
             println!("AZDRIVE_KIT_PRINT {}", bytes.len());
             azul_appkit::files::open_external(&path.to_string_lossy())
         }) {
             Ok(()) => String::from(
-                "The kit is open in your PDF viewer: print it from there. AzDrive deletes this \
-                 copy when the sheet closes.",
+                "It is open in your PDF viewer: print it from there. AzDrive deletes this copy \
+                 when the dialog closes.",
             ),
-            Err(why) => format!("The kit could not be opened for printing: {why}"),
+            Err(why) => format!("It could not be opened for printing: {why}"),
         };
+        if which != Which::Shown {
+            crate::recovery_contacts::handed(s, which);
+        }
         set_kit_note(s, note);
     })
 }
 
 /// Save as PDF: the system's save dialog (the app's state let go before it).
 extern "C" fn on_kit_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, which)) = paper_ref(&mut data) else {
+        return Update::DoNothing;
+    };
     let made = {
-        let Some(s) = data.downcast_ref::<DriveState>() else {
+        let Some(s) = app.downcast_ref::<DriveState>() else {
             return Update::DoNothing;
         };
-        shown_kit(&s).map(|kit| (kit.file_name(), kit_pdf(&mut info, &kit)))
+        shown_paper(&s, which).map(|paper| (paper.file_name.clone(), paper_pdf(&mut info, &paper)))
     };
     let Some((name, bytes)) = made else {
         return Update::DoNothing;
     };
-    let note = match bytes {
+    let (note, saved) = match bytes {
         Ok(bytes) => {
             let len = bytes.len();
             if FileDialog::save_bytes(name.as_str(), "application/pdf", bytes.to_vec()) {
                 println!("AZDRIVE_KIT_SAVED {len}");
-                format!("Saved {name}.")
+                (format!("Saved {name}."), true)
             } else {
-                String::from("The kit was not saved.")
+                (String::from("It was not saved."), false)
             }
         }
-        Err(why) => why,
+        Err(why) => (why, false),
     };
-    with_state(&mut data, &mut info, |_info, _app, s| set_kit_note(s, note))
-}
-
-/// What the folder picker of "Save to a USB stick" carries.
-struct KitPick {
-    app: RefAny,
+    with_state(&mut app, &mut info, |_info, _app, s| {
+        if saved && which != Which::Shown {
+            crate::recovery_contacts::handed(s, which);
+        }
+        set_kit_note(s, note);
+    })
 }
 
 /// Save to a USB stick: the system's folder picker.
-extern "C" fn on_kit_usb(data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_kit_usb(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((app, which)) = paper_ref(&mut data) else {
+        return Update::DoNothing;
+    };
     let _request = FileDialog::open_directory(
-        AzString::from("Save the emergency kit to a USB stick"),
+        AzString::from("Save it to a USB stick"),
         OptionString::None,
-        RefAny::new(KitPick { app: data }),
+        RefAny::new(PaperRef { app, which }),
         on_kit_folder,
     );
     Update::DoNothing
 }
 
-/// The folder picked: the kit is written into it on a worker thread.
+/// The folder picked: the page is written into it on a worker thread.
 extern "C" fn on_kit_folder(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
-    let Some(mut app) = data.downcast_ref::<KitPick>().map(|pick| pick.app.clone()) else {
+    let Some((mut app, which)) = paper_ref(&mut data) else {
         return Update::DoNothing;
     };
     let Some(picked) = FileOpenResult::downcast(result).into_option() else {
@@ -456,17 +538,17 @@ extern "C" fn on_kit_folder(mut data: RefAny, mut info: CallbackInfo, result: Re
     };
     let folder = PathBuf::from(path.inner.as_str());
     with_state(&mut app, &mut info, |info, app, s| {
-        let Some(kit) = shown_kit(s) else {
+        let Some(paper) = shown_paper(s, which) else {
             return;
         };
-        match kit_pdf(info, &kit) {
+        match paper_pdf(info, &paper) {
             Ok(bytes) => {
-                set_kit_note(
-                    s,
-                    format!("Writing the kit to {}\u{2026}", folder.display()),
-                );
+                set_kit_note(s, format!("Writing it to {}\u{2026}", folder.display()));
+                if which != Which::Shown {
+                    crate::recovery_contacts::handed(s, which);
+                }
                 let job = EncryptionJob::SaveKit {
-                    path: folder.join(kit.file_name()),
+                    path: folder.join(&paper.file_name),
                     bytes,
                 };
                 spawn(info, app, s, Job::Encryption(job));
@@ -481,14 +563,14 @@ pub(crate) fn save_kit(path: &Path, bytes: &[u8]) -> Result<(), String> {
     write_private(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// The kit is written (or why not).
+/// The page is written (or why not).
 pub(crate) fn kit_saved(s: &mut DriveState, path: &Path, len: usize, result: Result<(), String>) {
     let note = match result {
         Ok(()) => {
             println!("AZDRIVE_KIT_WRITTEN {len}");
-            format!("The kit is on the stick: {}", path.display())
+            format!("It is on the stick: {}", path.display())
         }
-        Err(why) => format!("The kit was not written: {why}"),
+        Err(why) => format!("It was not written: {why}"),
     };
     set_kit_note(s, note);
 }

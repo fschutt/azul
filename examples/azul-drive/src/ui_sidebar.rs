@@ -493,6 +493,9 @@ enum SideAction {
     /// The folder sync of the drive: pair it with a folder, sync now, pause, stop, open the
     /// synced folder.
     Sync(String, crate::sync_view::SyncAction),
+    /// "Recover with trusted contacts...".
+    #[cfg(feature = "encryption")]
+    ContactsRecover(String),
 }
 
 /// What a row's callbacks carry.
@@ -556,6 +559,10 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
             entries.push((
                 String::from("Lock down with the recovery code\u{2026}"),
                 SideAction::RecoveryLockdown(slot.entry.id.clone()),
+            ));
+            entries.push((
+                String::from("Recover with trusted contacts\u{2026}"),
+                SideAction::ContactsRecover(slot.entry.id.clone()),
             ));
         }
         if !slot.is_local() {
@@ -638,6 +645,10 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
         }
         SideAction::Sync(drive_id, what) => {
             crate::sync_jobs::run_action(info, app, s, Some(drive_id), what);
+        }
+        #[cfg(feature = "encryption")]
+        SideAction::ContactsRecover(drive_id) => {
+            crate::recovery_contacts::ask_recover(info, app, s, &drive_id);
         }
     }
 }

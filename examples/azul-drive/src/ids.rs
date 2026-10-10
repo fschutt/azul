@@ -336,3 +336,43 @@ pub const SHEET_DONE: AzString = AzString::from_const_str("__azdrive_sheet_done"
 pub const DRILL_CODE: AzString = AzString::from_const_str("__azdrive_drill_code");
 pub const DRILL_LATER: AzString = AzString::from_const_str("__azdrive_drill_later");
 pub const DRILL_CHECK: AzString = AzString::from_const_str("__azdrive_drill_check");
+/// Trusted contacts, the owner's "Add": the code, each person's name and contact key, Make.
+pub const CONTACTS_CODE: AzString = AzString::from_const_str("__azdrive_contacts_code");
+pub const CONTACTS_MAKE: AzString = AzString::from_const_str("__azdrive_contacts_make");
+#[must_use]
+pub fn contacts_name(slot: usize) -> AzString {
+    AzString::from(format!("__azdrive_contacts_name_{slot}"))
+}
+#[must_use]
+pub fn contacts_key(slot: usize) -> AzString {
+    AzString::from(format!("__azdrive_contacts_key_{slot}"))
+}
+/// The shares made: a sealed share's text (by row), Done.
+#[must_use]
+pub fn contacts_share(row: usize) -> AzString {
+    AzString::from(format!("__azdrive_contacts_share_{row}"))
+}
+pub const CONTACTS_DONE: AzString = AzString::from_const_str("__azdrive_contacts_done");
+/// A contact's side: the key made, the text pasted and Continue, the safety number, an answer
+/// for a held share (by its place in the list), the reply.
+pub const CONTACT_KEY_TEXT: AzString = AzString::from_const_str("__azdrive_contact_key_text");
+pub const CONTACT_PASTE: AzString = AzString::from_const_str("__azdrive_contact_paste");
+pub const CONTACT_PASTE_OK: AzString = AzString::from_const_str("__azdrive_contact_paste_ok");
+pub const SAFETY_NUMBER: AzString = AzString::from_const_str("__azdrive_safety_number");
+#[must_use]
+pub fn contact_answer(index: usize) -> AzString {
+    AzString::from(format!("__azdrive_contact_answer_{index}"))
+}
+pub const CONTACT_REPLY: AzString = AzString::from_const_str("__azdrive_contact_reply");
+/// Options > Drives > Shares you hold for others: its three doors.
+pub const CONTACT_BE: AzString = AzString::from_const_str("__azdrive_contact_be");
+pub const CONTACT_TAKE: AzString = AzString::from_const_str("__azdrive_contact_take");
+pub const CONTACT_HELP: AzString = AzString::from_const_str("__azdrive_contact_help");
+/// Recover with trusted contacts: the request, the two answers' boxes, Recover; the code back.
+pub const CONTACTS_REQUEST: AzString = AzString::from_const_str("__azdrive_contacts_request");
+#[must_use]
+pub fn contacts_answer_box(slot: usize) -> AzString {
+    AzString::from(format!("__azdrive_contacts_answer_{slot}"))
+}
+pub const CONTACTS_RECOVER: AzString = AzString::from_const_str("__azdrive_contacts_recover");
+pub const REBUILT_CODE: AzString = AzString::from_const_str("__azdrive_rebuilt_code");
