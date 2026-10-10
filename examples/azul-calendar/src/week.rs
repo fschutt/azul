@@ -3,7 +3,7 @@
 //! click or a drag makes, and the zoom. Weeks start on Monday; the view holds the whole day,
 //! 00:00 to 24:00, and scrolls.
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Timelike};
+use chrono::{Duration, NaiveDate, NaiveTime, Timelike};
 
 use crate::event::Event;
 
@@ -333,21 +333,13 @@ pub fn first_minute_shown(today_shown: bool, now: NaiveTime) -> u32 {
 
 /// "Wed 30"
 pub fn day_label(day: NaiveDate) -> String {
-    day.format("%a %-d").to_string()
+    crate::day_text(azul_appkit::l10n::DateStyle::ShortWeekdayDay, day)
 }
 
 /// "28 September - 4 October 2026", "5 - 11 October 2026" or "28 December 2026 - 3 January 2027".
 pub fn week_title(day: NaiveDate) -> String {
     let monday = week_start(day);
-    let sunday = monday + Duration::days(6);
-    let first = if monday.year() != sunday.year() {
-        "%-d %B %Y"
-    } else if monday.month() != sunday.month() {
-        "%-d %B"
-    } else {
-        "%-d"
-    };
-    format!("{} - {}", monday.format(first), sunday.format("%-d %B %Y"))
+    crate::views::range_title(monday, monday + Duration::days(6))
 }
 
 /// "09:00 - 10:00"
@@ -362,7 +354,11 @@ pub fn hour_label(hour: u32) -> String {
 
 /// "Wednesday 30 September, 10:30 - 11:30": what a new event's popover says it is.
 pub fn draft_label(date: NaiveDate, start: NaiveTime, end: NaiveTime) -> String {
-    format!("{}, {}", date.format("%A %-d %B"), time_range(start, end))
+    format!(
+        "{}, {}",
+        crate::day_text(azul_appkit::l10n::DateStyle::WeekdayDayMonth, date),
+        time_range(start, end)
+    )
 }
 
 /// The day a new event starts on: today when today is in the shown week, else the shown week's

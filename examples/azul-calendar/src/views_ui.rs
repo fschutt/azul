@@ -79,7 +79,7 @@ pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> D
             InfoBar::create(text)
                 .with_icon("alarm")
                 .with_kind(AlertKind::Info)
-                .with_action("Dismiss")
+                .with_action(azul_appkit::l10n::label("azcalendar-dismiss"))
                 .with_on_action(app.clone(), crate::on_dismiss_reminder)
                 .dom()
                 .with_id(ids::REMINDER),
@@ -87,13 +87,10 @@ pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> D
     }
     if s.events.is_empty() {
         pane.add_child(
-            InfoBar::create(
-                "This calendar has no events yet: click a time to make one, or import an \
-                 iCalendar (.ics) file.",
-            )
+            InfoBar::create(azul_appkit::l10n::label("azcalendar-empty-calendar"))
             .with_icon("event")
             .with_kind(AlertKind::Info)
-            .with_action("Import\u{2026}")
+            .with_action(azul_appkit::l10n::label("azcalendar-import-more"))
             .with_on_action(app.clone(), chrome::on_open_page)
             .dom()
             .with_id(ids::EMPTY_CALENDAR),
@@ -125,7 +122,7 @@ fn view_header(s: &CalState, app: &RefAny) -> Dom {
                 .with_on_click(app.clone(), cb)
                 .dom()
                 .with_id(id)
-                .with_accessibility_name(name)
+                .with_accessibility_name(azul_appkit::l10n::label(name))
                 .with_css("margin-right: 4px;")
         };
     Dom::create_div()
@@ -135,13 +132,13 @@ fn view_header(s: &CalState, app: &RefAny) -> Dom {
         ))
         .with_child(icon_button(
             "chevron_left",
-            "Back",
+            "azcalendar-back",
             ids::VIEW_PREV,
             on_previous,
         ))
         .with_child(icon_button(
             "chevron_right",
-            "Forward",
+            "azcalendar-forward",
             ids::VIEW_NEXT,
             on_next,
         ))
@@ -151,7 +148,7 @@ fn view_header(s: &CalState, app: &RefAny) -> Dom {
                 .with_css("font-size: 18px; margin-left: 8px; flex-grow: 1; min-width: 0;"),
         )
         .with_child(
-            Button::create("Today")
+            Button::create(azul_appkit::l10n::label("azcalendar-today"))
                 .with_on_click(app.clone(), chrome::on_today)
                 .dom()
                 .with_id(ids::VIEW_TODAY),
@@ -181,7 +178,10 @@ fn month_view(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
                     "flex-grow: 1; flex-basis: 0px; min-width: 0; padding: 4px 8px; font-size: \
                      12px; {SECONDARY} border-left: 1px solid {LINE};"
                 ))
-                .with_child(Dom::create_span_with_text(day.format("%A").to_string())),
+                .with_child(Dom::create_span_with_text(crate::day_text(
+                    azul_appkit::l10n::DateStyle::Weekday,
+                    *day,
+                ))),
         );
     }
     let mut grid = Dom::create_div()
@@ -235,7 +235,7 @@ fn month_cell(
         SECONDARY
     };
     let label = if day.day() == 1 {
-        day.format("%-d %b").to_string()
+        crate::day_text(azul_appkit::l10n::DateStyle::DayShortMonth, day)
     } else {
         day.day().to_string()
     };
@@ -260,7 +260,13 @@ fn month_cell(
                 .with_css(format!(
                     "font-size: 12px; height: 18px; flex-shrink: 0; cursor: pointer; {number_css}"
                 ))
-                .with_accessibility_name(format!("Open {}", day.format("%A %-d %B")))
+                .with_accessibility_name(azul_appkit::l10n::t_args(
+                    "azcalendar-open-day",
+                    &[("day", azul_appkit::l10n::Arg::from(crate::day_text(
+                        azul_appkit::l10n::DateStyle::WeekdayDayMonth,
+                        day,
+                    )))],
+                ))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
                     target.clone(),
@@ -302,7 +308,19 @@ fn month_cell(
                      flex-shrink: 0; @theme(flora) { color: system:link; }",
                 )
                 .with_tab_index(TabIndex::Auto)
-                .with_accessibility_name(format!("{} more on {}", more, day.format("%A %-d %B")))
+                .with_accessibility_name(azul_appkit::l10n::t_args(
+                    "azcalendar-more-on",
+                    &[
+                        ("count", azul_appkit::l10n::Arg::from(more)),
+                        (
+                            "day",
+                            azul_appkit::l10n::Arg::from(crate::day_text(
+                                azul_appkit::l10n::DateStyle::WeekdayDayMonth,
+                                day,
+                            )),
+                        ),
+                    ],
+                ))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
                     target,
@@ -316,7 +334,7 @@ fn month_cell(
 /// "All day", "09:00 - 10:00".
 fn time_label(e: &crate::event::Event) -> String {
     if e.all_day {
-        String::from("all day")
+        azul_appkit::l10n::t("azcalendar-all-day-lower")
     } else {
         week::time_range(e.start, e.end)
     }
@@ -439,10 +457,10 @@ fn agenda_view(s: &CalState, app: &RefAny) -> Dom {
     let occurrences = s.occurrences(first, last);
     let list = views::agenda(&occurrences, first, last);
     if list.is_empty() {
-        return ShellEmptyState::create("Nothing in these seven days")
+        return ShellEmptyState::create(azul_appkit::l10n::label("azcalendar-agenda-empty"))
             .with_icon("event_available")
-            .with_detail("Events of the calendars shown come here, day by day.")
-            .with_action_label("New Appointment")
+            .with_detail(azul_appkit::l10n::label("azcalendar-agenda-empty-detail"))
+            .with_action_label(azul_appkit::l10n::label("azcalendar-new-appointment"))
             .with_on_action(app.clone(), editor_ui::on_new_appointment)
             .dom()
             .with_id(ids::AGENDA);

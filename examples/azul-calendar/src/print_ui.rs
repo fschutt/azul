@@ -32,6 +32,7 @@ use azul::{
     vec::U8VecRef,
     widgets::{ButtonType, DatePicker, DatePickerState, DatePickerWeekStart},
 };
+use azul_appkit::l10n::{label, t, t_args, t_label, Arg, DateStyle};
 use chrono::{Datelike, NaiveDate};
 
 use crate::{
@@ -56,7 +57,7 @@ pub(crate) const PREVIEW_SURFACE: &str = "background: #d5d8dc; @media (prefers-c
                                           dark) { background: #1c1c1c; } @theme(flora) { \
                                           background: system:under-page-background; }";
 /// What Print says when azul made no PDF.
-const NO_PDF: &str = "azul made no PDF: this build of azul has no PDF writer (its `pdf` feature).";
+const NO_PDF: &str = "azcalendar-print-no-pdf";
 
 // ==== The page ====
 
@@ -102,29 +103,29 @@ pub(crate) fn print_page(s: &CalState, app: &RefAny) -> Dom {
             "display: flex; flex-direction: column; width: 280px; flex-shrink: 0; margin-right: \
              24px; overflow-y: auto;",
         )
-        .with_child(Dom::create_span_with_text("Print style").with_css(LABEL));
+        .with_child(Dom::create_span_with_text(label("azcalendar-print-style")).with_css(LABEL));
     for (style, cb) in styles {
         left.add_child(
-            Button::create(style.label())
+            Button::create(label(style.label()))
                 .with_icon(style.icon())
                 .with_toggled(settings.style == style)
                 .with_on_click(app.clone(), cb)
                 .dom()
                 .with_id(ids::print_style(style.name()))
-                .with_accessibility_name(style.label())
+                .with_accessibility_name(label(style.label()))
                 .with_css("margin-top: 6px;"),
         );
     }
-    left.add_child(Dom::create_span_with_text("Print range").with_css(LABEL));
-    left.add_child(date_line("Start", settings.from, ids::PRINT_START, app, on_start));
-    left.add_child(date_line("End", settings.to, ids::PRINT_END, app, on_end));
+    left.add_child(Dom::create_span_with_text(label("azcalendar-print-range")).with_css(LABEL));
+    left.add_child(date_line("azcalendar-print-start", settings.from, ids::PRINT_START, app, on_start));
+    left.add_child(date_line("azcalendar-print-end", settings.to, ids::PRINT_END, app, on_end));
     left.add_child(
         Dom::create_span_with_text(settings.describe())
             .with_id(ids::PRINT_PAGES)
             .with_css(format!("font-size: 12px; margin-top: 10px; {SECONDARY}")),
     );
     left.add_child(
-        Button::create("Print")
+        Button::create(label("azcalendar-file-print"))
             .with_icon("print")
             .with_button_type(ButtonType::Primary)
             .with_on_click(app.clone(), on_print)
@@ -133,9 +134,7 @@ pub(crate) fn print_page(s: &CalState, app: &RefAny) -> Dom {
             .with_css("margin-top: 16px;"),
     );
     left.add_child(
-        Dom::create_span_with_text(
-            "Print saves the printout as a PDF file, to print from there or to keep.",
-        )
+        Dom::create_span_with_text(label("azcalendar-print-what"))
         .with_css(format!("font-size: 12px; margin-top: 6px; {SECONDARY}")),
     );
     if !s.print_message.is_empty() {
@@ -155,7 +154,7 @@ pub(crate) fn print_page(s: &CalState, app: &RefAny) -> Dom {
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0; padding: 20px \
              28px; color: system:text;",
         )
-        .with_child(chrome::page_title("Print"))
+        .with_child(chrome::page_title("azcalendar-file-print"))
         .with_child(
             Dom::create_div()
                 .with_css(
@@ -169,7 +168,7 @@ pub(crate) fn print_page(s: &CalState, app: &RefAny) -> Dom {
 
 /// "Start" / "End" and the day, a date picker.
 fn date_line(
-    label: &str,
+    what: &str,
     date: NaiveDate,
     id: AzString,
     app: &RefAny,
@@ -178,14 +177,17 @@ fn date_line(
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 8px;")
         .with_child(
-            Dom::create_span_with_text(label)
+            Dom::create_span_with_text(label(what))
                 .with_css(format!("width: 48px; flex-shrink: 0; {SECONDARY}")),
         )
         .with_child(
             DatePicker::create(date.year().max(1) as u32, date.month(), date.day())
                 // The calendar's weeks run Monday to Sunday: so do its date pickers' rows.
                 .with_week_start(DatePickerWeekStart::Monday)
-                .with_accessibility_name(format!("{label} of the printout"))
+                .with_accessibility_name(t_args(
+                    "azcalendar-print-date-of",
+                    &[("what", Arg::from(t(what)))],
+                ))
                 .with_on_change(app.clone(), cb)
                 .dom()
                 .with_id(id),
@@ -206,18 +208,21 @@ fn preview(s: &CalState) -> Dom {
         ))
     };
     if p.made.is_none() || (p.pending.is_some() && p.pages.is_empty()) {
-        pane.add_child(caption(String::from("Making the preview\u{2026}")));
+        pane.add_child(caption(t("azcalendar-print-making-preview")));
         return pane;
     }
     if p.pending.is_some() {
-        pane.add_child(caption(String::from("Updating the preview\u{2026}")));
+        pane.add_child(caption(t("azcalendar-print-updating-preview")));
     }
     if !p.error.is_empty() {
-        pane.add_child(caption(p.error.clone()));
+        pane.add_child(caption(t_label(&p.error)));
         return pane;
     }
     for (index, page) in p.pages.iter().enumerate() {
-        let name = format!("Page {} of {}", index + 1, p.page_count);
+        let name = t_args(
+            "azcalendar-print-page-of",
+            &[("page", Arg::from(index + 1)), ("pages", Arg::from(p.page_count))],
+        );
         pane.add_child(
             Dom::create_image(page.image.clone())
                 .with_id(ids::print_sheet(index))
@@ -231,10 +236,9 @@ fn preview(s: &CalState) -> Dom {
         pane.add_child(caption(name));
     }
     if p.page_count > p.pages.len() {
-        pane.add_child(caption(format!(
-            "The preview shows the first {} pages; Print saves all {}.",
-            p.pages.len(),
-            p.page_count
+        pane.add_child(caption(t_args(
+            "azcalendar-print-preview-first",
+            &[("shown", Arg::from(p.pages.len())), ("pages", Arg::from(p.page_count))],
         )));
     }
     pane
@@ -304,6 +308,8 @@ extern "C" fn preview_thread(
     else {
         return;
     };
+    // The printout speaks the window's language (its words are said on this thread).
+    job.voice.adopt();
     let result = render(&job, fonts);
     let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
         on_preview_done,
@@ -499,15 +505,21 @@ extern "C" fn on_print(mut data: RefAny, info: CallbackInfo) -> Update {
     };
     let (message, failed) = if bytes.is_empty() {
         eprintln!("[azcalendar] {NO_PDF}");
-        (String::from(NO_PDF), true)
+        (t(NO_PDF), true)
     } else {
         let len = bytes.len();
         let name = settings.file_name();
         if FileDialog::save_bytes(name.as_str(), "application/pdf", bytes) {
             println!("AZCAL_PRINTED {} {len}", settings.style.name());
-            (format!("Saved {name} ({}).", settings.describe()), false)
+            (
+                t_args(
+                    "azcalendar-print-saved",
+                    &[("name", Arg::from(name)), ("what", Arg::from(settings.describe()))],
+                ),
+                false,
+            )
         } else {
-            (String::from("The printout was not saved."), false)
+            (t("azcalendar-print-not-saved"), false)
         }
     };
     let Some(mut s) = data.downcast_mut::<CalState>() else {
@@ -657,7 +669,10 @@ fn footer(job: &Job) -> Dom {
              {MUTED};"
         ))
         .with_child(text(
-            &format!("Printed {} - AzCalendar", job.printed.format("%-d %B %Y")),
+            &t_args(
+                "azcalendar-print-printed",
+                &[("day", Arg::from(crate::day_text(DateStyle::Date, job.printed)))],
+            ),
             "flex-grow: 1; min-width: 0;",
         ));
     for (name, colour) in &job.legend {
@@ -769,7 +784,7 @@ fn day_page(page: &Page) -> Dom {
                     "display: flex; flex-direction: row; height: {strip:.2}px; flex-shrink: 0; \
                      padding: 3px 0px; box-sizing: border-box; border-bottom: 1px solid {RULE};"
                 ))
-                .with_child(text("All day", gutter))
+                .with_child(text(&t("azcalendar-all-day"), gutter))
                 .with_child(lines_column(
                     item_lines(&all_day, DAY_ALL_DAY_LINES, DAY_LINE_PX, 11.0, true),
                     "flex-grow: 1;",
@@ -831,10 +846,10 @@ fn week_page(page: &Page) -> Dom {
 fn week_box(day: Option<&Day>, box_px: f32, gap: f32, rows: usize) -> Dom {
     let (name, date) = match day {
         Some(day) => (
-            day.date.format("%A").to_string(),
-            day.date.format("%-d %B").to_string(),
+            crate::day_text(DateStyle::Weekday, day.date),
+            crate::day_text(DateStyle::DayMonth, day.date),
         ),
-        None => (String::from("Notes"), String::new()),
+        None => (t("azcalendar-print-notes"), String::new()),
     };
     let mut b = Dom::create_div()
         .with_css(format!(
@@ -883,7 +898,7 @@ fn month_page(page: &Page) -> Dom {
     ));
     for day in page.days.iter().take(7) {
         names.add_child(text(
-            &day.date.format("%A").to_string(),
+            &crate::day_text(DateStyle::Weekday, day.date),
             &format!(
                 "flex-grow: 1; flex-basis: 0px; min-width: 0; padding: 3px 4px 0px 4px; \
                  box-sizing: border-box; font-size: 10px; font-weight: bold; color: {MUTED}; \
@@ -903,7 +918,7 @@ fn month_page(page: &Page) -> Dom {
                 (SHADE, MUTED)
             };
             let label = if day.date.day() == 1 {
-                day.date.format("%-d %b").to_string()
+                crate::day_text(DateStyle::DayShortMonth, day.date)
             } else {
                 day.date.day().to_string()
             };

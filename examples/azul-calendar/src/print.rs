@@ -262,13 +262,15 @@ impl Settings {
     #[must_use]
     pub fn describe(self) -> String {
         let pages = self.pages();
-        let orientation = if self.style.landscape() {
-            "landscape"
-        } else {
-            "portrait"
-        };
-        let noun = if pages == 1 { "page" } else { "pages" };
-        format!("{pages} {noun}, A4 {orientation}")
+        use azul_appkit::l10n::{t_args, Arg};
+        t_args(
+            if self.style.landscape() {
+                "azcalendar-print-pages-landscape"
+            } else {
+                "azcalendar-print-pages-portrait"
+            },
+            &[("pages", Arg::from(pages))],
+        )
     }
 }
 
@@ -289,7 +291,7 @@ impl Item {
     #[must_use]
     pub fn times(&self) -> String {
         if self.all_day {
-            String::from("All day")
+            azul_appkit::l10n::t("azcalendar-all-day")
         } else {
             week::time_range(self.start, self.end)
         }
@@ -340,6 +342,8 @@ pub struct Job {
     pub pages: Vec<Page>,
     /// The calendars whose events are in it, with their colours (in the footer).
     pub legend: Vec<(String, Colour)>,
+    /// The language it is printed in (laid out on paper on another thread: it speaks this).
+    pub voice: azul_appkit::l10n::Voice,
 }
 
 /// The days of the month of `first` a Monthly page shows: the weeks (Monday first) that hold a
@@ -412,11 +416,17 @@ pub fn job(
                     .collect(),
             })
             .collect();
-        let week_number = format!("Week {}", page_first.iso_week().week());
+        let week_number = azul_appkit::l10n::t_args(
+            "azcalendar-print-week",
+            &[("week", azul_appkit::l10n::Arg::from(page_first.iso_week().week()))],
+        );
         let (title, subtitle) = match style {
             Style::Daily => (views::title(ViewKind::Day, first), week_number),
             Style::Weekly => (views::range_title(page_first, page_last), week_number),
-            Style::Monthly => (first.format("%B %Y").to_string(), String::new()),
+            Style::Monthly => (
+                crate::day_text(azul_appkit::l10n::DateStyle::MonthYear, first),
+                String::new(),
+            ),
         };
         pages.push(Page {
             title,
@@ -431,6 +441,7 @@ pub fn job(
         printed,
         pages,
         legend,
+        voice: azul_appkit::l10n::Voice::here(),
     }
 }
 
@@ -538,6 +549,7 @@ mod tests {
 
     #[test]
     fn a_printout_is_named_after_its_range() {
+        crate::l10n::in_english();
         let month = Settings::for_view(ViewKind::Month, wed());
         assert_eq!(month.file_name(), "AzCalendar 2026-10.pdf");
         let week = Settings::for_view(ViewKind::Week, wed());
@@ -584,6 +596,7 @@ mod tests {
 
     #[test]
     fn a_weekly_page_is_monday_to_sunday_and_hidden_calendars_are_left_out() {
+        crate::l10n::in_english();
         let events = vec![
             event(1, "Shown", wed(), at(9, 0), at(10, 0)),
             event(2, "Hidden", wed(), at(11, 0), at(12, 0)),

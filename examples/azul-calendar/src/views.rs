@@ -165,8 +165,8 @@ pub fn step(kind: ViewKind, anchor: NaiveDate, by: i32) -> NaiveDate {
 #[must_use]
 pub fn title(kind: ViewKind, anchor: NaiveDate) -> String {
     match kind {
-        ViewKind::Day | ViewKind::Schedule => anchor.format("%A, %-d %B %Y").to_string(),
-        ViewKind::Month => anchor.format("%B %Y").to_string(),
+        ViewKind::Day | ViewKind::Schedule => crate::day_text(azul_appkit::l10n::DateStyle::DayLong, anchor),
+        ViewKind::Month => crate::day_text(azul_appkit::l10n::DateStyle::MonthYear, anchor),
         _ => {
             let days = days_shown(kind, anchor);
             let (first, last) = (days[0], days[days.len() - 1]);
@@ -178,14 +178,19 @@ pub fn title(kind: ViewKind, anchor: NaiveDate) -> String {
 /// "28 September - 4 October 2026", "5 - 11 October 2026", "28 December 2026 - 3 January 2027".
 #[must_use]
 pub fn range_title(first: NaiveDate, last: NaiveDate) -> String {
+    use azul_appkit::l10n::DateStyle;
     let head = if first.year() != last.year() {
-        "%-d %B %Y"
+        DateStyle::Date
     } else if first.month() != last.month() {
-        "%-d %B"
+        DateStyle::DayMonth
     } else {
-        "%-d"
+        DateStyle::DayOnly
     };
-    format!("{} - {}", first.format(head), last.format("%-d %B %Y"))
+    format!(
+        "{} - {}",
+        crate::day_text(head, first),
+        crate::day_text(DateStyle::Date, last)
+    )
 }
 
 /// One occurrence of an event in a view: the event (its index in the calendar's list) and the
@@ -277,7 +282,7 @@ pub fn month_cell_rows(cell_px: f32, head_px: f32, line_px: f32) -> usize {
 /// "+3 more"
 #[must_use]
 pub fn more_label(more: usize) -> String {
-    format!("+{more} more")
+    azul_appkit::l10n::t_args("azcalendar-more", &[("count", azul_appkit::l10n::Arg::from(more))])
 }
 
 /// The list's days: each day from `from` to `to` that has occurrences, with them.
@@ -302,12 +307,14 @@ pub fn agenda(
 /// "Today", "Tomorrow", or "Friday 2 October": a list day's heading.
 #[must_use]
 pub fn agenda_day_label(day: NaiveDate, today: NaiveDate) -> String {
+    use azul_appkit::l10n::{t_args, Arg, DateStyle};
+    let said = crate::day_text(DateStyle::WeekdayDayMonth, day);
     if day == today {
-        format!("Today, {}", day.format("%A %-d %B"))
+        t_args("azcalendar-agenda-today", &[("day", Arg::from(said))])
     } else if day == today + Duration::days(1) {
-        format!("Tomorrow, {}", day.format("%A %-d %B"))
+        t_args("azcalendar-agenda-tomorrow", &[("day", Arg::from(said))])
     } else {
-        day.format("%A %-d %B").to_string()
+        said
     }
 }
 
@@ -490,6 +497,7 @@ mod tests {
 
     #[test]
     fn a_month_cell_shows_what_fits_and_says_how_many_more() {
+        crate::l10n::in_english();
         assert_eq!(month_cell(2, 3), (2, 0));
         assert_eq!(month_cell(3, 3), (3, 0));
         assert_eq!(month_cell(5, 3), (2, 3));
@@ -502,6 +510,7 @@ mod tests {
 
     #[test]
     fn the_list_has_the_days_with_events_and_names_today_and_tomorrow() {
+        crate::l10n::in_english();
         let events = vec![event(1, "A", wed(), 9), event(2, "B", d(2026, 10, 2), 9)];
         let all = occurrences(&events, wed(), d(2026, 10, 6), |_| true);
         let days: Vec<NaiveDate> = agenda(&all, wed(), d(2026, 10, 6))

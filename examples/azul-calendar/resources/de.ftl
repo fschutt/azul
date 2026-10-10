@@ -141,3 +141,43 @@ azcalendar-calendar-needs-name = Ein Kalender braucht einen Namen.
 azcalendar-calendar-give-name = Gib dem neuen Kalender einen Namen.
 azcalendar-calendar-exists = Es gibt bereits einen Kalender namens „{ $name }“.
 azcalendar-server-give-address = Gib die Adresse des Besprechungsservers an, etwa https://meet.example.com oder http://127.0.0.1:8787.
+
+## Views and printing
+
+azcalendar-more = +{ $count } weitere
+azcalendar-agenda-today = Heute, { $day }
+azcalendar-agenda-tomorrow = Morgen, { $day }
+azcalendar-dismiss = Schließen
+azcalendar-empty-calendar = Dieser Kalender hat noch keine Termine: Klicke auf eine Uhrzeit, um einen anzulegen, oder importiere eine iCalendar-Datei (.ics).
+azcalendar-import-more = Importieren…
+azcalendar-back = Zurück
+azcalendar-forward = Vor
+azcalendar-open-day = { $day } öffnen
+azcalendar-more-on = { $count } weitere am { $day }
+azcalendar-agenda-empty = Nichts in diesen sieben Tagen
+azcalendar-agenda-empty-detail = Die Termine der angezeigten Kalender erscheinen hier, Tag für Tag.
+azcalendar-print-pages-landscape = { $pages ->
+    [one] 1 Seite, A4 quer
+   *[other] { $pages } Seiten, A4 quer
+ }
+azcalendar-print-pages-portrait = { $pages ->
+    [one] 1 Seite, A4 hoch
+   *[other] { $pages } Seiten, A4 hoch
+ }
+azcalendar-all-day = Ganztägig
+azcalendar-print-week = KW { $week }
+azcalendar-print-no-pdf = azul hat keine PDF erstellt: Dieser Build von azul hat keinen PDF-Writer (sein Feature `pdf`).
+azcalendar-print-style = Druckformat
+azcalendar-print-range = Druckbereich
+azcalendar-print-start = Beginn
+azcalendar-print-end = Ende
+azcalendar-print-what = „Drucken“ speichert den Ausdruck als PDF-Datei, um ihn von dort zu drucken oder aufzubewahren.
+azcalendar-print-date-of = { $what } des Ausdrucks
+azcalendar-print-making-preview = Die Vorschau wird erstellt…
+azcalendar-print-updating-preview = Die Vorschau wird aktualisiert…
+azcalendar-print-page-of = Seite { $page } von { $pages }
+azcalendar-print-preview-first = Die Vorschau zeigt die ersten { $shown } Seiten; „Drucken“ speichert alle { $pages }.
+azcalendar-print-not-saved = Der Ausdruck wurde nicht gespeichert.
+azcalendar-print-notes = Notizen
+azcalendar-print-saved = { $name } gespeichert ({ $what }).
+azcalendar-print-printed = Gedruckt am { $day } - AzCalendar

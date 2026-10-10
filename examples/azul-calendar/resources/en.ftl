@@ -141,3 +141,43 @@ azcalendar-calendar-needs-name = A calendar needs a name.
 azcalendar-calendar-give-name = Give the new calendar a name.
 azcalendar-calendar-exists = There is a calendar named "{ $name }" already.
 azcalendar-server-give-address = Give the meeting server's address, such as https://meet.example.com or http://127.0.0.1:8787.
+
+## Views and printing
+
+azcalendar-more = +{ $count } more
+azcalendar-agenda-today = Today, { $day }
+azcalendar-agenda-tomorrow = Tomorrow, { $day }
+azcalendar-dismiss = Dismiss
+azcalendar-empty-calendar = This calendar has no events yet: click a time to make one, or import an iCalendar (.ics) file.
+azcalendar-import-more = Import…
+azcalendar-back = Back
+azcalendar-forward = Forward
+azcalendar-open-day = Open { $day }
+azcalendar-more-on = { $count } more on { $day }
+azcalendar-agenda-empty = Nothing in these seven days
+azcalendar-agenda-empty-detail = Events of the calendars shown come here, day by day.
+azcalendar-print-pages-landscape = { $pages ->
+    [one] 1 page, A4 landscape
+   *[other] { $pages } pages, A4 landscape
+ }
+azcalendar-print-pages-portrait = { $pages ->
+    [one] 1 page, A4 portrait
+   *[other] { $pages } pages, A4 portrait
+ }
+azcalendar-all-day = All day
+azcalendar-print-week = Week { $week }
+azcalendar-print-no-pdf = azul made no PDF: this build of azul has no PDF writer (its `pdf` feature).
+azcalendar-print-style = Print style
+azcalendar-print-range = Print range
+azcalendar-print-start = Start
+azcalendar-print-end = End
+azcalendar-print-what = Print saves the printout as a PDF file, to print from there or to keep.
+azcalendar-print-date-of = { $what } of the printout
+azcalendar-print-making-preview = Making the preview…
+azcalendar-print-updating-preview = Updating the preview…
+azcalendar-print-page-of = Page { $page } of { $pages }
+azcalendar-print-preview-first = The preview shows the first { $shown } pages; Print saves all { $pages }.
+azcalendar-print-not-saved = The printout was not saved.
+azcalendar-print-notes = Notes
+azcalendar-print-saved = Saved { $name } ({ $what }).
+azcalendar-print-printed = Printed { $day } - AzCalendar
