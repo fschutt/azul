@@ -21,6 +21,17 @@
 //!   opens it, enrols itself and deletes the invite wrap, so the code opens the key once.
 //! - [`recover`]: the recovery code opens the recovery wrap; this device is enrolled.
 //!
+//! The record of the members is the drive index's policy (`.azlin/policy.toml` and
+//! `.azlin/keys/` in the metadata repository, `crate::meta::policy`). A device that holds the
+//! drive key reads the members from it ([`members`]), and [`enroll`] records a member there
+//! before its key file goes into the bucket. The bucket's key files are the copy a device
+//! without the drive key opens: [`unlock`], [`adopt_invite`] and [`recover`] start from
+//! them, because the repository is sealed with the drive key. [`unlock`] then asks the
+//! policy, so a device it no longer names stays out. A drive whose index has no policy yet
+//! gets one at its first member change, from its key files. A bucket without an index keeps
+//! its key files as the record. Invites and the recovery wrap are no members: they stay in
+//! the bucket alone.
+//!
 //! A join code (like the recovery code) is a bearer secret: whoever holds it reads the drive.
 //! It already grants the bucket; with the invite secret it grants the data too. Pass it by a
 //! file or a QR code, never by a channel others read.
@@ -31,14 +42,15 @@ use zeroize::Zeroizing;
 use super::{
     hex_array,
     keys::{
-        load_member_wrap, load_recovery_wrap, member_key_file, store_member_wrap,
-        store_recovery_wrap, MemberSecret, MemberWrap, RecoveryCode, RecoveryKdf, RecoveryWrap,
-        KEYS_PREFIX, RECOVERY_KEY_FILE,
+        load_member_wrap, load_member_wraps, load_recovery_wrap, member_key_file,
+        store_member_wrap, store_recovery_wrap, MemberSecret, MemberWrap, RecoveryCode,
+        RecoveryKdf, RecoveryWrap, INVITE_PREFIX, KEYS_PREFIX, RECOVERY_KEY_FILE,
     },
     to_hex, CryptoError, DriveKey, KEY_LEN,
 };
 use crate::{
     keyring::{KeyringError, KeyringStore},
+    meta::policy::{MemberChange, MemberRecord},
     Drive, DriveError, ListRequest, Precondition,
 };
 
@@ -98,7 +110,7 @@ const KIND_MEMBER_KEY: &str = "member-key";
 
 /// The member id an invite's one-time key has in the bucket.
 fn invite_member(invite: &MemberSecret) -> String {
-    format!("invite-{}", invite.public().id())
+    format!("{INVITE_PREFIX}{}", invite.public().id())
 }
 
 /// A keyring's refusal as a drive's error (never the secret).
@@ -212,10 +224,41 @@ pub fn forget_keys(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveE
     Ok(())
 }
 
-/// The drive's members (their ids, sorted) as a device that holds the drive key reads them.
+/// The drive's members (their ids, sorted) as a device that holds the drive key reads them:
+/// the ones its index's policy names. A drive whose index has no policy yet, and a bucket
+/// without an index, have their member key files as the record.
 pub fn members(bucket: &dyn Drive, drive_key: &DriveKey) -> Result<Vec<String>, DriveError> {
-    let _ = (bucket, drive_key);
-    Ok(Vec::new())
+    if let Some(mut record) = MemberRecord::open(bucket, drive_key)? {
+        if let Some(members) = record.members()? {
+            return Ok(members.policy.members.into_keys().collect());
+        }
+    }
+    Ok(load_member_wraps(bucket)?.into_keys().collect())
+}
+
+/// Records `changes` of the drive's members in its index's policy, when the bucket holds an
+/// index. A drive without a policy gets one from its key files in the same commit. A bucket
+/// without an index keeps its key files as the record, so there is nothing to do.
+fn record_members(
+    bucket: &dyn Drive,
+    drive_key: &DriveKey,
+    changes: &[MemberChange],
+) -> Result<(), DriveError> {
+    match MemberRecord::open(bucket, drive_key)? {
+        Some(mut record) => record.record(changes).map(drop),
+        None => Ok(()),
+    }
+}
+
+/// Whether the drive's record names `member`: its index's policy. A drive whose index has
+/// no policy, and a bucket without an index, name every member with a key file.
+fn is_member(bucket: &dyn Drive, drive_key: &DriveKey, member: &str) -> Result<bool, DriveError> {
+    let Some(mut record) = MemberRecord::open(bucket, drive_key)? else {
+        return Ok(true);
+    };
+    Ok(record
+        .members()?
+        .map_or(true, |members| members.contains(member)))
 }
 
 /// Whether the bucket holds an encrypted drive: key files under `.azlin/keys/`.
@@ -268,8 +311,9 @@ pub fn setup_new_drive(
 }
 
 /// Seals `drive_key` to this device's member key (made and kept in the keyring when there is
-/// none yet), puts the wrap into the bucket and keeps the drive key in the keyring. Returns
-/// this device's member id.
+/// none yet), records this device as a member with that wrap in the index's policy (when the
+/// bucket holds an index), puts the wrap into the bucket and keeps the drive key in the
+/// keyring. Returns this device's member id.
 pub fn enroll(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
@@ -280,6 +324,13 @@ pub fn enroll(
     let member = secret.public().id();
     let wrap = MemberWrap::seal(drive_key, drive, &member, &secret.public())
         .map_err(|e| e.for_key(drive))?;
+    // The record first (the index's policy), then the key file this device opens while it
+    // has no drive key.
+    let change = MemberChange::Add {
+        member: member.clone(),
+        wrap: wrap.to_bytes(),
+    };
+    record_members(bucket, drive_key, &[change])?;
     store_member_wrap(bucket, &wrap)?;
     store_drive_key(keyring, drive, drive_key)?;
     Ok(member)
@@ -287,7 +338,8 @@ pub fn enroll(
 
 /// The drive key on this device: the keyring's, else the one this device's member wrap in the
 /// bucket holds (opened with its member secret, then kept in the keyring). `None` when this
-/// device has neither: it needs an invite ([`adopt_invite`]) or the recovery code ([`recover`]).
+/// device has neither, or when the index's policy no longer names it: it needs an invite
+/// ([`adopt_invite`]) or the recovery code ([`recover`]).
 pub fn unlock(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
@@ -307,6 +359,11 @@ pub fn unlock(
     };
     let file = member_key_file(&member).map_err(|e| e.for_key(drive))?;
     let drive_key = wrap.open(drive, &secret).map_err(|e| e.for_key(&file))?;
+    // The policy decides: a device it no longer names stays out, whatever key file the
+    // bucket still holds.
+    if !is_member(bucket, &drive_key, &member)? {
+        return Ok(None);
+    }
     store_drive_key(keyring, drive, &drive_key)?;
     Ok(Some(drive_key))
 }

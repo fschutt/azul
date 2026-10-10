@@ -67,7 +67,7 @@ fn reserved(path: &str) -> bool {
 }
 
 /// The drive's error for an index error.
-fn to_drive(e: MetaError) -> DriveError {
+pub(super) fn to_drive(e: MetaError) -> DriveError {
     match e {
         MetaError::Conflict { key } => DriveError::Conflict { key },
         MetaError::Drive(e) => e,

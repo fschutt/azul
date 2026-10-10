@@ -488,102 +488,60 @@ pub trait Drive: Send + Sync {
     }
 }
 
-impl<D: Drive + ?Sized> Drive for Box<D> {
-    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        (**self).list(request)
-    }
-    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        (**self).get(key)
-    }
-    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        (**self).get_range(key, range)
-    }
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        (**self).put(key, bytes)
-    }
-    fn delete(&self, key: &str) -> Result<(), DriveError> {
-        (**self).delete(key)
-    }
-    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        (**self).head(key)
-    }
-    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
-        (**self).put_from(key, body)
-    }
-    fn put_if(
-        &self,
-        key: &str,
-        bytes: &[u8],
-        condition: &Precondition,
-    ) -> Result<Option<String>, DriveError> {
-        (**self).put_if(key, bytes, condition)
-    }
-    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        (**self).copy(from, to)
-    }
-    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        (**self).create_folder(prefix)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        (**self).rename(from, to)
-    }
-    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        (**self).delete_folder(prefix)
-    }
-    fn local_path(&self, key: &str) -> Option<PathBuf> {
-        (**self).local_path(key)
-    }
-    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        (**self).metadata(key)
-    }
+/// A drive behind a pointer is that drive: a `Box`, an `Arc` or a reference forwards
+/// every call to it.
+macro_rules! forward_drive {
+    ($($pointer:ty),*) => {$(
+        impl<D: Drive + ?Sized> Drive for $pointer {
+            fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+                (**self).list(request)
+            }
+            fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+                (**self).get(key)
+            }
+            fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+                (**self).get_range(key, range)
+            }
+            fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+                (**self).put(key, bytes)
+            }
+            fn delete(&self, key: &str) -> Result<(), DriveError> {
+                (**self).delete(key)
+            }
+            fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+                (**self).head(key)
+            }
+            fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+                (**self).put_from(key, body)
+            }
+            fn put_if(
+                &self,
+                key: &str,
+                bytes: &[u8],
+                condition: &Precondition,
+            ) -> Result<Option<String>, DriveError> {
+                (**self).put_if(key, bytes, condition)
+            }
+            fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+                (**self).copy(from, to)
+            }
+            fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+                (**self).create_folder(prefix)
+            }
+            fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+                (**self).rename(from, to)
+            }
+            fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+                (**self).delete_folder(prefix)
+            }
+            fn local_path(&self, key: &str) -> Option<PathBuf> {
+                (**self).local_path(key)
+            }
+            fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+                (**self).metadata(key)
+            }
+        }
+    )*};
 }
 
-impl<D: Drive + ?Sized> Drive for std::sync::Arc<D> {
-    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        (**self).list(request)
-    }
-    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        (**self).get(key)
-    }
-    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        (**self).get_range(key, range)
-    }
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        (**self).put(key, bytes)
-    }
-    fn delete(&self, key: &str) -> Result<(), DriveError> {
-        (**self).delete(key)
-    }
-    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        (**self).head(key)
-    }
-    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
-        (**self).put_from(key, body)
-    }
-    fn put_if(
-        &self,
-        key: &str,
-        bytes: &[u8],
-        condition: &Precondition,
-    ) -> Result<Option<String>, DriveError> {
-        (**self).put_if(key, bytes, condition)
-    }
-    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        (**self).copy(from, to)
-    }
-    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        (**self).create_folder(prefix)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        (**self).rename(from, to)
-    }
-    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        (**self).delete_folder(prefix)
-    }
-    fn local_path(&self, key: &str) -> Option<PathBuf> {
-        (**self).local_path(key)
-    }
-    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        (**self).metadata(key)
-    }
-}
+forward_drive!(Box<D>, std::sync::Arc<D>, &D);
