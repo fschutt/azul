@@ -24,7 +24,7 @@ use crate::{
 const PREFIX: &str = "e2e/sync/";
 
 /// One device: its folder and its state folder.
-struct Device {
+pub(super) struct Device {
     name: &'static str,
     folder: TempDir,
     state: TempDir,
@@ -34,7 +34,7 @@ struct Device {
 }
 
 impl Device {
-    fn new(name: &'static str) -> Device {
+    pub(super) fn new(name: &'static str) -> Device {
         Device {
             name,
             folder: TempDir::new(&format!("azcloud-sync-{name}")),
@@ -54,29 +54,33 @@ impl Device {
         }
     }
 
-    fn index(&self) -> PathBuf {
+    pub(super) fn index(&self) -> PathBuf {
         self.state.path().join("sync").join("index.json")
     }
 
-    fn opts(&self) -> SyncOptions {
+    pub(super) fn opts(&self) -> SyncOptions {
         SyncOptions::new(PREFIX, "d-test", self.name).unwrap()
     }
 
-    fn sync(&self, store: &S3Bucket) -> SyncReport {
+    pub(super) fn sync(&self, store: &S3Bucket) -> SyncReport {
         sync_folder(store, &self.root(), &self.index(), &self.opts()).unwrap()
     }
 
-    fn sync_with(&self, store: &S3Bucket, opts: &SyncOptions) -> CloudResult<SyncReport> {
+    pub(super) fn sync_with(
+        &self,
+        store: &S3Bucket,
+        opts: &SyncOptions,
+    ) -> CloudResult<SyncReport> {
         sync_folder(store, &self.root(), &self.index(), opts)
     }
 
-    fn write(&self, key: &str, bytes: &[u8]) {
+    pub(super) fn write(&self, key: &str, bytes: &[u8]) {
         let path = path_of(self.folder.path(), key);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, bytes).unwrap();
     }
 
-    fn read(&self, key: &str) -> Option<Vec<u8>> {
+    pub(super) fn read(&self, key: &str) -> Option<Vec<u8>> {
         fs::read(path_of(self.folder.path(), key)).ok()
     }
 
@@ -107,7 +111,7 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) {
     }
 }
 
-fn index_of(store: &S3Bucket) -> RemoteIndex {
+pub(super) fn index_of(store: &S3Bucket) -> RemoteIndex {
     RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap()
 }
 
