@@ -50,6 +50,9 @@ pub mod keyring;
 pub mod local;
 pub mod manifest;
 pub mod meta;
+/// OAuth 2.0 for the consumer clouds (Google Drive, Dropbox, OneDrive): the token endpoint and
+/// the transport that keeps a signed-in drive's access token fresh.
+pub mod oauth;
 pub mod ops;
 pub mod s3;
 pub mod scoped;

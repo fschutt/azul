@@ -10,6 +10,7 @@ mod keyring;
 mod local;
 mod manifest;
 mod meta;
+mod oauth;
 mod ops;
 mod s3;
 mod scoped;
