@@ -103,6 +103,9 @@ pub(crate) struct SyncView {
     pub payment_due: HashSet<String>,
     /// When a refused write last made AzDrive ask a drive's token server (seconds since 1970).
     pub asked_status: HashMap<String, u64>,
+    /// A copy, move or download of a plain synced drive's own listing, waiting for its
+    /// cloud-only files to come down.
+    pub waiting_transfer: Option<sync_jobs::Transfer>,
 }
 
 /// What the ribbon, the menus and the Options ask of a synced drive.
@@ -144,6 +147,27 @@ pub(crate) fn status_text(
     }
     if azlin && payment_due {
         return String::from("Read-only (payment due)");
+    }
+    if !states.newer_format.is_empty() {
+        return String::from("Read-only here: update the app to sync this drive");
+    }
+    if let Some(pause) = &states.burst {
+        return match pause.reason {
+            azcloud_kit::sync::guard::PauseReason::Burst => format!(
+                "Uploads paused: {} at once",
+                browse::counted(pause.changes, "change", "changes")
+            ),
+            azcloud_kit::sync::guard::PauseReason::Encryption => format!(
+                "Uploads paused: {} look encrypted",
+                browse::counted(pause.changes, "file", "files")
+            ),
+        };
+    }
+    if let Some(asked) = &states.mass_delete {
+        return format!(
+            "Waiting for you: {} would be deleted",
+            browse::counted(asked.count, "file", "files")
+        );
     }
     if !azlin && states.read_only {
         return String::from("Read-only");
@@ -433,6 +457,24 @@ pub(crate) fn index_rows(states: &SyncStates, rel: &str, prefix: &str) -> Vec<En
     rows
 }
 
+/// The mass delete's question, in AzDrive's words.
+#[must_use]
+pub(crate) fn mass_delete_text(asked: &azcloud_kit::sync::MassDelete) -> String {
+    if asked.here {
+        format!(
+            "The drive says {} of the {} files of this folder were deleted on another device. \
+             That may be a mistake, or ransomware: nothing was deleted here yet.",
+            asked.count, asked.of
+        )
+    } else {
+        format!(
+            "{} of the {} files this folder held are gone from it (was a disk removed, or the \
+             folder emptied?). Nothing was deleted on the drive yet.",
+            asked.count, asked.of
+        )
+    }
+}
+
 /// What a synced row's preview says instead of its bytes: a file in the cloud only (its bytes
 /// are not here), or - `from_index`, a plain drive's own listing showing the sync's names - a
 /// file whose copy is in the synced folder. `None`: it previews as any file.
@@ -691,6 +733,13 @@ pub(crate) enum SyncDialog {
     /// "Delete from the drive?": synced files kept in the cloud only, or shown from a plain
     /// drive's sync index (their keys under the pairing).
     Delete { drive_id: String, keys: Vec<String> },
+    /// The burst guard paused the uploads (D42): "These changes are mine" or "I was hacked...".
+    Burst { drive_id: String },
+    /// "I was hacked...": lock the drive down, restore it as of a time.
+    Hacked { drive_id: String },
+    /// A pass would delete most of the folder here or there: "Delete them on the drive too" (or
+    /// here) or "Keep them".
+    MassDelete { drive_id: String },
 }
 
 /// The pairing dialog of drive `drive_id`, its folder filled in (`AzDrive/<name>` in Home) and
@@ -715,6 +764,34 @@ pub(crate) fn ask_pair(s: &mut DriveState, drive_id: &str) {
         prefix,
         error: String::new(),
     }));
+}
+
+/// The next question of a synced drive not asked yet (when no other dialog shows): a burst
+/// pause, a mass delete, then a conflict (D52).
+pub(crate) fn ask_next_question(s: &mut DriveState) {
+    if s.popup.is_some() {
+        return;
+    }
+    for setup in s.settings.synced.clone() {
+        let id = setup.drive_id.clone();
+        let states = s.sync_view.store.states(&id);
+        let ask = if states.burst.is_some() {
+            Some(("burst", SyncDialog::Burst { drive_id: id.clone() }))
+        } else if states.mass_delete.is_some() {
+            Some(("mass", SyncDialog::MassDelete { drive_id: id.clone() }))
+        } else {
+            None
+        };
+        if let Some((what, dialog)) = ask {
+            if s.sync_view.asked.insert(format!("{id}\n{what}")) {
+                println!("AZDRIVE_SYNC_QUESTION {id} {what}");
+                s.popups_opened += 1;
+                s.popup = Some(Popup::Sync(dialog));
+                return;
+            }
+        }
+    }
+    ask_next_conflict(s);
 }
 
 /// The next conflict not asked about yet, as the D52 question (when no other dialog shows).
@@ -770,6 +847,13 @@ enum Answer {
     TakeTheirs,
     KeepBoth,
     Delete,
+    BurstMine,
+    Hacked,
+    #[cfg(feature = "encryption")]
+    LockDown,
+    Restore,
+    KeepFiles,
+    DeleteFiles,
 }
 
 struct AnswerRef {
@@ -905,6 +989,111 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                 .with_id(ids::SYNC_DELETE),
             )
         }
+        SyncDialog::Burst { drive_id } => {
+            let name = s.drive_name(&Place::folder(drive_id, ""));
+            let states = s.sync_view.store.states(drive_id);
+            let mut body = column(vec![]);
+            if let Some(pause) = &states.burst {
+                let what = match pause.reason {
+                    azcloud_kit::sync::guard::PauseReason::Burst => format!(
+                        "{} were changed or deleted in a few minutes.",
+                        browse::counted(pause.changes, "file", "files")
+                    ),
+                    azcloud_kit::sync::guard::PauseReason::Encryption => format!(
+                        "{} turned into what looks like encrypted data.",
+                        browse::counted(pause.changes, "file", "files")
+                    ),
+                };
+                body.add_child(line(&format!(
+                    "{what} AzDrive stopped sending changes of \"{name}\" to the drive - what \
+                     the drive changes still comes here."
+                )));
+                body.add_child(label("The changes"));
+                for file in &pause.files {
+                    body.add_child(line(file).with_css("font-size: 12px; margin-top: 2px;"));
+                }
+            }
+            body.add_child(buttons(vec![
+                button("Decide later", app, on_cancel_popup),
+                answer_button("I was hacked\u{2026}", app, Answer::Hacked, ids::SYNC_BURST_HACKED, false),
+                answer_button(
+                    "These changes are mine",
+                    app,
+                    Answer::BurstMine,
+                    ids::SYNC_BURST_MINE,
+                    true,
+                ),
+            ]));
+            (
+                String::from("Many files changed at once"),
+                body.with_id(ids::SYNC_BURST),
+            )
+        }
+        SyncDialog::Hacked { drive_id } => {
+            let azlin = s
+                .slot_index(drive_id)
+                .is_some_and(|i| s.slots[i].entry.azlin().is_some());
+            let mut body = column(vec![line(
+                "Lock the drive down (every other computer, key and link loses access) and put \
+                 its files back as they were before the changes.",
+            )]);
+            let mut actions = vec![button("Close", app, on_cancel_popup)];
+            if azlin {
+                #[cfg(feature = "encryption")]
+                actions.push(answer_button(
+                    "Lock it down\u{2026}",
+                    app,
+                    Answer::LockDown,
+                    ids::SYNC_HACKED_LOCKDOWN,
+                    false,
+                ));
+                actions.push(answer_button(
+                    "Restore as of\u{2026}",
+                    app,
+                    Answer::Restore,
+                    ids::SYNC_HACKED_RESTORE,
+                    true,
+                ));
+            } else {
+                body.add_child(line(
+                    "Only an Azlin drive can be locked down and restored by AzDrive: do it at the \
+                     storage service's console.",
+                ));
+            }
+            body.add_child(buttons(actions));
+            (String::from("I was hacked"), body.with_id(ids::SYNC_HACKED))
+        }
+        SyncDialog::MassDelete { drive_id } => {
+            let states = s.sync_view.store.states(drive_id);
+            let mut body = column(vec![]);
+            let here = states.mass_delete.as_ref().is_some_and(|m| m.here);
+            if let Some(asked) = &states.mass_delete {
+                body.add_child(line(&mass_delete_text(asked)));
+                body.add_child(label("The files"));
+                for key in asked.keys.iter().take(20) {
+                    body.add_child(line(key).with_css("font-size: 12px; margin-top: 2px;"));
+                }
+            }
+            body.add_child(buttons(vec![
+                button("Decide later", app, on_cancel_popup),
+                answer_button("Keep them", app, Answer::KeepFiles, ids::SYNC_MASS_KEEP, false),
+                answer_button(
+                    if here {
+                        "Delete them here too"
+                    } else {
+                        "Delete them on the drive too"
+                    },
+                    app,
+                    Answer::DeleteFiles,
+                    ids::SYNC_MASS_DELETE,
+                    true,
+                ),
+            ]));
+            (
+                String::from("Delete most of the files?"),
+                body.with_id(ids::SYNC_MASS),
+            )
+        }
         SyncDialog::Stop { drive_id } => {
             let name = s.drive_name(&Place::folder(drive_id, ""));
             let folder = setup_of(s, drive_id)
@@ -988,6 +1177,35 @@ extern "C" fn on_answer(mut data: RefAny, mut info: CallbackInfo) -> Update {
                         *error = why;
                     }
                 }
+            }
+        }
+        Answer::BurstMine => {
+            if let Some(Popup::Sync(SyncDialog::Burst { drive_id })) = s.popup.take() {
+                sync_jobs::answer_burst(info, app, s, &drive_id);
+            }
+        }
+        Answer::Hacked => {
+            if let Some(Popup::Sync(SyncDialog::Burst { drive_id })) = s.popup.take() {
+                println!("AZDRIVE_SYNC_HACKED {drive_id}");
+                s.popups_opened += 1;
+                s.popup = Some(Popup::Sync(SyncDialog::Hacked { drive_id }));
+            }
+        }
+        #[cfg(feature = "encryption")]
+        Answer::LockDown => {
+            if let Some(Popup::Sync(SyncDialog::Hacked { drive_id })) = s.popup.take() {
+                crate::encryption::ask_rotate(s, &drive_id);
+            }
+        }
+        Answer::Restore => {
+            if let Some(Popup::Sync(SyncDialog::Hacked { drive_id })) = s.popup.take() {
+                crate::restore::open(s, &drive_id);
+            }
+        }
+        Answer::KeepFiles | Answer::DeleteFiles => {
+            if let Some(Popup::Sync(SyncDialog::MassDelete { drive_id })) = s.popup.take() {
+                let delete_too = matches!(answer, Answer::DeleteFiles);
+                sync_jobs::answer_mass_delete(info, app, s, &drive_id, delete_too);
             }
         }
         Answer::Delete => {

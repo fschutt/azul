@@ -1250,26 +1250,27 @@ def azlin_session(bundle):
     })
 
 
-def sync_meta(s3_root):
+def sync_meta(s3_root, bucket=SYNC_BUCKET):
     """The bucket's folder of the sync's bookkeeping (the whole drive syncs: prefix "")."""
-    return os.path.join(s3_root, SYNC_BUCKET, ".azlin")
+    return os.path.join(s3_root, bucket, ".azlin")
 
 
-def sync_index(s3_root):
-    with open(os.path.join(sync_meta(s3_root), "index.json"), "r", encoding="utf-8") as f:
+def sync_index(s3_root, bucket=SYNC_BUCKET):
+    with open(os.path.join(sync_meta(s3_root, bucket), "index.json"), "r",
+              encoding="utf-8") as f:
         return json.load(f)
 
 
-def other_device_writes(s3_root, key, data, device="e2e-desktop"):
+def other_device_writes(s3_root, key, data, device="e2e-desktop", bucket=SYNC_BUCKET):
     """Another device's commit of `key` = `data`: its blob (named by its BLAKE3) and the index
     one generation on, written into the mock S3's folder as that device's sync would."""
-    meta = sync_meta(s3_root)
+    meta = sync_meta(s3_root, bucket)
     digest = azlin_blake3.hex_digest(data)
     blob = os.path.join(meta, "blobs", digest[:2], digest)
     os.makedirs(os.path.dirname(blob), exist_ok=True)
     with open(blob, "wb") as f:
         f.write(data)
-    index = sync_index(s3_root)
+    index = sync_index(s3_root, bucket)
     now = int(time.time())
     index["generation"] += 1
     index["files"][key] = {"hash": digest, "size": len(data), "mtime": now,
@@ -1480,6 +1481,149 @@ def sync_step(args, logs, binary, out):
                   lambda: "draft.txt" not in sync_index(s3_root).get("files", {}))
         app.until("its row gone", lambda: "draft.txt" not in item_names(app))
         log("25f. a cloud-only row deleted: asked, then gone from the drive")
+
+        # 25g. The plain drive's own listing renames and downloads through the sync.
+        app.after("the drive's own listing", "AZDRIVE_LISTED", re.escape(SYNC_DRIVE) + r" / \d+",
+                  lambda: app.click(selector=row))
+        app.until("notes.txt in the drive's listing", lambda: "notes.txt" in item_names(app))
+        app.after("notes.txt selected", "AZDRIVE_SELECTED", r"1 notes\.txt",
+                  lambda: select_item(app, "notes.txt"))
+        app.after("the rename field", "AZDRIVE_RENAMING", r"notes\.txt", lambda: app.key("f2"))
+
+        def rename_dom():
+            for d in app.doms():
+                if app._has_in("#" + I("rename-field"), d):
+                    return (d,)
+            return None
+        (field_dom,) = app.until("the rename field's DOM", rename_dom)
+        app.must("focus_node", selector="#" + I("rename-field"), dom_id=field_dom)
+        app.frame()
+        app.key("end")
+        for _ in range(len("notes.txt")):
+            app.key("backspace")
+        app.must("text_input", text="renamed.txt")
+        app.frame()
+        app.after("renamed through the sync", "AZDRIVE_SYNC_RENAMED",
+                  re.escape(SYNC_DRIVE) + r" renamed\.txt", lambda: app.key("enter"))
+        renamed = os.path.join(folder, "renamed.txt")
+        app.until("the synced copy renamed", lambda: os.path.isfile(renamed)
+                  and not os.path.exists(notes))
+        app.until("renamed on the drive by the next pass", lambda: "renamed.txt" in sync_index(
+            s3_root).get("files", {}) and "notes.txt" not in sync_index(s3_root)["files"])
+        # A download of a cloud-only file of the listing: it comes down first.
+        app.until("renamed.txt listed", lambda: "renamed.txt" in item_names(app))
+        app.after("renamed.txt selected", "AZDRIVE_SELECTED", r"1 renamed\.txt",
+                  lambda: select_item(app, "renamed.txt"))
+        app.tab("Share")
+        app.after("Free up space", "AZDRIVE_SYNC_FREED", re.escape(SYNC_DRIVE),
+                  lambda: app.ribbon("Free up space"))
+        app.until("renamed.txt cloud only", lambda: not os.path.exists(renamed))
+        app.after("renamed.txt selected", "AZDRIVE_SELECTED", r"1 renamed\.txt",
+                  lambda: select_item(app, "renamed.txt"))
+        app.after("the download waits for it", "AZDRIVE_SYNC_FETCHED", re.escape(SYNC_DRIVE),
+                  lambda: app.ribbon("Download"))
+        downloaded = os.path.join(base, "downloads", "renamed.txt")
+        app.until("downloaded", lambda: read_file(downloaded) == read_file(renamed)
+                  and read_file(downloaded) is not None)
+        log("25g. the plain drive's own listing renamed notes.txt to renamed.txt through the "
+            "synced folder, and downloaded it (cloud only: it came down first)")
+
+        # 25h. A folder emptied here: the mass delete asks, in AzDrive's words; Keep them.
+        app.after("back to the synced folder", "AZDRIVE_PLACE",
+                  r"home AzDrive/%s/" % re.escape(SYNC_NAME), lambda: app.key("left", alt=True))
+        bulk = os.path.join(folder, "bulk")
+        os.makedirs(bulk, exist_ok=True)
+        for i in range(12):
+            with open(os.path.join(bulk, "%d.txt" % i), "wb") as f:
+                f.write(b"bulk file %d\n" % i)
+        app.until("bulk uploaded", lambda: all(
+            "bulk/%d.txt" % i in sync_index(s3_root).get("files", {}) for i in range(12)))
+        app.until("bulk on this device", lambda: app.printed(
+            "AZDRIVE_SYNC_FILE", re.escape(SYNC_DRIVE) + r" on-device bulk/11\.txt"))
+        for i in range(12):
+            os.remove(os.path.join(bulk, "%d.txt" % i))
+        app.until("the mass delete asked", lambda: app.printed(
+            "AZDRIVE_SYNC_MASS_DELETE", re.escape(SYNC_DRIVE) + r" there 12"))
+        app.until("the question", lambda: app.has("#" + I("sync-mass")))
+        if any("--allow" in (t or "") for t in app.texts()):
+            raise Failure("the question names the command line's switch")
+        app.screenshot(os.path.join(out, "25-sync-mass-delete.png"))
+        app.after("Keep them", "AZDRIVE_SYNC_ANSWERED",
+                  re.escape(SYNC_DRIVE) + r" mass-delete keep",
+                  lambda: (app.must("click", selector="#" + I("sync-mass-keep")), app.frame()))
+        app.until("kept on the drive, cloud only here", lambda: app.printed(
+            "AZDRIVE_SYNC_FILE", re.escape(SYNC_DRIVE) + r" cloud-only bulk/0\.txt"))
+        if "bulk/0.txt" not in sync_index(s3_root).get("files", {}):
+            raise Failure("Keep them deleted the files on the drive")
+        log("25h. 12 files gone from the folder: asked in AzDrive's words; Keep them kept them on "
+            "the drive (cloud only here)")
+
+        # 25i. Files turned random at once on the Azlin drive: uploads pause, downloads go on;
+        # I was hacked... -> Restore as of before the change; then "These changes are mine".
+        paid_bucket = paid["drive"]["location"]["bucket"]
+        paid_folder = os.path.join(home, "AzDrive", PAID_NAME)
+        os.makedirs(paid_folder, exist_ok=True)
+        prose = (b"the quarterly report says the numbers look fine for now " * 40)[:2048]
+        for i in range(12):
+            with open(os.path.join(paid_folder, "p%d.txt" % i), "wb") as f:
+                f.write(prose[:2040] + b"%08d" % i)
+        app.until("the Azlin drive's files uploaded", lambda: all(
+            "p%d.txt" % i in sync_index(s3_root, paid_bucket).get("files", {})
+            for i in range(12)))
+        done = app.count("AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*")
+        app.until("one more pass (the guard learns them)", lambda: app.count(
+            "AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*") > done)
+        time.sleep(1.2)
+        as_of = int(time.time())
+        time.sleep(1.2)
+        for i in range(12):
+            with open(os.path.join(paid_folder, "p%d.txt" % i), "wb") as f:
+                f.write(os.urandom(2048))
+        app.until("uploads paused", lambda: app.printed(
+            "AZDRIVE_SYNC_BURST", re.escape(paid_id) + r" encryption \d+"))
+        app.until("the guard's question", lambda: app.has("#" + I("sync-burst")))
+        app.screenshot(os.path.join(out, "25-sync-burst.png"))
+        before = sync_index(s3_root, paid_bucket)["files"]["p0.txt"]["hash"]
+        other_device_writes(s3_root, "from-desktop.txt", b"while paused\n", bucket=paid_bucket)
+        app.until("downloads go on while paused", lambda: read_file(
+            os.path.join(paid_folder, "from-desktop.txt")) == b"while paused\n")
+        if sync_index(s3_root, paid_bucket)["files"]["p0.txt"]["hash"] != before:
+            raise Failure("a paused folder sent its changes")
+        app.after("I was hacked...", "AZDRIVE_SYNC_HACKED", re.escape(paid_id),
+                  lambda: (app.must("click", selector="#" + I("sync-burst-hacked")), app.frame()))
+        app.until("lock down / restore", lambda: app.has("#" + I("sync-hacked")))
+        app.must("click", selector="#" + I("sync-hacked-restore"))
+        app.frame(2)
+        app.until("the restore's time field", lambda: app.has("#__azdrive_restore_time"))
+        app.must("focus_node", selector="#__azdrive_restore_time")
+        app.frame(2)
+        app.key("end")
+        for _ in range(len("1 hour ago")):
+            app.key("backspace", frames=1)
+        app.must("text_input", text=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(as_of)))
+        app.frame(2)
+        app.after("restored as of before the change", "AZDRIVE_RESTORED",
+                  r"%s \S+ objects \d+" % re.escape(paid_id),
+                  lambda: app.must("click", selector="#__azdrive_restore_go"))
+        if app.has("#__azdrive_restore"):
+            app.key("escape")
+        log("25i. 12 files of the Azlin drive turned random: uploads paused (a download came "
+            "on), I was hacked... restored the drive as of before the change")
+        # "These changes are mine": asked again by Sync now, then sent.
+        paid_row = "#__azdrive_side_drive_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid_id).lower()
+        app.after("the Azlin drive", "AZDRIVE_PLACE", re.escape(paid_id) + r" .*",
+                  lambda: app.click(selector=paid_row))
+        app.tab("Share")
+        app.after("Sync now asks again", "AZDRIVE_SYNC_QUESTION", re.escape(paid_id) + r" burst",
+                  lambda: app.ribbon("Sync now"))
+        app.until("the guard's question", lambda: app.has("#" + I("sync-burst")))
+        app.after("These changes are mine", "AZDRIVE_SYNC_ANSWERED",
+                  re.escape(paid_id) + r" burst mine",
+                  lambda: (app.must("click", selector="#" + I("sync-burst-mine")), app.frame()))
+        mine = azlin_blake3.hex_digest(read_file(os.path.join(paid_folder, "p0.txt")))
+        app.until("sent with the next pass", lambda: sync_index(
+            s3_root, paid_bucket).get("files", {}).get("p0.txt", {}).get("hash") == mine)
+        log("25j. These changes are mine: the next pass sent them")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):

@@ -1841,6 +1841,45 @@ fn enqueue_with(
     if items.is_empty() {
         return;
     }
+    enqueue_routed(
+        info,
+        app,
+        s,
+        crate::sync_jobs::Transfer {
+            kind,
+            source,
+            items,
+            target,
+            target_prefix: target_prefix.to_string(),
+            target_name: target_name.to_string(),
+            auto,
+        },
+    );
+}
+
+/// Queues `transfer` - through the synced folder when its source or target is a plain synced
+/// drive's own listing (`sync_jobs::route_transfer`; it waits while cloud-only files of it come
+/// down).
+pub(crate) fn enqueue_routed(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    transfer: crate::sync_jobs::Transfer,
+) {
+    let Some(crate::sync_jobs::Transfer {
+        kind,
+        source,
+        items,
+        target,
+        target_prefix,
+        target_name,
+        auto,
+    }) = crate::sync_jobs::route_transfer(info, app, s, transfer)
+    else {
+        return;
+    };
+    let target_prefix = target_prefix.as_str();
+    let target_name = target_name.as_str();
     let label = transfer_label(kind, &items, target_name);
     let id = s.queue.push(label.clone());
     let same_drive = source.0 == target.0;
@@ -2037,6 +2076,11 @@ pub(crate) fn transfer_ran(
     report: TransferReport,
 ) {
     let job = s.transfers.remove(&id);
+    // Through a synced folder: a pass takes it to the drive.
+    if let Some(job) = &job {
+        let (source_id, target_id) = (job.source_id.clone(), job.target_id.clone());
+        crate::sync_jobs::transfer_done(info, app, s, &source_id, &target_id);
+    }
     let failed = report.failed.first().map(|(what, why)| {
         format!(
             "{} item(s) failed; \"{}\": {why}",
@@ -2523,6 +2567,11 @@ pub(crate) fn commit_rename(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
     let Some(drive_id) = s.current_drive_id() else {
         return;
     };
+    // A plain synced drive's own listing shows its sync index's names: renamed in the synced
+    // folder, then on the drive by the next pass.
+    if crate::sync_jobs::rename_if_synced(info, app, s, &drive_id, &entry.key, &to) {
+        return;
+    }
     let Some(drive) = open_current(s) else {
         return;
     };

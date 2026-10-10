@@ -707,3 +707,84 @@ fn deleting_and_touching_through_a_job_answer_the_new_states() {
         _ => panic!("not a pass's answer"),
     }
 }
+
+/// The guards' pauses and the newer format say themselves on the status line; the mass-delete
+/// question is AzDrive's own words, without the command line's switch.
+#[test]
+fn the_guards_pauses_say_themselves_and_ask_in_azdrives_words() {
+    use azcloud_kit::sync::{
+        guard::{Pause, PauseReason},
+        MassDelete,
+    };
+
+    let paired = setup();
+    let mut states = SyncStates::default();
+    states.last_pass = Some(1);
+    states.burst = Some(Pause {
+        reason: PauseReason::Encryption,
+        since: 1,
+        changes: 12,
+        files: vec![String::from("docs/a.txt")],
+    });
+    let text = sync_view::status_text(&paired, &states, None, false, false);
+    assert!(text.starts_with("Uploads paused"), "{text}");
+    states.burst = None;
+    let asked = MassDelete {
+        here: false,
+        count: 14,
+        of: 14,
+        keys: vec![String::from("keep/0.txt")],
+    };
+    states.mass_delete = Some(asked.clone());
+    let text = sync_view::status_text(&paired, &states, None, false, false);
+    assert!(text.starts_with("Waiting for you"), "{text}");
+    let question = sync_view::mass_delete_text(&asked);
+    assert!(question.contains("14"), "{question}");
+    assert!(!question.contains("--allow"), "{question}");
+    states.mass_delete = None;
+    states.newer_format = vec![String::from("teleport")];
+    let text = sync_view::status_text(&paired, &states, None, false, false);
+    assert!(text.contains("Update the app"), "{text}");
+}
+
+/// A rename in a plain synced drive's own listing goes through the sync: the copy in the synced
+/// folder moves, and the next pass moves it on the drive.
+#[test]
+fn a_rename_through_a_job_moves_the_synced_copy() {
+    let drive: Arc<dyn Drive> = Arc::new(MemDrive::default());
+    let a = Device::new("rename-a", &drive, AutoDownload::Everything);
+    a.write("old.txt", b"text");
+    a.pass();
+    let renamed = sync_jobs::run(
+        SyncJob::Rename {
+            work: a.work(),
+            from: String::from("old.txt"),
+            to: String::from("new.txt"),
+        },
+        &mut |_| {},
+    );
+    assert!(matches!(
+        &renamed,
+        Outcome::Sync(SyncOutcome::Changed {
+            done: SyncChange::Renamed,
+            result: Ok(_),
+            ..
+        })
+    ));
+    assert!(a.folder.path().join("new.txt").exists());
+    assert!(!a.folder.path().join("old.txt").exists());
+    let fetched = sync_jobs::run(
+        SyncJob::Fetch {
+            work: a.work(),
+            keys: vec![String::from("new.txt")],
+        },
+        &mut |_| {},
+    );
+    assert!(matches!(
+        &fetched,
+        Outcome::Sync(SyncOutcome::Changed {
+            done: SyncChange::Fetched,
+            ..
+        })
+    ));
+}

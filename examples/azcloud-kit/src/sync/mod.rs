@@ -299,6 +299,9 @@ pub struct SyncReport {
     /// is read-only here until the app is updated.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub newer_format: Vec<String>,
+    /// A mass delete held for the user ([`RunHooks::hold_mass_delete`]): nothing changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mass_delete: Option<MassDelete>,
 }
 
 impl SyncReport {
@@ -403,6 +406,9 @@ pub struct RunHooks<'a> {
     pub progress: Option<&'a (dyn Fn(SyncEvent) + Sync)>,
     /// Set: the run stops before its next file; nothing half-done is committed.
     pub cancel: Option<&'a AtomicBool>,
+    /// A plan that would delete most of the folder here or there changes nothing and waits for
+    /// the user (the report's `mass_delete`) instead of failing.
+    pub hold_mass_delete: bool,
 }
 
 impl RunHooks<'_> {
@@ -551,41 +557,83 @@ fn fetch_blob<S: RemoteStore + ?Sized>(
     Ok(bytes)
 }
 
-/// Stops a plan that would delete most of the folder here or there.
-fn guard_mass_delete(
+/// A plan that would delete most of the folder here or there, waiting for the user
+/// ([`RunHooks::hold_mass_delete`]; the command line stops with `--allow-mass-delete` to say).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MassDelete {
+    /// `true`: the drive deleted them elsewhere and this folder would lose its copies; `false`:
+    /// they are gone from this folder and the drive would lose them.
+    pub here: bool,
+    /// How many, of how many files (the folder's now / at its last sync).
+    pub count: usize,
+    pub of: usize,
+    /// Every file it would delete.
+    pub keys: Vec<String>,
+}
+
+/// The mass delete a plan would make, if it would: more than [`MASS_DELETE_MIN`] deletes and
+/// more than half of the folder here or there. A delete whose content goes up under another
+/// name in the same plan is a move, not counted.
+fn mass_delete(
     actions: &[Action],
     scan: &Scan,
     base: &BTreeMap<String, BaseEntry>,
-    opts: &SyncOptions,
-) -> CloudResult<()> {
-    if opts.allow_mass_delete {
-        return Ok(());
-    }
-    let here = actions
+) -> Option<MassDelete> {
+    let here: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteLocal { .. }))
-        .count();
-    if here > MASS_DELETE_MIN && here * 2 > scan.files.len() {
-        fail!(
-            "the drive says {here} of this folder's {} files were deleted elsewhere. That looks \
-             like a mistake (or ransomware), so nothing was changed; run again with \
-             --allow-mass-delete if it is right",
-            scan.files.len()
-        );
+        .map(|a| a.key().to_string())
+        .collect();
+    if here.len() > MASS_DELETE_MIN && here.len() * 2 > scan.files.len() {
+        return Some(MassDelete {
+            here: true,
+            count: here.len(),
+            of: scan.files.len(),
+            keys: here,
+        });
     }
-    let there = actions
+    let moved: BTreeSet<&str> = actions
+        .iter()
+        .filter(|a| matches!(a, Action::Upload { .. }))
+        .filter_map(|a| scan.files.get(a.key()).map(|f| f.hash.as_str()))
+        .collect();
+    let there: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteRemote { .. }))
-        .count();
-    if there > MASS_DELETE_MIN && there * 2 > base.len() {
-        fail!(
-            "{there} of the {} files this folder held at its last sync are gone from it (an \
+        .filter(|a| {
+            base.get(a.key())
+                .is_none_or(|entry| !moved.contains(entry.hash.as_str()))
+        })
+        .map(|a| a.key().to_string())
+        .collect();
+    if there.len() > MASS_DELETE_MIN && there.len() * 2 > base.len() {
+        return Some(MassDelete {
+            here: false,
+            count: there.len(),
+            of: base.len(),
+            keys: there,
+        });
+    }
+    None
+}
+
+/// The command line's stop of a mass delete.
+fn mass_delete_error(asked: &MassDelete) -> CloudError {
+    if asked.here {
+        CloudError::failed(format!(
+            "the drive says {} of this folder's {} files were deleted elsewhere. That looks \
+             like a mistake (or ransomware), so nothing was changed; run again with \
+             --allow-mass-delete if it is right",
+            asked.count, asked.of
+        ))
+    } else {
+        CloudError::failed(format!(
+            "{} of the {} files this folder held at its last sync are gone from it (an \
              emptied or unmounted folder?). Nothing was changed; run again with \
              --allow-mass-delete if they were deleted on purpose",
-            base.len()
-        );
+            asked.count, asked.of
+        ))
     }
-    Ok(())
 }
 
 /// A JSON file merged key by key: its blob, the blob's hash, and the file to
@@ -1525,7 +1573,17 @@ fn run<R: SyncRemote + ?Sized>(
             date: &date,
         });
         report.held = on_demand(&mut actions, &scan, base, &remote, hooks);
-        guard_mass_delete(&actions, &scan, base, opts)?;
+        if !opts.allow_mass_delete {
+            if let Some(asked) = mass_delete(&actions, &scan, base) {
+                // An app asks the user (nothing changed); the command line stops.
+                if hooks.hold_mass_delete {
+                    report.mass_delete = Some(asked);
+                    report.generation = remote.generation;
+                    return Ok(report);
+                }
+                return Err(mass_delete_error(&asked));
+            }
+        }
         if opts.dry_run {
             report.planned = actions
                 .iter()

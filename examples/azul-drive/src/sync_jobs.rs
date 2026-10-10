@@ -188,6 +188,19 @@ pub(crate) enum SyncJob {
     Delete { work: SyncWork, keys: Vec<String> },
     /// A file on this device opened: used now (the size cap frees it last).
     Touch { work: SyncWork, key: String },
+    /// A rename in a plain synced drive's own listing: in the synced folder (cloud-only files
+    /// come down first); the next pass moves them on the drive.
+    Rename {
+        work: SyncWork,
+        from: String,
+        to: String,
+    },
+    /// Cloud-only files brought down (a copy, move or download of them waits for it).
+    Fetch { work: SyncWork, keys: Vec<String> },
+    /// The burst guard's question answered: "these changes are mine".
+    AnswerBurst { work: SyncWork },
+    /// The mass delete's question answered: delete them too, or keep them.
+    AnswerMassDelete { work: SyncWork, delete_too: bool },
 }
 
 /// What a pass did, in counts.
@@ -199,6 +212,10 @@ pub(crate) struct PassDone {
     pub conflicts: usize,
     pub cloud_only: usize,
     pub freed: usize,
+    /// The burst guard's pause (azcloud-kit's `guard`): uploads held back, downloads went on.
+    pub paused: Option<azcloud_kit::sync::guard::Pause>,
+    /// What the drive's index uses that this version does not know (D43).
+    pub newer_format: Vec<String>,
 }
 
 impl PassDone {
@@ -219,6 +236,8 @@ impl PassDone {
             done.up = report.files_up;
             done.down += report.files_down;
             done.deleted = report.deleted_here + report.deleted_there;
+            done.paused.clone_from(&report.paused);
+            done.newer_format.clone_from(&report.newer_format);
         }
         done
     }
@@ -232,6 +251,10 @@ pub(crate) enum SyncChange {
     Resolved(Resolution),
     Deleted,
     Touched,
+    Renamed,
+    Fetched,
+    /// A guard's question answered (the next pass does it).
+    Answered,
 }
 
 /// A sync job's answer, on the UI thread.
@@ -379,6 +402,65 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
             SyncOutcome::Changed {
                 drive_id: work.drive_id(),
                 done: SyncChange::Touched,
+                result,
+                states: session.states(),
+            }
+        }
+        SyncJob::Rename { work, from, to } => {
+            let session = work.session();
+            let result = session
+                .rename(&from, &to)
+                .map(|()| to.clone())
+                .map_err(|e| e.to_string());
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::Renamed,
+                result,
+                states: session.states(),
+            }
+        }
+        SyncJob::Fetch { work, keys } => {
+            let session = work.session();
+            let result = keys
+                .iter()
+                .try_for_each(|key| session.open(key).map(|_| ()))
+                .map(|()| format!("{} downloaded.", browse::counted(keys.len(), "file", "files")))
+                .map_err(|e| e.to_string());
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::Fetched,
+                result,
+                states: session.states(),
+            }
+        }
+        SyncJob::AnswerBurst { work } => {
+            let session = work.session();
+            let result = session
+                .answer_burst()
+                .map(|()| String::from("burst mine"))
+                .map_err(|e| e.to_string());
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::Answered,
+                result,
+                states: session.states(),
+            }
+        }
+        SyncJob::AnswerMassDelete { work, delete_too } => {
+            let session = work.session();
+            let result = session
+                .answer_mass_delete(delete_too)
+                .map(|()| {
+                    String::from(if delete_too {
+                        "mass-delete delete"
+                    } else {
+                        "mass-delete keep"
+                    })
+                })
+                .map_err(|e| e.to_string());
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::Answered,
                 result,
                 states: session.states(),
             }
@@ -693,6 +775,215 @@ pub(crate) fn open_if_synced(
     true
 }
 
+/// What a pass's guards said, against the states `before` it: a new burst pause or mass delete
+/// is printed (`AZDRIVE_SYNC_BURST <drive> burst|encryption <changes>`, `AZDRIVE_SYNC_MASS_DELETE
+/// <drive> here|there <count>`) and asked once (the next question); a newer drive format is the
+/// drive's problem "Update the app..." (azcloud-kit's table: the status line, one notification).
+fn guards_seen(
+    info: &mut CallbackInfo,
+    s: &mut DriveState,
+    drive_id: &str,
+    before: &SyncStates,
+) {
+    let after = s.sync_view.store.states(drive_id);
+    if let Some(pause) = after.burst.as_ref().filter(|_| before.burst.is_none()) {
+        let reason = match pause.reason {
+            azcloud_kit::sync::guard::PauseReason::Burst => "burst",
+            azcloud_kit::sync::guard::PauseReason::Encryption => "encryption",
+        };
+        println!("AZDRIVE_SYNC_BURST {drive_id} {reason} {}", pause.changes);
+        s.sync_view.asked.remove(&format!("{drive_id}\nburst"));
+    }
+    if let Some(asked) = after
+        .mass_delete
+        .as_ref()
+        .filter(|_| before.mass_delete.is_none())
+    {
+        println!(
+            "AZDRIVE_SYNC_MASS_DELETE {drive_id} {} {}",
+            if asked.here { "here" } else { "there" },
+            asked.count
+        );
+        s.sync_view.asked.remove(&format!("{drive_id}\nmass"));
+    }
+    if !after.newer_format.is_empty() && after.newer_format != before.newer_format {
+        let problem = azcloud_kit::UserError {
+            code: azcloud_kit::user_errors::Code::NewerFormat,
+            retry_after: None,
+            request_id: None,
+            detail: after.newer_format.join(", "),
+        };
+        crate::problems::drive_problem_for(info, s, drive_id, problem);
+    }
+}
+
+/// The answer to the burst guard's question: "these changes are mine" (the next pass sends
+/// them), on a worker thread.
+pub(crate) fn answer_burst(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
+    if let Some(work) = work_of(info, s, drive_id) {
+        spawn(info, app, s, Job::Sync(SyncJob::AnswerBurst { work }));
+    }
+}
+
+/// The answer to the mass delete's question: delete them too, or keep them.
+pub(crate) fn answer_mass_delete(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    delete_too: bool,
+) {
+    if let Some(work) = work_of(info, s, drive_id) {
+        spawn(
+            info,
+            app,
+            s,
+            Job::Sync(SyncJob::AnswerMassDelete { work, delete_too }),
+        );
+    }
+}
+
+/// A rename of `key` (a file, or a folder ending in `/`) to `to` in a plain synced drive's own
+/// listing of `drive`: through the sync - whether it did (else the drive renames it).
+pub(crate) fn rename_if_synced(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive: &str,
+    key: &str,
+    to: &str,
+) -> bool {
+    if !sync_view::from_index(s, drive, key) {
+        return false;
+    }
+    let (Some((drive_id, from)), Some((_, to))) =
+        (sync_view::pair_at(s, drive, key), sync_view::pair_at(s, drive, to))
+    else {
+        return false;
+    };
+    if let Some(work) = work_of(info, s, &drive_id) {
+        spawn(info, app, s, Job::Sync(SyncJob::Rename { work, from, to }));
+    }
+    true
+}
+
+/// A copy, move or download (an upload too) as it is queued.
+pub(crate) struct Transfer {
+    pub kind: crate::fileops::TransferKind,
+    pub source: (String, Arc<dyn Drive>),
+    pub items: Vec<crate::fileops::SourceItem>,
+    pub target: (String, Arc<dyn Drive>),
+    pub target_prefix: String,
+    pub target_name: String,
+    pub auto: Option<crate::fileops::ConflictChoice>,
+}
+
+/// The synced folder of synced drive `drive_id`.
+fn synced_folder(s: &DriveState, drive_id: &str) -> Option<PathBuf> {
+    sync_view::setup_of(s, drive_id).map(|p| p.folder.clone())
+}
+
+/// A transfer whose source or target is a plain synced drive's own listing (its sync index's
+/// files, which the bucket does not hold under their names) reads from - and writes to - the
+/// synced folder on this computer; the next pass takes the change to the drive. Cloud-only
+/// files of its source come down first: the transfer waits for them (`None`; it is queued again
+/// when they are here).
+pub(crate) fn route_transfer(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    mut t: Transfer,
+) -> Option<Transfer> {
+    let source_synced = t
+        .items
+        .first()
+        .is_some_and(|item| sync_view::from_index(s, &t.source.0, &item.key));
+    if source_synced {
+        let found: Vec<(String, String)> = t
+            .items
+            .iter()
+            .map_while(|item| sync_view::pair_at(s, &t.source.0, &item.key))
+            .collect();
+        let pair = found.first().map(|(d, _)| d.clone());
+        let one = found.len() == t.items.len() && found.windows(2).all(|w| w[0].0 == w[1].0);
+        if let (Some(drive_id), true) = (pair, one) {
+            let states = s.sync_view.store.states(&drive_id);
+            let cloud: Vec<String> = found
+                .iter()
+                .flat_map(|(_, rel)| {
+                    states
+                        .files
+                        .iter()
+                        .filter(|(key, record)| {
+                            record.cloud_only
+                                && (*key == rel || (rel.ends_with('/') && key.starts_with(rel.as_str())))
+                        })
+                        .map(|(key, _)| key.clone())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            if !cloud.is_empty() {
+                let Some(work) = work_of(info, s, &drive_id) else {
+                    return None;
+                };
+                s.info(format!(
+                    "Downloading {} from the drive first...",
+                    browse::counted(cloud.len(), "file", "files")
+                ));
+                s.sync_view.waiting_transfer = Some(t);
+                spawn(info, app, s, Job::Sync(SyncJob::Fetch { work, keys: cloud }));
+                return None;
+            }
+            let Some(folder) = synced_folder(s, &drive_id) else {
+                return Some(t);
+            };
+            t.items = t
+                .items
+                .iter()
+                .zip(found)
+                .map(|(item, (_, rel))| crate::fileops::SourceItem {
+                    key: rel,
+                    ..item.clone()
+                })
+                .collect();
+            t.source = (
+                format!("sync:{drive_id}"),
+                Arc::new(azul_storage::LocalDrive::without_manifest(folder)),
+            );
+        }
+    }
+    if sync_view::from_index(s, &t.target.0, &t.target_prefix) {
+        if let Some((drive_id, rel)) = sync_view::pair_at(s, &t.target.0, &t.target_prefix) {
+            if let Some(folder) = synced_folder(s, &drive_id) {
+                t.target = (
+                    format!("sync:{drive_id}"),
+                    Arc::new(azul_storage::LocalDrive::without_manifest(folder)),
+                );
+                t.target_prefix = rel;
+            }
+        }
+    }
+    Some(t)
+}
+
+/// A transfer ended: one that went through a synced folder (`sync:<drive>`) is taken to the
+/// drive by a pass now.
+pub(crate) fn transfer_done(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    source_id: &str,
+    target_id: &str,
+) {
+    for id in [source_id, target_id] {
+        if let Some(drive_id) = id.strip_prefix("sync:") {
+            let drive_id = drive_id.to_string();
+            request_pass(info, app, s, &drive_id);
+            refresh_if_showing(info, app, s, &drive_id);
+        }
+    }
+}
+
 /// The selected `items` of drive `drive` that the sync deletes (asked first: "Delete from the
 /// drive?"): every item of a pairing when one of them is in the cloud only (its bytes are not
 /// here to move to the trash), or a plain synced drive's own listing (the sync index's names).
@@ -806,7 +1097,16 @@ pub(crate) fn run_action(
     };
     match what {
         SyncAction::Pair => sync_view::ask_pair(s, &drive_id),
-        SyncAction::Now => request_pass(info, app, s, &drive_id),
+        SyncAction::Now => {
+            // A guard's question waiting: asked again.
+            let states = s.sync_view.store.states(&drive_id);
+            if states.burst.is_some() || states.mass_delete.is_some() {
+                s.sync_view.asked.remove(&format!("{drive_id}\nburst"));
+                s.sync_view.asked.remove(&format!("{drive_id}\nmass"));
+                sync_view::ask_next_question(s);
+            }
+            request_pass(info, app, s, &drive_id);
+        }
         SyncAction::KeepOnDevice => {
             let Some((_, keys)) = selected else { return };
             let states = s.sync_view.store.states(&drive_id);
@@ -914,11 +1214,19 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             match &result {
                 Ok(done) => println!(
                     "AZDRIVE_SYNC_DONE {drive_id} up={} down={} deleted={} conflicts={} \
-                     cloud_only={} freed={}",
-                    done.up, done.down, done.deleted, done.conflicts, done.cloud_only, done.freed
+                     cloud_only={} freed={} paused={} newer_format={}",
+                    done.up,
+                    done.down,
+                    done.deleted,
+                    done.conflicts,
+                    done.cloud_only,
+                    done.freed,
+                    done.paused.is_some(),
+                    done.newer_format.len()
                 ),
                 Err(e) => println!("AZDRIVE_SYNC_FAILED {drive_id} {e}"),
             }
+            guards_seen(info, s, &drive_id, &before);
             // A refused write: the token server says whether the drive is read-only.
             if result.is_err() && s.sync_view.store.states(&drive_id).read_only {
                 ask_drive_status(info, app, s, &drive_id);
@@ -927,7 +1235,7 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             sync_view::print_changes(&drive_id, &before, &after);
             sync_view::say_status(s, &drive_id);
             refresh_if_showing(info, app, s, &drive_id);
-            sync_view::ask_next_conflict(s);
+            sync_view::ask_next_question(s);
             let paused = sync_view::setup_of(s, &drive_id).is_none_or(|p| p.paused);
             if again && !paused {
                 request_pass(info, app, s, &drive_id);
@@ -982,6 +1290,22 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                     request_pass(info, app, s, &drive_id);
                 }
                 (SyncChange::Touched, Ok(_)) => {}
+                (SyncChange::Renamed, Ok(to)) => {
+                    println!("AZDRIVE_SYNC_RENAMED {drive_id} {to}");
+                    request_pass(info, app, s, &drive_id);
+                }
+                (SyncChange::Fetched, Ok(text)) => {
+                    println!("AZDRIVE_SYNC_FETCHED {drive_id}");
+                    s.info(text);
+                    // The copy, move or download that waited for them.
+                    if let Some(waiting) = s.sync_view.waiting_transfer.take() {
+                        crate::actions::enqueue_routed(info, app, s, waiting);
+                    }
+                }
+                (SyncChange::Answered, Ok(what)) => {
+                    println!("AZDRIVE_SYNC_ANSWERED {drive_id} {what}");
+                    request_pass(info, app, s, &drive_id);
+                }
                 (SyncChange::Resolved(choice), Ok(key)) => {
                     let word = match choice {
                         Resolution::KeepMine => "mine",

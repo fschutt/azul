@@ -395,6 +395,174 @@ fn an_object_cache_serves_what_it_keeps_and_passes_the_rest_through() {
     assert!(!cache.has("other"));
 }
 
+// ==== The guards' questions (D42, the mass-delete guard), renames ====
+
+/// Text of `n` bytes (low entropy, as the burst guard judges a file).
+fn prose(n: usize, seed: u8) -> Vec<u8> {
+    b"the quarterly report says the numbers look fine for now "
+        .iter()
+        .cycle()
+        .take(n)
+        .map(|b| if *b == b' ' { b' ' } else { b.wrapping_add(seed % 3) })
+        .collect()
+}
+
+/// Random-looking bytes of `n` (what ransomware leaves): a xorshift, no crate.
+fn noise(n: usize, seed: u64) -> Vec<u8> {
+    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..n)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x >> 24) as u8
+        })
+        .collect()
+}
+
+/// Ten text files turned into random bytes at once: the burst guard pauses this device's
+/// uploads and the states keep why (a restart shows it); "these changes are mine" sends them
+/// with the next pass.
+#[test]
+fn a_burst_pause_waits_for_the_user_and_these_changes_are_mine_sends_them() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    for i in 0..12u8 {
+        a.write(&format!("docs/{i}.txt"), &prose(2048, i));
+    }
+    a.pass();
+    a.pass();
+    for i in 0..12u8 {
+        a.write(&format!("docs/{i}.txt"), &noise(2048, u64::from(i) + 1));
+    }
+    let (states, _) = a.pass();
+    let pause = states.burst.clone().expect("uploads paused");
+    assert!(pause.changes >= 10, "{pause:?}");
+    assert!(!pause.files.is_empty() && pause.files.len() <= 20);
+    assert_eq!(SyncStates::load(a.state.path()).burst, states.burst, "it outlives the app");
+    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(index.contains(&crate::sync::local::hash_bytes(&prose(2048, 0))), "nothing went up");
+
+    a.session.answer_burst().unwrap();
+    let (states, _) = a.pass();
+    assert!(states.burst.is_none(), "{:?}", states.burst);
+    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(index.contains(&crate::sync::local::hash_bytes(&noise(2048, 1))), "sent");
+}
+
+/// A folder emptied here (an unmounted disk?): the pass asks before it deletes most of the
+/// drive's files; "keep them" leaves them on the drive (in the cloud only here), "delete them on
+/// the drive too" deletes them with the next pass.
+#[test]
+fn a_mass_delete_waits_for_the_user_and_each_answer_does_what_it_says() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    for i in 0..14 {
+        a.write(&format!("keep/{i}.txt"), format!("keep {i}").as_bytes());
+    }
+    a.pass();
+    for i in 0..14 {
+        fs::remove_file(path_of(a.folder.path(), &format!("keep/{i}.txt"))).unwrap();
+    }
+    let (states, _) = a.pass();
+    let asked = states.mass_delete.clone().expect("asked first");
+    assert!(!asked.here, "deleted here, the drive would lose them");
+    assert_eq!((asked.count, asked.keys.len()), (14, 14));
+    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(index.contains("keep/0.txt"), "nothing deleted on the drive");
+
+    a.session.answer_mass_delete(false).unwrap();
+    let (states, _) = a.pass();
+    assert!(states.mass_delete.is_none());
+    assert_eq!(states.state_of("keep/0.txt"), Some(FileState::CloudOnly), "kept on the drive");
+
+    // Again, and this time they go.
+    let store = Arc::new(S3Bucket::new());
+    let b = paired("dev-b", &store, |_| {});
+    for i in 0..14 {
+        b.write(&format!("gone/{i}.txt"), format!("gone {i}").as_bytes());
+    }
+    b.pass();
+    for i in 0..14 {
+        fs::remove_file(path_of(b.folder.path(), &format!("gone/{i}.txt"))).unwrap();
+    }
+    let (states, _) = b.pass();
+    assert!(states.mass_delete.is_some());
+    b.session.answer_mass_delete(true).unwrap();
+    let (states, _) = b.pass();
+    assert!(states.mass_delete.is_none());
+    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(!index.contains("\"gone/0.txt\""), "{index}");
+}
+
+/// The drive deleted most of this folder's files elsewhere: asked; "keep them" puts them back
+/// on the drive from here.
+#[test]
+fn a_mass_delete_on_the_drive_kept_here_goes_back_up() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |_| {});
+    for i in 0..14 {
+        a.write(&format!("{i}.txt"), format!("file {i}").as_bytes());
+    }
+    a.pass();
+    b.pass();
+    for i in 0..14 {
+        fs::remove_file(path_of(a.folder.path(), &format!("{i}.txt"))).unwrap();
+    }
+    let (states, _) = a.pass();
+    assert!(states.mass_delete.is_some(), "a asks first");
+    a.session.answer_mass_delete(true).unwrap();
+    a.pass();
+    let (states, _) = b.pass();
+    let asked = states.mass_delete.clone().expect("b asks before it deletes its copies");
+    assert!(asked.here);
+    assert!(b.read("0.txt").is_some());
+    b.session.answer_mass_delete(false).unwrap();
+    b.pass();
+    assert!(b.read("0.txt").is_some(), "kept here");
+    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(index.contains("\"0.txt\""), "and on the drive again: {index}");
+}
+
+/// A drive whose index uses a feature this version does not know: the pass changes nothing and
+/// the states say what it does not know.
+#[test]
+fn a_newer_drive_format_is_kept_in_the_states() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    a.write("a.txt", b"a");
+    a.pass();
+    let key = "Documents/.azlin/index.json";
+    let mut index: serde_json::Value =
+        serde_json::from_slice(&store.read(key).unwrap()).unwrap();
+    index["features"] = serde_json::json!(["teleport"]);
+    store.write(key, serde_json::to_vec(&index).unwrap());
+    let (states, _) = a.pass();
+    assert_eq!(states.newer_format, vec![String::from("teleport")]);
+}
+
+/// A rename through the session (a plain drive's own listing): the copy here moves - a file in
+/// the cloud only comes down first - and the next pass moves it on the drive.
+#[test]
+fn a_rename_through_the_session_moves_the_file_with_the_next_pass() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |s| s.auto_download = AutoDownload::Nothing);
+    a.write("old.txt", b"the text");
+    a.write("folder/x.txt", b"x");
+    a.pass();
+    b.pass();
+    b.session.rename("old.txt", "new.txt").unwrap();
+    assert_eq!(b.read("new.txt").as_deref(), Some(&b"the text"[..]), "came down, moved");
+    b.session.rename("folder/", "renamed/").unwrap();
+    assert_eq!(b.read("renamed/x.txt").as_deref(), Some(&b"x"[..]));
+    b.pass();
+    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(index.contains("\"new.txt\"") && !index.contains("\"old.txt\""), "{index}");
+    assert!(index.contains("\"renamed/x.txt\""), "{index}");
+}
+
 #[cfg(feature = "encryption")]
 mod encrypted_copies {
     use std::sync::{atomic::AtomicBool, Arc};

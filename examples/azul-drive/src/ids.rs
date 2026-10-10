@@ -253,6 +253,17 @@ pub const SYNC_KEEP_BOTH: AzString = AzString::from_const_str("__azdrive_sync_ke
 pub const SYNC_OPTIONS: AzString = AzString::from_const_str("__azdrive_sync_options");
 pub const SYNC_DELETE: AzString = AzString::from_const_str("__azdrive_sync_delete");
 pub const SYNC_DELETE_OK: AzString = AzString::from_const_str("__azdrive_sync_delete_ok");
+/// The burst guard's question, "I was hacked", the mass delete's question.
+pub const SYNC_BURST: AzString = AzString::from_const_str("__azdrive_sync_burst");
+pub const SYNC_BURST_MINE: AzString = AzString::from_const_str("__azdrive_sync_burst_mine");
+pub const SYNC_BURST_HACKED: AzString = AzString::from_const_str("__azdrive_sync_burst_hacked");
+pub const SYNC_HACKED: AzString = AzString::from_const_str("__azdrive_sync_hacked");
+pub const SYNC_HACKED_LOCKDOWN: AzString =
+    AzString::from_const_str("__azdrive_sync_hacked_lockdown");
+pub const SYNC_HACKED_RESTORE: AzString = AzString::from_const_str("__azdrive_sync_hacked_restore");
+pub const SYNC_MASS: AzString = AzString::from_const_str("__azdrive_sync_mass");
+pub const SYNC_MASS_KEEP: AzString = AzString::from_const_str("__azdrive_sync_mass_keep");
+pub const SYNC_MASS_DELETE: AzString = AzString::from_const_str("__azdrive_sync_mass_delete");
 /// The Properties dialog.
 pub const PROPERTIES: AzString = AzString::from_const_str("__azdrive_properties");
 /// The transfer queue.
