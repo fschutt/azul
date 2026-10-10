@@ -279,6 +279,31 @@ extern "C" fn on_crumb_drop(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// "3 of 12 selected (1.5 MB), 45.3 GB available".
 pub(crate) fn status_text(s: &DriveState) -> String {
     let mut parts = Vec::new();
+    if let Some(find) = &s.find {
+        // The search's own line: "Searching... 1,234 found", then the count; the refine.
+        parts.push(find.status_text());
+        if !s.refines.is_any() {
+            parts.push(s.refines.label());
+        }
+        // The drive's index, when it has one: how far its update got, what it holds.
+        if let Some(drive_id) = s
+            .current_drive_id()
+            .filter(|id| s.settings.indexed_drives.contains(id))
+        {
+            parts.push(s.indexes.get(&drive_id).map_or_else(
+                || String::from("Not indexed yet"),
+                crate::find::IndexInfo::status_text,
+            ));
+        }
+        let selected = s.selection.len();
+        if selected > 0 {
+            parts.push(format!("{} selected", listing::grouped_digits(selected)));
+        }
+        if let Some(clip) = &s.clipboard {
+            parts.push(format!("{} on the clipboard", clip.items.len()));
+        }
+        return parts.join(", ");
+    }
     match &s.place {
         Place::ThisPc => {
             let drives = browse::counted(s.slots.len(), "drive", "drives");
@@ -292,16 +317,6 @@ pub(crate) fn status_text(s: &DriveState) -> String {
             "pinned folder",
             "pinned folders",
         )),
-        Place::Folder { .. } if s.find.is_some() => {
-            // The search's own line: "Searching... 1,234 found", then the count.
-            if let Some(find) = &s.find {
-                parts.push(find.status_text());
-            }
-            let selected = s.selection.len();
-            if selected > 0 {
-                parts.push(format!("{} selected", listing::grouped_digits(selected)));
-            }
-        }
         Place::Folder { .. } if s.loading => parts.push(String::from("Loading...")),
         Place::Folder { drive, .. } => {
             let shown = s.visible_entries().len();

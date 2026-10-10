@@ -8,25 +8,27 @@
 use azul::{prelude::*, str::String as AzString};
 
 use crate::{
-    browse::{self, Entry},
+    actions::{action_ref, on_action, Action},
+    browse::{self, Column, Entry},
     find, ids, look,
     model::ViewLayout,
     ui_view, DriveState,
 };
 
-/// The columns: their headers and their widths (px).
-const COLUMNS: [(&str, f32); 5] = [
-    ("Name", 260.0),
-    ("Folder", 200.0),
-    ("Match", 380.0),
-    ("Date modified", 140.0),
-    ("Size", 90.0),
+/// The columns: their headers, their widths (px), the column a click sorts by (`None`: Match
+/// puts the results back in the order they were found).
+const COLUMNS: [(&str, f32, Option<Column>); 5] = [
+    ("Name", 260.0, Some(Column::Name)),
+    ("Folder", 200.0, Some(Column::Path)),
+    ("Match", 380.0, None),
+    ("Date modified", 140.0, Some(Column::Modified)),
+    ("Size", 90.0, Some(Column::Size)),
 ];
 
 /// The width the rows draw in: the columns (each with its padding) and the check boxes'.
 pub(crate) fn width(s: &DriveState) -> f32 {
     let checks = if s.settings.item_checkboxes { 28.0 } else { 0.0 };
-    COLUMNS.iter().map(|(_, w)| w + 8.0).sum::<f32>() + checks
+    COLUMNS.iter().map(|(_, w, _)| w + 8.0).sum::<f32>() + checks
 }
 
 /// A cell of `width` px holding `content`, cut with an ellipsis.
@@ -39,27 +41,44 @@ fn cell(width: f32, extra: &str, content: Dom) -> Dom {
         .with_child(content)
 }
 
-/// The column headers on the Details header's raised face (the results come in the order they
-/// were found - the names first -, so a header does not sort).
-pub(crate) fn header(s: &DriveState) -> Dom {
+/// The column headers on the Details header's raised face: the results come in the order they
+/// were found (the names first); a click on a header sorts them by its column (again: the other
+/// way, the sorted one tinted with its arrow), one on Match puts them back as found.
+pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
+    let sort = s.find.as_ref().and_then(|f| f.sort);
     let mut row = Dom::create_div()
         .with_id(ids::FIND_HEADER)
         .with_css(look::DETAILS_HEADER);
     if s.settings.item_checkboxes {
         row.add_child(Dom::create_div().with_css("width: 28px; flex-shrink: 0;"));
     }
-    for (label, width) in COLUMNS {
-        row.add_child(
-            Dom::create_div()
-                .with_class(ids::COLUMN_CLASS)
-                .with_css(format!(
-                    "{} width: {width}px; min-width: {width}px;",
-                    look::COLUMN
-                ))
-                .with_child(Dom::create_span_with_text(AzString::from(label)).with_css(
-                    "flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
-                )),
-        );
+    for (label, width, column) in COLUMNS {
+        let sorted = column.is_some() && sort.map(|s| s.column) == column;
+        let mut cell = Dom::create_div()
+            .with_class(ids::COLUMN_CLASS)
+            .with_css(format!(
+                "{} width: {width}px; min-width: {width}px; {}",
+                look::COLUMN,
+                if sorted { look::COLUMN_SORTED } else { "" }
+            ))
+            .with_child(Dom::create_span_with_text(AzString::from(label)).with_css(
+                "flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
+            ));
+        if let (true, Some(sort)) = (sorted, sort) {
+            cell.add_child(
+                Dom::create_icon(AzString::from(if sort.descending {
+                    "arrow_drop_down"
+                } else {
+                    "arrow_drop_up"
+                }))
+                .with_css("font-size: 16px; flex-shrink: 0;"),
+            );
+        }
+        row.add_child(cell.with_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            action_ref(app, Action::SortResults(column)),
+            on_action,
+        ));
     }
     row
 }
@@ -78,6 +97,25 @@ pub(crate) fn cloud_note() -> Dom {
             "A cloud drive is searched by name, over a listing of every file below this folder: \
              slower than a folder on this computer, and file contents are not searched.",
         )))
+}
+
+/// The Folder cell: where the result is, from its drive's root - the drive's name for its
+/// root, and on This PC the drive's name before the path.
+fn folder_text(s: &DriveState, row: &str) -> String {
+    let drive_name = |id: &str| {
+        s.slot_index(id)
+            .map_or_else(|| id.to_string(), |i| s.slots[i].entry.name.clone())
+    };
+    match find::split_pc_key(row) {
+        Some((drive, key)) => match find::folder_of(key) {
+            "" => drive_name(drive),
+            folder => format!("{}/{folder}", drive_name(drive)),
+        },
+        None => match find::folder_of(row) {
+            "" => s.drive_name(&s.place),
+            folder => folder.to_string(),
+        },
+    }
 }
 
 /// The Match cell: "12:" and the line with the match marked; empty for a result found by its
@@ -122,14 +160,9 @@ pub(crate) fn row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom
     if s.settings.item_checkboxes {
         row.add_child(ui_view::check_box(s, app, entry));
     }
-    let folder = find::folder_of(&entry.key);
-    let folder = if folder.is_empty() {
-        s.drive_name(&s.place)
-    } else {
-        folder.to_string()
-    };
+    let folder = folder_text(s, &entry.key);
     let line = s.find.as_ref().and_then(|f| f.lines.get(&entry.key));
-    let [name, place, matched, modified, size] = COLUMNS.map(|(_, width)| width);
+    let [name, place, matched, modified, size] = COLUMNS.map(|(_, width, _)| width);
     row.add_child(cell(name, "", ui_view::name_cell(s, app, entry, 16.0)));
     row.add_child(cell(
         place,

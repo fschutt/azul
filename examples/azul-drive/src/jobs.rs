@@ -12,13 +12,14 @@
 //! ever waits on a drive.
 
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
-    time::{Duration, Instant, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use azcloud_kit::{
@@ -32,9 +33,12 @@ use azul::{
     prelude::*,
     vec::U8VecRef,
 };
+use azul_search_index::{
+    DriveIndex, ExtractFn, Extractors, IndexStatus, Kind, UpdateProgress, UpdateSummary,
+};
 use azul_storage::{
     azul_transport::AzulTransport, config::DriveEntry, ops as storage_ops, transfer, ByteRange,
-    Drive, DriveError, ListRequest, LocalDrive,
+    Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
 };
 
 use crate::{
@@ -48,6 +52,9 @@ use crate::{
 
 /// The keys a bucket's listing asks for per page while a scan streams it.
 const SCAN_PAGE: u32 = 1000;
+
+/// The listings a cloud search runs side by side (one subfolder each).
+const LIST_WORKERS: usize = 8;
 
 /// What a preview shows, once fetched.
 #[derive(Clone)]
@@ -330,21 +337,43 @@ pub(crate) enum Job {
         request: azul_search::Request,
         /// The drive's key of the searched folder: the results' keys start with it.
         prefix: String,
+        /// The drive's full-text index, asked first for the contents.
+        index: Option<find::IndexAsk>,
         cancel: Arc<AtomicBool>,
     },
-    /// The search box's search of a cloud drive's folder: the names of a recursive listing,
-    /// page by page.
+    /// The search box's search of a cloud drive's folder: the names of its listing (recursive -
+    /// its folders side by side, the last listing first -, or its own level), page by page.
     FindRemote {
-        serial: u64,
+        find: RemoteFind,
         drive: Arc<dyn Drive>,
-        prefix: String,
-        pattern: azul_search::Pattern,
-        show_hidden: bool,
         cancel: Arc<AtomicBool>,
     },
+    /// A drive's full-text index brought up to its folder on this computer (what changed read
+    /// again), its progress streamed ([`Outcome::IndexProgress`]) until it ends or `cancel`.
+    IndexDrive {
+        drive_id: String,
+        root: PathBuf,
+        dir: PathBuf,
+        cancel: Arc<AtomicBool>,
+    },
+    /// A drive's index thrown away ("Index this drive" turned off).
+    RemoveIndex { drive_id: String, dir: PathBuf },
     /// An encrypted drive's keys, recovery or files moved into the encryption.
     #[cfg(feature = "encryption")]
     Encryption(crate::encryption::EncryptionJob),
+}
+
+/// A search of a cloud drive's folder, as the window asks for it.
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteFind {
+    pub serial: u64,
+    /// The searched folder's key (`""`: the drive's root): the results' keys start with it.
+    pub prefix: String,
+    pub pattern: azul_search::Pattern,
+    pub options: find::FindOptions,
+    /// The file that keeps the drive's last complete listing ([`find::listing_file`]); `None`:
+    /// nothing is kept (a `--shot` run, a system without a cache folder).
+    pub cache: Option<PathBuf>,
 }
 
 /// What a job answers, on the UI thread.
@@ -496,6 +525,22 @@ pub(crate) enum Outcome {
         /// Files read (a cloud drive: keys listed) so far.
         searched: usize,
         end: Option<FindEnd>,
+    },
+    /// How far a drive's index update got, and what the index held when it began.
+    IndexProgress {
+        drive_id: String,
+        progress: UpdateProgress,
+        held: IndexStatus,
+    },
+    /// A drive's index update ended: what it did and what the index holds, or why it could not.
+    Indexed {
+        drive_id: String,
+        result: Result<(UpdateSummary, IndexStatus), String>,
+    },
+    /// A drive's index was thrown away (or why it could not be).
+    IndexRemoved {
+        drive_id: String,
+        error: Option<String>,
     },
     /// What an encryption job found.
     #[cfg(feature = "encryption")]
@@ -1101,6 +1146,15 @@ impl FindBatch {
         self.tick(emit);
     }
 
+    /// What was found so far goes along now (the walk it was found in is about to change).
+    fn flush(&mut self, emit: &mut dyn FnMut(Outcome)) {
+        if !self.items.is_empty() {
+            self.sent_first = true;
+            let outcome = self.outcome(None);
+            emit(outcome);
+        }
+    }
+
     /// A walk begins: what was found so far goes along.
     fn phase(&mut self, phase: FindPhase, emit: &mut dyn FnMut(Outcome)) {
         self.phase = phase;
@@ -1156,76 +1210,608 @@ pub(crate) fn run_find(
     let end = match result {
         Ok(summary) => FindEnd {
             limited: summary.limited,
-            error: None,
+            ..FindEnd::default()
         },
         Err(e) => FindEnd {
-            limited: false,
             error: Some(e.to_string()),
+            ..FindEnd::default()
         },
     };
     batch.finish(end)
 }
 
-/// The search box's search of a cloud drive's folder `prefix`: the names of its recursive
-/// listing, page by page (slower than a folder on this computer; no contents - the files would
-/// have to be downloaded), at most [`find::FIND_MAX`]; a set `cancel` ends it between pages.
+/// The search box's search of a cloud drive's folder: the names of its listing - recursive, or
+/// ("Current folder") its own level -, page by page (slower than a folder on this computer; no
+/// contents - the files would have to be downloaded), refined by the sizes and dates the listing
+/// has, at most [`find::FIND_MAX`]; a set `cancel` ends it between pages.
+///
+/// A recursive one lists the folder's own level, then its subfolders side by side
+/// ([`list_side_by_side`]). The drive's last complete listing (`search.cache`) goes first: its
+/// results at once ([`FindPhase::Cached`]), then the fresh listing's others; once the fresh one
+/// is complete the cached results it has not got end the search as stale, and it is kept for
+/// the next search.
 pub(crate) fn run_find_remote(
-    serial: u64,
+    search: &RemoteFind,
     drive: &dyn Drive,
-    prefix: &str,
-    pattern: &azul_search::Pattern,
-    show_hidden: bool,
     cancel: &AtomicBool,
     emit: &mut dyn FnMut(Outcome),
 ) -> Outcome {
-    let mut batch = FindBatch::new(serial);
-    let matcher = match azul_search::NameMatcher::new(pattern) {
+    let mut batch = FindBatch::new(search.serial);
+    let matcher = match azul_search::NameMatcher::new(&search.pattern) {
         Ok(matcher) => matcher,
         Err(e) => {
             return batch.finish(FindEnd {
-                limited: false,
                 error: Some(e.to_string()),
+                ..FindEnd::default()
             })
         }
     };
-    batch.phase(FindPhase::Names, emit);
-    let mut seen = std::collections::HashSet::new();
+    let prefix = search.prefix.as_str();
+    let options = &search.options;
     let mut found = 0;
+    // The last complete listing, when it covers this folder (a recursive search only).
+    let cached = search
+        .cache
+        .as_deref()
+        .filter(|_| options.subfolders)
+        .and_then(find::read_listing);
+    let mut shown_cached = HashSet::new();
+    if let Some(listing) = cached
+        .as_ref()
+        .filter(|listing| prefix.starts_with(listing.prefix.as_str()))
+    {
+        batch.phase(FindPhase::Cached, emit);
+        let page = ListPage {
+            objects: listing
+                .objects
+                .iter()
+                .filter(|o| o.key.starts_with(prefix))
+                .cloned()
+                .collect(),
+            ..ListPage::default()
+        };
+        let mut seen = HashSet::new();
+        for item in find::remote_names(&page, prefix, &matcher, options, &mut seen) {
+            if found == find::FIND_MAX {
+                break;
+            }
+            found += 1;
+            shown_cached.insert(item.entry.key.clone());
+            batch.push(item, emit);
+        }
+        batch.flush(emit);
+    }
+    batch.phase(FindPhase::Names, emit);
+    // The fresh listing: a cached result is not handed over again; every result it has is
+    // `live`; its objects are gathered for the cache (while they fit).
+    let mut live = HashSet::new();
+    let mut seen = HashSet::new();
+    let mut limited = false;
+    let mut listed: Option<Vec<ObjectInfo>> =
+        (search.cache.is_some() && options.subfolders).then(Vec::new);
+    let mut on_page = |page: ListPage| -> bool {
+        batch.searched += page.objects.len();
+        for item in find::remote_names(&page, prefix, &matcher, options, &mut seen) {
+            if !live.insert(item.entry.key.clone()) || shown_cached.contains(&item.entry.key) {
+                continue;
+            }
+            if found == find::FIND_MAX {
+                limited = true;
+                return false;
+            }
+            found += 1;
+            batch.push(item, &mut *emit);
+        }
+        let fits = listed.as_ref().is_some_and(|objects| {
+            objects.len() + page.objects.len() <= find::CACHE_MAX_OBJECTS
+        });
+        if fits {
+            if let Some(objects) = listed.as_mut() {
+                objects.extend(page.objects);
+            }
+        } else {
+            listed = None;
+        }
+        batch.tick(&mut *emit);
+        true
+    };
+    let listing = if options.subfolders {
+        list_side_by_side(drive, prefix, cancel, &mut on_page)
+    } else {
+        list_level(drive, prefix, cancel, &mut Vec::new(), &mut on_page)
+    };
+    let end = match listing {
+        Err(error) => FindEnd {
+            error: Some(error),
+            ..FindEnd::default()
+        },
+        Ok(_) if limited => FindEnd {
+            limited: true,
+            ..FindEnd::default()
+        },
+        Ok(Listed::Stopped) => FindEnd::default(),
+        Ok(Listed::Complete) => {
+            let mut stale: Vec<String> = shown_cached.difference(&live).cloned().collect();
+            stale.sort();
+            if let (Some(file), Some(objects)) = (search.cache.as_deref(), listed) {
+                keep_listing(file, cached, prefix, objects);
+            }
+            FindEnd {
+                stale,
+                ..FindEnd::default()
+            }
+        }
+    };
+    batch.finish(end)
+}
+
+/// How a cloud drive's listing ended.
+enum Listed {
+    /// Every page was listed.
+    Complete,
+    /// Cancelled, or the pages' reader asked to stop (the search's limit).
+    Stopped,
+}
+
+/// One level of a cloud drive's folder `prefix`, page by page through `on_page` (`false`: stop);
+/// its subfolders (the common prefixes) gathered into `folders`.
+fn list_level(
+    drive: &dyn Drive,
+    prefix: &str,
+    cancel: &AtomicBool,
+    folders: &mut Vec<String>,
+    on_page: &mut dyn FnMut(ListPage) -> bool,
+) -> Result<Listed, String> {
     let mut next: Option<String> = None;
     loop {
         if cancel.load(Ordering::Relaxed) {
-            return batch.finish(FindEnd::default());
+            return Ok(Listed::Stopped);
         }
-        let mut request = ListRequest::recursive(prefix).with_max_keys(SCAN_PAGE);
+        let mut request = ListRequest::folder(prefix).with_max_keys(SCAN_PAGE);
         if let Some(token) = next.take() {
             request = request.with_continuation(token);
         }
-        let page = match drive.list(&request) {
-            Ok(page) => page,
-            Err(e) => {
-                return batch.finish(FindEnd {
-                    limited: false,
-                    error: Some(e.to_string()),
-                })
-            }
-        };
-        batch.searched += page.objects.len();
-        for item in find::remote_names(&page, prefix, &matcher, show_hidden, &mut seen) {
-            if found == find::FIND_MAX {
-                return batch.finish(FindEnd {
-                    limited: true,
-                    error: None,
-                });
-            }
-            found += 1;
-            batch.push(item, emit);
+        let page = drive.list(&request).map_err(|e| e.to_string())?;
+        folders.extend(page.folders.iter().cloned());
+        let more = page.next.clone();
+        if !on_page(page) {
+            return Ok(Listed::Stopped);
         }
-        batch.tick(emit);
-        match page.next {
+        match more {
             Some(token) => next = Some(token),
-            None => return batch.finish(FindEnd::default()),
+            None => return Ok(Listed::Complete),
         }
     }
+}
+
+/// A cloud drive's folder `prefix` and every folder below it: its own level first, then each
+/// subfolder's recursive listing on one of [`LIST_WORKERS`] threads side by side (a bucket
+/// lists one key range per request, page after page; the folders are independent ranges), every
+/// page handed to `on_page` on this thread as it comes (`false`: the workers stop).
+fn list_side_by_side(
+    drive: &dyn Drive,
+    prefix: &str,
+    cancel: &AtomicBool,
+    on_page: &mut dyn FnMut(ListPage) -> bool,
+) -> Result<Listed, String> {
+    let mut folders = Vec::new();
+    if let Listed::Stopped = list_level(drive, prefix, cancel, &mut folders, on_page)? {
+        return Ok(Listed::Stopped);
+    }
+    if folders.is_empty() {
+        return Ok(Listed::Complete);
+    }
+    let next = AtomicUsize::new(0);
+    let stop = AtomicBool::new(false);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ListPage, String>>(LIST_WORKERS * 2);
+    std::thread::scope(|scope| {
+        for _ in 0..LIST_WORKERS.min(folders.len()) {
+            let tx = tx.clone();
+            let (folders, next, stop) = (&folders, &next, &stop);
+            scope.spawn(move || {
+                let halted = || stop.load(Ordering::Relaxed) || cancel.load(Ordering::Relaxed);
+                while let Some(folder) = folders.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let mut token: Option<String> = None;
+                    loop {
+                        if halted() {
+                            return;
+                        }
+                        let mut request =
+                            ListRequest::recursive(folder).with_max_keys(SCAN_PAGE);
+                        if let Some(token) = token.take() {
+                            request = request.with_continuation(token);
+                        }
+                        let page = drive.list(&request).map_err(|e| e.to_string());
+                        let more = page.as_ref().ok().and_then(|p| p.next.clone());
+                        let failed = page.is_err();
+                        // The receiver gone (the search stopped), or this listing failed.
+                        if tx.send(page).is_err() || failed {
+                            return;
+                        }
+                        match more {
+                            Some(more) => token = Some(more),
+                            None => break,
+                        }
+                    }
+                }
+            });
+        }
+        drop(tx);
+        let mut ended = Ok(Listed::Complete);
+        for page in rx.iter() {
+            let page = match page {
+                Ok(page) => page,
+                Err(error) => {
+                    ended = Err(error);
+                    break;
+                }
+            };
+            if !on_page(page) || cancel.load(Ordering::Relaxed) {
+                ended = Ok(Listed::Stopped);
+                break;
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        // Dropped before the scope joins the workers: one blocked on a full channel then ends.
+        drop(rx);
+        // The workers end on a cancel without a word: the listing is not complete then.
+        if matches!(ended, Ok(Listed::Complete)) && cancel.load(Ordering::Relaxed) {
+            ended = Ok(Listed::Stopped);
+        }
+        ended
+    })
+}
+
+/// Keeps a complete listing of `prefix` for the next search: a kept listing of a folder above it
+/// keeps its other folders' objects (the fresh ones replace this folder's); else this one
+/// replaces it. A failed write only costs the next search its head start.
+fn keep_listing(
+    file: &Path,
+    cached: Option<find::CachedListing>,
+    prefix: &str,
+    objects: Vec<ObjectInfo>,
+) {
+    let at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let listing = match cached {
+        Some(mut wider) if prefix.starts_with(wider.prefix.as_str()) && prefix != wider.prefix => {
+            wider.objects.retain(|o| !o.key.starts_with(prefix));
+            wider.objects.extend(objects);
+            wider.objects.sort_by(|a, b| a.key.cmp(&b.key));
+            wider.at = at;
+            wider
+        }
+        _ => find::CachedListing {
+            prefix: prefix.to_string(),
+            at,
+            objects,
+        },
+    };
+    if listing.objects.len() <= find::CACHE_MAX_OBJECTS {
+        if let Err(e) = find::write_listing(file, &listing) {
+            eprintln!("[azdrive] the listing could not be kept in {}: {e}", file.display());
+        }
+    }
+}
+
+// ==== A drive's full-text index ====
+
+/// A PDF's text through azul's reader (the PDF viewer's): every page's text blocks, a line
+/// each, a blank line after a page; `None` for bytes that are no PDF.
+pub(crate) fn pdf_text(bytes: &[u8]) -> Option<String> {
+    let pdf = azul::pdf::ParsedPdf::create_from_bytes(U8VecRef::from(bytes));
+    if !pdf.is_valid() {
+        return None;
+    }
+    let mut text = String::new();
+    for page in 0..pdf.page_count() {
+        for block in pdf.page_text(page).as_slice() {
+            text.push_str(block.as_str());
+            text.push('\n');
+        }
+        text.push('\n');
+        if text.len() >= azul_search_index::MAX_TEXT_BYTES {
+            break;
+        }
+    }
+    Some(text)
+}
+
+/// What AzDrive reads beyond plain text, office documents and mail: PDFs, through azul's reader.
+pub(crate) fn extractors() -> Extractors {
+    let pdf: ExtractFn = Arc::new(pdf_text);
+    Extractors { pdf: Some(pdf) }
+}
+
+/// Brings the drive `drive_id`'s index in `dir` up to its folder `root` (the search box's
+/// default walk, [`find::index_filters`]): how far it got now and then through `emit`; the
+/// answer says what it did and what the index holds - or why it could not (another window
+/// updating it, a folder that cannot be written).
+pub(crate) fn run_index_update(
+    drive_id: &str,
+    root: &Path,
+    dir: &Path,
+    extractors: &Extractors,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(Outcome),
+) -> Outcome {
+    let result = DriveIndex::open(dir).and_then(|index| {
+        let held = index.status();
+        let summary = index.update(
+            root,
+            &find::index_filters(),
+            extractors,
+            cancel,
+            &mut |progress| {
+                emit(Outcome::IndexProgress {
+                    drive_id: drive_id.to_string(),
+                    progress,
+                    held,
+                });
+            },
+        )?;
+        Ok((summary, index.status()))
+    });
+    Outcome::Indexed {
+        drive_id: drive_id.to_string(),
+        result: result.map_err(|e| e.to_string()),
+    }
+}
+
+/// Whether the file `rel` is read as text (a plain file, or one of no known kind: the walk's
+/// reader passes over a binary one) rather than through its document's text.
+fn read_as_text(rel: &str) -> bool {
+    matches!(azul_search_index::kind_of(key_name(rel)), Some(Kind::Text) | None)
+}
+
+/// The last segment of a `/`-separated path.
+fn key_name(rel: &str) -> &str {
+    rel.rsplit('/').next().unwrap_or(rel)
+}
+
+/// The size and date of the file `rel` below `root` now; `None` when it is gone.
+fn file_facts(root: &Path, rel: &str) -> Option<(u64, Option<u64>)> {
+    let mut path = root.to_path_buf();
+    for segment in rel.split('/').filter(|s| !s.is_empty()) {
+        path.push(segment);
+    }
+    let meta = fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+    Some((meta.len(), modified))
+}
+
+/// The contents part of an indexed search as it goes: the results so far against
+/// [`find::FIND_MAX`], the files a content result was handed over for.
+struct IndexedContents<'a> {
+    request: &'a azul_search::Request,
+    prefix: &'a str,
+    ask: &'a find::IndexAsk,
+    matcher: &'a azul_search::ContentMatcher,
+    extractors: &'a Extractors,
+    cancel: &'a AtomicBool,
+    found: usize,
+    limited: bool,
+    keys: HashSet<String>,
+}
+
+impl IndexedContents<'_> {
+    fn full(&mut self) -> bool {
+        if self.found >= find::FIND_MAX {
+            self.limited = true;
+        }
+        self.limited || self.cancel.load(Ordering::Relaxed)
+    }
+
+    fn hand_over(
+        &mut self,
+        found: find::Found,
+        batch: &mut FindBatch,
+        emit: &mut dyn FnMut(Outcome),
+    ) {
+        if self.full() || !self.keys.insert(found.entry.key.clone()) {
+            return;
+        }
+        self.found += 1;
+        batch.push(found, emit);
+    }
+
+    /// Plain files (`rels` below the searched folder) read as the walk reads them: a matching
+    /// one with its line.
+    fn read_texts(
+        &mut self,
+        rels: &[String],
+        batch: &mut FindBatch,
+        emit: &mut dyn FnMut(Outcome),
+    ) {
+        if rels.is_empty() || self.full() {
+            return;
+        }
+        let mut request = self.request.clone();
+        request.limits.max_results = find::FIND_MAX.saturating_sub(self.found);
+        let searched_before = batch.searched;
+        let result = azul_search::search_listed(&request, rels, self.cancel, &mut |event| {
+            match event {
+                azul_search::Event::Content(hit) => {
+                    let found = find::found_content(self.prefix, hit);
+                    self.hand_over(found, batch, &mut *emit);
+                }
+                azul_search::Event::Progress(progress) => {
+                    batch.searched = searched_before + progress.searched;
+                    batch.tick(&mut *emit);
+                }
+                azul_search::Event::Phase(_) | azul_search::Event::Name(_) => {}
+            }
+        });
+        if let Ok(summary) = result {
+            batch.searched = searched_before + summary.searched;
+            self.limited |= summary.limited;
+        }
+    }
+
+    /// Documents (`rels` below the searched folder) read through their text: a matching one
+    /// with its line; with `named` (the index named them) one whose words were apart too,
+    /// without a line.
+    fn read_documents(
+        &mut self,
+        rels: &[String],
+        named: bool,
+        batch: &mut FindBatch,
+        emit: &mut dyn FnMut(Outcome),
+    ) {
+        let request = self.request;
+        let refine = &request.filters.refine;
+        for rel in rels {
+            if self.full() {
+                return;
+            }
+            let Some((size, modified)) = file_facts(&request.root, rel) else {
+                continue; // gone since
+            };
+            if !refine.admits_name(key_name(rel), false)
+                || !refine.admits_facts(Some(size), modified)
+            {
+                continue;
+            }
+            let path = format!("{}{rel}", self.ask.under);
+            let text = azul_search_index::document_text(&self.ask.root, &path, self.extractors);
+            batch.searched += 1;
+            let line = text.and_then(|text| find::document_line(&text, self.matcher));
+            if line.is_some() || named {
+                let found = find::found_document(self.prefix, rel, size, modified, line);
+                self.hand_over(found, batch, &mut *emit);
+            }
+            batch.tick(&mut *emit);
+        }
+    }
+}
+
+/// The search box's search of a folder on this computer whose drive has an index (`ask`): the
+/// names as [`run_find`] finds them, then the contents - the files the index names first, at
+/// once (a plain file read again for its line, so it matches as the walk's would; a document's
+/// line from its text, or none when the index's words were apart), then the files the index
+/// has not read as they are now (new or changed since its update: a plain file read as the walk
+/// reads it, a document through its text) -, each once, at most [`find::FIND_MAX`]. An index
+/// that cannot be opened or asked is passed by: the files are read as without one.
+pub(crate) fn run_find_indexed(
+    serial: u64,
+    request: &azul_search::Request,
+    prefix: &str,
+    ask: &find::IndexAsk,
+    extractors: &Extractors,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(Outcome),
+) -> Outcome {
+    let Some(pattern) = request.contents.as_ref() else {
+        return run_find(serial, request, prefix, cancel, emit);
+    };
+    let index = match DriveIndex::open(&ask.dir) {
+        Ok(index) => index,
+        Err(e) => {
+            eprintln!("[azdrive] the index in {} is passed by: {e}", ask.dir.display());
+            return run_find(serial, request, prefix, cancel, emit);
+        }
+    };
+    let mut batch = FindBatch::new(serial);
+    let matcher = match azul_search::ContentMatcher::new(pattern) {
+        Ok(matcher) => matcher,
+        Err(e) => {
+            return batch.finish(FindEnd {
+                error: Some(e.to_string()),
+                ..FindEnd::default()
+            })
+        }
+    };
+    // The names, as without an index (a row found by its name gets its line below).
+    let names = azul_search::Request {
+        contents: None,
+        ..request.clone()
+    };
+    let result = azul_search::search(&names, cancel, &mut |event| match event {
+        azul_search::Event::Phase(_) => batch.phase(FindPhase::Names, &mut *emit),
+        azul_search::Event::Name(hit) => batch.push(find::found_name(prefix, hit), &mut *emit),
+        azul_search::Event::Content(_) => {}
+        azul_search::Event::Progress(progress) => {
+            batch.searched = progress.searched;
+            batch.tick(&mut *emit);
+        }
+    });
+    let summary = match result {
+        Ok(summary) => summary,
+        Err(e) => {
+            return batch.finish(FindEnd {
+                error: Some(e.to_string()),
+                ..FindEnd::default()
+            })
+        }
+    };
+    if summary.limited || cancel.load(Ordering::Relaxed) {
+        return batch.finish(FindEnd {
+            limited: summary.limited,
+            ..FindEnd::default()
+        });
+    }
+    batch.phase(FindPhase::Contents, emit);
+    let mut contents = IndexedContents {
+        request,
+        prefix,
+        ask,
+        matcher: &matcher,
+        extractors,
+        cancel,
+        found: summary.names,
+        limited: false,
+        keys: HashSet::new(),
+    };
+    // The index's files below the folder, best first.
+    let named = match index.query(&pattern.text, &ask.under, find::FIND_MAX) {
+        Ok(paths) => Some(paths),
+        Err(e) => {
+            eprintln!("[azdrive] the index in {} is passed by: {e}", ask.dir.display());
+            None
+        }
+    };
+    let below = |path: &String| path.strip_prefix(ask.under.as_str()).map(str::to_string);
+    if let Some(paths) = &named {
+        let rels: Vec<String> = paths
+            .iter()
+            .filter_map(below)
+            .filter(|rel| find::index_admits(&request.filters, rel))
+            .collect();
+        let (texts, documents): (Vec<String>, Vec<String>) =
+            rels.into_iter().partition(|rel| read_as_text(rel));
+        contents.read_texts(&texts, &mut batch, emit);
+        contents.read_documents(&documents, true, &mut batch, emit);
+    }
+    // The files the index has not read as they are now (all of them without the index).
+    let mut listed = Vec::new();
+    if !contents.full() {
+        let _ = azul_search::list_files(&request.root, &request.filters, cancel, &mut |file| {
+            listed.push(azul_search::FileEntry {
+                path: format!("{}{}", ask.under, file.path),
+                ..file
+            });
+        });
+    }
+    let mut rest: Vec<String> = match named {
+        Some(_) => index.unread(&listed).iter().filter_map(|f| below(&f.path)).collect(),
+        None => listed.iter().filter_map(|f| below(&f.path)).collect(),
+    };
+    rest.retain(|rel| !contents.keys.contains(&format!("{prefix}{rel}")));
+    rest.sort();
+    let (texts, documents): (Vec<String>, Vec<String>) =
+        rest.into_iter().partition(|rel| read_as_text(rel));
+    contents.read_texts(&texts, &mut batch, emit);
+    contents.read_documents(&documents, false, &mut batch, emit);
+    let limited = contents.limited;
+    batch.finish(FindEnd {
+        limited,
+        ..FindEnd::default()
+    })
 }
 
 /// Seconds between two questions about a checkout's payment.
@@ -1933,35 +2519,53 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             serial,
             request,
             prefix,
+            index,
             cancel,
         } => {
             if !debounce(&cancel) {
                 return FindBatch::new(serial).finish(FindEnd::default());
             }
             let mut emit = |outcome: Outcome| send(sender, outcome);
-            run_find(serial, &request, &prefix, &cancel, &mut emit)
+            match index.filter(|_| request.contents.is_some()) {
+                Some(ask) => run_find_indexed(
+                    serial,
+                    &request,
+                    &prefix,
+                    &ask,
+                    &extractors(),
+                    &cancel,
+                    &mut emit,
+                ),
+                None => run_find(serial, &request, &prefix, &cancel, &mut emit),
+            }
+        }
+        Job::IndexDrive {
+            drive_id,
+            root,
+            dir,
+            cancel,
+        } => {
+            let mut emit = |outcome: Outcome| send(sender, outcome);
+            run_index_update(&drive_id, &root, &dir, &extractors(), &cancel, &mut emit)
+        }
+        Job::RemoveIndex { drive_id, dir } => {
+            let error = match fs::remove_dir_all(&dir) {
+                Ok(()) => None,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => Some(e.to_string()),
+            };
+            Outcome::IndexRemoved { drive_id, error }
         }
         Job::FindRemote {
-            serial,
+            find: search,
             drive,
-            prefix,
-            pattern,
-            show_hidden,
             cancel,
         } => {
             if !debounce(&cancel) {
-                return FindBatch::new(serial).finish(FindEnd::default());
+                return FindBatch::new(search.serial).finish(FindEnd::default());
             }
             let mut emit = |outcome: Outcome| send(sender, outcome);
-            run_find_remote(
-                serial,
-                &*drive,
-                &prefix,
-                &pattern,
-                show_hidden,
-                &cancel,
-                &mut emit,
-            )
+            run_find_remote(&search, &*drive, &cancel, &mut emit)
         }
         #[cfg(feature = "encryption")]
         Job::Encryption(job) => Outcome::Encryption(crate::encryption::run(job)),
@@ -2184,10 +2788,11 @@ mod tests {
         let request = crate::find::local_request(
             dir.path().join("Docs"),
             "needle",
-            true,
             false,
-            true,
-            false,
+            &crate::find::FindOptions {
+                contents: true,
+                ..crate::find::FindOptions::default()
+            },
         );
         let cancel = AtomicBool::new(false);
         let mut outcomes = Vec::new();
@@ -2205,6 +2810,229 @@ mod tests {
         ));
     }
 
+    /// A cloud search as the window asks for it.
+    fn remote(
+        serial: u64,
+        prefix: &str,
+        pattern: azul_search::Pattern,
+        options: &crate::find::FindOptions,
+        cache: Option<PathBuf>,
+    ) -> RemoteFind {
+        RemoteFind {
+            serial,
+            prefix: prefix.to_string(),
+            pattern,
+            options: options.clone(),
+            cache,
+        }
+    }
+
+    /// The end of a search's last answer.
+    fn end_of(outcomes: &[Outcome]) -> crate::find::FindEnd {
+        match outcomes.last() {
+            Some(Outcome::Searched { end: Some(end), .. }) => end.clone(),
+            _ => panic!("the search did not end"),
+        }
+    }
+
+    /// A cloud drive's folders are listed side by side (the folder's own level first, then each
+    /// subfolder's listing on a worker): every match is found, each once.
+    #[test]
+    fn a_cloud_drive_is_listed_folder_by_folder_in_parallel() {
+        use azul_search::Pattern;
+
+        let dir = TempDir::new("azdrive-find-parallel");
+        let mut expected = Vec::new();
+        for folder in 0..6 {
+            for file in 0..4 {
+                let key = format!("f{folder}/sub/file-{file}.txt");
+                fs::create_dir_all(dir.path().join(format!("f{folder}/sub"))).expect("folders");
+                fs::write(dir.path().join(&key), b"x").expect("a file");
+                expected.push(key);
+            }
+        }
+        fs::write(dir.path().join("file-top.txt"), b"x").expect("a file");
+        expected.push(String::from("file-top.txt"));
+        expected.sort();
+        let drive = LocalDrive::without_manifest(dir.path().to_path_buf());
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_find_remote(
+            &remote(3, "", Pattern::literal("file"), &crate::find::FindOptions::default(), None),
+            &drive,
+            &cancel,
+            &mut |o| outcomes.push(o),
+        );
+        outcomes.push(last);
+        let mut keys: Vec<String> = searched(&outcomes)
+            .iter()
+            .map(|f| f.entry.key.clone())
+            .collect();
+        keys.sort();
+        assert_eq!(keys, expected, "every file once");
+        assert!(end_of(&outcomes).error.is_none());
+    }
+
+    /// The last full listing of a cloud drive is kept: the next search shows its names at once
+    /// (the Cached phase), then the fresh listing's new ones, and ends with the ones it no longer
+    /// has (stale: deleted since).
+    #[test]
+    fn a_second_cloud_search_shows_the_last_listing_first_then_what_changed() {
+        use azul_search::Pattern;
+
+        let dir = TempDir::new("azdrive-find-cached");
+        let cache = TempDir::new("azdrive-find-cache");
+        let cache_file = cache.path().join("drive.tsv");
+        fs::create_dir_all(dir.path().join("Docs/old")).expect("folders");
+        fs::write(dir.path().join("Docs/old/report-gone.txt"), b"x").expect("a file");
+        fs::write(dir.path().join("Docs/report-kept.txt"), b"x").expect("a file");
+        let drive = LocalDrive::without_manifest(dir.path().to_path_buf());
+        let cancel = AtomicBool::new(false);
+        let options = crate::find::FindOptions::default();
+        let search = || remote(1, "", Pattern::literal("report"), &options, Some(cache_file.clone()));
+        let mut first = Vec::new();
+        let last = run_find_remote(&search(), &drive, &cancel, &mut |o| first.push(o));
+        first.push(last);
+        assert!(end_of(&first).stale.is_empty());
+        assert!(cache_file.exists(), "the full listing is kept");
+
+        fs::remove_file(dir.path().join("Docs/old/report-gone.txt")).expect("deleted");
+        fs::write(dir.path().join("Docs/report-new.txt"), b"x").expect("a new file");
+        let mut second = Vec::new();
+        let last = run_find_remote(&search(), &drive, &cancel, &mut |o| second.push(o));
+        second.push(last);
+        let cached: Vec<String> = second
+            .iter()
+            .filter_map(|o| match o {
+                Outcome::Searched {
+                    phase: crate::find::FindPhase::Cached,
+                    batch,
+                    ..
+                } => Some(batch.iter().map(|f| f.entry.key.clone()).collect::<Vec<_>>()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert!(cached.iter().any(|k| k == "Docs/old/report-gone.txt"), "shown at once: {cached:?}");
+        let keys: Vec<String> = searched(&second).iter().map(|f| f.entry.key.clone()).collect();
+        assert!(keys.iter().any(|k| k == "Docs/report-new.txt"), "the new one: {keys:?}");
+        assert_eq!(
+            keys.iter().filter(|k| *k == "Docs/report-kept.txt").count(),
+            1,
+            "a cached result is not handed over again"
+        );
+        assert_eq!(end_of(&second).stale, vec![String::from("Docs/old/report-gone.txt")]);
+    }
+
+    /// A drive with an index: the names first as before, then the contents - the index's
+    /// files at once (a text's line read again, a mail's from its text), then the files it has
+    /// not read as they are now (new since its update) -, each once with its line; nothing
+    /// outside the searched folder.
+    #[test]
+    fn an_indexed_drive_finds_contents_from_its_index_then_reads_what_changed() {
+        let drive = TempDir::new("azdrive-indexed");
+        let index_dir = TempDir::new("azdrive-index");
+        fs::create_dir_all(drive.path().join("Docs/mail")).expect("folders");
+        fs::write(drive.path().join("Docs/needle-notes.md"), b"nothing\n").expect("a file");
+        fs::write(drive.path().join("Docs/plan.txt"), b"one\nthe needle plan\n").expect("a file");
+        fs::write(drive.path().join("Docs/other.txt"), b"nothing\n").expect("a file");
+        fs::write(
+            drive.path().join("Docs/mail/0001.eml"),
+            b"Subject: Needle lunch\r\nFrom: ada@example.org\r\n\r\nPasta at noon?\r\n",
+        )
+        .expect("a mail");
+        fs::write(drive.path().join("Elsewhere.txt"), b"a needle outside\n").expect("a file");
+        let none = azul_search_index::Extractors::default();
+        let cancel = AtomicBool::new(false);
+        let index = azul_search_index::DriveIndex::open(index_dir.path()).expect("the index");
+        index
+            .update(drive.path(), &crate::find::index_filters(), &none, &cancel, &mut |_| {})
+            .expect("indexed");
+        drop(index);
+        fs::write(drive.path().join("Docs/new.txt"), b"a needle arrives\n").expect("a new file");
+
+        let request = crate::find::local_request(
+            drive.path().join("Docs"),
+            "needle",
+            false,
+            &crate::find::FindOptions {
+                contents: true,
+                ..crate::find::FindOptions::default()
+            },
+        );
+        let ask = crate::find::IndexAsk {
+            dir: index_dir.path().to_path_buf(),
+            root: drive.path().to_path_buf(),
+            under: String::from("Docs/"),
+        };
+        let mut outcomes = Vec::new();
+        let last = run_find_indexed(4, &request, "Docs/", &ask, &none, &cancel, &mut |o| {
+            outcomes.push(o)
+        });
+        outcomes.push(last);
+        let found = searched(&outcomes);
+        let keys: Vec<&str> = found.iter().map(|f| f.entry.key.as_str()).collect();
+        assert_eq!(keys.len(), 4, "{keys:?}");
+        assert_eq!(keys[0], "Docs/needle-notes.md", "the names first");
+        let mut from_index = keys[1..3].to_vec();
+        from_index.sort_unstable();
+        assert_eq!(from_index, vec!["Docs/mail/0001.eml", "Docs/plan.txt"], "the index's");
+        assert_eq!(keys[3], "Docs/new.txt", "then what it has not read");
+        let line = |key: &str| {
+            found
+                .iter()
+                .find(|f| f.entry.key == key)
+                .and_then(|f| f.line.clone())
+                .unwrap_or_else(|| panic!("{key} has a line"))
+        };
+        assert_eq!((line("Docs/plan.txt").line, line("Docs/plan.txt").text.as_str()), (2, "the needle plan"));
+        let mail = line("Docs/mail/0001.eml");
+        assert_eq!(&mail.text[mail.start..mail.end], "Needle");
+        assert_eq!(line("Docs/new.txt").line, 1);
+        assert!(end_of(&outcomes).error.is_none() && !end_of(&outcomes).limited);
+    }
+
+    /// A drive's index update says how far it got, and ends with what it read and what the
+    /// index holds now (no hidden items: the search box's defaults).
+    #[test]
+    fn an_index_update_says_how_far_it_got_and_what_the_index_holds() {
+        let drive = TempDir::new("azdrive-index-update");
+        let dir = TempDir::new("azdrive-index-folder");
+        fs::write(drive.path().join("a.txt"), b"alpha\n").expect("a file");
+        fs::write(drive.path().join("b.txt"), b"beta\n").expect("a file");
+        fs::write(drive.path().join(".hidden.txt"), b"gamma\n").expect("a hidden file");
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_index_update(
+            "home",
+            drive.path(),
+            dir.path(),
+            &azul_search_index::Extractors::default(),
+            &cancel,
+            &mut |o| outcomes.push(o),
+        );
+        assert!(outcomes
+            .iter()
+            .any(|o| matches!(o, Outcome::IndexProgress { drive_id, .. } if drive_id == "home")));
+        match last {
+            Outcome::Indexed {
+                drive_id,
+                result: Ok((summary, status)),
+            } => {
+                assert_eq!(drive_id, "home");
+                assert_eq!((summary.indexed, status.files), (2, 2), "hidden items are not read");
+                assert!(status.updated.is_some());
+            }
+            _ => panic!("the update did not end well"),
+        }
+    }
+
+    /// A PDF's text comes through azul's reader; bytes that are no PDF have none.
+    #[test]
+    fn bytes_that_are_no_pdf_have_no_text() {
+        assert_eq!(pdf_text(b"plain words, no PDF"), None);
+    }
+
     /// A search cancelled (a new key, Escape, another folder) hands over nothing.
     #[test]
     fn a_cancelled_find_hands_over_nothing() {
@@ -2212,10 +3040,8 @@ mod tests {
         let request = crate::find::local_request(
             dir.path().to_path_buf(),
             "file",
-            false,
-            false,
             true,
-            true,
+            &crate::find::FindOptions::default(),
         );
         let cancel = AtomicBool::new(true);
         let mut outcomes = Vec::new();
@@ -2239,12 +3065,10 @@ mod tests {
         let drive = LocalDrive::without_manifest(dir.path().to_path_buf());
         let cancel = AtomicBool::new(false);
         let mut outcomes = Vec::new();
+        let every_folder = crate::find::FindOptions::default();
         let last = run_find_remote(
-            9,
+            &remote(9, "Docs/", Pattern::literal("report"), &every_folder, None),
             &drive,
-            "Docs/",
-            &Pattern::literal("report"),
-            false,
             &cancel,
             &mut |o| outcomes.push(o),
         );
@@ -2254,12 +3078,24 @@ mod tests {
             .map(|f| f.entry.key.as_str())
             .collect();
         assert_eq!(keys, vec!["Docs/deep/report.txt"]);
-        let bad = run_find_remote(
-            10,
+        // The folder alone: its own listing, not the deep report.
+        let mut here = Vec::new();
+        let this_folder = crate::find::FindOptions {
+            subfolders: false,
+            ..crate::find::FindOptions::default()
+        };
+        let last = run_find_remote(
+            &remote(11, "", Pattern::literal("report"), &this_folder, None),
             &drive,
-            "",
-            &Pattern::regex("("),
-            false,
+            &cancel,
+            &mut |o| here.push(o),
+        );
+        here.push(last);
+        let keys: Vec<&str> = searched(&here).iter().map(|f| f.entry.key.as_str()).collect();
+        assert_eq!(keys, vec!["elsewhere-report.txt"]);
+        let bad = run_find_remote(
+            &remote(10, "", Pattern::regex("("), &every_folder, None),
+            &drive,
             &cancel,
             &mut |_| {},
         );

@@ -295,6 +295,7 @@ pub fn search_files(folder: &Path, job: &SearchJob) -> SearchOutcome {
             hidden: true,
             // Every file of the folder, a .gitignore or not (as quick open lists them).
             ignore_files: false,
+            ..Filters::default()
         })
         .with_limits(Limits {
             max_results: usize::MAX,

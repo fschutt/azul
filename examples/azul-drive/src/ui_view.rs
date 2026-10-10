@@ -184,8 +184,10 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         area.add_child(info_bar(message, app));
     }
     let grid = uses_icon_grid(s);
-    let folder = matches!(s.place, Place::Folder { .. });
+    // A search's results (of This PC too) are a folder's view of rows.
+    let folder = matches!(s.place, Place::Folder { .. }) || s.find.is_some();
     let view = match &s.place {
+        Place::ThisPc if s.find.is_some() => folder_view(s, app),
         Place::ThisPc => this_pc(s, app),
         Place::QuickAccess => quick_access(s, app),
         Place::Folder { .. } if grid => icon_grid(s, app, size),
@@ -1661,7 +1663,7 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
             if find.remote {
                 view.add_child(ui_find::cloud_note());
             }
-            view.add_child(ui_find::header(s));
+            view.add_child(ui_find::header(s, app));
         }
         None if layout == ViewLayout::Details => view.add_child(details_header(s, app)),
         None => {}

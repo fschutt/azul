@@ -1,13 +1,15 @@
 //! AzDrive's command line: the switches every Azlin app understands (azul-appkit's
 //! `--screen`, `--size`, `--theme`, `--mode`, `--shot`, `--sample`, `--data-dir`) with
 //! AzDrive's screens (`this-pc | quick-access | home | settings`), plus its own `--layout <name>`,
-//! `--home <dir>`, `--downloads <dir>`, `--drives <file>` and `--dialogs <window|inline>`.
+//! `--home <dir>`, `--downloads <dir>`, `--drives <file>`, `--dialogs <window|inline>` and
+//! `--cache-dir <dir>`.
 //! `--sample` writes the sample files into the Home drive.
 //!
 //! Every setting is a flag; the environment variables of older builds are read only when their
 //! flag is absent ([`Args::with_env_fallbacks`]): `--home` / `$AZDRIVE_HOME`, `--downloads` /
 //! `$AZDRIVE_DOWNLOADS`, `--drives` / `$AZUL_DRIVES` (azul-storage's, shared with AzMail),
-//! `--dialogs` / `$AZDRIVE_DIALOGS`, `--data-dir` / `$AZLIN_DATA` (azul-appkit's).
+//! `--dialogs` / `$AZDRIVE_DIALOGS`, `--cache-dir` / `$AZDRIVE_CACHE`, `--data-dir` /
+//! `$AZLIN_DATA` (azul-appkit's).
 
 use std::path::{Path, PathBuf};
 
@@ -22,6 +24,8 @@ pub const HOME_VAR: &str = "AZDRIVE_HOME";
 pub const DOWNLOADS_VAR: &str = "AZDRIVE_DOWNLOADS";
 /// What `--dialogs` falls back to (`inline`: the dialogs as sheets inside the window).
 pub const DIALOGS_VAR: &str = "AZDRIVE_DIALOGS";
+/// What `--cache-dir` falls back to: where the caches are kept.
+pub const CACHE_VAR: &str = "AZDRIVE_CACHE";
 
 /// How the dialogs (Add drive, Properties, the conflicts, ...) show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -89,6 +93,9 @@ const AZDRIVE_HELP: &str = concat!(
     "                             else <config dir>/azul-storage/drives.json)\n",
     "    --dialogs <HOW>          window | inline: the dialogs as windows, or as sheets inside\n",
     "                             the window (default: $AZDRIVE_DIALOGS, else window)\n",
+    "    --cache-dir <DIR>        Where a cloud drive's last listing and the drives' search\n",
+    "                             indexes are kept (default: $AZDRIVE_CACHE, else\n",
+    "                             <cache dir>/AzDrive; none in a --shot run)\n",
     "    --open <PATH>            Open at a place as the address bar names it: This PC,\n",
     "                             Home/Documents (File > Open new window passes it)\n",
     "    --token-url <URL>        The Azlin token server of Add drive > Buy storage (default:\n",
@@ -100,7 +107,7 @@ const AZDRIVE_HELP: &str = concat!(
 
 /// AzDrive's own switches that take a value (after a space or an equals sign), and what the
 /// value is called in an error.
-const OWN: [(&str, &str); 8] = [
+const OWN: [(&str, &str); 9] = [
     ("--layout", "name"),
     ("--home", "folder"),
     ("--downloads", "folder"),
@@ -109,6 +116,7 @@ const OWN: [(&str, &str); 8] = [
     ("--open", "place such as Home/Documents"),
     ("--token-url", "address such as https://token.example"),
     ("--profile", "profile: local, trial or production"),
+    ("--cache-dir", "folder"),
 ];
 
 /// The parsed command line.
@@ -133,6 +141,8 @@ pub struct Args {
     pub token_url: Option<String>,
     /// `--profile`: the Azlin profile whose addresses are the defaults.
     pub profile: Option<String>,
+    /// `--cache-dir`: where the caches are kept (`<cache dir>/AzDrive` when absent).
+    pub cache_dir: Option<PathBuf>,
     /// The switches every Azlin app understands (azul-appkit): `--theme`, `--mode`
     /// (`system` too), `--size`, `--shot`, `--sample`, `--data-dir`.
     pub kit: AppArgs,
@@ -203,6 +213,7 @@ impl Args {
                 "--home" => args.home = Some(path_value(name, what, &value)?),
                 "--downloads" => args.downloads = Some(path_value(name, what, &value)?),
                 "--drives" => args.drives = Some(path_value(name, what, &value)?),
+                "--cache-dir" => args.cache_dir = Some(path_value(name, what, &value)?),
                 "--open" => {
                     let place = value.trim();
                     if place.is_empty() {
@@ -242,7 +253,8 @@ impl Args {
     /// The switches, each absent one filled from the environment variable an older build read
     /// (`env` reads a variable; `std::env::var` in the app): `--home` from `$AZDRIVE_HOME`,
     /// `--downloads` from `$AZDRIVE_DOWNLOADS`, `--drives` from `$AZUL_DRIVES`, `--dialogs` from
-    /// `$AZDRIVE_DIALOGS`. A switch given always wins; an empty variable counts as unset.
+    /// `$AZDRIVE_DIALOGS`, `--cache-dir` from `$AZDRIVE_CACHE`. A switch given always wins; an
+    /// empty variable counts as unset.
     #[must_use]
     pub fn with_env_fallbacks(mut self, env: impl Fn(&str) -> Option<String>) -> Args {
         let path = |var: &str| {
@@ -262,6 +274,9 @@ impl Args {
         }
         if self.dialogs.is_none() {
             self.dialogs = env(DIALOGS_VAR).and_then(|v| Dialogs::from_name(&v));
+        }
+        if self.cache_dir.is_none() {
+            self.cache_dir = path(CACHE_VAR);
         }
         self
     }
@@ -570,6 +585,22 @@ mod tests {
             parse(&[]).unwrap(),
             "no variable, nothing filled in"
         );
+    }
+
+    /// The folder AzDrive keeps its caches in (a cloud drive's last listing, the drives'
+    /// indexes) is a switch, `$AZDRIVE_CACHE` filling in when it is absent.
+    #[test]
+    fn the_cache_folder_is_a_switch_with_its_variable() {
+        let args = parse(&["--cache-dir", "/tmp/cache"]).unwrap();
+        assert_eq!(args.cache_dir, Some(PathBuf::from("/tmp/cache")));
+        assert_eq!(parse(&[]).unwrap().cache_dir, None, "the user's cache folder");
+        assert!(parse(&["--cache-dir="]).unwrap_err().contains("--cache-dir needs a folder"));
+        let env = |var: &str| (var == "AZDRIVE_CACHE").then(|| String::from("/env/cache"));
+        let filled = parse(&[]).unwrap().with_env_fallbacks(env);
+        assert_eq!(filled.cache_dir, Some(PathBuf::from("/env/cache")));
+        let kept = parse(&["--cache-dir", "/flag"]).unwrap().with_env_fallbacks(env);
+        assert_eq!(kept.cache_dir, Some(PathBuf::from("/flag")), "the switch wins");
+        assert!(parse(&["-h"]).unwrap_err().contains("--cache-dir"));
     }
 
     #[test]

@@ -156,6 +156,21 @@ pub(crate) enum Action {
     // Search
     /// The Search tab's Close search: the box empties, the folder shows again.
     CloseSearch,
+    /// Location: every folder below the open one (`true`, "All subfolders") or its own items.
+    SearchSubfolders(bool),
+    /// Refine's menus and their choices.
+    RefineDateMenu,
+    RefineKindMenu,
+    RefineSizeMenu,
+    RefineDate(crate::find::DateRefine),
+    RefineKind(crate::find::KindRefine),
+    RefineSize(crate::find::SizeRefine),
+    /// A click on a result column's header: sort by it (`None`: the order they were found in).
+    SortResults(Option<Column>),
+    /// The selected result's folder, opened with the result selected.
+    OpenFileLocation,
+    /// "Index this drive": the open drive's full-text index kept from now on, or thrown away.
+    IndexDrive,
 }
 
 /// A button's / menu item's click data.
@@ -281,6 +296,11 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
         Action::SelectNone => need_selection(),
         Action::Download => need_selection(),
         Action::Open | Action::OpenMenu => match &s.place {
+            // A search of This PC: its results open.
+            Place::ThisPc if s.find.is_some() => s
+                .selection
+                .is_empty()
+                .then(|| String::from("Select a result to open.")),
             Place::ThisPc if s.selected_drive.is_none() => {
                 Some(String::from("Select a drive to open."))
             }
@@ -347,6 +367,26 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             .find
             .is_none()
             .then(|| String::from("No search is open.")),
+        Action::OpenFileLocation => {
+            if s.find.is_none() {
+                Some(String::from("Search first: this opens the folder a result is in."))
+            } else if s.selection.len() != 1 {
+                Some(String::from("Select one result."))
+            } else {
+                None
+            }
+        }
+        Action::IndexDrive => match s.current_drive() {
+            None => Some(String::from("Open a drive on this computer to index it.")),
+            Some(index) if s.local_root(index).is_none() => Some(String::from(
+                "Only a drive on this computer is indexed: a cloud drive's files would have to \
+                 be downloaded.",
+            )),
+            Some(_) if s.cache_dir.is_none() => {
+                Some(String::from("There is no cache folder to keep an index in."))
+            }
+            Some(_) => None,
+        },
         _ => None,
     }
 }
@@ -562,7 +602,125 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::Print => print_selected(s),
         Action::HideSelected => hide_selected(info, app, s),
         Action::CloseSearch => close_search(info, s),
+        Action::SearchSubfolders(yes) => {
+            s.settings.search_subfolders = yes;
+            println!("AZDRIVE_SEARCH_LOCATION {}", if yes { "subfolders" } else { "folder" });
+            save_settings(info, app, s);
+            crate::start_find(info, app, s);
+        }
+        Action::RefineDateMenu => {
+            let items = crate::find::DateRefine::ALL
+                .iter()
+                .map(|d| check_item(app, d.label(), Action::RefineDate(*d), s.refines.date == *d))
+                .collect();
+            open_menu_below(info, items);
+        }
+        Action::RefineKindMenu => {
+            let items = crate::find::KindRefine::ALL
+                .iter()
+                .map(|k| check_item(app, k.label(), Action::RefineKind(*k), s.refines.kind == *k))
+                .collect();
+            open_menu_below(info, items);
+        }
+        Action::RefineSizeMenu => {
+            let items = crate::find::SizeRefine::ALL
+                .iter()
+                .map(|z| check_item(app, z.label(), Action::RefineSize(*z), s.refines.size == *z))
+                .collect();
+            open_menu_below(info, items);
+        }
+        Action::RefineDate(date) => {
+            s.refines.date = date;
+            refined(info, app, s);
+        }
+        Action::RefineKind(kind) => {
+            s.refines.kind = kind;
+            refined(info, app, s);
+        }
+        Action::RefineSize(size) => {
+            s.refines.size = size;
+            refined(info, app, s);
+        }
+        Action::SortResults(column) => {
+            if let Some(find) = s.find.as_mut() {
+                let sort = column.map(|column| match find.sort {
+                    Some(sort) => sort.clicked(column),
+                    None => browse::Sort {
+                        column,
+                        descending: false,
+                    },
+                });
+                find.set_sort(sort);
+                println!(
+                    "AZDRIVE_RESULTS_SORT {}",
+                    sort.map_or_else(
+                        || String::from("found"),
+                        |sort| format!(
+                            "{} {}",
+                            sort.column.label(),
+                            if sort.descending { "desc" } else { "asc" }
+                        )
+                    )
+                );
+            }
+        }
+        Action::OpenFileLocation => open_file_location(info, app, s),
+        Action::IndexDrive => toggle_index(info, app, s),
     }
+}
+
+/// "Index this drive": the open drive's index is made and kept up to date from now on (an
+/// update now, one at every start, one when a search finds it old), or - again - thrown away
+/// (an update running stops first).
+fn toggle_index(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    if let Some(at) = s.settings.indexed_drives.iter().position(|d| *d == drive_id) {
+        s.settings.indexed_drives.remove(at);
+        println!("AZDRIVE_INDEX off {drive_id}");
+        match s.indexes.get(&drive_id) {
+            // Thrown away when it has stopped (its answer).
+            Some(index) if index.progress.is_some() => {
+                index.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            _ => crate::remove_index(info, app, s, &drive_id),
+        }
+    } else {
+        s.settings.indexed_drives.push(drive_id.clone());
+        println!("AZDRIVE_INDEX on {drive_id}");
+        crate::update_index(info, app, s, &drive_id);
+    }
+    save_settings(info, app, s);
+}
+
+/// A Refine changed: the search runs again with it.
+fn refined(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    println!("AZDRIVE_SEARCH_REFINE {}", s.refines.label());
+    crate::start_find(info, app, s);
+}
+
+/// The drive and the drive's key of the result row `row`: a This PC row names its drive, any
+/// other is the open drive's.
+fn result_place(s: &DriveState, row: &str) -> Option<(String, String)> {
+    match crate::find::split_pc_key(row) {
+        Some((drive, key)) => Some((drive.to_string(), key.to_string())),
+        None => Some((s.current_drive_id()?, row.to_string())),
+    }
+}
+
+/// Open file location: the folder the selected result is in opens, the result selected once
+/// it is listed (the search closes, as Explorer's does).
+fn open_file_location(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(row) = s.selection.single().map(str::to_string) else {
+        return;
+    };
+    let Some((drive, item)) = result_place(s, &row) else {
+        return;
+    };
+    let folder = fileops::parent_of(&item);
+    go(info, app, s, Place::folder(&drive, &folder), true);
+    s.select_when_listed = Some(item);
 }
 
 /// The search box empties and the search stops: the folder's own rows show again.
@@ -573,6 +731,7 @@ pub(crate) fn close_search(info: &mut CallbackInfo, s: &mut DriveState) {
         clear_search_box(info);
     }
     s.search.clear();
+    s.refines = crate::find::Refines::default();
 }
 
 // ==== File menu, Print, Hide ====
@@ -1196,7 +1355,7 @@ fn move_focus(
 ) {
     let columns = s.grid_columns();
     match s.place {
-        Place::ThisPc => {
+        Place::ThisPc if s.find.is_none() => {
             if s.slots.is_empty() {
                 return;
             }
@@ -1214,7 +1373,8 @@ fn move_focus(
             let to = (at + step.delta(columns, 10).signum()).clamp(0, last);
             s.selected_pin = Some(to as usize);
         }
-        Place::Folder { .. } => {
+        // A folder, or a search's results (of This PC too).
+        _ => {
             // The order the view shows (grouped: group after group).
             let keys: Vec<String> = ui_view::shown_order(s)
                 .into_iter()
@@ -1241,7 +1401,7 @@ fn reveal_focus(info: &mut CallbackInfo, s: &mut DriveState) {
 fn type_ahead(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, c: char) {
     let query = s.type_ahead.push(c, now_ms());
     match s.place {
-        Place::ThisPc => {
+        Place::ThisPc if s.find.is_none() => {
             let names: Vec<&str> = s.slots.iter().map(|slot| slot.entry.name.as_str()).collect();
             if let Some(i) = model::type_ahead_match(&names, &query, s.selected_drive) {
                 s.selected_drive = Some(i);
@@ -1253,7 +1413,7 @@ fn type_ahead(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, c: char
                 s.selected_pin = Some(i);
             }
         }
-        Place::Folder { .. } => {
+        _ => {
             let show_extensions = s.settings.show_extensions;
             let entries = s.visible_entries();
             let names: Vec<String> = entries
@@ -1316,6 +1476,13 @@ fn select_all(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 /// Enter / double-click / Open: a folder opens, a file goes to the OS's app
 /// (a cloud file is fetched first), a drive or pin opens.
 pub(crate) fn open_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if s.find.is_some() && s.place == Place::ThisPc {
+        // A search of This PC: the selected result opens.
+        if let Some(row) = s.selection.single().map(str::to_string) {
+            activate(info, app, s, &row);
+        }
+        return;
+    }
     match &s.place {
         Place::ThisPc => {
             if let Some(index) = s.selected_drive {
@@ -1347,6 +1514,31 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
     let Some(entry) = s.entry(key).cloned() else {
         return;
     };
+    if let Some((drive_id, item)) = crate::find::split_pc_key(key) {
+        // A result of This PC's search: its folder opens, its file through its own drive.
+        let (drive_id, item) = (drive_id.to_string(), item.to_string());
+        if entry.is_folder {
+            go(info, app, s, Place::folder(&drive_id, &item), true);
+            return;
+        }
+        let Some(drive) = open_drive(s, &drive_id) else {
+            return;
+        };
+        let folder = s.open_dir.join(&drive_id);
+        s.info(format!("Opening \"{}\"...", entry.name));
+        spawn(
+            info,
+            app,
+            s,
+            Job::Open {
+                drive,
+                key: item,
+                size: entry.size,
+                folder,
+            },
+        );
+        return;
+    }
     let Some(drive_id) = s.current_drive_id() else {
         return;
     };
@@ -2953,15 +3145,24 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
     let submenu = |label: &str, children: Vec<MenuItem>| {
         MenuItem::String(StringMenuItem::create(AzString::from(label)).with_children(children))
     };
-    let items = if s.current_drive().is_some() && !s.selection.is_empty() {
-        let one_folder = s.single_selected().is_some_and(|e| e.is_folder);
-        let mut items = vec![
+    let items = if s.find.is_some() && s.current_drive().is_none() && !s.selection.is_empty() {
+        // A result of This PC's search.
+        vec![
             item("Open", Action::Open),
+            item("Open file location", Action::OpenFileLocation),
+        ]
+    } else if s.current_drive().is_some() && !s.selection.is_empty() {
+        let one_folder = s.single_selected().is_some_and(|e| e.is_folder);
+        let mut items = vec![item("Open", Action::Open)];
+        if s.find.is_some() {
+            items.push(item("Open file location", Action::OpenFileLocation));
+        }
+        items.extend([
             item("Download", Action::Download),
             MenuItem::Separator,
             item("Cut", Action::Cut),
             item("Copy", Action::Copy),
-        ];
+        ]);
         if one_folder {
             items.push(item("Pin to Quick access", Action::Pin));
         }

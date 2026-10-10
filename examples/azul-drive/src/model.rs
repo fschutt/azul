@@ -747,6 +747,11 @@ pub struct Settings {
     /// The search passes over the files .gitignore and .ignore files name (the Search tab's
     /// "Skip ignored files").
     pub search_ignore_files: bool,
+    /// The search box searches every folder below the open one (the Search tab's "All
+    /// subfolders"); `false`: the folder's own items ("Current folder").
+    pub search_subfolders: bool,
+    /// The drives whose full-text index is kept (the Search tab's "Index this drive"), by id.
+    pub indexed_drives: Vec<String>,
 }
 
 impl Default for Settings {
@@ -767,6 +772,8 @@ impl Default for Settings {
             start: StartPlace::ThisPc,
             search_contents: false,
             search_ignore_files: true,
+            search_subfolders: true,
+            indexed_drives: Vec::new(),
         }
     }
 }
@@ -1083,6 +1090,17 @@ mod tests {
         assert!(!partial.show_extensions);
         assert_eq!(partial.group_by, GroupBy::None);
         assert_eq!(Settings::from_json("not json"), Settings::default());
+    }
+
+    /// The drives the user asked to index ("Index this drive") are remembered: none at first.
+    #[test]
+    fn the_drives_to_index_are_remembered() {
+        assert!(Settings::default().indexed_drives.is_empty());
+        let mut settings = Settings::default();
+        settings.indexed_drives.push(String::from("home"));
+        assert_eq!(Settings::from_json(&settings.to_json()), settings);
+        let read = Settings::from_json(r#"{"indexed_drives":["home","data"]}"#);
+        assert_eq!(read.indexed_drives, vec!["home", "data"]);
     }
 
     /// The icon grid speaks positions: the selection reads back as positions in the visible

@@ -49,6 +49,7 @@ tested: azul-icons-haiku     # dll_tests (names sorted and mapped once, every Ma
 tested: azcloud-kit          # dll_tests (the token server's API, sessions, endpoints, the Azlin drive, the account, the bucket, the sync, links)
 tested: azul-pay             # dll_tests (the URL policy, the registry, the offer filter, the pills, the surfaces, the bridge, the checkout state machine)
 tested: azul-search          # dll_tests (names, contents, regexes, globs, binary files, ignore files, filters, limits, cancellation)
+tested: azul-search-index    # dll_tests (the text of each kind, a build, words / half typed words / phrases below a folder, updates, cancel)
 tested: azul-termkit         # dll_tests (the VT parser, panes, sessions, the sample screens)
 tested: AzBuilder            # dll_tests (its lib; its page is also tested by scripts/debugger-ui/builder-dnd-*.mjs)
 tested: AzWidgets            # dll_tests (the video page's helpers)
