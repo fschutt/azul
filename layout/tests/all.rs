@@ -1023,3 +1023,17 @@ mod an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width;
 mod a_letter_spaced_line_is_aligned_by_its_spaced_width;
 #[path = "a_clipped_or_covered_scroll_box_takes_no_pointer.rs"]
 mod a_clipped_or_covered_scroll_box_takes_no_pointer;
+#[path = "a_screen_reader_walks_the_tree_both_ways.rs"]
+mod a_screen_reader_walks_the_tree_both_ways;
+#[path = "a_screen_reader_reads_only_what_is_rendered.rs"]
+mod a_screen_reader_reads_only_what_is_rendered;
+#[path = "an_assistive_technology_never_sees_a_stale_tree.rs"]
+mod an_assistive_technology_never_sees_a_stale_tree;
+#[path = "the_accessibility_tree_speaks_the_apps_language.rs"]
+mod the_accessibility_tree_speaks_the_apps_language;
+#[path = "a_screen_reader_announces_a_controls_declared_name.rs"]
+mod a_screen_reader_announces_a_controls_declared_name;
+#[path = "tab_and_shift_tab_walk_the_rendered_stops_in_reading_order.rs"]
+mod tab_and_shift_tab_walk_the_rendered_stops_in_reading_order;
+#[path = "a_label_names_the_control_it_is_for.rs"]
+mod a_label_names_the_control_it_is_for;

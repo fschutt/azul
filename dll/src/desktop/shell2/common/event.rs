@@ -4921,10 +4921,7 @@ pub trait PlatformWindow {
     fn rebuild_a11y_after_scroll_if_due(&mut self) {
         const MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
         if let Some(lw) = self.get_layout_window_mut() {
-            if lw
-                .a11y_manager
-                .scroll_rebuild_due(std::time::Instant::now(), MIN_INTERVAL)
-            {
+            if lw.a11y_rebuild_after_scroll_due(std::time::Instant::now(), MIN_INTERVAL) {
                 lw.update_a11y_tree();
             }
         }

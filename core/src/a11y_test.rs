@@ -665,6 +665,7 @@ mod autotest_generated {
             Unknown,
             Grid,
             GridCell,
+            Switch,
         ]
     }
 
@@ -709,7 +710,7 @@ mod autotest_generated {
                 | RadioButton | ComboBox | DropList | ProgressBar | Dial | HotkeyField | Slider
                 | SpinButton | Diagram | Animation | Equation | ButtonDropdown | ButtonMenu
                 | ButtonDropdownGrid | Whitespace | PageTabList | Clock | SplitButton
-                | IpAddress | Nothing | Unknown | Grid | GridCell => true,
+                | IpAddress | Nothing | Unknown | Grid | GridCell | Switch => true,
             };
             assert!(known);
         }
@@ -758,7 +759,7 @@ mod autotest_generated {
         // no existing variant's discriminant moves under the C ABI; `Unknown`
         // is therefore not the last role, only the last of the original set.
         assert_eq!(roles[0], AccessibilityRole::TitleBar);
-        assert_eq!(*roles.last().unwrap(), AccessibilityRole::GridCell);
+        assert_eq!(*roles.last().unwrap(), AccessibilityRole::Switch);
         assert!(AccessibilityRole::TitleBar < AccessibilityRole::Unknown);
         assert!(AccessibilityRole::Unknown < AccessibilityRole::Grid);
     }

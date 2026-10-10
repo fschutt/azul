@@ -554,6 +554,8 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_node_dataset",          None),
     ("get_focus_state",           None),
     ("get_cursor_state",          None),
+    // ALLOW: read-only, the accessibility tree the platform adapter holds.
+    ("get_accessibility_tree",    None),
     // The app's mode choice and what the window shows; the app theme.
     ("get_mode",                  None),
     ("get_theme",                 None),

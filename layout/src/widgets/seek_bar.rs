@@ -700,7 +700,6 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
         theme: _,
         show_times,
     } = bar;
-    crate::widgets::warn_widget_needs_a_name("SeekBar", accessibility_name.is_some());
     let state = SeekBarState {
         position_s,
         duration_s,

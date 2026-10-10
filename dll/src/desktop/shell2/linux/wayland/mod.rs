@@ -6701,7 +6701,7 @@ impl WaylandWindow {
             // (bounds + scroll_x/y) before it is drained. Done on the local
             // directly — the `self`-taking trait helper cannot run while
             // `layout_window` is borrowed here.
-            if layout_window.a11y_manager.scroll_rebuild_due(
+            if layout_window.a11y_rebuild_after_scroll_due(
                 std::time::Instant::now(),
                 std::time::Duration::from_millis(100),
             ) {

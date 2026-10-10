@@ -303,7 +303,6 @@ pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom 
         accessibility_name,
         theme: _,
     } = wave;
-    crate::widgets::warn_widget_needs_a_name("Waveform", accessibility_name.is_some());
     let state = SeekBarState {
         position_s,
         duration_s,

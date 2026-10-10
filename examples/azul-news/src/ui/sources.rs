@@ -91,6 +91,7 @@ fn row_button(
 fn source_row(s: &NewsApp, app: &RefAny, i: usize, f: &FeedData) -> Dom {
     let lib = &s.library;
     let follow = Switch::create(!f.sub.paused)
+        .with_accessibility_name(f.name())
         .with_on_toggle(row_ref(app, f), on_follow as SwitchOnToggleCallbackType)
         .dom()
         .with_id(ids::source_follow(i));

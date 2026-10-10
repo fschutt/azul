@@ -378,9 +378,14 @@ static BUILTIN: &[XmlAttribute] = &[
     entry("step", FormControls, 5, form_control),
     entry("pattern", FormControls, 5, form_control),
     entry("autocomplete", FormControls, 5, form_control),
-    entry("aria-label", FormControls, 5, form_control),
-    entry("title", FormControls, 5, form_control),
-    entry("alt", FormControls, 5, form_control),
+    // An accessible name on any element (HTML global attributes; `alt` names
+    // an image), read by the accessibility tree.
+    entry("aria-label", AnyElement, 5, form_control),
+    entry("title", AnyElement, 5, form_control),
+    entry("alt", AnyElement, 5, form_control),
+    // Kept as written, as `Dom::create_label` sets it: the accessibility tree
+    // names the control with this id by the label's text.
+    entry("for", Tags(&["label"]), 5, presentational),
     entry("src", FormControls, 5, form_control),
     entry("minlength", FormControls, 5, form_control),
     entry("maxlength", FormControls, 5, form_control),
@@ -1043,6 +1048,34 @@ mod tests {
     use azul_css::props::style::background::StyleBackgroundContent;
 
     use super::*;
+
+    #[test]
+    fn an_accessible_name_lands_on_any_element_and_a_label_keeps_its_for() {
+        // HTML gives every element `aria-label` and `title`, an image its
+        // `alt` and a label its `for`. The table took the first three on
+        // form controls only, so `<img alt>`, `<div aria-label>` and
+        // `<label for>` reached the accessibility tree with no name at all.
+        assert_eq!(
+            setting_of("div", "aria-label", "Menu").map(|(_, s)| s),
+            Some(NodeSetting::Attribute(AttributeType::AriaLabel("Menu".into())))
+        );
+        assert_eq!(
+            setting_of("a", "title", "Opens the help").map(|(_, s)| s),
+            Some(NodeSetting::Attribute(AttributeType::Title("Opens the help".into())))
+        );
+        assert_eq!(
+            setting_of("img", "alt", "Company logo").map(|(_, s)| s),
+            Some(NodeSetting::Attribute(AttributeType::Alt("Company logo".into())))
+        );
+        assert_eq!(
+            setting_of("label", "for", "email").map(|(_, s)| s),
+            Some(NodeSetting::Attribute(AttributeType::Custom(AttributeNameValue {
+                attr_name: "for".into(),
+                value: "email".into(),
+            }))),
+            "the same attribute `Dom::create_label` sets"
+        );
+    }
 
     #[test]
     fn a_lang_attribute_lands_on_its_node_as_the_content_language() {

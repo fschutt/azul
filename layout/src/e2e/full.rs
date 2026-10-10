@@ -3250,6 +3250,11 @@ pub enum DebugEvent {
     },
     /// Get the current cursor state (position, blink state)
     GetCursorState,
+    /// The accessibility tree as the platform adapter holds it - what a
+    /// screen reader reads and walks: every published node (role, name,
+    /// description, value, language, states, bounds, children, parent) and
+    /// the focus. `{ "op": "get_accessibility_tree" }`.
+    GetAccessibilityTree,
 
     // E2E Mount / Observability
     /// Mount an inline HTML/XML + CSS document as the window's DOM, replacing
@@ -11436,6 +11441,66 @@ fn fp_media_player(
     ManagerFingerprint::new(m.pending.len(), format!("{m:?}"))
 }
 
+/// The `get_accessibility_tree` answer: the tree as the platform adapter
+/// holds it once it took every published update (`A11yManager::full_tree`),
+/// node by node, with each node's parent - what a screen reader walks.
+#[cfg(all(feature = "std", feature = "a11y"))]
+fn accessibility_tree_json(lw: &crate::window::LayoutWindow) -> serde_json::Value {
+    use accesskit::Action;
+
+    let update = lw.a11y_manager.full_tree();
+    let root = lw.a11y_manager.root_id;
+    let mut parents: BTreeMap<u64, u64> = BTreeMap::new();
+    for (id, node) in &update.nodes {
+        for child in node.children() {
+            parents.insert(child.0, id.0);
+        }
+    }
+    let nodes: Vec<serde_json::Value> = update
+        .nodes
+        .iter()
+        .map(|(id, n)| {
+            let place = (*id != root).then(|| crate::managers::a11y::decode_a11y_node_id(*id));
+            serde_json::json!({
+                "id": id.0,
+                "dom_id": place.map(|(dom, _)| dom.inner),
+                "node_id": place.map(|(_, node)| node.index()),
+                "role": format!("{:?}", n.role()),
+                "name": n.label(),
+                "description": n.description(),
+                "value": n.value(),
+                "placeholder": n.placeholder(),
+                "language": n.language(),
+                "html_tag": n.html_tag(),
+                "hidden": n.is_hidden(),
+                "disabled": n.is_disabled(),
+                "toggled": n.toggled().map(|t| format!("{t:?}")),
+                "expanded": n.is_expanded(),
+                "selected": n.is_selected(),
+                "focusable": n.supports_action(Action::Focus),
+                "clickable": n.supports_action(Action::Click),
+                "clips_children": n.clips_children(),
+                "bounds": n.bounds().map(|r| [r.x0, r.y0, r.x1, r.y1]),
+                "children": n.children().iter().map(|c| c.0).collect::<Vec<_>>(),
+                "parent": parents.get(&id.0),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "root": root.0,
+        "focus": update.focus.0,
+        "node_count": nodes.len(),
+        "nodes": nodes,
+        "last_rejection": lw.a11y_manager.last_rejection.map(|e| format!("{e:?}")),
+    })
+}
+
+/// Without the `a11y` feature there is no tree to answer.
+#[cfg(not(all(feature = "std", feature = "a11y")))]
+fn accessibility_tree_json(_lw: &crate::window::LayoutWindow) -> serde_json::Value {
+    serde_json::json!({ "error": "this build has no accessibility tree (feature a11y)" })
+}
+
 /// PRESENCE-GRANULARITY ONLY, and that is a real limit worth stating: `tree` and
 /// `last_tree_update` are recorded as booleans, not as content.
 /// `update_a11y_tree` runs after EVERY successful layout and overwrites
@@ -19394,6 +19459,11 @@ pub fn process_debug_event(
             };
 
             send_ok(request, None, Some(ResponseData::FocusState(response)));
+        }
+
+        DebugEvent::GetAccessibilityTree => {
+            let json = accessibility_tree_json(callback_info.get_layout_window());
+            send_ok(request, None, Some(ResponseData::Json(json)));
         }
 
         DebugEvent::GetCursorState => {

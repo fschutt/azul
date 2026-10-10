@@ -476,6 +476,7 @@ fn collect_tab_order(
     use azul_core::dom::TabIndex;
     let mut positive: Vec<(u32, DomNodeId)> = Vec::new();
     let mut auto: Vec<DomNodeId> = Vec::new();
+    let hosts = crate::managers::virtual_view::nested_dom_hosts(layout_results);
     for (dom_id, layout) in layout_results {
         // A DOM that is not part of THIS window's focus scope contributes no
         // tab stops. A transient popup is a separate OS window whose content
@@ -528,12 +529,15 @@ fn collect_tab_order(
             }
             false
         };
+        // A control the window does not render (a display:none subtree) is
+        // no stop: focus there would be invisible.
+        let rendered = crate::managers::a11y::rendered_nodes(layout);
         for index in 0..node_data.len() {
             let node_id = NodeId::new(index);
             let Some(nd) = node_data.get(node_id) else {
                 continue;
             };
-            if !nd.is_focusable() {
+            if !nd.is_focusable() || !rendered.get(index).copied().unwrap_or(true) {
                 continue;
             }
             if under_transient(node_id) {
@@ -546,6 +550,20 @@ fn collect_tab_order(
                 _ => auto.push(dom_node),
             }
         }
+    }
+    // Reading order across doms: a virtual view's stops where the view sits,
+    // not after everything else in the window. Within one dom the collection
+    // order already is the document order.
+    if !hosts.is_empty() {
+        let key = |id: &DomNodeId| {
+            crate::managers::virtual_view::reading_order_key(
+                id.dom,
+                id.node.into_crate_internal().map_or(0, |n| n.index()),
+                &hosts,
+            )
+        };
+        positive.sort_by_cached_key(|(_, id)| key(id));
+        auto.sort_by_cached_key(key);
     }
     order_tab_entries(positive, auto)
 }

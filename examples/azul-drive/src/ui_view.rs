@@ -675,6 +675,7 @@ extern "C" fn on_item_check(mut data: RefAny, mut info: CallbackInfo, _state: Ch
 
 pub(crate) fn check_box(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     CheckBox::create(s.selection.contains(&entry.key))
+        .with_accessibility_name(entry.name.as_str())
         .with_on_toggle(item_ref(app, entry), on_item_check as CheckBoxOnToggleCallbackType)
         .dom()
         .with_css("margin-right: 6px; flex-shrink: 0;")

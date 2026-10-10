@@ -951,6 +951,7 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
             .with_css("display: flex; flex-direction: column;");
         for (i, r) in st.rows.iter().enumerate() {
             let check = CheckBox::create(r.selected)
+                .with_accessibility_name(r.sub.title.as_str())
                 .with_on_toggle(
                     RefAny::new(ImportRowRef {
                         app: app.clone(),

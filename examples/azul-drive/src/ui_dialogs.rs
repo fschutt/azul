@@ -423,6 +423,10 @@ fn conflict_dialog(s: &DriveState, app: &RefAny, id: u64, apply_all: bool) -> (S
                 .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 12px;")
                 .with_child(
                     CheckBox::create(apply_all)
+                        .with_accessibility_name(t_args(
+                            "azdrive-conflict-apply-all",
+                            &[("count", Arg::from(left - 1))],
+                        ))
                         .with_on_toggle(app.clone(), on_apply_all as CheckBoxOnToggleCallbackType)
                         .dom(),
                 )

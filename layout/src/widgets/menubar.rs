@@ -29,9 +29,11 @@
 //! [`WindowPosition::RelativeToParentWindow`]: azul_core::window::WindowPosition::RelativeToParentWindow
 
 use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
     callbacks::{CoreCallback, CoreCallbackData},
     dom::{Dom, EventFilter, HoverEventFilter, IdOrClass::Class, IdOrClassVec},
-    menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
+    events::FocusEventFilter,
+    menu::{Menu, MenuItem, MenuItemState, MenuItemVec, StringMenuItem},
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
@@ -176,11 +178,19 @@ pub(crate) fn build(
     if let Some(marker) = marker {
         classes.push(Class(marker.into()));
     }
-    let mut bar = style_bar(Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(classes)));
+    let mut bar = style_bar(Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(classes)))
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::MenuBar,
+            ..Default::default()
+        });
 
+    // One Tab stop for the whole bar, on its first item; the arrow keys
+    // move it (`callbacks::menubar_item_key`).
+    let mut position = 0usize;
     for item in menu.items.as_slice() {
         if let MenuItem::String(s) = item {
-            bar = bar.with_child(build_item(s, &style_item));
+            bar = bar.with_child(build_item(s, position, &style_item));
+            position += 1;
         }
     }
 
@@ -208,13 +218,16 @@ fn style_flat_item(item: Dom) -> Dom {
 /// One clickable top-level bar item, in the flat look.
 #[cfg(test)]
 fn build_menubar_item(item: &StringMenuItem) -> Dom {
-    build_item(item, &style_flat_item)
+    build_item(item, 0, &style_flat_item)
 }
 
 /// One clickable top-level bar item. Its `MouseUp` callback opens the item's
 /// submenu (its children, or — for a top-level leaf — a one-item menu of itself
-/// so the leaf's own callback still fires) below the item.
-fn build_item(item: &StringMenuItem, style: &impl Fn(Dom) -> Dom) -> Dom {
+/// so the leaf's own callback still fires) below the item; so do Down, Enter
+/// and Space when it has the keyboard, and Left / Right / Home / End move the
+/// bar's one Tab stop. `position` is its place among the bar's items: the
+/// first holds the Tab stop.
+fn build_item(item: &StringMenuItem, position: usize, style: &impl Fn(Dom) -> Dom) -> Dom {
     // The submenu carried (by value) into the click callback as its RefAny.
     let submenu = if item.children.as_slice().is_empty() {
         Menu::create(MenuItemVec::from_vec(vec![MenuItem::String(item.clone())]))
@@ -227,22 +240,93 @@ fn build_item(item: &StringMenuItem, style: &impl Fn(Dom) -> Dom) -> Dom {
     )])))
     .with_child(crate::widgets::widget_p_with_text(item.label.clone()))
         .with_callbacks(
-            vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::Click),
-                callback: CoreCallback {
-                    cb: callbacks::menubar_item_click as usize,
-                    ctx: OptionRefAny::None,
+            vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Click),
+                    callback: CoreCallback {
+                        cb: callbacks::menubar_item_click as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: RefAny::new(submenu.clone()),
                 },
-                refany: RefAny::new(submenu),
-            }]
+                CoreCallbackData {
+                    event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: callbacks::menubar_item_key as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: RefAny::new(submenu),
+                },
+            ]
             .into(),
         )
+        .with_tab_index(crate::widgets::roving::item_tab_index(position, 0))
+        .with_accessibility_info(item_accessibility(item))
+}
+
+/// What a screen reader says for a bar item: a menu item by its label,
+/// collapsed (it opens a menu), unavailable when the app disabled it.
+fn item_accessibility(item: &StringMenuItem) -> AccessibilityInfo {
+    let mut states = vec![AccessibilityState::Collapsed];
+    if !matches!(item.menu_item_state, MenuItemState::Normal) {
+        states.push(AccessibilityState::Unavailable);
+    }
+    AccessibilityInfo {
+        role: AccessibilityRole::MenuItem,
+        accessibility_name: Some(item.label.clone()).into(),
+        states: AccessibilityStateVec::from_vec(states),
+        ..Default::default()
+    }
 }
 
 pub(crate) mod callbacks {
-    use azul_core::{callbacks::Update, menu::Menu, refany::RefAny};
+    use azul_core::{callbacks::Update, menu::Menu, refany::RefAny, window::VirtualKeyCode};
 
-    use crate::callbacks::CallbackInfo;
+    use super::MENUBAR_ITEM_CLASS;
+    use crate::{
+        callbacks::CallbackInfo,
+        widgets::roving::{self, Step},
+    };
+
+    /// A key on the bar item that has the keyboard: Left / Right / Home / End
+    /// move the bar's one Tab stop to another item (wrapping, as a menu bar
+    /// does), Down / Enter / Space open the item's menu below it. A chord
+    /// (Alt, Ctrl, Cmd, Shift held) is left to the app and the OS.
+    pub(super) extern "C" fn menubar_item_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+        let keyboard = info.get_current_keyboard_state();
+        let Some(key) = roving::plain_key(&keyboard) else {
+            return Update::DoNothing;
+        };
+        let step = match key {
+            VirtualKeyCode::Left => Step::Previous,
+            VirtualKeyCode::Right => Step::Next,
+            VirtualKeyCode::Home => Step::First,
+            VirtualKeyCode::End => Step::Last,
+            VirtualKeyCode::Down | VirtualKeyCode::Return | VirtualKeyCode::Space => {
+                if let Some(menu) = data.downcast_ref::<Menu>() {
+                    info.open_menu_for_hit_node(menu.clone());
+                }
+                info.prevent_default();
+                return Update::DoNothing;
+            }
+            _ => return Update::DoNothing,
+        };
+        info.prevent_default();
+        let focused = info.get_hit_node();
+        let Some(bar) = info.get_parent(focused) else {
+            return Update::DoNothing;
+        };
+        let items = roving::items_of(&info, bar, MENUBAR_ITEM_CLASS);
+        let Some(current) = items.iter().position(|n| *n == focused) else {
+            return Update::DoNothing;
+        };
+        if let Some(next) = roving::step_target(current, items.len(), step, true) {
+            if next != current {
+                roving::move_stop(&mut info, &items, next);
+            }
+        }
+        Update::DoNothing
+    }
 
     /// Top-level bar item clicked → open its submenu under the item. The submenu
     /// `Menu` is the callback's `data` (a backreference set at build time); its
@@ -422,9 +506,15 @@ mod autotest_generated {
 
     /// The `RefAny` a bar item carries on its click callback.
     fn refany_of(item_dom: &Dom) -> RefAny {
-        let cbs = item_dom.root.callbacks.as_ref();
-        assert_eq!(cbs.len(), 1, "a bar item registers exactly one callback");
-        cbs[0].refany.clone()
+        let clicks: Vec<_> = item_dom
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .filter(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click))
+            .collect();
+        assert_eq!(clicks.len(), 1, "a bar item registers exactly one click callback");
+        clicks[0].refany.clone()
     }
 
     /// Decodes a bar item's backreference back into the `Menu` it will open.
@@ -924,10 +1014,62 @@ mod autotest_generated {
         );
     }
 
+    /// The software menu bar is a menu bar of named menu items to a screen
+    /// reader, ONE stop in the Tab order (its first item), and each item says
+    /// it opens a menu (collapsed until it does).
+    #[test]
+    fn a_menu_bar_is_a_menubar_of_named_menu_items_with_one_tab_stop() {
+        use azul_core::{
+            a11y::{AccessibilityRole, AccessibilityState},
+            dom::TabIndex,
+        };
+
+        let m = menu_of(vec![string_item("File"), string_item("Edit"), string_item("View")]);
+        let bar = build_menubar_dom(&m);
+        let role = bar.root.get_accessibility_info().map(|i| i.role);
+        assert_eq!(role, Some(AccessibilityRole::MenuBar), "the bar is a menu bar");
+
+        let items = bar.children.as_ref();
+        let declared: Vec<_> = items
+            .iter()
+            .map(|item| {
+                item.root.get_accessibility_info().map(|i| {
+                    (
+                        i.role,
+                        i.accessibility_name.as_option().map(|n| n.as_str().to_string()),
+                        i.states.as_ref().contains(&AccessibilityState::Collapsed),
+                    )
+                })
+            })
+            .collect();
+        let expected: Vec<_> = ["File", "Edit", "View"]
+            .iter()
+            .map(|n| Some((AccessibilityRole::MenuItem, Some(n.to_string()), true)))
+            .collect();
+        assert_eq!(declared, expected, "each item is a named, collapsed menu item");
+
+        let stops: Vec<_> = items.iter().map(|item| item.root.get_tab_index()).collect();
+        assert_eq!(
+            stops,
+            vec![
+                Some(TabIndex::Auto),
+                Some(TabIndex::NoKeyboardFocus),
+                Some(TabIndex::NoKeyboardFocus)
+            ],
+            "the bar is one Tab stop; the arrow keys move between its items"
+        );
+    }
+
     #[test]
     fn build_menubar_item_registers_exactly_one_mouseup_hover_callback() {
         let dom = build_menubar_item(&leaf("File"));
-        let cbs = dom.root.callbacks.as_ref();
+        let cbs: Vec<_> = dom
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .filter(|cb| matches!(cb.event, EventFilter::Hover(_)))
+            .collect();
 
         assert_eq!(cbs.len(), 1);
         assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
@@ -1462,13 +1604,17 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_flora_menubar_keeps_every_items_click_and_takes_no_focus() {
+    fn a_flora_menubar_keeps_every_items_click_key_and_tab_stop() {
         let flora = bar(UiTheme::Flora);
         let flat = bar(UiTheme::Flat);
         assert_eq!(flora.children.as_ref().len(), flat.children.as_ref().len());
         for (a, b) in flora.children.as_ref().iter().zip(flat.children.as_ref()) {
             assert_eq!(classes(a), classes(b));
-            assert_eq!(a.root.get_callbacks().as_ref().len(), 1, "opens its submenu");
+            assert_eq!(
+                a.root.get_callbacks().as_ref().len(),
+                2,
+                "opens its submenu by click and by key"
+            );
             assert_eq!(a.root.get_tab_index(), b.root.get_tab_index());
         }
         assert!(classes(&flora).iter().any(|c| c == "__azul-theme-flora"));

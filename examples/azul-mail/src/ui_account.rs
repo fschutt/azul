@@ -588,6 +588,7 @@ fn check(app: &RefAny, checked: bool, flag: Flag, text: &str) -> Dom {
         .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 12px;")
         .with_child(
             CheckBox::create(checked)
+                .with_accessibility_name(l10n::label(text))
                 .with_on_toggle(
                     RefAny::new(FlagRef {
                         app: app.clone(),

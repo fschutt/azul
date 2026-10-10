@@ -39,9 +39,19 @@ use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 ///
 /// Included: anything carrying explicit `AccessibilityInfo`, anything
 /// contenteditable, anything focusable, and every node type that is not pure
-/// metadata (`<head>`, `<meta>`, `<script>`, …) or a pseudo-element.
+/// metadata (`<head>`, `<meta>`, `<script>`, …) or a pseudo-element. A text
+/// node of white space only is layout glue between elements, not content: a
+/// screen reader would stop on it and say nothing.
+///
+/// This answers for the node alone. Whether the window renders it at all is
+/// [`rendered_nodes`], which needs the layout.
 #[must_use]
 pub fn is_exposed_to_accessibility(node_data: &NodeData) -> bool {
+    if let NodeType::Text(text) = &node_data.node_type {
+        if text.as_str().trim().is_empty() {
+            return false;
+        }
+    }
     node_data.get_accessibility_info().is_some()
         || node_data.is_contenteditable()
         || node_data.is_focusable()
@@ -72,6 +82,211 @@ pub fn is_exposed_to_accessibility(node_data: &NodeData) -> bool {
                 | NodeType::Area
                 | NodeType::VirtualView
         )
+}
+
+/// Which nodes of a laid-out DOM the window renders, by node index: a node
+/// with a box, every ancestor of one (a `display: contents` element has no
+/// box of its own, its children do) and every text node of a rendered
+/// parent. A `display: none` subtree generates no box at all - a closed popup,
+/// a hidden tab panel, a collapsed menu - so nothing of it is read, the way a
+/// browser leaves it out of its accessibility tree.
+///
+/// A DOM without a layout tree (not laid out yet) answers "rendered" for every
+/// node: there is nothing to tell yet, and an empty tree would be worse.
+///
+/// Shared by every surface that decides what a screen reader reaches (the
+/// accesskit tree, its text-edit increment, the iOS/Android snapshot), so they
+/// agree.
+#[must_use]
+pub fn rendered_nodes(layout_result: &DomLayoutResult) -> Vec<bool> {
+    let node_data = layout_result.styled_dom.node_data.as_ref();
+    let boxes = &layout_result.layout_tree.dom_to_layout;
+    if boxes.is_empty() {
+        return vec![true; node_data.len()];
+    }
+    let hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+    let parent_of = |idx: usize| {
+        hierarchy
+            .get(idx)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .map(|parent| parent.index())
+    };
+    let mut rendered = vec![false; node_data.len()];
+    for node in boxes.keys() {
+        let mut current = Some(node.index());
+        while let Some(idx) = current {
+            match rendered.get_mut(idx) {
+                Some(seen) if !*seen => *seen = true,
+                _ => break,
+            }
+            current = parent_of(idx);
+        }
+    }
+    for (idx, data) in node_data.iter().enumerate() {
+        let parent_rendered = parent_of(idx).is_some_and(|p| rendered.get(p).copied() == Some(true));
+        if matches!(data.node_type, NodeType::Text(_)) && parent_rendered {
+            rendered[idx] = true;
+        }
+    }
+    rendered
+}
+
+/// Which nodes assistive technology must not read although the window
+/// renders them, by node index: a node with the `hidden` attribute or the
+/// `Offscreen` state, and its whole subtree (ARIA's `aria-hidden`), such as
+/// a tooltip's tip whose text is already its anchor's description.
+///
+/// The accesskit tree marks such a node hidden and every accesskit platform
+/// drops the subtree; the iOS / Android element list has no such consumer
+/// and leaves the subtree out with this, so the platforms agree.
+#[must_use]
+pub fn hidden_from_assistive_technology(layout_result: &DomLayoutResult) -> Vec<bool> {
+    let node_data = layout_result.styled_dom.node_data.as_ref();
+    let hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+    let mut hidden: Vec<bool> = node_data
+        .iter()
+        .map(|data| {
+            data.attributes()
+                .as_ref()
+                .iter()
+                .any(|attr| matches!(attr, azul_core::dom::AttributeType::Hidden))
+                || data.get_accessibility_info().is_some_and(|info| {
+                    info.states
+                        .as_ref()
+                        .iter()
+                        .any(|state| matches!(state, AccessibilityState::Offscreen))
+                })
+        })
+        .collect();
+    // The arena stores a parent before its children, so one forward pass
+    // carries a hidden ancestor down to every descendant.
+    for idx in 0..hidden.len() {
+        let parent = hierarchy
+            .get(idx)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .map(|parent| parent.index());
+        if parent.is_some_and(|p| p < idx && hidden[p]) {
+            hidden[idx] = true;
+        }
+    }
+    hidden
+}
+
+/// How many nodes a scan of one `<label>`'s subtree visits. Labels hold a
+/// few words and maybe their control; the bound only stops a malformed
+/// hierarchy from spinning.
+#[cfg(feature = "a11y")]
+const LABEL_SCAN_LIMIT: usize = 4096;
+
+/// The text of the `<label>`s naming each control of a DOM, by the control's
+/// node index: HTML's label association, the control's name when it
+/// declares none. A label `for` an id names the node with that id; a label
+/// without `for` names the first control inside it (a focusable, editable
+/// or form-control node). Several labels of one control join with a space.
+///
+/// The text is the label's text nodes in document order without the
+/// control's own; the DOM's translation pass has already translated them.
+/// Shared by the accesskit tree and the iOS / Android element list.
+#[cfg(feature = "a11y")]
+#[must_use]
+pub fn label_texts(
+    node_data: &[NodeData],
+    node_hierarchy: &[NodeHierarchyItem],
+) -> BTreeMap<usize, String> {
+    // The subtree of `root` in document order, at most LABEL_SCAN_LIMIT nodes.
+    let subtree = |root: usize| -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut stack = vec![root];
+        while let Some(idx) = stack.pop() {
+            if out.len() >= LABEL_SCAN_LIMIT {
+                break;
+            }
+            out.push(idx);
+            let mut children = Vec::new();
+            let mut child = node_hierarchy
+                .get(idx)
+                .and_then(|item| item.first_child_id(NodeId::new(idx)));
+            while let Some(c) = child {
+                if children.len() >= LABEL_SCAN_LIMIT {
+                    break;
+                }
+                children.push(c.index());
+                child = node_hierarchy
+                    .get(c.index())
+                    .and_then(NodeHierarchyItem::next_sibling_id);
+            }
+            stack.extend(children.into_iter().rev());
+        }
+        out
+    };
+    let is_control = |data: &NodeData| {
+        data.is_focusable()
+            || data.is_contenteditable()
+            || matches!(
+                data.node_type,
+                NodeType::Input | NodeType::TextArea | NodeType::Select | NodeType::Button
+            )
+    };
+    let mut by_id: BTreeMap<&str, usize> = BTreeMap::new();
+    for (idx, data) in node_data.iter().enumerate() {
+        for id in data.attributes().as_ref().iter().filter_map(|a| a.as_id()) {
+            by_id.entry(id).or_insert(idx);
+        }
+    }
+
+    let mut out: BTreeMap<usize, String> = BTreeMap::new();
+    for (label_idx, data) in node_data.iter().enumerate() {
+        if !matches!(data.node_type, NodeType::Label) {
+            continue;
+        }
+        let nodes = subtree(label_idx);
+        let for_id = data.attributes().as_ref().iter().find_map(|attr| match attr {
+            azul_core::dom::AttributeType::Custom(nv) if nv.attr_name.as_str() == "for" => {
+                Some(nv.value.as_str())
+            }
+            _ => None,
+        });
+        let control = match for_id {
+            Some(id) => by_id.get(id.trim()).copied(),
+            None => nodes
+                .iter()
+                .skip(1)
+                .copied()
+                .find(|&idx| node_data.get(idx).is_some_and(is_control)),
+        };
+        let Some(control) = control.filter(|&c| c != label_idx) else {
+            continue;
+        };
+        // The control's own subtree, when it sits in the label, is not part
+        // of its name.
+        let inside: BTreeSet<usize> = if nodes.contains(&control) {
+            subtree(control).into_iter().collect()
+        } else {
+            BTreeSet::new()
+        };
+        let mut text = String::new();
+        for idx in nodes.iter().filter(|idx| !inside.contains(idx)) {
+            if let Some(NodeType::Text(t)) = node_data.get(*idx).map(|d| &d.node_type) {
+                let t = t.as_str().trim();
+                if !t.is_empty() {
+                    if !text.is_empty() {
+                        text.push(' ');
+                    }
+                    text.push_str(t);
+                }
+            }
+        }
+        if text.is_empty() {
+            continue;
+        }
+        out.entry(control)
+            .and_modify(|joined| {
+                joined.push(' ');
+                joined.push_str(&text);
+            })
+            .or_insert(text);
+    }
+    out
 }
 
 /// Does this declaration actually say what KIND of control the node is?
@@ -454,6 +669,65 @@ impl A11yRetainedTree {
     }
 }
 
+/// Translates an `AzString::tr` key into the window's language (the app's
+/// Fluent resources). The tree reads every string a node DECLARES - an
+/// accessible name, a description, an `aria-label` - through it: the DOM's
+/// translation pass translates text nodes only, and a screen reader read the
+/// key itself.
+#[cfg(feature = "a11y")]
+#[derive(Clone, Copy)]
+pub struct A11yTranslate<'a>(pub &'a dyn Fn(&str) -> String);
+
+#[cfg(feature = "a11y")]
+impl core::fmt::Debug for A11yTranslate<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("A11yTranslate")
+    }
+}
+
+/// The strings a node declares for assistive technology, translated: they
+/// win over its text content (ARIA accname puts `aria-label` before the
+/// content), so an icon button named "Search" does not read its glyph.
+/// Shared by the accesskit tree and the iOS / Android element list, so a
+/// node has one name on every platform.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Default)]
+pub(crate) struct DeclaredStrings {
+    /// `aria-label`, else the `AccessibilityInfo` name, else `alt` (an
+    /// image's name), else the text of the `<label>` naming the node
+    /// ([`label_texts`]). Wins over the node's text.
+    pub name: Option<String>,
+    /// The `AccessibilityInfo` description. [`Self::resolve_title`] adds
+    /// the `title` when the title does not name the node.
+    pub description: Option<String>,
+    /// The `title` attribute, a tooltip: the name of last resort, else the
+    /// description. Kept apart because which one it is depends on the text
+    /// content, known only to the caller.
+    pub title: Option<String>,
+    /// The `AccessibilityInfo` value, else the `value` attribute.
+    pub value: Option<String>,
+    /// The `placeholder` attribute.
+    pub placeholder: Option<String>,
+}
+
+#[cfg(feature = "a11y")]
+impl DeclaredStrings {
+    /// Places the `title` once the caller knows whether the node's own text
+    /// names it: the title names a node nothing else names, and otherwise
+    /// describes it. A title that became the name is not read a second time
+    /// as the description.
+    pub(crate) fn resolve_title(&mut self, named_by_text: bool) {
+        let Some(title) = self.title.take() else {
+            return;
+        };
+        if self.name.is_none() && !named_by_text {
+            self.name = Some(title);
+        } else if self.description.is_none() {
+            self.description = Some(title);
+        }
+    }
+}
+
 /// One frame's inputs to the accessibility tree: everything a node's
 /// content, its place and the focus are built from.
 #[cfg(feature = "a11y")]
@@ -467,6 +741,20 @@ pub struct A11yTreeInputs<'a> {
     pub hidpi_factor: f32,
     pub dirty_text_overrides: &'a BTreeMap<(DomId, NodeId), String>,
     pub cursor_info: Option<CursorA11yInfo>,
+    /// Every virtual view's dom with the view that hosts it (`(host dom,
+    /// host node)`): where its content is read, in the host's reading order.
+    /// Empty without virtual views.
+    pub nested_dom_hosts: &'a BTreeMap<DomId, (DomId, NodeId)>,
+    /// The language the window's text is in, a BCP 47 tag
+    /// (`LayoutWindow::active_language`); empty when unknown. Set on the
+    /// window root, where every element inherits it: a screen reader picks
+    /// its voice by it.
+    pub language: &'a str,
+    /// Whether that language is written right to left.
+    pub language_is_rtl: bool,
+    /// Translates the keys among the strings nodes declare (`None`: the
+    /// window has no translations, a key is read as it is).
+    pub translate: Option<A11yTranslate<'a>>,
 }
 
 /// What one accessibility pass did ([`A11yManager::refresh`]) - the cost
@@ -539,6 +827,10 @@ pub struct A11yManager {
     /// When the last scroll-driven rebuild ran (see
     /// [`Self::scroll_rebuild_due`]).
     pub last_scroll_rebuild: Option<std::time::Instant>,
+    /// The scroll offsets the tree's bounds were last built with
+    /// (`ScrollManager::offsets_fingerprint`). A tick that finds another
+    /// fingerprint marks the tree scroll-dirty, whoever moved the offset.
+    pub scroll_fingerprint: u64,
 }
 
 #[cfg(feature = "a11y")]
@@ -566,6 +858,7 @@ impl A11yManager {
             last_rejection: None,
             scroll_dirty: false,
             last_scroll_rebuild: None,
+            scroll_fingerprint: 0,
             retained: A11yRetainedTree::default(),
             last_pass: A11yPassStats::default(),
         }
@@ -885,6 +1178,7 @@ impl A11yManager {
         dirty_text_overrides: &BTreeMap<(DomId, NodeId), String>,
         cursor_info: Option<CursorA11yInfo>,
     ) -> TreeUpdate {
+        let no_hosts = BTreeMap::new();
         let inputs = A11yTreeInputs {
             layout_results,
             scroll_manager,
@@ -894,6 +1188,10 @@ impl A11yManager {
             hidpi_factor,
             dirty_text_overrides,
             cursor_info,
+            nested_dom_hosts: &no_hosts,
+            language: "",
+            language_is_rtl: false,
+            translate: None,
         };
         let mut retained = A11yRetainedTree::default();
         drop(Self::rebuild_retained(&mut retained, root_id, &inputs));
@@ -938,6 +1236,8 @@ impl A11yManager {
         let root_inputs = {
             let mut h = azul_core::hash::DefaultHasher::new();
             inputs.window_title.as_str().hash(&mut h);
+            inputs.language.hash(&mut h);
+            inputs.language_is_rtl.hash(&mut h);
             Self::finish_signature(&h)
         };
         Self::retain_or_build(
@@ -950,17 +1250,29 @@ impl A11yManager {
             || {
                 let mut root_node = Node::new(Role::Window);
                 root_node.set_label(inputs.window_title.as_str());
+                if !inputs.language.is_empty() {
+                    root_node.set_language(inputs.language);
+                }
+                if inputs.language_is_rtl {
+                    root_node.set_text_direction(accesskit::TextDirection::RightToLeft);
+                }
                 root_node
             },
         );
 
-        // Which nodes of the dom being walked are exposed, by node index.
-        let mut exposed: Vec<bool> = Vec::new();
+        // Which nodes of each dom are exposed, by node index. Kept for the
+        // link pass, which looks across doms: a virtual view's content hangs
+        // off the element around its view.
+        let mut exposed_by_dom: BTreeMap<DomId, Vec<bool>> = BTreeMap::new();
 
         for (dom_id, layout_result) in inputs.layout_results {
             let styled_dom = &layout_result.styled_dom;
-            let node_hierarchy = styled_dom.node_hierarchy.as_ref();
             let node_data_slice = styled_dom.node_data.as_ref();
+            let node_hierarchy = styled_dom.node_hierarchy.as_ref();
+            // Where the dom's 0-relative space starts in the window: a
+            // virtual view's content is laid out from its own origin and
+            // composited at its view (zero for the window's own dom).
+            let dom_origin = inputs.scroll_manager.dom_window_origin(*dom_id);
             // Every box chain of this dom in one linear pass - see
             // `ancestor_scroll_offset`. Without a scroll id no frame moves
             // anything, and there is nothing to resolve.
@@ -971,15 +1283,19 @@ impl A11yManager {
                     &layout_result.scroll_ids,
                 )
             });
-            exposed.clear();
-            exposed.resize(node_data_slice.len(), false);
+            let mut exposed = vec![false; node_data_slice.len()];
+
+            let rendered = rendered_nodes(layout_result);
+            let labels = label_texts(node_data_slice, node_hierarchy);
 
             // First pass: every exposed node, retained or built.
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
-                // Include every node that has a meaningful role — see
-                // `is_exposed_to_accessibility`, which is the single definition
-                // shared with every other a11y surface.
-                if !is_exposed_to_accessibility(node_data) {
+                // Include every rendered node that has a meaningful role -
+                // `rendered_nodes` and `is_exposed_to_accessibility` are the
+                // definitions shared with every other a11y surface.
+                if !rendered.get(dom_idx).copied().unwrap_or(true)
+                    || !is_exposed_to_accessibility(node_data)
+                {
                     continue;
                 }
                 exposed[dom_idx] = true;
@@ -1013,8 +1329,8 @@ impl A11yManager {
                         Some((
                             hot,
                             abs_pos.map(|p| LogicalPosition {
-                                x: p.x - ancestor_scroll.x,
-                                y: p.y - ancestor_scroll.y,
+                                x: p.x - ancestor_scroll.x + dom_origin.x,
+                                y: p.y - ancestor_scroll.y + dom_origin.y,
                             }),
                         ))
                     });
@@ -1024,8 +1340,9 @@ impl A11yManager {
                     .cursor_info
                     .filter(|ci| ci.dom_id == *dom_id && ci.node_id == dom_node_id);
                 let bounds = layout_info.and_then(|(hot, pos)| {
-                    Self::screen_bounds(hot, pos, inputs.hidpi_factor, inputs.window_size)
+                    Self::screen_bounds(hot, pos, inputs.hidpi_factor)
                 });
+                let label = labels.get(&dom_idx).map(String::as_str);
                 let node_inputs = Self::node_signature(
                     node_data,
                     node_data_slice,
@@ -1036,6 +1353,8 @@ impl A11yManager {
                     scroll_info,
                     text_override,
                     cursor.as_ref(),
+                    inputs.language,
+                    label,
                 );
 
                 order.push(a11y_node_id);
@@ -1058,14 +1377,27 @@ impl A11yManager {
                             text_override,
                             cursor.as_ref(),
                             inputs.hidpi_factor,
-                            inputs.window_size,
+                            inputs.translate,
+                            label,
                         )
                     },
                 );
             }
+            exposed_by_dom.insert(*dom_id, exposed);
+        }
 
+        // Lists that took a node of another dom (a virtual view's content):
+        // sorted into reading order below.
+        let mut mixed_parents: Vec<A11yNodeId> = Vec::new();
+        for (dom_id, layout_result) in inputs.layout_results {
+            let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+            let Some(exposed) = exposed_by_dom.get(dom_id) else {
+                continue;
+            };
             // Second pass: link each exposed node to its nearest exposed
-            // ancestor (the DOM hierarchy, walked up), else the root.
+            // ancestor (the DOM hierarchy, walked up); a top-level node of a
+            // virtual view's dom to the element around its view; else the
+            // window root.
             for (dom_idx, &is_exposed) in exposed.iter().enumerate() {
                 if !is_exposed {
                     continue;
@@ -1100,9 +1432,22 @@ impl A11yManager {
                         .entry(parent_id)
                         .or_default()
                         .push(a11y_node_id);
+                } else if let Some(host) = Self::host_parent(
+                    *dom_id,
+                    inputs.nested_dom_hosts,
+                    &exposed_by_dom,
+                    inputs.layout_results,
+                ) {
+                    parent_children_map.entry(host).or_default().push(a11y_node_id);
+                    mixed_parents.push(host);
                 } else {
                     root_children.push(a11y_node_id);
                 }
+            }
+        }
+        for parent in mixed_parents {
+            if let Some(children) = parent_children_map.get_mut(&parent) {
+                children.sort_by_cached_key(|id| Self::reading_key(*id, inputs.nested_dom_hosts));
             }
         }
 
@@ -1128,12 +1473,20 @@ impl A11yManager {
         // Third pass: set the children (the root always gets its list), and
         // collect what differs from what was published.
         let mut changed = Vec::new();
+        // Each node's parent, for the focus check below; only built when
+        // there is a focus to check.
+        let mut parent_of: A11yIdMap<A11yNodeId> = A11yIdMap::default();
         for id in &order {
             let children = if *id == root_id {
                 Some(core::mem::take(&mut root_children))
             } else {
                 parent_children_map.remove(id)
             };
+            if inputs.focused_node.is_some() {
+                for kid in children.iter().flatten() {
+                    parent_of.insert(*kid, *id);
+                }
+            }
             let Some(r) = retained.nodes.get_mut(id) else {
                 continue;
             };
@@ -1162,12 +1515,15 @@ impl A11yManager {
         retained.nodes.retain(|_, r| r.seen == pass);
         let removed = before - retained.nodes.len();
 
-        // Focus: the focused DOM node (from the FocusManager) if the tree
-        // holds it, else the first visible content node - VoiceOver navigates
-        // to the focused element on activation - else the root. Focus MUST
-        // name a node in the tree (accesskit tree.rs:75): a `focused_node`
-        // from a DOM that regenerated between the focus write and this pass
-        // degrades instead of aborting.
+        // Focus: the focused DOM node (the FocusManager's) if the tree holds
+        // it under no hidden ancestor, else the root - accesskit's rule for
+        // "no node has the keyboard". A label that does not have the keyboard
+        // must not be announced as focused. A focus under a hidden ancestor
+        // is one the platform tree cannot reach: the consumer keeps the node,
+        // but its parent does not list it, and the VoiceOver cursor is
+        // stranded there. Focus MUST name a node in the tree (accesskit
+        // tree.rs:75): a `focused_node` from a DOM that regenerated between
+        // the focus write and this pass degrades instead of aborting.
         let focus = inputs
             .focused_node
             .and_then(|dom_node_id| {
@@ -1175,18 +1531,8 @@ impl A11yManager {
                 let id = Self::encode_a11y_node_id(dom_node_id.dom.inner, dom_idx);
                 retained.nodes.contains_key(&id).then_some(id)
             })
-            .unwrap_or_else(|| {
-                order
-                    .iter()
-                    .copied()
-                    .find(|id| {
-                        *id != root_id
-                            && retained.nodes.get(id).is_some_and(|r| {
-                                !matches!(r.content.role(), Role::GenericContainer | Role::Window)
-                            })
-                    })
-                    .unwrap_or(root_id)
-            });
+            .filter(|id| !Self::has_hidden_ancestor(retained, &parent_of, *id))
+            .unwrap_or(root_id);
         let focus_changed = retained.focus != Some(focus);
         retained.focus = Some(focus);
         retained.order = order;
@@ -1197,6 +1543,81 @@ impl A11yManager {
             removed,
             focus_changed,
         }
+    }
+
+    /// The element the top-level nodes of a virtual view's dom hang off:
+    /// the nearest exposed ancestor-or-self of the view that hosts the dom,
+    /// in the host's dom - or, when the host's dom has none, of the host's
+    /// own host. `None`: the window root.
+    fn host_parent(
+        dom_id: DomId,
+        hosts: &BTreeMap<DomId, (DomId, NodeId)>,
+        exposed_by_dom: &BTreeMap<DomId, Vec<bool>>,
+        layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    ) -> Option<A11yNodeId> {
+        let mut dom = dom_id;
+        // Views nest a handful deep; a host map that loops must not hang.
+        for _ in 0..64 {
+            let &(host_dom, host_node) = hosts.get(&dom)?;
+            let exposed = exposed_by_dom.get(&host_dom)?;
+            let hierarchy = layout_results
+                .get(&host_dom)?
+                .styled_dom
+                .node_hierarchy
+                .as_ref();
+            let mut current = Some(host_node);
+            let mut steps = 0usize;
+            while let Some(node) = current {
+                if exposed.get(node.index()).copied().unwrap_or(false) {
+                    return Some(Self::encode_a11y_node_id(host_dom.inner, node.index()));
+                }
+                steps += 1;
+                if steps > 10_000 {
+                    break;
+                }
+                current = hierarchy
+                    .get(node.index())
+                    .and_then(NodeHierarchyItem::parent_id);
+            }
+            dom = host_dom;
+        }
+        None
+    }
+
+    /// Where a node stands in reading order across doms: the node index of
+    /// each view its dom is nested in (outermost first), then its own index.
+    /// A virtual view's content sorts right after the nodes before its view
+    /// and before the nodes after it.
+    fn reading_key(id: A11yNodeId, hosts: &BTreeMap<DomId, (DomId, NodeId)>) -> Vec<usize> {
+        let (dom, node) = decode_a11y_node_id(id);
+        crate::managers::virtual_view::reading_order_key(dom, node.index(), hosts)
+    }
+
+    /// Whether an ancestor of `id` is hidden: accesskit leaves a hidden
+    /// node's whole subtree out of the platform tree.
+    fn has_hidden_ancestor(
+        retained: &A11yRetainedTree,
+        parent_of: &A11yIdMap<A11yNodeId>,
+        id: A11yNodeId,
+    ) -> bool {
+        let mut current = parent_of.get(&id).copied();
+        // A malformed parent map can hold a cycle; no real tree is this deep.
+        let mut steps = 0usize;
+        while let Some(parent) = current {
+            if retained
+                .nodes
+                .get(&parent)
+                .is_some_and(|r| r.content.is_hidden())
+            {
+                return true;
+            }
+            steps += 1;
+            if steps > 10_000 {
+                return false;
+            }
+            current = parent_of.get(&parent).copied();
+        }
+        false
     }
 
     /// Reuse the retained node `id` if its `inputs` are unchanged (marking
@@ -1264,10 +1685,16 @@ impl A11yManager {
         scroll_info: Option<(LogicalPosition, f32, f32)>,
         text_override: Option<&String>,
         cursor: Option<&CursorA11yInfo>,
+        language: &str,
+        label: Option<&str>,
     ) -> u64 {
         use core::hash::Hash;
 
         let mut h = azul_core::hash::DefaultHasher::new();
+        // A declared key reads in the window's language: a switch rebuilds.
+        language.hash(&mut h);
+        // A label elsewhere in the DOM names the node: its text is content.
+        label.hash(&mut h);
         node_data.node_type.hash(&mut h);
         node_data.attributes().as_ref().hash(&mut h);
         node_data.flags.hash(&mut h);
@@ -1338,9 +1765,11 @@ impl A11yManager {
         text_override: Option<&String>,
         cursor: Option<&CursorA11yInfo>,
         hidpi_factor: f32,
-        window_size: LogicalSize,
+        translate: Option<A11yTranslate<'_>>,
+        label: Option<&str>,
     ) -> Node {
         let a11y_info_ref = node_data.get_accessibility_info();
+        let mut declared = Self::declared_strings(node_data, translate, label);
         let mut node = if let Some((layout_node, abs_pos)) = layout_info {
             Self::build_node(
                 node_data,
@@ -1348,7 +1777,6 @@ impl A11yManager {
                 abs_pos,
                 a11y_info_ref,
                 hidpi_factor,
-                window_size,
             )
         } else {
             // Same rule as `build_node` (which this branch stands in
@@ -1465,25 +1893,96 @@ impl A11yManager {
                         },
                     });
                 }
-            } else if !has_non_text_children {
-                // Only promote text when there are NO interactive children.
-                // Otherwise VoiceOver reads the label instead of navigating children.
+            } else if !has_non_text_children && declared.name.is_none() {
+                // Only promote text when there are NO interactive children
+                // (otherwise VoiceOver reads the label instead of navigating
+                // the children) and the node declares no name of its own.
                 node.set_label(text_content.as_str());
             }
+        }
+
+        // An edited field's text is its value, never its name.
+        let edited = node_data.is_contenteditable()
+            || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input);
+        let named_by_text = matches!(node_data.node_type, NodeType::Text(_))
+            || (!edited && !has_non_text_children && !text_content.trim().is_empty());
+        declared.resolve_title(named_by_text);
+        if let Some(name) = &declared.name {
+            node.set_label(name.as_str());
+        }
+        // The declared description is the whole answer: `build_node` reads
+        // the title as a description, which is wrong once it names the node.
+        match &declared.description {
+            Some(description) => node.set_description(description.as_str()),
+            None => node.clear_description(),
+        }
+        if let Some(value) = declared.value.as_ref().filter(|_| !edited) {
+            node.set_value(value.as_str());
+        }
+        if let Some(placeholder) = &declared.placeholder {
+            node.set_placeholder(placeholder.as_str());
         }
 
         node
     }
 
+    /// What `node_data` declares for assistive technology
+    /// ([`DeclaredStrings`]), each key translated with `translate`. The
+    /// caller places the title with [`DeclaredStrings::resolve_title`] once
+    /// it knows the node's text.
+    pub(crate) fn declared_strings(
+        node_data: &NodeData,
+        translate: Option<A11yTranslate<'_>>,
+        label: Option<&str>,
+    ) -> DeclaredStrings {
+        let text = |s: &AzString| -> String {
+            match translate {
+                Some(t) if s.is_localizable() => (t.0)(s.as_str()),
+                _ => s.as_str().to_string(),
+            }
+        };
+        let mut out = DeclaredStrings::default();
+        if let Some(info) = node_data.get_accessibility_info() {
+            out.name = info.accessibility_name.as_option().map(|s| text(s));
+            out.description = info.description.as_option().map(|s| text(s));
+            out.value = info.accessibility_value.as_option().map(|s| text(s));
+        }
+        let mut aria_label = None;
+        let mut alt = None;
+        for attr in node_data.attributes().as_ref() {
+            match attr {
+                azul_core::dom::AttributeType::AriaLabel(s) => aria_label = Some(text(s)),
+                azul_core::dom::AttributeType::Alt(s) => alt = Some(text(s)),
+                azul_core::dom::AttributeType::Title(s) => out.title = Some(text(s)),
+                azul_core::dom::AttributeType::Placeholder(s) => out.placeholder = Some(text(s)),
+                azul_core::dom::AttributeType::Value(s) => out.value = Some(text(s)),
+                _ => {}
+            }
+        }
+        out.name = aria_label
+            .or(out.name)
+            .or(alt)
+            .or_else(|| label.map(str::to_string));
+        out
+    }
+
     /// A box's bounds as a screen reader draws them: its padding box (the
-    /// absolute position offset by padding + border), in physical pixels,
-    /// clipped to the window so a highlight never extends off-screen. `None`
-    /// for a box with no position or size, or none left after the clip.
+    /// absolute position offset by padding + border), in physical pixels.
+    /// `None` for a box with no position or size, or with a non-finite or
+    /// empty rect.
+    ///
+    /// Not clipped to the window. accesskit decides what a clipping parent
+    /// (a scroll container) hides by comparing a child's rect with the
+    /// parent's: a child outside it is dropped, except the one next to a
+    /// visible sibling, which a screen reader scrolls into view. A rect
+    /// clamped to the window made that decision one-sided: a child past the
+    /// window edge lost its rect and stayed reachable, a child behind a
+    /// toolbar kept its rect and was dropped, so a screen reader could move
+    /// down a list but not back up.
     fn screen_bounds(
         layout_node: &LayoutNodeHot,
         abs_pos: Option<LogicalPosition>,
         hidpi_factor: f32,
-        window_size: LogicalSize,
     ) -> Option<Rect> {
         let (pos, size) = (abs_pos?, layout_node.used_size?);
         let bp = layout_node.box_props.unpack();
@@ -1493,19 +1992,13 @@ impl A11yManager {
         let pad_bottom = bp.padding.bottom + bp.border.bottom;
 
         let s = f64::from(hidpi_factor);
-        let ww = f64::from(window_size.width) * s;
-        let wh = f64::from(window_size.height) * s;
+        let x0 = f64::from(pos.x + pad_left) * s;
+        let y0 = f64::from(pos.y + pad_top) * s;
+        let x1 = f64::from(pos.x + size.width - pad_right) * s;
+        let y1 = f64::from(pos.y + size.height - pad_bottom) * s;
 
-        let x0 = (f64::from(pos.x + pad_left) * s).max(0.0).min(ww);
-        let y0 = (f64::from(pos.y + pad_top) * s).max(0.0).min(wh);
-        let x1 = (f64::from(pos.x + size.width - pad_right) * s)
-            .max(0.0)
-            .min(ww);
-        let y1 = (f64::from(pos.y + size.height - pad_bottom) * s)
-            .max(0.0)
-            .min(wh);
-
-        (x1 > x0 && y1 > y0).then_some(Rect { x0, y0, x1, y1 })
+        let finite = x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite();
+        (finite && x1 > x0 && y1 > y0).then_some(Rect { x0, y0, x1, y1 })
     }
 
     /// MWA-B10: outbound twin of `map_accesskit_action` — declares a node's
@@ -1553,7 +2046,6 @@ impl A11yManager {
         abs_pos: Option<LogicalPosition>,
         a11y_info: Option<&AccessibilityInfo>,
         hidpi_factor: f32,
-        window_size: LogicalSize,
     ) -> Node {
         // Set role based on NodeType or AccessibilityInfo. A DECLARED role
         // wins; an `Unknown` one is not a declaration at all — see
@@ -1732,9 +2224,8 @@ impl A11yManager {
             }
         }
 
-        // Set bounds: absolute position, offset by padding+border, scaled to physical pixels,
-        // clipped to window viewport so VoiceOver highlights don't extend off-screen.
-        if let Some(bounds) = Self::screen_bounds(layout_node, abs_pos, hidpi_factor, window_size) {
+        // Bounds: the padding box in physical pixels (see `screen_bounds`).
+        if let Some(bounds) = Self::screen_bounds(layout_node, abs_pos, hidpi_factor) {
             builder.set_bounds(bounds);
         }
 
@@ -2016,6 +2507,7 @@ impl A11yManager {
             AccessibilityRole::Nothing => Role::GenericContainer,
             AccessibilityRole::Grid => Role::Grid,
             AccessibilityRole::GridCell => Role::GridCell,
+            AccessibilityRole::Switch => Role::Switch,
         }
     }
 }
@@ -2693,6 +3185,7 @@ mod autotest_generated {
             (AccessibilityRole::Nothing, Role::GenericContainer),
             (AccessibilityRole::Grid, Role::Grid),
             (AccessibilityRole::GridCell, Role::GridCell),
+            (AccessibilityRole::Switch, Role::Switch),
         ];
         for (role, expected) in cases {
             assert_eq!(A11yManager::map_role(&role), expected, "{role:?}");
@@ -2960,7 +3453,6 @@ mod autotest_generated {
             Some(LogicalPosition::new(10.0, 20.0)),
             None,
             2.0,
-            LogicalSize::new(1000.0, 1000.0),
         );
         let bounds = node.bounds().expect("in-viewport node must have bounds");
         assert_eq!(bounds.x0, 24.0); // (10 + 2) * 2
@@ -2970,7 +3462,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_node_clips_bounds_to_the_window_viewport() {
+    fn build_node_keeps_the_true_rect_of_a_box_partly_outside_the_window() {
+        // accesskit's clip filter compares a child's rect with its scroll
+        // container's; a rect cut to the window would hide where it is.
         let node_data = NodeData::create_node(NodeType::Div);
         let layout_node = hot(Some(LogicalSize::new(10_000.0, 10_000.0)), [0; 4], [0; 4]);
         let node = A11yManager::build_node(
@@ -2979,19 +3473,10 @@ mod autotest_generated {
             Some(LogicalPosition::new(-500.0, -500.0)),
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
-        let bounds = node.bounds().expect("clipped node still has bounds");
-        assert_eq!(
-            (bounds.x0, bounds.y0),
-            (0.0, 0.0),
-            "off-screen origin clamps to 0"
-        );
-        assert_eq!(
-            (bounds.x1, bounds.y1),
-            (800.0, 600.0),
-            "overflowing extent clamps to the viewport"
-        );
+        let bounds = node.bounds().expect("an off-screen box still has bounds");
+        assert_eq!((bounds.x0, bounds.y0), (-500.0, -500.0));
+        assert_eq!((bounds.x1, bounds.y1), (9_500.0, 9_500.0));
     }
 
     #[test]
@@ -3009,7 +3494,6 @@ mod autotest_generated {
             Some(LogicalPosition::new(0.0, 0.0)),
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.bounds(), None);
     }
@@ -3025,7 +3509,6 @@ mod autotest_generated {
                 Some(LogicalPosition::new(10.0, 20.0)),
                 None,
                 hidpi,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(
                 node.bounds(),
@@ -3053,32 +3536,20 @@ mod autotest_generated {
             LogicalPosition::new(f32::NAN, 0.0),
             LogicalPosition::new(f32::INFINITY, f32::NEG_INFINITY),
         ];
-        let windows = [
-            LogicalSize::new(0.0, 0.0),
-            LogicalSize::new(800.0, 600.0),
-            LogicalSize::new(f32::MAX, f32::MAX),
-            LogicalSize::new(f32::NAN, f32::NAN),
-        ];
         for size in sizes {
             for pos in positions {
-                for window in windows {
-                    for hidpi in [1.0_f32, 0.5, 3.0, f32::INFINITY] {
-                        let layout_node = hot(Some(size), [i16::MAX; 4], [i16::MIN; 4]);
-                        let node = A11yManager::build_node(
-                            &node_data,
-                            &layout_node,
-                            Some(pos),
-                            None,
-                            hidpi,
-                            window,
+                for hidpi in [1.0_f32, 0.5, 3.0, f32::INFINITY] {
+                    let layout_node = hot(Some(size), [i16::MAX; 4], [i16::MIN; 4]);
+                    let node =
+                        A11yManager::build_node(&node_data, &layout_node, Some(pos), None, hidpi);
+                    if let Some(b) = node.bounds() {
+                        assert!(
+                            b.x1 > b.x0
+                                && b.y1 > b.y0
+                                && [b.x0, b.y0, b.x1, b.y1].iter().all(|v| v.is_finite()),
+                            "inverted or infinite rect {b:?} for size={size:?} pos={pos:?} \
+                             hidpi={hidpi}"
                         );
-                        if let Some(b) = node.bounds() {
-                            assert!(
-                                b.x1 > b.x0 && b.y1 > b.y0,
-                                "inverted rect {b:?} for size={size:?} pos={pos:?} \
-                                 window={window:?} hidpi={hidpi}"
-                            );
-                        }
                     }
                 }
             }
@@ -3095,7 +3566,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.bounds(), None);
 
@@ -3106,7 +3576,6 @@ mod autotest_generated {
             Some(LogicalPosition::new(0.0, 0.0)),
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.bounds(), None);
     }
@@ -3123,7 +3592,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert!(node.supports_action(Action::ScrollIntoView));
     }
@@ -3136,7 +3604,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         let expected = NodeType::Div.get_path().to_string();
         assert_eq!(node.html_tag(), Some(expected.as_str()));
@@ -3154,7 +3621,6 @@ mod autotest_generated {
             None,
             node_data.get_accessibility_info(),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.role(), Role::MultilineTextInput);
         assert!(node.supports_action(Action::Focus));
@@ -3170,7 +3636,6 @@ mod autotest_generated {
                 None,
                 None,
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(node.role(), Role::Label);
             assert_eq!(node.label(), Some(s));
@@ -3195,7 +3660,6 @@ mod autotest_generated {
                 None,
                 None,
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(node.role(), Role::Heading);
             assert_eq!(node.level(), Some(level));
@@ -3223,7 +3687,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.role(), Role::CheckBox);
         assert!(node.is_disabled());
@@ -3250,7 +3713,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.is_expanded(), Some(false));
         assert_eq!(node.toggled(), Some(Toggled::False));
@@ -3272,7 +3734,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert!(node.supports_action(Action::Increment));
         assert!(node.supports_action(Action::Decrement));
@@ -3292,7 +3753,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(
             node.labelled_by(),
@@ -3320,7 +3780,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.role(), Role::GridCell);
         assert_eq!(node.row_index(), Some(1000));
@@ -3332,7 +3791,6 @@ mod autotest_generated {
             None,
             Some(&info(AccessibilityRole::Cell)),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(plain.row_index(), None, "no index declared, none published");
     }
@@ -3352,7 +3810,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert!(
             node.labelled_by().is_empty() && node.described_by().is_empty(),
@@ -3390,7 +3847,6 @@ mod autotest_generated {
                 None,
                 None,
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(node.live(), Some(expected), "aria-live={value:?}");
         }
@@ -3422,7 +3878,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.label(), Some("label"));
         assert_eq!(node.description(), Some("desc"));
@@ -3453,7 +3908,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.column_span(), Some(usize::MAX));
         assert_eq!(node.row_span(), Some(usize::MAX));
@@ -3469,7 +3923,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.column_span(), Some(0));
     }
@@ -3494,7 +3947,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.label(), Some("from-attr"));
         assert_eq!(node.value(), Some("attr-value"));
@@ -3559,7 +4011,6 @@ mod autotest_generated {
                 None,
                 Some(&a11y),
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(
                 node.role(),
@@ -3585,7 +4036,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.role(), Role::Slider);
     }
@@ -3658,6 +4108,7 @@ mod autotest_generated {
             None,
             "t",
             LogicalSize::new(800.0, 600.0),
+            None,
         );
         let unknown: Vec<_> = snapshot
             .elements
@@ -3949,7 +4400,6 @@ mod autotest_generated {
             None,
             node_data.get_accessibility_info(),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         )
         .role()
     }
@@ -3990,7 +4440,6 @@ mod autotest_generated {
                 None,
                 Some(&a11y),
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             )
         };
         assert_eq!(
@@ -4059,6 +4508,10 @@ mod retained_tree_tests {
             hidpi_factor: 1.0,
             dirty_text_overrides: &overrides,
             cursor_info: None,
+            nested_dom_hosts: &BTreeMap::new(),
+            language: "",
+            language_is_rtl: false,
+            translate: None,
         };
         let _ = m.refresh(&inputs);
         m.take_pending()
@@ -4142,6 +4595,7 @@ mod retained_tree_tests {
         let overrides: &'static BTreeMap<(DomId, NodeId), String> =
             Box::leak(Box::new(BTreeMap::new()));
         let title: &'static AzString = Box::leak(Box::new(AzString::from("t")));
+        let hosts: &'static BTreeMap<DomId, (DomId, NodeId)> = Box::leak(Box::new(BTreeMap::new()));
         A11yTreeInputs {
             layout_results: results,
             scroll_manager,
@@ -4151,6 +4605,10 @@ mod retained_tree_tests {
             hidpi_factor: 1.0,
             dirty_text_overrides: overrides,
             cursor_info: None,
+            nested_dom_hosts: hosts,
+            language: "",
+            language_is_rtl: false,
+            translate: None,
         }
     }
 

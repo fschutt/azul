@@ -1877,7 +1877,6 @@ use crate::widgets::check_box::CheckBox;
 pub fn check_box(cb: CheckBox) -> Dom {
     use super::decl;
     let cb_name = cb.accessibility_name.clone();
-    crate::widgets::warn_widget_needs_a_name("check_box", cb_name.is_some());
 
     let checked_now = cb.check_box_state.inner.checked;
 
@@ -2219,7 +2218,6 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
     };
 
     let sw_name = s.accessibility_name.clone();
-    crate::widgets::warn_widget_needs_a_name("switch", sw_name.is_some());
 
     let mut track_style = resolved_track_style.as_slice().to_vec();
     if owns_track {
@@ -2284,7 +2282,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
         )
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_info(AccessibilityInfo {
-            role: AccessibilityRole::CheckButton,
+            role: AccessibilityRole::Switch,
             accessibility_name: sw_name,
             states: azul_core::a11y::AccessibilityStateVec::from_vec(alloc::vec![
                 if is_checked {
@@ -2651,7 +2649,6 @@ fn slider_diamond() -> Dom {
 pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     let value_now = slider.slider_state.inner.value;
     let a11y_name = slider.accessibility_name.clone();
-    crate::widgets::warn_widget_needs_a_name("Slider", a11y_name.is_some());
 
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},

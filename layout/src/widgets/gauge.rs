@@ -689,7 +689,6 @@ impl Gauge {
     /// named, its value the summary.
     fn a11y_info(&self) -> azul_core::a11y::AccessibilityInfo {
         let name = self.a11y_name();
-        crate::widgets::warn_widget_needs_a_name("Gauge", name.is_some());
         let mut info = azul_core::a11y::MeterAriaInfo::create(
             name.unwrap_or_else(|| AzString::from_const_str("Gauge")),
             self.value as f32,

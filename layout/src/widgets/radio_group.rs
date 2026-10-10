@@ -563,7 +563,6 @@ impl RadioGroup {
         // Read before the widget's fields are moved into the DOM below.
         let rg_name = self.accessibility_name.clone();
         let container_style = self.resolved_container_style();
-        crate::widgets::warn_widget_needs_a_name("radio_group", rg_name.is_some());
 
         use azul_core::{
             callbacks::CoreCallback,

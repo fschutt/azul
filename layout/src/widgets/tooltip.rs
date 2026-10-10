@@ -24,7 +24,10 @@
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    dom::{
+        AttributeType, Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
+        IdOrClassVec,
+    },
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
@@ -339,8 +342,23 @@ impl Tooltip {
 
             .into_option()
             .unwrap_or(skin.wrapper);
+        // A screen reader reads the tip's text as the anchor's description
+        // ("Save, button, Saves the file"), as for `aria-describedby`. The tip
+        // itself is drawn on hover only; read on its own it would be a stray
+        // text after the anchor, so it is hidden from assistive technology.
+        let mut anchor = self.anchor;
+        let mut anchor_info = anchor
+            .root
+            .get_accessibility_info()
+            .cloned()
+            .unwrap_or_default();
+        if anchor_info.description.is_none() && !self.text.as_str().trim().is_empty() {
+            anchor_info.description = Some(self.text.clone()).into();
+            anchor.root.set_accessibility_info(anchor_info);
+        }
         let tip = crate::widgets::widget_p_with_text(self.text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_TIP_CLASS))
+            .with_attribute(AttributeType::Hidden)
             .with_css_props(tip_css);
 
         let mut classes: Vec<IdOrClass> = TOOLTIP_WRAPPER_CLASS.to_vec();
@@ -370,7 +388,7 @@ impl Tooltip {
                 .into(),
             )
             // children: [anchor, tip] — the tip is the anchor's next sibling.
-            .with_children(vec![self.anchor, tip].into())
+            .with_children(vec![anchor, tip].into())
     }
 }
 
@@ -1127,7 +1145,15 @@ mod autotest_generated {
 
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 2, "children must be exactly [anchor, tip]");
-        assert_eq!(children[0], anchor, "child 0 must be the anchor, verbatim");
+        let mut described = anchor.clone();
+        described.root.set_accessibility_info(azul_core::dom::AccessibilityInfo {
+            description: Some(AzString::from_const_str("tip")).into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            children[0], described,
+            "child 0 must be the anchor, described by the tip for a screen reader"
+        );
         assert!(
             has_class(&children[1], TIP_CLASS_NAME),
             "child 1 must be the tip"
