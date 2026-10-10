@@ -361,6 +361,8 @@ pub(crate) enum Job {
     /// An encrypted drive's keys, recovery or files moved into the encryption.
     #[cfg(feature = "encryption")]
     Encryption(crate::encryption::EncryptionJob),
+    /// The folder sync: a pass, a file opened through it, pins, "Free up space", an answer.
+    Sync(crate::sync_jobs::SyncJob),
 }
 
 /// A search of a cloud drive's folder, as the window asks for it.
@@ -545,6 +547,8 @@ pub(crate) enum Outcome {
     /// What an encryption job found.
     #[cfg(feature = "encryption")]
     Encryption(crate::encryption::EncryptionOutcome),
+    /// What a sync job did (a pass's progress while it runs).
+    Sync(crate::sync_jobs::SyncOutcome),
 }
 
 /// A thread's start data: the job, taken out once.
@@ -2569,6 +2573,10 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         }
         #[cfg(feature = "encryption")]
         Job::Encryption(job) => Outcome::Encryption(crate::encryption::run(job)),
+        Job::Sync(job) => {
+            let mut emit = |outcome: Outcome| send(sender, outcome);
+            crate::sync_jobs::run(job, &mut emit)
+        }
     }
 }
 

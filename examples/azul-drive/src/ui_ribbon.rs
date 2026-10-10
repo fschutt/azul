@@ -54,6 +54,7 @@ use crate::{
     browse::{self, Place},
     ids,
     model::ViewLayout,
+    sync_view::SyncAction,
     with_state, DriveState,
 };
 
@@ -321,6 +322,39 @@ fn share_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                 large(button(s, app, "upload", "Upload", Action::Upload)),
                 large(button(s, app, "download", "Download", Action::Download)),
                 large(button(s, app, "link", "Copy link", Action::Share)),
+            ],
+        ))
+        .with_group(group(
+            "Sync",
+            vec![
+                large(button(
+                    s,
+                    app,
+                    "sync",
+                    "Sync now",
+                    Action::Sync(SyncAction::Now),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "push_pin",
+                    "Always keep on this device",
+                    Action::Sync(SyncAction::KeepOnDevice),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "cloud_queue",
+                    "Free up space",
+                    Action::Sync(SyncAction::FreeUpSpace),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "drive_folder_upload",
+                    "Sync with a folder",
+                    Action::Sync(SyncAction::Pair),
+                )),
             ],
         ))
         .with_group(group(

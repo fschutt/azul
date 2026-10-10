@@ -97,11 +97,6 @@ fn icon_colour(entry: &Entry) -> &'static str {
     }
 }
 
-/// Whether `entry` is a file of a cloud drive (fetched when opened): Explorer's cloud status.
-fn in_the_cloud(s: &DriveState, entry: &Entry) -> bool {
-    !entry.is_folder && s.current_drive_id().is_some_and(|id| !s.is_local_drive(&id))
-}
-
 /// The paint of an item ([`crate::look`]): at rest (a wash under the pointer), selected,
 /// focused, cut (faded) - each state after the one before, so it wins.
 pub(crate) fn item_paint(s: &DriveState, entry: &Entry) -> String {
@@ -789,12 +784,12 @@ pub(crate) fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f3
         .with_css("display: flex; flex-direction: row; align-items: center; min-width: 0px;")
         .with_child(icon)
         .with_child(label);
-    if !renaming && in_the_cloud(s, entry) {
-        // Explorer's status: a cloud file, fetched when it is opened.
-        cell.add_child(
-            Dom::create_icon(AzString::from("cloud_queue"))
-                .with_css("font-size: 14px; margin-left: 6px; opacity: 0.55; flex-shrink: 0;"),
-        );
+    if !renaming {
+        // Explorer's status: a synced file's state (§13.7), or a cloud file fetched when it is
+        // opened.
+        if let Some(badge) = crate::sync_view::badge_dom(s, entry) {
+            cell.add_child(badge);
+        }
     }
     cell
 }
@@ -1716,8 +1711,8 @@ extern "C" fn grid_item(mut data: RefAny, index: usize) -> IconGridItem {
     if let Some(Some(image)) = s.thumbnails.get(&entry.key) {
         item = item.with_image(image.clone());
     }
-    if in_the_cloud(&s, entry) {
-        item = item.with_badge("cloud_queue");
+    if let Some((icon, _, _)) = crate::sync_view::badge(&s, entry) {
+        item = item.with_badge(icon);
     }
     item
 }

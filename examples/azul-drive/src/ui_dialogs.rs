@@ -218,6 +218,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
         Popup::Transfers { .. } => transfers_dialog(s, app),
         #[cfg(feature = "encryption")]
         Popup::Encryption(dialog) => crate::encryption::dialog_parts(dialog, s, app),
+        Popup::Sync(dialog) => crate::sync_view::dialog_parts(dialog, s, app),
     }
 }
 
@@ -941,6 +942,7 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                 .map_or_else(|| String::from("(none)"), |p| p.display().to_string());
             vec![
                 section("Drives", column_of(rows)),
+                section("Sync", crate::sync_view::options_section(s, app)),
                 section("Use with other programs", crate::ui_bridge::section(&s.bridge, app)),
                 section(
                     "Add a drive",

@@ -752,6 +752,9 @@ pub struct Settings {
     pub search_subfolders: bool,
     /// The drives whose full-text index is kept (the Search tab's "Index this drive"), by id.
     pub indexed_drives: Vec<String>,
+    /// The drives that sync with a folder on this computer, each with its settings
+    /// (auto-download, local copies, the size cap, paused): Options > Drives > Sync.
+    pub synced: Vec<azcloud_kit::sync::session::SyncSetup>,
 }
 
 impl Default for Settings {
@@ -774,6 +777,7 @@ impl Default for Settings {
             search_ignore_files: true,
             search_subfolders: true,
             indexed_drives: Vec::new(),
+            synced: Vec::new(),
         }
     }
 }
