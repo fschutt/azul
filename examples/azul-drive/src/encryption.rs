@@ -83,9 +83,14 @@ fn index_cache_root() -> Option<PathBuf> {
         .map(|dir| dir.join("AzDrive").join("drive-index"))
 }
 
-/// The drive index's provider with this computer's copies under `cache_root`.
+/// The drive index's provider with this computer's copies under `cache_root`. The copies
+/// are lazy (C6): opening reads the pack indexes only, and a folder's objects arrive in
+/// ranged chunk reads when it is browsed, so a computer new to a drive browses it before
+/// every pack has downloaded.
 fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
-    MetaIndexProvider::new("AzDrive").with_cache_root(cache_root)
+    MetaIndexProvider::new("AzDrive")
+        .with_cache_root(cache_root)
+        .with_lazy(true)
 }
 
 /// An Azlin drive's bucket as the drive the app uses: decided plain or encrypted on its first
