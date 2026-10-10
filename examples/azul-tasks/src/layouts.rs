@@ -25,6 +25,8 @@ use azul::{
 };
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
+use azul_appkit::l10n::{label, t, t_args, Arg, DateStyle};
+
 use crate::{
     ids, list,
     model::{self, Priority, Task},
@@ -71,15 +73,12 @@ const MONTH_TASKS: usize = 2;
 /// list, none elsewhere.
 pub(crate) fn switch(s: &Tasks, app: &RefAny) -> Option<Dom> {
     let (other, on) = match &s.view {
-        View::Smart(Smart::Scheduled) => ("Month", s.planned_month),
-        View::List(_) => ("Board", s.board),
+        View::Smart(Smart::Scheduled) => ("aztasks-layout-month", s.planned_month),
+        View::List(_) => ("aztasks-layout-board", s.board),
         _ => return None,
     };
     Some(
-        Segmented::create(StringVec::from(vec![
-            AzString::from("List"),
-            AzString::from(other),
-        ]))
+        Segmented::create(StringVec::from(vec![label("aztasks-layout-list"), label(other)]))
         .with_selected_index(usize::from(on))
         .with_on_change(app.clone(), on_layout as SegmentedOnChangeCallbackType)
         .dom()
@@ -128,37 +127,33 @@ fn month(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     let today = now.date();
     let days = azul_pim::dates::month_grid(s.month, s.settings.week_start);
     let cells = views::planned_month(&s.tasks, &days);
-    let button = |label: &str, icon: &str, id: AzString, name: &str, cb: ButtonOnClickCallbackType| {
-        Button::create(label)
+    let button = |text: &str, icon: &str, id: AzString, name: &str, cb: ButtonOnClickCallbackType| {
+        Button::create(label(text))
             .with_icon(icon)
             .with_on_click(app.clone(), cb)
             .dom()
             .with_id(id)
-            .with_accessibility_name(name)
+            .with_accessibility_name(label(name))
     };
     let bar = Dom::create_div()
         .with_css(MONTH_BAR)
-        .with_child(button("", "chevron_left", ids::MONTH_PREV, "Previous month", on_month_prev))
+        .with_child(button("", "chevron_left", ids::MONTH_PREV, "aztasks-month-previous", on_month_prev))
         .with_child(
-            Dom::create_span_with_text(format!(
-                "{} {}",
-                azul_pim::dates::month_name(s.month.month()),
-                s.month.year()
-            ))
-            .with_css(MONTH_TITLE),
+            Dom::create_span_with_text(model::said(DateStyle::MonthYear, s.month)).with_css(MONTH_TITLE),
         )
-        .with_child(button("", "chevron_right", ids::MONTH_NEXT, "Next month", on_month_next))
-        .with_child(button("Today", "today", ids::MONTH_TODAY, "This month", on_month_today));
+        .with_child(button("", "chevron_right", ids::MONTH_NEXT, "aztasks-month-next", on_month_next))
+        .with_child(button("kit-date-today", "today", ids::MONTH_TODAY, "aztasks-month-this", on_month_today));
     let mut weekdays = Dom::create_div().with_css(WEEKDAY_ROW);
     for d in days.iter().take(7) {
         weekdays.add_child(
-            Dom::create_span_with_text(azul_pim::dates::weekday_short(d.weekday())).with_css(WEEKDAY),
+            Dom::create_span_with_text(t(azul_pim::dates::weekday_short_message_id(d.weekday())))
+                .with_css(WEEKDAY),
         );
     }
     let mut grid = Dom::create_div()
         .with_id(ids::PLANNED_MONTH)
         .with_css(MONTH)
-        .with_accessibility_name("Planned month")
+        .with_accessibility_name(label("aztasks-planned-month"))
         .with_child(bar)
         .with_child(weekdays);
     for (week, week_cells) in days.chunks(7).zip(cells.chunks(7)) {
@@ -185,7 +180,7 @@ fn day_cell(s: &Tasks, app: &RefAny, day: NaiveDate, tasks: &[usize], today: Nai
     let mut cell = Dom::create_div()
         .with_id(ids::month_day(&model::format_date(day)))
         .with_css(DAY)
-        .with_accessibility_name(day.format("%A %-d %B").to_string())
+        .with_accessibility_name(model::said(DateStyle::WeekdayDayMonth, day))
         .with_child(Dom::create_span_with_text(day.day().to_string()).with_css(number_css));
     cell.add_callback(EventFilter::Hover(HoverEventFilter::DragOver), target(), on_day_drag_over);
     cell.add_callback(EventFilter::Hover(HoverEventFilter::Drop), target(), on_day_drop);
@@ -194,7 +189,11 @@ fn day_cell(s: &Tasks, app: &RefAny, day: NaiveDate, tasks: &[usize], today: Nai
     }
     if tasks.len() > MONTH_TASKS {
         cell.add_child(
-            Dom::create_span_with_text(format!("+{} more", tasks.len() - MONTH_TASKS)).with_css(MORE),
+            Dom::create_span_with_text(t_args(
+                "aztasks-more",
+                &[("count", Arg::from(tasks.len() - MONTH_TASKS))],
+            ))
+            .with_css(MORE),
         );
     }
     cell
@@ -305,7 +304,7 @@ fn board(s: &Tasks, app: &RefAny, list: &str, now: NaiveDateTime) -> Dom {
     let mut out = Dom::create_div()
         .with_id(ids::BOARD)
         .with_css(BOARD)
-        .with_accessibility_name(format!("{} board", s.list_name(list)));
+        .with_accessibility_name(t_args("aztasks-board-of", &[("list", Arg::from(s.list_name(list)))]));
     for (column, tasks) in Column::ALL.into_iter().zip(columns.iter()) {
         out.add_child(column_dom(s, app, column, tasks, now));
     }
@@ -330,11 +329,11 @@ fn column_dom(s: &Tasks, app: &RefAny, column: Column, tasks: &[usize], now: Nai
     out.add_callback(EventFilter::Hover(HoverEventFilter::Drop), target(), on_column_drop);
     if tasks.is_empty() {
         let hint = match column {
-            Column::ToDo => "Nothing to do here.",
-            Column::Doing => "Drag a card here when you start it.",
-            Column::Done => "Drag a card here when it is done.",
+            Column::ToDo => "aztasks-board-empty-to-do",
+            Column::Doing => "aztasks-board-empty-doing",
+            Column::Done => "aztasks-board-empty-done",
         };
-        out.add_child(Dom::create_span_with_text(hint).with_css(COLUMN_EMPTY));
+        out.add_child(Dom::create_span_with_text(label(hint)).with_css(COLUMN_EMPTY));
     }
     for &i in tasks {
         out.add_child(card(s, app, &s.tasks[i], now));
@@ -355,14 +354,14 @@ fn card(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
             .with_css(if t.is_done() { CARD_TITLE_DONE } else { CARD_TITLE }),
     );
     if t.flagged {
-        title.add_child(Dom::create_icon("flag").with_accessibility_name("Flagged"));
+        title.add_child(Dom::create_icon("flag").with_accessibility_name(label("aztasks-smart-flagged")));
     }
     let mut meta = Dom::create_div().with_css(CARD_META);
     let mut any_meta = false;
     if let Some(done) = t.completed {
-        meta.add_child(Dom::create_span_with_text(format!(
-            "Completed {}",
-            model::day_label(done.date(), today)
+        meta.add_child(Dom::create_span_with_text(t_args(
+            "aztasks-completed-on",
+            &[("day", Arg::from(model::day_label(done.date(), today)))],
         )));
         any_meta = true;
     } else if let Some(label) = views::due_label(t, today) {

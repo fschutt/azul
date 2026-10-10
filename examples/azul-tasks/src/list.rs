@@ -25,6 +25,8 @@ use azul::{
 };
 use chrono::NaiveDateTime;
 
+use azul_appkit::l10n::{label, t, t_args, t_said, Arg, DateStyle};
+
 use crate::{
     ids,
     model::{self, Priority, Reminder, Task},
@@ -171,19 +173,19 @@ fn reminder_banner(s: &Tasks, app: &RefAny, _now: NaiveDateTime) -> Option<Dom> 
                 InfoBar::create(reminders::banner_text(&titles))
                     .with_icon("alarm")
                     .with_kind(AlertKind::Info)
-                    .with_action("Show")
+                    .with_action(label("aztasks-group-show"))
                     .with_on_action(app.clone(), on_banner_show as ButtonOnClickCallbackType)
                     .dom()
                     .with_css("flex-grow: 1;"),
             )
             .with_child(
-                Button::create("Snooze 10 min")
+                Button::create(label("aztasks-snooze"))
                     .with_on_click(app.clone(), on_banner_snooze as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::SNOOZE),
             )
             .with_child(
-                Button::create("Dismiss")
+                Button::create(label("aztasks-dismiss"))
                     .with_on_click(app.clone(), on_banner_dismiss as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::DISMISS_REMINDER),
@@ -202,7 +204,7 @@ fn undo_line(s: &Tasks, app: &RefAny) -> Option<Dom> {
         .with_child(Dom::create_span_with_text(s.notice.as_str()).with_css("font-size: 13px;"));
     if s.undo.is_some() {
         row.add_child(
-            Button::with_type("Undo", ButtonType::Link)
+            Button::with_type(label("aztasks-undo"), ButtonType::Link)
                 .with_on_click(app.clone(), on_undo as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::UNDO),
@@ -213,7 +215,7 @@ fn undo_line(s: &Tasks, app: &RefAny) -> Option<Dom> {
             .with_icon("close")
             .with_on_click(app.clone(), on_notice_close as ButtonOnClickCallbackType)
             .dom()
-            .with_accessibility_name("Close the notice"),
+            .with_accessibility_name(label("aztasks-close-notice")),
     );
     Some(row)
 }
@@ -223,13 +225,17 @@ fn header(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     let today = now.date();
     let (title, sub) = match &s.view {
         View::Smart(Smart::Today) => (
-            "Today".to_string(),
-            today.format("%A %-d %B").to_string(),
+            t("kit-date-today"),
+            model::said(DateStyle::WeekdayDayMonth, today),
         ),
         View::Smart(smart) => {
             let n = views::smart_count(*smart, &s.tasks, today);
-            let what = if *smart == Smart::Completed { "completed" } else { "open" };
-            (smart.label().to_string(), format!("{n} {what}"))
+            let what = if *smart == Smart::Completed {
+                "aztasks-count-completed"
+            } else {
+                "aztasks-status-open"
+            };
+            (smart.label(), t_args(what, &[("count", Arg::from(n))]))
         }
         View::List(id) => {
             let name = s.list_name(id);
@@ -238,15 +244,19 @@ fn header(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
                 .map(|i| s.lists[i].group.clone())
                 .unwrap_or_default();
             let open = views::list_count(id, &s.tasks);
+            let open = t_args("aztasks-status-open", &[("count", Arg::from(open))]);
             let sub = if group.is_empty() {
-                format!("{open} open")
+                open
             } else {
-                format!("{group} \u{b7} {open} open")
+                format!("{group} \u{b7} {open}")
             };
             (name, sub)
         }
-        View::Tag(tag) => (format!("#{tag}"), "Tagged tasks".to_string()),
-        View::Search(q) => (format!("Search: {q}"), "Title, notes, tags and steps".to_string()),
+        View::Tag(tag) => (format!("#{tag}"), t("aztasks-tagged-tasks")),
+        View::Search(q) => (
+            t_args("aztasks-search-title", &[("query", Arg::from(q.as_str()))]),
+            t("aztasks-search-what"),
+        ),
     };
     let mut text = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
@@ -269,14 +279,14 @@ fn header(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     let mut row = Dom::create_div().with_css(HEADER).with_child(text);
     match &s.view {
         View::List(_) => row.add_child(
-            Button::create("List settings")
+            Button::create(label("aztasks-list-settings"))
                 .with_icon("tune")
                 .with_on_click(app.clone(), on_list_settings as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::LIST_SETTINGS),
         ),
         View::Smart(Smart::Completed) => row.add_child(
-            Button::create("Clear older than 30 days")
+            Button::create(label("aztasks-clear-older-than-30"))
                 .with_icon("delete_sweep")
                 .with_on_click(app.clone(), on_clear_completed as ButtonOnClickCallbackType)
                 .dom()
@@ -294,8 +304,8 @@ fn header(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
 /// The quick-add line: the field and "Add".
 fn quick_add(s: &Tasks, app: &RefAny) -> Dom {
     let placeholder = match &s.view {
-        View::List(id) => format!("Add to {}: \"Pay rent tomorrow 9am #home !high\"", s.list_name(id)),
-        _ => "Add a task: \"Pay rent tomorrow 9am #home !high\"".to_string(),
+        View::List(id) => t_args("aztasks-quick-add-to", &[("list", Arg::from(s.list_name(id)))]),
+        _ => t("aztasks-quick-add"),
     };
     Dom::create_div()
         .with_css(QUICK_ROW)
@@ -303,7 +313,7 @@ fn quick_add(s: &Tasks, app: &RefAny) -> Dom {
             TextInput::create()
                 .with_text(s.quick.text.as_str())
                 .with_placeholder(placeholder)
-                .with_accessibility_name("Add a task")
+                .with_accessibility_name(label("aztasks-add-task"))
                 .with_on_text_input(app.clone(), on_quick_text as TextInputOnTextInputCallbackType)
                 .with_on_virtual_key_down(app.clone(), on_quick_key as TextInputOnVirtualKeyDownCallbackType)
                 .dom()
@@ -311,7 +321,7 @@ fn quick_add(s: &Tasks, app: &RefAny) -> Dom {
                 .with_css("flex-grow: 1;"),
         )
         .with_child(
-            Button::with_type("Add", ButtonType::Primary)
+            Button::with_type(label("aztasks-add"), ButtonType::Primary)
                 .with_icon("add")
                 .with_on_click(app.clone(), on_quick_add_click as ButtonOnClickCallbackType)
                 .dom()
@@ -350,14 +360,14 @@ fn quick_chips(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Option<Dom> {
                 .dom(),
         );
     }
-    row.add_child(Dom::create_span_with_text("Enter to add \u{b7} a click on a part keeps its words").with_css(HINT));
+    row.add_child(Dom::create_span_with_text(label("aztasks-enter-add-click-part")).with_css(HINT));
     Some(row)
 }
 
 /// The sections, or the view's empty state.
 fn body(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     if !s.loaded {
-        return ShellEmptyState::create("Reading your tasks...").with_icon("hourglass_empty").dom();
+        return ShellEmptyState::create(label("aztasks-reading-your-tasks")).with_icon("hourglass_empty").dom();
     }
     // The planned month or the board, when the view shows one (`layouts.rs`).
     if let Some(other) = crate::layouts::body(s, app, now) {
@@ -370,7 +380,7 @@ fn body(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     let mut scroll = Dom::create_div()
         .with_id(ids::TASK_LIST)
         .with_css(SCROLL)
-        .with_accessibility_name("Tasks");
+        .with_accessibility_name(label("aztasks-tasks"));
     for section in &sections {
         scroll.add_child(section_dom(s, app, section, now));
     }
@@ -380,25 +390,37 @@ fn body(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
 /// What an empty view says.
 fn empty_state(s: &Tasks, app: &RefAny) -> Dom {
     if s.tasks.is_empty() {
-        return ShellEmptyState::create("No tasks yet")
+        return ShellEmptyState::create(label("aztasks-no-tasks-yet"))
             .with_icon("task_alt")
-            .with_detail("Type one above, like \"Pay rent tomorrow 9am #home !high\", or try the sample lists.")
-            .with_action_label("Add the sample tasks")
+            .with_detail(label("aztasks-type-one-above-like"))
+            .with_action_label(label("aztasks-settings-add-sample"))
             .with_on_action(app.clone(), on_load_sample as ButtonOnClickCallbackType)
             .dom();
     }
     let (icon, title, detail) = match &s.view {
-        View::Smart(Smart::Today) => ("wb_sunny", "Nothing due today".to_string(), "Enjoy the day, or add a task above."),
-        View::Smart(Smart::Upcoming) => ("date_range", "Nothing in the next 7 days".to_string(), "Tasks with a due date this week show here."),
-        View::Smart(Smart::Scheduled) => ("event", "Nothing scheduled".to_string(), "Give a task a due date to see it here."),
-        View::Smart(Smart::Flagged) => ("flag", "No flagged tasks".to_string(), "Flag a task (\"!\" in the quick-add line) to keep it here."),
-        View::Smart(Smart::All) => ("inbox", "All done".to_string(), "Every task is completed."),
-        View::Smart(Smart::Completed) => ("task_alt", "Nothing completed yet".to_string(), "Completed tasks are kept here."),
-        View::List(id) => ("checklist", format!("No tasks in {}", s.list_name(id)), "Add one above."),
-        View::Tag(tag) => ("sell", format!("No open tasks tagged #{tag}"), "Tags are words with a # in the quick-add line."),
-        View::Search(q) => ("search", format!("No tasks match \"{q}\""), "Search looks at titles, notes, tags and steps."),
+        View::Smart(Smart::Today) => ("wb_sunny", t("aztasks-empty-today"), "aztasks-empty-today-what"),
+        View::Smart(Smart::Upcoming) => ("date_range", t("aztasks-empty-upcoming"), "aztasks-empty-upcoming-what"),
+        View::Smart(Smart::Scheduled) => ("event", t("aztasks-empty-scheduled"), "aztasks-empty-scheduled-what"),
+        View::Smart(Smart::Flagged) => ("flag", t("aztasks-empty-flagged"), "aztasks-empty-flagged-what"),
+        View::Smart(Smart::All) => ("inbox", t("aztasks-empty-all"), "aztasks-empty-all-what"),
+        View::Smart(Smart::Completed) => ("task_alt", t("aztasks-empty-completed"), "aztasks-empty-completed-what"),
+        View::List(id) => (
+            "checklist",
+            t_args("aztasks-empty-list", &[("list", Arg::from(s.list_name(id)))]),
+            "aztasks-empty-list-what",
+        ),
+        View::Tag(tag) => (
+            "sell",
+            t_args("aztasks-empty-tag", &[("tag", Arg::from(tag.as_str()))]),
+            "aztasks-empty-tag-what",
+        ),
+        View::Search(q) => (
+            "search",
+            t_args("aztasks-empty-search", &[("query", Arg::from(q.as_str()))]),
+            "aztasks-empty-search-what",
+        ),
     };
-    ShellEmptyState::create(title).with_icon(icon).with_detail(detail).dom()
+    ShellEmptyState::create(title).with_icon(icon).with_detail(label(detail)).dom()
 }
 
 /// One section: its header (a fold button for "Completed (n)") and its rows.
@@ -441,7 +463,7 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
     let today = now.date();
     let selected = s.is_selected(&t.id);
     let check = CheckBox::create(t.is_done())
-        .with_accessibility_name(format!("Complete {}", t.title))
+        .with_accessibility_name(t_args("aztasks-complete-task", &[("title", Arg::from(t.title.as_str()))]))
         .with_on_toggle(row_ref(app, &t.id), on_check as CheckBoxOnToggleCallbackType)
         .dom()
         .with_id(ids::task_check(&t.id));
@@ -451,7 +473,10 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
         title_line.add_child(
             Dom::create_span_with_text(t.priority.mark())
                 .with_css(PRIORITY)
-                .with_accessibility_name(format!("{} priority", t.priority.label())),
+                .with_accessibility_name(t_args(
+                    "aztasks-priority-of",
+                    &[("priority", Arg::from(azul_appkit::l10n::t(t.priority.message_id())))],
+                )),
         );
     }
     title_line.add_child(
@@ -460,15 +485,15 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
             .with_css(if t.is_done() { TITLE_DONE } else { TITLE }),
     );
     if t.flagged {
-        title_line.add_child(Dom::create_icon("flag").with_css(FLAG).with_accessibility_name("Flagged"));
+        title_line.add_child(Dom::create_icon("flag").with_css(FLAG).with_accessibility_name(label("aztasks-smart-flagged")));
     }
 
     let mut meta = Dom::create_div().with_css(META_LINE);
     let mut any_meta = false;
     if let Some(done) = t.completed {
-        meta.add_child(Dom::create_span_with_text(format!(
-            "Completed {}",
-            model::day_label(done.date(), today)
+        meta.add_child(Dom::create_span_with_text(t_args(
+            "aztasks-completed-on",
+            &[("day", Arg::from(model::day_label(done.date(), today)))],
         )));
         any_meta = true;
     } else if let Some(label) = views::due_label(t, today) {
@@ -483,13 +508,14 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
         any_meta = true;
     }
     if let Some(rule) = &t.repeat {
-        meta.add_child(Dom::create_span_with_text(format!("\u{21bb} {}", rule.label())));
+        meta.add_child(Dom::create_span_with_text(format!("\u{21bb} {}", t_said(&rule.description()))));
         any_meta = true;
     }
     if t.reminder.is_some() && !t.is_done() {
         if let Some(when) = reminders::describe(t, s.settings.reminder_time, today) {
             meta.add_child(
-                Dom::create_icon("alarm").with_accessibility_name(format!("Reminder {when}")),
+                Dom::create_icon("alarm")
+                    .with_accessibility_name(t_args("aztasks-reminder-when", &[("when", Arg::from(when))])),
             );
             any_meta = true;
         }
@@ -514,9 +540,9 @@ fn row(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime, show_list: bool) -
         any_meta = true;
     }
     if !t.attachments.is_empty() {
-        meta.add_child(Dom::create_icon("attach_file").with_accessibility_name(format!(
-            "{} attachment(s)",
-            t.attachments.len()
+        meta.add_child(Dom::create_icon("attach_file").with_accessibility_name(t_args(
+            "aztasks-attachments",
+            &[("count", Arg::from(t.attachments.len()))],
         )));
         any_meta = true;
     }

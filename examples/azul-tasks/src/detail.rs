@@ -36,6 +36,8 @@ use azul::{
 };
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
 
+use azul_appkit::l10n::{self, t_args, t_said, Arg};
+
 use crate::{
     ids,
     model::{self, Priority, Reminder, Subtask, Task},
@@ -64,16 +66,16 @@ const STEP: &str = "flex-grow: 1;";
 const META: &str = "font-size: 11px; color: system:secondary-text;";
 const RULE: &str = "height: 1px; background: system:separator; margin: 4px 0px;";
 
-/// The repeat control's presets; the last opens the editor.
+/// The repeat control's presets (keys of the resources); the last opens the editor.
 pub const REPEATS: [&str; 8] = [
-    "Never",
-    "Daily",
-    "Weekdays",
-    "Weekly",
-    "Every 2 weeks",
-    "Monthly",
-    "Yearly",
-    "Custom...",
+    "aztasks-repeat-never",
+    "aztasks-repeat-daily",
+    "aztasks-repeat-weekdays",
+    "aztasks-repeat-weekly",
+    "aztasks-repeat-two-weeks",
+    "aztasks-repeat-monthly",
+    "aztasks-repeat-yearly",
+    "aztasks-repeat-custom",
 ];
 
 /// Which preset a rule is (`REPEATS.len() - 1` for any other rule).
@@ -110,16 +112,18 @@ pub fn preset_repeat(index: usize, due: NaiveDate) -> Option<Repeat> {
     Some(rule.anchored(due))
 }
 
+/// Keys of the resources (or words as they are), said.
 fn strings(items: &[&str]) -> StringVec {
-    StringVec::from(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
+    l10n::labels(items)
 }
 
 fn owned(items: Vec<String>) -> StringVec {
     StringVec::from(items.into_iter().map(AzString::from).collect::<Vec<_>>())
 }
 
+/// A field's label: a key of the resources, or words as they are.
 fn label(text: &str) -> Dom {
-    Dom::create_span_with_text(text).with_css(LABEL)
+    Dom::create_span_with_text(l10n::label(text)).with_css(LABEL)
 }
 
 fn field(name: &str, control: Dom) -> Dom {
@@ -175,9 +179,9 @@ pub fn pane(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     } else if let Some(i) = s.selected_one() {
         task_pane(s, app, &s.tasks[i], now)
     } else {
-        ShellEmptyState::create("No task selected")
+        ShellEmptyState::create(l10n::label("aztasks-no-task-selected"))
             .with_icon("checklist")
-            .with_detail("Select a task to see its steps, dates, repeat, reminder, tags, notes and files.")
+            .with_detail(l10n::label("aztasks-select-task-see-steps"))
             .dom()
     };
     Dom::create_div()
@@ -211,7 +215,7 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
             .with_css(TITLE_ROW)
             .with_child(
                 CheckBox::create(t.is_done())
-                    .with_accessibility_name("Completed")
+                    .with_accessibility_name(l10n::label("aztasks-smart-completed"))
                     .with_on_toggle(detail_ref(app, &t.id, 0), on_done as CheckBoxOnToggleCallbackType)
                     .dom()
                     .with_id(ids::DETAIL_DONE),
@@ -219,8 +223,8 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
             .with_child(
                 TextInput::create()
                     .with_text(title)
-                    .with_placeholder("Title")
-                    .with_accessibility_name("Title")
+                    .with_placeholder(l10n::label("aztasks-title"))
+                    .with_accessibility_name(l10n::label("aztasks-title"))
                     .with_on_text_input(app.clone(), on_title_text as TextInputOnTextInputCallbackType)
                     .with_on_virtual_key_down(app.clone(), on_title_key as TextInputOnVirtualKeyDownCallbackType)
                     .with_on_focus_lost(app.clone(), on_title_blur as TextInputOnFocusLostCallbackType)
@@ -230,17 +234,17 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
             ),
     );
     pane.add_child(field(
-        "Priority",
-        Segmented::create(strings(&["None", "Low", "Medium", "High"]))
+        "kit-task-sort-priority",
+        Segmented::create(strings(&Priority::ALL.map(Priority::message_id)))
             .with_selected_index(t.priority.index())
             .with_on_change(detail_ref(app, &t.id, 0), on_priority as SegmentedOnChangeCallbackType)
             .dom()
             .with_id(ids::DETAIL_PRIORITY),
     ));
     pane.add_child(field(
-        "Flagged",
+        "aztasks-smart-flagged",
         Switch::create(t.flagged)
-            .with_accessibility_name("Flagged")
+            .with_accessibility_name(l10n::label("aztasks-smart-flagged"))
             .with_on_toggle(detail_ref(app, &t.id, 0), on_flag as SwitchOnToggleCallbackType)
             .dom()
             .with_id(ids::DETAIL_FLAG),
@@ -254,12 +258,12 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
     pane.add_child(list_field(s, app, t));
     pane.add_child(tags(s, app, t));
     pane.add_child(Dom::create_div().with_css(RULE));
-    pane.add_child(Dom::create_span_with_text("NOTES").with_css(GROUP_TITLE));
+    pane.add_child(Dom::create_span_with_text(l10n::label("aztasks-notes-2")).with_css(GROUP_TITLE));
     pane.add_child(
         TextArea::create()
             .with_text(notes)
-            .with_placeholder("Notes")
-            .with_accessibility_name("Notes")
+            .with_placeholder(l10n::label("aztasks-notes"))
+            .with_accessibility_name(l10n::label("aztasks-notes"))
             .with_on_text_input(app.clone(), on_notes_text as TextAreaOnTextInputCallbackType)
             .with_on_focus_lost(app.clone(), on_notes_blur as TextAreaOnFocusLostCallbackType)
             .dom()
@@ -275,8 +279,8 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
 /// "STEPS 2 of 4", each step's box, title and remove button, then "Add a step".
 fn steps(app: &RefAny, t: &Task) -> Dom {
     let heading = match t.subtask_progress() {
-        Some((done, total)) => format!("STEPS \u{b7} {done} OF {total}"),
-        None => "STEPS".to_string(),
+        Some((done, total)) => t_args("aztasks-steps-of", &[("done", Arg::from(done)), ("total", Arg::from(total))]),
+        None => l10n::t("aztasks-steps"),
     };
     let mut out = Dom::create_div()
         .with_id(ids::STEPS)
@@ -288,7 +292,7 @@ fn steps(app: &RefAny, t: &Task) -> Dom {
                 .with_css(STEP_ROW)
                 .with_child(
                     CheckBox::create(step.done)
-                        .with_accessibility_name(format!("Done: {}", step.title))
+                        .with_accessibility_name(t_args("aztasks-step-done", &[("step", Arg::from(step.title.as_str()))]))
                         .with_on_toggle(detail_ref(app, &t.id, n), on_step_done as CheckBoxOnToggleCallbackType)
                         .dom()
                         .with_id(ids::step(n)),
@@ -302,14 +306,14 @@ fn steps(app: &RefAny, t: &Task) -> Dom {
                         .with_icon("close")
                         .with_on_click(detail_ref(app, &t.id, n), on_step_remove as ButtonOnClickCallbackType)
                         .dom()
-                        .with_accessibility_name(format!("Remove the step {}", step.title)),
+                        .with_accessibility_name(t_args("aztasks-step-remove", &[("step", Arg::from(step.title.as_str()))])),
                 ),
         );
     }
     out.with_child(
         TextInput::create()
-            .with_placeholder("Add a step")
-            .with_accessibility_name("Add a step")
+            .with_placeholder(l10n::label("aztasks-add-step"))
+            .with_accessibility_name(l10n::label("aztasks-add-step"))
             .with_on_text_input(app.clone(), on_step_text as TextInputOnTextInputCallbackType)
             .with_on_virtual_key_down(app.clone(), on_step_key as TextInputOnVirtualKeyDownCallbackType)
             .dom()
@@ -320,12 +324,12 @@ fn steps(app: &RefAny, t: &Task) -> Dom {
 /// The due date: quick days when there is none; the date, the time (or "Add time") and
 /// "Clear" when there is one.
 fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
-    let mut row = Dom::create_div().with_css(FIELD).with_child(label("Due"));
+    let mut row = Dom::create_div().with_css(FIELD).with_child(label("aztasks-due"));
     match t.due {
         None => {
-            for (n, name) in ["Today", "Tomorrow", "Next week"].iter().enumerate() {
+            for (n, name) in ["kit-date-today", "kit-date-tomorrow", "aztasks-next-week"].iter().enumerate() {
                 row.add_child(
-                    Button::create(*name)
+                    Button::create(l10n::label(name))
                         .with_on_click(detail_ref(app, &t.id, n), on_due_quick as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::due_quick(n)),
@@ -338,7 +342,7 @@ fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                     .with_today(u32::try_from(today.year()).unwrap_or(1970), today.month(), today.day())
                     // The week start setting (Settings > General).
                     .with_week_start(repeat_form::picker_week_start(s.settings.week_start))
-                    .with_accessibility_name("Due date")
+                    .with_accessibility_name(l10n::label("aztasks-due-date"))
                     .with_on_change(detail_ref(app, &t.id, 0), on_due_date as DatePickerOnChangeCallbackType)
                     .dom()
                     .with_id(ids::DETAIL_DUE),
@@ -347,13 +351,13 @@ fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                 Some(time) => row.add_child(
                     TimePicker::create(time.hour(), time.minute())
                         .with_24h(true)
-                        .with_accessibility_name("Due time")
+                        .with_accessibility_name(l10n::label("aztasks-due-time"))
                         .with_on_change(detail_ref(app, &t.id, 0), on_due_time as TimePickerOnChangeCallbackType)
                         .dom()
                         .with_id(ids::DETAIL_TIME),
                 ),
                 None => row.add_child(
-                    Button::create("Add time")
+                    Button::create(l10n::label("aztasks-add-time"))
                         .with_icon("schedule")
                         .with_on_click(detail_ref(app, &t.id, 0), on_add_time as ButtonOnClickCallbackType)
                         .dom()
@@ -362,13 +366,13 @@ fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
             }
             if t.due_time.is_some() {
                 row.add_child(
-                    Button::create("No time")
+                    Button::create(l10n::label("aztasks-no-time"))
                         .with_on_click(detail_ref(app, &t.id, 1), on_add_time as ButtonOnClickCallbackType)
                         .dom(),
                 );
             }
             row.add_child(
-                Button::create("Clear")
+                Button::create(l10n::label("aztasks-clear"))
                     .with_on_click(detail_ref(app, &t.id, 3), on_due_quick as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::DUE_CLEAR),
@@ -386,10 +390,10 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
     let preset = repeat_preset(t.repeat.as_ref());
     let mut out = Dom::create_div().with_css("display: flex; flex-direction: column; gap: 6px;");
     out.add_child(field(
-        "Repeat",
+        "aztasks-repeat",
         DropDown::create(strings(&REPEATS))
             .with_selected(preset)
-            .with_accessibility_name("Repeat")
+            .with_accessibility_name(l10n::label("aztasks-repeat"))
             .with_on_choice_change(detail_ref(app, &t.id, 0), on_repeat as DropDownOnChoiceChangeCallbackType)
             .dom()
             .with_id(ids::DETAIL_REPEAT),
@@ -406,7 +410,7 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                 .with_completion_option(true)
                 .with_end_option(false)
                 .with_month_weekday_option(false)
-                .with_accessibility_name("Custom repeat")
+                .with_accessibility_name(l10n::label("aztasks-custom-repeat"))
                 .with_on_change(
                     detail_ref(app, &t.id, 0),
                     on_repeat_rule as DateRepeatPickerOnChangeCallbackType,
@@ -414,7 +418,7 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
                 .dom()
                 .with_id(ids::REPEAT_EDITOR),
         );
-        out.add_child(Dom::create_span_with_text(rule.label()).with_css(META));
+        out.add_child(Dom::create_span_with_text(t_said(&rule.description())).with_css(META));
     }
     out
 }
@@ -422,10 +426,10 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
 /// The reminder: a preset, a date and time for "On a date...", and when it goes off.
 fn reminder(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
     let preset = reminders::preset_of(t.reminder);
-    let mut row = Dom::create_div().with_css(FIELD).with_child(label("Remind me")).with_child(
-        DropDown::create(owned(Preset::ALL.iter().map(|p| p.label().to_string()).collect()))
+    let mut row = Dom::create_div().with_css(FIELD).with_child(label("aztasks-remind-me")).with_child(
+        DropDown::create(strings(&Preset::ALL.map(Preset::label)))
             .with_selected(preset.index())
-            .with_accessibility_name("Reminder")
+            .with_accessibility_name(l10n::label("aztasks-reminder"))
             .with_on_choice_change(detail_ref(app, &t.id, 0), on_reminder as DropDownOnChoiceChangeCallbackType)
             .dom()
             .with_id(ids::DETAIL_REMINDER),
@@ -435,22 +439,24 @@ fn reminder(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
             DatePicker::create(u32::try_from(at.year()).unwrap_or(1970), at.month(), at.day())
                 .with_today(u32::try_from(today.year()).unwrap_or(1970), today.month(), today.day())
                 .with_week_start(repeat_form::picker_week_start(s.settings.week_start))
-                .with_accessibility_name("Reminder date")
+                .with_accessibility_name(l10n::label("aztasks-reminder-date"))
                 .with_on_change(detail_ref(app, &t.id, 0), on_reminder_date as DatePickerOnChangeCallbackType)
                 .dom(),
         );
         row.add_child(
             TimePicker::create(at.hour(), at.minute())
                 .with_24h(true)
-                .with_accessibility_name("Reminder time")
+                .with_accessibility_name(l10n::label("aztasks-settings-reminder-time"))
                 .with_on_change(detail_ref(app, &t.id, 0), on_reminder_time as TimePickerOnChangeCallbackType)
                 .dom(),
         );
     }
     if let Some(when) = reminders::describe(t, s.settings.reminder_time, today) {
-        row.add_child(Dom::create_span_with_text(format!("Reminds {when}")).with_css(META));
+        row.add_child(
+            Dom::create_span_with_text(t_args("aztasks-reminds", &[("when", Arg::from(when))])).with_css(META),
+        );
     } else if matches!(t.reminder, Some(Reminder::Before(_))) {
-        row.add_child(Dom::create_span_with_text("Set a due date for this reminder").with_css(META));
+        row.add_child(Dom::create_span_with_text(l10n::label("aztasks-set-due-date-reminder")).with_css(META));
     }
     row
 }
@@ -471,10 +477,10 @@ fn list_field(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
         .collect();
     let selected = order.iter().position(|&i| s.lists[i].id == t.list).unwrap_or(0);
     field(
-        "List",
+        "aztasks-layout-list",
         DropDown::create(owned(names))
             .with_selected(selected)
-            .with_accessibility_name("List")
+            .with_accessibility_name(l10n::label("aztasks-layout-list"))
             .with_on_choice_change(detail_ref(app, &t.id, 0), on_list_change as DropDownOnChoiceChangeCallbackType)
             .dom()
             .with_id(ids::DETAIL_LIST),
@@ -498,11 +504,11 @@ fn tags(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
     Dom::create_div()
         .with_id(ids::DETAIL_TAGS)
         .with_css(FIELD)
-        .with_child(label("Tags"))
+        .with_child(label("aztasks-tags"))
         .with_child(
-            TokenInput::create(tokens(), "Tags")
+            TokenInput::create(tokens(), l10n::label("aztasks-tags"))
                 .with_state(state)
-                .with_placeholder("Add a tag")
+                .with_placeholder(l10n::label("aztasks-add-tag"))
                 .with_suggestions(StringVec::from_vec(suggestions))
                 .with_max_suggestions(TAG_SUGGESTIONS)
                 .with_on_event(detail_ref(app, &t.id, 0), on_tags_event as TokenInputOnEventCallbackType)
@@ -520,7 +526,7 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
     let mut out = Dom::create_div()
         .with_id(ids::ATTACHMENTS)
         .with_css("display: flex; flex-direction: column; gap: 4px;")
-        .with_child(Dom::create_span_with_text("FILES").with_css(GROUP_TITLE));
+        .with_child(Dom::create_span_with_text(l10n::label("aztasks-files")).with_css(GROUP_TITLE));
     for (n, a) in t.attachments.iter().enumerate() {
         out.add_child(
             Dom::create_div()
@@ -529,7 +535,7 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
                 .with_child(Dom::create_span_with_text(a.name.as_str()).with_css(STEP))
                 .with_child(Dom::create_span_with_text(azul::file::DiskSpace::format_bytes(a.size)).with_css(META))
                 .with_child(
-                    Button::create("Open")
+                    Button::create(l10n::label("aztasks-open"))
                         .with_on_click(detail_ref(app, &t.id, n), on_attachment_open as ButtonOnClickCallbackType)
                         .dom(),
                 )
@@ -538,7 +544,7 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
                         .with_icon("close")
                         .with_on_click(detail_ref(app, &t.id, n), on_attachment_remove as ButtonOnClickCallbackType)
                         .dom()
-                        .with_accessibility_name(format!("Remove {}", a.name)),
+                        .with_accessibility_name(t_args("aztasks-remove-file", &[("name", Arg::from(a.name.as_str()))])),
                 ),
         );
     }
@@ -546,13 +552,13 @@ fn attachments(app: &RefAny, t: &Task) -> Dom {
         Dom::create_div()
             .with_css(FIELD)
             .with_child(
-                Button::create("Attach a file...")
+                Button::create(l10n::label("aztasks-attach-file"))
                     .with_icon("attach_file")
                     .with_on_click(detail_ref(app, &t.id, 0), on_attach as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::ATTACH),
             )
-            .with_child(Dom::create_span_with_text("or drop files on the window").with_css(META)),
+            .with_child(Dom::create_span_with_text(l10n::label("aztasks-drop-files-window")).with_css(META)),
     )
 }
 
@@ -561,15 +567,16 @@ fn footer(app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
     let stamp = |at: NaiveDateTime| {
         format!("{} {}", model::day_label(at.date(), today), model::format_time(at.time()))
     };
-    let mut text = format!("Created {}", stamp(t.created));
+    let mut text = t_args("aztasks-created-on", &[("when", Arg::from(stamp(t.created)))]);
     if let Some(done) = t.completed {
-        text.push_str(&format!(" \u{b7} Completed {}", stamp(done)));
+        text.push_str(" \u{b7} ");
+        text.push_str(&t_args("aztasks-completed-on", &[("day", Arg::from(stamp(done)))]));
     }
     Dom::create_div()
         .with_css(FIELD)
         .with_child(Dom::create_span_with_text(text).with_css("font-size: 11px; color: system:secondary-text; flex-grow: 1;"))
         .with_child(
-            Button::with_type("Delete", ButtonType::Danger)
+            Button::with_type(l10n::label("aztasks-cmd-delete"), ButtonType::Danger)
                 .with_icon("delete")
                 .with_on_click(detail_ref(app, &t.id, 0), on_delete as ButtonOnClickCallbackType)
                 .dom()
@@ -958,7 +965,7 @@ fn attach(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, task: &str, path
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let Some(key) = model::attachment_key(&s.tasks[i].list, task, &name) else {
-        s.files.last_error = format!("\"{name}\" cannot be a file name in the data folder.");
+        s.files.last_error = t_args("aztasks-attach-bad-name", &[("name", Arg::from(name.as_str()))]);
         return;
     };
     let name = azul_storage::key::last_segment(&key).to_string();
@@ -977,7 +984,7 @@ fn attach(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, task: &str, path
 
 extern "C" fn on_attach(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::open_file(
-        "Attach a file",
+        l10n::label("aztasks-attach-dialog"),
         OptionString::None,
         OptionFileTypeList::None,
         data,
@@ -1010,7 +1017,7 @@ extern "C" fn on_file_dropped(mut data: RefAny, mut info: CallbackInfo) -> Updat
         .collect();
     crate::with_tasks(&mut data, &mut info, |info, app, s| {
         let Some(i) = s.selected_one() else {
-            s.notice = "Select a task to attach the dropped files to.".to_string();
+            s.notice = l10n::t("aztasks-attach-select-first");
             return;
         };
         let id = s.tasks[i].id.clone();

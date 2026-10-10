@@ -75,16 +75,17 @@ impl Preset {
         Preset::OnDate,
     ];
 
+    /// The choice's name: a key of the resources.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Preset::None => "None",
-            Preset::AtDue => "At the due time",
-            Preset::Before5 => "5 minutes before",
-            Preset::Before15 => "15 minutes before",
-            Preset::Before60 => "1 hour before",
-            Preset::DayBefore => "1 day before",
-            Preset::OnDate => "On a date...",
+            Preset::None => "aztasks-reminder-none",
+            Preset::AtDue => "aztasks-reminder-at-due",
+            Preset::Before5 => "aztasks-reminder-5-minutes",
+            Preset::Before15 => "aztasks-reminder-15-minutes",
+            Preset::Before60 => "aztasks-reminder-1-hour",
+            Preset::DayBefore => "aztasks-reminder-1-day",
+            Preset::OnDate => "aztasks-reminder-on-date",
         }
     }
 
@@ -160,9 +161,20 @@ pub fn describe(t: &Task, reminder_time: NaiveTime, today: chrono::NaiveDate) ->
 pub fn banner_text(titles: &[&str]) -> String {
     match titles {
         [] => String::new(),
-        [one] => format!("Reminder: {one}"),
-        [a, b] => format!("2 reminders: {a}, {b}"),
-        [a, b, rest @ ..] => format!("{} reminders: {a}, {b} and {} more", titles.len(), rest.len()),
+        [one] => azul_appkit::l10n::t_args("aztasks-banner-one", &[("title", azul_appkit::l10n::Arg::from(*one))]),
+        [a, b] => azul_appkit::l10n::t_args(
+            "aztasks-banner-two",
+            &[("a", azul_appkit::l10n::Arg::from(*a)), ("b", azul_appkit::l10n::Arg::from(*b))],
+        ),
+        [a, b, rest @ ..] => azul_appkit::l10n::t_args(
+            "aztasks-banner-many",
+            &[
+                ("count", azul_appkit::l10n::Arg::from(titles.len())),
+                ("a", azul_appkit::l10n::Arg::from(*a)),
+                ("b", azul_appkit::l10n::Arg::from(*b)),
+                ("more", azul_appkit::l10n::Arg::from(rest.len())),
+            ],
+        ),
     }
 }
 
@@ -263,6 +275,7 @@ mod tests {
 
     #[test]
     fn the_banner_names_the_tasks() {
+        crate::l10n::in_english();
         assert_eq!(banner_text(&["Pay rent"]), "Reminder: Pay rent");
         assert_eq!(banner_text(&["Pay rent", "Call Kai"]), "2 reminders: Pay rent, Call Kai");
         assert_eq!(

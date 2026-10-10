@@ -224,7 +224,10 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
         }
         Outcome::Loaded(Err(e)) => {
             s.loaded = true;
-            s.load_error = format!("The tasks could not be read: {e}");
+            s.load_error = azul_appkit::l10n::t_args(
+                "aztasks-load-failed",
+                &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+            );
             eprintln!("[aztasks] {}", s.load_error);
         }
         Outcome::Batch(result) => {
@@ -247,7 +250,15 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
                     println!("AZTASKS_ATTACHED {task} {name}");
                 }
                 (Ok(_), None) => {}
-                (Err(e), _) => s.files.last_error = format!("\"{name}\" could not be attached: {e}"),
+                (Err(e), _) => {
+                    s.files.last_error = azul_appkit::l10n::t_args(
+                        "aztasks-attach-failed",
+                        &[
+                            ("name", azul_appkit::l10n::Arg::from(name.as_str())),
+                            ("why", azul_appkit::l10n::Arg::from(e.to_string())),
+                        ],
+                    );
+                }
             }
         }
         Outcome::Opened(result) => {
@@ -259,7 +270,10 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
         Outcome::Files(result) => {
             s.files.running = s.files.running.saturating_sub(1);
             if let Err(e) = result {
-                s.files.last_error = format!("Moving or deleting attachments failed: {e}");
+                s.files.last_error = azul_appkit::l10n::t_args(
+                    "aztasks-files-failed",
+                    &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                );
             }
         }
         Outcome::ImportRead { path, result } => {
@@ -273,16 +287,32 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
                     for p in &problems {
                         eprintln!("[aztasks] {}: {p}", path.display());
                     }
+                    let file = azul_appkit::l10n::Arg::from(path.display().to_string());
+                    let added = azul_appkit::l10n::Arg::from(added);
                     match problems.first() {
-                        None => format!("Imported {added} to-do(s) from {}.", path.display()),
-                        Some(first) => format!(
-                            "Imported {added} to-do(s) from {}; {} not read: {first}",
-                            path.display(),
-                            problems.len()
+                        None => azul_appkit::l10n::t_args(
+                            "aztasks-imported",
+                            &[("count", added), ("file", file)],
+                        ),
+                        // The reader's own words for the first problem.
+                        Some(first) => azul_appkit::l10n::t_args(
+                            "aztasks-imported-some",
+                            &[
+                                ("count", added),
+                                ("file", file),
+                                ("missed", azul_appkit::l10n::Arg::from(problems.len())),
+                                ("first", azul_appkit::l10n::Arg::from(first.to_string())),
+                            ],
                         ),
                     }
                 }
-                Err(e) => format!("Could not read {}: {e}", path.display()),
+                Err(e) => azul_appkit::l10n::t_args(
+                    "aztasks-import-unreadable",
+                    &[
+                        ("file", azul_appkit::l10n::Arg::from(path.display().to_string())),
+                        ("why", azul_appkit::l10n::Arg::from(e.to_string())),
+                    ],
+                ),
             };
         }
     }

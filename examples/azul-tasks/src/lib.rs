@@ -307,7 +307,13 @@ pub(crate) fn check_reminders(info: &mut CallbackInfo, app: &RefAny, s: &mut Tas
         if s.settings.notifications {
             let t = &s.tasks[i];
             let body = match views::due_label(t, now.date()) {
-                Some(due) => format!("{} (due {due})", t.title),
+                Some(due) => azul_appkit::l10n::t_args(
+                    "aztasks-notification-due",
+                    &[
+                        ("title", azul_appkit::l10n::Arg::from(t.title.as_str())),
+                        ("due", azul_appkit::l10n::Arg::from(due)),
+                    ],
+                ),
                 None => t.title.clone(),
             };
             let sound = if s.settings.sounds {
@@ -316,10 +322,10 @@ pub(crate) fn check_reminders(info: &mut CallbackInfo, app: &RefAny, s: &mut Tas
                 NotificationSound::Silent
             };
             info.post_notification(
-                Notification::create(format!("aztasks-{id}"), "Reminder")
+                Notification::create(format!("aztasks-{id}"), azul_appkit::l10n::t("aztasks-reminder"))
                     .with_body(body)
-                    .with_action("complete", "Complete")
-                    .with_action("snooze", "Snooze 10 min")
+                    .with_action("complete", azul_appkit::l10n::t("aztasks-cmd-complete"))
+                    .with_action("snooze", azul_appkit::l10n::t("aztasks-snooze"))
                     .with_sound(sound)
                     .with_payload(id.as_str())
                     .with_callback(app.clone(), on_notification),

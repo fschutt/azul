@@ -26,6 +26,8 @@ use azul::{
 };
 use chrono::NaiveDate;
 
+use azul_appkit::l10n::{label, t};
+
 use crate::{
     ids,
     model::TaskList,
@@ -82,7 +84,7 @@ fn badge(n: usize) -> String {
 }
 
 fn smart_tree(s: &Tasks, today: NaiveDate) -> TreeViewNode {
-    let mut root = TreeViewNode::create("All tasks")
+    let mut root = TreeViewNode::create(label("aztasks-all-tasks"))
         .with_icon(Smart::All.icon())
         .with_badge(badge(views::smart_count(Smart::All, &s.tasks, today)))
         .with_expanded(true)
@@ -105,7 +107,7 @@ fn smart_tree(s: &Tasks, today: NaiveDate) -> TreeViewNode {
 }
 
 fn lists_tree(s: &Tasks) -> TreeViewNode {
-    let mut root = TreeViewNode::create("On this computer")
+    let mut root = TreeViewNode::create(label("aztasks-on-this-computer"))
         .with_icon("computer")
         .with_expanded(true);
     let list_node = |l: &TaskList| {
@@ -135,8 +137,8 @@ fn lists_tree(s: &Tasks) -> TreeViewNode {
 
 fn tags_tree(s: &Tasks) -> TreeViewNode {
     let tags = views::tags(&s.tasks);
-    let label = if tags.is_empty() { "No tags yet" } else { "All tags" };
-    let mut root = TreeViewNode::create(label).with_icon("sell").with_expanded(true);
+    let title = if tags.is_empty() { "aztasks-no-tags" } else { "aztasks-all-tags" };
+    let mut root = TreeViewNode::create(label(title)).with_icon("sell").with_expanded(true);
     for (tag, n) in tags {
         let selected = matches!(&s.view, View::Tag(t) if t.eq_ignore_ascii_case(&tag));
         root.add_child(
@@ -152,13 +154,13 @@ fn tags_tree(s: &Tasks) -> TreeViewNode {
 fn header(s: &Tasks, app: &RefAny) -> Dom {
     let search = TextInput::create_search()
         .with_text(s.search.as_str())
-        .with_placeholder("Search tasks")
-        .with_accessibility_name("Search tasks")
+        .with_placeholder(label("aztasks-search"))
+        .with_accessibility_name(label("aztasks-search"))
         .with_on_text_input(app.clone(), on_search_text as TextInputOnTextInputCallbackType)
         .with_on_virtual_key_down(app.clone(), on_search_key as TextInputOnVirtualKeyDownCallbackType)
         .dom()
         .with_id(ids::SEARCH);
-    let new_list = Button::create("New list")
+    let new_list = Button::create(label("aztasks-cmd-new-list"))
         .with_icon("playlist_add")
         .with_on_click(app.clone(), on_new_list as ButtonOnClickCallbackType)
         .dom()
@@ -175,13 +177,16 @@ pub fn pane(s: &Tasks, app: &RefAny, today: NaiveDate) -> Dom {
     ShellNavigationPane::create()
         .with_header(header(s, app))
         .with_group(
-            ShellNavigationGroup::create("My Tasks", smart_tree(s, today))
+            ShellNavigationGroup::create(label("aztasks-my-tasks"), smart_tree(s, today))
                 .with_count(open)
                 .with_open(s.nav_open[0]),
         )
-        .with_group(ShellNavigationGroup::create("My Lists", lists_tree(s)).with_open(s.nav_open[1]))
-        .with_group(ShellNavigationGroup::create("Tags", tags_tree(s)).with_open(s.nav_open[2]))
-        .with_label("Lists")
+        .with_group(
+            ShellNavigationGroup::create(label("aztasks-my-lists"), lists_tree(s))
+                .with_open(s.nav_open[1]),
+        )
+        .with_group(ShellNavigationGroup::create(label("aztasks-tags"), tags_tree(s)).with_open(s.nav_open[2]))
+        .with_label(label("aztasks-lists"))
         .with_collapsed(s.nav_collapsed)
         .with_on_event(app.clone(), on_nav_event as ShellNavigationPaneOnEventCallbackType)
         .dom()
@@ -366,12 +371,14 @@ extern "C" fn on_search_key(mut data: RefAny, mut info: CallbackInfo, state: Tex
 
 extern "C" fn on_new_list(mut data: RefAny, mut info: CallbackInfo) -> Update {
     crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
-        let id = s.new_list("New list", "");
+        // A list's name in its file: the first one in the window's language.
+        let name = t("aztasks-cmd-new-list");
+        let id = s.new_list(&name, "");
         s.show(View::List(id.clone()));
         // Its name and colour are set in the list settings, shown at once.
         s.editing_list = Some(id.clone());
         s.drafts.list = id;
-        s.drafts.list_name = "New list".to_string();
+        s.drafts.list_name = name;
         s.drafts.list_group.clear();
     })
 }

@@ -52,8 +52,18 @@ fn the_language_is_the_switchs_for_a_run_else_the_settings_files() {
     assert_eq!(args.language, Some(LanguagePref::German));
     assert!(Args::parse(["--language", "klingon"]).is_err());
     let mut saved = AppSettings::default();
-    assert_eq!(appearance::language(&Args::default(), &saved), LanguagePref::System);
+    assert_eq!(
+        appearance::language(&Args::default(), &saved),
+        LanguagePref::System
+    );
     saved.set_language(LanguagePref::English);
-    assert_eq!(appearance::language(&Args::default(), &saved), LanguagePref::English);
-    assert_eq!(appearance::language(&args, &saved), LanguagePref::German, "the switch wins");
+    assert_eq!(
+        appearance::language(&Args::default(), &saved),
+        LanguagePref::English
+    );
+    assert_eq!(
+        appearance::language(&args, &saved),
+        LanguagePref::German,
+        "the switch wins"
+    );
 }
