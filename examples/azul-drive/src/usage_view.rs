@@ -12,13 +12,18 @@
 use std::sync::Arc;
 
 use azcloud_kit::{
-    usage::{size_text, Level, Usage},
+    usage::{self, Level, Usage},
     DriveStatus,
 };
 use azul::prelude::*;
 use azul_storage::BucketSpace;
 
 use crate::{jobs::Job, spawn, DriveState};
+
+/// A size as the kit writes it (`1.5 GB`) with the decimal mark of the window's language.
+fn size_text(bytes: u64) -> String {
+    azul_appkit::l10n::decimal(&usage::size_text(bytes))
+}
 
 /// How long a drive's totals (its files' size before compression) are good for.
 pub(crate) const TOTALS_EVERY_SECS: u64 = 1800;

@@ -355,7 +355,10 @@ pub fn sort_entries(entries: &mut [Entry], sort: Sort) {
 /// folder.
 #[must_use]
 pub fn format_size(bytes: Option<u64>) -> String {
-    bytes.map_or_else(String::new, |b| azul::file::DiskSpace::format_bytes(b).to_string())
+    // The decimal mark of the window's language (1,5 KB in German).
+    bytes.map_or_else(String::new, |b| {
+        azul_appkit::l10n::decimal(azul::file::DiskSpace::format_bytes(b).as_str())
+    })
 }
 
 /// `2009-10-12 17:50` in `zone`; empty when unknown.
