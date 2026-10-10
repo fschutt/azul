@@ -9,7 +9,8 @@ use std::{
 };
 
 use crate::{
-    search, Case, ContentHit, Event, Filters, Limits, NameHit, Pattern, Phase, Request, Summary,
+    list_files, search, search_listed, Case, ContentHit, Event, Filters, Limits, NameHit, Pattern,
+    Phase, Refine, Request, Summary,
 };
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
@@ -399,4 +400,160 @@ fn a_bad_pattern_or_filter_glob_is_an_error_before_anything_is_walked() {
         });
     assert!(search(&bad_glob, &cancel, &mut |_| events += 1).is_err());
     assert_eq!(events, 0);
+}
+
+/// Seconds since 1970 of a file's date, as the hits carry it.
+fn year(y: u64) -> u64 {
+    (y - 1970) * 365 * 24 * 3600
+}
+
+/// Sets the date a file was last modified.
+fn set_modified(dir: &TempDir, path: &str, secs: u64) {
+    let file = fs::File::options()
+        .write(true)
+        .open(dir.path().join(path))
+        .expect("the file");
+    file.set_modified(UNIX_EPOCH + Duration::from_secs(secs))
+        .expect("its date");
+}
+
+#[test]
+fn the_current_folder_alone_is_searched_when_asked() {
+    let dir = sample();
+    let here = Filters {
+        max_depth: Some(1),
+        ..Filters::default()
+    };
+    let (events, _) = run(&Request::new(dir.path())
+        .with_names(Pattern::literal("report"))
+        .with_filters(here));
+    assert_eq!(names(&events), vec!["reports/"], "the folder's own items only");
+}
+
+#[test]
+fn a_name_hit_says_its_size_and_date() {
+    let dir = sample();
+    let (events, _) = run(&Request::new(dir.path()).with_names(Pattern::literal("report-2")));
+    let hit = events
+        .iter()
+        .find_map(|e| match e {
+            Event::Name(hit) => Some(hit.clone()),
+            _ => None,
+        })
+        .expect("the file");
+    assert_eq!(hit.size, Some(30), "\"line one\\npicked twice: picked\\n\"");
+    assert!(hit.modified.is_some());
+    let (folders, _) = run(&Request::new(dir.path()).with_names(Pattern::literal("reports")));
+    let folder = folders
+        .iter()
+        .find_map(|e| match e {
+            Event::Name(hit) => Some(hit.clone()),
+            _ => None,
+        })
+        .expect("the folder");
+    assert_eq!(folder.size, None, "a folder has no size");
+}
+
+#[test]
+fn refine_keeps_the_kinds_the_sizes_and_the_dates_asked_for() {
+    let dir = TempDir::new("refine");
+    dir.write("a.md", &[b'x'; 10]);
+    dir.write("b.txt", &[b'x'; 1000]);
+    dir.write("c.MD", &[b'x'; 5000]);
+    dir.folder("md-notes");
+    set_modified(&dir, "a.md", year(2001));
+    let every = || Request::new(dir.path()).with_names(Pattern::glob("*"));
+    let refined = |refine: Refine| {
+        run(&every().with_filters(Filters {
+            refine,
+            ..Filters::default()
+        }))
+        .0
+    };
+    let kinds = refined(Refine {
+        extensions: vec![String::from("md")],
+        ..Refine::default()
+    });
+    assert_eq!(names(&kinds), vec!["a.md", "c.MD"], "a kind is files of its extensions");
+    let big = refined(Refine {
+        min_size: Some(100),
+        ..Refine::default()
+    });
+    assert_eq!(names(&big), vec!["b.txt", "c.MD"], "a size is files only");
+    let old = refined(Refine {
+        modified_until: Some(year(2010)),
+        ..Refine::default()
+    });
+    assert_eq!(names(&old), vec!["a.md"]);
+    let recent = refined(Refine {
+        modified_from: Some(year(2010)),
+        ..Refine::default()
+    });
+    assert_eq!(
+        names(&recent),
+        vec!["b.txt", "c.MD", "md-notes/"],
+        "a date is files' and folders'"
+    );
+    let small = run(&Request::new(dir.path())
+        .with_contents(Pattern::literal("x"))
+        .with_filters(Filters {
+            refine: Refine {
+                max_size: Some(100),
+                ..Refine::default()
+            },
+            ..Filters::default()
+        }))
+    .0;
+    assert_eq!(content_paths(&small), vec!["a.md"], "the contents' walk refines too");
+    assert_eq!(contents(&small)[0].size, Some(10));
+}
+
+#[test]
+fn every_file_is_listed_with_its_size_and_date() {
+    let dir = sample();
+    dir.write(".hidden.txt", b"x");
+    let cancel = AtomicBool::new(false);
+    let mut files = Vec::new();
+    let summary = list_files(dir.path(), &Filters::default(), &cancel, &mut |file| {
+        files.push(file)
+    })
+    .expect("the walk starts");
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let listed: Vec<(&str, u64)> = files.iter().map(|f| (f.path.as_str(), f.size)).collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("a.txt", 13),
+            ("docs/Report.md", 30),
+            ("docs/deep/report-2.txt", 30),
+            ("src/lib.rs", 33)
+        ],
+        "files only, the hidden one left out"
+    );
+    assert!(files.iter().all(|f| f.modified.is_some()));
+    assert!(summary.walked >= 8 && !summary.cancelled);
+    let stopped = AtomicBool::new(true);
+    let mut none = 0;
+    list_files(dir.path(), &Filters::default(), &stopped, &mut |_| none += 1)
+        .expect("the walk starts");
+    assert_eq!(none, 0);
+}
+
+#[test]
+fn the_files_an_index_names_are_searched_without_a_walk() {
+    let dir = sample();
+    let request = Request::new(dir.path()).with_contents(Pattern::literal("picked"));
+    let cancel = AtomicBool::new(false);
+    let mut events = Vec::new();
+    let named = [
+        String::from("docs/Report.md"),
+        String::from("a.txt"),
+        String::from("gone.txt"),
+    ];
+    let summary = search_listed(&request, &named, &cancel, &mut |event| events.push(event))
+        .expect("the search starts");
+    assert_eq!(content_paths(&events), vec!["docs/Report.md"]);
+    assert_eq!((summary.searched, summary.errors), (2, 1), "the gone file is an error");
+    let lines = &contents(&events)[0].lines;
+    assert_eq!((lines[0].line, lines[0].text.as_str()), (3, "The picked numbers."));
 }
