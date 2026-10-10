@@ -11,7 +11,10 @@ use crate::model::{
     VAlign, ZOrder,
 };
 use azul::widgets::{ListSelection, RichTextEditorState};
-use azul_appkit::UndoHistory;
+use azul_appkit::{
+    l10n::{t, t_args, Arg},
+    UndoHistory,
+};
 
 /// The most undo steps kept.
 pub const UNDO_DEPTH: usize = 100;
@@ -485,7 +488,7 @@ impl Editor {
                 (0..cols)
                     .map(|c| {
                         if r == 0 {
-                            format!("Column {}", c + 1)
+                            t_args("azshow-column-n", &[("n", Arg::from((c + 1).to_string()))])
                         } else {
                             String::new()
                         }
@@ -502,7 +505,7 @@ impl Editor {
         self.insert(
             ElementKind::Chart {
                 chart,
-                title: String::from("Chart title"),
+                title: t("azshow-chart-title"),
             },
             frame,
         )

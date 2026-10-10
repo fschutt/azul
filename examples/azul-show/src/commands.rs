@@ -16,6 +16,8 @@ use azul::{
     window::{WindowCreateOptions, WindowDecorations, WindowFrame},
 };
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 use crate::{
     app::{AppState, BackstagePage, Command, CommandData, Play, PlayTick, Screen, ShowRuntime, TransitionFrom},
     editor::Editor,
@@ -162,7 +164,7 @@ pub fn start_show(s: &mut AppState, info: &mut CallbackInfo, from_current: bool)
     info.modify_window_state(ws);
     if presenter {
         let mut options = WindowCreateOptions::create(crate::presenter_layout);
-        options.window_state.title = AzString::from("Presenter View - AzShow");
+        options.window_state.title = AzString::from(t("azshow-presenter-title"));
         options.window_state.size.dimensions.width = 1100.0;
         options.window_state.size.dimensions.height = 700.0;
         options.window_state.flags.decorations = WindowDecorations::NoTitle;
@@ -370,11 +372,11 @@ pub fn export_pdf(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) -> Up
     }
     let bytes = Pdf::create().from_dom_in_callback(*info, body, w, h).as_ref().to_vec();
     if bytes.is_empty() {
-        s.message = String::from("The PDF export produced no bytes");
+        s.message = t("azshow-pdf-empty");
         return Update::RefreshDom;
     }
     let name = export_name(&deck.title, "pdf");
-    s.message = format!("Exporting {name}...");
+    s.message = t_args("azshow-exporting", &[("name", Arg::from(&name))]);
     spawn(info, app, s, Job::Export { name, bytes });
     Update::RefreshDom
 }
@@ -383,7 +385,7 @@ pub fn export_pdf(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) -> Up
 /// written into `show/exports/` like the PDF.
 pub fn export_image(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) -> Update {
     let Some(node) = node_by_id(info, crate::ids::SLIDE.as_str()) else {
-        s.message = String::from("Open the normal view to export the slide as a picture");
+        s.message = t("azshow-picture-needs-normal");
         return Update::RefreshDom;
     };
     let (current, title) = s
@@ -393,10 +395,10 @@ pub fn export_image(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) -> 
     match info.take_screenshot_of_node(node).into_result() {
         Ok(png) => {
             let name = export_name(&format!("{title} - slide {}", current + 1), "png");
-            s.message = format!("Exporting {name}...");
+            s.message = t_args("azshow-exporting", &[("name", Arg::from(&name))]);
             spawn(info, app, s, Job::Export { name, bytes: png.as_ref().to_vec() });
         }
-        Err(e) => s.message = format!("The slide picture failed: {}", e.as_str()),
+        Err(e) => s.message = t_args("azshow-picture-failed", &[("why", Arg::from(e.as_str()))]),
     }
     Update::RefreshDom
 }
@@ -433,7 +435,7 @@ fn picture_filter() -> OptionFileTypeList {
             AzString::from("*.svg"),
         ]
         .into(),
-        document_descriptor: AzString::from("Pictures"),
+        document_descriptor: AzString::from(t("azshow-pictures")),
     })
 }
 
@@ -500,21 +502,21 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
         }
         C::NewDeck => {
             let theme = themes::theme(s.new_theme, s.new_variant, s.new_fonts);
-            let deck = Deck::new(&new_deck_id(), "Presentation", theme, s.new_size);
+            let deck = Deck::new(&new_deck_id(), &t("azshow-presentation"), theme, s.new_size);
             s.media.clear();
             open_deck(s, deck);
-            s.message = String::from("New presentation");
+            s.message = t("azshow-new-presentation-made");
             return Update::RefreshDom;
         }
         C::OpenSample => {
             let deck = sample_deck(&new_deck_id(), themes::theme(1, 0, 0));
             s.media.clear();
             open_deck(s, deck);
-            s.message = String::from("Opened the sample deck");
+            s.message = t("azshow-sample-opened");
             return Update::RefreshDom;
         }
         C::OpenDeck(id) => {
-            s.message = format!("Opening {id}");
+            s.message = t_args("azshow-opening", &[("id", Arg::from(id.as_str()))]);
             spawn(info, app, s, Job::Load { id: id.clone() });
             return Update::RefreshDom;
         }
@@ -565,7 +567,7 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             let Some(deck) = s.editor.as_ref().map(|e| e.deck.clone()) else {
                 return Update::DoNothing;
             };
-            s.message = String::from("Saving...");
+            s.message = t("azshow-saving");
             spawn(info, app, s, Job::Save { deck: Box::new(deck) });
             if s.screen == Screen::Backstage {
                 s.screen = Screen::Editor;
@@ -630,7 +632,7 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
         }
         C::Picture => {
             let _request = FileDialog::open_file(
-                AzString::from("Insert Picture"),
+                AzString::from(t("azshow-insert-picture")),
                 OptionString::None,
                 picture_filter(),
                 app.clone(),
@@ -681,7 +683,7 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
         C::ResetSlide => ed.reset_slide(),
         C::AddSection => {
             let n = ed.deck.slides.iter().filter(|sl| sl.section.is_some()).count() + 1;
-            ed.add_section(&format!("Section {n}"));
+            ed.add_section(&t_args("azshow-section-n", &[("n", Arg::from(n.to_string()))]));
         }
         C::ToggleHidden => ed.toggle_hidden(),
         C::DuplicateSlides => ed.duplicate_slides(),

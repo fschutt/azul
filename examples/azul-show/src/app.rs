@@ -12,6 +12,7 @@ use azul::{
     vec::MonitorVec,
     widgets::{AdornerFrame, AdornerGuide},
 };
+use azul_appkit::l10n::{t_args, Arg};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
@@ -255,7 +256,7 @@ impl PresenterMonitor {
     }
 
     /// The monitors a presenter view can open on, as `(index, label)`:
-    /// "Monitor 1 (primary)", "Monitor 2: DELL U2720Q".
+    /// "Monitor 1 (primary)", "Monitor 2: DELL U2720Q" (in the window's language).
     #[must_use]
     pub fn choices(monitors: &MonitorVec) -> Vec<(u32, String)> {
         monitors
@@ -263,7 +264,7 @@ impl PresenterMonitor {
             .iter()
             .enumerate()
             .map(|(n, m)| {
-                let mut label = format!("Monitor {}", n + 1);
+                let mut label = t_args("azshow-monitor", &[("n", Arg::from((n + 1).to_string()))]);
                 if let OptionString::Some(name) = &m.monitor_name {
                     if !name.as_str().is_empty() {
                         label.push_str(": ");
@@ -271,7 +272,7 @@ impl PresenterMonitor {
                     }
                 }
                 if m.is_primary_monitor {
-                    label.push_str(" (primary)");
+                    label = t_args("azshow-monitor-primary", &[("monitor", Arg::from(label))]);
                 }
                 (m.monitor_id.index as u32, label)
             })

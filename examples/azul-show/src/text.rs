@@ -182,7 +182,7 @@ pub fn view_state(body: &TextBody, element: u64) -> RichTextEditorState {
 #[must_use]
 pub fn editor(body: &TextBody, state: RichTextEditorState, scale: f32, editable: bool) -> RichTextEditor {
     RichTextEditor::create(state)
-        .with_accessibility_name("Text")
+        .with_accessibility_name(azul_appkit::l10n::label("azshow-text"))
         .with_font_size((body.size * scale).max(0.5))
         .with_paragraph_spacing(body.size * 0.25 * scale)
         .with_line_height(LINE_HEIGHT)

@@ -18,8 +18,12 @@ use azul_appkit::ribbon::{
     button, column, group, icon_button, large, row, small, toggle, RibbonCommand,
 };
 
+use azul_appkit::l10n::{t_args, Arg};
+
 use crate::{
     app::{command, AppState, BackstagePage, Command, PresenterMonitor, View},
+    l10n::word,
+    s,
     commands::on_command,
     editor::Editor,
     model::{
@@ -33,9 +37,6 @@ use crate::{
 /// The tabs, in order (the contextual FORMAT tab comes last when shown).
 pub const TABS: [&str; 7] = ["HOME", "INSERT", "DESIGN", "TRANSITIONS", "ANIMATIONS", "SLIDE SHOW", "VIEW"];
 
-fn s(text: &str) -> AzString {
-    AzString::from(text)
-}
 
 /// Every ribbon button runs a [`Command`] through [`on_command`] (azul-appkit's ribbon
 /// builder).
@@ -146,7 +147,7 @@ fn layout_cell(layout: LayoutKind) -> RibbonGalleryCell {
             if spec.role.is_heading() { "#8a8a8a" } else { "#d0d0d0" },
         )));
     }
-    RibbonGalleryCell::create(preview, s(layout.label()))
+    RibbonGalleryCell::create(preview, s(&word("layout", layout.label())))
 }
 
 /// A theme's little picture: its ground, "Aa" in its heading font and ink,
@@ -209,32 +210,32 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
     let accent2 = ed.map_or(Color::rgb(0xc5, 0x5a, 0x11), |e| e.deck.theme.colors.accent2);
     let ink = ed.map_or(Color::rgb(0x26, 0x26, 0x26), |e| e.deck.theme.colors.text);
 
-    RibbonTab::create(s("HOME"))
+    RibbonTab::create(s("azshow-tab-home"))
         .with_group(group(
-            "Clipboard",
+            "azshow-clipboard",
             vec![
-                large(app, "content_paste", "Paste", Command::Paste),
+                large(app, "content_paste", "azshow-paste", Command::Paste),
                 column(vec![
-                    small(app, "content_cut", "Cut", Command::Cut),
-                    small(app, "content_copy", "Copy", Command::Copy),
-                    small(app, "control_point_duplicate", "Duplicate", Command::Duplicate),
+                    small(app, "content_cut", "azshow-cut", Command::Cut),
+                    small(app, "content_copy", "azshow-copy", Command::Copy),
+                    small(app, "control_point_duplicate", "azshow-duplicate", Command::Duplicate),
                 ]),
             ],
         ))
         .with_group(group(
-            "Slides",
+            "azshow-slides",
             vec![
-                large(app, "add_box", "New Slide", Command::NewSlide(LayoutKind::TitleAndContent)),
+                large(app, "add_box", "azshow-new-slide", Command::NewSlide(LayoutKind::TitleAndContent)),
                 column(vec![
-                    small(app, "restart_alt", "Reset", Command::ResetSlide),
-                    small(app, "segment", "Section", Command::AddSection),
-                    small(app, "visibility_off", "Hide Slide", Command::ToggleHidden),
+                    small(app, "restart_alt", "azshow-reset", Command::ResetSlide),
+                    small(app, "segment", "azshow-section", Command::AddSection),
+                    small(app, "visibility_off", "azshow-hide-slide", Command::ToggleHidden),
                 ]),
             ],
         ))
         .with_group(
             group(
-                "Layout",
+                "azshow-layout",
                 vec![gallery(
                     app,
                     GalleryKind::Layout,
@@ -245,46 +246,46 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             .with_fills_space(false),
         )
         .with_group(group(
-            "Font",
+            "azshow-font",
             vec![column(vec![
                 row(vec![
-                    icon_button(app, "format_bold", "Bold", Command::Bold, has(F::Bold)),
-                    icon_button(app, "format_italic", "Italic", Command::Italic, has(F::Italic)),
-                    icon_button(app, "format_underlined", "Underline", Command::Underline, has(F::Underline)),
-                    icon_button(app, "strikethrough_s", "Strikethrough", Command::Strike, has(F::Strike)),
+                    icon_button(app, "format_bold", "azshow-bold", Command::Bold, has(F::Bold)),
+                    icon_button(app, "format_italic", "azshow-italic", Command::Italic, has(F::Italic)),
+                    icon_button(app, "format_underlined", "azshow-underline", Command::Underline, has(F::Underline)),
+                    icon_button(app, "strikethrough_s", "azshow-strikethrough", Command::Strike, has(F::Strike)),
                 ]),
                 row(vec![
-                    icon_button(app, "text_increase", "Increase font size", Command::Grow(1), false),
-                    icon_button(app, "text_decrease", "Decrease font size", Command::Grow(-1), false),
-                    icon_button(app, "format_color_text", "Font color: accent", Command::TextColor(Some(accent)), false),
-                    icon_button(app, "format_color_reset", "Font color: automatic", Command::TextColor(None), false),
+                    icon_button(app, "text_increase", "azshow-increase-font-size", Command::Grow(1), false),
+                    icon_button(app, "text_decrease", "azshow-decrease-font-size", Command::Grow(-1), false),
+                    icon_button(app, "format_color_text", "azshow-font-color-accent", Command::TextColor(Some(accent)), false),
+                    icon_button(app, "format_color_reset", "azshow-font-color-automatic", Command::TextColor(None), false),
                 ]),
             ])],
         ))
         .with_group(group(
-            "Paragraph",
+            "azshow-paragraph",
             vec![column(vec![
                 row(vec![
                     icon_button(
                         app,
                         "format_list_bulleted",
-                        "Bullets",
+                        "azshow-bullets",
                         Command::Bullets,
                         body.is_some_and(|b| !b.paragraphs.is_empty() && b.paragraphs.iter().all(|p| p.bullet)),
                     ),
-                    icon_button(app, "format_indent_decrease", "Decrease list level", Command::Indent(-1), false),
-                    icon_button(app, "format_indent_increase", "Increase list level", Command::Indent(1), false),
+                    icon_button(app, "format_indent_decrease", "azshow-decrease-list-level", Command::Indent(-1), false),
+                    icon_button(app, "format_indent_increase", "azshow-increase-list-level", Command::Indent(1), false),
                 ]),
                 row(vec![
-                    icon_button(app, "format_align_left", "Align left", Command::Align(Align::Left), align == Align::Left),
-                    icon_button(app, "format_align_center", "Center", Command::Align(Align::Center), align == Align::Center),
-                    icon_button(app, "format_align_right", "Align right", Command::Align(Align::Right), align == Align::Right),
-                    icon_button(app, "format_align_justify", "Justify", Command::Align(Align::Justify), align == Align::Justify),
+                    icon_button(app, "format_align_left", "azshow-align-left", Command::Align(Align::Left), align == Align::Left),
+                    icon_button(app, "format_align_center", "azshow-center", Command::Align(Align::Center), align == Align::Center),
+                    icon_button(app, "format_align_right", "azshow-align-right", Command::Align(Align::Right), align == Align::Right),
+                    icon_button(app, "format_align_justify", "azshow-justify", Command::Align(Align::Justify), align == Align::Justify),
                 ]),
             ])],
         ))
         .with_group(group(
-            "Drawing",
+            "azshow-drawing",
             vec![
                 column(
                     ShapeKind::ALL
@@ -292,43 +293,43 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
                         .map(|three| {
                             row(three
                                 .iter()
-                                .map(|k| icon_button(app, k.icon(), k.label(), Command::Shape(*k), false))
+                                .map(|k| icon_button(app, k.icon(), &word("shape", k.label()), Command::Shape(*k), false))
                                 .collect())
                         })
                         .collect(),
                 ),
                 column(vec![
-                    small(app, "flip_to_front", "Bring to Front", Command::Arrange(ZOrder::BringToFront)),
-                    small(app, "flip_to_back", "Send to Back", Command::Arrange(ZOrder::SendToBack)),
-                    small(app, "workspaces", "Group", Command::Group),
+                    small(app, "flip_to_front", "azshow-bring-front", Command::Arrange(ZOrder::BringToFront)),
+                    small(app, "flip_to_back", "azshow-send-back", Command::Arrange(ZOrder::SendToBack)),
+                    small(app, "workspaces", "azshow-group", Command::Group),
                 ]),
                 column(vec![
-                    small(app, "format_color_fill", "Fill", Command::Fill(Some(accent))),
-                    small(app, "palette", "Fill 2", Command::Fill(Some(accent2))),
-                    small(app, "border_color", "Outline", Command::Outline(Some(ink))),
+                    small(app, "format_color_fill", "azshow-fill", Command::Fill(Some(accent))),
+                    small(app, "palette", "azshow-fill-2", Command::Fill(Some(accent2))),
+                    small(app, "border_color", "azshow-outline", Command::Outline(Some(ink))),
                 ]),
             ],
         ))
         .with_group(group(
-            "Editing",
+            "azshow-editing",
             vec![
                 column(vec![
-                    small(app, "search", "Find", Command::Find(false)),
-                    small(app, "find_replace", "Replace", Command::Find(true)),
-                    small(app, "select_all", "Select All", Command::SelectAll),
+                    small(app, "search", "azshow-find", Command::Find(false)),
+                    small(app, "find_replace", "azshow-replace", Command::Find(true)),
+                    small(app, "select_all", "azshow-select-all", Command::SelectAll),
                 ]),
                 column(vec![
-                    small(app, "undo", "Undo", Command::Undo),
-                    small(app, "redo", "Redo", Command::Redo),
+                    small(app, "undo", "azshow-undo", Command::Undo),
+                    small(app, "redo", "azshow-redo", Command::Redo),
                 ]),
             ],
         ))
 }
 
 fn insert_tab(app: &RefAny) -> RibbonTab {
-    RibbonTab::create(s("INSERT"))
+    RibbonTab::create(s("azshow-tab-insert"))
         .with_group(group(
-            "Slides",
+            "azshow-slides",
             vec![gallery(
                 app,
                 GalleryKind::NewSlide,
@@ -336,29 +337,31 @@ fn insert_tab(app: &RefAny) -> RibbonTab {
                 usize::MAX,
             )],
         ))
-        .with_group(group("Tables", vec![large(app, "table_chart", "Table", Command::Table)]))
-        .with_group(group("Images", vec![large(app, "image", "Pictures", Command::Picture)]))
+        .with_group(group("azshow-tables", vec![large(app, "table_chart", "azshow-table", Command::Table)]))
+        .with_group(group("azshow-images", vec![large(app, "image", "azshow-pictures", Command::Picture)]))
         .with_group(group(
-            "Illustrations",
+            "azshow-illustrations",
             // Three rows of three: the boxes, the line and the arrows, the
             // diamond, the chevron and the line arrow (drawn as SVG).
             vec![column(
                 ShapeKind::ALL
                     .chunks(3)
-                    .map(|three| row(three.iter().map(|k| small(app, k.icon(), k.label(), Command::Shape(*k))).collect()))
+                    .map(|three| {
+                        row(three.iter().map(|k| small(app, k.icon(), &word("shape", k.label()), Command::Shape(*k))).collect())
+                    })
                     .collect(),
             )],
         ))
         .with_group(group(
-            "Charts",
+            "azshow-charts",
             vec![column(vec![
-                small(app, "bar_chart", "Bar", Command::Chart(ChartKind::Bar)),
-                small(app, "show_chart", "Line", Command::Chart(ChartKind::Line)),
-                small(app, "pie_chart", "Pie", Command::Chart(ChartKind::Pie)),
+                small(app, "bar_chart", "azshow-bar", Command::Chart(ChartKind::Bar)),
+                small(app, "show_chart", "azshow-line", Command::Chart(ChartKind::Line)),
+                small(app, "pie_chart", "azshow-pie", Command::Chart(ChartKind::Pie)),
             ])],
         ))
-        .with_group(group("Text", vec![large(app, "text_fields", "Text Box", Command::TextBox)]))
-        .with_group(group("Media", vec![large(app, "movie", "Video", Command::Video)]))
+        .with_group(group("azshow-text", vec![large(app, "text_fields", "azshow-text-box", Command::TextBox)]))
+        .with_group(group("azshow-media", vec![large(app, "movie", "azshow-video", Command::Video)]))
 }
 
 fn design_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
@@ -381,10 +384,10 @@ fn design_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
         |e| (e.deck.theme.colors.accent, e.deck.theme.colors.accent3, e.deck.theme.colors.title),
     );
     let current_bg = ed.and_then(|e| e.slide().background);
-    RibbonTab::create(s("DESIGN"))
+    RibbonTab::create(s("azshow-tab-design"))
         .with_group(
             group(
-                "Themes",
+                "azshow-themes",
                 vec![gallery(
                     app,
                     GalleryKind::Theme,
@@ -399,7 +402,7 @@ fn design_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             .with_fills_space(true),
         )
         .with_group(group(
-            "Variants",
+            "azshow-variants",
             vec![gallery(
                 app,
                 GalleryKind::Variant,
@@ -412,7 +415,7 @@ fn design_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             )],
         ))
         .with_group(group(
-            "Fonts",
+            "azshow-fonts",
             vec![gallery(
                 app,
                 GalleryKind::Fonts,
@@ -425,23 +428,23 @@ fn design_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             )],
         ))
         .with_group(group(
-            "Customize",
+            "azshow-customize",
             vec![
                 column(vec![
-                    toggle(app, "crop_16_9", "Widescreen (16:9)", Command::SlideSize(SlideSize::Wide), size == SlideSize::Wide),
-                    toggle(app, "crop_landscape", "Standard (4:3)", Command::SlideSize(SlideSize::Standard), size == SlideSize::Standard),
+                    toggle(app, "crop_16_9", "azshow-size-widescreen-16-9", Command::SlideSize(SlideSize::Wide), size == SlideSize::Wide),
+                    toggle(app, "crop_landscape", "azshow-size-standard-4-3", Command::SlideSize(SlideSize::Standard), size == SlideSize::Standard),
                 ]),
                 column(vec![
-                    toggle(app, "format_paint", "Theme Ground", Command::Background(None, false), current_bg.is_none()),
-                    small(app, "texture", "Soft Ground", Command::Background(Some(Background::Solid { color: soft }), false)),
+                    toggle(app, "format_paint", "azshow-theme-ground", Command::Background(None, false), current_bg.is_none()),
+                    small(app, "texture", "azshow-soft-ground", Command::Background(Some(Background::Solid { color: soft }), false)),
                     small(
                         app,
                         "gradient",
-                        "Gradient",
+                        "azshow-gradient",
                         Command::Background(Some(Background::Gradient { from: accent, to: deep }), false),
                     ),
                 ]),
-                large(app, "select_all", "Apply to All", Command::Background(current_bg, true)),
+                large(app, "select_all", "azshow-apply-all", Command::Background(current_bg, true)),
             ],
         ))
 }
@@ -450,21 +453,21 @@ fn transitions_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
     let t = ed.map(|e| e.slide().transition).unwrap_or_default();
     let selected = TransitionKind::ALL.iter().position(|k| *k == t.kind).unwrap_or(0);
     let colors = ["#9e9e9e", "#6d8cc0", "#7fa98c", "#b3837a", "#9c7fb8"];
-    RibbonTab::create(s("TRANSITIONS"))
+    RibbonTab::create(s("azshow-tab-transitions"))
         .with_group(group(
-            "Preview",
-            vec![large(app, "play_circle", "Preview", Command::PreviewTransition)],
+            "azshow-preview",
+            vec![large(app, "play_circle", "azshow-preview", Command::PreviewTransition)],
         ))
         .with_group(
             group(
-                "Transition to This Slide",
+                "azshow-transition-slide",
                 vec![gallery(
                     app,
                     GalleryKind::Transition,
                     TransitionKind::ALL
                         .iter()
                         .zip(colors)
-                        .map(|(k, c)| swatch_cell(c, k.label()))
+                        .map(|(k, c)| swatch_cell(c, &word("transition", k.label())))
                         .collect(),
                     selected,
                 )],
@@ -472,16 +475,19 @@ fn transitions_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             .with_fills_space(true),
         )
         .with_group(group(
-            "Timing",
+            "azshow-timing",
             vec![
                 RibbonItem::Custom(
-                    Dom::create_p_with_text(format!("Duration: {:.2} s", t.duration_ms as f32 / 1000.0))
+                    Dom::create_p_with_text(t_args(
+                        "azshow-duration",
+                        &[("seconds", Arg::from(format!("{:.2}", t.duration_ms as f32 / 1000.0)))],
+                    ))
                         .with_css("margin: 4px 8px; font-size: 12px;"),
                 ),
                 column(vec![
-                    small(app, "add", "Longer", Command::TransitionDuration(100)),
-                    small(app, "remove", "Shorter", Command::TransitionDuration(-100)),
-                    small(app, "select_all", "Apply To All", Command::TransitionToAll),
+                    small(app, "add", "azshow-longer", Command::TransitionDuration(100)),
+                    small(app, "remove", "azshow-shorter", Command::TransitionDuration(-100)),
+                    small(app, "select_all", "azshow-apply-to-all", Command::TransitionToAll),
                 ]),
             ],
         ))
@@ -494,33 +500,34 @@ fn animations_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
     let selected = current
         .and_then(|a| AnimationEffect::ALL.iter().position(|x| *x == a.effect))
         .map_or(0, |i| i + 1);
-    let mut cells = vec![swatch_cell("#e0e0e0", "None")];
+    let mut cells = vec![swatch_cell("#e0e0e0", "azshow-transition-none")];
     for effect in AnimationEffect::ALL {
         let color = match effect.class() {
             crate::model::AnimationClass::Entrance => "#7fa98c",
             crate::model::AnimationClass::Emphasis => "#d9b24c",
             crate::model::AnimationClass::Exit => "#c46a5a",
         };
-        cells.push(swatch_cell(color, effect.label()));
+        cells.push(swatch_cell(color, &word("effect", effect.label())));
     }
     let order = ed
         .and_then(|e| e.selection.keys.as_ref().first().and_then(|id| e.slide().build_step_of(*id)))
-        .map_or_else(|| String::from("Order: -"), |n| format!("Order: {}", n + 1));
-    RibbonTab::create(s("ANIMATIONS"))
+        .map_or_else(|| String::from("-"), |n| (n + 1).to_string());
+    let order = t_args("azshow-order", &[("n", Arg::from(order))]);
+    RibbonTab::create(s("azshow-tab-animations"))
         .with_group(group(
-            "Preview",
-            vec![large(app, "play_circle", "Preview", Command::PreviewBuild)],
+            "azshow-preview",
+            vec![large(app, "play_circle", "azshow-preview", Command::PreviewBuild)],
         ))
         .with_group(
-            group("Animation", vec![gallery(app, GalleryKind::Animation, cells, selected)]).with_fills_space(true),
+            group("azshow-animation", vec![gallery(app, GalleryKind::Animation, cells, selected)]).with_fills_space(true),
         )
         .with_group(group(
-            "Timing",
+            "azshow-timing",
             vec![
                 RibbonItem::Custom(Dom::create_p_with_text(order).with_css("margin: 4px 8px; font-size: 12px;")),
                 column(vec![
-                    small(app, "arrow_upward", "Move Earlier", Command::MoveAnimation(-1)),
-                    small(app, "arrow_downward", "Move Later", Command::MoveAnimation(1)),
+                    small(app, "arrow_upward", "azshow-move-earlier", Command::MoveAnimation(-1)),
+                    small(app, "arrow_downward", "azshow-move-later", Command::MoveAnimation(1)),
                 ]),
             ],
         ))
@@ -540,7 +547,7 @@ extern "C" fn on_monitor_pick(mut data: RefAny, mut info: CallbackInfo, index: u
 
 /// The Monitors group: "Automatic", then every connected screen.
 fn monitors_group(app: &RefAny, chosen: PresenterMonitor, monitors: &[(u32, String)]) -> RibbonGroup {
-    let mut labels = vec![String::from("Automatic")];
+    let mut labels = vec![String::from("azshow-monitor-automatic")];
     labels.extend(monitors.iter().map(|(_, label)| label.clone()));
     let selected = match chosen {
         PresenterMonitor::Automatic => 0,
@@ -551,11 +558,11 @@ fn monitors_group(app: &RefAny, chosen: PresenterMonitor, monitors: &[(u32, Stri
     };
     let names: Vec<AzString> = labels.iter().map(|l| s(l)).collect();
     group(
-        "Monitors",
+        "azshow-monitors",
         vec![RibbonItem::Drop(
             DropDown::create(names)
                 .with_selected(selected)
-                .with_accessibility_name(s("Presenter View on"))
+                .with_accessibility_name(s("azshow-presenter-view"))
                 .with_on_choice_change(app.clone(), on_monitor_pick as DropDownOnChoiceChangeCallbackType),
         )],
     )
@@ -563,17 +570,17 @@ fn monitors_group(app: &RefAny, chosen: PresenterMonitor, monitors: &[(u32, Stri
 
 fn show_tab(app: &RefAny, ed: Option<&Editor>, chosen: PresenterMonitor, monitors: &[(u32, String)]) -> RibbonTab {
     let hidden = ed.is_some_and(|e| e.slide().hidden);
-    RibbonTab::create(s("SLIDE SHOW"))
+    RibbonTab::create(s("azshow-tab-slide-show"))
         .with_group(group(
-            "Start Slide Show",
+            "azshow-start-slide-show",
             vec![
-                large(app, "slideshow", "From Beginning", Command::StartShow { from_current: false }),
-                large(app, "play_arrow", "From Current Slide", Command::StartShow { from_current: true }),
+                large(app, "slideshow", "azshow-from-beginning", Command::StartShow { from_current: false }),
+                large(app, "play_arrow", "azshow-from-current-slide", Command::StartShow { from_current: true }),
             ],
         ))
         .with_group(group(
-            "Set Up",
-            vec![toggle(app, "visibility_off", "Hide Slide", Command::ToggleHidden, hidden)],
+            "azshow-set-up",
+            vec![toggle(app, "visibility_off", "azshow-hide-slide", Command::ToggleHidden, hidden)],
         ))
         .with_group(monitors_group(app, chosen, monitors))
 }
@@ -581,27 +588,29 @@ fn show_tab(app: &RefAny, ed: Option<&Editor>, chosen: PresenterMonitor, monitor
 fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
     let views = View::ALL
         .iter()
-        .map(|v| RibbonItem::LargeButton(button(app, v.icon(), v.label(), Command::View(*v)).with_toggled(st.view == *v)))
+        .map(|v| {
+            RibbonItem::LargeButton(button(app, v.icon(), &word("view", v.label()), Command::View(*v)).with_toggled(st.view == *v))
+        })
         .collect();
-    RibbonTab::create(s("VIEW"))
-        .with_group(group("Presentation Views", views))
+    RibbonTab::create(s("azshow-tab-view"))
+        .with_group(group("azshow-presentation-views", views))
         .with_group(group(
-            "Show",
-            vec![toggle(app, "notes", "Notes", Command::ToggleNotes, st.show_notes)],
+            "azshow-show",
+            vec![toggle(app, "notes", "azshow-notes", Command::ToggleNotes, st.show_notes)],
         ))
         .with_group(group(
-            "Zoom",
+            "azshow-zoom",
             vec![column(vec![
-                small(app, "zoom_in", "Zoom In", Command::Zoom(10)),
-                small(app, "zoom_out", "Zoom Out", Command::Zoom(-10)),
-                toggle(app, "fit_screen", "Fit to Window", Command::ZoomFit, st.zoom.is_none()),
+                small(app, "zoom_in", "azshow-zoom-in", Command::Zoom(10)),
+                small(app, "zoom_out", "azshow-zoom-out", Command::Zoom(-10)),
+                toggle(app, "fit_screen", "azshow-fit-window", Command::ZoomFit, st.zoom.is_none()),
             ])],
         ))
         // The app theme and the mode are File > Options (appkit's settings
         // page: one switch, remembered across restarts).
         .with_group(group(
-            "Window",
-            vec![small(app, "settings", "Options", Command::OpenBackstage(BackstagePage::Options))],
+            "azshow-window",
+            vec![small(app, "settings", "azshow-options", Command::OpenBackstage(BackstagePage::Options))],
         ))
 }
 
@@ -616,19 +625,19 @@ fn format_tab(app: &RefAny, ed: &Editor) -> RibbonTab {
         .iter()
         .filter_map(|id| ed.slide().element(*id))
         .any(|e| matches!(e.kind, ElementKind::Shape { .. }));
-    let mut tab = RibbonTab::create(s("FORMAT")).with_group(group(
-        "Arrange",
+    let mut tab = RibbonTab::create(s("azshow-tab-format")).with_group(group(
+        "azshow-arrange",
         vec![
             column(vec![
-                small(app, "flip_to_front", "Bring to Front", Command::Arrange(ZOrder::BringToFront)),
-                small(app, "arrow_upward", "Bring Forward", Command::Arrange(ZOrder::BringForward)),
-                small(app, "arrow_downward", "Send Backward", Command::Arrange(ZOrder::SendBackward)),
-                small(app, "flip_to_back", "Send to Back", Command::Arrange(ZOrder::SendToBack)),
+                small(app, "flip_to_front", "azshow-bring-front", Command::Arrange(ZOrder::BringToFront)),
+                small(app, "arrow_upward", "azshow-bring-forward", Command::Arrange(ZOrder::BringForward)),
+                small(app, "arrow_downward", "azshow-send-backward", Command::Arrange(ZOrder::SendBackward)),
+                small(app, "flip_to_back", "azshow-send-back", Command::Arrange(ZOrder::SendToBack)),
             ]),
             column(vec![
-                small(app, "workspaces", "Group", Command::Group),
-                small(app, "workspaces_outline", "Ungroup", Command::Ungroup),
-                small(app, "delete", "Delete", Command::Delete),
+                small(app, "workspaces", "azshow-group", Command::Group),
+                small(app, "workspaces_outline", "azshow-ungroup", Command::Ungroup),
+                small(app, "delete", "azshow-delete", Command::Delete),
             ]),
         ],
     ));
@@ -646,26 +655,26 @@ fn format_tab(app: &RefAny, ed: &Editor) -> RibbonTab {
         });
     if let Some(fit) = picture_fit {
         tab = tab.with_group(group(
-            "Picture",
+            "azshow-picture",
             vec![column(vec![
-                toggle(app, "fit_screen", "Fit", Command::ImageFit(ImageFit::Contain), fit == ImageFit::Contain),
-                toggle(app, "crop", "Fill", Command::ImageFit(ImageFit::Cover), fit == ImageFit::Cover),
-                toggle(app, "aspect_ratio", "Stretch", Command::ImageFit(ImageFit::Stretch), fit == ImageFit::Stretch),
+                toggle(app, "fit_screen", "azshow-fit-contain", Command::ImageFit(ImageFit::Contain), fit == ImageFit::Contain),
+                toggle(app, "crop", "azshow-fit-cover", Command::ImageFit(ImageFit::Cover), fit == ImageFit::Cover),
+                toggle(app, "aspect_ratio", "azshow-fit-stretch", Command::ImageFit(ImageFit::Stretch), fit == ImageFit::Stretch),
             ])],
         ));
     }
     if shapes {
         tab = tab.with_group(group(
-            "Shape Styles",
+            "azshow-shape-styles",
             vec![
                 row(fills
                     .iter()
-                    .map(|col| icon_button(app, "square", "Fill with a theme colour", Command::Fill(Some(*col)), false))
+                    .map(|col| icon_button(app, "square", "azshow-fill-theme-colour", Command::Fill(Some(*col)), false))
                     .collect()),
                 column(vec![
-                    small(app, "format_color_reset", "No Fill", Command::Fill(None)),
-                    small(app, "border_color", "Outline", Command::Outline(Some(c.text))),
-                    small(app, "border_clear", "No Outline", Command::Outline(None)),
+                    small(app, "format_color_reset", "azshow-no-fill", Command::Fill(None)),
+                    small(app, "border_color", "azshow-outline", Command::Outline(Some(c.text))),
+                    small(app, "border_clear", "azshow-no-outline", Command::Outline(None)),
                 ]),
             ],
         ));
@@ -692,7 +701,7 @@ pub fn ribbon(app: &RefAny, st: &AppState, monitors: &[(u32, String)]) -> Dom {
     let active = st.ribbon_tab.min(tabs.len() - 1);
     Ribbon::create(tabs)
         .with_app_button(
-            RibbonAppButton::create(s("FILE")).with_on_click(
+            RibbonAppButton::create(s("azshow-tab-file")).with_on_click(
                 command(app, Command::OpenBackstage(BackstagePage::Info)),
                 on_command as ButtonOnClickCallbackType,
             ),

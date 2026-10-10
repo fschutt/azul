@@ -11,6 +11,8 @@ use azul::{
     widgets::{FindReplaceDialog, StandardDialogEvent, StandardDialogEventKind},
 };
 
+use azul_appkit::l10n::{t_args, Arg};
+
 use crate::{
     app::AppState,
     find::{self, FindState},
@@ -44,14 +46,14 @@ fn go(s: &mut AppState, backwards: bool) {
                     if let Some(i) = ed.slide().elements.iter().position(|e| e.id == id) {
                         ed.select_element(i, false, false);
                     }
-                    format!("Slide {}", place.slide + 1)
+                    t_args("azshow-slide-n", &[("n", Arg::from((place.slide + 1).to_string()))])
                 }
-                None => format!("Slide {}, in the notes", place.slide + 1),
+                None => t_args("azshow-slide-n-notes", &[("n", Arg::from((place.slide + 1).to_string()))]),
             };
             f.last = Some(place);
         }
         None => {
-            f.status = format!("\"{}\" was not found.", f.text);
+            f.status = t_args("azshow-not-found", &[("text", Arg::from(&f.text))]);
             f.last = None;
         }
     }
@@ -112,7 +114,7 @@ extern "C" fn on_find_event(mut data: RefAny, _info: CallbackInfo, event: Standa
                     ed.checkpoint();
                     ed.deck = copy;
                 }
-                f.status = format!("Replaced in {n} place(s).");
+                f.status = t_args("azshow-replaced", &[("count", Arg::from(n))]);
                 f.last = None;
             }
         }
