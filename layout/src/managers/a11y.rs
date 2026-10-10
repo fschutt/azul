@@ -39,9 +39,19 @@ use crate::{solver3::layout_tree::LayoutNodeHot, window::DomLayoutResult};
 ///
 /// Included: anything carrying explicit `AccessibilityInfo`, anything
 /// contenteditable, anything focusable, and every node type that is not pure
-/// metadata (`<head>`, `<meta>`, `<script>`, …) or a pseudo-element.
+/// metadata (`<head>`, `<meta>`, `<script>`, …) or a pseudo-element. A text
+/// node of white space only is layout glue between elements, not content: a
+/// screen reader would stop on it and say nothing.
+///
+/// This answers for the node alone. Whether the window renders it at all is
+/// [`rendered_nodes`], which needs the layout.
 #[must_use]
 pub fn is_exposed_to_accessibility(node_data: &NodeData) -> bool {
+    if let NodeType::Text(text) = &node_data.node_type {
+        if text.as_str().trim().is_empty() {
+            return false;
+        }
+    }
     node_data.get_accessibility_info().is_some()
         || node_data.is_contenteditable()
         || node_data.is_focusable()
@@ -72,6 +82,53 @@ pub fn is_exposed_to_accessibility(node_data: &NodeData) -> bool {
                 | NodeType::Area
                 | NodeType::VirtualView
         )
+}
+
+/// Which nodes of a laid-out DOM the window renders, by node index: a node
+/// with a box, every ancestor of one (a `display: contents` element has no
+/// box of its own, its children do) and every text node of a rendered
+/// parent. A `display: none` subtree generates no box at all - a closed popup,
+/// a hidden tab panel, a collapsed menu - so nothing of it is read, the way a
+/// browser leaves it out of its accessibility tree.
+///
+/// A DOM without a layout tree (not laid out yet) answers "rendered" for every
+/// node: there is nothing to tell yet, and an empty tree would be worse.
+///
+/// Shared by every surface that decides what a screen reader reaches (the
+/// accesskit tree, its text-edit increment, the iOS/Android snapshot), so they
+/// agree.
+#[must_use]
+pub fn rendered_nodes(layout_result: &DomLayoutResult) -> Vec<bool> {
+    let node_data = layout_result.styled_dom.node_data.as_ref();
+    let boxes = &layout_result.layout_tree.dom_to_layout;
+    if boxes.is_empty() {
+        return vec![true; node_data.len()];
+    }
+    let hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+    let parent_of = |idx: usize| {
+        hierarchy
+            .get(idx)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .map(|parent| parent.index())
+    };
+    let mut rendered = vec![false; node_data.len()];
+    for node in boxes.keys() {
+        let mut current = Some(node.index());
+        while let Some(idx) = current {
+            match rendered.get_mut(idx) {
+                Some(seen) if !*seen => *seen = true,
+                _ => break,
+            }
+            current = parent_of(idx);
+        }
+    }
+    for (idx, data) in node_data.iter().enumerate() {
+        let parent_rendered = parent_of(idx).is_some_and(|p| rendered.get(p).copied() == Some(true));
+        if matches!(data.node_type, NodeType::Text(_)) && parent_rendered {
+            rendered[idx] = true;
+        }
+    }
+    rendered
 }
 
 /// Does this declaration actually say what KIND of control the node is?
@@ -974,12 +1031,16 @@ impl A11yManager {
             exposed.clear();
             exposed.resize(node_data_slice.len(), false);
 
+            let rendered = rendered_nodes(layout_result);
+
             // First pass: every exposed node, retained or built.
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
-                // Include every node that has a meaningful role — see
-                // `is_exposed_to_accessibility`, which is the single definition
-                // shared with every other a11y surface.
-                if !is_exposed_to_accessibility(node_data) {
+                // Include every rendered node that has a meaningful role -
+                // `rendered_nodes` and `is_exposed_to_accessibility` are the
+                // definitions shared with every other a11y surface.
+                if !rendered.get(dom_idx).copied().unwrap_or(true)
+                    || !is_exposed_to_accessibility(node_data)
+                {
                     continue;
                 }
                 exposed[dom_idx] = true;

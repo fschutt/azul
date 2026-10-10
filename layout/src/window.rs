@@ -16691,10 +16691,15 @@ impl LayoutWindow {
         };
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
         let node_data = lr.styled_dom.node_data.as_container();
+        let rendered = crate::managers::a11y::rendered_nodes(lr);
         let mut out = Vec::new();
         let mut stack = child_nodes(&hierarchy, node_id);
         stack.reverse();
         while let Some(child) = stack.pop() {
+            // A subtree the window does not render is not in the tree.
+            if !rendered.get(child.index()).copied().unwrap_or(true) {
+                continue;
+            }
             let exposed = node_data
                 .get(child)
                 .is_some_and(crate::managers::a11y::is_exposed_to_accessibility);

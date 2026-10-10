@@ -159,9 +159,12 @@ impl A11ySnapshot {
             let styled_dom = &layout_result.styled_dom;
             let node_data_slice = styled_dom.node_data.as_ref();
             let node_hierarchy = styled_dom.node_hierarchy.as_ref();
+            let rendered = crate::managers::a11y::rendered_nodes(layout_result);
 
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
-                if !is_exposed_to_accessibility(node_data) {
+                if !rendered.get(dom_idx).copied().unwrap_or(true)
+                    || !is_exposed_to_accessibility(node_data)
+                {
                     continue;
                 }
                 let node_id = NodeId::new(dom_idx);
