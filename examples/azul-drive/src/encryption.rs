@@ -1774,6 +1774,19 @@ pub(crate) fn recovery_key_of(code: &RecoveryCode, drive_id: &str) -> azcloud_ki
     azcloud_kit::RecoveryKey::derive(code.as_bytes(), drive_id)
 }
 
+/// The recovery code typed where the token server takes only the drive's CURRENT code's
+/// signature (F12, "the recovery code always wins": cancelling a lockdown, a new code's
+/// registration after "I was hacked"): parsed, and checked offline against the code's public
+/// key when this computer knows it ([`crate::recovery::drill_answer`]).
+pub(crate) fn current_code(
+    known_key: Option<&str>,
+    drive_id: &str,
+    typed: &str,
+) -> Result<RecoveryCode, String> {
+    let _ = (known_key, drive_id);
+    RecoveryCode::parse(typed).ok_or_else(String::new)
+}
+
 /// The drive's token server, from its entry (else this run's).
 pub(crate) fn token_url_of(s: &DriveState, drive_id: &str) -> Option<String> {
     let fallback = s.token.url.clone();
@@ -2218,6 +2231,33 @@ mod tests {
         assert_ne!(
             recovery_key_of(&code, "d_2").public_base64(),
             recovery_key_of(&code, "d_1").public_base64()
+        );
+    }
+
+    /// F12: a lockdown is cancelled, and a new code registered, only with the drive's CURRENT
+    /// code - one that is no code, or another drive's or an old one, is refused here before
+    /// anything is signed; a code this computer has no public key of goes to the server.
+    #[test]
+    fn only_the_drives_current_recovery_code_cancels_a_lockdown_or_signs_a_new_one() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let old = RecoveryCode::from_bytes([0x11; 16]);
+        let known = recovery_key_of(&code, "d_1").public_base64();
+        let typed = code.to_text();
+        let ok = current_code(Some(&known), "d_1", &typed).expect("the drive's code");
+        assert_eq!(ok.as_bytes(), code.as_bytes());
+        let lower = typed.to_lowercase();
+        assert!(current_code(Some(&known), "d_1", &lower).is_ok(), "as people type it");
+        let refused = current_code(Some(&known), "d_1", &old.to_text()).unwrap_err();
+        assert!(refused.contains("not this drive's current recovery code"), "{refused}");
+        assert!(
+            current_code(Some(&known), "d_2", &typed).is_err(),
+            "the same code is another drive's key"
+        );
+        let refused = current_code(Some(&known), "d_1", "hello").unwrap_err();
+        assert!(refused.contains("26 letters and digits"), "{refused}");
+        assert!(
+            current_code(None, "d_1", &old.to_text()).is_ok(),
+            "no public key here: the token server checks the signature"
         );
     }
 
