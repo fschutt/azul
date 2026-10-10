@@ -24,6 +24,8 @@ mod xml;
 mod fake_bucket;
 /// Parts of 16 MiB four at once, resumable uploads, conditional uploads, racing writers.
 mod multipart;
+/// An S3 drive's requests through a router (the endpoint failover's seam).
+mod router;
 
 /// The OpenDAL drive (feature `opendal`).
 #[cfg(feature = "opendal")]
