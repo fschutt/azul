@@ -738,8 +738,9 @@ class SampleRun(Run):
             # The look every Azlin app shares (~/.azlin/config.json) stays out of the run.
             'AZLIN_CONFIG': 'off',
         }
+        # The checks read English words (the system may be German).
         command = [binary, '--sample', '--size', f'{MAIN_SIZE[0]}x{MAIN_SIZE[1]}', '--mode',
-                   'light']
+                   'light', '--language', 'en']
         if self.args.runner:
             command = [self.args.runner, '--cap-mb', '1500', '--seconds',
                        str(int(self.args.timeout) + 30), '--log',
