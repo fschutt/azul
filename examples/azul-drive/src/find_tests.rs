@@ -161,6 +161,49 @@ fn a_hit_becomes_a_row_under_the_drive_prefix() {
     assert_eq!(&line.text[line.start..line.end], "zebra");
 }
 
+/// A hit that says its size and date (the search read them with the match) makes a row that
+/// knows them: no stat job for it, and a sort by size or date has them at once.
+#[test]
+fn a_hits_size_and_date_make_a_row_that_knows_them() {
+    let file = find::found_name(
+        "",
+        NameHit {
+            path: String::from("a.txt"),
+            name: String::from("a.txt"),
+            is_dir: false,
+            range: (0, 1),
+            size: Some(5),
+            modified: Some(1_700_000_000),
+        },
+    );
+    assert_eq!((file.entry.size, file.entry.modified), (Some(5), Some(1_700_000_000)));
+    assert!(file.entry.known);
+    let folder = find::found_name(
+        "",
+        NameHit {
+            path: String::from("a/"),
+            name: String::from("a"),
+            is_dir: true,
+            range: (0, 1),
+            size: None,
+            modified: Some(1_700_000_000),
+        },
+    );
+    assert!(folder.entry.known && folder.entry.size.is_none(), "a folder has a date only");
+    let content = find::found_content(
+        "",
+        ContentHit {
+            path: String::from("b.txt"),
+            lines: Vec::new(),
+            more: false,
+            size: Some(9),
+            modified: Some(1_600_000_000),
+        },
+    );
+    assert_eq!((content.entry.size, content.entry.known), (Some(9), true));
+    assert!(content.line.is_none());
+}
+
 /// The Match column: the line without its indentation, the match marked, a long lead cut to
 /// its last characters.
 #[test]
