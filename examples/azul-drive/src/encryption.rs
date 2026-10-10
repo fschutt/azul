@@ -388,7 +388,8 @@ impl Sheet {
 
     /// The sheet of a new drive's code.
     #[must_use]
-    pub(crate) fn for_new_drive(self) -> Sheet {
+    pub(crate) fn for_new_drive(mut self) -> Sheet {
+        self.new_drive = true;
         self
     }
 
@@ -708,8 +709,49 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
 /// Whether a drive that was just made is encrypted as part of its making: every new Azlin
 /// drive (bought, a test drive, a voucher's, a claimed checkout's) - "we always encrypt".
 pub(crate) fn sets_up_encryption_at_creation(entry: &azul_storage::config::DriveEntry) -> bool {
-    let _ = entry;
-    false
+    entry.azlin().is_some()
+}
+
+/// A drive that was just made ([`sets_up_encryption_at_creation`]) gets its keys now: the
+/// drive key and this computer's member key in the keyring, the recovery wrap and this
+/// computer's wrap in the bucket - then the recovery sheet (four groups typed back, the
+/// emergency kit), which finishes the drive's making. Nothing is moved afterwards: the drive is
+/// empty. A build without a drive index cannot open encrypted drives, so it leaves the drive
+/// plain.
+pub(crate) fn encrypt_new_drive(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    let Some(index) = s.slot_index(drive_id) else {
+        return;
+    };
+    if !offered() || !sets_up_encryption_at_creation(&s.slots[index].entry) {
+        return;
+    }
+    let Some(auto) = auto_of(s, drive_id) else {
+        return;
+    };
+    println!("AZDRIVE_ENCRYPTING_NEW_DRIVE {drive_id}");
+    s.popups_opened += 1;
+    s.popup = Some(Popup::Encryption(Dialog::Busy {
+        title: String::from("Setting up the drive's encryption"),
+        text: String::from(
+            "Every file of the drive is encrypted on this computer before it leaves it. Making \
+             the drive's keys and its recovery code (a few seconds)...",
+        ),
+    }));
+    spawn(
+        info,
+        app,
+        s,
+        Job::Encryption(EncryptionJob::SetUp {
+            drive_id: drive_id.to_string(),
+            auto,
+            new_drive: true,
+        }),
+    );
 }
 
 /// The drive's `AutoEncrypted`, opening the drive first; `None` (with a message) when it cannot
@@ -938,7 +980,11 @@ extern "C" fn on_encrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
             info,
             app,
             s,
-            Job::Encryption(EncryptionJob::SetUp { drive_id, auto }),
+            Job::Encryption(EncryptionJob::SetUp {
+                drive_id,
+                auto,
+                new_drive: false,
+            }),
         );
     })
 }
@@ -972,6 +1018,17 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
         };
         if sheet.after_rotation {
             s.popup = Some(Popup::Encryption(Dialog::OfferReencrypt { drive_id }));
+            return;
+        }
+        if sheet.new_drive {
+            // A new drive is empty: nothing to move into the encryption.
+            s.popup = None;
+            let name = drive_name(s, &drive_id);
+            println!("AZDRIVE_ENCRYPTED_NEW_DRIVE {drive_id}");
+            s.success(format!(
+                "\"{name}\" is ready: encrypted on this computer, its recovery kit set up."
+            ));
+            crate::refresh(info, app, s);
             return;
         }
         start_migration(info, app, s, &drive_id);
@@ -1050,10 +1107,11 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 /// One blocking encryption task.
 pub(crate) enum EncryptionJob {
-    /// The drive's keys and the recovery code.
+    /// The drive's keys and the recovery code (`new_drive`: as part of the drive's making).
     SetUp {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
+        new_drive: bool,
     },
     /// The recovery code opens the drive's key on this computer.
     Recover {
@@ -1143,6 +1201,7 @@ pub(crate) enum EncryptionOutcome {
     /// The recovery code to show (`Err`: why there is none).
     SetUp {
         drive_id: String,
+        new_drive: bool,
         result: Result<Zeroizing<String>, String>,
     },
     Recovered {
@@ -1205,7 +1264,11 @@ pub(crate) enum EncryptionOutcome {
 pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
     let keyring = AzulKeyring::new();
     match job {
-        EncryptionJob::SetUp { drive_id, auto } => {
+        EncryptionJob::SetUp {
+            drive_id,
+            auto,
+            new_drive,
+        } => {
             let result = (|| -> Result<Zeroizing<String>, String> {
                 if index_provider().is_none() {
                     return Err(String::from(
@@ -1219,7 +1282,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 auto.reopen();
                 Ok(code.to_text())
             })();
-            EncryptionOutcome::SetUp { drive_id, result }
+            EncryptionOutcome::SetUp {
+                drive_id,
+                new_drive,
+                result,
+            }
         }
         EncryptionJob::Recover {
             drive_id,
@@ -1524,16 +1591,34 @@ pub(crate) fn on_outcome(
     outcome: EncryptionOutcome,
 ) {
     match outcome {
-        EncryptionOutcome::SetUp { drive_id, result } => match result {
+        EncryptionOutcome::SetUp {
+            drive_id,
+            new_drive,
+            result,
+        } => match result {
             Ok(code) => {
                 crate::recovery::code_made(s, &drive_id, &code);
                 crate::save_settings(info, app, s);
-                s.popup = Some(Popup::Encryption(Dialog::Sheet(Sheet::new(&drive_id, code))));
+                let sheet = Sheet::new(&drive_id, code);
+                let sheet = if new_drive {
+                    sheet.for_new_drive()
+                } else {
+                    sheet
+                };
+                s.popup = Some(Popup::Encryption(Dialog::Sheet(sheet)));
             }
             Err(why) => {
+                let text = if new_drive {
+                    format!(
+                        "{why}. The drive was made, but it is not encrypted yet: \"Encrypt this \
+                         drive...\" in its menu does it before anything goes into it."
+                    )
+                } else {
+                    why
+                };
                 s.popup = Some(Popup::Encryption(Dialog::Message {
                     title: String::from("The drive was not encrypted"),
-                    text: why,
+                    text,
                 }));
             }
         },

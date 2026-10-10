@@ -1337,6 +1337,7 @@ pub(crate) fn bought(
     let in_keyring = bought.unsaved.is_none();
     // The session is kept even when the drives file cannot take the entry: the drive token is
     // the only way back into the drive.
+    let drive_id = entry.id.clone();
     add_slot(info, app, s, entry, Some(bought.session), open, in_keyring);
     if let Err(problem) = saved {
         // Said in the window (the dialog closed with the drive).
@@ -1344,6 +1345,11 @@ pub(crate) fn bought(
             "{problem} The drive works until AzDrive closes; its session is in the keyring."
         ));
     }
+    // "We always encrypt": the new drive's keys and recovery sheet are part of its making.
+    #[cfg(feature = "encryption")]
+    crate::encryption::encrypt_new_drive(info, app, s, &drive_id);
+    #[cfg(not(feature = "encryption"))]
+    let _ = drive_id;
 }
 
 // ==== The claims: a paid drive reaches AzDrive however late ====
@@ -1414,6 +1420,10 @@ pub(crate) fn claimed(
                 from_dialog,
                 true,
             );
+            // "We always encrypt": a paid drive's keys and recovery sheet, however late it
+            // arrived (a drive claimed at a start shows the sheet then).
+            #[cfg(feature = "encryption")]
+            crate::encryption::encrypt_new_drive(info, app, s, &drive_id);
             match saved {
                 Ok(()) => true,
                 Err(problem) => {
