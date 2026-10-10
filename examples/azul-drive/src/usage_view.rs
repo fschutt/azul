@@ -48,6 +48,18 @@ pub(crate) struct DriveUsage {
 }
 
 impl DriveUsage {
+    /// The node is asked for its count at `now`.
+    pub(crate) fn asked(&mut self, now: u64) {
+        self.space_at = Some(now);
+    }
+
+    /// The node's answer (or why there is none) came.
+    pub(crate) fn answered(&mut self) {}
+
+    /// Writes changed the drive (its encryption's keys, files uploaded, deleted): its count is
+    /// due at once, the minute's wait aside.
+    pub(crate) fn written(&mut self) {}
+
     /// The space as the lines show it: the node's count, else the token server's, else the
     /// estimate; the quota the node's, else the token server's.
     #[must_use]
@@ -331,5 +343,33 @@ mod tests {
         };
         assert!(!space_due(Some(&asked), 10 + SPACE_EVERY_SECS - 1));
         assert!(space_due(Some(&asked), 10 + SPACE_EVERY_SECS));
+    }
+
+    /// RECOVERY17's find: a new drive's space was read once, as it arrived - before its
+    /// encryption wrote the keys - and said "0 bytes used" from then on. Writes ask the node
+    /// again at once (the minute's wait aside), one ask at a time: a write during an ask asks
+    /// once more after its answer.
+    #[test]
+    fn writes_ask_the_node_again_at_once_and_one_ask_runs_at_a_time() {
+        let mut seen = DriveUsage::default();
+        assert!(space_due(Some(&seen), 100));
+        seen.asked(100);
+        assert!(
+            !space_due(Some(&seen), 100 + SPACE_EVERY_SECS),
+            "one ask at a time: the answer is still out"
+        );
+        seen.answered();
+        assert!(!space_due(Some(&seen), 110), "within the minute");
+        seen.written();
+        assert!(space_due(Some(&seen), 110), "writes changed the drive: at once");
+        seen.asked(110);
+        seen.written();
+        assert!(!space_due(Some(&seen), 111), "the ask runs");
+        seen.answered();
+        assert!(space_due(Some(&seen), 111), "the write during the ask asks once more");
+        seen.asked(111);
+        seen.answered();
+        assert!(!space_due(Some(&seen), 112), "then the minute's wait again");
+        assert!(space_due(Some(&seen), 111 + SPACE_EVERY_SECS));
     }
 }
