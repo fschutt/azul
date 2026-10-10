@@ -156,6 +156,10 @@ mod problems_tests;
 /// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
 #[cfg(feature = "encryption")]
 mod encryption;
+/// An encrypted drive's recovery methods (C14): the emergency kit, the setup's check, the
+/// drills, trusted contacts, the methods list.
+#[cfg(feature = "encryption")]
+mod recovery;
 mod jobs;
 pub mod keys;
 /// The open folder's listing as it streams in, and the window of it the views build.
