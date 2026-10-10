@@ -12,12 +12,13 @@ use azul::{
     },
     css::ColorU,
     prelude::*,
-    str::String as AzString,
     widgets::{
         Button, ButtonType, CheckBox, CheckBoxState, ColorInput, ColorInputState, Modal, ModalState, Segmented,
         SegmentedState, TabHeader, TabHeaderState,
     },
 };
+
+use azul_appkit::l10n;
 
 use crate::{
     engine::{BorderPreset, HAlign, VAlign},
@@ -25,44 +26,49 @@ use crate::{
     restyle, strs, with_app, AppState,
 };
 
-/// Font colours offered: (name, `#RRGGBB`; `None` = automatic).
+/// Font colours offered: (name, `#RRGGBB`; `None` = automatic). The names are keys of
+/// AzSheets' resources, as every label of the dialog.
 const FONT_COLORS: [(&str, Option<&str>); 6] = [
-    ("Automatic", None),
-    ("Black", Some("#000000")),
-    ("Red", Some("#C00000")),
-    ("Blue", Some("#2F5597")),
-    ("Green", Some("#548235")),
-    ("Orange", Some("#C55A11")),
+    ("azsheets-color-automatic", None),
+    ("azsheets-color-black", Some("#000000")),
+    ("azsheets-color-red", Some("#C00000")),
+    ("azsheets-color-blue", Some("#2F5597")),
+    ("azsheets-color-green", Some("#548235")),
+    ("azsheets-color-orange", Some("#C55A11")),
 ];
 
 /// Fills offered: (name, `#RRGGBB`; `None` = no fill).
 const FILLS: [(&str, Option<&str>); 6] = [
-    ("No fill", None),
-    ("Yellow", Some("#FFF2CC")),
-    ("Green", Some("#E2EFDA")),
-    ("Blue", Some("#DDEBF7")),
-    ("Orange", Some("#FCE4D6")),
-    ("Grey", Some("#EDEDED")),
+    ("azsheets-no-fill", None),
+    ("azsheets-color-yellow", Some("#FFF2CC")),
+    ("azsheets-color-green", Some("#E2EFDA")),
+    ("azsheets-color-blue", Some("#DDEBF7")),
+    ("azsheets-color-orange", Some("#FCE4D6")),
+    ("azsheets-color-grey", Some("#EDEDED")),
 ];
 
 /// Border presets offered: (name, preset; `None` = leave the borders).
 const BORDERS: [(&str, Option<BorderPreset>); 6] = [
-    ("Unchanged", None),
-    ("None", Some(BorderPreset::None)),
-    ("Outline", Some(BorderPreset::Outer)),
-    ("All", Some(BorderPreset::All)),
-    ("Top", Some(BorderPreset::Top)),
-    ("Bottom", Some(BorderPreset::Bottom)),
+    ("azsheets-border-unchanged", None),
+    ("azsheets-border-none", Some(BorderPreset::None)),
+    ("azsheets-border-outline", Some(BorderPreset::Outer)),
+    ("azsheets-border-all", Some(BorderPreset::All)),
+    ("azsheets-top", Some(BorderPreset::Top)),
+    ("azsheets-bottom", Some(BorderPreset::Bottom)),
 ];
 
 const H_ALIGNS: [(&str, HAlign); 4] = [
-    ("General", HAlign::General),
-    ("Left", HAlign::Left),
-    ("Center", HAlign::Center),
-    ("Right", HAlign::Right),
+    ("azsheets-general", HAlign::General),
+    ("azsheets-align-left", HAlign::Left),
+    ("azsheets-align-center", HAlign::Center),
+    ("azsheets-align-right", HAlign::Right),
 ];
 
-const V_ALIGNS: [(&str, VAlign); 3] = [("Top", VAlign::Top), ("Center", VAlign::Center), ("Bottom", VAlign::Bottom)];
+const V_ALIGNS: [(&str, VAlign); 3] = [
+    ("azsheets-top", VAlign::Top),
+    ("azsheets-middle", VAlign::Center),
+    ("azsheets-bottom", VAlign::Bottom),
+];
 
 /// The font sizes the dialog steps between.
 const SIZE_RANGE: (i32, i32) = (6, 72);
@@ -105,12 +111,14 @@ fn control_ref(app: &RefAny, control: Control) -> RefAny {
     RefAny::new(ControlRef { app: app.clone(), control })
 }
 
+/// A caption: a key said in the window's language.
 fn label(text: &str) -> Dom {
-    Dom::create_p_with_text(text).with_css("margin: 10px 0px 4px 0px; font-size: 12px; font-weight: bold;")
+    Dom::create_p_with_text(l10n::label(text)).with_css("margin: 10px 0px 4px 0px; font-size: 12px; font-weight: bold;")
 }
 
+/// A note: a key said, plain words (a format code, a size) as they are.
 fn note(text: &str) -> Dom {
-    Dom::create_p_with_text(text).with_css("margin: 4px 0px; font-size: 12px;")
+    Dom::create_p_with_text(l10n::label(text)).with_css("margin: 4px 0px; font-size: 12px;")
 }
 
 fn segmented<'a>(app: &RefAny, control: Control, labels: impl IntoIterator<Item = &'a str>, selected: usize) -> Dom {
@@ -126,14 +134,14 @@ fn check(app: &RefAny, control: Control, text: &str, checked: bool) -> Dom {
         .with_child(
             CheckBox::create(checked)
                 .with_on_toggle(control_ref(app, control), on_check as CheckBoxOnToggleCallbackType)
-                .with_accessibility_name(AzString::from(text))
+                .with_accessibility_name(l10n::label(text))
                 .dom(),
         )
-        .with_child(Dom::create_p_with_text(text).with_css("margin: 0px 0px 0px 6px; font-size: 12px;"))
+        .with_child(Dom::create_p_with_text(l10n::label(text)).with_css("margin: 0px 0px 0px 6px; font-size: 12px;"))
 }
 
 fn button(app: &RefAny, control: Control, text: &str, primary: bool) -> Dom {
-    let mut b = Button::create(AzString::from(text));
+    let mut b = Button::create(l10n::label(text));
     if primary {
         b = b.with_button_type(ButtonType::Primary);
     }
@@ -157,9 +165,9 @@ fn color_picker(app: &RefAny, control: Control, name: &str, current: Option<&str
         .into_option()
         .unwrap_or_else(ColorU::black);
     row(vec![
-        note("More colors:  "),
+        note(&format!("{}  ", l10n::t("azsheets-more-colors"))),
         ColorInput::create(color)
-            .with_accessibility_name(name)
+            .with_accessibility_name(l10n::label(name))
             .with_on_value_change(control_ref(app, control), on_color as ColorInputOnValueChangeCallbackType)
             .dom(),
     ])
@@ -178,7 +186,7 @@ fn tab_body(d: &FormatDraft, app: &RefAny) -> Dom {
     match d.tab {
         0 => {
             let mut b = body
-                .with_child(label("Category"))
+                .with_child(label("azsheets-category"))
                 .with_child(segmented(
                     app,
                     Control::Category,
@@ -186,55 +194,55 @@ fn tab_body(d: &FormatDraft, app: &RefAny) -> Dom {
                     NumberCategory::ALL.iter().position(|c| *c == d.category).unwrap_or(0),
                 ));
             if d.category.has_decimals() {
-                b = b.with_child(label("Decimal places")).with_child(row(vec![
+                b = b.with_child(label("azsheets-decimal-places")).with_child(row(vec![
                     button(app, Control::DecimalsLess, "-", false),
                     note(&format!("  {}  ", d.decimals)),
                     button(app, Control::DecimalsMore, "+", false),
                 ]));
             }
             if d.category == NumberCategory::Number {
-                b = b.with_child(check(app, Control::Thousands, "Use 1000 separator (,)", d.thousands));
+                b = b.with_child(check(app, Control::Thousands, "azsheets-thousands", d.thousands));
             }
-            b.with_child(label("Format code")).with_child(note(&d.style.num_fmt))
+            b.with_child(label("azsheets-format-code")).with_child(note(&d.style.num_fmt))
         }
         1 => body
-            .with_child(label("Horizontal"))
+            .with_child(label("azsheets-horizontal"))
             .with_child(segmented(app, Control::HAlign, H_ALIGNS.iter().map(|x| x.0), index_of(&H_ALIGNS, d.style.h_align)))
-            .with_child(label("Vertical"))
+            .with_child(label("azsheets-vertical"))
             .with_child(segmented(app, Control::VAlign, V_ALIGNS.iter().map(|x| x.0), index_of(&V_ALIGNS, d.style.v_align)))
-            .with_child(label("Text control"))
-            .with_child(check(app, Control::Wrap, "Wrap text", d.style.wrap)),
+            .with_child(label("azsheets-text-control"))
+            .with_child(check(app, Control::Wrap, "azsheets-wrap-text", d.style.wrap)),
         2 => body
-            .with_child(label("Font style"))
-            .with_child(check(app, Control::Bold, "Bold", d.style.bold))
-            .with_child(check(app, Control::Italic, "Italic", d.style.italic))
-            .with_child(label("Effects"))
-            .with_child(check(app, Control::Underline, "Underline", d.style.underline))
-            .with_child(check(app, Control::Strike, "Strikethrough", d.style.strike))
-            .with_child(label("Size"))
+            .with_child(label("azsheets-font-style"))
+            .with_child(check(app, Control::Bold, "azsheets-bold", d.style.bold))
+            .with_child(check(app, Control::Italic, "azsheets-italic", d.style.italic))
+            .with_child(label("azsheets-effects"))
+            .with_child(check(app, Control::Underline, "azsheets-underline", d.style.underline))
+            .with_child(check(app, Control::Strike, "azsheets-strikethrough", d.style.strike))
+            .with_child(label("azsheets-size"))
             .with_child(row(vec![
                 button(app, Control::SizeDown, "-", false),
                 note(&format!("  {} pt  ", d.style.font_size)),
                 button(app, Control::SizeUp, "+", false),
             ]))
-            .with_child(label("Color"))
+            .with_child(label("azsheets-color"))
             .with_child(segmented(
                 app,
                 Control::FontColor,
                 FONT_COLORS.iter().map(|x| x.0),
                 color_index(&FONT_COLORS, d.style.font_color.as_deref()),
             ))
-            .with_child(color_picker(app, Control::FontColorPick, "Font color", d.style.font_color.as_deref(), "#000000")),
+            .with_child(color_picker(app, Control::FontColorPick, "azsheets-font-color", d.style.font_color.as_deref(), "#000000")),
         3 => body
-            .with_child(label("Presets"))
+            .with_child(label("azsheets-presets"))
             .with_child(segmented(app, Control::Border, BORDERS.iter().map(|x| x.0), index_of(&BORDERS, d.border)))
-            .with_child(label("Color"))
-            .with_child(color_picker(app, Control::BorderColorPick, "Border color", Some(d.border_color.as_str()), "#000000"))
-            .with_child(note("The preset is drawn on the whole selection when you press OK.")),
+            .with_child(label("azsheets-color"))
+            .with_child(color_picker(app, Control::BorderColorPick, "azsheets-border-color", Some(d.border_color.as_str()), "#000000"))
+            .with_child(note("azsheets-preset-on-ok")),
         _ => body
-            .with_child(label("Background color"))
+            .with_child(label("azsheets-background-color"))
             .with_child(segmented(app, Control::Fill, FILLS.iter().map(|x| x.0), color_index(&FILLS, d.style.fill.as_deref())))
-            .with_child(color_picker(app, Control::FillPick, "Background color", d.style.fill.as_deref(), "#FFFFFF")),
+            .with_child(color_picker(app, Control::FillPick, "azsheets-background-color", d.style.fill.as_deref(), "#FFFFFF")),
     }
 }
 
@@ -252,12 +260,12 @@ pub(crate) fn dialog(d: &FormatDraft, app: &RefAny) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; justify-content: flex-end; margin-top: 12px;")
-                .with_child(button(app, Control::Ok, "OK", true))
+                .with_child(button(app, Control::Ok, "kit-button-ok", true))
                 .with_child(Dom::create_div().with_css("width: 8px;"))
-                .with_child(button(app, Control::Cancel, "Cancel", false)),
+                .with_child(button(app, Control::Cancel, "kit-button-cancel", false)),
         );
     Modal::create(content)
-        .with_title(AzString::from("Format Cells"))
+        .with_title(l10n::label("azsheets-format-cells"))
         .with_open(true)
         .with_on_close(app.clone(), on_close as ModalOnCloseCallbackType)
         .dom()

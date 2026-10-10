@@ -567,9 +567,9 @@ pub fn handle(engine: &mut dyn SheetEngine, msg: &EngineMsg) -> Reply {
         run(engine, &msg.command, &mut extras)
     })) {
         Ok(result) => result,
-        Err(payload) => Err(format!(
-            "The engine failed: {}",
-            panic_text(payload.as_ref())
+        Err(payload) => Err(crate::engine::keyed_error(
+            "azsheets-engine-failed",
+            &panic_text(payload.as_ref()),
         )),
     };
     let snapshot = snapshot(engine, &msg.view);
@@ -596,7 +596,7 @@ pub fn engine_loop(mut engine: Box<dyn SheetEngine>, rx: Receiver<EngineMsg>) {
     }
 }
 
-/// Starts the engine thread ("azsheets-engine", [`ENGINE_STACK_BYTES`] of
+/// Starts the engine thread ("azsheets_engine", [`ENGINE_STACK_BYTES`] of
 /// stack) and returns where to send it messages. `make` builds the engine ON
 /// that thread. The thread ends when the last sender is dropped.
 pub fn spawn_engine<F>(make: F) -> std::io::Result<Sender<EngineMsg>>
@@ -605,7 +605,7 @@ where
 {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::Builder::new()
-        .name(String::from("azsheets-engine"))
+        .name(String::from("azsheets_engine"))
         .stack_size(ENGINE_STACK_BYTES)
         .spawn(move || engine_loop(make(), rx))?;
     Ok(tx)

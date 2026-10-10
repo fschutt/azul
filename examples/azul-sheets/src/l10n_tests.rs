@@ -38,3 +38,19 @@ fn switching_the_language_changes_a_label_of_azsheets() {
     assert_eq!(t("azsheets-tab-home"), "START");
     set_locale("en-US");
 }
+
+#[test]
+fn an_engine_error_of_azsheets_is_said_and_ironcalcs_own_words_stay() {
+    use crate::engine::{error_text, keyed_error};
+    crate::l10n::in_english();
+    let said = |e: &str| azul_appkit::l10n::t_text(&error_text(e));
+    assert_eq!(
+        said(&keyed_error("azsheets-open-failed", "bad zip")),
+        "Could not open the workbook: bad zip"
+    );
+    assert_eq!(said(&keyed_error("azsheets-no-such-sheet", "")), "There is no such sheet.");
+    assert_eq!(said("Invalid sheet name"), "Invalid sheet name", "IronCalc's words as they are");
+    set_locale("de-DE");
+    assert_eq!(said(&keyed_error("azsheets-no-such-sheet", "")), "Dieses Blatt gibt es nicht.");
+    set_locale("en-US");
+}

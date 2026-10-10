@@ -4,6 +4,7 @@
 //! `MoneyInput::format_amount`), colours. Tested on its own.
 
 use azul::widgets::{MoneyCurrency, MoneyInput, MoneyLocale};
+use azul_appkit::l10n::{t_args, Arg};
 
 use crate::{
     engine::{CellArea, FillTo, SheetInfo, LAST_COLUMN, LAST_ROW},
@@ -168,14 +169,14 @@ pub fn stats_segments(stats: &SelectionStats) -> Vec<String> {
     let mut out = Vec::new();
     if stats.numbers > 0 {
         if let Some(avg) = stats.average() {
-            out.push(format!("Average: {}", format_number(avg)));
+            out.push(t_args("azsheets-stats-average", &[("value", Arg::from(format_number(avg)))]));
         }
     }
     if stats.count > 1 || stats.numbers > 0 {
-        out.push(format!("Count: {}", stats.count));
+        out.push(t_args("azsheets-stats-count", &[("count", Arg::from(stats.count.to_string()))]));
     }
     if stats.numbers > 0 {
-        out.push(format!("Sum: {}", format_number(stats.sum)));
+        out.push(t_args("azsheets-stats-sum", &[("value", Arg::from(format_number(stats.sum)))]));
     }
     out
 }
@@ -236,14 +237,15 @@ pub fn step_sheet(sheets: &[SheetInfo], from: u32, forward: bool) -> Option<u32>
         .and_then(|i| u32::try_from(i).ok())
 }
 
-/// The title a new workbook gets: "Book1", "Book2", ... - the first one no
-/// workbook in `taken` uses.
+/// The title a new workbook gets: "Book1", "Book2", ... (in the window's language: "Mappe1")
+/// - the first one no workbook in `taken` uses.
 #[must_use]
 pub fn next_book_title(taken: &[String]) -> String {
-    (1..)
-        .map(|n| format!("Book{n}"))
+    // Bounded: without its resources every title is the key.
+    (1_u32..=100_000)
+        .map(|n| t_args("azsheets-book-title", &[("n", Arg::from(n.to_string()))]))
         .find(|t| !taken.iter().any(|x| x == t))
-        .unwrap_or_else(|| String::from("Book"))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -313,6 +315,7 @@ mod tests {
             min: Some(4.0),
             max: Some(6.0),
         };
+        crate::l10n::in_english();
         assert_eq!(stats_segments(&stats), vec!["Average: 5", "Count: 4", "Sum: 15"]);
         let text_only = SelectionStats {
             count: 1,
@@ -332,6 +335,7 @@ mod tests {
             "a\t=SUM(A1:A2)\n\"x\ty\"\t\n",
             "a ragged block is padded to a rectangle: IronCalc's paste drops a row of another length"
         );
+        crate::l10n::in_english();
         assert_eq!(next_book_title(&[String::from("Book1")]), "Book2");
     }
 

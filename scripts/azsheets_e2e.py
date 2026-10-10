@@ -107,7 +107,7 @@ class Sheets(k.App):
 
 
 def start(binary, args, logs, data_dir, extra):
-    app = Sheets(TAG, binary, ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT)] + extra,
+    app = Sheets(TAG, binary, ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"] + extra,
                  args.debug_port, logs, args.timeout)
     app.until("AzSheets to be ready", lambda: app.printed("AZSHEETS_READY") and app.op("get_node_hierarchy"))
     app.must("resize", width=WIDTH, height=HEIGHT)

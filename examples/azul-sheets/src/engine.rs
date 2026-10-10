@@ -3,13 +3,40 @@
 //! The UI never talks to IronCalc directly: it sends commands to the engine
 //! thread (`crate::worker`), which drives a [`SheetEngine`]. The real one is
 //! `crate::ironcalc_engine::IronCalcEngine`; the tests drive
-//! `crate::fake_engine::FakeEngine`. Everything here is plain Rust (no azul).
+//! `crate::fake_engine::FakeEngine`. Everything here is plain Rust (no azul); its words are
+//! keys of AzSheets' resources (`azul_appkit::l10n`), which the UI thread says: the engine
+//! thread has no language.
 //!
 //! Addresses follow IronCalc: the sheet is 0-based, rows and columns are
 //! 1-based (rows up to 1,048,576, columns up to 16,384).
 
-/// What an engine call answers when it fails: a sentence for the user.
+use azul_appkit::l10n::{is_key, Phrase, Text};
+
+/// What an engine call answers when it fails: a sentence for the user - IronCalc's own words,
+/// or one of AzSheets' as a key with its detail ([`keyed_error`]); [`error_text`] reads it.
 pub type EngineError = String;
+
+/// AzSheets' own sentence `key` as an [`EngineError`]; `why`, the detail (IronCalc's words),
+/// is its `$why` (none for a sentence without one).
+#[must_use]
+pub fn keyed_error(key: &str, why: &str) -> EngineError {
+    if why.is_empty() {
+        key.to_string()
+    } else {
+        format!("{key}\u{1f}{why}")
+    }
+}
+
+/// An [`EngineError`] as words to show: AzSheets' sentence (a key, with its detail) or
+/// IronCalc's own words as they are.
+#[must_use]
+pub fn error_text(error: &str) -> Text {
+    match error.split_once('\u{1f}') {
+        Some((key, why)) if is_key(key) => Text::from(Phrase::new(key).arg("why", why)),
+        _ if is_key(error) => Text::key(error),
+        _ => Text::plain(error),
+    }
+}
 
 /// The last row of a sheet (Excel's and IronCalc's limit).
 pub const LAST_ROW: i32 = 1_048_576;
@@ -241,18 +268,21 @@ pub enum CondRule {
 }
 
 impl CondRule {
-    /// What the rule says ("Cell value > 5").
+    /// What the rule says ("Cell value > 5"), in words the window says.
     #[must_use]
-    pub fn describe(&self) -> String {
+    pub fn describe(&self) -> Text {
         match self {
-            Self::GreaterThan(v) => format!("Cell value > {v}"),
-            Self::LessThan(v) => format!("Cell value < {v}"),
-            Self::Between(a, b) => format!("Cell value between {a} and {b}"),
-            Self::EqualTo(v) => format!("Cell value = {v}"),
-            Self::TextContains(t) => format!("Text contains \"{t}\""),
-            Self::Duplicates => String::from("Duplicate values"),
-            Self::AboveAverage => String::from("Above average"),
-            Self::BelowAverage => String::from("Below average"),
+            Self::GreaterThan(v) => Phrase::new("azsheets-rule-greater").arg("value", v.as_str()).into(),
+            Self::LessThan(v) => Phrase::new("azsheets-rule-less").arg("value", v.as_str()).into(),
+            Self::Between(a, b) => Phrase::new("azsheets-rule-between")
+                .arg("low", a.as_str())
+                .arg("high", b.as_str())
+                .into(),
+            Self::EqualTo(v) => Phrase::new("azsheets-rule-equal").arg("value", v.as_str()).into(),
+            Self::TextContains(t) => Phrase::new("azsheets-rule-contains").arg("text", t.as_str()).into(),
+            Self::Duplicates => Text::key("azsheets-cond-duplicates"),
+            Self::AboveAverage => Text::key("azsheets-cond-above-average"),
+            Self::BelowAverage => Text::key("azsheets-cond-below-average"),
         }
     }
 }
@@ -272,13 +302,13 @@ pub enum CondLook {
 impl CondLook {
     pub const ALL: [Self; 3] = [Self::LightRed, Self::Yellow, Self::Green];
 
-    /// The name the dialog shows.
+    /// The name the dialog shows (a key of AzSheets' resources).
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::LightRed => "Light red fill, dark red text",
-            Self::Yellow => "Yellow fill, dark yellow text",
-            Self::Green => "Green fill, dark green text",
+            Self::LightRed => "azsheets-look-light-red",
+            Self::Yellow => "azsheets-look-yellow",
+            Self::Green => "azsheets-look-green",
         }
     }
 
@@ -299,7 +329,8 @@ pub struct ConditionalFormat {
     /// Its place in the sheet's list (what deleting it names).
     pub index: usize,
     pub area: CellArea,
-    pub description: String,
+    /// What the rule says ([`CondRule::describe`]).
+    pub description: Text,
 }
 
 /// A sheet tab.

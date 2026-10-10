@@ -16,8 +16,8 @@ pub fn cell_colour(hex: &str) -> Option<String> {
     Some(format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b))
 }
 
-/// The dialog's tabs, in order.
-pub const TABS: [&str; 5] = ["Number", "Alignment", "Font", "Border", "Fill"];
+/// The dialog's tabs, in order (keys of AzSheets' resources).
+pub const TABS: [&str; 5] = ["azsheets-number", "azsheets-alignment", "azsheets-font", "azsheets-border", "azsheets-fill"];
 
 /// The most decimals the Number tab offers.
 pub const MAX_DECIMALS: usize = 10;
@@ -49,18 +49,18 @@ impl NumberCategory {
         Self::Custom,
     ];
 
-    /// The name the dialog shows.
+    /// The name the dialog shows (a key of AzSheets' resources).
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::General => "General",
-            Self::Number => "Number",
-            Self::Currency => "Currency",
-            Self::Percentage => "Percentage",
-            Self::Date => "Date",
-            Self::Time => "Time",
-            Self::Text => "Text",
-            Self::Custom => "Custom",
+            Self::General => "azsheets-general",
+            Self::Number => "azsheets-number",
+            Self::Currency => "azsheets-currency",
+            Self::Percentage => "azsheets-percentage",
+            Self::Date => "azsheets-date",
+            Self::Time => "azsheets-time",
+            Self::Text => "azsheets-text",
+            Self::Custom => "azsheets-custom",
         }
     }
 
