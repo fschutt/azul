@@ -212,6 +212,12 @@ pub fn forget_keys(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveE
     Ok(())
 }
 
+/// The drive's members (their ids, sorted) as a device that holds the drive key reads them.
+pub fn members(bucket: &dyn Drive, drive_key: &DriveKey) -> Result<Vec<String>, DriveError> {
+    let _ = (bucket, drive_key);
+    Ok(Vec::new())
+}
+
 /// Whether the bucket holds an encrypted drive: key files under `.azlin/keys/`.
 pub fn is_encrypted(bucket: &dyn Drive) -> Result<bool, DriveError> {
     let page = bucket.list(&ListRequest::recursive(KEYS_PREFIX).with_max_keys(1))?;

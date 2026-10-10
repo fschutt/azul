@@ -56,6 +56,9 @@ mod rotation;
 /// The key rotation through the drive index (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod rotation_meta;
+/// The key flows over the drive index's policy (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod policy_keys;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
