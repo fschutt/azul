@@ -172,6 +172,123 @@ pub fn hidden_from_assistive_technology(layout_result: &DomLayoutResult) -> Vec<
     hidden
 }
 
+/// How many nodes a scan of one `<label>`'s subtree visits. Labels hold a
+/// few words and maybe their control; the bound only stops a malformed
+/// hierarchy from spinning.
+#[cfg(feature = "a11y")]
+const LABEL_SCAN_LIMIT: usize = 4096;
+
+/// The text of the `<label>`s naming each control of a DOM, by the control's
+/// node index: HTML's label association, the control's name when it
+/// declares none. A label `for` an id names the node with that id; a label
+/// without `for` names the first control inside it (a focusable, editable
+/// or form-control node). Several labels of one control join with a space.
+///
+/// The text is the label's text nodes in document order without the
+/// control's own; the DOM's translation pass has already translated them.
+/// Shared by the accesskit tree and the iOS / Android element list.
+#[cfg(feature = "a11y")]
+#[must_use]
+pub fn label_texts(
+    node_data: &[NodeData],
+    node_hierarchy: &[NodeHierarchyItem],
+) -> BTreeMap<usize, String> {
+    // The subtree of `root` in document order, at most LABEL_SCAN_LIMIT nodes.
+    let subtree = |root: usize| -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut stack = vec![root];
+        while let Some(idx) = stack.pop() {
+            if out.len() >= LABEL_SCAN_LIMIT {
+                break;
+            }
+            out.push(idx);
+            let mut children = Vec::new();
+            let mut child = node_hierarchy
+                .get(idx)
+                .and_then(|item| item.first_child_id(NodeId::new(idx)));
+            while let Some(c) = child {
+                if children.len() >= LABEL_SCAN_LIMIT {
+                    break;
+                }
+                children.push(c.index());
+                child = node_hierarchy
+                    .get(c.index())
+                    .and_then(NodeHierarchyItem::next_sibling_id);
+            }
+            stack.extend(children.into_iter().rev());
+        }
+        out
+    };
+    let is_control = |data: &NodeData| {
+        data.is_focusable()
+            || data.is_contenteditable()
+            || matches!(
+                data.node_type,
+                NodeType::Input | NodeType::TextArea | NodeType::Select | NodeType::Button
+            )
+    };
+    let mut by_id: BTreeMap<&str, usize> = BTreeMap::new();
+    for (idx, data) in node_data.iter().enumerate() {
+        for id in data.attributes().as_ref().iter().filter_map(|a| a.as_id()) {
+            by_id.entry(id).or_insert(idx);
+        }
+    }
+
+    let mut out: BTreeMap<usize, String> = BTreeMap::new();
+    for (label_idx, data) in node_data.iter().enumerate() {
+        if !matches!(data.node_type, NodeType::Label) {
+            continue;
+        }
+        let nodes = subtree(label_idx);
+        let for_id = data.attributes().as_ref().iter().find_map(|attr| match attr {
+            azul_core::dom::AttributeType::Custom(nv) if nv.attr_name.as_str() == "for" => {
+                Some(nv.value.as_str())
+            }
+            _ => None,
+        });
+        let control = match for_id {
+            Some(id) => by_id.get(id.trim()).copied(),
+            None => nodes
+                .iter()
+                .skip(1)
+                .copied()
+                .find(|&idx| node_data.get(idx).is_some_and(is_control)),
+        };
+        let Some(control) = control.filter(|&c| c != label_idx) else {
+            continue;
+        };
+        // The control's own subtree, when it sits in the label, is not part
+        // of its name.
+        let inside: BTreeSet<usize> = if nodes.contains(&control) {
+            subtree(control).into_iter().collect()
+        } else {
+            BTreeSet::new()
+        };
+        let mut text = String::new();
+        for idx in nodes.iter().filter(|idx| !inside.contains(idx)) {
+            if let Some(NodeType::Text(t)) = node_data.get(*idx).map(|d| &d.node_type) {
+                let t = t.as_str().trim();
+                if !t.is_empty() {
+                    if !text.is_empty() {
+                        text.push(' ');
+                    }
+                    text.push_str(t);
+                }
+            }
+        }
+        if text.is_empty() {
+            continue;
+        }
+        out.entry(control)
+            .and_modify(|joined| {
+                joined.push(' ');
+                joined.push_str(&text);
+            })
+            .or_insert(text);
+    }
+    out
+}
+
 /// Does this declaration actually say what KIND of control the node is?
 ///
 /// ONE definition, deliberately — three surfaces resolve a node's role (the
@@ -577,7 +694,8 @@ impl core::fmt::Debug for A11yTranslate<'_> {
 #[derive(Debug, Default)]
 pub(crate) struct DeclaredStrings {
     /// `aria-label`, else the `AccessibilityInfo` name, else `alt` (an
-    /// image's name). Wins over the node's text.
+    /// image's name), else the text of the `<label>` naming the node
+    /// ([`label_texts`]). Wins over the node's text.
     pub name: Option<String>,
     /// The `AccessibilityInfo` description. [`Self::resolve_title`] adds
     /// the `title` when the title does not name the node.
@@ -1168,6 +1286,7 @@ impl A11yManager {
             let mut exposed = vec![false; node_data_slice.len()];
 
             let rendered = rendered_nodes(layout_result);
+            let labels = label_texts(node_data_slice, node_hierarchy);
 
             // First pass: every exposed node, retained or built.
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
@@ -1223,6 +1342,7 @@ impl A11yManager {
                 let bounds = layout_info.and_then(|(hot, pos)| {
                     Self::screen_bounds(hot, pos, inputs.hidpi_factor)
                 });
+                let label = labels.get(&dom_idx).map(String::as_str);
                 let node_inputs = Self::node_signature(
                     node_data,
                     node_data_slice,
@@ -1234,6 +1354,7 @@ impl A11yManager {
                     text_override,
                     cursor.as_ref(),
                     inputs.language,
+                    label,
                 );
 
                 order.push(a11y_node_id);
@@ -1257,6 +1378,7 @@ impl A11yManager {
                             cursor.as_ref(),
                             inputs.hidpi_factor,
                             inputs.translate,
+                            label,
                         )
                     },
                 );
@@ -1564,12 +1686,15 @@ impl A11yManager {
         text_override: Option<&String>,
         cursor: Option<&CursorA11yInfo>,
         language: &str,
+        label: Option<&str>,
     ) -> u64 {
         use core::hash::Hash;
 
         let mut h = azul_core::hash::DefaultHasher::new();
         // A declared key reads in the window's language: a switch rebuilds.
         language.hash(&mut h);
+        // A label elsewhere in the DOM names the node: its text is content.
+        label.hash(&mut h);
         node_data.node_type.hash(&mut h);
         node_data.attributes().as_ref().hash(&mut h);
         node_data.flags.hash(&mut h);
@@ -1641,9 +1766,10 @@ impl A11yManager {
         cursor: Option<&CursorA11yInfo>,
         hidpi_factor: f32,
         translate: Option<A11yTranslate<'_>>,
+        label: Option<&str>,
     ) -> Node {
         let a11y_info_ref = node_data.get_accessibility_info();
-        let mut declared = Self::declared_strings(node_data, translate);
+        let mut declared = Self::declared_strings(node_data, translate, label);
         let mut node = if let Some((layout_node, abs_pos)) = layout_info {
             Self::build_node(
                 node_data,
@@ -1807,6 +1933,7 @@ impl A11yManager {
     pub(crate) fn declared_strings(
         node_data: &NodeData,
         translate: Option<A11yTranslate<'_>>,
+        label: Option<&str>,
     ) -> DeclaredStrings {
         let text = |s: &AzString| -> String {
             match translate {
@@ -1832,7 +1959,10 @@ impl A11yManager {
                 _ => {}
             }
         }
-        out.name = aria_label.or(out.name).or(alt);
+        out.name = aria_label
+            .or(out.name)
+            .or(alt)
+            .or_else(|| label.map(str::to_string));
         out
     }
 

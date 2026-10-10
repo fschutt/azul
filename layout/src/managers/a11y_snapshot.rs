@@ -169,6 +169,7 @@ impl A11ySnapshot {
             let node_hierarchy = styled_dom.node_hierarchy.as_ref();
             let rendered = crate::managers::a11y::rendered_nodes(layout_result);
             let hidden = crate::managers::a11y::hidden_from_assistive_technology(layout_result);
+            let labels = crate::managers::a11y::label_texts(node_data_slice, node_hierarchy);
 
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
                 if !rendered.get(dom_idx).copied().unwrap_or(true)
@@ -199,10 +200,13 @@ impl A11ySnapshot {
                     || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input);
 
                 // The accesskit tree's precedence, translated the same way
-                // (`A11yManager::declared_strings`): a declared name, else the
-                // node's text, else its title.
-                let mut declared =
-                    crate::managers::a11y::A11yManager::declared_strings(node_data, translate);
+                // (`A11yManager::declared_strings`): a declared name or a
+                // label's, else the node's text, else its title.
+                let mut declared = crate::managers::a11y::A11yManager::declared_strings(
+                    node_data,
+                    translate,
+                    labels.get(&dom_idx).map(String::as_str),
+                );
                 let own_text = match &node_data.node_type {
                     NodeType::Text(text) => Some(text.as_str().to_string()),
                     _ if !editable

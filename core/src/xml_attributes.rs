@@ -378,9 +378,14 @@ static BUILTIN: &[XmlAttribute] = &[
     entry("step", FormControls, 5, form_control),
     entry("pattern", FormControls, 5, form_control),
     entry("autocomplete", FormControls, 5, form_control),
-    entry("aria-label", FormControls, 5, form_control),
-    entry("title", FormControls, 5, form_control),
-    entry("alt", FormControls, 5, form_control),
+    // An accessible name on any element (HTML global attributes; `alt` names
+    // an image), read by the accessibility tree.
+    entry("aria-label", AnyElement, 5, form_control),
+    entry("title", AnyElement, 5, form_control),
+    entry("alt", AnyElement, 5, form_control),
+    // Kept as written, as `Dom::create_label` sets it: the accessibility tree
+    // names the control with this id by the label's text.
+    entry("for", Tags(&["label"]), 5, presentational),
     entry("src", FormControls, 5, form_control),
     entry("minlength", FormControls, 5, form_control),
     entry("maxlength", FormControls, 5, form_control),
