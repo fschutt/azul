@@ -146,3 +146,178 @@ fn a_name_given_as_a_translation_key_is_announced_translated() {
         .expect("the control is in the tree");
     assert_eq!(button.label(), Some("Save"), "a language switch re-translates the name");
 }
+
+/// A button showing "Save" with the title "Saves the file", a button that
+/// shows nothing and has the title "Print", and an image with the alt text
+/// "Company logo".
+fn titled_controls() -> Dom {
+    use azul_core::dom::{AccessibilityInfo, AccessibilityRole, AttributeType};
+    Dom::create_body()
+        .with_child(
+            Dom::create_button_no_a11y(AzString::from("Save"))
+                .with_attribute(AttributeType::Title("Saves the file".into())),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_tab_index(TabIndex::Auto)
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::PushButton,
+                    ..AccessibilityInfo::default()
+                })
+                .with_attribute(AttributeType::Title("Print".into())),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::Graphic,
+                    ..AccessibilityInfo::default()
+                })
+                .with_attribute(AttributeType::Alt("Company logo".into())),
+        )
+}
+
+/// A `title` is a tooltip. It names a control only when nothing else does
+/// (no declared name, no text of its own) and otherwise describes it, and a
+/// name is never read a second time as the description. An image is named
+/// by its `alt` text.
+#[test]
+fn a_title_names_a_control_only_when_nothing_else_does() {
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let update = lay_out(&mut lw, titled_controls());
+    let read = |role: accesskit::Role| -> Vec<(Option<String>, Option<String>)> {
+        update
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.role() == role)
+            .map(|(_, n)| (n.label().map(str::to_string), n.description().map(str::to_string)))
+            .collect()
+    };
+    assert_eq!(
+        read(accesskit::Role::Button),
+        vec![
+            (Some("Save".to_string()), Some("Saves the file".to_string())),
+            (Some("Print".to_string()), None),
+        ],
+        "the text names the button and the title describes it; a title that names a control does \
+         not describe it too"
+    );
+    assert_eq!(
+        read(accesskit::Role::Image),
+        vec![(Some("Company logo".to_string()), None)],
+        "an image is named by its alt text"
+    );
+}
+
+/// The iOS and Android shells read their own element list. It names a
+/// control the way the accesskit tree does, so VoiceOver on a phone says
+/// the same as VoiceOver on a Mac.
+#[test]
+fn the_phone_element_list_names_controls_the_way_the_tree_does() {
+    use azul_core::dom::AccessibilityRole;
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let _ = lay_out(&mut lw, titled_controls());
+    let snapshot = lw.build_a11y_snapshot();
+    let read = |role: AccessibilityRole| -> Vec<(String, Option<String>)> {
+        snapshot
+            .elements
+            .iter()
+            .filter(|e| e.role == role)
+            .map(|e| (e.label.clone(), e.description.clone()))
+            .collect()
+    };
+    assert_eq!(
+        read(AccessibilityRole::PushButton),
+        vec![
+            ("Save".to_string(), Some("Saves the file".to_string())),
+            ("Print".to_string(), None),
+        ]
+    );
+    assert_eq!(read(AccessibilityRole::Graphic), vec![("Company logo".to_string(), None)]);
+}
+
+/// The phone element list reads a name given as a translation key in the
+/// app's language, as the tree does.
+#[cfg(feature = "fluent")]
+#[test]
+fn the_phone_element_list_reads_a_declared_name_translated() {
+    use azul_core::{
+        resources::AppConfig,
+        window::{AzStringPair, StringPairVec},
+    };
+
+    let mut config = AppConfig::default();
+    config.fluent_locales = StringPairVec::from_vec(vec![
+        AzStringPair::create("en".into(), "az-save = Save\n".into()),
+        AzStringPair::create("de".into(), "az-save = Speichern\n".into()),
+    ]);
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    lw.set_app_localization(&config);
+    let _ = lw.set_locale("de");
+    let _ = lay_out(
+        &mut lw,
+        Dom::create_body().with_child(
+            Dom::create_button_no_a11y(AzString::from("\u{e161}"))
+                .with_accessibility_name(AzString::tr("az-save")),
+        ),
+    );
+    let snapshot = lw.build_a11y_snapshot();
+    assert!(
+        snapshot.elements.iter().any(|e| e.label == "Speichern"),
+        "the button is read by its translated name, not the key: {:?}",
+        snapshot.elements.iter().map(|e| e.label.as_str()).collect::<Vec<_>>()
+    );
+}
+
+/// A tooltip describes its anchor: a screen reader says "Save, button,
+/// Saves the file". The tip is drawn on hover only and is never read as a
+/// stray text after the button, shown or not, on any platform.
+#[cfg(feature = "widgets")]
+#[test]
+fn a_tooltip_describes_its_anchor_and_is_not_read_on_its_own() {
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let update = lay_out(
+        &mut lw,
+        Dom::create_body().with_child(
+            azul_layout::widgets::tooltip::Tooltip::new(
+                Dom::create_button_no_a11y(AzString::from("Save")),
+                AzString::from("Saves the file"),
+            )
+            .dom(),
+        ),
+    );
+    let button = update
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == accesskit::Role::Button)
+        .map(|(_, n)| n.clone())
+        .expect("the button is in the tree");
+    assert_eq!(button.label(), Some("Save"));
+    assert_eq!(button.description(), Some("Saves the file"));
+
+    let parent_of: std::collections::BTreeMap<accesskit::NodeId, accesskit::NodeId> = update
+        .nodes
+        .iter()
+        .flat_map(|(id, n)| n.children().iter().map(move |child| (*child, *id)))
+        .collect();
+    let hidden_at = |start: accesskit::NodeId| -> bool {
+        let mut current = Some(start);
+        while let Some(id) = current {
+            if update.nodes.iter().any(|(i, n)| *i == id && n.is_hidden()) {
+                return true;
+            }
+            current = parent_of.get(&id).copied();
+        }
+        false
+    };
+    for (id, node) in &update.nodes {
+        if node.label() == Some("Saves the file") {
+            assert!(hidden_at(*id), "the tip's text is read on its own: {node:?}");
+        }
+    }
+
+    let snapshot = lw.build_a11y_snapshot();
+    assert!(
+        snapshot.elements.iter().all(|e| e.label != "Saves the file"),
+        "the phone element list reads the tip on its own"
+    );
+}
