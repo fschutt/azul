@@ -18,14 +18,15 @@
 use std::collections::{HashMap, HashSet};
 
 use azcal_core::{
-    calendars::{self, Calendar},
+    calendars::{self, Calendar, Colour},
     event::{self, Event},
     ics::{self, Imported},
 };
 use azul_storage::{ops, DriveError, ObjectInfo};
 use chrono::{Duration, NaiveDateTime};
 
-use super::{dav_error, precondition, version_of, Item, Kind, Pim, DEFAULT_SEGMENT};
+use super::{dav_error, precondition, version_of, Item, Kind, Patched, Pim, Place, APPLE, DEFAULT_SEGMENT};
+use crate::dav::DAV;
 use crate::{
     dates, digest,
     http::{Head, Response, Status},
@@ -55,17 +56,41 @@ pub fn calendar_id_of(segment: &str) -> Option<&str> {
     }
 }
 
-/// The segment of the calendar `event` is in.
-fn segment_in(calendars: &[Calendar], event: &Event) -> String {
-    calendars::calendar_of(calendars, &event.calendar)
-        .map_or(DEFAULT_SEGMENT, |calendar| segment_of(&calendar.id))
-        .to_string()
-}
-
 /// A calendar's colour as Apple's programs write it (`#RRGGBBAA`): its swatch.
 #[must_use]
 pub fn colour_of(calendar: &Calendar) -> String {
     format!("{}FF", calendar.colour.paint().light_edge.to_ascii_uppercase())
+}
+
+/// `#RRGGBB` / `#RRGGBBAA` as its red, green and blue.
+fn rgb_of(text: &str) -> Option<(i32, i32, i32)> {
+    let hex = text.trim().strip_prefix('#')?;
+    if !(hex.len() == 6 || hex.len() == 8) || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let part = |at: usize| i32::from_str_radix(&hex[at..at + 2], 16).ok();
+    Some((part(0)?, part(2)?, part(4)?))
+}
+
+/// The AzCalendar colour nearest a program's (`#RRGGBB` or Apple's `#RRGGBBAA`): the swatch
+/// closest in red, green and blue.
+#[must_use]
+pub fn nearest_colour(text: &str) -> Option<Colour> {
+    let (r, g, b) = rgb_of(text)?;
+    Colour::ALL.into_iter().min_by_key(|colour| {
+        let (cr, cg, cb) = rgb_of(colour.paint().light_edge).unwrap_or((0, 0, 0));
+        (r - cr).pow(2) + (g - cg).pow(2) + (b - cb).pow(2)
+    })
+}
+
+/// Whether a calendar takes the property a program sets: its name (`displayname`, not empty)
+/// and its colour (`calendar-color`, a colour).
+pub(crate) fn patchable(p: &Patched) -> bool {
+    match (p.namespace.as_str(), p.name.as_str(), &p.value) {
+        (DAV, "displayname", Some(value)) => !value.trim().is_empty(),
+        (APPLE, "calendar-color", Some(value)) => nearest_colour(value).is_some(),
+        _ => false,
+    }
 }
 
 /// One event as iCalendar: AzCalendar's export of it, stamped with its file's time, without the
@@ -116,6 +141,24 @@ pub fn occurrence_id(id: &str, uid: &str) -> String {
     )
 }
 
+/// Sets a calendar's name and colour from the properties a program sends (the others are not a
+/// calendar's).
+fn apply(calendar: &mut Calendar, props: &[Patched]) {
+    for p in props {
+        match (p.namespace.as_str(), p.name.as_str(), &p.value) {
+            (DAV, "displayname", Some(value)) if !value.trim().is_empty() => {
+                calendar.name = value.trim().to_string();
+            }
+            (APPLE, "calendar-color", Some(value)) => {
+                if let Some(colour) = nearest_colour(value) {
+                    calendar.colour = colour;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// An event file and the name its href has.
 #[derive(Debug, Clone)]
 pub(crate) struct EventFile {
@@ -134,6 +177,76 @@ impl Pim {
     /// Every calendar, the default one first.
     pub(crate) fn calendars(&self) -> Vec<Calendar> {
         calendars::load(&*self.calendar)
+    }
+
+    /// A calendar's URL segment: the path a program made it under (MKCALENDAR), else its id
+    /// ([`DEFAULT_SEGMENT`] for the default calendar).
+    pub(crate) fn segment_of_calendar(&self, id: &str) -> String {
+        self.names
+            .name_of(Kind::Calendar, id)
+            .unwrap_or_else(|| segment_of(id).to_string())
+    }
+
+    /// The calendar id a URL segment names: the one kept for a program's path, else the
+    /// segment's own (`default`, a calendar id).
+    pub(crate) fn calendar_id(&self, segment: &str) -> Option<String> {
+        self.names
+            .id_of(Kind::Calendar, segment)
+            .or_else(|| calendar_id_of(segment).map(str::to_string))
+    }
+
+    /// The segment of the calendar `event` is in (an event whose calendar is gone is in the
+    /// default one, as AzCalendar shows it).
+    fn segment_in(&self, calendars: &[Calendar], event: &Event) -> String {
+        calendars::calendar_of(calendars, &event.calendar)
+            .map_or_else(|| DEFAULT_SEGMENT.to_string(), |calendar| self.segment_of_calendar(&calendar.id))
+    }
+
+    /// MKCALENDAR: a new AzCalendar calendar at the segment of `place` - its name and colour
+    /// from the body (else "Calendar" and the next colour AzCalendar would give), its id the
+    /// segment when that is one, else a new one kept for the segment.
+    pub(crate) fn mkcalendar(&self, place: &Place, body: &[u8]) -> Result<Response, DriveError> {
+        let Place::Calendar(segment) = place else {
+            return Ok(Response::text(Status::FORBIDDEN, "A calendar is made under /calendars/."));
+        };
+        let calendars = self.calendars();
+        if self
+            .calendar_id(segment)
+            .is_some_and(|id| calendars.iter().any(|calendar| calendar.id == id))
+        {
+            return Ok(Response::text(Status::METHOD_NOT_ALLOWED, "A calendar is there."));
+        }
+        let Some(props) = super::mkcalendar_props(body) else {
+            return Ok(Response::text(Status::BAD_REQUEST, "Not a MKCALENDAR body."));
+        };
+        let id = if event::is_event_id(segment) {
+            segment.clone()
+        } else {
+            calendars::new_calendar_id()
+        };
+        let mut calendar = Calendar {
+            id,
+            name: String::from(calendars::DEFAULT_NAME),
+            colour: calendars::next_colour(&calendars),
+        };
+        apply(&mut calendar, &props);
+        self.calendar
+            .put(&calendars::object_key(&calendar.id), calendars::to_json(&calendar).as_bytes())?;
+        if *segment != calendar.id {
+            self.names.set(Kind::Calendar, segment, &calendar.id);
+        }
+        Ok(Response::new(Status::CREATED))
+    }
+
+    /// A calendar's name and colour as a PROPPATCH sets them (every property `patchable`).
+    pub(crate) fn patch_calendar(&self, calendar: &Calendar, props: &[Patched]) -> Result<(), DriveError> {
+        let mut changed = calendar.clone();
+        apply(&mut changed, props);
+        if changed != *calendar {
+            self.calendar
+                .put(&calendars::object_key(&changed.id), calendars::to_json(&changed).as_bytes())?;
+        }
+        Ok(())
     }
 
     /// The event of the file `info` (named for `id`), read through the cache: a file is read
@@ -196,11 +309,13 @@ impl Pim {
         let files = self.event_files()?;
         let placed: Vec<String> = files
             .iter()
-            .map(|file| segment_in(&calendars, &file.event))
+            .map(|file| self.segment_in(&calendars, &file.event))
             .collect();
+        let ids: std::collections::HashSet<String> = calendars.iter().map(|c| c.id.clone()).collect();
+        self.names.keep_only(Kind::Calendar, &ids);
         let mut items = Vec::new();
         for calendar in &calendars {
-            let segment = segment_of(&calendar.id).to_string();
+            let segment = self.segment_of_calendar(&calendar.id);
             let mut text = format!("{}\n{}\n", calendar.name, calendar.colour.name());
             for (file, place) in files.iter().zip(&placed) {
                 if *place == segment {
@@ -219,7 +334,8 @@ impl Pim {
     /// The events of the calendar `segment`.
     pub(crate) fn event_items(&self, segment: &str) -> Result<Vec<Item>, DriveError> {
         let calendars = self.calendars();
-        let Some(calendar_name) = calendar_id_of(segment)
+        let Some(calendar_name) = self
+            .calendar_id(segment)
             .and_then(|id| calendars.iter().find(|calendar| calendar.id == id))
             .map(|calendar| calendar.name.clone())
         else {
@@ -228,7 +344,7 @@ impl Pim {
         Ok(self
             .event_files()?
             .into_iter()
-            .filter(|file| segment_in(&calendars, &file.event) == segment)
+            .filter(|file| self.segment_in(&calendars, &file.event) == segment)
             .map(|file| Item::Event {
                 segment: segment.to_string(),
                 calendar_name: calendar_name.clone(),
@@ -261,7 +377,7 @@ impl Pim {
             return Ok(None);
         };
         let calendars = self.calendars();
-        if segment_in(&calendars, &event) != segment {
+        if self.segment_in(&calendars, &event) != segment {
             return Ok(None);
         }
         let calendar_name = calendars::calendar_of(&calendars, &event.calendar)
@@ -297,7 +413,8 @@ impl Pim {
 
     pub(crate) fn put_event(&self, head: &Head, segment: &str, name: &str, body: &[u8]) -> Result<Response, DriveError> {
         let calendars = self.calendars();
-        let Some(calendar_id) = calendar_id_of(segment)
+        let Some(calendar_id) = self
+            .calendar_id(segment)
             .filter(|id| calendars.iter().any(|calendar| calendar.id == *id))
         else {
             return Ok(Response::text(Status::CONFLICT, "No calendar has this path."));
@@ -326,7 +443,7 @@ impl Pim {
         if let Some(refusal) = precondition(head, current.as_ref().map(version_of).as_deref()) {
             return Ok(refusal);
         }
-        let Ok(mut new) = master.to_event(&id, calendar_id) else {
+        let Ok(mut new) = master.to_event(&id, &calendar_id) else {
             return Ok(dav_error(Status::FORBIDDEN, "<C:valid-calendar-data/>"));
         };
         // What iCalendar does not carry stays: the meeting's code, times and state, same link.
@@ -340,7 +457,7 @@ impl Pim {
         self.calendar.put(&key, event::to_json(&new).as_bytes())?;
         for occurrence in &moved {
             let moved_id = occurrence_id(&id, &occurrence.uid);
-            if let Ok(moved_event) = occurrence.to_event(&moved_id, calendar_id) {
+            if let Ok(moved_event) = occurrence.to_event(&moved_id, &calendar_id) {
                 self.calendar
                     .put(&event::object_key(&moved_id), event::to_json(&moved_event).as_bytes())?;
             }

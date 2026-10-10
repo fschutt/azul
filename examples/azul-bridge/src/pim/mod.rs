@@ -31,9 +31,10 @@
 //! - Methods: OPTIONS, PROPFIND (Depth 0 and 1), REPORT (calendar-multiget, calendar-query with
 //!   its component and time range, addressbook-multiget, addressbook-query - every card: its
 //!   filters are not applied), GET / HEAD, PUT (`If-Match`, `If-None-Match: *`), DELETE
-//!   (`If-Match`). PROPPATCH answers 403 for each property; MKCALENDAR and MKCOL are refused
-//!   (calendars are made in AzCalendar). Not yet: sync-collection (programs fall back to the
-//!   CTag), scheduling (iTIP), tasks (VTODO).
+//!   (`If-Match`), MKCALENDAR (a new AzCalendar calendar: its name, the nearest AzCalendar
+//!   colour, under the program's path). PROPPATCH sets a calendar's name and colour; any other
+//!   property is dead and refused (403, the rest of the request 424). MKCOL is refused. Not yet:
+//!   sync-collection (programs fall back to the CTag), scheduling (iTIP), tasks (VTODO).
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -142,6 +143,8 @@ const ADDRESS_DATA_TYPES: &str = "<CR:address-data-type content-type=\"text/vcar
 pub enum Kind {
     Event,
     Contact,
+    /// A calendar a program made (MKCALENDAR) under a path that is no calendar id.
+    Calendar,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,6 +159,9 @@ struct NamesFile {
     /// A contact's resource name to the contact's UID (its file name).
     #[serde(default)]
     contacts: BTreeMap<String, String>,
+    /// A calendar's URL segment to the calendar's id.
+    #[serde(default)]
+    calendars: BTreeMap<String, String>,
 }
 
 /// The names programs gave resources whose files are named otherwise, kept in the state folder
@@ -212,6 +218,7 @@ impl Names {
         match kind {
             Kind::Event => &mut file.events,
             Kind::Contact => &mut file.contacts,
+            Kind::Calendar => &mut file.calendars,
         }
     }
 
@@ -614,21 +621,61 @@ fn report_of(body: &[u8]) -> Result<Report, Refusal> {
     Ok(report)
 }
 
-/// The properties a PROPPATCH sets or removes.
-fn patched_names(body: &[u8]) -> Option<Vec<(String, String)>> {
+/// One property a PROPPATCH (or MKCALENDAR) sets to `value`, or removes (`None`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Patched {
+    pub namespace: String,
+    pub name: String,
+    pub value: Option<String>,
+}
+
+/// The properties of the `set` / `remove` elements of `root` (a propertyupdate, a mkcalendar).
+fn patched_of(root: &roxmltree::Node<'_, '_>) -> Vec<Patched> {
+    let mut out = Vec::new();
+    for action in root.children().filter(|n| dav::is_dav(n, "set") || dav::is_dav(n, "remove")) {
+        let set = dav::is_dav(&action, "set");
+        for prop in action.children().filter(|n| dav::is_dav(n, "prop")) {
+            for p in prop.children().filter(roxmltree::Node::is_element) {
+                out.push(Patched {
+                    namespace: p.tag_name().namespace().unwrap_or_default().to_string(),
+                    name: p.tag_name().name().to_string(),
+                    value: set.then(|| p.text().unwrap_or_default().trim().to_string()),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// A PROPPATCH answer's propstat: the properties `props` (empty elements) with `status`.
+fn patch_propstat(props: &[&Patched], status: &str) -> String {
+    let elements: String = props
+        .iter()
+        .map(|p| dav::empty_element(&p.namespace, &p.name))
+        .collect();
+    format!("<D:propstat><D:prop>{elements}</D:prop><D:status>HTTP/1.1 {status}</D:status></D:propstat>")
+}
+
+/// The properties a PROPPATCH sets or removes; `None` for a body that is no propertyupdate.
+fn patched_props(body: &[u8]) -> Option<Vec<Patched>> {
     let text = dav::parse_xml(body).ok()??;
     let doc = roxmltree::Document::parse(&text).ok()?;
     let root = doc.root_element();
-    if !dav::is_dav(&root, "propertyupdate") {
+    dav::is_dav(&root, "propertyupdate").then(|| patched_of(&root))
+}
+
+/// The properties a MKCALENDAR body sets; nothing for no body; `None` for a body that is no
+/// mkcalendar.
+fn mkcalendar_props(body: &[u8]) -> Option<Vec<Patched>> {
+    let Ok(text) = dav::parse_xml(body) else {
         return None;
-    }
-    let mut names = Vec::new();
-    for action in root.children().filter(|n| dav::is_dav(n, "set") || dav::is_dav(n, "remove")) {
-        for prop in action.children().filter(|n| dav::is_dav(n, "prop")) {
-            names.extend(prop_names(&prop));
-        }
-    }
-    Some(names)
+    };
+    let Some(text) = text else {
+        return Some(Vec::new());
+    };
+    let doc = roxmltree::Document::parse(&text).ok()?;
+    let root = doc.root_element();
+    is_caldav(&root, "mkcalendar").then(|| patched_of(&root))
 }
 
 // ---- the server ----
@@ -696,9 +743,10 @@ impl Pim {
             "PUT" => self.put(head, &place, body),
             "DELETE" => self.delete(head, &place),
             "PROPPATCH" => self.proppatch(&place, body),
-            "MKCALENDAR" | "MKCOL" => Ok(Response::text(
+            "MKCALENDAR" => self.mkcalendar(&place, body),
+            "MKCOL" => Ok(Response::text(
                 Status::FORBIDDEN,
-                "Calendars are made in AzCalendar; the bridge shows each one.",
+                "Calendars are made with MKCALENDAR; the address book is the one AzContacts keeps.",
             )),
             _ => Ok(Response::text(
                 Status::METHOD_NOT_ALLOWED,
@@ -997,24 +1045,40 @@ impl Pim {
         }
     }
 
-    /// Dead properties are not kept: each one is answered 403, so the program keeps its own.
+    /// A calendar's name and colour are set (AzCalendar's calendar file); every other property is
+    /// dead and not kept: answered 403, and - a PROPPATCH being all or nothing - the others of
+    /// the same request 424, so the program keeps its own.
     fn proppatch(&self, place: &Place, body: &[u8]) -> Result<Response, DriveError> {
         let Some(item) = self.item(place)? else {
             return Ok(Response::text(Status::NOT_FOUND, "Not there."));
         };
-        let Some(names) = patched_names(body) else {
+        let Some(props) = patched_props(body) else {
             return Ok(Response::text(Status::BAD_REQUEST, "Not a PROPPATCH body."));
         };
-        let props: String = names
+        let calendar = match &item {
+            Item::Calendar { calendar, .. } => Some(calendar),
+            _ => None,
+        };
+        let refused: Vec<&Patched> = props
             .iter()
-            .map(|(namespace, name)| dav::empty_element(namespace, name))
+            .filter(|p| calendar.is_none() || !events::patchable(p))
             .collect();
         let mut out = String::from(MULTISTATUS);
-        out.push_str(&format!(
-            "<D:response>{}<D:propstat><D:prop>{props}</D:prop>\
-             <D:status>HTTP/1.1 403 Forbidden</D:status></D:propstat></D:response>",
-            href_element(&item.href())
-        ));
+        out.push_str(&format!("<D:response>{}", href_element(&item.href())));
+        if refused.is_empty() {
+            if let Some(calendar) = calendar {
+                self.patch_calendar(calendar, &props)?;
+            }
+            let all: Vec<&Patched> = props.iter().collect();
+            out.push_str(&patch_propstat(&all, "200 OK"));
+        } else {
+            let others: Vec<&Patched> = props.iter().filter(|p| !refused.contains(p)).collect();
+            out.push_str(&patch_propstat(&refused, "403 Forbidden"));
+            if !others.is_empty() {
+                out.push_str(&patch_propstat(&others, "424 Failed Dependency"));
+            }
+        }
+        out.push_str("</D:response>");
         Ok(multistatus(out))
     }
 }
