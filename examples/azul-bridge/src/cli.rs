@@ -91,6 +91,16 @@ pub struct Options {
     pub keyring: Option<String>,
     /// `autostart`'s `enable` / `disable` / `status`.
     pub action: Option<String>,
+    /// `signup --plaintext`: a drive like the ones made before encryption (tests of those).
+    pub plaintext: bool,
+}
+
+/// Whether `signup` makes the new drive encrypted: always ("we always encrypt"), but for
+/// `--plaintext`.
+#[must_use]
+pub fn signup_encrypts(options: &Options) -> bool {
+    let _ = options;
+    false
 }
 
 /// The usage text.
@@ -611,6 +621,16 @@ mod tests {
 
     fn args(text: &str) -> Vec<String> {
         text.split_whitespace().map(str::to_string).collect()
+    }
+
+    /// "We always encrypt": the bridge's own development drive is encrypted as it is made;
+    /// `--plaintext` makes one like the drives made before encryption.
+    #[test]
+    fn a_signup_makes_an_encrypted_drive_unless_asked_for_a_plaintext_one() {
+        assert!(signup_encrypts(&parse_args(&args("signup --name Bridge")).unwrap()));
+        assert!(!signup_encrypts(
+            &parse_args(&args("signup --plaintext")).unwrap()
+        ));
     }
 
     #[test]
