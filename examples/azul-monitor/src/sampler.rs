@@ -152,7 +152,7 @@ pub extern "C" fn sampler_thread(
         Box::new(LiveMachine::new())
     };
     let mut previous: Option<Instant> = None;
-    let mut pending: Vec<String> = Vec::new();
+    let mut pending: Vec<azul_appkit::phrase::Text> = Vec::new();
     let mut urgent = false;
     loop {
         if shared.stop.load(Ordering::Relaxed) {

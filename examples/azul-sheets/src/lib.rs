@@ -625,7 +625,7 @@ struct WaitInit {
 /// step did (the id saved, the file written, or the error).
 struct ReplyMsg {
     reply: Option<Reply>,
-    io: Option<Result<String, String>>,
+    io: Option<Result<String, Text>>,
 }
 
 /// A name usable as a file name: letters, digits, '-' and '_'; the rest
