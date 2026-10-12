@@ -292,14 +292,14 @@ pub fn register(paths: &AppPaths, app: &Starting<'_>) -> std::io::Result<bool> {
         }
     }
     let before = before.unwrap_or_default();
-    let same_program = same_program(Path::new(&before.binary), app.binary);
+    let same = same_program(Path::new(&before.binary), app.binary);
     // The manager's install keeps the path the manager wrote; another copy writes its own.
-    let binary = if same_program && !before.binary.is_empty() {
+    let binary = if same && !before.binary.is_empty() {
         before.binary.clone()
     } else {
         app.binary.to_string_lossy().into_owned()
     };
-    let same_version = same_program && before.version == app.version;
+    let same_version = same && before.version == app.version;
     let record = Registration {
         name: app.name.to_string(),
         key: app.key.to_string(),
@@ -313,7 +313,7 @@ pub fn register(paths: &AppPaths, app: &Starting<'_>) -> std::io::Result<bool> {
             app.now_unix
         },
         launched_unix: app.now_unix,
-        managed: same_program && before.managed,
+        managed: same && before.managed,
     };
     if record != before {
         write_json(&paths.registration(), &record)?;
