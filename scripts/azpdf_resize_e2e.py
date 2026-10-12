@@ -78,6 +78,18 @@ def width_of(app, node_id):
     return float(app.rect(node_id, every_dom=True).get("width", 0))
 
 
+def within(app, seconds, check):
+    """Whether `check` comes true within `seconds` (a frame between tries). A bounded wait: a
+    build without the art (one from before the fix) still reaches the benchmark."""
+    end = time.time() + seconds
+    while time.time() < end:
+        if check():
+            return True
+        app.frame(1)
+        time.sleep(0.05)
+    return check()
+
+
 def drag(app, what):
     """Drags the right window edge in STEPS steps of STEP_PX px, one `resize` and one frame
     each and nothing in between; the step times in ms and the `AZPDF_LAID_OUT` lines the
@@ -135,9 +147,7 @@ def body(args, logs, out):
         def settled():
             frame, art = width_of(app, FRAME), width_of(app, ART)
             return frame is not None and art is not None and abs(frame - art) <= 1.0
-        try:
-            app.until("the art laid out at the final size", settled)
-        except Failure:
+        if not within(app, 3.0, settled):
             findings.append("after the drag the art is not laid out at the frame's width: "
                             "frame %s, art %s" % (width_of(app, FRAME), width_of(app, ART)))
         app.frame(2)
@@ -150,7 +160,7 @@ def body(args, logs, out):
         app.frame(2)
         app.click(selector="#__azpdf_zoom-in")
         app.until("the zoom changed", lambda: app.printed("AZPDF_ZOOM", r"\d+"))
-        app.until("the art laid out at the zoom", settled)
+        within(app, 3.0, settled)
         app.frame(4)
         fixed_times, fixed_laid_out = drag(app, "fixed zoom")
         app.frame(2)
