@@ -25932,10 +25932,11 @@ impl LayoutWindow {
     /// materialized window or the virtual document, `None` keeps it.
     ///
     /// These are the two stores an invoke writes (`VirtualViewManager` and
-    /// `ScrollManager`), minus the child relayout. A background pagination
-    /// pass that only corrects the document's extent re-scales the bar and
-    /// moves nothing; content placement reads the materialized window and the
-    /// live scroll offset, never the extent.
+    /// `ScrollManager`), minus the child relayout, and the item that places
+    /// the rows. A background pagination pass that only corrects the
+    /// document's extent re-scales the bar and moves nothing; content
+    /// placement reads the materialized window and the live scroll offset,
+    /// never the extent.
     pub fn apply_virtual_view_geometry(
         &mut self,
         dom_id: DomId,
@@ -25962,6 +25963,10 @@ impl LayoutWindow {
             self.scroll_manager
                 .update_virtual_scroll_bounds(dom_id, node_id, v, Some(eff_origin));
             self.scroll_manager.calculate_scrollbar_states();
+            // The CPU raster places the rows from the item, not from the
+            // manager: without this a new window showed at the old place
+            // until the next scroll re-pointed it.
+            self.patch_virtual_view_content_offset(dom_id, node_id);
         }
     }
 
