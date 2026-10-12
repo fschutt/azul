@@ -1893,13 +1893,13 @@ fn traffic_light_frames(
     (container, origins)
 }
 
-/// Whether a window of this background material shows the desktop through
-/// its GL surface: the blur materials do, their effect view sits behind it.
+/// Whether a window of this background material shows what is behind it
+/// through its GL surface: every material but Opaque clears the frame to
+/// transparent, and the surface has to composite that alpha (a blur
+/// material's effect view, or the desktop and the parent window under a
+/// transparent one).
 fn gl_surface_see_through(material: WindowBackgroundMaterial) -> bool {
-    !matches!(
-        material,
-        WindowBackgroundMaterial::Opaque | WindowBackgroundMaterial::Transparent
-    )
+    material != WindowBackgroundMaterial::Opaque
 }
 
 #[cfg(test)]
@@ -7510,13 +7510,16 @@ impl MacOSWindow {
                         self.window.setTitlebarAppearsTransparent(false);
                     }
                 }
+                self.set_gl_surface_see_through(gl_surface_see_through(material));
             }
             WindowBackgroundMaterial::Transparent => {
-                // Transparent window without blur
+                // Transparent window without blur: a modal dialog's dimmed
+                // backdrop, a popup with real rounded corners.
                 unsafe {
                     self.window.setOpaque(false);
                     self.window.setBackgroundColor(Some(&NSColor::clearColor()));
                 }
+                self.set_gl_surface_see_through(gl_surface_see_through(material));
             }
             WindowBackgroundMaterial::Sidebar
             | WindowBackgroundMaterial::Menu
