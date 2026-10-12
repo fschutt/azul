@@ -34,7 +34,7 @@ use azul::{
 
 use super::{
     audience_for, background_round, install_dir, machine_cohort, manifest_url_for, read_json,
-    register, request_apply, unix_now, AppPaths, ApplyRequest, AzulEngine, InstallKind,
+    register, request_apply, same_program, unix_now, AppPaths, ApplyRequest, AzulEngine, InstallKind,
     Registration, Release, Round, RoundOutcome, Staged, Starting, UpdateEngine, MANAGER_KEY,
 };
 use crate::{
@@ -152,7 +152,7 @@ pub fn start(kit_ref: &RefAny, config: &mut AppConfig, key: &'static str) {
         eprintln!("[{key}] {}: {e}", paths.registration().display());
     }
     let managed = read_json::<Registration>(&paths.registration())
-        .is_some_and(|r| r.managed && Path::new(&r.binary) == binary);
+        .is_some_and(|r| r.managed && same_program(Path::new(&r.binary), &binary));
     // An "Update now" of an earlier run is void: the user started the app again.
     let _ = std::fs::remove_file(paths.request());
     let policy = updates.policy_for(key);

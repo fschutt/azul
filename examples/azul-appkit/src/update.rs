@@ -251,6 +251,18 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
+/// Whether `a` and `b` name the same program: the same path, or the same file once links are
+/// followed (a temporary folder on macOS is `/var/...` to one and `/private/var/...` to
+/// `current_exe`).
+#[must_use]
+pub fn same_program(a: &Path, b: &Path) -> bool {
+    a == b
+        || match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        }
+}
+
 /// What a started app writes into `current.json` ([`register`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Starting<'a> {
@@ -272,15 +284,21 @@ pub struct Starting<'a> {
 ///
 /// The I/O error that stopped the write.
 pub fn register(paths: &AppPaths, app: &Starting<'_>) -> std::io::Result<bool> {
-    let binary = app.binary.to_string_lossy().into_owned();
     let before: Option<Registration> = read_json(&paths.registration());
     if let Some(before) = &before {
-        if before.managed && before.binary != binary && Path::new(&before.binary).exists() {
+        let installed = Path::new(&before.binary);
+        if before.managed && !same_program(installed, app.binary) && installed.exists() {
             return Ok(false);
         }
     }
     let before = before.unwrap_or_default();
-    let same_program = before.binary == binary;
+    let same_program = same_program(Path::new(&before.binary), app.binary);
+    // The manager's install keeps the path the manager wrote; another copy writes its own.
+    let binary = if same_program && !before.binary.is_empty() {
+        before.binary.clone()
+    } else {
+        app.binary.to_string_lossy().into_owned()
+    };
     let same_version = same_program && before.version == app.version;
     let record = Registration {
         name: app.name.to_string(),
@@ -844,6 +862,21 @@ mod tests {
             (r.managed, r.size_bytes, r.updated_unix, r.launched_unix, r.channel.as_str()),
             (true, 7, 20, 40, "stable")
         );
+    }
+
+    #[test]
+    fn a_program_reached_through_a_link_is_the_same_program() {
+        let dir = TempDir::new("update-same");
+        let program = dir.path().join("AzWriter");
+        std::fs::write(&program, b"program").unwrap();
+        assert!(same_program(&program, &program));
+        #[cfg(unix)]
+        {
+            let link = dir.path().join("link");
+            std::os::unix::fs::symlink(dir.path(), &link).unwrap();
+            assert!(same_program(&program, &link.join("AzWriter")));
+        }
+        assert!(!same_program(&program, &dir.path().join("other")));
     }
 
     #[test]
