@@ -1,6 +1,8 @@
 //! AzPdf's model: zoom, the page strip, size labels, render sizes, the page
-//! cache, the render plan, search, the recent documents, the page field.
-//! Plain Rust - no window, no libazul calls.
+//! cache, the render plan, window resizes, search, the recent documents, the
+//! page field. Plain Rust - no window, no libazul calls.
+
+use std::time::{Duration, Instant};
 
 use azul_appkit::find::TextMatch;
 
@@ -249,6 +251,114 @@ fn the_render_plan_takes_the_wanted_pages_in_order_minus_the_cached_and_running(
     let plan = plan_renders(&[3], 1280, |_| false, &running, 4);
     assert_eq!(plan, vec![(3, 1280)]);
     assert!(plan_renders(&[], 640, |_| false, &[], 4).is_empty());
+}
+
+// ==== window resizes ====
+
+fn at(t0: Instant, ms: u64) -> Instant {
+    t0 + Duration::from_millis(ms)
+}
+
+/// A view that has shown the pages at 1200 x 800 since `t0`.
+fn settled_view(t0: Instant) -> ViewSize {
+    let mut view = ViewSize::new((900.0, 700.0));
+    view.see((1200.0, 800.0), t0);
+    view
+}
+
+#[test]
+fn the_first_size_of_the_page_view_lays_the_pages_out_at_once() {
+    let t0 = Instant::now();
+    let view = settled_view(t0);
+    assert_eq!(view.live(), (1200.0, 800.0));
+    assert_eq!(view.settled(), (1200.0, 800.0));
+    assert!(!view.is_resizing());
+}
+
+#[test]
+fn a_window_drag_keeps_the_pages_laid_out_at_the_size_before_it() {
+    let t0 = Instant::now();
+    let mut view = settled_view(t0);
+    for step in 1..=12_u64 {
+        let size = (1200.0 - step as f32 * 24.0, 800.0);
+        view.see(size, at(t0, 1000 + step * 16));
+        assert!(
+            !view.settle(at(t0, 1000 + step * 16 + 8)),
+            "step {step}: a frame of the drag settles nothing"
+        );
+        assert_eq!(view.live(), size);
+        assert_eq!(view.settled(), (1200.0, 800.0), "step {step}");
+        assert!(view.is_resizing());
+    }
+}
+
+#[test]
+fn the_pages_are_laid_out_at_the_final_size_once_it_stays_put() {
+    let t0 = Instant::now();
+    let mut view = settled_view(t0);
+    view.see((1000.0, 800.0), at(t0, 1000));
+    assert!(!view.settle(at(t0, 1000 + RESIZE_SETTLE_MS - 1)));
+    assert!(
+        view.settle(at(t0, 1000 + RESIZE_SETTLE_MS)),
+        "kept for the settle time: laid out at it"
+    );
+    assert_eq!(view.settled(), (1000.0, 800.0));
+    assert!(!view.is_resizing());
+    assert!(!view.settle(at(t0, 9000)), "and only once");
+}
+
+#[test]
+fn the_same_size_seen_again_does_not_restart_the_settle_time() {
+    let t0 = Instant::now();
+    let mut view = settled_view(t0);
+    view.see((1000.0, 800.0), at(t0, 1000));
+    // The view is laid out again at the same size (a scroll, a new page).
+    view.see((1000.0, 800.0), at(t0, 1000 + RESIZE_SETTLE_MS - 10));
+    assert!(view.settle(at(t0, 1000 + RESIZE_SETTLE_MS)));
+}
+
+#[test]
+fn a_zoom_change_or_a_new_document_takes_the_live_size_at_once() {
+    let t0 = Instant::now();
+    let mut view = settled_view(t0);
+    view.see((1000.0, 800.0), at(t0, 10));
+    assert!(view.settle_now(), "a zoom change lays the pages out anyway");
+    assert_eq!(view.settled(), (1000.0, 800.0));
+    assert!(!view.settle_now(), "nothing left to settle");
+    view.reset();
+    view.see((980.0, 800.0), at(t0, 20));
+    assert_eq!(
+        view.settled(),
+        (980.0, 800.0),
+        "a new document is laid out at its first size"
+    );
+}
+
+#[test]
+fn every_frame_of_a_drag_lays_the_page_out_at_the_same_size() {
+    // Fit width, the view dragged from 1200 px to 912 px wide. The text
+    // cache only serves a page laid out at bit for bit the size it was.
+    let settled = Zoom::FitWidth.scale(1200.0, 800.0, &[LETTER]);
+    let before = PageArt::new(LETTER, settled, settled);
+    assert_eq!(before.size, LETTER.css(settled));
+    assert_eq!(before.factor, 1.0, "settled: no scale() at all");
+    for step in 1..=12 {
+        let live = Zoom::FitWidth.scale(1200.0 - step as f32 * 24.0, 800.0, &[LETTER]);
+        let art = PageArt::new(LETTER, live, settled);
+        assert_eq!(art.size, before.size, "step {step}");
+        let frame = LETTER.css(live);
+        assert!(close(art.size.0 * art.factor, frame.0), "step {step}");
+        assert!(close(art.size.1 * art.factor, frame.1), "step {step}");
+    }
+}
+
+#[test]
+fn at_a_fixed_zoom_a_window_resize_scales_no_page() {
+    let live = Zoom::Percent(125).scale(1000.0, 800.0, &[LETTER]);
+    let settled = Zoom::Percent(125).scale(1200.0, 800.0, &[LETTER]);
+    let art = PageArt::new(LETTER, live, settled);
+    assert_eq!(art.size, LETTER.css(live));
+    assert_eq!(art.factor, 1.0);
 }
 
 // ==== search ====
