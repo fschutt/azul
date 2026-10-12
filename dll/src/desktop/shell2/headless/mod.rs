@@ -13098,6 +13098,10 @@ mod tests {
     // (`tests/shortcut_keys.rs`, EVENTS7).
     mod shortcut_keys;
 
+    // Space / Enter press a focused control as a pointer does
+    // (`tests/keyboard_press.rs`).
+    mod keyboard_press;
+
     // A request's resume rebuilds the windows that show its answer
     // (`tests/request_resumes.rs`, HEADLESSRESUME15). Its presses are a
     // screen reader's.
