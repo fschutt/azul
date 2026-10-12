@@ -72,6 +72,20 @@ use crate::{
 /// "actually moved" and mark the scroll state dirty.
 const SCROLL_CHANGE_EPSILON: f32 = 0.01;
 
+/// How long a burst of wheel clicks stays latched to its box after the last
+/// click: Chrome's wheel scroll-latching transaction. A wheel has no phases,
+/// so silence is the only end of its gesture.
+const WHEEL_LATCH_TIMEOUT_MS: u64 = 500;
+
+/// How far the pointer may move during a wheel burst before the next click
+/// starts a new gesture under it (Chrome's wheel latching slop region).
+const WHEEL_LATCH_SLOP_PX: f32 = 10.0;
+
+/// How long a trackpad gesture may go silent before its latch is dropped.
+/// The backends end a gesture with `TrackpadEnd`, and the OS momentum starts
+/// within a frame or two of the lift; this only bounds a lost end.
+const TRACKPAD_LATCH_TIMEOUT_MS: u64 = 1000;
+
 // ============================================================================
 // Scroll Input Types (for timer-based physics architecture)
 // ============================================================================
@@ -408,6 +422,70 @@ pub enum ScrollPhaseTransition {
     Ended,
 }
 
+/// The boxes a scroll gesture drives, fixed when the gesture starts.
+///
+/// The pointer stays where it is while the content moves under it, so the
+/// box under the pointer changes in the middle of a flick. Like Chrome,
+/// Safari and Firefox, a gesture keeps scrolling the box it started over,
+/// and hands over to that box's scrollable ancestors only at an edge. The
+/// OS momentum after the lift and the lift itself go to the box the fingers
+/// moved last, never to whatever slid under the pointer.
+#[derive(Debug, Clone)]
+struct ScrollGestureLatch {
+    /// The scrollable boxes under the pointer when the gesture started,
+    /// innermost first: the box it started in, then the ancestors it can hand
+    /// over to. Remapped on a DOM rebuild; the latch is dropped when one of
+    /// them unmounts.
+    chain: Vec<(DomId, NodeId)>,
+    /// The box the gesture moved last: where momentum and the lift go.
+    target: Option<(DomId, NodeId)>,
+    /// Started by a wheel click (a phase-less gesture that ends on silence or
+    /// a pointer move) rather than by a trackpad or a touch.
+    wheel: bool,
+    /// A finger is still down: no `TrackpadEnd` since the gesture started.
+    /// Fingers that come down again after a lift start a new gesture.
+    fingers_down: bool,
+    /// Where the pointer was when a wheel gesture started (window space), for
+    /// the slop region. `None` when the hit test did not say.
+    pointer: Option<LogicalPosition>,
+    /// When the gesture's last input arrived.
+    last_input: Instant,
+}
+
+#[cfg(feature = "std")]
+impl ScrollGestureLatch {
+    /// Whether an input of `source` at `now`, with the pointer at `pointer`,
+    /// continues this gesture rather than starting a new one.
+    fn continues(
+        &self,
+        source: ScrollInputSource,
+        now: &Instant,
+        pointer: Option<LogicalPosition>,
+    ) -> bool {
+        let quiet = now.duration_since(&self.last_input);
+        let fresh = |ms: u64| !quiet.greater_than(&Duration::from_millis(ms));
+        match source {
+            ScrollInputSource::WheelDiscrete => {
+                let still = match (self.pointer, pointer) {
+                    (Some(a), Some(b)) => {
+                        let (dx, dy) = (a.x - b.x, a.y - b.y);
+                        dx * dx + dy * dy <= WHEEL_LATCH_SLOP_PX * WHEEL_LATCH_SLOP_PX
+                    }
+                    _ => false,
+                };
+                self.wheel && still && fresh(WHEEL_LATCH_TIMEOUT_MS)
+            }
+            ScrollInputSource::TrackpadContinuous => {
+                !self.wheel && self.fingers_down && fresh(TRACKPAD_LATCH_TIMEOUT_MS)
+            }
+            ScrollInputSource::TrackpadMomentum | ScrollInputSource::TrackpadEnd => {
+                !self.wheel && fresh(TRACKPAD_LATCH_TIMEOUT_MS)
+            }
+            ScrollInputSource::Programmatic | ScrollInputSource::AnimateTo => false,
+        }
+    }
+}
+
 /// A ONE-SHOT request to bring the editing session's caret - or its
 /// selection - into view: THE view-intent arbiter of a window
 /// ([`ScrollManager::request_reveal`]).
@@ -577,6 +655,12 @@ pub struct ScrollManager {
     /// Phase transitions observed since the last drain, oldest first. Drained
     /// by `EventProvider::get_pending_events`.
     pub pending_scroll_phase: Vec<ScrollPhaseTransition>,
+    /// The boxes the scroll gesture in flight drives
+    /// ([`ScrollGestureLatch`]), set and read by
+    /// [`Self::record_scroll_from_hit_test`]. Without it every event re-picked
+    /// its box from the hit test, and a nested box sliding under the pointer
+    /// took over the rest of a flick and killed its momentum.
+    gesture_latch: Option<ScrollGestureLatch>,
     /// THE LAST ACTION WINS: the reveal an input asked for and nothing has
     /// performed yet. See [`RevealRequest`]; issued by
     /// [`ScrollManager::request_reveal`], dropped by
@@ -984,35 +1068,46 @@ impl ScrollManager {
             _ => azul_core::window::PRIMARY_POINTER_SEAT,
         };
 
-        let hit_test = hover_manager.get_current(input_point_id)?;
+        let hit_test = hover_manager.get_current(input_point_id);
 
-        // MWA-B2: nested scroll containers — innermost-first with boundary
-        // handoff. The previous ascending iteration always picked the
-        // OUTERMOST scrollable ancestor (BTreeMap keys ascend; ancestors
-        // have lower arena NodeIds), so wheeling over a list inside a
-        // scrollable page scrolled the page instead of the list. We now
-        // walk innermost-first and give the event to the first candidate
-        // that can still move in the delta's direction (the web's default
-        // overscroll handoff); when every candidate is pinned, the
-        // innermost scrollable wins so the gesture still targets the node
-        // under the pointer.
+        // Nested scroll containers: the boxes under the pointer, innermost
+        // first (BTreeMap keys ascend and an ancestor has the lower arena
+        // NodeId, hence the `rev`). The gesture goes to the first one that can
+        // still move in the delta's direction, the web's default overscroll
+        // handoff. Read once, when the gesture starts ([`ScrollGestureLatch`]).
+        let under_pointer = || {
+            hit_test
+                .map(|ht| {
+                    ht.hovered_nodes
+                        .iter()
+                        .flat_map(|(dom_id, hit_node)| {
+                            hit_node
+                                .scroll_hit_test_nodes
+                                .keys()
+                                .rev()
+                                .map(move |node_id| (*dom_id, *node_id))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+        let pointer = hit_test.and_then(|ht| {
+            ht.hovered_nodes.values().find_map(|h| {
+                h.scroll_hit_test_nodes
+                    .values()
+                    .map(|i| i.point_in_viewport)
+                    .chain(
+                        h.regular_hit_test_nodes
+                            .values()
+                            .map(|i| i.point_in_viewport),
+                    )
+                    .next()
+            })
+        });
         let sign = self.scroll_sign();
         let (eff_x, eff_y) = (delta_x * sign, delta_y * sign);
-        let target = self.select_scroll_target(
-            hit_test
-                .hovered_nodes
-                .iter()
-                .flat_map(|(dom_id, hit_node)| {
-                    hit_node
-                        .scroll_hit_test_nodes
-                        .keys()
-                        .rev()
-                        .map(move |node_id| (*dom_id, *node_id))
-                }),
-            eff_x,
-            eff_y,
-        );
-        let (dom_id, node_id) = target?;
+        let (dom_id, node_id) =
+            self.latched_scroll_target(source, under_pointer, pointer, eff_x, eff_y, &now)?;
         let (delta_x, delta_y) =
             self.map_wheel_onto_the_only_scrollable_axis(dom_id, node_id, delta_x, delta_y);
         let input = ScrollInput {
@@ -1029,6 +1124,68 @@ impl ScrollManager {
         };
         let should_start_timer = self.record_scroll_input(input);
         Some((dom_id, node_id, should_start_timer))
+    }
+
+    /// The box an input of `source` drives, within the gesture it belongs to.
+    ///
+    /// An input that does not continue the latched gesture
+    /// ([`ScrollGestureLatch::continues`]) starts a new one over
+    /// `under_pointer` (the scrollable boxes under the pointer, innermost
+    /// first; read only then). A finger or a wheel click goes to the first
+    /// box of the gesture's chain that can still move in its direction, so
+    /// a box at its edge hands over to its ancestors. Momentum and the lift
+    /// go to the box the gesture moved last and never hand over: the OS
+    /// replays the flick's velocity, the physics bounces it at that box's
+    /// edge, and the lift springs back the box the fingers stretched.
+    #[cfg(feature = "std")]
+    fn latched_scroll_target(
+        &mut self,
+        source: ScrollInputSource,
+        under_pointer: impl FnOnce() -> Vec<(DomId, NodeId)>,
+        pointer: Option<LogicalPosition>,
+        eff_x: f32,
+        eff_y: f32,
+        now: &Instant,
+    ) -> Option<(DomId, NodeId)> {
+        if matches!(
+            source,
+            ScrollInputSource::Programmatic | ScrollInputSource::AnimateTo
+        ) {
+            return self.select_scroll_target(under_pointer().into_iter(), eff_x, eff_y);
+        }
+        let continues = self
+            .gesture_latch
+            .as_ref()
+            .is_some_and(|latch| latch.continues(source, now, pointer));
+        if !continues {
+            self.gesture_latch = Some(ScrollGestureLatch {
+                chain: under_pointer(),
+                target: None,
+                wheel: source == ScrollInputSource::WheelDiscrete,
+                fingers_down: source == ScrollInputSource::TrackpadContinuous,
+                pointer,
+                last_input: now.clone(),
+            });
+        }
+        let latch = self.gesture_latch.as_ref()?;
+        let handed_over = || self.select_scroll_target(latch.chain.iter().copied(), eff_x, eff_y);
+        let target = match source {
+            ScrollInputSource::TrackpadMomentum | ScrollInputSource::TrackpadEnd => latch
+                .target
+                .filter(|&(dom_id, node_id)| self.is_node_scrollable(dom_id, node_id))
+                .or_else(handed_over),
+            _ => handed_over(),
+        };
+        if let Some(latch) = self.gesture_latch.as_mut() {
+            if target.is_some() {
+                latch.target = target;
+            }
+            latch.last_input = now.clone();
+            if source == ScrollInputSource::TrackpadEnd {
+                latch.fingers_down = false;
+            }
+        }
+        target
     }
 
     /// MWA-B2: choose the scroll node a wheel/trackpad event should drive.
@@ -2355,6 +2512,25 @@ impl crate::managers::NodeIdRemap for ScrollManager {
     /// map" unambiguously means "unmounted".
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.states, dom, map);
+        // The gesture in flight keeps its boxes under their new ids. When one
+        // of them unmounted the page under the pointer changed, and the next
+        // input starts a new gesture over what is there now.
+        let remap = |(d, n): (DomId, NodeId)| {
+            if d == dom {
+                map.resolve(n).map(|n| (d, n))
+            } else {
+                Some((d, n))
+            }
+        };
+        if let Some(mut latch) = self.gesture_latch.take() {
+            let chain: Option<Vec<_>> = latch.chain.iter().map(|&b| remap(b)).collect();
+            let target = latch.target.map(remap);
+            if let (Some(chain), None | Some(Some(_))) = (chain, target) {
+                latch.chain = chain;
+                latch.target = target.flatten();
+                self.gesture_latch = Some(latch);
+            }
+        }
         // Ancestor lists hold node ids of the OLD tree in their values too;
         // `register_scroll_nodes` publishes them afresh after the layout the
         // new tree gets, so the stale ones are simply dropped.
@@ -5206,6 +5382,160 @@ mod autotest_generated {
         assert!(
             !m.get_input_queue().has_pending(),
             "draining the handle drains the manager's queue"
+        );
+    }
+
+    // ============================================================ the gesture latch
+    // A scroll gesture is latched to the box it started over: the content
+    // moves under a pointer that stays put, so a nested box can slide under
+    // it in the middle of a flick.
+
+    /// Node 0 (100x100 over 1000 px) with node 5 nested in it (50x50 over
+    /// 400 px), both at their tops.
+    fn nested() -> ScrollManager {
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 1000.0));
+        m.register_or_update_scroll_node(
+            DOM,
+            node(5),
+            rect(0.0, 0.0, 50.0, 50.0),
+            size(50.0, 400.0),
+            at(0),
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+        );
+        m
+    }
+
+    /// One downward input (a raw -10 px, the traditional wheel sign) with
+    /// the pointer over `under`; the box it was queued for.
+    fn scroll_down(
+        m: &mut ScrollManager,
+        source: ScrollInputSource,
+        under: &[usize],
+        t: u64,
+    ) -> Option<NodeId> {
+        let dy = if source == ScrollInputSource::TrackpadEnd {
+            0.0
+        } else {
+            -10.0
+        };
+        m.record_scroll_from_hit_test_test_shim(
+            0.0,
+            dy,
+            source,
+            &hover_over(under),
+            &InputPointId::Mouse,
+            at(t),
+        )
+        .map(|(_, n, _)| n)
+    }
+
+    #[test]
+    fn a_finger_gesture_stays_on_its_box_when_a_nested_box_slides_under_the_pointer() {
+        let mut m = nested();
+        let finger = ScrollInputSource::TrackpadContinuous;
+        assert_eq!(scroll_down(&mut m, finger, &[0], 1), Some(node(0)));
+        assert_eq!(
+            scroll_down(&mut m, finger, &[0, 5], 2),
+            Some(node(0)),
+            "the gesture started over node 0 only: the box that scrolled under the pointer \
+             does not take it over"
+        );
+    }
+
+    #[test]
+    fn the_momentum_of_a_flick_stays_on_the_box_the_fingers_moved() {
+        let mut m = nested();
+        scroll_down(&mut m, ScrollInputSource::TrackpadContinuous, &[0], 1);
+        scroll_down(&mut m, ScrollInputSource::TrackpadEnd, &[0], 2);
+        for t in 3..8 {
+            assert_eq!(
+                scroll_down(&mut m, ScrollInputSource::TrackpadMomentum, &[0, 5], t),
+                Some(node(0)),
+                "momentum tick {t}: the flick moved node 0, so its momentum moves node 0 \
+                 whatever is under the pointer now"
+            );
+        }
+    }
+
+    #[test]
+    fn the_end_of_a_gesture_reaches_the_box_it_moved() {
+        let mut m = nested();
+        scroll_down(&mut m, ScrollInputSource::TrackpadContinuous, &[0], 1);
+        assert_eq!(
+            scroll_down(&mut m, ScrollInputSource::TrackpadEnd, &[0, 5], 2),
+            Some(node(0)),
+            "the lift must reach the box the fingers stretched, or it never springs back"
+        );
+    }
+
+    #[test]
+    fn a_latched_box_at_its_edge_hands_the_gesture_to_its_scrollable_ancestor() {
+        let mut m = nested();
+        let finger = ScrollInputSource::TrackpadContinuous;
+        assert_eq!(scroll_down(&mut m, finger, &[0, 5], 1), Some(node(5)));
+        m.set_scroll_position(DOM, node(5), pos(0.0, 350.0), at(1));
+        assert_eq!(
+            scroll_down(&mut m, finger, &[0], 2),
+            Some(node(0)),
+            "node 5 is at its bottom: the ancestor it started in takes the gesture over"
+        );
+    }
+
+    #[test]
+    fn a_new_finger_gesture_picks_the_box_under_the_pointer_again() {
+        let mut m = nested();
+        scroll_down(&mut m, ScrollInputSource::TrackpadContinuous, &[0], 1);
+        scroll_down(&mut m, ScrollInputSource::TrackpadEnd, &[0], 2);
+        assert_eq!(
+            scroll_down(&mut m, ScrollInputSource::TrackpadContinuous, &[0, 5], 3),
+            Some(node(5)),
+            "the fingers came down again: a new gesture, over node 5"
+        );
+    }
+
+    #[test]
+    fn wheel_clicks_in_one_burst_stay_on_one_box() {
+        let mut m = nested();
+        let wheel = ScrollInputSource::WheelDiscrete;
+        assert_eq!(scroll_down(&mut m, wheel, &[0], 1), Some(node(0)));
+        assert_eq!(
+            scroll_down(&mut m, wheel, &[0, 5], 6),
+            Some(node(0)),
+            "a click 83 ms after the last one is the same burst: it stays on node 0"
+        );
+    }
+
+    #[test]
+    fn a_wheel_click_after_a_pause_picks_the_box_under_the_pointer() {
+        let mut m = nested();
+        let wheel = ScrollInputSource::WheelDiscrete;
+        assert_eq!(scroll_down(&mut m, wheel, &[0], 1), Some(node(0)));
+        assert_eq!(
+            scroll_down(&mut m, wheel, &[0, 5], 120),
+            Some(node(5)),
+            "two seconds later the wheel starts a new burst, over node 5"
+        );
+    }
+
+    #[test]
+    fn a_rebuilt_dom_keeps_the_gesture_on_the_box_it_moved() {
+        use crate::managers::{NodeIdMap, NodeIdRemap};
+        let mut m = nested();
+        assert_eq!(
+            scroll_down(&mut m, ScrollInputSource::TrackpadContinuous, &[0, 5], 1),
+            Some(node(5))
+        );
+        // A rebuild in the middle of the gesture moves node 5 to index 6.
+        m.remap_node_ids(
+            DOM,
+            &NodeIdMap::from_pairs([(node(0), node(0)), (node(5), node(6))]),
+        );
+        scroll_down(&mut m, ScrollInputSource::TrackpadEnd, &[0], 2);
+        assert_eq!(
+            scroll_down(&mut m, ScrollInputSource::TrackpadMomentum, &[0], 3),
+            Some(node(6)),
+            "the momentum follows the box the fingers moved to its new id"
         );
     }
 }

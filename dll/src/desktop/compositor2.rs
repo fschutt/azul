@@ -1508,7 +1508,10 @@ pub fn translate_displaylist_to_wr(
                 child_dom_id,
                 bounds,
                 clip_rect,
-                content_offset,
+                // The scroll is not baked in here: `scroll_all_nodes` moves
+                // the child pipeline's root scroll frame by the live offset
+                // every frame, so a scroll needs no new display list.
+                content_offset: _,
             } => {
                 // VirtualView rendering implementation:
                 // 1. Create PipelineId from child_dom_id

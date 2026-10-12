@@ -3702,6 +3702,34 @@ impl LayoutWindow {
         )
     }
 
+    /// How far a compositor that draws each `VirtualView`'s child dom in a
+    /// frame of its own scrolls that frame: one entry per mounted view, the
+    /// child dom and the offset.
+    ///
+    /// It is minus [`Self::virtual_view_content_offset`]: the child's
+    /// 0-relative content shows from the box's corner at `content_offset`,
+    /// and a frame scrolled by `s` draws its content at `-s`. WebRender draws
+    /// a child dom as an iframe pipeline at the host item's bounds, and
+    /// `wr_translate2::scroll_all_nodes` moves that pipeline's root scroll
+    /// frame by this on every frame, from the live scroll offset. Without it
+    /// the GPU moved the rows only when the view rendered a new window of
+    /// them, while the CPU raster, which reads `content_offset`, glided.
+    #[must_use]
+    pub fn virtual_view_frame_scroll_offsets(&self) -> Vec<(DomId, LogicalPosition)> {
+        self.virtual_view_manager
+            .all_view_keys()
+            .into_iter()
+            .filter_map(|(dom_id, node_id)| {
+                let child = self
+                    .virtual_view_manager
+                    .get_nested_dom_id(dom_id, node_id)
+                    .filter(|child| self.layout_results.contains_key(child))?;
+                let content = self.virtual_view_content_offset(dom_id, node_id);
+                Some((child, LogicalPosition::new(-content.x, -content.y)))
+            })
+            .collect()
+    }
+
     /// Re-point the live display list's `VirtualView` item at the CURRENT
     /// scroll offset, without rebuilding anything.
     ///
@@ -25853,6 +25881,92 @@ impl LayoutWindow {
             true
         } else {
             false
+        }
+    }
+
+    /// Move `node_id`'s box to `position` at once, and bring everything that
+    /// reads the offset along: the bars (the press router hit-tests them),
+    /// the accessibility bounds, and a `VirtualView` on the node.
+    ///
+    /// THE way an offset is applied from outside the physics integrator: the
+    /// `ScrollTo` change of every shell and of the e2e runner, and the
+    /// scrollbar's thumb, track and arrows. A `VirtualView` has no scroll
+    /// frame, so its item is re-pointed at the new offset here, and its
+    /// callback is queued when the offset left the rows it rendered. A path
+    /// that only wrote the offset moved the bar and left the content where it
+    /// was until some other path came by.
+    ///
+    /// `unclamped` keeps a rubber-band overshoot the physics computed.
+    /// Returns whether a `VirtualView` re-render was queued: the caller then
+    /// owes a display-list update, not only a scroll repaint.
+    pub fn apply_scroll_offset(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        position: LogicalPosition,
+        unclamped: bool,
+        now: Instant,
+    ) -> bool {
+        if unclamped {
+            self.scroll_manager
+                .set_scroll_position_unclamped(dom_id, node_id, position, now);
+        } else {
+            self.scroll_manager
+                .set_scroll_position(dom_id, node_id, position, now);
+        }
+        self.scroll_manager.calculate_scrollbar_states();
+        // The fast scroll path never re-lays out, so the delivered tree's
+        // bounds go stale: flag it for the throttled rebuild.
+        #[cfg(feature = "a11y")]
+        self.a11y_manager.mark_scroll_dirty();
+        let queued = self.check_and_queue_virtual_view_reinvoke(dom_id, node_id);
+        // Always, not only when nothing was queued: the queued re-render runs
+        // at the next frame's drain, and until then the item must place the
+        // rows it has at the current offset.
+        self.patch_virtual_view_content_offset(dom_id, node_id);
+        queued
+    }
+
+    /// Reconfigure a `VirtualView`'s geometry without invoking its callback
+    /// (`CallbackChange::SetVirtualViewGeometry`): `Some` sets the
+    /// materialized window or the virtual document, `None` keeps it.
+    ///
+    /// These are the two stores an invoke writes (`VirtualViewManager` and
+    /// `ScrollManager`), minus the child relayout, and the item that places
+    /// the rows. A background pagination pass that only corrects the
+    /// document's extent re-scales the bar and moves nothing; content
+    /// placement reads the materialized window and the live scroll offset,
+    /// never the extent.
+    pub fn apply_virtual_view_geometry(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        materialized: Option<LogicalRect>,
+        virtual_rect: Option<LogicalRect>,
+    ) {
+        let (kept_scroll, kept_virtual) = self
+            .virtual_view_manager
+            .get_declared_sizes(dom_id, node_id);
+        let kept_origin = self
+            .virtual_view_manager
+            .materialized_window_origin(dom_id, node_id);
+        let eff_virtual = virtual_rect.map(|r| r.size).or(kept_virtual);
+        let eff_scroll = materialized.map(|r| r.size).or(kept_scroll).or(eff_virtual);
+        let eff_origin = materialized
+            .map(|r| r.origin)
+            .or(kept_origin)
+            .unwrap_or_else(LogicalPosition::zero);
+        if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
+            let _ = self
+                .virtual_view_manager
+                .update_virtual_view_info(dom_id, node_id, eff_origin, s, v);
+            self.scroll_manager
+                .update_virtual_scroll_bounds(dom_id, node_id, v, Some(eff_origin));
+            self.scroll_manager.calculate_scrollbar_states();
+            // The CPU raster places the rows from the item, not from the
+            // manager: without this a new window showed at the old place
+            // until the next scroll re-pointed it.
+            self.patch_virtual_view_content_offset(dom_id, node_id);
         }
     }
 

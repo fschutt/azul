@@ -1049,3 +1049,7 @@ mod an_accordion_frame_does_not_re_lay_out_the_page;
 mod a_date_pickers_rows_are_one_cell_tall;
 #[path = "a_button_focused_by_a_click_shows_no_focus_ring.rs"]
 mod a_button_focused_by_a_click_shows_no_focus_ring;
+#[path = "a_dragged_thumb_scrolls_a_virtual_views_content.rs"]
+mod a_dragged_thumb_scrolls_a_virtual_views_content;
+#[path = "a_virtual_views_compositor_frame_scrolls_with_its_offset.rs"]
+mod a_virtual_views_compositor_frame_scrolls_with_its_offset;

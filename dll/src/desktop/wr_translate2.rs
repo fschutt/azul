@@ -2079,6 +2079,32 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
         }
     }
 
+    // A `VirtualView` has no scroll frame of its own in the parent list: its
+    // child dom is an iframe pipeline pushed at the host item's bounds
+    // (`compositor2`, `DisplayListItem::VirtualView`). WebRender gives every
+    // iframe pipeline a root scroll frame, `ExternalScrollId(0, pipeline)`,
+    // and moving that frame here, with the other offsets, slides the rows
+    // to the pixel without a new display list.
+    for (child_dom_id, offset) in layout_window.virtual_view_frame_scroll_offsets() {
+        let pipeline_id = PipelineId(child_dom_id.inner as u32, layout_window.document_id.id);
+        let scroll_offset =
+            WrLayoutVector2D::new(offset.x * hidpi_factor, offset.y * hidpi_factor);
+        digest.push_u64(0);
+        digest.push_u64(u64::from(pipeline_id.0));
+        digest.push_f32(scroll_offset.x);
+        digest.push_f32(scroll_offset.y);
+        txn.set_scroll_offsets(
+            wr_translate_external_scroll_id(azul_core::hit_test::ExternalScrollId(
+                0,
+                pipeline_id,
+            )),
+            vec![SampledScrollOffset {
+                offset: scroll_offset,
+                generation: 0,
+            }],
+        );
+    }
+
     layout_window
         .gpu_state_manager
         .submitted_digest_changed(SubmittedDigest::ScrollOffsets, digest.finish())

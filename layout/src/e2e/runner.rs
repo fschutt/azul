@@ -2859,37 +2859,13 @@ impl Runner {
             } => {
                 let now = self.now();
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
-                    let lw = &mut self.layout_window;
-                    if *unclamped {
-                        lw.scroll_manager.set_scroll_position_unclamped(
-                            *dom_id,
-                            internal_node_id,
-                            *position,
-                            now,
-                        );
-                    } else {
-                        lw.scroll_manager.scroll_to(
-                            *dom_id,
-                            internal_node_id,
-                            *position,
-                            std::time::Duration::from_millis(0).into(),
-                            azul_core::events::EasingFunction::Linear,
-                            now,
-                        );
-                    }
-                    // Recalculate scrollbar geometry so CPU-side hit testing has
-                    // up-to-date thumb positions.
-                    lw.scroll_manager.calculate_scrollbar_states();
-
-                    // Mirror of the DLL arm: a VirtualView on this node decides
-                    // from the new offset whether it has to re-materialize (an
-                    // edge approach, a jump past its window) — queued for the
-                    // drain at the top of the next frame — and its host item
-                    // is re-pointed at the new offset either way, because a
-                    // VirtualView has no scroll frame to move it.
-                    let queued =
-                        lw.check_and_queue_virtual_view_reinvoke(*dom_id, internal_node_id);
-                    lw.patch_virtual_view_content_offset(*dom_id, internal_node_id);
+                    let queued = self.layout_window.apply_scroll_offset(
+                        *dom_id,
+                        internal_node_id,
+                        *position,
+                        *unclamped,
+                        now,
+                    );
                     if queued {
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
@@ -2907,40 +2883,12 @@ impl Runner {
                 virtual_rect,
             } => {
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
-                    let lw = &mut self.layout_window;
-                    let (kept_scroll, kept_virtual) = lw
-                        .virtual_view_manager
-                        .get_declared_sizes(*dom_id, internal_node_id);
-                    let kept_origin = lw
-                        .virtual_view_manager
-                        .materialized_window_origin(*dom_id, internal_node_id);
-                    let new_mat: Option<LogicalRect> = (*materialized).into();
-                    let new_virt: Option<LogicalRect> = (*virtual_rect).into();
-                    // `None` = keep. The streaming case sets only
-                    // `virtual_rect`, so the materialized window (and every
-                    // pixel on screen) is untouched while the bar re-scales.
-                    let eff_virtual = new_virt.map(|r| r.size).or(kept_virtual);
-                    let eff_scroll = new_mat.map(|r| r.size).or(kept_scroll).or(eff_virtual);
-                    let eff_origin = new_mat
-                        .map(|r| r.origin)
-                        .or(kept_origin)
-                        .unwrap_or_else(LogicalPosition::zero);
-                    if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
-                        let _ = lw.virtual_view_manager.update_virtual_view_info(
-                            *dom_id,
-                            internal_node_id,
-                            eff_origin,
-                            s,
-                            v,
-                        );
-                        lw.scroll_manager.update_virtual_scroll_bounds(
-                            *dom_id,
-                            internal_node_id,
-                            v,
-                            Some(eff_origin),
-                        );
-                        lw.scroll_manager.calculate_scrollbar_states();
-                    }
+                    self.layout_window.apply_virtual_view_geometry(
+                        *dom_id,
+                        internal_node_id,
+                        (*materialized).into(),
+                        (*virtual_rect).into(),
+                    );
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
