@@ -237,10 +237,17 @@ pub fn dialog_button(
     } else {
         button
     };
-    // The width on a wrapper: a widget's own root keeps the properties it sets.
-    Dom::create_div()
-        .with_css("min-width: 88px; margin-left: 8px;")
-        .with_child(button.with_on_click(data.clone(), on_click).dom().with_id(id))
+    // The minimum width is the button's own: the Button is inline-flex, so in a
+    // wider wrapper it keeps its text's width (as in Chrome) and a short "OK"
+    // sat at the left of an empty slot, far from Cancel. The spacing stays on a
+    // wrapper: a widget's own root keeps the properties it sets.
+    Dom::create_div().with_css("margin-left: 8px;").with_child(
+        button
+            .with_on_click(data.clone(), on_click)
+            .dom()
+            .with_id(id)
+            .with_css("min-width: 88px;"),
+    )
 }
 
 /// The row under the panes: `notice` on the left (a problem to tell, `None` = none), then
