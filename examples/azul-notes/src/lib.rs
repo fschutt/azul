@@ -320,7 +320,7 @@ impl AppState {
         let now = azul_storage::time::now_unix();
         if let Some(note) = self.open_note_mut() {
             note.touch(now);
-            note.refresh();
+            note.adopt_text();
         }
         self.last_edit = Some(Instant::now());
         self.status = Status::Editing;

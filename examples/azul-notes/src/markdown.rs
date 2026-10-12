@@ -21,7 +21,7 @@
 //! azul-layout's `widgets::rich_text::markdown`). Front matter keys AzNotes
 //! does not know (an Obsidian `aliases:`) are kept verbatim.
 
-use azul::widgets::{RichBlockKind, RichTextDoc};
+use azul::widgets::RichTextDoc;
 
 /// The front matter of a note.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -307,23 +307,52 @@ pub fn note_to_file(meta: &Meta, doc: &RichTextDoc) -> String {
 /// with a letter, in the order they first appear, each once.
 #[must_use]
 pub fn inline_tags(text: &str) -> Vec<String> {
-    let _ = text;
-    Vec::new()
+    let chars: Vec<char> = text.chars().collect();
+    let mut tags: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        // A tag starts a word (not `C#`, not a link's `/#anchor`) and its
+        // name starts with a letter (not `#1`, not a heading's `# `).
+        let starts_word = i == 0 || chars[i - 1].is_whitespace() || "([{\"'".contains(chars[i - 1]);
+        if chars[i] != '#' || !starts_word || !chars.get(i + 1).is_some_and(|c| c.is_alphabetic()) {
+            i += 1;
+            continue;
+        }
+        let start = i + 1;
+        let mut end = start;
+        while end < chars.len() && (chars[end].is_alphanumeric() || matches!(chars[end], '-' | '_' | '/')) {
+            end += 1;
+        }
+        let mut tag: String = chars[start..end].iter().collect();
+        while tag.ends_with(['-', '_', '/']) {
+            tag.pop();
+        }
+        if !tags.iter().any(|t| t.to_lowercase() == tag.to_lowercase()) {
+            tags.push(tag);
+        }
+        i = end;
+    }
+    tags
 }
 
-/// A title for a note that has none: its first heading, else its first
-/// line of text.
+/// Whether a line holds nothing but tags (`#work #today`).
+fn only_tags(line: &str) -> bool {
+    line.split_whitespace().all(|word| inline_tags(word).len() == 1 && word.starts_with('#'))
+}
+
+/// A note's title, Apple Notes' rule: its first line of text, skipping
+/// lines that hold nothing but tags.
 #[must_use]
 pub fn derived_title(doc: &RichTextDoc) -> String {
-    doc.blocks
-        .iter()
-        .find(|b| matches!(b.kind, RichBlockKind::Heading(_)) && !b.is_empty())
-        .or_else(|| doc.blocks.iter().find(|b| b.kind.has_text() && !b.is_empty()))
-        .map(|b| {
-            let text = b.get_text();
-            crate::model::truncate_chars(text.as_str().lines().next().unwrap_or("").trim(), 80)
-        })
-        .unwrap_or_default()
+    for block in doc.blocks.iter().filter(|b| b.kind.has_text() && !b.is_empty()) {
+        let text = block.get_text();
+        for line in text.as_str().lines().map(str::trim) {
+            if !line.is_empty() && !only_tags(line) {
+                return crate::model::truncate_chars(line, 80);
+            }
+        }
+    }
+    String::new()
 }
 
 #[cfg(test)]

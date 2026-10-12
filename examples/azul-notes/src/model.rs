@@ -122,7 +122,8 @@ impl Note {
             haystack: String::new(),
             preview: String::new(),
         };
-        note.refresh();
+        note.show_front_matter_in_text();
+        note.adopt_text();
         Some(note)
     }
 
@@ -187,8 +188,49 @@ impl Note {
     }
 
     /// Takes the title and the tags from the text, as Apple Notes does: the
-    /// first line is the title, every `#tag` in the text a tag.
-    pub fn adopt_text(&mut self) {}
+    /// first line is the title, every `#tag` in the text a tag. The front
+    /// matter keeps writing both, for search and for other programs.
+    pub fn adopt_text(&mut self) {
+        self.meta.title = markdown::derived_title(&self.doc);
+        self.meta.tags = markdown::inline_tags(self.doc.plain_text().as_str());
+        self.refresh();
+    }
+
+    /// A note whose front matter holds a title or tags its text lacks (an
+    /// older AzNotes wrote them there, as might another program): the
+    /// title becomes its first line, the missing tags a line of inline tags
+    /// at its end, so the text holds everything the note shows. The file
+    /// changes with the next edit's save.
+    fn show_front_matter_in_text(&mut self) {
+        let title = self.meta.title.trim().to_string();
+        let needs_title = !title.is_empty() && markdown::derived_title(&self.doc) != title;
+        let present = markdown::inline_tags(self.doc.plain_text().as_str());
+        let missing: Vec<String> = self
+            .meta
+            .tags
+            .iter()
+            .filter(|t| !present.iter().any(|p| p.to_lowercase() == t.to_lowercase()))
+            .map(|t| format!("#{}", t.split_whitespace().collect::<Vec<_>>().join("-")))
+            .collect();
+        if !needs_title && missing.is_empty() {
+            return;
+        }
+        let mut text = String::new();
+        if needs_title {
+            text.push_str("# ");
+            text.push_str(&title);
+            text.push_str("\n\n");
+        }
+        text.push_str(self.doc.to_markdown().as_str());
+        if !missing.is_empty() {
+            while !text.ends_with("\n\n") {
+                text.push('\n');
+            }
+            text.push_str(&missing.join(" "));
+            text.push('\n');
+        }
+        self.doc = RichTextDoc::create_from_markdown(&text);
+    }
 
     /// Marks the note as needing a save (without a new modified date: a
     /// pin, a move).
@@ -1177,12 +1219,12 @@ mod tests {
     fn a_note_file_reads_back_into_the_same_note() {
         crate::l10n::in_english();
         let mut n = note("a", "Work", "Offsite", NOW);
-        n.meta.tags = vec!["work".to_string()];
-        n.doc = RichTextDoc::create_from_markdown("- [ ] book the room\n");
+        n.doc = RichTextDoc::create_from_markdown("Offsite\n\n- [ ] book the room\n\n#work\n");
+        n.adopt_text();
         let file = n.to_file();
         let back = Note::from_file("notes/Work/a.md", &file, 0).expect("a note key");
         assert_eq!(back.meta, n.meta);
         assert_eq!(back.doc, n.doc);
-        assert_eq!(status_text(&back), "3 words | 0 of 1 done");
+        assert_eq!(status_text(&back), "5 words | 0 of 1 done");
     }
 }

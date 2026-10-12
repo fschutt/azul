@@ -119,7 +119,11 @@ pub fn sample_files(now: u64) -> Vec<(String, String)> {
                 modified,
                 extra: Vec::new(),
             };
-            let doc = azul::widgets::RichTextDoc::create_from_markdown(s.body);
+            // The title is the first line and the tags are written into the
+            // text, as AzNotes keeps every note.
+            let tags: Vec<String> = s.tags.iter().map(|t| format!("#{t}")).collect();
+            let body = format!("# {}\n\n{}\n\n{}\n", s.title, s.body.trim_end(), tags.join(" "));
+            let doc = azul::widgets::RichTextDoc::create_from_markdown(&body);
             (model::note_key(s.notebook, &sample_id(s.n)), markdown::note_to_file(&meta, &doc))
         })
         .collect();
