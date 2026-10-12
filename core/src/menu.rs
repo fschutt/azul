@@ -179,6 +179,67 @@ impl Menu {
         self.hash(&mut hasher);
         hasher.finish()
     }
+
+    /// A hash of what a platform menu SHOWS: labels, shortcuts, states,
+    /// icons and the shape of the tree - not the data the callbacks carry.
+    ///
+    /// An app builds its menu bar again in every layout pass, usually with a
+    /// fresh `RefAny` per item, and that data's identity is part of
+    /// [`Self::get_hash`]. A shell that reinstalled its native menu whenever
+    /// that hash moved did so on every DOM rebuild, and the menu bar
+    /// flickered while a slider was dragged. Equal here means only the
+    /// callbacks changed: hand them over in place ([`Self::leaf_callbacks`]).
+    #[must_use]
+    pub fn get_structure_hash(&self) -> u64 {
+        use core::hash::Hasher;
+        let mut hasher = crate::hash::DefaultHasher::new();
+        self.position.hash(&mut hasher);
+        self.context_mouse_btn.hash(&mut hasher);
+        hash_menu_structure(self.items.as_ref(), &mut hasher);
+        hasher.finish()
+    }
+
+    /// The callback of every leaf item (an item without children), depth
+    /// first: the order the native menus number their items in. `None` for
+    /// a leaf without a callback; separators are not leaves.
+    #[must_use]
+    pub fn leaf_callbacks(&self) -> Vec<Option<&CoreMenuCallback>> {
+        let mut leaves = Vec::new();
+        collect_leaf_callbacks(self.items.as_ref(), &mut leaves);
+        leaves
+    }
+}
+
+/// [`Menu::get_structure_hash`] over `items` and their children.
+fn hash_menu_structure<H: core::hash::Hasher>(items: &[MenuItem], state: &mut H) {
+    items.len().hash(state);
+    for item in items {
+        match item {
+            MenuItem::String(s) => {
+                0_u8.hash(state);
+                s.label.hash(state);
+                s.accelerator.hash(state);
+                s.menu_item_state.hash(state);
+                s.icon.hash(state);
+                hash_menu_structure(s.children.as_ref(), state);
+            }
+            MenuItem::Separator => 1_u8.hash(state),
+            MenuItem::BreakLine => 2_u8.hash(state),
+        }
+    }
+}
+
+/// [`Menu::leaf_callbacks`] over `items` and their children.
+fn collect_leaf_callbacks<'a>(items: &'a [MenuItem], out: &mut Vec<Option<&'a CoreMenuCallback>>) {
+    for item in items {
+        if let MenuItem::String(s) = item {
+            if s.children.as_ref().is_empty() {
+                out.push(s.callback.as_option());
+            } else {
+                collect_leaf_callbacks(s.children.as_ref(), out);
+            }
+        }
+    }
 }
 
 /// Specifies where a popup menu should appear relative to the cursor or clicked element.

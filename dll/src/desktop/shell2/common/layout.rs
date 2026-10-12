@@ -1909,11 +1909,43 @@ fn apply_runtime_states_before_layout(
                 let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
                 if let Some(styled_node) = styled_nodes.get_mut(node_id) {
                     styled_node.styled_node_state.focused = true;
+                    // `:focus-visible`: rung only when the focus came from
+                    // the keyboard or assistive technology, not a click.
+                    styled_node.styled_node_state.focus_visible =
+                        layout_window.focus_manager.focus_is_visible;
                     log_debug!(
                         LogCategory::Layout,
                         "[apply_runtime_states_before_layout] Set focused=true for node {:?}",
                         node_id
                     );
+                }
+            }
+        }
+    }
+
+    // 1b. A control the keyboard holds pressed (Space / Enter, until the key
+    // comes up) stays `:active` in a DOM its own click asked to rebuild -
+    // the focused node and its ancestors, as a pointer's press.
+    if layout_window.focus_manager.pressed_by_key {
+        if let Some(focused) = layout_window
+            .focus_manager
+            .get_focused_node()
+            .filter(|n| n.dom == dom_id)
+            .and_then(|n| n.node.into_crate_internal())
+        {
+            let chain: Vec<azul_core::id::NodeId> = {
+                let hierarchy = styled_dom.node_hierarchy.as_container();
+                core::iter::successors(Some(focused), |n| {
+                    hierarchy
+                        .get(*n)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                })
+                .collect()
+            };
+            let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
+            for node in chain {
+                if let Some(styled_node) = styled_nodes.get_mut(node) {
+                    styled_node.styled_node_state.active = true;
                 }
             }
         }

@@ -2056,6 +2056,7 @@ impl CssPropertyCache {
                 PseudoStateType::Hover,
                 PseudoStateType::Active,
                 PseudoStateType::Focus,
+                PseudoStateType::FocusVisible,
                 PseudoStateType::SeatFocus,
                 PseudoStateType::Dragging,
                 PseudoStateType::DragOver,
@@ -2321,6 +2322,7 @@ impl CssPropertyCache {
                         if has_pseudo(PseudoStateType::Hover)
                             || has_pseudo(PseudoStateType::Active)
                             || has_pseudo(PseudoStateType::Focus)
+                            || has_pseudo(PseudoStateType::FocusVisible)
                             || has_pseudo(PseudoStateType::SeatFocus)
                             || has_pseudo(PseudoStateType::Dragging)
                             || has_pseudo(PseudoStateType::DragOver)
@@ -3239,7 +3241,8 @@ impl CssPropertyCache {
         //   host. Anything `::placeholder` does not declare keeps falling
         //   through to the host's normal value, which is what makes an
         //   unstyled prompt inherit the field's font.
-        // - `:focus` > `:seat-focus` (9b-ii-a-i-d-iii-a: a non-primary seat's
+        // - `:focus-visible` > `:focus` (a ring declared for seen focus wins
+        //   over the plain focus face) > `:seat-focus` (9b-ii-a-i-d-iii-a: a non-primary seat's
         //   focus) > `:active` > `:dragging` > `:drag-over` (both above
         //   `:hover`) > `:hover`.
         // - `:backdrop` (GTK: the window is not the active one). A WINDOW
@@ -3252,6 +3255,7 @@ impl CssPropertyCache {
         let index = node_id.index();
         let tiers = [
             (node_state.placeholder, PseudoStateType::Placeholder),
+            (node_state.focus_visible, PseudoStateType::FocusVisible),
             (node_state.focused, PseudoStateType::Focus),
             (node_state.seat_focused, PseudoStateType::SeatFocus),
             (node_state.active, PseudoStateType::Active),

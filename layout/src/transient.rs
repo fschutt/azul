@@ -736,7 +736,8 @@ pub struct TransientWindowManager {
     /// `set_transient_window_open(node, false)` or by a user dismissal.
     forced_open: Vec<NodeId>,
     /// Bumped whenever the set of inline-docked nodes or their zones may
-    /// have changed (a drop, a tear-off, a window opening or closing). The
+    /// have changed (a drop, a tear-off, a window opening or closing), never
+    /// for a window that only moved with its anchor. The
     /// layout fast path compares it with the generation it last laid out:
     /// an identical DOM whose docking changed must still re-layout.
     dock_generation: u64,
@@ -1006,6 +1007,7 @@ impl TransientWindowManager {
         mut content_size_of: impl FnMut(DomId, &TransientPlacement) -> Option<LogicalSize>,
     ) -> TransientDiff {
         let mut diff = TransientDiff::default();
+        let docks_before = self.layout_docks();
 
         // 0. A dismissed node is re-armed the moment the app stops asking for it (`open=false`);
         //    while it still asks, the dismissal wins.
@@ -1098,7 +1100,11 @@ impl TransientWindowManager {
             diff.opened.push(content_dom);
         }
 
-        if !diff.is_empty() {
+        // Only what the layout tree builder reads counts: which windows are
+        // open and which of them are grafted inline where. A window that
+        // merely moved followed its anchor, which the parent's layout has
+        // just placed - another pass would lay the page out again, cold.
+        if self.layout_docks() != docks_before {
             self.dock_generation += 1;
         }
         diff
@@ -1352,6 +1358,50 @@ mod manager_tests {
         let d3 = m.reconcile(&[placement(4, 50.0)], sized);
         assert_eq!(d3.moved, vec![id]);
         assert!(d3.opened.is_empty() && d3.closed.is_empty());
+    }
+
+    /// A popup or an inline panel whose anchor moved - a section above it
+    /// opened - docks exactly as before. The parent's layout tree does not
+    /// change, so the parent must not be asked for another pass: that pass
+    /// lays the whole page out again from a cold cache.
+    #[test]
+    fn a_window_that_only_moved_leaves_the_docking_alone() {
+        let inline = |x: f32| TransientPlacement {
+            dock: TransientDock::Inline,
+            ..placement(7, x)
+        };
+        let mut m = TransientWindowManager::new();
+        m.reconcile(&[placement(4, 0.0), inline(0.0)], sized);
+        let docked = m.dock_generation();
+
+        let d = m.reconcile(&[placement(4, 0.0), inline(0.0)], sized);
+        assert_eq!(d, TransientDiff::default(), "premise: nothing changed");
+        let d = m.reconcile(&[placement(4, 50.0), inline(80.0)], sized);
+        assert_eq!(d.moved.len(), 2, "premise: both windows moved");
+
+        assert_eq!(m.dock_generation(), docked);
+    }
+
+    /// What does change the docking still asks for a pass: a window that
+    /// opens, one that closes, and an open window that turns inline.
+    #[test]
+    fn opening_closing_or_inlining_a_window_changes_the_docking() {
+        let mut m = TransientWindowManager::new();
+        let start = m.dock_generation();
+        m.reconcile(&[placement(4, 0.0)], sized);
+        let opened = m.dock_generation();
+        assert_ne!(opened, start, "an opened window");
+
+        let inline = TransientPlacement {
+            dock: TransientDock::Inline,
+            ..placement(4, 0.0)
+        };
+        m.reconcile(&[inline], sized);
+        let inlined = m.dock_generation();
+        assert_ne!(inlined, opened, "a window that turned inline");
+
+        m.reconcile(&[], sized);
+        assert_ne!(m.dock_generation(), inlined, "a closed window");
     }
 
     /// A node that stops being open closes its window, and a new open node

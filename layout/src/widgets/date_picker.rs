@@ -956,8 +956,13 @@ pub(crate) fn build_day_cell_style(selected: bool) -> CssPropertyWithConditionsV
             13
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
-            LayoutPaddingTop::const_px(5,)
+        // The number's line box is the whole cell, so the number sits in its
+        // middle. Padding pushing it down would come on top of the height
+        // (content-box), and the row would grow past the blank cells beside it.
+        CssPropertyWithConditions::simple(CssProperty::const_line_height(
+            azul_css::props::style::StyleLineHeight::Length(
+                azul_css::props::basic::pixel::PixelValue::const_px(CELL_H)
+            )
         )),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),

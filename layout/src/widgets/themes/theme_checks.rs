@@ -117,7 +117,12 @@ fn applies(conds: &DynamicSelectorVec, dark: bool, state: Option<PseudoStateType
     live.as_ref().iter().all(|c| match c {
         DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark) => dark,
         DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light) => !dark,
-        DynamicSelector::PseudoState(s) => Some(*s) == state,
+        // Keyboard focus raises `:focus` and `:focus-visible` together: a
+        // probe of the focused state sees the rings declared for either.
+        DynamicSelector::PseudoState(s) => {
+            Some(*s) == state
+                || (*s == PseudoStateType::FocusVisible && state == Some(PseudoStateType::Focus))
+        }
         _ => false,
     })
 }

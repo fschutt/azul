@@ -6030,6 +6030,7 @@ impl Lower for crate::dynamic_selector::PseudoStateType {
             Self::Dragging => "Dragging",
             Self::DragOver => "DragOver",
             Self::Placeholder => "Placeholder",
+            Self::FocusVisible => "FocusVisible",
         };
         Expr::unit("PseudoStateType", EnumShape::CLike, variant)
     }

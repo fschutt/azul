@@ -994,12 +994,13 @@ pub(crate) fn pressed_depth() -> Vec<CssPropertyWithConditions> {
 /// colour. 2 for a command (`outline-offset: 2px`), 1 for a field.
 #[must_use]
 pub(crate) fn double_ring(gap: isize) -> Vec<CssPropertyWithConditions> {
+    // `:focus-visible`: a click focuses the control without ringing it.
     let mut v = Vec::with_capacity(4);
-    v.extend(CssPropertyWithConditions::themed_on_focus(
+    v.extend(CssPropertyWithConditions::themed_on_focus_visible(
         shadow_in(ShadowSlot::Left, 0, 0, gap + 2, LIGHT_ACC, false),
         shadow_in(ShadowSlot::Left, 0, 0, gap + 2, DARK_GLOW, false),
     ));
-    v.extend(CssPropertyWithConditions::themed_on_focus(
+    v.extend(CssPropertyWithConditions::themed_on_focus_visible(
         shadow_in(ShadowSlot::Bottom, 0, 0, gap, LIGHT_SUR, false),
         shadow_in(ShadowSlot::Bottom, 0, 0, gap, DARK_SUR, false),
     ));
@@ -1448,6 +1449,9 @@ fn flora_button_states(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWit
             if boxed {
                 v.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
             }
+            // Pressed, the note takes the quiet wash, as every command takes
+            // a pressed face (its fade walks there, over --fl-dur-fast).
+            v.extend(decl::active_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
         }
     }
     v

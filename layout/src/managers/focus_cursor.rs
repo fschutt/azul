@@ -78,6 +78,12 @@ pub struct FocusManager {
     /// pointer click and `autofocus` clear it.
     pub focus_is_visible: bool,
 
+    /// The focused control is held PRESSED by the keyboard: Space or Enter
+    /// activated it and has not come up yet. The shell shows it `:active`
+    /// (the theme's pressed face and its press animation, as for a pointer)
+    /// until the key's KeyUp, and re-applies it to a DOM rebuilt meanwhile.
+    pub pressed_by_key: bool,
+
     // --- W3C "flag and defer" pattern fields ---
     /// Flag indicating that cursor initialization is pending (set during focus, consumed after
     /// layout)
@@ -156,6 +162,7 @@ impl FocusManager {
             focus_lost_to_unmount: Vec::new(),
             pending_focus_request: None,
             focus_is_visible: false,
+            pressed_by_key: false,
             cursor_needs_initialization: false,
             pending_contenteditable_focus: None,
             deferred_focus_target: None,

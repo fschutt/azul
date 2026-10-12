@@ -53,7 +53,7 @@ const HEIGHT: f32 = 600.0;
 /// An AzWidgets-like settings card: a heading, a label row with a button, a
 /// paragraph, and text beside a block (an anonymous block holds the text).
 /// An `edited` card's label reads differently.
-fn card(i: usize, edited: bool) -> Dom {
+pub(crate) fn card(i: usize, edited: bool) -> Dom {
     let label = if edited {
         format!("Label {i}: a setting whose description was edited")
     } else {
@@ -162,7 +162,7 @@ fn widgets_page_with(cards: usize, knob_px: isize, edited: Option<usize>) -> Dom
 
 /// A window that has laid the page out cold and once more warm: the pass
 /// under test is an incremental one, as every animation frame is.
-fn window(mut dom: Dom) -> LayoutWindow {
+pub(crate) fn window(mut dom: Dom) -> LayoutWindow {
     let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
     let mut ws = FullWindowState::default();
@@ -180,7 +180,7 @@ fn window(mut dom: Dom) -> LayoutWindow {
     lw
 }
 
-fn relayout(lw: &mut LayoutWindow) {
+pub(crate) fn relayout(lw: &mut LayoutWindow) {
     let result = lw.layout_results.remove(&DomId::ROOT_ID).expect("laid out");
     let window_state = lw.current_window_state.clone();
     lw.layout_and_generate_display_list(
@@ -312,20 +312,20 @@ fn painted_glyphs(lw: &LayoutWindow) -> Vec<(u32, f32, f32)> {
 
 /// What one knob frame cost, counted from the probe spans of its relayout.
 #[derive(Debug, Clone, Copy)]
-struct FrameCost {
+pub(crate) struct FrameCost {
     /// `root_layout_pass`: the frame ran a layout pass at all.
-    layout_passes: usize,
+    pub(crate) layout_passes: usize,
     /// `text_layout_flow`: text runs broken into lines again.
-    text_flows: usize,
+    pub(crate) text_flows: usize,
     /// Flex / grid items laid out again (taffy cache misses, and final
     /// layouts that could not be served).
-    flex_items_laid_out: usize,
+    pub(crate) flex_items_laid_out: usize,
     /// Formatting contexts laid out (`fc_block`, `fc_inline`,
     /// `fc_inline_block`, `fc_flex_grid`).
-    formatting_contexts: usize,
+    pub(crate) formatting_contexts: usize,
 }
 
-fn count(events: &[Event], name: &str) -> usize {
+pub(crate) fn count(events: &[Event], name: &str) -> usize {
     events.iter().filter(|e| e.name == name).count()
 }
 
@@ -368,7 +368,7 @@ fn knob_frame_cost(cards: usize) -> FrameCost {
 /// Put the recording flag back the way `AZ_PROFILE` asked for it (the same
 /// derivation `probe_gate` uses), so `frame_perf` and `pagination_perf` in
 /// this binary keep their profile.
-fn restore_ambient_recording() {
+pub(crate) fn restore_ambient_recording() {
     let ambient = azul_core::profile::cpu_enabled()
         || azul_core::profile::memory_enabled()
         || azul_core::profile::heap_enabled();

@@ -228,6 +228,10 @@ impl Default for E2eScriptHandle {
 /// - Atomic application of all changes
 /// - Easy debugging and logging of callback actions
 /// - Future extensibility for new change types
+/// How far below the pointer a tooltip shown at the pointer opens, in
+/// logical px: past a standard arrow cursor, as the platforms place theirs.
+const TOOLTIP_BELOW_POINTER: f32 = 20.0;
+
 #[derive(Debug, Clone)]
 pub enum CallbackChange {
     /// Start the remote-control HTTP debug server on the specified port.
@@ -3607,10 +3611,15 @@ impl CallbackInfo {
     /// # Arguments
     /// * `text` - The tooltip text to display
     pub fn show_tooltip(&mut self, text: AzString) {
+        // Below the pointer, as the platforms' own tooltips open: a tooltip
+        // window under the pointer takes it from the control it explains,
+        // which then hears MouseLeave, hides the tooltip and shows it again.
         let position = self
             .get_cursor_relative_to_viewport()
             .into_option()
-            .unwrap_or_else(LogicalPosition::zero);
+            .map_or_else(LogicalPosition::zero, |cursor| {
+                LogicalPosition::new(cursor.x, cursor.y + TOOLTIP_BELOW_POINTER)
+            });
         self.push_change(CallbackChange::ShowTooltip { text, position });
     }
 
@@ -8030,6 +8039,15 @@ mod autotest_generated {
     /// Every query API therefore hits its "nothing there" path - which is
     /// exactly the path adversarial tests need to exercise.
     fn with_info<R>(hit: DomNodeId, f: impl FnOnce(&mut CallbackInfo) -> R) -> R {
+        with_info_at_cursor(hit, OptionLogicalPosition::None, f)
+    }
+
+    /// [`with_info`] with the pointer at `cursor` in the viewport.
+    fn with_info_at_cursor<R>(
+        hit: DomNodeId,
+        cursor: OptionLogicalPosition,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> R {
         let layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         let renderer_resources = RendererResources::default();
@@ -8064,7 +8082,7 @@ mod autotest_generated {
             &changes,
             hit,
             OptionLogicalPosition::None,
-            OptionLogicalPosition::None,
+            cursor,
         );
 
         f(&mut info)
@@ -9463,6 +9481,30 @@ mod autotest_generated {
             );
             assert!(
                 matches!(&changes[2], CallbackChange::ShowTooltip { text, .. } if text.as_str().len() == 100_000)
+            );
+        });
+    }
+
+    /// A tooltip shown at the pointer opens BELOW it, as the platforms' own
+    /// tooltips do. Opened under the pointer, the tooltip window took the
+    /// pointer from the control it explains: the control heard MouseLeave,
+    /// hid the tooltip, heard MouseEnter again and showed it - the flicker on
+    /// AzDrive's disabled "Move to".
+    #[test]
+    fn a_tooltip_at_the_pointer_opens_below_it() {
+        let cursor = LogicalPosition::new(120.0, 80.0);
+        with_info_at_cursor(node_none(), OptionLogicalPosition::Some(cursor), |info| {
+            info.show_tooltip(AzString::from("Select a file to move it"));
+            let changes = info.take_changes();
+            let Some(CallbackChange::ShowTooltip { position, .. }) = changes.first() else {
+                panic!("show_tooltip records a ShowTooltip, {changes:?}");
+            };
+            assert_eq!(position.x, cursor.x, "the tooltip starts where the pointer is");
+            assert!(
+                position.y >= cursor.y + 16.0,
+                "the tooltip opens at y {} under a pointer at y {}: it covers the pointer",
+                position.y,
+                cursor.y
             );
         });
     }

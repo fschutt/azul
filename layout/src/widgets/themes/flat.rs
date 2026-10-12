@@ -913,7 +913,12 @@ pub fn button(btn: Button) -> Dom {
         container_style.extend(button_states(btn_type));
         // The face follows the pointer in a short fade and darkens the
         // instant it is pressed (`decl::state_fade`). A link only underlines.
-        if btn_type != crate::widgets::button::ButtonType::Link {
+        if btn_type == crate::widgets::button::ButtonType::Link {
+            container_style.extend(super::decl::state_fade(
+                &["opacity"],
+                super::decl::BUTTON_FADE_MS,
+            ));
+        } else {
             container_style.extend(super::decl::state_fade(
                 super::decl::BUTTON_FACE,
                 super::decl::BUTTON_FADE_MS,
@@ -2304,9 +2309,18 @@ pub fn button_states(
                 StyleTextDecoration::Underline.into(),
             )),
         ];
-        // A link is a keyboard stop too: it shows focus as a halo, which
-        // takes no room, so nothing moves when it is focused.
-        out.extend(super::decl::focus_halo(FIELD_RING, DARK_ACC));
+        // A link presses like every button: its ink dims while held, the
+        // face its press fades to and back from.
+        out.push(CssPropertyWithConditions::on_active(CssProperty::const_opacity(
+            azul_css::props::style::StyleOpacity::const_new(60),
+        )));
+        // A link is a keyboard stop too: it shows keyboard focus as a halo,
+        // which takes no room, so nothing moves when it is focused.
+        out.extend(
+            super::decl::focus_halo(FIELD_RING, DARK_ACC)
+                .into_iter()
+                .map(CssPropertyWithConditions::when_focus_visible),
+        );
         return out;
     }
 
@@ -2357,15 +2371,16 @@ pub fn button_states(
         }
     }
 
-    // The focus ring is the accent in both modes, and the consts already pair it.
-    out.push(FOCUS_BORDER_TOP);
-    out.push(FOCUS_BORDER_BOTTOM);
-    out.push(FOCUS_BORDER_LEFT);
-    out.push(FOCUS_BORDER_RIGHT);
-    out.push(FOCUS_BORDER_TOP_DARK);
-    out.push(FOCUS_BORDER_BOTTOM_DARK);
-    out.push(FOCUS_BORDER_LEFT_DARK);
-    out.push(FOCUS_BORDER_RIGHT_DARK);
+    // The focus ring is the accent in both modes, and the consts already pair
+    // it - rung on `:focus-visible`: a click focuses a button without a ring.
+    out.push(FOCUS_BORDER_TOP.when_focus_visible());
+    out.push(FOCUS_BORDER_BOTTOM.when_focus_visible());
+    out.push(FOCUS_BORDER_LEFT.when_focus_visible());
+    out.push(FOCUS_BORDER_RIGHT.when_focus_visible());
+    out.push(FOCUS_BORDER_TOP_DARK.when_focus_visible());
+    out.push(FOCUS_BORDER_BOTTOM_DARK.when_focus_visible());
+    out.push(FOCUS_BORDER_LEFT_DARK.when_focus_visible());
+    out.push(FOCUS_BORDER_RIGHT_DARK.when_focus_visible());
     out
 }
 

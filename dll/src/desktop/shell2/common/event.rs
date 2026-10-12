@@ -768,12 +768,15 @@ fn apply_focus_restyle_in_dom(
 
     // The states before the flip: a declared `animation` fades from them.
     let before = layout_window.node_states(dom_id, old_focus.into_iter().chain(new_focus));
+    // Whether the new focus is SEEN (`:focus-visible`): the route that moved
+    // it (keyboard or click) set this before the restyle.
+    let visible = layout_window.focus_manager.focus_is_visible;
     let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
 
     // Apply restyle for focus change
-    let restyle_result = layout_result.styled_dom.restyle_on_state_change(
+    let mut restyle_result = layout_result.styled_dom.restyle_on_state_change(
         Some(FocusChange {
             lost_focus: old_focus,
             gained_focus: new_focus,
@@ -781,6 +784,13 @@ fn apply_focus_restyle_in_dom(
         None, // hover
         None, // active
     );
+    if let (Some(gained), true) = (new_focus, visible) {
+        restyle_result.merge(
+            layout_result
+                .styled_dom
+                .restyle_on_focus_visibility(gained, true),
+        );
+    }
     let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
 
     log_debug!(
@@ -9232,11 +9242,28 @@ pub trait PlatformWindow {
                         result = result.max(restyle_result);
                     } else if visibility_changed {
                         // Same node, different indication (a Tab that lands
-                        // on the node a click focused): the ring lives in the
+                        // on the node a click focused): the node's
+                        // `:focus-visible` flips, and the ring lives in the
                         // display list, so rebuild it before asking for the
                         // present.
-                        if let Some(dom) = new_focus.map(|n| n.dom) {
-                            layout_window.regenerate_display_list_for_dom(dom);
+                        if let Some(focus_node) = *new_focus {
+                            let seen = match (
+                                focus_node.node.into_crate_internal(),
+                                layout_window.layout_results.get_mut(&focus_node.dom),
+                            ) {
+                                (Some(node), Some(lr)) => {
+                                    Some(lr.styled_dom.restyle_on_focus_visibility(node, *visible))
+                                }
+                                _ => None,
+                            };
+                            if let Some(seen) = seen {
+                                stage_css_dirty(layout_window, focus_node.dom, &seen);
+                                if seen.needs_layout {
+                                    result =
+                                        result.max(ProcessEventResult::ShouldIncrementalRelayout);
+                                }
+                            }
+                            layout_window.regenerate_display_list_for_dom(focus_node.dom);
                         }
                         result =
                             result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
@@ -12068,6 +12095,7 @@ pub trait PlatformWindow {
             use std::collections::BTreeMap;
             let mut pressed: BTreeMap<DomId, Vec<NodeId>> = BTreeMap::new();
             let mut released = false;
+            let mut key_up = false;
             for ev in &synthetic_events {
                 match ev.event_type {
                     azul_core::events::EventType::MouseDown => {
@@ -12076,7 +12104,17 @@ pub trait PlatformWindow {
                         }
                     }
                     azul_core::events::EventType::MouseUp => released = true,
+                    azul_core::events::EventType::KeyUp => key_up = true,
                     _ => {}
+                }
+            }
+            // The key that pressed a control (Space / Enter, `pressed_by_key`)
+            // came up: release it like a pointer's button. Any release ends a
+            // keyboard press too, so a key whose KeyUp never came (the window
+            // lost focus) cannot hold a control pressed for good.
+            if key_up || released {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    released |= core::mem::take(&mut lw.focus_manager.pressed_by_key);
                 }
             }
             if pressed.is_empty() && !released {
@@ -13233,6 +13271,21 @@ pub trait PlatformWindow {
 
                                 DefaultAction::ActivateFocusedElement { target } => {
                                     synthetic_click_target = Some(*target);
+                                    // A keyboard activation PRESSES the control,
+                                    // as a pointer does: its `:active` face, and
+                                    // the press animation declared for it, show
+                                    // until the key comes up (the KeyUp releases
+                                    // it, see `active_restyle_result`).
+                                    if let (Some(node), Some(lw)) = (
+                                        target.node.into_crate_internal(),
+                                        self.get_layout_window_mut(),
+                                    ) {
+                                        lw.focus_manager.pressed_by_key = true;
+                                        let mut pressed = std::collections::BTreeMap::new();
+                                        pressed.insert(target.dom, vec![node]);
+                                        result =
+                                            result.max(apply_active_restyle(lw, pressed, false));
+                                    }
                                 }
 
                                 DefaultAction::InsertLineBreakAtCursor { target } => {

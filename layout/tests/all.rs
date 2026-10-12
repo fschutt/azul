@@ -1043,3 +1043,9 @@ mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 mod the_file_menu_sets_its_own_type_and_its_rows_grow_with_their_words;
 #[path = "a_collapsed_navigation_pane_leaves_no_space_behind.rs"]
 mod a_collapsed_navigation_pane_leaves_no_space_behind;
+#[path = "an_accordion_frame_does_not_re_lay_out_the_page.rs"]
+mod an_accordion_frame_does_not_re_lay_out_the_page;
+#[path = "a_date_pickers_rows_are_one_cell_tall.rs"]
+mod a_date_pickers_rows_are_one_cell_tall;
+#[path = "a_button_focused_by_a_click_shows_no_focus_ring.rs"]
+mod a_button_focused_by_a_click_shows_no_focus_ring;
