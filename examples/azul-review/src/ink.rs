@@ -246,28 +246,36 @@ impl InkCanvas {
     }
 }
 
-/// What a layer is to show now, read from the app.
-struct Wanted {
-    key: FrameKey,
-    /// The kept strokes of the layer, read only when the frame is drawn anew.
-    kept: Option<Vec<Stroke>>,
-    /// The stroke being drawn, when it is on this layer of this page.
-    live: Option<Stroke>,
+/// The strokes of `layer` on `page` are `st`'s.
+fn on(st: &Stroke, page: usize, layer: Layer) -> bool {
+    st.page == page && Layer::of(st.semantic) == layer
 }
 
+/// The key a frame of `layer` on `page` at `size` must have now, and the
+/// stroke being drawn when it is on that layer of that page.
 fn wanted(
     app: &mut RefAny,
     page: usize,
     layer: Layer,
     size: (u32, u32),
-    shown: Option<FrameKey>,
-) -> Option<Wanted> {
+) -> Option<(FrameKey, Option<Stroke>)> {
     let s = app.downcast_ref::<AppState>()?;
-    let key = s.ink.key(page, size);
-    let mine = |st: &&Stroke| st.page == page && Layer::of(st.semantic) == layer;
-    let kept = (shown != Some(key)).then(|| s.strokes.iter().filter(mine).cloned().collect());
-    let live = s.live.as_ref().filter(mine).cloned();
-    Some(Wanted { key, kept, live })
+    let live = s.live.as_ref().filter(|st| on(st, page, layer)).cloned();
+    Some((s.ink.key(page, size), live))
+}
+
+/// The kept strokes of `layer` on `page`, read only when a frame is drawn
+/// anew.
+fn kept(app: &mut RefAny, page: usize, layer: Layer) -> Vec<Stroke> {
+    app.downcast_ref::<AppState>()
+        .map(|s| {
+            s.strokes
+                .iter()
+                .filter(|st| on(st, page, layer))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The ink layer's `RenderImageCallback`: the kept frame, with what changed
@@ -293,14 +301,8 @@ fn draw_frame(
 ) -> Option<ImageRef> {
     let mut canvas = data.downcast_mut::<InkCanvas>()?;
     let canvas = &mut *canvas;
-    let mut app = canvas.app.clone();
-    let want = wanted(
-        &mut app,
-        canvas.page,
-        canvas.layer,
-        (w, h),
-        canvas.frame.key,
-    )?;
+    let (mut app, page, layer) = (canvas.app.clone(), canvas.page, canvas.layer);
+    let (key, live) = wanted(&mut app, page, layer, (w, h))?;
     let frame = &mut canvas.frame;
 
     let gl = info
@@ -330,38 +332,34 @@ fn draw_frame(
             frame.key = None;
         }
         let tex = frame.texture.as_mut()?;
-        if frame.key != Some(want.key) {
+        if frame.key != Some(key) {
             // A fresh texture holds whatever the driver left in it: clear it first.
             tex.clear();
-            for s in want.kept.as_deref().unwrap_or(&[]) {
+            for s in &kept(&mut app, page, layer) {
                 paint_from(s, 0, &mut |x0, y0, x1, y1, b| {
                     tex.paint_stroke(x0, y0, x1, y1, b)
                 });
             }
-            frame.key = Some(want.key);
+            frame.key = Some(key);
             frame.live = LiveProgress::default();
         }
-        frame
-            .live
-            .paint(want.live.as_ref(), &mut |x0, y0, x1, y1, b| {
-                tex.paint_stroke(x0, y0, x1, y1, b)
-            });
+        frame.live.paint(live.as_ref(), &mut |x0, y0, x1, y1, b| {
+            tex.paint_stroke(x0, y0, x1, y1, b)
+        });
         return Some(ImageRef::gl_texture(tex.clone()));
     }
 
     let mut changed = false;
-    if frame.key != Some(want.key) || frame.pixels.is_none() {
-        frame.pixels = Some(draw_cpu(w, h, want.kept.as_deref().unwrap_or(&[])));
-        frame.key = Some(want.key);
+    if frame.key != Some(key) || frame.pixels.is_none() {
+        frame.pixels = Some(draw_cpu(w, h, &kept(&mut app, page, layer)));
+        frame.key = Some(key);
         frame.live = LiveProgress::default();
         changed = true;
     }
     let pixels = frame.pixels.as_mut()?;
-    changed |= frame
-        .live
-        .paint(want.live.as_ref(), &mut |x0, y0, x1, y1, b| {
-            pixels.paint_stroke(x0, y0, x1, y1, b)
-        });
+    changed |= frame.live.paint(live.as_ref(), &mut |x0, y0, x1, y1, b| {
+        pixels.paint_stroke(x0, y0, x1, y1, b)
+    });
     if changed || frame.shown.is_none() {
         frame.shown = ImageRef::create_rawimage(pixels.clone()).into_option();
     }
