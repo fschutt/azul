@@ -1339,6 +1339,52 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
+    // the native tooltip window
+    // ------------------------------------------------------------------
+
+    /// The payload a built tooltip hands its `event` handler.
+    fn payload_of(dom: &Dom, event: HoverEventFilter) -> RefAny {
+        dom.root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .find(|cb| cb.event == EventFilter::Hover(event))
+            .map(|cb| cb.refany.clone())
+            .expect("the wrapper takes the event")
+    }
+
+    /// The user's report: the AzWidgets tooltip showcase never opens the
+    /// operating system's tooltip window - the tip is a styled child of the
+    /// page, clipped by its ancestors. Hovering the anchor opens the native
+    /// tooltip window with the tip's text; leaving it closes the window. The
+    /// page is not restyled for it.
+    #[test]
+    fn hovering_a_tooltip_opens_the_native_tooltip_window_with_its_text() {
+        let dom = Tooltip::new(Dom::create_div(), AzString::from("Saves the file")).dom();
+        let (update, entered) = with_info(Some(anchor_tip_dom()), node(0), |info| {
+            on_tooltip_enter(payload_of(&dom, HoverEventFilter::MouseEnter), info)
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(
+            entered.iter().any(|c| matches!(
+                c,
+                CallbackChange::ShowTooltip { text, .. } if text.as_str() == "Saves the file"
+            )),
+            "entering the anchor opens the tooltip window with the text, {entered:?}"
+        );
+        assert!(css_writes(&entered).is_empty(), "nothing on the page is restyled");
+
+        let (_, left) = with_info(Some(anchor_tip_dom()), node(0), |info| {
+            on_tooltip_leave(payload_of(&dom, HoverEventFilter::MouseLeave), info)
+        });
+        assert!(
+            left.iter().any(|c| matches!(c, CallbackChange::HideTooltip)),
+            "leaving the anchor closes the tooltip window, {left:?}"
+        );
+        assert!(css_writes(&left).is_empty(), "nothing on the page is restyled");
+    }
+
+    // ------------------------------------------------------------------
     // tip_of_wrapper
     // ------------------------------------------------------------------
 
