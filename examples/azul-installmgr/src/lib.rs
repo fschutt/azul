@@ -590,6 +590,10 @@ pub fn start() {
     } else {
         ((960.0, 620.0), (720.0, 420.0))
     };
+    // The install wizard's pages are laid out for the classic size: it is never maximized.
+    if screen == Screen::Wizard {
+        kit::keep_default_size(&kit_ref);
+    }
     let mut window = kit::window_options(&kit_ref, layout, size, min, on_window_created);
     window.window_state.title = AzString::from(t("azinstallmgr-title"));
     App::create(RefAny::new(state), config).run(window);
