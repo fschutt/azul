@@ -7,9 +7,9 @@
 //! lines, widows / orphans - [`paginate`]); a page on screen is a clip window over that column
 //! ([`position::PageMap`]). Plain text and HTML files are books too ([`plainbook`]).
 //!
-//! The window is the S1 `DocumentShell` (the app-drawn `Titlebar` under
-//! `WindowDecorations::NoTitle`, the ribbon, the navigation pane, the document, the status
-//! bar) inside a `ShellThemeScope`; it follows the app theme (flat / flora) and the OS mode;
+//! The window is the S1 `DocumentShell` (the ribbon, whose tab strip is the title bar the
+//! window drags by, the navigation pane, the document, the status bar; the settings page keeps
+//! the app-drawn `Titlebar`) inside a `ShellThemeScope`; it follows the app theme (flat / flora) and the OS mode;
 //! the PAPER (auto / white / sepia / night) is the reader's own. The library is the shelves
 //! and a covers grid; the reader the pages, the table of contents and the bookmarks.
 //!
@@ -254,10 +254,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         ])
     } else {
         match st.screen {
+            // No title row while the ribbon shows: its tabs are the title bar.
             Screen::Library => DocumentShell::create(ui_library::content(&app, st))
                 .with_navigation(ui_library::navigation(&app, st))
                 .office_shell()
-                .with_title_row(kit::title_row(&title))
                 .with_ribbon(ribbon::ribbon(&app, st))
                 .with_status_bar(ui_library::status_bar(st))
                 .dom(),
@@ -268,7 +268,6 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 }
                 shell
                     .office_shell()
-                    .with_title_row(kit::title_row(&title))
                     .with_ribbon(ribbon::ribbon(&app, st))
                     .with_status_bar(ui_reader::status_bar(st))
                     .dom()
