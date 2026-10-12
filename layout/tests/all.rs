@@ -1041,3 +1041,5 @@ mod a_label_names_the_control_it_is_for;
 mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 #[path = "a_dragged_thumb_scrolls_a_virtual_views_content.rs"]
 mod a_dragged_thumb_scrolls_a_virtual_views_content;
+#[path = "a_virtual_views_compositor_frame_scrolls_with_its_offset.rs"]
+mod a_virtual_views_compositor_frame_scrolls_with_its_offset;

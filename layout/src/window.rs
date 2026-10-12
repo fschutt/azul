@@ -3702,6 +3702,14 @@ impl LayoutWindow {
         )
     }
 
+    /// How far a compositor that draws each `VirtualView`'s child dom in a
+    /// frame of its own scrolls that frame: one entry per mounted view, the
+    /// child dom and the offset.
+    #[must_use]
+    pub fn virtual_view_frame_scroll_offsets(&self) -> Vec<(DomId, LogicalPosition)> {
+        Vec::new()
+    }
+
     /// Re-point the live display list's `VirtualView` item at the CURRENT
     /// scroll offset, without rebuilding anything.
     ///

@@ -61,7 +61,7 @@ extern "C" fn rows(_data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewR
 
 /// The page, laid out twice: the way a window stands once it has shown a
 /// frame, with the view's extent published and its bar painted.
-fn window() -> LayoutWindow {
+pub fn window() -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(WIN_W, WIN_H);
@@ -85,7 +85,7 @@ fn window() -> LayoutWindow {
 }
 
 /// The page's `VirtualView` node and the dom it mounted.
-fn host(lw: &LayoutWindow) -> (NodeId, DomId) {
+pub fn host(lw: &LayoutWindow) -> (NodeId, DomId) {
     let lr = lw
         .get_layout_result(&DomId::ROOT_ID)
         .expect("the page is laid out");
@@ -101,7 +101,7 @@ fn host(lw: &LayoutWindow) -> (NodeId, DomId) {
 }
 
 /// The `content_offset` the page's display list composites the view with.
-fn item_content_offset(lw: &LayoutWindow, child: DomId) -> LogicalPosition {
+pub fn item_content_offset(lw: &LayoutWindow, child: DomId) -> LogicalPosition {
     lw.get_layout_result(&DomId::ROOT_ID)
         .expect("the page is laid out")
         .display_list
