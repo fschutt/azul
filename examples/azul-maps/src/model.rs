@@ -234,30 +234,110 @@ pub fn mark_visible(p: (f32, f32), width: f32, height: f32) -> bool {
     p.0 > -40.0 && p.0 < width + 40.0 && p.1 > -40.0 && p.1 < height + 60.0
 }
 
-/// Whether the window draws anything AT A PLACE on the map - a pin, the
-/// travel line or its ends, where you are - in a `size` view whose projection
-/// is `project` (`(lat, lon)` to view pixels).
+/// What the window draws AT A PLACE on the map, in view pixels for one viewport:
+/// the travel line, its ends, where you are, the pins.
 ///
-/// The map moves its tiles itself, inside its own view. The window is rebuilt
-/// for a pan only to move what IT draws over the map, so only while there is
-/// something: before and after a step of the pan. Every pointer move of a pan
-/// used to rebuild the whole window.
-#[must_use]
-pub fn overlay_shows(
-    project: impl Fn(f64, f64) -> (f32, f32),
-    size: (f32, f32),
-    pins: &[(f64, f64)],
-    travel: Option<((f64, f64), (f64, f64))>,
-    here: Option<(f64, f64)>,
-) -> bool {
-    let (w, h) = size;
-    let shows = |(lat, lon): (f64, f64)| mark_visible(project(lat, lon), w, h);
-    if pins.iter().any(|pin| shows(*pin)) || here.is_some_and(shows) {
-        return true;
+/// The build plans the marks it draws (a margin past the view, so a pan can
+/// move them in place before one is missing) and every step of a pan plans the
+/// marks that show (no margin). The same rules make the two comparable
+/// ([`pan_step`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Marks {
+    /// The travel line from start to destination, cut to the planned area.
+    pub route: Option<((f32, f32), (f32, f32))>,
+    /// The start of the travel line, when it is a place in the planned area.
+    pub from: Option<(f32, f32)>,
+    /// The destination, when it is a place in the planned area.
+    pub to: Option<(f32, f32)>,
+    /// Where you are, while the location is shown and known.
+    pub here: Option<(f32, f32)>,
+    /// The pins in the planned area: the pin's index in the pins file's order
+    /// and its point.
+    pub pins: Vec<(usize, (f32, f32))>,
+}
+
+impl Marks {
+    /// The marks of a `size` view whose projection is `project` (`(lat, lon)`
+    /// to view pixels), planned `margin` px past every edge: `(0, 0)` gives the
+    /// marks that show.
+    #[must_use]
+    pub fn plan(
+        project: impl Fn(f64, f64) -> (f32, f32),
+        size: (f32, f32),
+        margin: (f32, f32),
+        pins: &[(f64, f64)],
+        travel: Option<((f64, f64), (f64, f64))>,
+        here: Option<(f64, f64)>,
+    ) -> Self {
+        let (mx, my) = margin;
+        let (w, h) = (size.0 + 2.0 * mx, size.1 + 2.0 * my);
+        // The planned area as a view of its own, its origin `margin` up and left.
+        let inside = |p: (f32, f32)| mark_visible((p.0 + mx, p.1 + my), w, h);
+        let point = |(lat, lon): (f64, f64)| Some(project(lat, lon)).filter(|p| inside(*p));
+        let (route, from, to) = match travel {
+            Some((a, b)) => {
+                let (pa, pb) = (project(a.0, a.1), project(b.0, b.1));
+                let route = clip_segment((pa.0 + mx, pa.1 + my), (pb.0 + mx, pb.1 + my), w, h)
+                    .map(|(p, q)| ((p.0 - mx, p.1 - my), (q.0 - mx, q.1 - my)));
+                (route, Some(pa).filter(|p| inside(*p)), Some(pb).filter(|p| inside(*p)))
+            }
+            None => (None, None, None),
+        };
+        Self {
+            route,
+            from,
+            to,
+            here: here.and_then(point),
+            pins: pins
+                .iter()
+                .enumerate()
+                .filter_map(|(index, &pin)| point(pin).map(|p| (index, p)))
+                .collect(),
+        }
     }
-    travel.is_some_and(|(a, b)| {
-        shows(a) || shows(b) || clip_segment(project(a.0, a.1), project(b.0, b.1), w, h).is_some()
-    })
+
+    /// Nothing at a place: no line, no dot, no pin.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.route.is_none()
+            && self.from.is_none()
+            && self.to.is_none()
+            && self.here.is_none()
+            && self.pins.is_empty()
+    }
+}
+
+/// What a step of a pan does to the marks the last build drew.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PanStep {
+    /// Nothing of the app's is drawn or comes into view: the map moves its
+    /// tiles itself and the window stays as it is.
+    MapOnly,
+    /// Every mark that shows after the step was drawn by the build and only
+    /// moved by this many pixels: the drawn marks move in place by it.
+    Shift(f32, f32),
+    /// A mark shows that the build did not draw, or the step did more than
+    /// move the map (a zoom, a turn): only a new build draws it right.
+    Rebuild,
+}
+
+/// How a step of a pan treats the marks `drawn` by the last build, given the
+/// marks that show after it (`now`, planned without a margin) and how far
+/// every place moved on screen since the build (`translation`; `None` when
+/// the step zoomed, turned or tilted the map).
+#[must_use]
+pub fn pan_step(
+    drawn: &Marks,
+    now: &Marks,
+    translation: Option<(f32, f32)>,
+    size: (f32, f32),
+) -> PanStep {
+    let _ = (translation, size);
+    if drawn.is_empty() && now.is_empty() {
+        PanStep::MapOnly
+    } else {
+        PanStep::Rebuild
+    }
 }
 
 /// How much longer a way by road or path is than the crow flies: ROUTING.md's
@@ -420,30 +500,132 @@ mod tests {
         assert_eq!(clip_segment((f32::NAN, 0.0), (10.0, 10.0), 100.0, 100.0), None);
     }
 
+    /// A flat stand-in for the map's projection: 10 px per degree, the view's
+    /// centre at `(lat, lon)` in the middle of an 800 x 600 view.
+    fn flat(lat0: f64, lon0: f64) -> impl Fn(f64, f64) -> (f32, f32) {
+        move |lat, lon| (400.0 + ((lon - lon0) * 10.0) as f32, 300.0 - ((lat - lat0) * 10.0) as f32)
+    }
+
+    const SIZE: (f32, f32) = (800.0, 600.0);
+    const SHOWS: (f32, f32) = (0.0, 0.0);
+
     #[test]
-    fn a_pan_moves_the_window_only_while_something_of_ours_is_on_the_map() {
-        // The map moves its tiles itself; the window is rebuilt for a pan only
-        // to move what IT draws at a place. A flat stand-in for the
-        // projection: 10 px per degree, (0, 0) in the middle of 800 x 600.
-        let project = |lat: f64, lon: f64| (400.0 + lon as f32 * 10.0, 300.0 - lat as f32 * 10.0);
-        let size = (800.0, 600.0);
-        assert!(!overlay_shows(project, size, &[], None, None), "an empty map moves itself");
-        assert!(overlay_shows(project, size, &[(0.0, 0.0)], None, None), "a pin in view");
+    fn the_marks_that_show_are_the_ones_inside_the_view() {
+        let shows = |pins: &[(f64, f64)], travel, here| {
+            !Marks::plan(flat(0.0, 0.0), SIZE, SHOWS, pins, travel, here).is_empty()
+        };
+        assert!(!shows(&[], None, None), "an empty map moves itself");
+        assert!(shows(&[(0.0, 0.0)], None, None), "a pin in view");
+        assert!(!shows(&[(80.0, 170.0)], None, None), "a pin far outside the view does not count");
         assert!(
-            !overlay_shows(project, size, &[(80.0, 170.0)], None, None),
-            "a pin far outside the view does not count"
-        );
-        assert!(
-            overlay_shows(project, size, &[], Some(((0.0, -100.0), (0.0, 100.0))), None),
+            shows(&[], Some(((0.0, -100.0), (0.0, 100.0))), None),
             "the travel line crossing the view counts, both ends outside"
         );
-        assert!(!overlay_shows(project, size, &[], Some(((80.0, 170.0), (85.0, 175.0))), None));
-        assert!(overlay_shows(project, size, &[], None, Some((1.0, 1.0))), "where you are");
+        assert!(!shows(&[], Some(((80.0, 170.0), (85.0, 175.0))), None));
+        assert!(shows(&[], None, Some((1.0, 1.0))), "where you are");
         assert!(
             mark_visible((-30.0, 10.0), 800.0, 600.0) && !mark_visible((-50.0, 10.0), 800.0, 600.0),
             "a pin's head reaches 40 px past its point"
         );
         assert!(mark_visible((10.0, 650.0), 800.0, 600.0), "and 60 px below it");
+        let drawn = Marks::plan(flat(0.0, 0.0), SIZE, SIZE, &[(0.0, 100.0)], None, None);
+        assert_eq!(drawn.pins, vec![(0, (1400.0, 300.0))], "the build draws a window past the view");
+    }
+
+    #[test]
+    fn a_pan_with_the_route_on_the_map_moves_its_marks_in_place_instead_of_rebuilding_the_window() {
+        // A line across the view whose ends are far outside it, and a pin.
+        let travel = Some(((0.0, -100.0), (10.0, 100.0)));
+        let pins = [(2.0, 3.0)];
+        let drawn = Marks::plan(flat(0.0, 0.0), SIZE, SIZE, &pins, travel, None);
+        // One step: the view's centre goes 3 degrees east, every place 30 px left.
+        let now = Marks::plan(flat(0.0, 3.0), SIZE, SHOWS, &pins, travel, None);
+        assert_eq!(pan_step(&drawn, &now, Some((-30.0, 0.0)), SIZE), PanStep::Shift(-30.0, 0.0));
+    }
+
+    #[test]
+    fn a_pin_the_build_did_not_draw_coming_into_view_rebuilds_the_window() {
+        // 150 degrees east is 1500 px right of the middle: past the drawn margin.
+        let pins = [(0.0, 150.0)];
+        let drawn = Marks::plan(flat(0.0, 0.0), SIZE, SIZE, &pins, None, None);
+        assert!(drawn.is_empty());
+        let now = Marks::plan(flat(0.0, 120.0), SIZE, SHOWS, &pins, None, None);
+        assert_eq!(pan_step(&drawn, &now, Some((-1200.0, 0.0)), SIZE), PanStep::Rebuild);
+    }
+
+    #[test]
+    fn a_zoom_or_a_turn_rebuilds_the_window_while_a_mark_shows() {
+        let pins = [(0.0, 0.0)];
+        let drawn = Marks::plan(flat(0.0, 0.0), SIZE, SIZE, &pins, None, None);
+        let now = Marks::plan(flat(0.0, 0.0), SIZE, SHOWS, &pins, None, None);
+        assert_eq!(pan_step(&drawn, &now, None, SIZE), PanStep::Rebuild);
+    }
+
+    #[test]
+    fn a_mark_that_leaves_the_view_is_moved_out_with_the_map() {
+        let empty = Marks::default();
+        assert_eq!(pan_step(&empty, &empty, Some((5.0, 0.0)), SIZE), PanStep::MapOnly);
+        // The pin was drawn in view; one step later it is past the left edge.
+        let pins = [(0.0, -35.0)];
+        let drawn = Marks::plan(flat(0.0, 0.0), SIZE, SIZE, &pins, None, None);
+        let now = Marks::plan(flat(0.0, 10.0), SIZE, SHOWS, &pins, None, None);
+        assert!(now.is_empty() && !drawn.is_empty());
+        assert_eq!(pan_step(&drawn, &now, Some((-100.0, 0.0)), SIZE), PanStep::Shift(-100.0, 0.0));
+    }
+
+    #[test]
+    fn a_long_pan_with_a_route_rebuilds_the_window_once_per_window_not_once_per_move() {
+        // The window's cost while panning is its rebuilds (each a full layout
+        // of the window); moving the drawn marks is a relayout of their boxes.
+        // 400 moves of 5 px east along a line far longer than the window, two
+        // pins near it: a rebuild only when the drawn part of the line runs out.
+        let travel = Some(((0.0, -1000.0), (20.0, 1000.0)));
+        let pins = [(1.0, 20.0), (-2.0, 60.0)];
+        let mut built_at = 0.0_f64;
+        let mut drawn = Marks::plan(flat(0.0, 0.0), SIZE, SIZE, &pins, travel, None);
+        let mut rebuilds = 0;
+        let started = std::time::Instant::now();
+        for step in 1..=400 {
+            let lon = f64::from(step) * 0.5;
+            let now = Marks::plan(flat(0.0, lon), SIZE, SHOWS, &pins, travel, None);
+            let mut shift = (-((lon - built_at) * 10.0) as f32, 0.0);
+            match pan_step(&drawn, &now, Some(shift), SIZE) {
+                PanStep::Rebuild => {
+                    rebuilds += 1;
+                    built_at = lon;
+                    drawn = Marks::plan(flat(0.0, lon), SIZE, SIZE, &pins, travel, None);
+                    shift = (0.0, 0.0);
+                }
+                PanStep::Shift(..) | PanStep::MapOnly => {}
+            }
+            // What the window shows after the step is what it should show.
+            let (a, b) = drawn.route.expect("the line crosses every view of this pan");
+            let shown = clip_segment(
+                (a.0 + shift.0, a.1 + shift.1),
+                (b.0 + shift.0, b.1 + shift.1),
+                SIZE.0,
+                SIZE.1,
+            );
+            let (p, q) = shown.expect("the drawn line covers the view");
+            let (np, nq) = now.route.expect("the line shows");
+            assert!(
+                (p.0 - np.0).abs() < 0.5 && (p.1 - np.1).abs() < 0.5,
+                "step {step}: the line starts at {p:?}, not {np:?}"
+            );
+            assert!(
+                (q.0 - nq.0).abs() < 0.5 && (q.1 - nq.1).abs() < 0.5,
+                "step {step}: the line ends at {q:?}, not {nq:?}"
+            );
+        }
+        assert!(
+            (1..=3).contains(&rebuilds),
+            "a 2000 px pan rebuilt the window {rebuilds} times (one per window is enough)"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(250),
+            "planning 400 steps took {:?}: a step must cost microseconds",
+            started.elapsed()
+        );
     }
 
     #[test]

@@ -94,7 +94,7 @@ use azul_appkit::{
 use crate::{
     model::{
         cardinal, clip_segment, distance_km, distance_text, duration_text, mark_visible,
-        overlay_shows, pan_tiles, parse_place, parse_view, pins_from_json, pins_to_json,
+        pan_tiles, parse_place, parse_view, pins_from_json, pins_to_json, Marks,
         place_text, route_line as route_reply_line, travel_line, view_line, view_value, TravelMode, HOME, MAX_ZOOM,
         MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
     },
@@ -396,7 +396,7 @@ impl MapState {
     }
 
     /// Whether the window draws anything at a place on the map at `viewport`
-    /// (`model::overlay_shows`): a pin, the travel line, where you are.
+    /// (`model::Marks`): a pin, the travel line, where you are.
     fn overlay_shows(&self, viewport: MapViewport) -> bool {
         let size = self.size.get();
         let travel = match self.travel_ends() {
@@ -404,13 +404,15 @@ impl MapState {
             _ => None,
         };
         let here = if self.locating { self.last_fix } else { None };
-        overlay_shows(
+        !Marks::plan(
             |lat, lon| place_px(viewport, size, lat, lon),
             size,
+            (0.0, 0.0),
             &self.pins,
             travel,
             here,
         )
+        .is_empty()
     }
 
     /// The route request for the travel panel as it is now - `None` when it
