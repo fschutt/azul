@@ -1154,6 +1154,32 @@ pub fn check_installed(
     }
 }
 
+/// The newer release of an installed app right now, for an update the user asked for: a skip
+/// does not apply and nothing is staged on the way. Blocking.
+///
+/// # Errors
+///
+/// That the app is up to date, or why the check failed.
+pub fn release_now(
+    engine: &dyn UpdateEngine,
+    fetching: &Fetching,
+    app: &Installed,
+    now_unix: u64,
+) -> Result<Release, String> {
+    let mut round = round_for(fetching, app)
+        .ok_or_else(|| fetching.manifest(app.entry, app.channel).err().unwrap_or_default())?;
+    round.skip_version = None;
+    round.autoupdate = false;
+    match background_round(engine, &round, now_unix) {
+        RoundOutcome::Available(release) => Ok(release),
+        RoundOutcome::Staged(staged) => Ok(staged.release),
+        RoundOutcome::UpToDate | RoundOutcome::Skipped(_) => {
+            Err(format!("{} is up to date", app.entry.name))
+        }
+        RoundOutcome::Failed(why) => Err(why),
+    }
+}
+
 /// The machine's rollout cohort: the config's, else drawn once now and kept there; with why
 /// the drawn one could not be kept (it is used for this run anyway).
 pub fn cohort(engine: &dyn UpdateEngine, config: &Path, updates: &UpdatesSection) -> (u8, Option<String>) {
@@ -1258,6 +1284,40 @@ pub fn civil_date(unix: u64) -> (i32, u32, u32, u32) {
     // 1970-01-01 was a Thursday (3, counted from Monday).
     let weekday = u32::try_from((days + 3).rem_euclid(7)).unwrap_or(0);
     (year, month, day, weekday)
+}
+
+/// Takes the manager's own switch out of `argv` (without the program name): `--apply <key>`,
+/// an app's "Update now" (the app's key, `azwriter`). The rest, in order, is azul-appkit's.
+///
+/// # Errors
+///
+/// The reason, for an `--apply` without a key or with one no app has.
+pub fn split_switches<I, S>(argv: I) -> Result<(Option<String>, Vec<String>), String>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+    let mut apply = None;
+    let mut rest = Vec::with_capacity(argv.len());
+    let mut i = 0;
+    while i < argv.len() {
+        let key = match argv[i].split_once('=') {
+            Some(("--apply", v)) => Some(v.to_string()),
+            _ if argv[i] == "--apply" => {
+                i += 1;
+                Some(argv.get(i).cloned().ok_or("--apply needs an app's key")?)
+            }
+            _ => None,
+        };
+        match key {
+            Some(key) if entry(&key).is_some() => apply = Some(key),
+            Some(key) => return Err(format!("--apply: no app is called {key:?}")),
+            None => rest.push(argv[i].clone()),
+        }
+        i += 1;
+    }
+    Ok((apply, rest))
 }
 
 /// `AZINSTALLMGR_STEP <index> <name>`, for scripts.
@@ -1737,6 +1797,18 @@ mod model_tests {
         assert_eq!(pending[0].0, "azwriter");
         assert!(!process_alive(0));
         assert!(!process_alive(std::process::id()), "the manager never waits for itself");
+    }
+
+    #[test]
+    fn the_apply_switch_names_an_app_and_the_rest_is_the_kits() {
+        let (apply, rest) = split_switches(["--apply", "azwriter", "--theme=flora"]).unwrap();
+        assert_eq!(apply.as_deref(), Some("azwriter"));
+        assert_eq!(rest, vec!["--theme=flora"]);
+        let (apply, rest) = split_switches(["--apply=azmail"]).unwrap();
+        assert_eq!((apply.as_deref(), rest.len()), (Some("azmail"), 0));
+        assert!(split_switches(["--apply"]).is_err());
+        assert!(split_switches(["--apply", "notepad"]).is_err());
+        assert_eq!(split_switches(Vec::<String>::new()).unwrap(), (None, Vec::new()));
     }
 
     #[test]

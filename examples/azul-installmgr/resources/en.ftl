@@ -1,0 +1,117 @@
+# AzInstallManager's words in English (src/l10n.rs). Every key the source names is here and in de.ftl.
+
+## The window
+azinstallmgr-title = Azlin Apps
+azinstallmgr-wizard-title = Azlin Setup
+azinstallmgr-about-title = About AzInstallManager
+azinstallmgr-about-summary = Installs the Azlin apps and keeps them up to date: stable or beta, releases that reach every computer in stages, one previous version kept for Revert. Part of the Azlin apps, built with azul.
+azinstallmgr-version = Version
+azinstallmgr-yes = Yes
+azinstallmgr-no = No
+azinstallmgr-exit-title = Exit Setup?
+azinstallmgr-exit-text = Setup is not complete. If you exit now, the Azlin apps will not be installed.
+
+    You can run Setup again at another time.
+azinstallmgr-shortcuts = AzInstallManager
+azinstallmgr-shortcut-about = About AzInstallManager
+azinstallmgr-shortcut-check = Check for updates
+azinstallmgr-shortcut-escape = Close the box that is open, or ask to exit Setup
+
+## The wizard's steps
+azinstallmgr-step-welcome = Welcome
+azinstallmgr-step-package-manager = Package manager
+azinstallmgr-step-destination = Destination
+azinstallmgr-step-components = Apps
+azinstallmgr-step-channel = Updates
+azinstallmgr-step-ready = Ready to install
+azinstallmgr-step-installing = Installing
+azinstallmgr-step-finish = Done
+azinstallmgr-subtitle-package-manager = The Azlin apps can also come through your package manager.
+azinstallmgr-subtitle-destination = Where should the Azlin apps be installed?
+azinstallmgr-subtitle-components = Which apps should be installed?
+azinstallmgr-subtitle-channel = How should the apps stay up to date?
+azinstallmgr-subtitle-ready = Setup is ready to install the Azlin apps.
+azinstallmgr-subtitle-installing = Please wait while Setup fetches and installs the apps.
+azinstallmgr-button-back = < Back
+azinstallmgr-button-next = Next >
+azinstallmgr-button-install = Install
+azinstallmgr-button-finish = Finish
+azinstallmgr-button-cancel = Cancel
+
+## The wizard's pages
+azinstallmgr-welcome-title = Welcome to the Azlin apps
+azinstallmgr-welcome-text = This installs the Azlin apps for you: the ones you pick, into a folder of your own, without administrator rights.
+
+    Every app is fetched from its update source and checked against its signature before it is installed.
+
+    Click Next to continue, or Cancel to exit Setup.
+azinstallmgr-pm-found = { $manager } is installed on this computer. It can install the Azlin apps instead, and then keeps them up to date with everything else it installs.
+azinstallmgr-pm-how = To install the apps you pick on the next pages through { $manager }, run this in a terminal:
+azinstallmgr-copy = Copy
+azinstallmgr-copied = The command is on the clipboard.
+azinstallmgr-pm-or-direct = Or click Next to install the apps directly into your home folder.
+azinstallmgr-destination-intro = Setup will install the apps into the following folder. To use another folder, type it or click Browse. The folder must be one you can write to: Setup does not ask for administrator rights.
+azinstallmgr-components-intro = Select the apps you want to install; clear the ones you do not. The runtime is shared by every app.
+azinstallmgr-component-runtime = Azlin runtime
+azinstallmgr-group-office = Office
+azinstallmgr-group-communication = Mail, calendar and contacts
+azinstallmgr-group-media = Pictures, music and video
+azinstallmgr-group-tools = Tools
+azinstallmgr-channel-stable = Stable
+azinstallmgr-channel-stable-help = Tested releases. A new release reaches this computer a few days after it is published, when it has proven itself on others.
+azinstallmgr-channel-beta = Beta
+azinstallmgr-channel-beta-help = Every release the moment it is published, before everyone else. For testing.
+azinstallmgr-autoupdate = Keep the apps up to date automatically
+azinstallmgr-autoupdate-help = Updates are fetched and checked in the background; an app asks before it installs one.
+azinstallmgr-ready-intro = Setup is ready to install the Azlin apps. Review the choices below; go back to change one.
+azinstallmgr-ready-folder = Destination folder
+azinstallmgr-ready-apps = Apps
+azinstallmgr-ready-channel = Channel
+azinstallmgr-installing-status = Installing the Azlin apps...
+azinstallmgr-installing-app = Installing { $app }...
+azinstallmgr-installing-wait = Installing the apps...
+azinstallmgr-installed-status = { $count ->
+    [one] One app installed
+   *[other] { $count } apps installed
+}{ $failed ->
+    [0] .
+   *[other] , { $failed } could not be installed. The log says why.
+}
+azinstallmgr-log-installed = Installed { $app } { $version }
+azinstallmgr-log-failed = { $app } was not installed: { $reason }
+azinstallmgr-finish-title = The Azlin apps are installed
+azinstallmgr-finish-text = Setup has finished installing the Azlin apps on your computer.
+
+    You find them with your other programs. AzInstallManager keeps them up to date.
+azinstallmgr-finish-show-apps = Show the installed apps
+
+## The apps
+azinstallmgr-app-runtime = The library every Azlin app runs on.
+azinstallmgr-app-azwriter = Documents on A4 pages, kept as Markdown files.
+azinstallmgr-app-azsheets = Spreadsheets with formulas and charts.
+azinstallmgr-app-azshow = Presentations and the presenter view.
+azinstallmgr-app-aznotes = Notes in notebooks, with tags.
+azinstallmgr-app-azpdf = Read and search PDF files.
+azinstallmgr-app-azreader = Read e-books.
+azinstallmgr-app-azreview = Review code with a pen.
+azinstallmgr-app-azmail = Mail from your accounts, kept as files.
+azinstallmgr-app-azcalendar = Your calendars and meetings.
+azinstallmgr-app-azcontacts = Your address book.
+azinstallmgr-app-aztasks = To-dos and reminders.
+azinstallmgr-app-azmeet = Video meetings.
+azinstallmgr-app-aznews = News from the feeds you follow.
+azinstallmgr-app-azphoto = Edit photos.
+azinstallmgr-app-azpaint = Paint and draw.
+azinstallmgr-app-azmusic = Your music library.
+azinstallmgr-app-azplayer = Watch videos.
+azinstallmgr-app-azvideocut = Cut videos.
+azinstallmgr-app-azdrive = Your files, here and in the cloud.
+azinstallmgr-app-azkeys = Your passwords, encrypted.
+azinstallmgr-app-azmaps = Maps and routes.
+azinstallmgr-app-azclock = Alarms, timers and the world clock.
+azinstallmgr-app-azcalculator = Calculations, dates and units.
+azinstallmgr-app-azcode = Edit code.
+azinstallmgr-app-azterm = A terminal.
+azinstallmgr-app-azmonitor = What your computer is doing.
+azinstallmgr-app-azdashboard = Orders and figures in tables and charts.
+azinstallmgr-app-azerp = Assets and records of a business.
