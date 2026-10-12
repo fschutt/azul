@@ -31,6 +31,7 @@ mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod library;
+pub mod pagecache;
 pub mod paginate;
 pub mod plainbook;
 pub mod position;
