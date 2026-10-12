@@ -3371,4 +3371,197 @@ mod tests {
         assert!(verify_digest(&file, "not-a-digest").is_err());
         drop(std::fs::remove_dir_all(&dir));
     }
+
+    // ---- a manager updating other programs --------------------------------
+
+    #[test]
+    fn a_tester_takes_the_newest_release_however_far_its_rollout_has_come() {
+        let unopened = RolloutPlan::Staged(vec![RolloutStage {
+            percent: 100,
+            at_unix: REL + 4 * DAY,
+        }]);
+        let candidates = vec![
+            candidate("2.0.0", RolloutPlan::Immediate),
+            candidate("2.1.0", unopened),
+        ];
+        let tester =
+            select_update_candidate(&candidates, "1.0.0", 99, UpdateAudience::Tester, REL).unwrap();
+        assert_eq!(
+            tester.release.version.as_str(),
+            "2.1.0",
+            "a tester sees a release the moment it is published"
+        );
+        let stable =
+            select_update_candidate(&candidates, "1.0.0", 99, UpdateAudience::AutoUpdate, REL)
+                .unwrap();
+        assert_eq!(
+            stable.release.version.as_str(),
+            "2.0.0",
+            "the same cohort on the gated path still waits for 2.1.0"
+        );
+    }
+
+    /// A localhost HTTP/1.1 server answering every request with `body`; the
+    /// URL of `name` on it.
+    fn serve_bytes(body: Vec<u8>, name: &str) -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/{name}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                'requests: loop {
+                    // One request head, up to its empty line.
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        match reader.read_line(&mut line) {
+                            Ok(0) | Err(_) => break 'requests,
+                            Ok(_) if line == "\r\n" => break,
+                            Ok(_) => {}
+                        }
+                    }
+                    let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                    if stream.write_all(head.as_bytes()).is_err()
+                        || stream.write_all(&body).is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        });
+        url
+    }
+
+    fn unix_now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs())
+    }
+
+    #[test]
+    fn a_manager_checks_another_program_in_its_own_state_folder_under_the_machines_cohort() {
+        let now = unix_now();
+        // Released a day ago, half the fleet open: cohort 10 is in, cohort 90 is not yet.
+        let manifest = format!(
+            r#"{{"latest": {{"version": "2.0.0", "download_url": "http://127.0.0.1:9/app.bin",
+                "release_date": {}, "slow": {{"50": {}, "100": {}}}}}}}"#,
+            now - DAY,
+            now - DAY,
+            now + 3 * DAY
+        );
+        let url = serve_bytes(manifest.into_bytes(), "updates.json");
+        let dir = std::env::temp_dir().join(format!("azul-program-check-{}", std::process::id()));
+        let inside = check_program_for_updates(
+            &url,
+            "1.0.0",
+            "stable",
+            &dir.join("in"),
+            10,
+            UpdateAudience::AutoUpdate,
+        );
+        assert!(
+            matches!(&inside, UpdateCheckResult::Available(r) if r.version.as_str() == "2.0.0"),
+            "{inside:?}"
+        );
+        let outside = check_program_for_updates(
+            &url,
+            "1.0.0",
+            "stable",
+            &dir.join("out"),
+            90,
+            UpdateAudience::AutoUpdate,
+        );
+        assert_eq!(
+            outside,
+            UpdateCheckResult::UpToDate,
+            "the rollout has not reached cohort 90"
+        );
+        let tester = check_program_for_updates(
+            &url,
+            "1.0.0",
+            "beta",
+            &dir.join("beta"),
+            90,
+            UpdateAudience::Tester,
+        );
+        assert!(
+            matches!(tester, UpdateCheckResult::Available(_)),
+            "{tester:?}"
+        );
+        // The check's bookkeeping is the program's own, the machine's cohort with it.
+        let state = UpdateState::load(&dir.join("out"));
+        assert_eq!(state.rollout_bucket, Some(90));
+        assert_eq!(state.highest_seen, "2.0.0");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_manager_stages_another_programs_update_verified_in_that_programs_folders() {
+        let f = chain_fixture(CHAIN_NOW * 2, 2, "stage");
+        let mut release = f.release.clone();
+        release.download_url =
+            serve_bytes(b"the update artifact bytes".to_vec(), "app-2.0.0.bin").into();
+        let staged = stage_program_update(
+            &release,
+            &f._dir.join("staging"),
+            &f.root_pub_b64,
+            &f._dir.join("state"),
+        )
+        .expect("a signed artifact is staged");
+        assert_eq!(staged, f._dir.join("staging").join("app-2.0.0.bin"));
+        assert_eq!(
+            std::fs::read(&staged).unwrap(),
+            b"the update artifact bytes"
+        );
+        assert_eq!(UpdateState::load(&f._dir.join("state")).key_generation, 2);
+
+        // The statement's signature is no signature of the artifact.
+        let mut forged = release.clone();
+        forged.signature = f.release.signing_key_statement_sig.clone();
+        let err = stage_program_update(
+            &forged,
+            &f._dir.join("staging-forged"),
+            &f.root_pub_b64,
+            &f._dir.join("state"),
+        )
+        .expect_err("a forged signature is refused");
+        assert!(err.contains("signature"), "{err}");
+        let left = std::fs::read_dir(f._dir.join("staging-forged")).map_or(0, Iterator::count);
+        assert_eq!(left, 0, "nothing refused stays staged");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn a_manager_verifies_a_staged_program_by_its_digest_and_its_signature_chain() {
+        let f = chain_fixture(CHAIN_NOW * 2, 4, "program");
+        let state_dir = f._dir.join("state");
+        verify_staged_program_update(&f.artifact, &f.release, &f.root_pub_b64, &state_dir)
+            .expect("the chain verifies");
+        assert_eq!(
+            UpdateState::load(&state_dir).key_generation,
+            4,
+            "the accepted generation is kept in the program's folder"
+        );
+
+        let mut wrong_pin = f.release.clone();
+        wrong_pin.digest = format!("sha256:{}", "0".repeat(64)).into();
+        let err = verify_staged_program_update(&f.artifact, &wrong_pin, "", &state_dir)
+            .expect_err("a wrong pin is refused even without a root key");
+        assert!(err.contains("mismatch"), "{err}");
+
+        std::fs::write(&f.artifact, b"tampered bytes").unwrap();
+        assert!(
+            verify_staged_program_update(&f.artifact, &f.release, &f.root_pub_b64, &state_dir)
+                .is_err(),
+            "a file changed after staging is refused"
+        );
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn the_machines_cohort_is_a_bucket_from_0_to_99() {
+        assert!(draw_rollout_bucket() < 100);
+    }
 }
