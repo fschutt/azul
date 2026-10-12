@@ -181,6 +181,15 @@ impl AppState {
         self.doc.as_ref().is_some_and(DocumentModel::is_dirty)
     }
 
+    /// "Don't Save" in the close question: the open document closes without
+    /// writing, its file keeps what it had. The guard closes the window
+    /// right after and judges that close by the DOM rebuilt from this
+    /// state, so nothing may be left to save here.
+    pub fn discard_document(&mut self) {
+        self.doc = None;
+        self.asking_close = false;
+    }
+
     /// The window's title: the document's, a star while unsaved.
     #[must_use]
     pub fn title(&self) -> String {

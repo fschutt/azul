@@ -429,7 +429,9 @@ extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: Cl
             st.close_after_save = true;
             commands::save(st, &mut info, &handle, storage::tag::SAVE_AND_CLOSE);
         }
-        CloseGuardEventKind::Discard | CloseGuardEventKind::Cancel => st.asking_close = false,
+        // The guard closes the window itself.
+        CloseGuardEventKind::Discard => st.discard_document(),
+        CloseGuardEventKind::Cancel => st.asking_close = false,
     }
     Update::RefreshDom
 }
