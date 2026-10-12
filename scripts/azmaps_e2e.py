@@ -20,6 +20,10 @@
        (`AZMAPS_TRAVEL walk 48.2082,16.3738 ...`) shows the distance, and the route worker answers
        off the UI thread (`AZMAPS_ROUTE walk <km> <minutes> <ms>`); the viewport is kept in
        maps/settings.json once it rests;
+    6b. a drag with the travel line, its ends and the destination's pin on the map moves them in
+       place (`AZMAPS_PAN move`): the window is NOT rebuilt for every pointer move, the pin
+       follows the drag, and the next rebuild draws it where the drag left it; a zoom step of the
+       map moves them in place too;
     7. the sidebar hides and shows again (`AZMAPS_SIDEBAR closed` / `open`);
     8. the gear opens azul-appkit's settings page, About the standard About box
        (`AZMAPS_ABOUT open`), Escape closes the box, Escape the page;
@@ -41,6 +45,7 @@ The debug-server client is the shared one (scripts/azlin_e2e.py).
 
 import json
 import os
+import time
 
 import azlin_e2e as e2e
 from azlin_e2e import Failure
@@ -180,6 +185,68 @@ def body(args, logs, out):
                   lambda: app.printed("AZMAPS_ROUTE", r"walk \d+\.\d \d+ \d+\.\d{3}"))
         app.log("route: %s" % app.last("AZMAPS_ROUTE"))
         app.screenshot(os.path.join(out, "4-travel.png"))
+
+        # A drag with the travel line, its ends and the destination's pin on the map: they move in
+        # place with the map, the window is not rebuilt for every pointer move (it was, while
+        # anything of AzMaps' own showed: a full layout per move made the pan crawl).
+        app.until("the viewport kept before the drag with the route",
+                  lambda: kept_view(data_dir) == app.last("AZMAPS_VIEW"))
+        app.frame(3)
+        pin = "__azmaps_place-pin-0"
+        before = app.rect(pin)
+        if not before:
+            raise Failure("the destination's pin is not on the map before the drag")
+        layouts, pans = app.count("AZMAPS_LAYOUT"), app.count("AZMAPS_PAN")
+        x0, y0, x1, y1 = WIDTH * 0.40, HEIGHT * 0.78, WIDTH * 0.47, HEIGHT * 0.70
+        app.drag(x0, y0, x1, y1, steps=8)
+        rebuilt = app.count("AZMAPS_LAYOUT") - layouts
+        app.log("drag with the route: %d window rebuild(s) %s; pan steps %s"
+                % (rebuilt, app.printed("AZMAPS_LAYOUT")[layouts:], app.printed("AZMAPS_PAN")[pans:]))
+        if rebuilt > 1:
+            raise Failure("a drag with the route on the map rebuilt the window %d times (once per "
+                          "pointer move?)" % rebuilt)
+        steps = [v.split() for v in app.printed("AZMAPS_PAN")[pans:]]
+        moves = [int(us) for done, us in steps if done == "move"]
+        if not moves:
+            raise Failure("no step of the drag moved AzMaps' marks in place (AZMAPS_PAN move)")
+        # Moving the marks is a plan and a handful of overrides: microseconds, not a layout's
+        # milliseconds.
+        if sorted(moves)[len(moves) // 2] > 5000:
+            raise Failure("moving the marks in place took %s us per step (median over 5 ms)" % moves)
+        after = app.rect(pin)
+        moved = (after["x"] - before["x"], after["y"] - before["y"])
+        if abs(moved[0] - (x1 - x0)) > 4 or abs(moved[1] - (y1 - y0)) > 4:
+            raise Failure("the pin moved by %s, the map by %s" % (moved, (x1 - x0, y1 - y0)))
+        # A zoom step (the wheel over the map) moves them in place too. (The viewport kept once
+        # it rests may rebuild the window once of its own.)
+        layouts, pans, zoom0 = app.count("AZMAPS_LAYOUT"), app.count("AZMAPS_PAN"), view(app)[2]
+        app.must("wheel", x=WIDTH * 0.6, y=HEIGHT * 0.6, delta_x=0.0, delta_y=24.0)
+        app.frame(3)
+        waited = time.time() + 5
+        while view(app)[2] <= zoom0 + 0.05 and time.time() < waited:
+            time.sleep(0.2)
+        if view(app)[2] <= zoom0 + 0.05:
+            # The debug server's wheel did not reach the map's own zoom: nothing to check here.
+            app.log("the wheel did not zoom the map; the zoom step is not checked")
+        else:
+            zoomed = [v.split()[0] for v in app.printed("AZMAPS_PAN")[pans:]]
+            rebuilt = app.count("AZMAPS_LAYOUT") - layouts
+            app.log("zoom step with the route: %s, %d rebuild(s)" % (zoomed, rebuilt))
+            if rebuilt > 1 or "move" not in zoomed:
+                raise Failure("a zoom step with the route on the map did not move the marks in "
+                              "place: %s, %d rebuild(s)" % (zoomed, rebuilt))
+        after = app.rect(pin)
+        # A rebuild (the travel mode's button) draws the pin where the drag and the zoom left it:
+        # what moved it in place does not follow it into the build.
+        layouts = app.count("AZMAPS_LAYOUT")
+        app.click(selector="#__azmaps_travel-walk")
+        app.until("a rebuild after the drag", lambda: app.count("AZMAPS_LAYOUT") > layouts)
+        app.frame(2)
+        app.log("the rebuild after the drag: AZMAPS_LAYOUT %s" % app.last("AZMAPS_LAYOUT"))
+        rebuilt_at = app.rect(pin)
+        if (not rebuilt_at or abs(rebuilt_at["x"] - after["x"]) > 1.5
+                or abs(rebuilt_at["y"] - after["y"]) > 1.5):
+            raise Failure("the rebuild drew the pin at %s, the zoom left it at %s" % (rebuilt_at, after))
 
         # The viewport is kept once it rests (the row moved it last).
         app.until("the viewport kept", lambda: kept_view(data_dir) == app.last("AZMAPS_VIEW"))
