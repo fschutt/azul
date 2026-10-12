@@ -536,26 +536,40 @@ fn image_icon_in_box(
         let original_node = original;
         let mut props_vec = copy_appropriate_styles_vec(original_node);
 
-        // Add default dimensions if not specified in original styles
+        // The default size is what an img's width / height attributes are: a
+        // presentational hint (CSS 2.2 6.4.4). Every author rule beats it,
+        // the icon's `with_css` sheet included, which is selector-matched
+        // and so never among the inline properties read above.
         let has_width = props_vec
             .iter()
             .any(|p| matches!(&p.property, CssProperty::Width(_)));
         let has_height = props_vec
             .iter()
             .any(|p| matches!(&p.property, CssProperty::Height(_)));
-
+        let mut hints = Vec::new();
         if !has_width {
-            props_vec.push(CssPropertyWithConditions::simple(CssProperty::width(width)));
+            hints.push(CssPropertyWithConditions::simple(CssProperty::width(width)));
         }
         if !has_height {
-            props_vec.push(CssPropertyWithConditions::simple(CssProperty::height(height)));
+            hints.push(CssPropertyWithConditions::simple(CssProperty::height(height)));
         }
 
         // Apply SystemStyle-aware filters
         apply_icon_style_filters(&mut props_vec, &img.meta, system_style);
 
-        dom.root
-            .set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
+        let mut rules =
+            azul_css::css::Css::from(CssPropertyWithConditionsVec::from_vec(hints))
+                .rules
+                .into_library_owned_vec();
+        for rule in &mut rules {
+            rule.priority = azul_css::css::rule_priority::PRESENTATIONAL;
+        }
+        rules.extend(
+            azul_css::css::Css::from(CssPropertyWithConditionsVec::from_vec(props_vec))
+                .rules
+                .into_library_owned_vec(),
+        );
+        dom.root.set_style(azul_css::css::Css::new(rules));
 
         // Copy accessibility info
         if let Some(a11y) = original_node.get_accessibility_info() {
