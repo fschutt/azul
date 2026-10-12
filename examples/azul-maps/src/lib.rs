@@ -19,9 +19,12 @@
 //! first in the sidebar, a click centres the map on one and opens its card).
 //! A place's card is a transient popover anchored at its pin (Directions,
 //! Remove). The travel panel takes a start (empty: where you are, once the
-//! location is known) and a destination as `lat, lon`, a mode (drive, walk,
-//! cycle, public transport) and draws the straight line between them with its
-//! distance - the routing itself is not built yet (ROUTING.md).
+//! location is known) and a destination, each a place name picked from the
+//! typeahead's suggestions (`places.rs`, searched on the geocoder worker once
+//! the typing rests) or `lat, lon`, a mode (drive, walk, cycle, public
+//! transport), and draws the straight line between them with its distance and
+//! the route worker's estimate - the road routing is not built yet
+//! (ROUTING.md).
 //!
 //! Pins are kept in the data tree (`maps/pins.json`, through azul-appkit's
 //! file jobs on a Thread); the last viewport and the sidebar in settings.json.
@@ -36,7 +39,9 @@
 //! <zoom>` on every viewport change, `AZMAPS_PINS <n>` when the pins change,
 //! `AZMAPS_PINS_LOADED <n>` / `AZMAPS_PINS_SAVED <n>` / `AZMAPS_PINS_ERROR`,
 //! `AZMAPS_PLACE <index>` when a place's card opens, `AZMAPS_TRAVEL <mode>
-//! <from> <to>` when the travel panel changes, `AZMAPS_ROUTE <mode> <km>
+//! <from> <to>` when the travel panel changes, `AZMAPS_SUGGEST <from|to> <n>
+//! <compute_ms>` when the typeahead's suggestions come back from the geocoder
+//! worker, `AZMAPS_ROUTE <mode> <km>
 //! <minutes> <compute_ms>` when its route comes back from the route worker,
 //! `AZMAPS_SIDEBAR open|closed`. With `--stats` (`args.rs`): `AZMAPS_LAYOUT
 //! <n> <us>` for every window rebuild (how long `layout` took), `AZMAPS_PAN
@@ -47,12 +52,16 @@
 //! Nothing here blocks the UI thread: the tiles are fetched, decoded AND drawn
 //! on the map's workers, the pins file and settings.json go through
 //! azul-appkit's file thread, a route is worked out on the route worker
-//! (`route.rs`). A pan or a zoom does not rebuild the window: what AzMaps
+//! (`route.rs`), a place name is looked up on the geocoder worker
+//! (`geocode.rs`). A keystroke in a travel field is the field's own edit: the
+//! window is rebuilt only for the suggestions that come back. A pan or a zoom
+//! does not rebuild the window: what AzMaps
 //! draws at a place (a pin, the travel line and its ends, where you are) is
 //! drawn a window past every edge and moved in place with the map, until a
 //! mark enters or leaves that area.
 
 pub mod args;
+pub mod geocode;
 pub mod ids;
 mod l10n;
 #[cfg(test)]
@@ -73,7 +82,7 @@ use std::{
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, PopoverOnToggleCallbackType, TextInputOnTextInputCallbackType,
-        TimerCallbackInfo, TimerCallbackReturn,
+        TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
     css::{
         AngleValue, CssProperty, LayoutLeft, LayoutTop, LayoutWidth, PixelValue, StyleTransform,
@@ -101,12 +110,14 @@ use azul_appkit::{
 };
 
 use crate::{
+    geocode::{SearchReply, SearchRequest},
     model::{
-        cardinal, distance_km, distance_text, duration_text, pan_step, pan_tiles, parse_place,
-        parse_view, pins_from_json, pins_to_json, Marks, PanStep,
+        cardinal, distance_km, distance_text, duration_text, fit_view, pan_step, pan_tiles,
+        parse_place, parse_view, pins_from_json, pins_to_json, Marks, PanStep, End,
         place_text, route_line as route_reply_line, travel_line, view_line, view_value, TravelMode, HOME, MAX_ZOOM,
         MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
     },
+    places::Suggestion,
     route::{RouteReply, RouteRequest},
 };
 
@@ -160,6 +171,13 @@ static LAYOUTS: AtomicU64 = AtomicU64::new(0);
 /// A tap on the map this soon after the user closed a place's card is the
 /// click that closed it, not a new pin.
 const DISMISS_TAP_MS: u128 = 600;
+
+/// How long the typing in a travel field rests before its text is searched:
+/// a search per keystroke would only be superseded by the next one.
+const TYPEAHEAD_REST_MS: u128 = 250;
+
+/// The zoom a single picked place is shown at: its town.
+const PICKED_PLACE_ZOOM: f32 = 11.0;
 
 /// The pin's head: a 20 px square, round but for its bottom-left corner,
 /// turned 45 degrees COUNTER-clockwise so that corner points straight down.
@@ -216,6 +234,9 @@ const CONTROL_GROUP: &str = "display: flex; flex-direction: column; background: 
 /// The controls' column, bottom right.
 const CONTROLS: &str = "position: absolute; right: 12px; bottom: 30px; display: flex; \
                         flex-direction: column; gap: 10px;";
+/// The part of the window's left edge the open sidebar covers (its left
+/// offset, its width, a gap): a framed route stays right of it.
+const SIDEBAR_INSET: f32 = 310.0;
 /// The floating sidebar, below the title area.
 const SIDEBAR: &str = "position: absolute; left: 10px; top: 44px; bottom: 26px; width: 290px; \
                        display: flex; flex-direction: column; gap: 12px; padding: 12px; \
@@ -237,6 +258,9 @@ const TO_MARK: &str = "width: 10px; height: 10px; border-radius: 6px; border: 2p
                        #e5322d; background: #e5322d; @theme(flora) { border: 2px solid #7E4A42; \
                        background: #7E4A42; @media (prefers-color-scheme: dark) { border: 2px \
                        solid #B3837A; background: #B3837A; } }";
+/// The typeahead's suggestions under the travel fields.
+const SUGGESTIONS: &str = "display: flex; flex-direction: column; gap: 2px;";
+const NO_SUGGESTIONS: &str = "font-size: 12px; color: system:secondary-text; padding: 4px 6px;";
 const DISTANCE: &str = "flex-grow: 1; text-align: right; font-size: 13px; color: \
                         system:secondary-text; white-space: nowrap;";
 const RECENTS_SECTION: &str =
@@ -279,12 +303,71 @@ const ROUTE_PAINT: &str = "background: #1a73e8; @theme(flora) { background: syst
 
 // ==== State ====
 
-/// The travel panel: two places as typed, and how to go.
+/// A place picked for a travel end from the typeahead's suggestions.
+#[derive(Clone, PartialEq)]
+struct Picked {
+    /// What the field shows for it (`Frankfurt am Main, Germany`): the end is
+    /// this place while the field's text is still this label.
+    label: String,
+    at: (f64, f64),
+}
+
+/// The travel panel: two ends as typed, the places picked for them, and how
+/// to go.
 #[derive(Default)]
 struct Travel {
     from: String,
     to: String,
     mode: TravelMode,
+    from_pick: Option<Picked>,
+    to_pick: Option<Picked>,
+}
+
+impl Travel {
+    fn text(&self, end: End) -> &str {
+        match end {
+            End::From => &self.from,
+            End::To => &self.to,
+        }
+    }
+
+    fn text_mut(&mut self, end: End) -> &mut String {
+        match end {
+            End::From => &mut self.from,
+            End::To => &mut self.to,
+        }
+    }
+
+    fn pick_mut(&mut self, end: End) -> &mut Option<Picked> {
+        match end {
+            End::From => &mut self.from_pick,
+            End::To => &mut self.to_pick,
+        }
+    }
+
+    /// The place an end's text names: the picked place while the text is
+    /// its label, else typed coordinates.
+    fn place(&self, end: End) -> Option<(f64, f64)> {
+        let pick = match end {
+            End::From => &self.from_pick,
+            End::To => &self.to_pick,
+        };
+        match pick {
+            Some(p) if p.label == self.text(end) => Some(p.at),
+            _ => parse_place(self.text(end)),
+        }
+    }
+}
+
+/// What the typeahead shows under the travel fields.
+struct Suggestions {
+    /// The field the suggestions are for.
+    end: End,
+    /// The text the search was for.
+    query: String,
+    list: Vec<Suggestion>,
+    /// The row Return picks; Up and Down move it.
+    highlighted: usize,
 }
 
 struct MapState {
@@ -330,6 +413,19 @@ struct MapState {
     /// The newest route request's number, shared with the route workers: an
     /// older one gives up, its reply is dropped.
     route_latest: Arc<AtomicU64>,
+    /// The travel field typed in last and when, while its text waits for the
+    /// typeahead: the timer tick searches once the typing rested
+    /// [`TYPEAHEAD_REST_MS`].
+    typed: Option<(End, std::time::Instant)>,
+    /// The typeahead's suggestions, as the geocoder worker answered the
+    /// newest search; `None` hides the list.
+    suggestions: Option<Suggestions>,
+    /// The field whose first suggestion is picked as soon as it comes back:
+    /// Return was pressed before the search answered.
+    pick_first: Option<End>,
+    /// The newest search's number, shared with the geocoder workers (as
+    /// `route_latest`).
+    search_latest: Arc<AtomicU64>,
     /// The marks the last build drew (`map_area`), planned a window past every
     /// edge; empty before the first build. A step of a pan compares with them.
     drawn: RefCell<Marks>,
@@ -405,9 +501,67 @@ impl MapState {
         let from = if self.travel.from.trim().is_empty() {
             self.last_fix
         } else {
-            parse_place(&self.travel.from)
+            self.travel.place(End::From)
         };
-        (from, parse_place(&self.travel.to))
+        (from, self.travel.place(End::To))
+    }
+
+    /// The typing in the travel field `end` rested. Its text is a search for
+    /// the geocoder worker - unless it is empty or already names a place
+    /// (typed coordinates, a picked label): then the end changed, and the
+    /// window shows it (`true`).
+    fn typeahead(&mut self, end: End) -> (Option<SearchRequest>, bool) {
+        let query = self.travel.text(end).trim().to_string();
+        // Whatever is still in flight answers for older text.
+        let id = self.search_latest.fetch_add(1, Ordering::AcqRel) + 1;
+        if query.is_empty() || self.travel.place(end).is_some() {
+            self.suggestions = None;
+            self.announce_travel();
+            return (None, true);
+        }
+        let near = (self.viewport.centre_lat_deg, self.viewport.centre_lon_deg);
+        let request = SearchRequest {
+            id,
+            end,
+            query,
+            near: Some(near),
+            latest: self.search_latest.clone(),
+            on_done: on_search_done,
+        };
+        (Some(request), false)
+    }
+
+    /// Picks the typeahead's suggestion `index`: its field shows the place's
+    /// label, the end is that place, the list closes. Once both ends are
+    /// places the map frames the way between them, else it shows the place.
+    fn pick(&mut self, index: usize) -> bool {
+        let Some(list) = self.suggestions.take() else {
+            return false;
+        };
+        let Some(place) = list.list.get(index) else {
+            return false;
+        };
+        let label = place.label(azul_appkit::l10n::locale().starts_with("de"));
+        *self.travel.text_mut(list.end) = label.clone();
+        *self.travel.pick_mut(list.end) = Some(Picked {
+            label,
+            at: (place.lat, place.lon),
+        });
+        self.typed = None;
+        self.pick_first = None;
+        self.announce_travel();
+        let (lat, lon, zoom) = match self.travel_ends() {
+            (Some(a), Some(b)) => {
+                let inset = if self.sidebar_open { SIDEBAR_INSET } else { 0.0 };
+                fit_view(a, b, self.size.get(), inset)
+            }
+            _ => (place.lat, place.lon, PICKED_PLACE_ZOOM),
+        };
+        let min = MIN_ZOOM.max(self.layer.min_zoom as f32);
+        let max = MAX_ZOOM.min(self.layer.max_zoom as f32);
+        self.viewport.zoom = zoom.clamp(min, max);
+        self.centre_on(lat, lon);
+        true
     }
 
     /// The travel panel changed: announced for scripts.
@@ -641,13 +795,6 @@ fn title_area(s: &MapState, app: &RefAny) -> Dom {
         )
 }
 
-/// What a travel field is about.
-#[derive(Clone, Copy)]
-enum End {
-    From,
-    To,
-}
-
 /// One travel field: which one, and the app.
 struct FieldRef {
     app: RefAny,
@@ -679,6 +826,13 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
                                 end,
                             }),
                             on_travel_text as TextInputOnTextInputCallbackType,
+                        )
+                        .with_on_virtual_key_down(
+                            RefAny::new(FieldRef {
+                                app: app.clone(),
+                                end,
+                            }),
+                            on_travel_key as TextInputOnVirtualKeyDownCallbackType,
                         )
                         .dom()
                         .with_id(id),
@@ -749,12 +903,57 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
         );
     }
 
-    Dom::create_div()
+    let mut panel = Dom::create_div()
         .with_css(TRAVEL_PANEL)
         .with_id(ids::TRAVEL)
         .with_accessibility_name(label("azmaps-directions"))
-        .with_child(ends)
-        .with_child(modes)
+        .with_child(ends);
+    if let Some(list) = &s.suggestions {
+        panel.add_child(suggestion_list(list, app));
+    }
+    panel.with_child(modes)
+}
+
+/// One suggestion's row: which one, and the app.
+struct SuggestionRef {
+    app: RefAny,
+    index: usize,
+}
+
+/// The typeahead's suggestions under the travel fields: a row per place, the
+/// one Return picks highlighted, or a line saying no place is known by that
+/// name.
+fn suggestion_list(list: &Suggestions, app: &RefAny) -> Dom {
+    let german = azul_appkit::l10n::locale().starts_with("de");
+    let mut rows = Dom::create_div()
+        .with_css(SUGGESTIONS)
+        .with_id(ids::SUGGESTIONS)
+        .with_accessibility_name(label("azmaps-suggestions"));
+    if list.list.is_empty() {
+        let none = t_args("azmaps-no-places", &[("query", Arg::from(list.query.clone()))]);
+        return rows.with_child(
+            Dom::create_div()
+                .with_css(NO_SUGGESTIONS)
+                .with_child(Dom::create_span_with_text(none)),
+        );
+    }
+    for (index, place) in list.list.iter().enumerate() {
+        rows.add_child(
+            Button::create(place.label(german))
+                .with_icon("place")
+                .with_toggled(index == list.highlighted)
+                .with_on_click(
+                    RefAny::new(SuggestionRef {
+                        app: app.clone(),
+                        index,
+                    }),
+                    on_suggestion as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_id(ids::indexed("suggestion", index)),
+        );
+    }
+    rows
 }
 
 /// One place of the recents / on the map: which place, and the app.
@@ -1288,11 +1487,13 @@ extern "C" fn on_place_directions(mut data: RefAny, mut info: CallbackInfo) -> U
     let update = with_map(&mut app, |s| {
         if let Some((lat, lon)) = s.pins.get(index).copied() {
             s.travel.to = place_text(lat, lon);
+            s.travel.to_pick = None;
             s.sidebar_open = true;
             s.selected = None;
             s.announce_travel();
         }
     });
+    adopt_field_texts(&mut info);
     ask_route(&app, &mut info);
     update
 }
@@ -1340,34 +1541,162 @@ extern "C" fn on_toggle_sidebar(mut data: RefAny, mut info: CallbackInfo) -> Upd
     update
 }
 
-/// A travel field typed in: once both ends are places, the route is asked of
-/// the route worker (the newest request wins; an older one gives up).
+/// The field of a `FieldRef` callback: the app and which end.
+fn field_of(data: &mut RefAny) -> Option<(RefAny, End)> {
+    data.downcast_ref::<FieldRef>().map(|f| (f.app.clone(), f.end))
+}
+
+/// A travel field typed in. The keystroke is the field's own edit: the window
+/// is not rebuilt for it (that cost a full layout and repaint per key). The
+/// text is kept, and once the typing rests the timer tick hands it to the
+/// typeahead (`MapState::typeahead`).
 extern "C" fn on_travel_text(
     mut data: RefAny,
-    mut info: CallbackInfo,
+    _info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
     let keep = OnTextInputReturn {
         update: Update::DoNothing,
         valid: TextInputValid::Yes,
     };
-    let Some((mut app, end)) = data.downcast_ref::<FieldRef>().map(|f| (f.app.clone(), f.end))
-    else {
+    let Some((mut app, end)) = field_of(&mut data) else {
         return keep;
     };
-    let text = state.get_text().as_str().to_string();
-    let update = with_map(&mut app, |s| {
-        match end {
-            End::From => s.travel.from = text,
-            End::To => s.travel.to = text,
-        }
-        s.announce_travel();
-    });
-    ask_route(&app, &mut info);
-    OnTextInputReturn {
+    if let Some(mut s) = app.downcast_mut::<MapState>() {
+        *s.travel.text_mut(end) = state.get_text().as_str().to_string();
+        s.typed = Some((end, std::time::Instant::now()));
+    }
+    keep
+}
+
+/// The keys of a travel field with the typeahead's list open: Down and Up
+/// move the highlight, Return picks the highlighted place, Escape closes the
+/// list. Return before the search answered picks its first place once it
+/// does.
+extern "C" fn on_travel_key(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _state: TextInputState,
+) -> OnTextInputReturn {
+    let keep = |update| OnTextInputReturn {
         update,
         valid: TextInputValid::Yes,
+    };
+    let Some((mut app, end)) = field_of(&mut data) else {
+        return keep(Update::DoNothing);
+    };
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    let mut picked = false;
+    let update = {
+        let Some(mut s) = app.downcast_mut::<MapState>() else {
+            return keep(Update::DoNothing);
+        };
+        let rows = s
+            .suggestions
+            .as_ref()
+            .filter(|l| l.end == end)
+            .map_or(0, |l| l.list.len());
+        match key {
+            Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) if rows > 0 => {
+                let index = s.suggestions.as_ref().map_or(0, |l| l.highlighted);
+                picked = s.pick(index);
+                Update::RefreshDom
+            }
+            Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)
+                if s.typed.is_some_and(|(typed, _)| typed == end) =>
+            {
+                s.pick_first = Some(end);
+                Update::DoNothing
+            }
+            Some(VirtualKeyCode::Down | VirtualKeyCode::Up) if rows > 0 => {
+                if let Some(list) = s.suggestions.as_mut() {
+                    list.highlighted = if key == Some(VirtualKeyCode::Down) {
+                        (list.highlighted + 1).min(rows - 1)
+                    } else {
+                        list.highlighted.saturating_sub(1)
+                    };
+                }
+                Update::RefreshDom
+            }
+            Some(VirtualKeyCode::Escape) if s.suggestions.is_some() => {
+                s.suggestions = None;
+                Update::RefreshDom
+            }
+            _ => Update::DoNothing,
+        }
+    };
+    if picked {
+        adopt_field_texts(&mut info);
+        ask_route(&app, &mut info);
     }
+    keep(update)
+}
+
+/// The app wrote the travel fields' texts itself (a picked place, a swap): the
+/// rebuild's texts replace what the fields hold, edits included.
+fn adopt_field_texts(info: &mut CallbackInfo) {
+    let revision = info.get_document_text_revision();
+    info.mark_text_revision_synced(revision);
+}
+
+/// A suggestion's row clicked: its place is picked for its field.
+extern "C" fn on_suggestion(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data
+        .downcast_ref::<SuggestionRef>()
+        .map(|r| (r.app.clone(), r.index))
+    else {
+        return Update::DoNothing;
+    };
+    let picked = app
+        .downcast_mut::<MapState>()
+        .is_some_and(|mut s| s.pick(index));
+    if !picked {
+        return Update::DoNothing;
+    }
+    adopt_field_texts(&mut info);
+    ask_route(&app, &mut info);
+    Update::RefreshDom
+}
+
+/// The geocoder worker answered: its suggestions show when they answer the
+/// newest search for the text the field still holds, and are dropped
+/// otherwise. A field whose text stopped naming a place loses its route
+/// here too.
+extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((id, end, query, list, compute_ms)) = msg.downcast_mut::<SearchReply>().map(|mut r| {
+        (
+            r.id,
+            r.end,
+            std::mem::take(&mut r.query),
+            std::mem::take(&mut r.suggestions),
+            r.compute_ms,
+        )
+    }) else {
+        return Update::DoNothing;
+    };
+    let picked = {
+        let Some(mut s) = app.downcast_mut::<MapState>() else {
+            return Update::DoNothing;
+        };
+        if s.search_latest.load(Ordering::Acquire) != id || s.travel.text(end).trim() != query {
+            return Update::DoNothing;
+        }
+        println!("AZMAPS_SUGGEST {} {} {compute_ms:.3}", end.key(), list.len());
+        let pick_now = s.pick_first == Some(end) && !list.is_empty();
+        s.suggestions = Some(Suggestions {
+            end,
+            query,
+            list,
+            highlighted: 0,
+        });
+        s.announce_travel();
+        pick_now && s.pick(0)
+    };
+    if picked {
+        adopt_field_texts(&mut info);
+    }
+    ask_route(&app, &mut info);
+    Update::RefreshDom
 }
 
 extern "C" fn on_travel_swap(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1379,8 +1708,11 @@ extern "C" fn on_travel_swap(mut data: RefAny, mut info: CallbackInfo) -> Update
             }
         }
         std::mem::swap(&mut s.travel.from, &mut s.travel.to);
+        std::mem::swap(&mut s.travel.from_pick, &mut s.travel.to_pick);
+        s.suggestions = None;
         s.announce_travel();
     });
+    adopt_field_texts(&mut info);
     ask_route(&data, &mut info);
     update
 }
@@ -1506,8 +1838,20 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
     let fix = info.callback_info.get_location_fix().into_option();
     let mut changed = false;
     let mut moved_fix = false;
+    let mut travel_changed = false;
+    let mut search = None;
     let mut keep_view = None;
     if let Some(mut s) = data.downcast_mut::<MapState>() {
+        // The typeahead: the field's text, once the typing rested.
+        if let Some((end, at)) = s.typed {
+            if at.elapsed().as_millis() >= TYPEAHEAD_REST_MS {
+                s.typed = None;
+                let (request, end_changed) = s.typeahead(end);
+                search = request;
+                travel_changed = end_changed;
+                changed |= end_changed;
+            }
+        }
         if let Some(r) = mag {
             // The compass shows whole degrees: a reading that moves the
             // needle by less is no reason to rebuild the window (every
@@ -1559,8 +1903,15 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
     if let Some((kit_ref, value)) = keep_view {
         kit::set_value(&kit_ref, &mut info.callback_info, VIEW_KEY, &value);
     }
-    if moved_fix {
-        // An empty start is where you are: it moved, so did the route.
+    if let Some(request) = search {
+        info.callback_info.add_thread(
+            ThreadId::unique(),
+            Thread::create(RefAny::new(request), data.clone(), geocode::search_worker),
+        );
+    }
+    if moved_fix || travel_changed {
+        // An empty start is where you are: it moved, so did the route. Or a
+        // travel field's text came to name a place, or stopped naming one.
         ask_route(&data, &mut info.callback_info);
     }
     TimerCallbackReturn {
@@ -1698,6 +2049,10 @@ pub fn start() {
         route: None,
         route_asked: None,
         route_latest: Arc::new(AtomicU64::new(0)),
+        typed: None,
+        suggestions: None,
+        pick_first: None,
+        search_latest: Arc::new(AtomicU64::new(0)),
         drawn: RefCell::new(Marks::default()),
         mark_generation: Cell::new(0),
         marks_moved: Cell::new(false),

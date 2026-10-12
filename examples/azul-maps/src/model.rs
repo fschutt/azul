@@ -104,6 +104,24 @@ pub fn pan_tiles(lon_deg: f64, lat_deg: f64, tile_count: f64, dx_tiles: f64, dy_
     (lon, lat.clamp(-85.0, 85.0))
 }
 
+/// A travel field: the start or the destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    From,
+    To,
+}
+
+impl End {
+    /// The word scripts read (`AZMAPS_SUGGEST from ...`).
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::From => "from",
+            Self::To => "to",
+        }
+    }
+}
+
 /// How the traveller goes (the travel panel's options).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TravelMode {

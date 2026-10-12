@@ -48,3 +48,5 @@ azmaps-mode-transit = Public transport
 azmaps-duration-min = ~ { $min } min
 azmaps-duration-h = ~ { $h } h
 azmaps-duration-h-min = ~ { $h } h { $min } min
+azmaps-suggestions = Suggestions
+azmaps-no-places = No place called “{ $query }” is known

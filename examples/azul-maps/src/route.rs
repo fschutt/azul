@@ -60,7 +60,17 @@ pub struct Stop<'a> {
     receiver: &'a mut ThreadReceiver,
 }
 
-impl Stop<'_> {
+impl<'a> Stop<'a> {
+    /// The checks of the worker of request `id`, against the newest request's number and the
+    /// worker's own queue.
+    pub fn new(id: u64, latest: &'a AtomicU64, receiver: &'a mut ThreadReceiver) -> Self {
+        Self {
+            id,
+            latest,
+            receiver,
+        }
+    }
+
     /// Whether to give up now. The window's `TerminateThread` may sit behind the `Tick`s it
     /// sends every frame: the whole queue is read.
     pub fn now(&mut self) -> bool {
@@ -90,11 +100,7 @@ pub extern "C" fn route_worker(
     else {
         return;
     };
-    let mut stop = Stop {
-        id,
-        latest: &latest,
-        receiver: &mut receiver,
-    };
+    let mut stop = Stop::new(id, &latest, &mut receiver);
     if stop.now() {
         return;
     }
