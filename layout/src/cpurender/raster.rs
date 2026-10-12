@@ -4678,6 +4678,44 @@ pub(super) fn render_text(
     }
 }
 
+/// A box of device pixels in the target pixmap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PixelBox {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+/// Where one text shadow is drawn: `buffer` is the offscreen its glyphs are
+/// drawn and blurred in, `out` the part of it that lands on the target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ShadowBoxes {
+    buffer: PixelBox,
+    out: PixelBox,
+}
+
+/// The boxes of a text shadow whose glyphs paint inside `source` and spread
+/// `radius` pixels by the blur, under `clip`, on a `target` sized pixmap.
+fn text_shadow_boxes(
+    source: AzRect,
+    radius: u32,
+    clip: Option<AzRect>,
+    target: (u32, u32),
+) -> Option<ShadowBoxes> {
+    let _ = (source, radius, clip);
+    let full = PixelBox {
+        x: 0,
+        y: 0,
+        width: target.0,
+        height: target.1,
+    };
+    Some(ShadowBoxes {
+        buffer: full,
+        out: full,
+    })
+}
+
 /// Paint a single `text-shadow` for a glyph run.
 ///
 /// Renders the glyphs (offset by the shadow's logical offset, tinted with the
@@ -6837,6 +6875,150 @@ mod text_shadow_tests {
             blurred > hard,
             "blurred shadow ({blurred}) should cover more pixels than hard ({hard})"
         );
+    }
+
+    fn device_rect(x: f32, y: f32, width: f32, height: f32) -> AzRect {
+        AzRect::from_xywh(x, y, width, height).expect("a rect with an area")
+    }
+
+    /// A map shows a hundred labels with a halo each: drawing and blurring a
+    /// whole window per label made one frame of a pan cost most of a second.
+    #[test]
+    fn a_text_shadow_draws_and_blurs_only_the_box_its_glyphs_reach_not_the_whole_window() {
+        let boxes = text_shadow_boxes(device_rect(500.0, 300.0, 80.0, 20.0), 2, None, (2200, 1440))
+            .expect("a shadow in the window");
+        let reach = PixelBox {
+            x: 498,
+            y: 298,
+            width: 84,
+            height: 24,
+        };
+        assert_eq!(boxes.buffer, reach);
+        assert_eq!(boxes.out, reach);
+    }
+
+    #[test]
+    fn a_text_shadow_lands_only_inside_its_clip_but_blurs_what_lies_just_outside_it() {
+        let clip = device_rect(0.0, 0.0, 540.0, 1440.0);
+        let boxes =
+            text_shadow_boxes(device_rect(500.0, 300.0, 80.0, 20.0), 2, Some(clip), (2200, 1440))
+                .expect("a shadow in the clip");
+        assert_eq!(
+            boxes.out,
+            PixelBox {
+                x: 498,
+                y: 298,
+                width: 42,
+                height: 24,
+            }
+        );
+        // The glyphs within the blur's reach of the clip's edge still blur into it.
+        assert_eq!(
+            boxes.buffer,
+            PixelBox {
+                x: 498,
+                y: 298,
+                width: 44,
+                height: 24,
+            }
+        );
+        let far = device_rect(1000.0, 0.0, 100.0, 100.0);
+        assert_eq!(text_shadow_boxes(device_rect(500.0, 300.0, 80.0, 20.0), 2, Some(far), (2200, 1440)), None);
+    }
+
+    /// A repaint of a damaged strip clears and paints only that strip. A
+    /// shadow composited past the strip lands again on pixels that already
+    /// show it, and its halo darkens a little more with every repaint.
+    #[test]
+    fn a_text_shadow_leaves_the_pixels_outside_the_damaged_strip_alone() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = renderer_resources_with(&font);
+        let (w, h) = (200u32, 80u32);
+        let glyphs = shape(&font, "Hi", 32.0, 40.0, 50.0);
+        #[allow(clippy::cast_precision_loss)]
+        let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: w as f32,
+                height: h as f32,
+            },
+        }
+        .into();
+        let shadow = StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(6.0),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            color: ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+        };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushTextShadow { shadow },
+                DisplayListItem::Text {
+                    glyphs,
+                    font_hash,
+                    font_size_px: 32.0,
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    },
+                    clip_rect,
+                    source_node_index: None,
+                },
+                DisplayListItem::PopTextShadow,
+            ],
+            ..Default::default()
+        };
+        let mut pm = AzulPixmap::new(w, h).unwrap();
+        pm.fill(0, 200, 0, 255);
+        let strip = vec![LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: 60.0,
+                height: 80.0,
+            },
+        }];
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut gc = GlyphCache::new();
+        render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &strip).unwrap();
+        let wide = w as usize;
+        let green = [0u8, 200, 0, 255];
+        let mut touched = Vec::new();
+        let mut shadowed = 0usize;
+        for (i, p) in pm.data().chunks_exact(4).enumerate() {
+            let x = i % wide;
+            if x >= 60 && p != green {
+                touched.push((x, i / wide));
+            } else if (40..60).contains(&x) && p[0] > 0 {
+                shadowed += 1;
+            }
+        }
+        assert!(
+            touched.is_empty(),
+            "the shadow painted {} pixels right of the damaged strip, the first at {:?}",
+            touched.len(),
+            touched.first()
+        );
+        assert!(shadowed > 0, "the shadow paints inside the strip");
     }
 }
 
