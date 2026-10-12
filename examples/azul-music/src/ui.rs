@@ -497,7 +497,7 @@ fn sidebar(s: &Music, app: &RefAny, look: &Look) -> Dom {
                      pointer;",
                     look.line
                 ))
-                .with_accessibility_name(t_args("azmusic-the-album", &[("title", Arg::from(title))]))
+                .with_accessibility_name(t_args("azmusic-the-album", &[("title", Arg::from(&title))]))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
                     RefAny::new(GoPick {
