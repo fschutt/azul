@@ -3292,3 +3292,88 @@ mod image_mask_tests {
         assert_eq!(got, vec![Seen::Gradient]);
     }
 }
+
+#[cfg(test)]
+mod rounded_corner_tests {
+    //! The corners WebRender is handed for a box with `border-radius`. The
+    //! display list gives radii in CSS px, as it gives every length;
+    //! WebRender works in device px, so at 2x a 6px corner is 12 device px,
+    //! as the CPU renderer draws it.
+
+    use azul_css::props::{
+        basic::{color::ColorU, direction::Direction, length::PercentageValue},
+        style::background::{
+            ExtendMode, LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+        },
+    };
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayListItem};
+    use webrender::api::DisplayItem;
+
+    use super::stacking_context_tests::{built, rect};
+
+    fn corners(r: f32) -> BorderRadius {
+        BorderRadius {
+            top_left: r,
+            top_right: r,
+            bottom_left: r,
+            bottom_right: r,
+        }
+    }
+
+    /// The top-left radius of every rounded clip WebRender is handed, in
+    /// list order.
+    fn radii(items: Vec<DisplayListItem>, dpi: f32) -> Vec<f32> {
+        let list = built(items, dpi);
+        let mut out = Vec::new();
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            if let DisplayItem::RoundedRectClip(c) = item.item() {
+                out.push(c.clip.radii.top_left.width);
+            }
+        }
+        out
+    }
+
+    /// A button face, a rounded overflow clip and a rounded gradient: each
+    /// one's corner is its radius times the scale factor.
+    #[test]
+    fn a_rounded_box_is_clipped_with_its_corners_in_device_pixels() {
+        let face = rect(20.0, 10.0, 120.0, 30.0);
+        for dpi in [1.0, 2.0] {
+            let got = radii(
+                vec![
+                    DisplayListItem::Rect {
+                        bounds: face.into(),
+                        color: ColorU::new(30, 60, 170, 255),
+                        border_radius: corners(6.0),
+                    },
+                    DisplayListItem::PushClip {
+                        bounds: face.into(),
+                        border_radius: corners(6.0),
+                    },
+                    DisplayListItem::PopClip,
+                    DisplayListItem::LinearGradient {
+                        bounds: face.into(),
+                        gradient: LinearGradient {
+                            direction: Direction::default(),
+                            extend_mode: ExtendMode::Clamp,
+                            stops: NormalizedLinearColorStopVec::from_vec(vec![
+                                NormalizedLinearColorStop::new(
+                                    PercentageValue::new(0.0),
+                                    ColorU::new(30, 60, 170, 255),
+                                ),
+                                NormalizedLinearColorStop::new(
+                                    PercentageValue::new(100.0),
+                                    ColorU::new(10, 20, 90, 255),
+                                ),
+                            ]),
+                        },
+                        border_radius: corners(6.0),
+                    },
+                ],
+                dpi,
+            );
+            assert_eq!(got, vec![6.0 * dpi; 3], "dpi {dpi}");
+        }
+    }
+}
