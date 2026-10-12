@@ -25025,6 +25025,71 @@
                                 "type": "Update"
                             }
                         }
+                    },
+                    "UpdateAudience": {
+                        "doc": [
+                            "Which rollout gate applies to this client."
+                        ],
+                        "external": "azul_layout::updater::UpdateAudience",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "AutoUpdate": {
+                                    "doc": [
+                                        "Self-updating install: eligible once its cohort bucket falls under the currently-open percent."
+                                    ]
+                                },
+                                "NotifyOnly": {
+                                    "doc": [
+                                        "Package-managed / notify-only install: sees the notification only after the rollout completes (100%)."
+                                    ]
+                                },
+                                "Tester": {
+                                    "doc": [
+                                        "A tester's install (a beta channel): every release the moment it is published."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "UpdateStageResult": {
+                        "doc": [
+                            "What staging or checking a program's update concluded."
+                        ],
+                        "external": "azul_layout::updater::UpdateStageResult",
+                        "custom_impls": [
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Staged": {
+                                    "type": "String",
+                                    "doc": [
+                                        "The verified file, ready to install."
+                                    ]
+                                },
+                                "Error": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Why the file must not be installed."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -188667,6 +188732,32 @@
                                 "ReadOnly": {}
                             }
                         ],
+                        "functions": {
+                            "detect": {
+                                "doc": [
+                                    "Detects the install kind of the current executable."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "InstallKind"
+                                },
+                                "fn_body": "azul_layout::updater::InstallKind::detect()"
+                            },
+                            "detect_for": {
+                                "doc": [
+                                    "Detects the install kind of the executable at path."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "InstallKind"
+                                },
+                                "fn_body": "azul_layout::updater::InstallKind::detect_for(std::path::Path::new(path.as_str()))"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ReleaseInfo": {
@@ -188727,6 +188818,110 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "check_program": {
+                                "doc": [
+                                    "Checks another program for updates. Its state is loaded from and saved to state_dir, and rollout_bucket (the machine's cohort, 0-99) replaces the cohort that folder held. Blocking: run it on a Thread."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "manifest_url": "String"
+                                    },
+                                    {
+                                        "current_version": "String"
+                                    },
+                                    {
+                                        "channel": "String"
+                                    },
+                                    {
+                                        "state_dir": "String"
+                                    },
+                                    {
+                                        "rollout_bucket": "u8"
+                                    },
+                                    {
+                                        "audience": "UpdateAudience"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "UpdateCheckResult"
+                                },
+                                "fn_body": "azul_layout::updater::check_program_for_updates(manifest_url.as_str(), current_version.as_str(), channel.as_str(), std::path::Path::new(state_dir.as_str()), rollout_bucket, audience)"
+                            },
+                            "stage": {
+                                "doc": [
+                                    "Downloads and verifies this release for another program. The file lands in staging_dir, the accepted key generation in state_dir. Blocking: run it on a Thread."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "staging_dir": "String"
+                                    },
+                                    {
+                                        "root_public_key": "String"
+                                    },
+                                    {
+                                        "state_dir": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "UpdateStageResult"
+                                },
+                                "fn_body": "azul_layout::updater::stage_program_update(release_info, std::path::Path::new(staging_dir.as_str()), root_public_key.as_str(), std::path::Path::new(state_dir.as_str())).into()"
+                            },
+                            "verify_staged": {
+                                "doc": [
+                                    "Checks a staged file once more right before it is installed: the digest pin and the signature chain. A file on disk is not trusted across runs."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "path": "String"
+                                    },
+                                    {
+                                        "root_public_key": "String"
+                                    },
+                                    {
+                                        "state_dir": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "UpdateStageResult"
+                                },
+                                "fn_body": "azul_layout::updater::verify_staged_program_update(std::path::Path::new(path.as_str()), release_info, root_public_key.as_str(), std::path::Path::new(state_dir.as_str())).map(|()| std::path::PathBuf::from(path.as_str())).into()"
+                            },
+                            "draw_rollout_bucket": {
+                                "doc": [
+                                    "Draws a rollout cohort (0-99), AZ_UPDATE_BUCKET included. The caller keeps it: a cohort is drawn once per machine."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "u8"
+                                },
+                                "fn_body": "azul_layout::updater::draw_rollout_bucket()"
+                            },
+                            "within_maintenance_window": {
+                                "doc": [
+                                    "Whether unattended update work may run at now_unix under the maintenance window rule (an RRULE subset, in UTC; empty: any time)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "rule": "String"
+                                    },
+                                    {
+                                        "now_unix": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "azul_layout::updater::within_maintenance_window(rule.as_str(), now_unix)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "TransientAnchor": {

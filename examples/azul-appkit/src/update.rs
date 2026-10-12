@@ -576,8 +576,8 @@ mod azul_engine {
     use std::path::{Path, PathBuf};
 
     use azul::{
-        callbacks::UpdateCheckResult,
-        misc::{InstallKind as AzInstallKind, ReleaseInfo, UpdateAudience, UpdateStageResult},
+        callbacks::{UpdateAudience, UpdateCheckResult, UpdateStageResult},
+        misc::{InstallKind as AzInstallKind, ReleaseInfo},
         str::String as AzString,
         vec::StringPairVec,
     };
