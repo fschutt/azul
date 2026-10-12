@@ -2101,7 +2101,28 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             drop(crate::probe::Probe::span("taffy_pure_measure_miss"));
         }
 
-        let mut result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
+        // A WIDTH-ONLY measure of a flex COLUMN (a flex row's basis for it, a
+        // min-/max-content contribution) stays out of taffy's cache. taffy
+        // lays a column's items out at the column's content width BEFORE it
+        // caps the column by its max-width, so the height of this answer
+        // belongs to a width the column never has. Cached as (capped width,
+        // that height), it answered the next question - the height at the
+        // capped width - because taffy's cache matches a known width against
+        // a stored result's width: AzShow's About panel stayed one wrapped
+        // line short and its OK hung out of it. Its width is right, and the
+        // pure-measure cache above keys by the width question only.
+        let width_only_column = inputs.run_mode == RunMode::ComputeSize
+            && inputs.axis == taffy::RequestedAxis::Horizontal
+            && fc == FormattingContext::Flex
+            && inputs.known_dimensions.width.is_none();
+        let mut result = if width_only_column {
+            drop(crate::probe::Probe::span("taffy_width_only_column"));
+            // What `compute_cached_layout` would mark: the measure rewrote
+            // the subtree, its last final layout no longer describes it.
+            self.set_final_layout_current(node_idx, false);
+            compute_flexbox_layout(self, node_id, inputs)
+        } else {
+            compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
             let node_idx: usize = node_id.into();
             let fc = tree
                 .tree
@@ -2126,7 +2147,8 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 tree.set_final_layout_current(node_idx, true);
             }
             output
-        });
+            })
+        };
 
         // Populate the pure-measure cache from the result we just computed.
         if let Some(slot) = pure_measure_slot {
