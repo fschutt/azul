@@ -76,6 +76,8 @@ pub mod graph;
 pub mod history;
 /// The DOM ids, classes and markers (`__azmonitor_` prefix), each once.
 pub mod ids;
+#[cfg(test)]
+mod l10n_tests;
 /// The live machine: this computer through the `sysinfo` crate.
 pub mod live;
 /// The sampling model: readings, rates, the process rows, sort and filter.
