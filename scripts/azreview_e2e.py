@@ -4,8 +4,10 @@
     1. writes a small folder to review (`src/lib.rs`, 120 lines; `README.md`) and starts
        `AzReview <folder>` headless (AZ_BACKEND=headless, the debug server on --debug-port) on a
        fresh data folder (`--data-dir`); it opens the first file (`AZREVIEW_FILE README.md`);
-    2. the window is filled: the sheet strip reaches down to the status bar;
-    3. a click on `lib.rs` in the files opens it (`AZREVIEW_FILE src/lib.rs`);
+    2. the window is filled: the sheet strip reaches down to the window's bottom (there is no
+       status bar);
+    3. a click on `lib.rs` in the files (they fly out over the pages at the start) opens it
+       (`AZREVIEW_FILE src/lib.rs`) and folds the files away;
     4. a stroke drawn with the mouse on the first page is kept (`AZREVIEW_STROKES 1`) and the
        session is written on a Thread to review/src_lib.rs.azreview.zip (`AZREVIEW_SAVED ...`):
        a zip whose session.json holds the stroke;

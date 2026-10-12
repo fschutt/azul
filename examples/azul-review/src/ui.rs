@@ -1,14 +1,18 @@
 use azul::{
-    callbacks::ButtonOnClickCallbackType,
-    dom::{AccessibilityInfo, RenderImageCallback},
+    callbacks::{ButtonOnClickCallbackType, CallbackType},
+    dom::RenderImageCallback,
     image::ImageRef,
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
-    shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
+    shells::{ShellThemeAccent, ShellThemeScope},
+    str::String as AzString,
     vec::MenuItemVec,
-    widgets::{Button, StatusBar, StatusBarSegment},
+    widgets::{AlertKind, InfoBar},
 };
-use azul_appkit::{l10n::label, ui as kit};
+use azul_appkit::{
+    l10n::{label, t, t_args, Arg},
+    ui as kit,
+};
 
 use crate::{
     code, ids,
@@ -89,11 +93,51 @@ pub fn index_of(info: &mut CallbackInfo) -> Option<usize> {
         .and_then(|mut d| d.downcast_ref::<IndexTag>().map(|t| t.index))
 }
 
-fn named(name: &str) -> AccessibilityInfo {
-    AccessibilityInfo {
-        accessibility_name: OptionString::Some(label(name)),
-        ..AccessibilityInfo::default()
+/// A control of the bars - a meaning, the nib, a page, a tool, the files'
+/// switch: a button of its own, 22px tall, without the UA's face (its
+/// padding, border and 13px font), pressed and not dragged in the title row.
+const KEY: &str = "display: flex; flex-direction: row; align-items: center; justify-content: \
+                   center; gap: 4px; height: 22px; box-sizing: border-box; padding: 0px 6px; \
+                   border-radius: 4px; font-size: 11px; flex-shrink: 0; cursor: pointer; \
+                   -azul-app-region: no-drag;";
+
+/// An icon-only key at rest: no face until the pointer is on it.
+const QUIET: &str = "padding: 0px 3px; background: transparent; border: 1px solid transparent; \
+                     color: system:text; :hover { background: system:control-background; \
+                     border: 1px solid system:separator; }";
+
+/// A key (`KEY` and `face`) named `name` for the screen reader, clicked (or
+/// pressed with Enter / Space) for `on_click` with `data`.
+fn key(face: &str, name: AzString, data: RefAny, on_click: CallbackType) -> Dom {
+    Dom::create_node(NodeType::Button)
+        .with_css(format!("{KEY} {face}").as_str())
+        .with_accessibility_name(name)
+        .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, on_click)
+}
+
+/// What an icon-only key shows under the pointer: its name.
+struct Tip(AzString);
+
+/// `key` with its name as the tooltip while the pointer is on it.
+fn with_tip(key: Dom, name: &AzString) -> Dom {
+    key.with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseEnter),
+        RefAny::new(Tip(name.clone())),
+        show_tip,
+    )
+    .with_callback(EventFilter::Hover(HoverEventFilter::MouseLeave), RefAny::new(()), hide_tip)
+}
+
+extern "C" fn show_tip(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(tip) = data.downcast_ref::<Tip>().map(|t| t.0.clone()) {
+        info.show_tooltip(tip);
     }
+    Update::DoNothing
+}
+
+extern "C" fn hide_tip(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.hide_tooltip();
+    Update::DoNothing
 }
 
 pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
@@ -111,19 +155,7 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_child(kit::title_row(crate::SPEC.name))
             .with_child(kit::settings_page(&s.kit, Vec::new()))
     } else {
-        // The document shell: the files beside the document (the toolbar,
-        // the page rail, the sheets), the status bar under it.
-        let document = Dom::create_div()
-            .with_css(COLUMN)
-            .with_child(toolbar(&s, &data))
-            .with_child(page_rail(&s, &data))
-            .with_child(sheet(&s, &data));
-        DocumentShell::create(document)
-            .with_navigation(sidebar(&s, &data))
-            .office_shell()
-            .with_title_row(kit::title_row(crate::SPEC.name))
-            .with_status_bar(status_bar(&s))
-            .dom()
+        main_view(&s, &data)
     };
     // The scope as the window's body: no UA margin, the full window height,
     // the app theme's ground and ink in both modes.
@@ -136,6 +168,169 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             data.clone(),
             crate::on_key,
         )
+}
+
+/// The review window: the title row (it moves the window), the page rail,
+/// and the pages - what went wrong over them, and the files flying out over
+/// them while the switch has them out.
+pub fn main_view(s: &AppState, data: &RefAny) -> Dom {
+    let mut pages = Dom::create_div().with_css(
+        "position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: \
+         0px; min-width: 0px;",
+    );
+    if let Some(problem) = s.problem.as_deref() {
+        pages.add_child(problem_bar(problem, data));
+    }
+    pages.add_child(sheet(s, data));
+    if s.sidebar_open {
+        pages.add_child(flyout(s, data));
+    }
+    Dom::create_div()
+        .with_css(COLUMN)
+        .with_child(title_row(s, data))
+        .with_child(page_rail(s, data))
+        .with_child(pages)
+}
+
+/// What went wrong (a session that was not written), over the pages until
+/// dismissed.
+fn problem_bar(problem: &str, data: &RefAny) -> Dom {
+    InfoBar::create(AzString::from(problem))
+        .with_kind(AlertKind::Danger)
+        .with_action(label("azreview-dismiss"))
+        .with_on_action(data.clone(), crate::on_dismiss_problem as ButtonOnClickCallbackType)
+        .dom()
+}
+
+/// The window's top row; there is no title bar. The row moves the window
+/// (`-azul-app-region: drag`; macOS's traffic lights sit at its left, in the
+/// room `TabsInTitlebar` leaves them, and it is as tall as their bar) and
+/// holds the files' switch, the five meanings (keys 1 to 5) and the nib.
+fn title_row(s: &AppState, data: &RefAny) -> Dom {
+    let chrome = kit::tabs_in_titlebar();
+    let mut row = Dom::create_div().with_css(
+        format!(
+            "display: flex; flex-direction: row; align-items: center; gap: 3px; height: 28px; \
+             box-sizing: border-box; padding: 0px {:.0}px 0px {:.0}px; flex-shrink: 0; \
+             user-select: none; -azul-app-region: drag;",
+            6.0 + chrome.right.max(0.0),
+            6.0 + chrome.left.max(0.0),
+        )
+        .as_str(),
+    );
+    row.add_child(sidebar_switch(s, data));
+    row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
+    for (i, sem) in Semantic::ALL.iter().enumerate() {
+        row.add_child(meaning_key(i, *sem, *sem == s.active, data));
+    }
+    row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
+    row.add_child(nib_key(s, data));
+    row
+}
+
+/// The files' switch: flies the files out over the pages, folds them away.
+fn sidebar_switch(s: &AppState, data: &RefAny) -> Dom {
+    let name = label("azreview-files-switch");
+    let face = if s.sidebar_open {
+        "padding: 0px 3px; background: system:control-background; border: 1px solid \
+         system:separator; color: system:text;"
+    } else {
+        QUIET
+    };
+    with_tip(key(face, name.clone(), data.clone(), crate::on_toggle_sidebar), &name)
+        .with_id(ids::SIDEBAR_TOGGLE)
+        .with_child(Dom::create_icon("view_sidebar").with_css("font-size: 15px;"))
+}
+
+/// Meaning `sem` (key `i + 1`): its icon and digit on a tint of its colour,
+/// filled while it is the meaning the pen writes.
+fn meaning_key(i: usize, sem: Semantic, active: bool, data: &RefAny) -> Dom {
+    let c = sem.color();
+    let face = if active {
+        format!(
+            "background: rgba({0},{1},{2},1.0); color: #ffffff; border: 1px solid \
+             rgba({0},{1},{2},1.0);",
+            c.r, c.g, c.b
+        )
+    } else {
+        format!(
+            "background: rgba({0},{1},{2},0.16); color: system:text; border: 1px solid \
+             rgba({0},{1},{2},0.35);",
+            c.r, c.g, c.b
+        )
+    };
+    let name = AzString::from(crate::l10n::word("meaning", sem.label()));
+    with_tip(key(&face, name.clone(), data.clone(), crate::on_pick_semantic), &name)
+        .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
+        .with_child(Dom::create_icon(sem.icon()).with_css("font-size: 13px;"))
+        .with_child(Dom::create_span_with_text(format!("{}", i + 1).as_str()).with_css("font-size: 10px;"))
+}
+
+/// The nib the pen draws with (marker, pen, audio pen); a click takes the
+/// next one.
+fn nib_key(s: &AppState, data: &RefAny) -> Dom {
+    let nib = crate::l10n::word("nib", s.tool.label());
+    let name = AzString::from(format!("{}: {nib}", t("azreview-cycle-nib")));
+    key(
+        "background: transparent; border: 1px dashed system:separator; color: system:text; \
+         :hover { background: system:control-background; }",
+        name,
+        data.clone(),
+        crate::on_cycle_tool,
+    )
+    .with_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 14px;"))
+    .with_child(Dom::create_span_with_text(nib.as_str()))
+}
+
+/// The files, flying out over the pages from the left like macOS's sidebar
+/// in a narrow window: out while the switch has them out, folded away when a
+/// file is picked or with Escape.
+fn flyout(s: &AppState, data: &RefAny) -> Dom {
+    let mut list = Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: \
+             auto; overflow-x: hidden; padding: 4px 0px;",
+        )
+        .with_id(ids::FILES)
+        .with_accessibility_name(label("azreview-files"));
+
+    let mut prev: Vec<String> = Vec::new();
+    for (i, f) in s.files.iter().enumerate() {
+        let parts: Vec<&str> = f.display.split(['/', '\\']).collect();
+        let (dirs, name) = parts.split_at(parts.len().saturating_sub(1));
+        for (depth, comp) in dirs.iter().enumerate() {
+            if prev.get(depth).map(String::as_str) == Some(*comp) {
+                continue;
+            }
+            list.add_child(finder_row(
+                comp, depth, "folder", "system:accent", false, None, data,
+            ));
+        }
+        prev = dirs.iter().map(|c| (*c).to_string()).collect();
+        let leaf = name.first().copied().unwrap_or(f.display.as_str());
+        list.add_child(finder_row(
+            leaf,
+            dirs.len(),
+            file_icon(leaf),
+            "system:secondary-text",
+            s.current == Some(i),
+            Some(i),
+            data,
+        ));
+    }
+    Dom::create_div()
+        .with_id(ids::FLYOUT)
+        .with_css(
+            "position: absolute; top: 6px; left: 6px; bottom: 6px; width: 260px; display: flex; \
+             flex-direction: column; background: system:window-background; border: 1px solid \
+             system:separator; border-radius: 8px; box-shadow: 0px 6px 20px rgba(0,0,0,0.28); \
+             overflow: hidden;",
+        )
+        .with_child(Dom::create_span_with_text(label("azreview-files")).with_css(
+            "font-size: 11px; padding: 7px 10px; color: system:secondary-text; flex-shrink: 0; \
+             border-bottom: 1px solid system:separator;",
+        ))
+        .with_child(list)
 }
 
 fn menu_bar(data: &RefAny) -> Menu {
@@ -171,46 +366,6 @@ fn menu_bar(data: &RefAny) -> Menu {
     Menu::create(MenuItemVec::copy_from_ptr(&items[0], items.len()))
 }
 
-fn sidebar(s: &AppState, data: &RefAny) -> Dom {
-    let mut col = Dom::create_div().with_css(COLUMN);
-    col.add_child(Dom::create_span_with_text(label("azreview-name")).with_css(
-        "font-size: 11px; padding: 7px 10px; color: system:secondary-text; flex-shrink: 0; \
-         border-bottom: 1px solid system:separator;",
-    ));
-
-    let mut list = Dom::create_div()
-        .with_css("flex-grow: 1; min-height: 0px; overflow-y: auto; overflow-x: hidden;")
-        .with_id(ids::FILES)
-        .with_accessibility_name(label("azreview-files"));
-
-    let mut prev: Vec<String> = Vec::new();
-    for (i, f) in s.files.iter().enumerate() {
-        let parts: Vec<&str> = f.display.split(['/', '\\']).collect();
-        let (dirs, name) = parts.split_at(parts.len().saturating_sub(1));
-        for (depth, comp) in dirs.iter().enumerate() {
-            if prev.get(depth).map(String::as_str) == Some(*comp) {
-                continue;
-            }
-            list.add_child(finder_row(
-                comp, depth, "folder", "system:accent", false, None, data,
-            ));
-        }
-        prev = dirs.iter().map(|c| (*c).to_string()).collect();
-        let leaf = name.first().copied().unwrap_or(f.display.as_str());
-        list.add_child(finder_row(
-            leaf,
-            dirs.len(),
-            file_icon(leaf),
-            "system:secondary-text",
-            s.current == Some(i),
-            Some(i),
-            data,
-        ));
-    }
-    col.add_child(list);
-    col
-}
-
 const fn file_icon(name: &str) -> &'static str {
     let bytes = name.as_bytes();
     let mut i = bytes.len();
@@ -240,11 +395,17 @@ fn finder_row(
     data: &RefAny,
 ) -> Dom {
     // A selected file: flat's accent row; under flora flora's selection (the soft wash and
-    // the deep ink by day, the stone at night), as every list of the engine shows it.
-    let mut row = Dom::create_div().with_css(
+    // the deep ink by day, the stone at night), as every list of the engine shows it. A file
+    // is a button (a folder only a heading), without the UA's border and font.
+    let mut row = match index {
+        Some(_) => Dom::create_node(NodeType::Button),
+        None => Dom::create_div(),
+    }
+    .with_css(
         format!(
             "display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 3px 10px \
-             3px {}px; font-size: 11px; flex-shrink: 0; background: {}; color: {};{}",
+             3px {}px; font-size: 11px; flex-shrink: 0; border: 0px solid transparent; \
+             background: {}; color: {};{}",
             10 + depth * 16,
             if selected { "system:accent" } else { "transparent" },
             if selected { "system:accent-text" } else { "system:text" },
@@ -278,95 +439,12 @@ fn finder_row(
         Some(i) => row
             .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
             .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+                EventFilter::Hover(HoverEventFilter::Click),
                 data.clone(),
                 crate::on_pick_file,
             ),
         None => row,
     }
-}
-
-fn toolbar(s: &AppState, data: &RefAny) -> Dom {
-    let mut bar = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; \
-         border-bottom: 1px solid system:separator; flex-shrink: 0;",
-    );
-    for (i, sem) in Semantic::ALL.iter().enumerate() {
-        let c = sem.color();
-        let selected = *sem == s.active;
-        let mut swatch = Dom::create_div().with_css(
-            format!(
-                "display: flex; flex-direction: row; align-items: center; gap: 5px; padding: 5px \
-                 10px; font-size: 12px; border-radius: 4px; background: rgba({},{},{},{}); color: \
-                 {}; border: {};",
-                c.r,
-                c.g,
-                c.b,
-                if selected { "1.0" } else { "0.18" },
-                if selected { "#ffffff" } else { "system:text" },
-                if selected {
-                    "2px solid system:text"
-                } else {
-                    "1px solid system:separator"
-                },
-            )
-            .as_str(),
-        );
-        swatch.add_child(Dom::create_icon(sem.icon()).with_css("font-size: 15px;"));
-        swatch.add_child(
-            Dom::create_span_with_text(format!("{}", i + 1).as_str())
-                .with_css("font-size: 10px; opacity: 0.75;"),
-        );
-        bar.add_child(
-            swatch
-                .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
-                .with_accessibility_info(named(&crate::l10n::word("meaning", sem.label())))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data.clone(),
-                    crate::on_pick_semantic,
-                ),
-        );
-    }
-    let mut nib = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: 16px; \
-         padding: 5px 12px; font-size: 12px; border-radius: 4px; color: system:text; border: 1px \
-         dashed system:separator;",
-    );
-    nib.add_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 15px;"));
-    nib.add_child(Dom::create_span_with_text(crate::l10n::word("nib", s.tool.label())));
-    bar.add_child(nib);
-
-    // The meter, then record, save and the settings at the end of the row.
-    bar.add_child(Dom::create_div().with_css("flex-grow: 1;"));
-    let rec = s.recording.is_some();
-    if rec {
-        bar.add_child(meter(s));
-    }
-    bar.add_child(
-        Button::create(label(if rec { "azreview-stop-recording" } else { "azreview-record" }))
-            .with_icon(if rec { "fiber_manual_record" } else { "mic" })
-            .with_toggled(rec)
-            .with_on_click(data.clone(), crate::on_toggle_record as ButtonOnClickCallbackType)
-            .dom()
-            .with_id(ids::RECORD),
-    );
-    bar.add_child(
-        Button::create(label("azreview-save"))
-            .with_icon("save")
-            .with_on_click(data.clone(), crate::on_save_button as ButtonOnClickCallbackType)
-            .dom()
-            .with_id(ids::SAVE),
-    );
-    bar.add_child(
-        Button::create("")
-            .with_icon("settings")
-            .with_on_click(data.clone(), crate::on_settings_open as ButtonOnClickCallbackType)
-            .dom()
-            .with_id(ids::SETTINGS)
-            .with_accessibility_name(label("azreview-settings")),
-    );
-    bar
 }
 
 fn meter(s: &AppState) -> Dom {
@@ -386,39 +464,79 @@ fn meter(s: &AppState) -> Dom {
 
 pub const STRIP_ID: &str = ids::STRIP_NAME;
 
+/// The page numbers - the one in view lit, a click scrolls the strip to its
+/// page - and the tools: the voice meter while recording, record, save and
+/// the settings, all one height.
 fn page_rail(s: &AppState, data: &RefAny) -> Dom {
     let mut rail = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 3px; padding: 4px 12px; \
-         border-bottom: 1px solid system:separator; overflow-x: auto; overflow-y: hidden; \
-         flex-shrink: 0; width: 100%; box-sizing: border-box;",
+        "display: flex; flex-direction: row; align-items: center; gap: 4px; padding: 3px 8px; \
+         border-bottom: 1px solid system:separator; flex-shrink: 0; user-select: none;",
     );
-    let Some(file) = s.file() else { return rail };
-    for page in 0..file.page_count() {
-        let here = page == s.visible_page;
-        // A page's number: flat's monospace; under flora flora's Garamond (its figures are
-        // tabular) at 12px.
-        let css = if here {
-            "padding: 2px 9px; font-size: 11px; font-family: monospace; border-radius: 3px; \
-             background: system:accent; color: system:accent-text; flex-shrink: 0; \
-             @theme(flora) { font-family: EB Garamond, Georgia, serif; font-size: 12px; }"
-        } else {
-            "padding: 2px 9px; font-size: 11px; font-family: monospace; border-radius: 3px; \
-             background: system:control-background; color: system:secondary-text; border: 1px \
-             solid system:separator; flex-shrink: 0; @theme(flora) { font-family: EB Garamond, \
-             Georgia, serif; font-size: 12px; }"
-        };
-        rail.add_child(
-            Dom::create_span_with_text(format!("{}", page + 1).as_str())
-                .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: page })))
-                .with_css(css)
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data.clone(),
-                    crate::on_jump_to_page,
-                ),
-        );
+    let mut pages = Dom::create_div().with_id(ids::PAGES).with_css(
+        "display: flex; flex-direction: row; align-items: center; gap: 3px; flex-grow: 1; \
+         flex-shrink: 1; flex-basis: 0px; min-width: 0px; overflow-x: auto; overflow-y: hidden;",
+    );
+    if let Some(file) = s.file() {
+        for page in 0..file.page_count() {
+            pages.add_child(page_pill(page, page == s.visible_page, data));
+        }
     }
+    rail.add_child(pages);
+
+    let rec = s.recording.is_some();
+    if rec {
+        rail.add_child(meter(s));
+    }
+    let (icon, name) = if rec {
+        ("fiber_manual_record", "azreview-stop-recording")
+    } else {
+        ("mic", "azreview-record")
+    };
+    rail.add_child(tool(icon, label(name), rec, data, crate::on_toggle_record).with_id(ids::RECORD));
+    rail.add_child(
+        tool("save", label("azreview-save"), false, data, crate::on_save_button).with_id(ids::SAVE),
+    );
+    rail.add_child(
+        tool("settings", label("azreview-settings"), false, data, crate::on_settings_open)
+            .with_id(ids::SETTINGS),
+    );
     rail
+}
+
+/// Page `page`'s number: as wide as the number and its padding, lit while
+/// that page is in view.
+fn page_pill(page: usize, here: bool, data: &RefAny) -> Dom {
+    // Flat's monospace; under flora flora's Garamond (its figures are tabular) at 12px.
+    let face = if here {
+        "background: system:accent; color: system:accent-text; border: 1px solid system:accent;"
+    } else {
+        "background: system:control-background; color: system:secondary-text; border: 1px solid \
+         system:separator;"
+    };
+    let name = AzString::from(t_args("azreview-page", &[("n", Arg::from(page + 1))]));
+    key(
+        &format!(
+            "padding: 0px 7px; font-family: monospace; {face} @theme(flora) {{ font-family: EB \
+             Garamond, Georgia, serif; font-size: 12px; }}"
+        ),
+        name,
+        data.clone(),
+        crate::on_jump_to_page,
+    )
+    .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: page })))
+    .with_child(Dom::create_span_with_text(format!("{}", page + 1).as_str()))
+}
+
+/// An icon-only tool of the rail named `name` (the screen reader's word and
+/// the tooltip); `on` lights it (recording).
+fn tool(icon: &str, name: AzString, on: bool, data: &RefAny, on_click: CallbackType) -> Dom {
+    let face = if on {
+        "padding: 0px 3px; background: #d62d20; border: 1px solid #d62d20; color: #ffffff;"
+    } else {
+        QUIET
+    };
+    with_tip(key(face, name.clone(), data.clone(), on_click), &name)
+        .with_child(Dom::create_icon(icon).with_css("font-size: 15px;"))
 }
 
 pub fn scroll_to_page(info: &mut CallbackInfo, page: usize) {
@@ -437,8 +555,17 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
          flex-direction: column; overflow: hidden; padding: 18px;",
     );
     if s.file().is_none() {
+        // No file open: none to review under the folder, or none picked yet.
+        let says = if s.files.is_empty() {
+            AzString::from(t_args(
+                "azreview-no-files",
+                &[("folder", Arg::from(s.root.display().to_string()))],
+            ))
+        } else {
+            label("azreview-open-file")
+        };
         area.add_child(
-            Dom::create_p_with_text(label("azreview-open-file"))
+            Dom::create_p_with_text(says)
                 .with_css("margin: 0px; color: system:secondary-text; padding: 40px;"),
         );
         return area;
@@ -625,18 +752,6 @@ fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
         data.clone(),
         crate::on_cycle_tool_back,
     )
-}
-
-fn status_bar(s: &AppState) -> Dom {
-    let pages = s.file().map_or(0, code::SourceFile::page_count);
-    let clips = s.clips.len() + usize::from(s.recording.is_some());
-    StatusBar::create(vec![
-        StatusBarSegment::create(azul_appkit::l10n::t_args("azreview-sheets", &[("count", azul_appkit::l10n::Arg::from(pages))])),
-        StatusBarSegment::create(azul_appkit::l10n::t_args("azreview-strokes", &[("count", azul_appkit::l10n::Arg::from(s.strokes.len()))])),
-        StatusBarSegment::create(azul_appkit::l10n::t_args("azreview-clips", &[("count", azul_appkit::l10n::Arg::from(clips))])),
-        StatusBarSegment::create(s.status.as_str()),
-    ])
-    .dom()
 }
 
 #[cfg(test)]
