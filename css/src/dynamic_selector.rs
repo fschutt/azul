@@ -2441,7 +2441,7 @@ impl CssPropertyWithConditions {
     pub fn when_focus_visible(mut self) -> Self {
         let conditions: Vec<DynamicSelector> = self
             .apply_if
-            .as_ref()
+            .as_slice()
             .iter()
             .map(|c| match c {
                 DynamicSelector::PseudoState(PseudoStateType::Focus) => {
