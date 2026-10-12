@@ -904,7 +904,7 @@ fn pin_box(x: f32, y: f32) -> (f32, f32) {
 }
 
 /// The travel preview: the straight line from `a` to `b` (both in view
-/// pixels, already clipped to the view).
+/// pixels, already cut to the area the build draws).
 fn route_line(a: (f32, f32), b: (f32, f32)) -> Dom {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let css = format!(

@@ -203,8 +203,13 @@ def body(args, logs, out):
         if rebuilt > 1:
             raise Failure("a drag with the route on the map rebuilt the window %d times (once per "
                           "pointer move?)" % rebuilt)
-        if app.count("AZMAPS_PAN", r"shift \d+") == 0:
+        steps = [v.split() for v in app.printed("AZMAPS_PAN")[pans:]]
+        shifts = [int(us) for done, us in steps if done == "shift"]
+        if not shifts:
             raise Failure("no step of the drag moved AzMaps' marks in place (AZMAPS_PAN shift)")
+        # Moving the marks is a handful of overrides: microseconds, not a layout's milliseconds.
+        if sorted(shifts)[len(shifts) // 2] > 5000:
+            raise Failure("moving the marks in place took %s us per step (median over 5 ms)" % shifts)
         after = app.rect(pin)
         moved = (after["x"] - before["x"], after["y"] - before["y"])
         if abs(moved[0] - (x1 - x0)) > 4 or abs(moved[1] - (y1 - y0)) > 4:
@@ -215,6 +220,7 @@ def body(args, logs, out):
         app.click(selector="#__azmaps_travel-walk")
         app.until("a rebuild after the drag", lambda: app.count("AZMAPS_LAYOUT") > layouts)
         app.frame(2)
+        app.log("the rebuild after the drag: AZMAPS_LAYOUT %s" % app.last("AZMAPS_LAYOUT"))
         rebuilt_at = app.rect(pin)
         if (not rebuilt_at or abs(rebuilt_at["x"] - after["x"]) > 1.5
                 or abs(rebuilt_at["y"] - after["y"]) > 1.5):
