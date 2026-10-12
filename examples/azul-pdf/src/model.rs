@@ -1,10 +1,14 @@
 //! AzPdf's model, plain Rust (tested in `model_tests.rs` without a window):
 //! the zoom, the vertical strip of pages, page size labels, the widths pages
-//! are rendered at, the page cache, what to render next, search over the
-//! pages' text, the recent documents, the form's fields and values, and small
-//! parsers.
+//! are rendered at, the page cache, what to render next, the size the pages
+//! are laid out at while the window is resized, search over the pages' text,
+//! the recent documents, the form's fields and values, and small parsers.
 
-use std::{collections::BTreeMap, ops::Range};
+use std::{
+    collections::BTreeMap,
+    ops::Range,
+    time::{Duration, Instant},
+};
 
 use azul_appkit::{
     find::{matches, TextMatch},
@@ -395,6 +399,133 @@ pub fn plan_renders(
         .map(|page| (page, width))
         .take(max)
         .collect()
+}
+
+// ==== Window resizes ====
+
+/// How long the page view has to keep its size before the pages are laid
+/// out at it, ms: longer than the frames of a drag, too short to read as a
+/// wait.
+pub const RESIZE_SETTLE_MS: u64 = 150;
+
+/// The page view's size, and the size the pages are laid out at.
+///
+/// Laying a page out at a new scale runs all of its text through shaping
+/// and line layout again: an SVG text is laid out at its font size times the
+/// page's scale, and azul's text cache is keyed by that size. At Fit width
+/// every window size is a new scale, so while the window is resized the
+/// pages keep the size they were laid out at and are drawn scaled onto the
+/// live one ([`PageArt`]). Once the view has kept its size for
+/// [`RESIZE_SETTLE_MS`], the pages are laid out at it, once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ViewSize {
+    /// The page view's size now, CSS px: the page frames and the scroll
+    /// follow it.
+    live: (f32, f32),
+    /// When `live` last changed: the settle time counts from here. `None`
+    /// until the view first reports a size of its own.
+    changed_at: Option<Instant>,
+    /// The view size the pages' DOMs are laid out at. `None` until the first
+    /// size, which is taken at once: no page was shown at another one.
+    settled: Option<(f32, f32)>,
+}
+
+impl ViewSize {
+    /// A view taken to be `size` until it is laid out.
+    #[must_use]
+    pub fn new(size: (f32, f32)) -> ViewSize {
+        ViewSize {
+            live: size,
+            changed_at: None,
+            settled: None,
+        }
+    }
+
+    /// The page view was laid out at `size` at `now`.
+    pub fn see(&mut self, size: (f32, f32), now: Instant) {
+        if size != self.live {
+            self.live = size;
+            self.changed_at = Some(now);
+        }
+        if self.settled.is_none() {
+            self.settled = Some(size);
+        }
+    }
+
+    /// The page view's size now.
+    #[must_use]
+    pub fn live(&self) -> (f32, f32) {
+        self.live
+    }
+
+    /// The view size the pages are laid out at.
+    #[must_use]
+    pub fn settled(&self) -> (f32, f32) {
+        self.settled.unwrap_or(self.live)
+    }
+
+    /// Whether the pages are laid out at another view size than the live one.
+    #[must_use]
+    pub fn is_resizing(&self) -> bool {
+        self.settled() != self.live
+    }
+
+    /// Takes the live size as the settled one if the view has kept it for
+    /// [`RESIZE_SETTLE_MS`] at `now`; true if that changed the settled size.
+    pub fn settle(&mut self, now: Instant) -> bool {
+        let kept = match self.changed_at {
+            Some(changed) => {
+                now.saturating_duration_since(changed) >= Duration::from_millis(RESIZE_SETTLE_MS)
+            }
+            None => true,
+        };
+        kept && self.settle_now()
+    }
+
+    /// Takes the live size as the settled one now (a zoom change lays the
+    /// pages out anyway); true if that changed the settled size.
+    pub fn settle_now(&mut self) -> bool {
+        let changed = self.is_resizing();
+        self.settled = Some(self.live);
+        changed
+    }
+
+    /// Forgets the settled size, so the next size seen is taken at once (a
+    /// new document).
+    pub fn reset(&mut self) {
+        self.settled = None;
+    }
+}
+
+/// How a page is drawn while the window may be resized: its DOM laid out at
+/// `size` (the page at the settled scale), then scaled by `factor` onto its
+/// frame (the page at the live scale). The scale is a CSS transform, which
+/// is drawn, not laid out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PageArt {
+    /// The size the page's DOM is laid out at, CSS px. It is the same bit
+    /// for bit at every frame of a drag: the text cache only serves a page
+    /// laid out at exactly the size it was.
+    pub size: (f32, f32),
+    /// What maps `size` onto the frame: exactly 1.0 when the two scales are
+    /// the same, and then no transform is drawn at all.
+    pub factor: f32,
+}
+
+impl PageArt {
+    /// `page` in a frame at `live_scale`, its DOM laid out at `settled_scale`.
+    #[must_use]
+    pub fn new(page: PageSize, live_scale: f32, settled_scale: f32) -> PageArt {
+        let factor = if live_scale == settled_scale {
+            1.0
+        } else {
+            live_scale / settled_scale
+        };
+        PageArt {
+            size: page.css(settled_scale),
+            factor,
+        }
+    }
 }
 
 // ==== Search ====

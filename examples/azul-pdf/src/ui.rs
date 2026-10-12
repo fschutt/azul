@@ -5,7 +5,11 @@
 //! the pages in view (and one either side) exist in the DOM - in the view
 //! each page's own DOM (its SVG read as markup: shapes, and text that is
 //! text), in the rail a picture of it - or a blank page with its number while
-//! it is being made. The pages are paper: white in both modes.
+//! it is being made. While the window is resized a page's DOM keeps the size
+//! it was laid out at and is drawn scaled onto its frame (`model::ViewSize`).
+//! The pages are paper: white in both modes.
+
+use std::time::Instant as StdInstant;
 
 use azul::{
     callbacks::{
@@ -33,7 +37,10 @@ use azul_appkit::{
 
 use crate::{
     ids,
-    model::{file_title, size_label, Field, FieldKind, FieldWidget, Strip, Zoom, PAGE_GAP, VIEW_PAD},
+    model::{
+        file_title, size_label, Field, FieldKind, FieldWidget, PageArt, Strip, Zoom, PAGE_GAP,
+        VIEW_PAD,
+    },
     AppState, Nav,
 };
 
@@ -360,7 +367,9 @@ fn slice(strip: &Strip, first: usize, end: usize) -> (f32, f32) {
 }
 
 /// The page view: the pages in view and one either side, centred, each its
-/// DOM, or a blank page with its number while it is made.
+/// DOM, or a blank page with its number while it is made. Every frame of a
+/// window resize comes here (the view's box changed); the pages' DOMs stay
+/// laid out at the settled scale then, so their text is not laid out again.
 extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let mut app = match data.downcast_ref::<ViewData>() {
         Some(view) => view.app.clone(),
@@ -376,12 +385,21 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     if logical.width > 0.0 {
         s.dpi = (physical.width as f32 / logical.width).max(1.0);
     }
-    s.view = (logical.width.max(1.0), logical.height.max(1.0));
+    s.view.see(
+        (logical.width.max(1.0), logical.height.max(1.0)),
+        StdInstant::now(),
+    );
     s.view_generation = s.generation;
 
+    let (scale, layout_scale) = (s.scale(), s.layout_scale());
+    if s.laid_out_scale != Some(layout_scale) {
+        s.laid_out_scale = Some(layout_scale);
+        println!("AZPDF_LAID_OUT {:.1}", layout_scale * 100.0);
+    }
     let strip = s.strip();
     let n = strip.len();
-    let view_w = s.view.0.max(strip.width);
+    let (view_w, view_h) = s.view.live();
+    let view_w = view_w.max(strip.width);
     if n == 0 {
         return VirtualViewReturn::with_dom(
             Dom::create_div(),
@@ -390,11 +408,11 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         );
     }
     let y = info.scroll_offset.y.max(0.0);
-    let visible = strip.visible(y, s.view.1);
+    let visible = strip.visible(y, view_h);
     let first = visible.start.saturating_sub(1).min(n - 1);
     let end = (visible.end + 1).min(n).max(first + 1);
     s.visible = visible;
-    s.current_page = strip.page_at(y + s.view.1 / 3.0);
+    s.current_page = strip.page_at(y + view_h / 3.0);
 
     let (top, bottom) = slice(&strip, first, end);
     let mut root = Dom::create_div().with_css(
@@ -407,7 +425,12 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     for page in first..end {
         let (w, h) = strip.sizes[page];
         let x = ((view_w - w) / 2.0).max(VIEW_PAD);
-        let dom = s.pages.get(page, crate::PAGE_DOM);
+        let art = s
+            .doc
+            .as_ref()
+            .and_then(|d| d.sizes.get(page))
+            .map(|size| PageArt::new(*size, scale, layout_scale));
+        let dom = s.pages.get(page, crate::PAGE_DOM).zip(art);
         let mut frame = page_frame(page, x, strip.tops[page] - top, w, h, dom);
         // The form's inputs over the page, at the page's scale.
         if let Some(doc) = s.doc.as_ref() {
@@ -437,8 +460,9 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
 }
 
 /// One page at (`x`, `y`) of the slice, `w` x `h` CSS px: its DOM (an
-/// `<svg>`, sized to the frame - its viewBox maps the page onto it).
-fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<Dom>) -> Dom {
+/// `<svg>`, its viewBox maps the page onto its box) laid out at the art's
+/// size and scaled onto the frame by the art's factor.
+fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<(Dom, PageArt)>) -> Dom {
     let mut frame = Dom::create_div()
         .with_id(ids::numbered(ids::PAGE_PREFIX, page + 1))
         .with_accessibility_name(t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str())
@@ -452,9 +476,27 @@ fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<Dom>) -> 
             .as_str(),
         );
     match dom {
-        Some(dom) => frame.add_child(
-            dom.with_css(format!("display: block; width: {w}px; height: {h}px;").as_str()),
-        ),
+        Some((dom, art)) => {
+            let (aw, ah) = art.size;
+            // A transform is drawn, not laid out: the text keeps its layout.
+            // Settled, the art has no transform at all.
+            let scaled = if art.factor == 1.0 {
+                String::new()
+            } else {
+                format!(
+                    " transform: scale({}); transform-origin: 0px 0px;",
+                    art.factor
+                )
+            };
+            frame.add_child(
+                Dom::create_div()
+                    .with_id(ids::numbered(ids::ART_PREFIX, page + 1))
+                    .with_css(format!("width: {aw}px; height: {ah}px;{scaled}").as_str())
+                    .with_child(dom.with_css(
+                        format!("display: block; width: {aw}px; height: {ah}px;").as_str(),
+                    )),
+            );
+        }
         None => frame.add_child(
             Dom::create_div()
                 .with_css(
