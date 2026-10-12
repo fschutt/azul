@@ -1,6 +1,6 @@
 use azul::{
     callbacks::{ButtonOnClickCallbackType, CallbackType},
-    dom::RenderImageCallback,
+    dom::{DomNodeId, NodeId, RenderImageCallback},
     image::ImageRef,
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
@@ -539,6 +539,64 @@ fn tool(icon: &str, name: AzString, on: bool, data: &RefAny, on_click: CallbackT
         .with_child(Dom::create_icon(icon).with_css("font-size: 15px;"))
 }
 
+/// The page in view at the strip's scroll `x` (of `pages`): the one whose
+/// sheet starts nearest the strip's left edge.
+#[must_use]
+pub fn page_at(x: f32, pages: usize) -> usize {
+    ((x.max(0.0) / page_stride()).round() as usize).min(pages.saturating_sub(1))
+}
+
+/// How far the strip is scrolled sideways (`None`: no strip).
+pub fn strip_scroll_x(info: &CallbackInfo) -> Option<f32> {
+    let dom = info.get_hit_node().dom;
+    let node = info.get_node_id_by_id_attribute(dom, STRIP_ID);
+    // 0 is "no node"; a node's raw id is its index + 1.
+    let index = node.into_raw().checked_sub(1)?;
+    info.get_scroll_offset_for_node(dom, NodeId::create(index))
+        .into_option()
+        .map(|offset| offset.x)
+}
+
+/// Scrolls the page numbers' row so page `page`'s number is in view. Its
+/// place in the row is the widths of the numbers before it and their gaps.
+pub fn reveal_pill(info: &mut CallbackInfo, page: usize) {
+    const GAP: f32 = 3.0;
+    let dom = info.get_hit_node().dom;
+    let row = info.get_node_id_by_id_attribute(dom, ids::PAGES_NAME);
+    let Some(index) = row.into_raw().checked_sub(1) else {
+        return;
+    };
+    let row_node = DomNodeId { dom, node: row };
+    let Some(view) = info.get_node_rect(row_node).into_option() else {
+        return;
+    };
+    let mut left = 0.0;
+    let mut pill = info.get_first_child(row_node).into_option();
+    for _ in 0..page {
+        let Some(p) = pill else {
+            return;
+        };
+        left += info.get_node_rect(p).into_option().map_or(0.0, |r| r.size.width) + GAP;
+        pill = info.get_next_sibling(p).into_option();
+    }
+    let Some(width) = pill.and_then(|p| info.get_node_rect(p).into_option()).map(|r| r.size.width)
+    else {
+        return;
+    };
+    let scrolled = info
+        .get_scroll_offset_for_node(dom, NodeId::create(index))
+        .into_option()
+        .map_or(0.0, |offset| offset.x);
+    let target = if left < scrolled {
+        left
+    } else if left + width > scrolled + view.size.width {
+        left + width - view.size.width
+    } else {
+        return;
+    };
+    info.scroll_to(dom, row, LogicalPosition::create(target.max(0.0), 0.0));
+}
+
 pub fn scroll_to_page(info: &mut CallbackInfo, page: usize) {
     let dom = info.get_hit_node().dom;
     let node = info.get_node_id_by_id_attribute(dom, STRIP_ID);
@@ -576,7 +634,15 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
             sheets_virtual_view,
         )
         .with_id(ids::STRIP)
-        .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
+        .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
+        // A wheel or a trackpad scrolling the sheets lights the number of the
+        // page that comes into view.
+        .with_callback(EventFilter::Hover(HoverEventFilter::Scroll), data.clone(), crate::on_strip_scroll)
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::ScrollEnd),
+            data.clone(),
+            crate::on_strip_scroll,
+        ),
     );
     area
 }
@@ -610,7 +676,7 @@ extern "C" fn sheets_virtual_view(
         let total = file.page_count().max(1);
 
         let viewport_w = info.bounds.get_logical_size().width;
-        let leftmost = ((info.scroll_offset.x.max(0.0) / stride).round() as usize).min(total - 1);
+        let leftmost = page_at(info.scroll_offset.x, total);
         let first_visible = (info.scroll_offset.x.max(0.0) / stride) as usize;
         let first = first_visible.saturating_sub(1);
         let visible = (viewport_w / stride).ceil() as usize + 2;

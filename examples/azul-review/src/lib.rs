@@ -614,6 +614,28 @@ pub extern "C" fn on_pad(mut data: RefAny, info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
+/// The strip scrolled sideways (a wheel, a trackpad): the page that came
+/// into view lights its number, and the numbers' row keeps it in view.
+pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(x) = ui::strip_scroll_x(&info) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let Some(pages) = s.file().map(code::SourceFile::page_count) else {
+        return Update::DoNothing;
+    };
+    let page = ui::page_at(x, pages);
+    if page == s.visible_page {
+        return Update::DoNothing;
+    }
+    s.visible_page = page;
+    drop(s);
+    ui::reveal_pill(&mut info, page);
+    Update::RefreshDom
+}
+
 pub extern "C" fn on_jump_to_page(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(page) = ui::index_of(&mut info) else {
         return Update::DoNothing;
