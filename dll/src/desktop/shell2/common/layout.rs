@@ -1923,6 +1923,34 @@ fn apply_runtime_states_before_layout(
         }
     }
 
+    // 1b. A control the keyboard holds pressed (Space / Enter, until the key
+    // comes up) stays `:active` in a DOM its own click asked to rebuild -
+    // the focused node and its ancestors, as a pointer's press.
+    if layout_window.focus_manager.pressed_by_key {
+        if let Some(focused) = layout_window
+            .focus_manager
+            .get_focused_node()
+            .filter(|n| n.dom == dom_id)
+            .and_then(|n| n.node.into_crate_internal())
+        {
+            let chain: Vec<azul_core::id::NodeId> = {
+                let hierarchy = styled_dom.node_hierarchy.as_container();
+                core::iter::successors(Some(focused), |n| {
+                    hierarchy
+                        .get(*n)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                })
+                .collect()
+            };
+            let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
+            for node in chain {
+                if let Some(styled_node) = styled_nodes.get_mut(node) {
+                    styled_node.styled_node_state.active = true;
+                }
+            }
+        }
+    }
+
     // 2. Apply hover state based on hover manager
     if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
         if let Some(hit_test) = last_hit_test.hovered_nodes.get(&dom_id) {

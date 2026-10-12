@@ -12017,6 +12017,7 @@ pub trait PlatformWindow {
             use std::collections::BTreeMap;
             let mut pressed: BTreeMap<DomId, Vec<NodeId>> = BTreeMap::new();
             let mut released = false;
+            let mut key_up = false;
             for ev in &synthetic_events {
                 match ev.event_type {
                     azul_core::events::EventType::MouseDown => {
@@ -12025,7 +12026,17 @@ pub trait PlatformWindow {
                         }
                     }
                     azul_core::events::EventType::MouseUp => released = true,
+                    azul_core::events::EventType::KeyUp => key_up = true,
                     _ => {}
+                }
+            }
+            // The key that pressed a control (Space / Enter, `pressed_by_key`)
+            // came up: release it like a pointer's button. Any release ends a
+            // keyboard press too, so a key whose KeyUp never came (the window
+            // lost focus) cannot hold a control pressed for good.
+            if key_up || released {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    released |= core::mem::take(&mut lw.focus_manager.pressed_by_key);
                 }
             }
             if pressed.is_empty() && !released {
@@ -13182,6 +13193,21 @@ pub trait PlatformWindow {
 
                                 DefaultAction::ActivateFocusedElement { target } => {
                                     synthetic_click_target = Some(*target);
+                                    // A keyboard activation PRESSES the control,
+                                    // as a pointer does: its `:active` face, and
+                                    // the press animation declared for it, show
+                                    // until the key comes up (the KeyUp releases
+                                    // it, see `active_restyle_result`).
+                                    if let (Some(node), Some(lw)) = (
+                                        target.node.into_crate_internal(),
+                                        self.get_layout_window_mut(),
+                                    ) {
+                                        lw.focus_manager.pressed_by_key = true;
+                                        let mut pressed = std::collections::BTreeMap::new();
+                                        pressed.insert(target.dom, vec![node]);
+                                        result =
+                                            result.max(apply_active_restyle(lw, pressed, false));
+                                    }
                                 }
 
                                 DefaultAction::InsertLineBreakAtCursor { target } => {
