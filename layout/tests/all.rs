@@ -1041,3 +1041,5 @@ mod a_label_names_the_control_it_is_for;
 mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 #[path = "a_sliding_box_carries_its_positioned_children.rs"]
 mod a_sliding_box_carries_its_positioned_children;
+#[path = "an_em_size_on_a_flex_item_follows_its_own_font_size.rs"]
+mod an_em_size_on_a_flex_item_follows_its_own_font_size;
