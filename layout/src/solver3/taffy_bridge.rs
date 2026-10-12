@@ -2106,11 +2106,12 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         // lays a column's items out at the column's content width BEFORE it
         // caps the column by its max-width, so the height of this answer
         // belongs to a width the column never has. Cached as (capped width,
-        // that height), it answered the next question - the height at the
-        // capped width - because taffy's cache matches a known width against
-        // a stored result's width: AzShow's About panel stayed one wrapped
-        // line short and its OK hung out of it. Its width is right, and the
-        // pure-measure cache above keys by the width question only.
+        // that height), it would answer the next question - the height at
+        // the capped width - because taffy's cache matches a known width
+        // against a stored result's width: a modal's panel would stay a
+        // wrapped line short, its button row hanging out of it. Its width is
+        // right, and the pure-measure cache above keys by the width question
+        // only.
         let width_only_column = inputs.run_mode == RunMode::ComputeSize
             && inputs.axis == taffy::RequestedAxis::Horizontal
             && fc == FormattingContext::Flex

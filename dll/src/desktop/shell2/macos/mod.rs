@@ -3108,12 +3108,12 @@ define_class!(
         }
 
         /// The app is asked to quit: the app menu's Quit (Cmd+Q), the Dock's
-        /// Quit, a logout. Without this AppKit ended the process at once and
-        /// no window was asked, so a "Save changes?" guard never saw the quit
-        /// and unsaved work was lost. A quit is the title bar's close request
-        /// sent to every window: the app ends only when every window agreed.
-        /// Otherwise the quit is cancelled; the windows that agreed close in
-        /// the loop's next turn, the others stay with their question.
+        /// Quit, a logout. Unanswered, AppKit ends the process at once and
+        /// asks no window, so a "Save changes?" guard never sees the quit. A
+        /// quit is the title bar's close request sent to every window: the
+        /// app ends only when every window agreed. Otherwise the quit is
+        /// cancelled; the windows that agreed close in the loop's next turn,
+        /// the others stay with their question.
         #[unsafe(method(applicationShouldTerminate:))]
         fn application_should_terminate(
             &self,

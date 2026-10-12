@@ -1032,7 +1032,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
     window.set_tab_index(TabIndex::NoKeyboardFocus);
     // The window's name (the OS window's title, assistive technology) is an
     // aria-label: a `title` is a hover tooltip, and on this node - the whole
-    // window, a modal's backdrop - it popped up wherever the pointer rested.
+    // window, a modal's backdrop - it would pop up wherever the pointer rests.
     if !title.as_str().is_empty() {
         window.set_attributes(alloc::vec![AttributeType::AriaLabel(title)].into());
     }

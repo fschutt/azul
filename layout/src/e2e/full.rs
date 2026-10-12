@@ -16121,8 +16121,9 @@ pub fn process_debug_event(
             );
             // A close as the user makes it: no DOM rebuild is asked for.
             // The close protocol judges the close by the DOM on screen (or
-            // one a callback asked for); a forced rebuild gave every guard a
-            // fresh state and hid a "Save changes?" built on a stale one.
+            // one a callback asked for); a forced rebuild would give every
+            // guard a fresh state and hide a "Save changes?" built on a
+            // stale one.
             callback_info.close_window();
             send_ok(request, None, None);
         }
