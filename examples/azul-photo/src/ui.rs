@@ -341,6 +341,12 @@ fn menu_items(app: &RefAny, entries: Vec<Entry>) -> Vec<MenuItem> {
         .collect()
 }
 
+/// Whether the window draws its own menu row.
+#[must_use]
+pub const fn in_window_menu() -> bool {
+    true
+}
+
 /// The whole menu bar (the native one on macOS).
 pub fn native_menu(app: &RefAny) -> Menu {
     Menu::create(
