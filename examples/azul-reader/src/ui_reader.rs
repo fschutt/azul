@@ -7,7 +7,8 @@
 //! to the next page's start) with `overflow: hidden`, and in it the column moved up by the
 //! page's start (`position: relative; top: -start`). The engine's slicer cuts its PDF pages
 //! the same way - content never moves, it is only clipped - so a page shows exactly the lines
-//! the pagination put on it.
+//! the pagination put on it. A page drawn ahead ([`crate::pagecache`]) is the same clip window
+//! over its picture instead of the column; the column is laid out only for a page not drawn yet.
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, RefAny},

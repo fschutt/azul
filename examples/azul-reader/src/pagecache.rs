@@ -73,8 +73,11 @@ pub fn next_run(
 
 /// A run of pages drawn as one picture, one under the other.
 pub struct PageRun {
+    /// The run's first page in the chapter.
     pub first: usize,
+    /// How many pages the picture holds (each the page's text height tall).
     pub count: usize,
+    /// The picture, at the DPI of the cache's key.
     pub image: ImageRef,
 }
 
@@ -135,6 +138,7 @@ pub fn hex_color(text: &str) -> ColorU {
 pub struct DrawRequest {
     /// The cache key it is drawn for ([`PageCache::key`]).
     pub key: String,
+    /// The run: its first page and how many pages.
     pub first: usize,
     pub count: usize,
     /// The chapter's reading tree, the settings, the page's text area: the column the
@@ -155,11 +159,14 @@ pub struct DrawRequest {
     pub images: ImageCacheSnapshot,
 }
 
-/// A run drawn (`image` is `None` when it could not be).
+/// A run drawn.
 pub struct Drawn {
+    /// The cache key it was drawn for: an answer for another key is dropped.
     pub key: String,
+    /// The run: its first page and how many pages.
     pub first: usize,
     pub count: usize,
+    /// The picture; `None` when it could not be drawn.
     pub image: Option<ImageRef>,
 }
 
