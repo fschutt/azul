@@ -483,11 +483,16 @@ impl ViewSize {
     }
 
     /// Takes the live size as the settled one now (a zoom change lays the
-    /// pages out anyway); true if that changed the settled size.
+    /// pages out anyway); true if that changed the settled size. A view that
+    /// shows no page yet keeps none: its first size is taken when it comes.
     pub fn settle_now(&mut self) -> bool {
-        let changed = self.is_resizing();
-        self.settled = Some(self.live);
-        changed
+        match self.settled {
+            Some(settled) if settled != self.live => {
+                self.settled = Some(self.live);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Forgets the settled size, so the next size seen is taken at once (a
