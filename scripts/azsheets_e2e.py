@@ -12,8 +12,8 @@
     7. Mod+S - `AZSHEETS_SAVED <id>`, sheets/<id>.xlsx and .json on disk;
     8. DATA > CSV - the export lands IN the data tree, sheets/exports/<title>.csv;
     9. Mod+, - appkit's settings page (Outlook's Options dialog: theme / mode switches, the
-       shortcuts) covers the window, OK returns; File > About - the standard About box names
-       IronCalc;
+       shortcuts) covers the window, its OK and Cancel 8 px apart and at least 88 px wide, OK
+       returns; File > About - the standard About box names IronCalc;
    10. File > New > the Budget sample - its rows arrive (only the title did once: a ragged
        paste block lost every row of another length);
    11. the close guard: a close request with unsaved work shows the question, Cancel keeps
@@ -208,6 +208,13 @@ def first_session(binary, args, logs, data_dir, out):
         app.until("the settings page", lambda: app.has_id("appkit-mode")
                   and (app.has_id("appkit-theme") or app.shows("is always set in")))
         app.screenshot(os.path.join(out, "options.png"))
+        # OK and Cancel sit side by side, 8 px apart, each at least 88 px wide: a narrow OK
+        # once sat at the left of an empty 88 px slot, far from Cancel.
+        ok, cancel = app.layout_of("#appkit-settings-ok"), app.layout_of("#appkit-settings-cancel")
+        gap = float(cancel.get("x", 0)) - float(ok.get("x", 0)) - float(ok.get("width", 0))
+        if float(ok.get("width", 0)) < 87.5 or not 7.5 <= gap <= 8.5:
+            raise k.Failure("OK %s and Cancel %s: %.1f px apart, not 8" % (ok, cancel, gap))
+        app.log("OK and Cancel 8 px apart, OK %.0f px wide" % float(ok["width"]))
         # OK returns to the workbook; About is the backstage's (File > About).
         app.click(selector="#appkit-settings-ok")
         app.until("the workbook again", lambda: not app.has_id("appkit-settings"))
