@@ -306,6 +306,38 @@ mod tests {
         assert_eq!(haiku_icon_for("settings"), None, "settings stays Material");
     }
 
+    /// The Material names AzDrive's flora look shows - its ribbon, source list, menus and
+    /// dialogs - are all drawn as Haiku icons (the user: use the Haiku set wherever the flora
+    /// look has an icon).
+    #[test]
+    fn the_icons_azdrive_shows_under_flora_are_haikus() {
+        for name in [
+            "add",
+            "add_circle",
+            "add_link",
+            "bookmarks",
+            "cable",
+            "cloud",
+            "cloud_download",
+            "content_copy",
+            "content_cut",
+            "create_new_folder",
+            "devices",
+            "download",
+            "drive_folder_upload",
+            "drive_file_rename_outline",
+            "edit",
+            "find_in_page",
+            "folder_special",
+            "history",
+            "note_add",
+            "open_in_new",
+            "usb",
+        ] {
+            assert!(haiku_icon_for(name).is_some(), "`{name}` stays Material under flora");
+        }
+    }
+
     #[test]
     fn every_icon_this_crate_ships_draws_a_material_name() {
         for (name, _) in ICONS {
