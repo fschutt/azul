@@ -12,6 +12,9 @@ pub const THUMBS_NAME: &str = "__azpdf_thumbs";
 pub const THUMBS: AzString = AzString::from_const_str(THUMBS_NAME);
 /// One page's frame: the prefix and the page number (1-based).
 pub const PAGE_PREFIX: &str = "__azpdf_page-";
+/// The box in a page's frame that holds the page's DOM: laid out at the
+/// settled scale, scaled onto the frame while the window is resized.
+pub const ART_PREFIX: &str = "__azpdf_art-";
 /// One thumbnail: the prefix and the page number (1-based).
 pub const THUMB_PREFIX: &str = "__azpdf_thumb-";
 /// One outline entry: the prefix and its index.

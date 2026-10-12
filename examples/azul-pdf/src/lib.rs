@@ -23,7 +23,9 @@
 //! stdout, for scripts (`scripts/azpdf_e2e.py`): `AZPDF_OPENED <pages> <path>`,
 //! `AZPDF_OPEN_ERROR <why>`, `AZPDF_RENDERED <page> dom` (a page's DOM made,
 //! 1-based), `AZPDF_PAGE <n>` when the current page changes,
-//! `AZPDF_ZOOM <percent>`, `AZPDF_HITS <n>`, `AZPDF_RECENT_SAVED`,
+//! `AZPDF_ZOOM <percent>`, `AZPDF_LAID_OUT <percent>` when the page view lays
+//! its pages out at a new scale (`scripts/azpdf_resize_e2e.py` counts them
+//! during a window drag), `AZPDF_HITS <n>`, `AZPDF_RECENT_SAVED`,
 //! `AZPDF_FORM <fields>` when a document with a form opens, `AZPDF_FIELD
 //! <name>=<value>` when the user changes a field, `AZPDF_FILLED <bytes>` when a
 //! filled copy is saved.
@@ -41,7 +43,7 @@ use std::{
 
 use azul::{
     dialog::{FileDialog, FileOpenResult},
-    dom::{DomId, VirtualKeyCode},
+    dom::{DomId, NodeId, VirtualKeyCode},
     file::FileTypeList,
     image::ImageRef,
     option::OptionFileTypeList,
@@ -74,8 +76,8 @@ mod model_tests;
 
 use jobs::{Doc, Done, Job, JobInit, Kind, Outcome};
 use model::{
-    filled_name, plan_renders, render_width, search, ExportFormat, ExportRequest, FormValues,
-    Hit, PageCache, Recent, RecentDoc, Strip, Zoom,
+    filled_name, plan_renders, render_width, search, ExportFormat, ExportRequest, FormValues, Hit,
+    PageCache, Recent, RecentDoc, Strip, ViewSize, Zoom,
 };
 
 /// What azul-appkit's switches know about AzPdf.
@@ -182,8 +184,14 @@ pub struct AppState {
     /// The generation the page view last laid out (a scroll waits for it).
     pub view_generation: u64,
     pub zoom: Zoom,
-    /// The page view's size in CSS px and the display's density.
-    pub view: (f32, f32),
+    /// The page view's size in CSS px, and the size the pages are laid out
+    /// at while the window is resized (the page view sets it, the pump
+    /// settles it).
+    pub view: ViewSize,
+    /// The scale the page view last laid its pages out at: a new one prints
+    /// `AZPDF_LAID_OUT`. `None` until a document's first layout.
+    pub laid_out_scale: Option<f32>,
+    /// The display's density (physical px per CSS px).
     pub dpi: f32,
     pub current_page: usize,
     /// The page the window shows as current (refresh when it changes).
@@ -225,7 +233,8 @@ impl AppState {
             generation: 0,
             view_generation: 0,
             zoom: Zoom::FitWidth,
-            view: (900.0, 700.0),
+            view: ViewSize::new((900.0, 700.0)),
+            laid_out_scale: None,
             dpi: 1.0,
             current_page: 0,
             shown_page: 0,
@@ -253,8 +262,20 @@ impl AppState {
     /// The scale the pages are shown at.
     #[must_use]
     pub fn scale(&self) -> f32 {
+        self.scale_in(self.view.live())
+    }
+
+    /// The scale the pages' DOMs are laid out at: the shown one, except
+    /// while the window is resized ([`ViewSize`]).
+    #[must_use]
+    pub fn layout_scale(&self) -> f32 {
+        self.scale_in(self.view.settled())
+    }
+
+    /// The zoom's scale in a page view of `view` CSS px.
+    fn scale_in(&self, view: (f32, f32)) -> f32 {
         let sizes = self.doc.as_ref().map_or(&[][..], |d| d.sizes.as_slice());
-        self.zoom.scale(self.view.0, self.view.1, sizes)
+        self.zoom.scale(view.0, view.1, sizes)
     }
 
     /// The strip of pages at the current scale.
@@ -582,6 +603,8 @@ fn show(s: &mut AppState, doc: Doc) {
     s.pages.clear();
     s.thumbs.clear();
     s.running.clear();
+    s.view.reset();
+    s.laid_out_scale = None;
     s.search = SearchState::default();
     s.form = FormValues::new(&doc.fields);
     if !doc.fields.is_empty() {
@@ -641,6 +664,13 @@ extern "C" fn on_pump(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
     for job in s.plan_jobs() {
         spawn(&mut info.callback_info, &handle, job);
     }
+    // A resize that has stopped: the pages are laid out at the final size.
+    // Only the page view is made again, and only if its scale changed (at a
+    // fixed zoom, or for a change of height at Fit width, it did not).
+    let laid_out_at = s.layout_scale();
+    if s.view.settle(StdInstant::now()) && s.layout_scale() != laid_out_at {
+        rerender_pages(&mut info.callback_info);
+    }
     if s.current_page != s.shown_page {
         s.shown_page = s.current_page;
         println!("AZPDF_PAGE {}", s.current_page + 1);
@@ -671,6 +701,17 @@ pub(crate) fn scroll_pages_to(info: &mut CallbackInfo, y: f32) {
     info.scroll_to(dom, node, LogicalPosition::create(0.0, y.max(0.0)));
 }
 
+/// Makes the page view's DOM again (its VirtualView alone, no `layout()`).
+fn rerender_pages(info: &mut CallbackInfo) {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, ids::PAGES_NAME);
+    // `into_raw` is the 1-based encoding (0 = none); `NodeId` is 0-based.
+    let raw = node.into_raw();
+    if raw != 0 {
+        info.trigger_virtual_view_rerender(dom, NodeId { inner: raw - 1 });
+    }
+}
+
 /// Shows page `page` (0-based): scrolls there now.
 pub(crate) fn jump_to(info: &mut CallbackInfo, s: &mut AppState, page: usize) {
     let Some(count) = s.doc.as_ref().map(Doc::page_count) else {
@@ -688,6 +729,9 @@ pub(crate) fn jump_to(info: &mut CallbackInfo, s: &mut AppState, page: usize) {
 /// A new zoom: the view keeps the current page.
 pub(crate) fn set_zoom(s: &mut AppState, zoom: Zoom) {
     s.zoom = zoom;
+    // The pages are laid out again for the new zoom anyway: at the size the
+    // view has, not the one it had before a resize.
+    s.view.settle_now();
     s.pending_scroll = Some(s.current_page);
     let percent = (s.scale() * 100.0).round() as u32;
     println!("AZPDF_ZOOM {percent}");
