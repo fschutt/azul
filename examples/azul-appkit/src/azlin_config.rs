@@ -1136,9 +1136,102 @@ mod tests {
     }
 
     #[test]
-    fn only_the_endpoints_never_leave_this_computer() {
-        assert_eq!(MACHINE_LOCAL_KEYS, &[ENDPOINTS_KEY]);
+    fn only_the_endpoints_and_the_updates_never_leave_this_computer() {
+        assert_eq!(MACHINE_LOCAL_KEYS, &[ENDPOINTS_KEY, UPDATES_KEY]);
         assert!(!MACHINE_LOCAL_KEYS.contains(&THEME_KEY));
         assert!(!MACHINE_LOCAL_KEYS.contains(&MODE_KEY));
+    }
+
+    #[test]
+    fn the_updates_section_reads_the_channel_the_cohort_and_each_apps_policy_and_keeps_the_rest() {
+        let json = r#"{"updates": {
+            "autoupdate": false, "channel": "beta", "cohort": 42,
+            "install_dir": "/home/ann/apps", "manifest_url": "https://example.org/{app}/{channel}.json",
+            "root_public_key": "RWQroot", "maintenance_window": "FREQ=DAILY;BYHOUR=2",
+            "overrides": {"azwriter": {"autoupdate": true, "channel": "stable", "skip_version": "2.0.0", "pinned": 1}},
+            "future": [1, 2]
+        }}"#;
+        let (c, problem) = AzlinConfig::parse(json);
+        assert_eq!(problem, None);
+        let u = &c.updates;
+        assert_eq!(u.autoupdate, Some(false));
+        assert_eq!(u.channel, Some(Channel::Beta));
+        assert_eq!(u.cohort, Some(42));
+        assert_eq!(u.install_dir.as_deref(), Some("/home/ann/apps"));
+        assert_eq!(
+            u.manifest_url.as_deref(),
+            Some("https://example.org/{app}/{channel}.json")
+        );
+        assert_eq!(u.root_public_key.as_deref(), Some("RWQroot"));
+        assert_eq!(u.maintenance_window.as_deref(), Some("FREQ=DAILY;BYHOUR=2"));
+        let writer = u.policy_for("azwriter");
+        assert!(writer.autoupdate, "the app's own choice wins");
+        assert_eq!(writer.channel, Channel::Stable);
+        assert_eq!(writer.skip_version.as_deref(), Some("2.0.0"));
+        let sheets = u.policy_for("azsheets");
+        assert!(!sheets.autoupdate, "the shared choice");
+        assert_eq!(sheets.channel, Channel::Beta);
+        assert_eq!(sheets.skip_version, None);
+        let text = c.to_json();
+        let (again, _) = AzlinConfig::parse(&text);
+        assert_eq!(again, c, "it round-trips");
+        assert!(text.contains("\"future\"") && text.contains("\"pinned\""), "{text}");
+    }
+
+    #[test]
+    fn without_an_updates_section_every_app_updates_itself_on_the_stable_channel() {
+        let (c, _) = AzlinConfig::parse("{}");
+        let policy = c.updates.policy_for("azmail");
+        assert!(policy.autoupdate);
+        assert_eq!(policy.channel, Channel::Stable);
+        assert!(c.updates.is_empty());
+        assert!(!c.to_json().contains("updates"), "an empty section is not written");
+    }
+
+    #[test]
+    fn nightly_is_no_channel_and_a_cohort_past_99_is_no_cohort() {
+        assert_eq!(Channel::parse("stable"), Some(Channel::Stable));
+        assert_eq!(Channel::parse("Beta"), Some(Channel::Beta));
+        assert_eq!(Channel::parse("nightly"), None);
+        let (c, problem) =
+            AzlinConfig::parse(r#"{"updates": {"channel": "nightly", "cohort": 150}}"#);
+        assert_eq!(c.updates.channel, None);
+        assert_eq!(c.updates.cohort, None);
+        let problem = problem.expect("both are reported");
+        assert!(problem.contains("nightly") && problem.contains("150"), "{problem}");
+        let text = c.to_json();
+        assert!(text.contains("nightly"), "what was not understood is kept: {text}");
+    }
+
+    #[test]
+    fn the_updates_setters_write_the_shared_choice_or_one_apps_and_edit_keeps_the_rest() {
+        let dir = std::env::temp_dir().join(format!("azlin-updates-test-{}", std::process::id()));
+        let path = dir.join("config.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, r#"{"mode": "dark", "updates": {"overrides": {"azkeys": {"x": 1}}}}"#)
+            .unwrap();
+        AzlinConfig::edit(&path, |c| {
+            c.updates.set_autoupdate(None, false);
+            c.updates.set_autoupdate(Some("azkeys"), true);
+            c.updates.set_channel(Some("azkeys"), Channel::Beta);
+            c.updates.set_skip_version("azkeys", Some("3.1.0"));
+            c.updates.cohort = Some(7);
+        })
+        .unwrap();
+        let (c, problem) = AzlinConfig::load(&path);
+        assert_eq!(problem, None);
+        assert_eq!(c.mode, Some(ModePref::Dark), "the look stays");
+        assert_eq!(c.updates.cohort, Some(7));
+        let keys = c.updates.policy_for("azkeys");
+        assert!(keys.autoupdate);
+        assert_eq!(keys.channel, Channel::Beta);
+        assert_eq!(keys.skip_version.as_deref(), Some("3.1.0"));
+        assert!(!c.updates.policy_for("azmail").autoupdate);
+        assert!(c.to_json().contains("\"x\": 1"), "an override's other keys stay");
+        AzlinConfig::edit(&path, |c| c.updates.set_skip_version("azkeys", None)).unwrap();
+        let (c, _) = AzlinConfig::load(&path);
+        assert_eq!(c.updates.policy_for("azkeys").skip_version, None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
