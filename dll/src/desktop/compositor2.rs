@@ -2715,12 +2715,12 @@ mod stacking_context_tests {
     use azul_layout::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem};
     use webrender::api::{
         units::{DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize},
-        DisplayItem, PipelineId,
+        BuiltDisplayList, DisplayItem, PipelineId,
     };
 
     use super::translate_displaylist_to_wr;
 
-    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+    pub(super) fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
         LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
     }
 
@@ -2739,9 +2739,8 @@ mod stacking_context_tests {
         }
     }
 
-    /// The rects and the clip rects WebRender is handed for `items`, each in
-    /// list order.
-    fn translated(items: Vec<DisplayListItem>, dpi: f32) -> (Vec<LayoutRect>, Vec<LayoutRect>) {
+    /// The WebRender display list built from `items` in a 400 x 100 window.
+    pub(super) fn built(items: Vec<DisplayListItem>, dpi: f32) -> BuiltDisplayList {
         let list = DisplayList {
             items,
             ..DisplayList::default()
@@ -2757,6 +2756,13 @@ mod stacking_context_tests {
             0,
         )
         .expect("a balanced list translates");
+        built
+    }
+
+    /// The rects and the clip rects WebRender is handed for `items`, each in
+    /// list order.
+    fn translated(items: Vec<DisplayListItem>, dpi: f32) -> (Vec<LayoutRect>, Vec<LayoutRect>) {
+        let built = built(items, dpi);
         let (mut rects, mut clips) = (Vec::new(), Vec::new());
         let mut iter = built.iter();
         while let Some(item) = iter.next() {
@@ -2853,5 +2859,225 @@ mod stacking_context_tests {
             1.0,
         );
         assert_eq!(rects, vec![device(card, 1.0)]);
+    }
+}
+
+#[cfg(test)]
+mod gradient_stop_tests {
+    //! The stops WebRender is handed for a gradient. WebRender fills its
+    //! gradient table from a first stop at 0 to a last stop at 1 and paints
+    //! white wherever the stops stop short. A gradient whose stops end early
+    //! reaches it mapped onto that range: a linear one through its line, a
+    //! radial or conic one through its start and end offsets. The CPU
+    //! renderer paints the stops where the CSS puts them, so the two draw the
+    //! same gradient.
+
+    use azul_css::props::{
+        basic::{angle::AngleValue, color::ColorU, direction::Direction, length::PercentageValue},
+        style::background::{
+            BackgroundPositionHorizontal, BackgroundPositionVertical, ConicGradient, ExtendMode,
+            LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+            NormalizedRadialColorStop, NormalizedRadialColorStopVec, RadialGradient,
+            RadialGradientSize, Shape, StyleBackgroundPosition,
+        },
+    };
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayListItem};
+    use webrender::api::DisplayItem;
+
+    use super::stacking_context_tests::{built, rect};
+
+    const GLOW: ColorU = ColorU::new(255, 253, 238, 82);
+    const CLEAR: ColorU = ColorU::new(255, 253, 238, 0);
+
+    fn linear_stops(stops: &[(f32, ColorU)]) -> NormalizedLinearColorStopVec {
+        NormalizedLinearColorStopVec::from_vec(
+            stops
+                .iter()
+                .map(|&(percent, color)| {
+                    NormalizedLinearColorStop::new(PercentageValue::new(percent), color)
+                })
+                .collect(),
+        )
+    }
+
+    fn conic_stops(stops: &[(f32, ColorU)]) -> NormalizedRadialColorStopVec {
+        NormalizedRadialColorStopVec::from_vec(
+            stops
+                .iter()
+                .map(|&(deg, color)| NormalizedRadialColorStop::new(AngleValue::deg(deg), color))
+                .collect(),
+        )
+    }
+
+    fn centre() -> StyleBackgroundPosition {
+        StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Center,
+            vertical: BackgroundPositionVertical::Center,
+        }
+    }
+
+    fn radial(extend_mode: ExtendMode, stops: &[(f32, ColorU)]) -> DisplayListItem {
+        DisplayListItem::RadialGradient {
+            bounds: rect(10.0, 10.0, 200.0, 40.0).into(),
+            gradient: RadialGradient {
+                shape: Shape::Ellipse,
+                size: RadialGradientSize::FarthestSide,
+                position: centre(),
+                extend_mode,
+                stops: linear_stops(stops),
+            },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    fn conic(extend_mode: ExtendMode, stops: &[(f32, ColorU)]) -> DisplayListItem {
+        DisplayListItem::ConicGradient {
+            bounds: rect(10.0, 10.0, 80.0, 80.0).into(),
+            gradient: ConicGradient {
+                extend_mode,
+                center: centre(),
+                angle: AngleValue::deg(0.0),
+                stops: conic_stops(stops),
+            },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    fn linear(
+        direction: Direction,
+        extend_mode: ExtendMode,
+        stops: &[(f32, ColorU)],
+    ) -> DisplayListItem {
+        DisplayListItem::LinearGradient {
+            bounds: rect(10.0, 10.0, 200.0, 40.0).into(),
+            gradient: LinearGradient {
+                direction,
+                extend_mode,
+                stops: linear_stops(stops),
+            },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// One gradient as WebRender is handed it: the offsets of its stops and,
+    /// for a radial or conic gradient, the start and end offsets its stops
+    /// are mapped from.
+    #[derive(Debug)]
+    struct Handed {
+        offsets: Vec<f32>,
+        range: Option<(f32, f32)>,
+    }
+
+    fn handed(item: DisplayListItem) -> Vec<Handed> {
+        let list = built(vec![item], 1.0);
+        let mut out = Vec::new();
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            let range = match item.item() {
+                DisplayItem::Gradient(_) => None,
+                DisplayItem::RadialGradient(g) => {
+                    Some((g.gradient.start_offset, g.gradient.end_offset))
+                }
+                DisplayItem::ConicGradient(g) => {
+                    Some((g.gradient.start_offset, g.gradient.end_offset))
+                }
+                _ => continue,
+            };
+            let offsets = item.gradient_stops().iter().map(|s| s.offset).collect();
+            out.push(Handed { offsets, range });
+        }
+        out
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-4
+    }
+
+    /// flora's blue stone lays a bloom over its face that fades out 45% of
+    /// the way to the ellipse. WebRender is handed it as stops from 0 to 1
+    /// over the first 45% of the ray, so past that ring the bloom is
+    /// transparent, as the CPU renderer paints it, and not white.
+    #[test]
+    fn a_radial_gradient_that_fades_out_at_45_percent_reaches_webrender_as_stops_from_0_to_1() {
+        let got = handed(radial(ExtendMode::Clamp, &[(0.0, GLOW), (45.0, CLEAR)]));
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].offsets, vec![0.0, 1.0], "{got:?}");
+        let (start, end) = got[0].range.expect("a radial gradient has a range");
+        assert!(close(start, 0.0) && close(end, 0.45), "{got:?}");
+    }
+
+    /// A radial gradient that runs on past its ellipse keeps changing out to
+    /// the last stop, so its stops are mapped from beyond 1, not cut there.
+    #[test]
+    fn a_radial_gradient_with_stops_past_its_ellipse_reaches_webrender_mapped_from_beyond_1() {
+        let got = handed(radial(ExtendMode::Clamp, &[(20.0, GLOW), (150.0, CLEAR)]));
+        assert_eq!(got[0].offsets, vec![0.0, 1.0], "{got:?}");
+        let (start, end) = got[0].range.expect("a radial gradient has a range");
+        assert!(close(start, 0.2) && close(end, 1.5), "{got:?}");
+    }
+
+    /// A conic gradient that ends half way round is mapped from 0..0.5 of
+    /// the turn.
+    #[test]
+    fn a_conic_gradient_that_ends_half_way_round_reaches_webrender_as_stops_from_0_to_1() {
+        let got = handed(conic(ExtendMode::Clamp, &[(0.0, GLOW), (180.0, CLEAR)]));
+        assert_eq!(got[0].offsets, vec![0.0, 1.0], "{got:?}");
+        let (start, end) = got[0].range.expect("a conic gradient has a range");
+        assert!(close(start, 0.0) && close(end, 0.5), "{got:?}");
+    }
+
+    /// Every kind of gradient, clamped and repeating, with stops that end
+    /// early, start late, or change hard: WebRender is handed stops that run
+    /// from 0 to 1 and never go back.
+    #[test]
+    fn every_gradient_reaches_webrender_with_stops_that_run_from_0_to_1() {
+        let hard = [(10.0, GLOW), (30.0, GLOW), (30.0, CLEAR), (45.0, CLEAR)];
+        let early = [(0.0, GLOW), (45.0, CLEAR)];
+        let late = [(30.0, GLOW), (80.0, CLEAR)];
+        let cases = [
+            (
+                "linear to bottom",
+                linear(Direction::default(), ExtendMode::Clamp, &early),
+            ),
+            (
+                "linear 135deg",
+                linear(
+                    Direction::Angle(AngleValue::deg(135.0)),
+                    ExtendMode::Clamp,
+                    &late,
+                ),
+            ),
+            (
+                "linear hard stops",
+                linear(Direction::default(), ExtendMode::Clamp, &hard),
+            ),
+            (
+                "repeating linear",
+                linear(Direction::default(), ExtendMode::Repeat, &late),
+            ),
+            ("radial", radial(ExtendMode::Clamp, &late)),
+            ("radial hard stops", radial(ExtendMode::Clamp, &hard)),
+            ("repeating radial", radial(ExtendMode::Repeat, &early)),
+            (
+                "conic",
+                conic(ExtendMode::Clamp, &[(90.0, GLOW), (270.0, CLEAR)]),
+            ),
+            (
+                "repeating conic",
+                conic(ExtendMode::Repeat, &[(0.0, GLOW), (60.0, CLEAR)]),
+            ),
+        ];
+        for (name, item) in cases {
+            let got = handed(item);
+            assert_eq!(got.len(), 1, "{name}: {got:?}");
+            let offsets = &got[0].offsets;
+            assert!(
+                offsets.len() >= 2
+                    && close(offsets[0], 0.0)
+                    && close(*offsets.last().unwrap(), 1.0)
+                    && offsets.windows(2).all(|w| w[0] <= w[1]),
+                "{name}: {got:?}"
+            );
+        }
     }
 }
