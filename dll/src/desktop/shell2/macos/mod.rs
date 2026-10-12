@@ -1893,6 +1893,15 @@ fn traffic_light_frames(
     (container, origins)
 }
 
+/// Whether a window of this background material shows the desktop through
+/// its GL surface: the blur materials do, their effect view sits behind it.
+fn gl_surface_see_through(material: WindowBackgroundMaterial) -> bool {
+    !matches!(
+        material,
+        WindowBackgroundMaterial::Opaque | WindowBackgroundMaterial::Transparent
+    )
+}
+
 #[cfg(test)]
 mod traffic_light_tests {
     use super::traffic_light_frames;
@@ -7544,28 +7553,10 @@ impl MacOSWindow {
                         }
                     }
 
-                    // Make the GL context surface transparent
-                    // NSOpenGLCPSurfaceOpacity = 236
-                    if let Some(ref gl_context) = self.gl_context {
-                        unsafe {
-                            const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
-                            let opacity: i32 = 0; // 0 = transparent, 1 = opaque
-                            let _: () = msg_send![
-                                &**gl_context,
-                                setValues: &opacity as *const i32
-                                forParameter: NS_OPENGL_CP_SURFACE_OPACITY
-                            ];
-                        }
-                    }
-
-                    // Make the GL/CPU view layer non-opaque so blur shows through
-                    if let Some(ref gl_view) = self.gl_view {
-                        unsafe {
-                            let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
-                            if let Some(layer) = (*view_ptr).layer() {
-                                let _: () = msg_send![&*layer, setOpaque: false];
-                            }
-                        }
+                    // Make the GL surface, or the CPU view's layer, non-opaque
+                    // so the blur shows through.
+                    if self.gl_view.is_some() {
+                        self.set_gl_surface_see_through(gl_surface_see_through(material));
                     } else if let Some(ref cpu_view) = self.cpu_view {
                         unsafe {
                             let view_ptr = Retained::as_ptr(cpu_view) as *const NSView;
@@ -7578,6 +7569,31 @@ impl MacOSWindow {
                     self.window.setOpaque(false);
                     self.window.setBackgroundColor(Some(&NSColor::clearColor()));
                     self.window.setTitlebarAppearsTransparent(true);
+                }
+            }
+        }
+    }
+
+    /// Let the desktop show through the GL surface where the frame's alpha
+    /// is below one (`NSOpenGLCPSurfaceOpacity` 0 and a non-opaque layer),
+    /// or make it opaque again. A no-op without a GL context.
+    fn set_gl_surface_see_through(&self, see_through: bool) {
+        const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
+        let opacity: i32 = i32::from(!see_through);
+        if let Some(ref gl_context) = self.gl_context {
+            unsafe {
+                let _: () = msg_send![
+                    &**gl_context,
+                    setValues: &opacity as *const i32
+                    forParameter: NS_OPENGL_CP_SURFACE_OPACITY
+                ];
+            }
+        }
+        if let Some(ref gl_view) = self.gl_view {
+            unsafe {
+                let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
+                if let Some(layer) = (*view_ptr).layer() {
+                    let _: () = msg_send![&*layer, setOpaque: !see_through];
                 }
             }
         }
