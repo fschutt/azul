@@ -831,6 +831,10 @@ pub struct GestureAndDragManager {
     /// The trackpad pinch in flight ([`Self::trackpad_magnify`]): its
     /// cumulative scale. `None` between gestures.
     trackpad_pinch_scale: Option<f32>,
+    /// The finger travel of the two-finger trackpad scroll in flight while
+    /// it can still be a page swipe ([`Self::trackpad_scroll_swipe`]).
+    /// `None` between gestures, and once a box scrolled sideways with it.
+    trackpad_swipe_travel: Option<LogicalPosition>,
     /// The two touch sessions whose pinch was dispatched
     /// ([`Self::note_pinch_dispatched`]): a pinch of the same pair does not
     /// begin a gesture again.
@@ -912,8 +916,25 @@ impl GestureAndDragManager {
             seat_sessions: alloc::collections::btree_map::BTreeMap::new(),
             seat_pens: alloc::collections::btree_map::BTreeMap::new(),
             trackpad_pinch_scale: None,
+            trackpad_swipe_travel: None,
             touch_pinch_pair: None,
         }
+    }
+
+    /// Feeds one event of a two-finger trackpad scroll and answers the page
+    /// swipe it made, at its end, for [`Self::inject_native_gesture`].
+    ///
+    /// `finger` is the event's finger motion in device terms (+x right,
+    /// +y down: the scroll delta with the natural-scrolling inversion taken
+    /// out). `scrolled_across` says a box took the sideways part of it.
+    pub fn trackpad_scroll_swipe(
+        &mut self,
+        phase: TrackpadGesturePhase,
+        finger: LogicalPosition,
+        scrolled_across: bool,
+    ) -> Option<GestureDirection> {
+        let _ = (phase, finger, scrolled_across);
+        None
     }
 
     /// Feeds one trackpad magnification event and answers the CUMULATIVE
@@ -4950,5 +4971,96 @@ mod rotary_units_tests {
     fn a_nonfinite_sample_answers_zero() {
         assert_eq!(rotary_units_to_radians(f32::NAN, 20.0), 0.0);
         assert_eq!(rotary_units_to_radians(f32::INFINITY, 20.0), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod trackpad_scroll_swipe_tests {
+    use azul_core::geom::LogicalPosition;
+
+    use super::{GestureAndDragManager, GestureDirection, TrackpadGesturePhase};
+
+    /// A two-finger gesture of `steps` finger motions, nothing scrolling
+    /// sideways unless `across`; the swipe it ends with.
+    fn gesture(steps: &[(f32, f32)], across: bool) -> Option<GestureDirection> {
+        let mut m = GestureAndDragManager::new();
+        let mut out = None;
+        for (i, (dx, dy)) in steps.iter().enumerate() {
+            let phase = if i == 0 {
+                TrackpadGesturePhase::Began
+            } else {
+                TrackpadGesturePhase::Changed
+            };
+            out = out.or(m.trackpad_scroll_swipe(phase, LogicalPosition::new(*dx, *dy), across));
+        }
+        out.or(m.trackpad_scroll_swipe(
+            TrackpadGesturePhase::Ended,
+            LogicalPosition::zero(),
+            across,
+        ))
+    }
+
+    #[test]
+    fn a_sideways_flick_over_nothing_that_scrolls_sideways_turns_a_page() {
+        assert_eq!(
+            gesture(&[(-10.0, 0.0), (-30.0, 2.0), (-30.0, 1.0)], false),
+            Some(GestureDirection::Left),
+            "the fingers went 70 px left: a swipe left"
+        );
+        assert_eq!(
+            gesture(&[(12.0, -1.0), (40.0, 0.0), (25.0, 3.0)], false),
+            Some(GestureDirection::Right)
+        );
+    }
+
+    #[test]
+    fn a_swipe_is_answered_once_at_the_lift() {
+        let mut m = GestureAndDragManager::new();
+        let left = LogicalPosition::new(-50.0, 0.0);
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Began, left, false),
+            None
+        );
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Changed, left, false),
+            None,
+            "the fingers are still down: no swipe yet"
+        );
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Ended, LogicalPosition::zero(), false),
+            Some(GestureDirection::Left)
+        );
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Ended, LogicalPosition::zero(), false),
+            None,
+            "a second lift is not a second swipe"
+        );
+    }
+
+    #[test]
+    fn a_sideways_scroll_a_box_takes_turns_no_page() {
+        assert_eq!(gesture(&[(-10.0, 0.0), (-60.0, 0.0)], true), None);
+    }
+
+    #[test]
+    fn a_mostly_vertical_scroll_turns_no_page() {
+        assert_eq!(gesture(&[(-10.0, 30.0), (-50.0, 50.0)], false), None);
+    }
+
+    #[test]
+    fn a_short_sideways_nudge_turns_no_page() {
+        assert_eq!(gesture(&[(-5.0, 0.0), (-15.0, 0.0)], false), None);
+    }
+
+    #[test]
+    fn an_update_with_no_gesture_open_turns_no_page() {
+        let mut m = GestureAndDragManager::new();
+        let left = LogicalPosition::new(-80.0, 0.0);
+        m.trackpad_scroll_swipe(TrackpadGesturePhase::Changed, left, false);
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Ended, LogicalPosition::zero(), false),
+            None,
+            "a gesture whose start was not seen is not judged"
+        );
     }
 }
