@@ -37,11 +37,10 @@ use webrender::{
         AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
         BoxShadowClipMode as WrBoxShadowClipMode, BuiltDisplayList as WrBuiltDisplayList,
         ClipChainId as WrClipChainId, ClipMode as WrClipMode, ColorF, CommonItemProperties,
-        ComplexClipRegion as WrComplexClipRegion, ConicGradient as WrConicGradient,
-        DisplayListBuilder as WrDisplayListBuilder, ExtendMode as WrExtendMode, ExternalScrollId,
-        FilterOp as WrFilterOp, Gradient as WrGradient, GradientStop as WrGradientStop,
-        HasScrollLinkedEffect, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
-        PropertyBinding, RadialGradient as WrRadialGradient, ReferenceFrameKind,
+        ComplexClipRegion as WrComplexClipRegion, DisplayListBuilder as WrDisplayListBuilder,
+        ExtendMode as WrExtendMode, ExternalScrollId, FilterOp as WrFilterOp,
+        GradientStop as WrGradientStop, HasScrollLinkedEffect, ItemTag, PipelineId,
+        PrimitiveFlags as WrPrimitiveFlags, PropertyBinding, ReferenceFrameKind,
         Shadow as WrShadow, SpaceAndClipInfo, SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     render_api::ResourceUpdate as WrResourceUpdate,
@@ -1646,9 +1645,6 @@ pub fn translate_displaylist_to_wr(
                 // Convert CSS gradient to WebRender gradient
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
-                let scaled_width = scale_px(bounds.0.size.width, dpi_scale);
-                let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
-
                 // The gradient line and every stop on it, from the resolver the
                 // CPU renderer shares (CSS Images 3: `90deg` runs like `to right`,
                 // a stop at a length sits at that length, a hard stop is two stops
@@ -1699,56 +1695,28 @@ pub fn translate_displaylist_to_wr(
                     })
                     .collect();
 
-                // Create WebRender gradient
-                let wr_gradient = WrGradient {
-                    start_point,
-                    end_point,
-                    extend_mode,
-                };
-
-                // Handle border-radius clipping
-                let style_border_radius = convert_border_radius_to_style(border_radius);
-                let wr_border_radius = wr_translate_border_radius(
-                    style_border_radius,
-                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                );
-
-                let tile_size = LayoutSize::new(scaled_width, scaled_height);
-                let tile_spacing = LayoutSize::zero();
-
-                if !wr_border_radius.is_zero() {
-                    let logical_rect = LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(
-                            scale_px(bounds.0.origin.x, dpi_scale),
-                            scale_px(bounds.0.origin.y, dpi_scale),
-                        ),
-                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                    );
-                    let new_clip_id = define_border_radius_clip(
+                if resolved.stops.len() >= 2 {
+                    let info = gradient_item_properties(
                         &mut builder,
-                        logical_rect,
-                        wr_border_radius,
+                        bounds,
+                        border_radius,
+                        rect,
+                        dpi_scale,
                         current_spatial!(),
                         current_clip!(),
                     );
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: new_clip_id,
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    // Push stops immediately before gradient to avoid clip items interleaving
-                    builder.push_stops(&wr_stops);
-                    builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
-                } else {
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: current_clip!(),
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    builder.push_stops(&wr_stops);
-                    builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                    // WebRender fills its gradient table from a stop at 0 to
+                    // one at 1 and paints white past the last stop it gets;
+                    // `create_gradient` moves the line onto the stops' span.
+                    let wr_gradient =
+                        builder.create_gradient(start_point, end_point, wr_stops, extend_mode);
+                    builder.push_gradient(
+                        &info,
+                        rect,
+                        wr_gradient,
+                        info.clip_rect.size(),
+                        LayoutSize::zero(),
+                    );
                 }
             }
 
@@ -1887,57 +1855,28 @@ pub fn translate_displaylist_to_wr(
                     })
                     .collect();
 
-                let wr_gradient = WrRadialGradient {
-                    center,
-                    radius,
-                    start_offset: 0.0,
-                    end_offset: 1.0,
-                    extend_mode,
-                };
-
-                // Handle border-radius clipping
-                let style_border_radius = convert_border_radius_to_style(border_radius);
-                let wr_border_radius = wr_translate_border_radius(
-                    style_border_radius,
-                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                );
-
-                let tile_size = LayoutSize::new(scaled_width, scaled_height);
-                let tile_spacing = LayoutSize::zero();
-
-                if !wr_border_radius.is_zero() {
-                    let logical_rect = LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(
-                            scale_px(bounds.0.origin.x, dpi_scale),
-                            scale_px(bounds.0.origin.y, dpi_scale),
-                        ),
-                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                    );
-                    let new_clip_id = define_border_radius_clip(
+                if wr_stops.len() >= 2 {
+                    let info = gradient_item_properties(
                         &mut builder,
-                        logical_rect,
-                        wr_border_radius,
+                        bounds,
+                        border_radius,
+                        rect,
+                        dpi_scale,
                         current_spatial!(),
                         current_clip!(),
                     );
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: new_clip_id,
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    // Push stops immediately before gradient to avoid clip items interleaving
-                    builder.push_stops(&wr_stops);
-                    builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
-                } else {
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: current_clip!(),
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    builder.push_stops(&wr_stops);
-                    builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                    // Stops that end early (flora's bloom fades out at 45%) or
+                    // run past the ellipse reach WebRender as 0..1, mapped
+                    // through the gradient's start and end offsets.
+                    let wr_gradient =
+                        builder.create_radial_gradient(center, radius, wr_stops, extend_mode);
+                    builder.push_radial_gradient(
+                        &info,
+                        rect,
+                        wr_gradient,
+                        info.clip_rect.size(),
+                        LayoutSize::zero(),
+                    );
                 }
             }
 
@@ -2009,57 +1948,26 @@ pub fn translate_displaylist_to_wr(
                     })
                     .collect();
 
-                let wr_gradient = WrConicGradient {
-                    center,
-                    angle,
-                    start_offset: 0.0,
-                    end_offset: 1.0,
-                    extend_mode,
-                };
-
-                // Handle border-radius clipping
-                let style_border_radius = convert_border_radius_to_style(border_radius);
-                let wr_border_radius = wr_translate_border_radius(
-                    style_border_radius,
-                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                );
-
-                let tile_size = LayoutSize::new(scaled_width, scaled_height);
-                let tile_spacing = LayoutSize::zero();
-
-                if !wr_border_radius.is_zero() {
-                    let logical_rect = LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(
-                            scale_px(bounds.0.origin.x, dpi_scale),
-                            scale_px(bounds.0.origin.y, dpi_scale),
-                        ),
-                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                    );
-                    let new_clip_id = define_border_radius_clip(
+                if wr_stops.len() >= 2 {
+                    let info = gradient_item_properties(
                         &mut builder,
-                        logical_rect,
-                        wr_border_radius,
+                        bounds,
+                        border_radius,
+                        rect,
+                        dpi_scale,
                         current_spatial!(),
                         current_clip!(),
                     );
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: new_clip_id,
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    // Push stops immediately before gradient to avoid clip items interleaving
-                    builder.push_stops(&wr_stops);
-                    builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
-                } else {
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: current_clip!(),
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    builder.push_stops(&wr_stops);
-                    builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                    // As a radial gradient: stops mapped onto 0..1 of the turn.
+                    let wr_gradient =
+                        builder.create_conic_gradient(center, angle, wr_stops, extend_mode);
+                    builder.push_conic_gradient(
+                        &info,
+                        rect,
+                        wr_gradient,
+                        info.clip_rect.size(),
+                        LayoutSize::zero(),
+                    );
                 }
             }
 
@@ -2501,6 +2409,65 @@ fn define_border_radius_clip(
         Some(parent_clip_chain_id)
     };
     builder.define_clip_chain(parent, vec![clip_id])
+}
+
+/// The clip chain for a box painted with rounded corners: `parent` plus a
+/// rounded rect at the box, or `parent` itself when the corners are square.
+fn rounded_box_clip(
+    builder: &mut WrDisplayListBuilder,
+    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
+    border_radius: &BorderRadius,
+    dpi_scale: f32,
+    spatial_id: SpatialId,
+    parent: WrClipChainId,
+) -> WrClipChainId {
+    let size = azul_core::geom::LogicalSize::new(
+        scale_px(bounds.0.size.width, dpi_scale),
+        scale_px(bounds.0.size.height, dpi_scale),
+    );
+    let wr_border_radius =
+        wr_translate_border_radius(convert_border_radius_to_style(border_radius), size);
+    if wr_border_radius.is_zero() {
+        return parent;
+    }
+    let rect = azul_core::geom::LogicalRect::new(
+        azul_core::geom::LogicalPosition::new(
+            scale_px(bounds.0.origin.x, dpi_scale),
+            scale_px(bounds.0.origin.y, dpi_scale),
+        ),
+        size,
+    );
+    define_border_radius_clip(builder, rect, wr_border_radius, spatial_id, parent)
+}
+
+/// The item properties of a gradient painted at `rect` (device px, relative
+/// to the current frame), clipped to its box's rounded corners.
+///
+/// This defines the corner clip, so call it before the gradient's stops are
+/// pushed: WebRender gives a stops marker to the item right after it, and a
+/// clip in between would take them.
+fn gradient_item_properties(
+    builder: &mut WrDisplayListBuilder,
+    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
+    border_radius: &BorderRadius,
+    rect: LayoutRect,
+    dpi_scale: f32,
+    spatial_id: SpatialId,
+    clip_chain_id: WrClipChainId,
+) -> CommonItemProperties {
+    CommonItemProperties {
+        clip_rect: rect,
+        clip_chain_id: rounded_box_clip(
+            builder,
+            bounds,
+            border_radius,
+            dpi_scale,
+            spatial_id,
+            clip_chain_id,
+        ),
+        spatial_id,
+        flags: Default::default(),
+    }
 }
 
 /// Convert azul StyleFilter list to WebRender FilterOp list
