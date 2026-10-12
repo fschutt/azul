@@ -4,9 +4,9 @@
 //! FLORA16's screenshot review (`graph-flora-light` / `-dark`): the second
 //! tab read "MEMOR" - its last capital cut - while flat fit. Flora sets a tab
 //! label in EB Garamond capitals, 12px semibold tracked .08em (`tab_caps`),
-//! a curve's width of padding on each side (`australis_tab_box`): the two
-//! tabs need about 18 + 95 + 96 = 209px of the column's 288, so nothing has
-//! to give. Chrome lays the same CSS out with every tab as wide as its
+//! 12px from either edge of the tab (`australis_tab_box`, flora.css's
+//! padding) and the tabs 8px apart: the two tabs need about 18 + 95 + 96 =
+//! 209px of the column's 288, so nothing has to give. Chrome lays the same CSS out with every tab as wide as its
 //! capitals (a flex item's base size is its max-content width, and its
 //! min-content width - one word - is its floor). So the tab's box, and the
 //! clip its text is painted in, must hold every capital of its label, on one
@@ -36,9 +36,9 @@ use rust_fontconfig::FcFontCache;
 
 /// The calculator's side column (`calc/ui.rs`: `width: 290px`).
 const COLUMN: f32 = 290.0;
-/// A flora tab's padding beside its label, border included
-/// (`themes::flora::TAB_SIDE`, the curve's width).
-const TAB_SIDE: f32 = 18.0;
+/// A flora tab's room beside its label, border included
+/// (`themes::flora::TAB_SIDE`, flora.css's `padding: 3px 12px`).
+const TAB_SIDE: f32 = 12.0;
 const LABELS: [&str; 2] = ["History", "Memory"];
 
 /// One painted glyph run: its glyphs' pen positions (x, baseline y), its

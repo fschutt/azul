@@ -2563,40 +2563,59 @@ pub fn get_webrender_border(
             }),
     );
 
-    // NOTE: if the HiDPI factor is not set to an even number, this will result
-    // in uneven border widths. In order to reduce this bug, we multiply the border width
-    // with the HiDPI factor, then round the result (to get an even number), then divide again
+    // `rect_size` is the border box in device px, and WebRender takes the
+    // widths and radii in device px too. A width is snapped to whole device
+    // pixels (rounded down, but never below one for a visible line), as
+    // Chrome snaps it, so a 1px hairline stays one crisp line at any scale.
+    let hidpi = if hidpi.is_finite() && hidpi > 0.0 {
+        hidpi
+    } else {
+        1.0
+    };
+    let css_size = LogicalSize::new(rect_size.width / hidpi, rect_size.height / hidpi);
+    let device_width = |css: f32| {
+        let device = css * hidpi;
+        if device > 0.0 && device < 1.0 {
+            1.0
+        } else {
+            device.floor()
+        }
+    };
     let border_widths = WrLayoutSideOffsets::new(
         width_top
             .map(|v| {
-                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                    * hidpi)
-                    .floor()
-                    / hidpi
+                device_width(v.to_pixels_internal(
+                    css_size.height,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ))
             })
             .unwrap_or(0.0),
         width_right
             .map(|v| {
-                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                    * hidpi)
-                    .floor()
-                    / hidpi
+                device_width(v.to_pixels_internal(
+                    css_size.width,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ))
             })
             .unwrap_or(0.0),
         width_bottom
             .map(|v| {
-                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                    * hidpi)
-                    .floor()
-                    / hidpi
+                device_width(v.to_pixels_internal(
+                    css_size.height,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ))
             })
             .unwrap_or(0.0),
         width_left
             .map(|v| {
-                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-                    * hidpi)
-                    .floor()
-                    / hidpi
+                device_width(v.to_pixels_internal(
+                    css_size.width,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ))
             })
             .unwrap_or(0.0),
     );
@@ -2629,7 +2648,15 @@ pub fn get_webrender_border(
         radius: if has_no_border_radius {
             WrBorderRadius::zero()
         } else {
-            wr_translate_border_radius(radii, rect_size)
+            // A radius in px is in CSS px and one in % is of the box: both
+            // are resolved against the box in CSS px, then scaled.
+            let r = wr_translate_border_radius(radii, css_size);
+            WrBorderRadius {
+                top_left: r.top_left * hidpi,
+                top_right: r.top_right * hidpi,
+                bottom_left: r.bottom_left * hidpi,
+                bottom_right: r.bottom_right * hidpi,
+            }
         },
         do_aa: true,
     });

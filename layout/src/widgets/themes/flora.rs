@@ -6939,9 +6939,78 @@ pub const TAB_HEIGHT: isize = 28;
 pub const TAB_GAUGE: isize = 2;
 /// The air above the tabs in a flora tab row, in px.
 pub const TAB_AIR: isize = 4;
-/// A tab's padding beside its label: the selected tab's curves hang into
-/// it, so it is the curve's width - a foot never reaches a neighbour's label.
-pub const TAB_SIDE: isize = crate::widgets::tabs::CURVE_WIDTH as isize;
+/// A tab's room beside its label, its 1px hairline included: flora.css's
+/// `.nav-links a { padding: 3px 12px 4px }`.
+pub const TAB_SIDE: isize = 12;
+/// The space between two tabs, flora.css's `.nav-links { gap: 8px }`. A
+/// selected tab's curve hangs a curve's width past its box, over the gap and
+/// the neighbour's side: the two hold its foot off the neighbour's label.
+pub const TAB_GAP: isize = 8;
+/// How far a selected tab's curve hangs past its box, in px.
+const TAB_CURVE: isize = crate::widgets::tabs::CURVE_WIDTH as isize;
+const _: () = assert!(TAB_GAP + TAB_SIDE >= TAB_CURVE);
+
+/// `column-gap: TAB_GAP`, on the row that holds the tabs.
+fn tab_gap() -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(CssProperty::ColumnGap(
+        azul_css::props::property::LayoutColumnGapValue::Exact(
+            azul_css::props::layout::LayoutColumnGap {
+                inner: PixelValue::const_px(TAB_GAP),
+            },
+        ),
+    ))
+}
+
+/// How far along a 115deg line the bottom-left corner of a tab's face lies
+/// (the face is the tab's height less its metal head):
+/// `(TAB_HEIGHT - TAB_GAUGE) * cos(25deg)`, rounded up.
+const TAB_STREAK_START: isize = 11;
+
+/// A stop at `offset` percent of the gradient line plus `px` pixels.
+const fn stop_after(offset: isize, px: isize, color: ColorU) -> NormalizedLinearColorStop {
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(offset),
+        color: ColorOrSystem::color(color),
+        offset_px: FloatValue::const_new(px),
+    }
+}
+
+const TAB_STREAK_STOPS: &[NormalizedLinearColorStop] = &[
+    stop_after(6, TAB_STREAK_START, ColorU::new(255, 248, 215, 0)),
+    stop_after(15, TAB_STREAK_START, ColorU::new(255, 248, 215, 51)),
+    stop_after(22, TAB_STREAK_START, ColorU::new(255, 248, 215, 15)),
+    stop_after(32, TAB_STREAK_START, ColorU::new(255, 248, 215, 0)),
+];
+
+/// [`STONE_STREAK`] on a stone cut as a tab (the selected tab, the
+/// application button). The face is the tab's middle; its left edge meets
+/// the left curve, which carries no streak. A 115deg gradient starts at the
+/// face's top-left corner and is already rising at the bottom of that edge,
+/// so the light would end there in a straight cut. Started where the bottom-
+/// left corner meets the line instead, it is dark all along the edge.
+/// (flora.css hides the same cut under the tab's metal side.)
+pub const TAB_STREAK: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(115),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(TAB_STREAK_STOPS),
+    });
+
+const TAB_STREAK_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
+    stop_after(4, TAB_STREAK_START, ColorU::new(255, 248, 215, 0)),
+    stop_after(14, TAB_STREAK_START, ColorU::new(255, 248, 215, 87)),
+    stop_after(23, TAB_STREAK_START, ColorU::new(255, 248, 215, 26)),
+    stop_after(34, TAB_STREAK_START, ColorU::new(255, 248, 215, 0)),
+];
+
+/// [`STONE_STREAK_HOVER`] on a stone cut as a tab, started as
+/// [`TAB_STREAK`] is.
+pub const TAB_STREAK_HOVER: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(115),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(TAB_STREAK_HOVER_STOPS),
+    });
 
 /// A tab's label in flora: the UI hand's capitals, tracked out - flora.css's
 /// `.nav-links a` (17px all-small-caps at 700, 0.07em) set as true capitals of
@@ -6958,7 +7027,8 @@ fn tab_caps(v: &mut Vec<CssPropertyWithConditions>) {
 }
 
 /// A tab's box in a flora tab row: `TAB_SIDE` beside the label and no
-/// margins but the selected tab's foot. The SELECTED tab is the full
+/// margins but the selected tab's foot (the row spaces its tabs by
+/// `TAB_GAP`). The SELECTED tab is the full
 /// `TAB_HEIGHT`, a transparent `--fl-metal` head the rolled metal shows
 /// through and no other border (`position: relative` carries its curves,
 /// `z-index` keeps a neighbour's hover face off them); it reaches a gauge
@@ -7111,15 +7181,16 @@ pub(crate) fn tab_curves(raised: bool) -> crate::widgets::tabs::TabCurveLook {
 /// the Australis metrics and paint laid on it. Shared by the ribbon's tab row
 /// and the tab bar.
 pub(crate) mod australis {
-    use super::{CssPropertyWithConditions, TAB_AIR, TAB_SIDE, CssProperty, LayoutHeight, TAB_HEIGHT, tab_rule_foot, over_metal, RULE_METAL, StyleBackgroundContent, LIGHT_STRIP, DARK_STRIP, over_metal_clips, australis_tab_box, tab_caps, LIGHT_SOFT1, DARK_SOFT1, ColorU, HOVER_FACE_LIGHT, HOVER_FACE_DARK, LIGHT_INK, DARK_INK, LIGHT_BD, DARK_BD, PRESSED_FACE_LIGHT, PRESSED_FACE_DARK, LIGHT_BD3, DARK_BD3, shadow_in, ShadowSlot, TAB_PRESS_SHADOW, flora_fade, FLORA_FACE, FL_DUR_MS, australis_face, STONE_STREAK, ROLLED_TAB, LIGHT_ON_ACC, StyleBorderTopColor, STONE_STREAK_HOVER, stone_light_fade, stone_face, LIGHT_ACC, sunken_stone_face, LIGHT_DEEP, FL_DUR_SLOW_MS};
+    use super::{CssPropertyWithConditions, TAB_AIR, TAB_CURVE, tab_gap, TAB_STREAK, TAB_STREAK_HOVER, CssProperty, LayoutHeight, TAB_HEIGHT, tab_rule_foot, over_metal, RULE_METAL, StyleBackgroundContent, LIGHT_STRIP, DARK_STRIP, over_metal_clips, australis_tab_box, tab_caps, LIGHT_SOFT1, DARK_SOFT1, ColorU, HOVER_FACE_LIGHT, HOVER_FACE_DARK, LIGHT_INK, DARK_INK, LIGHT_BD, DARK_BD, PRESSED_FACE_LIGHT, PRESSED_FACE_DARK, LIGHT_BD3, DARK_BD3, shadow_in, ShadowSlot, TAB_PRESS_SHADOW, flora_fade, FLORA_FACE, FL_DUR_MS, australis_face, ROLLED_TAB, LIGHT_ON_ACC, StyleBorderTopColor, stone_light_fade, stone_face, LIGHT_ACC, sunken_stone_face, LIGHT_DEEP, FL_DUR_SLOW_MS};
 
-    /// The strip: air above the tabs and room before the first one for its
-    /// curve, the strip's paper on its padding box, and the rule - the
-    /// website's travelling metal, along the whole strip - through its
-    /// transparent foot.
+    /// The strip: air above the tabs, room before the first one for its
+    /// curve and `TAB_GAP` between them, the strip's paper on its padding
+    /// box, and the rule - the website's travelling metal, along the whole
+    /// strip - through its transparent foot.
     pub(crate) fn strip(v: &mut Vec<CssPropertyWithConditions>) {
         use super::super::decl;
-        v.extend(decl::padding(TAB_AIR, 0, 0, TAB_SIDE));
+        v.extend(decl::padding(TAB_AIR, 0, 0, TAB_CURVE));
+        v.push(tab_gap());
         v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
             LayoutHeight::const_px(TAB_AIR + TAB_HEIGHT),
         )));
@@ -7178,7 +7249,7 @@ pub(crate) mod australis {
         australis_tab_box(v, true, border_box);
         tab_caps(v);
         v.extend(decl::radius(0));
-        let face = australis_face(STONE_STREAK);
+        let face = australis_face(TAB_STREAK);
         let face_layers = face.len();
         v.push(P::simple(decl::layers(over_metal(ROLLED_TAB, face))));
         v.push(over_metal_clips(face_layers));
@@ -7186,7 +7257,7 @@ pub(crate) mod australis {
         v.push(P::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
             inner: ColorU::TRANSPARENT,
         })));
-        let lit = over_metal(ROLLED_TAB, australis_face(STONE_STREAK_HOVER));
+        let lit = over_metal(ROLLED_TAB, australis_face(TAB_STREAK_HOVER));
         v.extend(decl::hover_layers(lit.clone(), lit));
         v.push(stone_light_fade());
     }
@@ -7203,7 +7274,7 @@ pub(crate) mod australis {
         australis_tab_box(v, true, true);
         tab_caps(v);
         v.extend(decl::radius(0));
-        let face = stone_face(LIGHT_ACC, STONE_STREAK);
+        let face = stone_face(LIGHT_ACC, TAB_STREAK);
         let face_layers = face.len();
         v.push(P::simple(decl::layers(over_metal(ROLLED_TAB, face))));
         v.push(over_metal_clips(face_layers));
@@ -7214,7 +7285,7 @@ pub(crate) mod australis {
         // A stone is its own colour in both modes, so its states repeat for
         // the night: every state rule keeps its twin. Each state keeps the
         // face's layer count, so the one clip list fits them all.
-        let lit = over_metal(ROLLED_TAB, stone_face(LIGHT_ACC, STONE_STREAK_HOVER));
+        let lit = over_metal(ROLLED_TAB, stone_face(LIGHT_ACC, TAB_STREAK_HOVER));
         v.extend(decl::hover_layers(lit.clone(), lit));
         let held = over_metal(ROLLED_TAB, sunken_stone_face(LIGHT_DEEP));
         v.extend(decl::active_layers(held.clone(), held));
@@ -7235,9 +7306,11 @@ pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
     // `TAB_BASE`: its structure), then flora's skin.
     let mut header = crate::widgets::tabs::HEADER_BASE.to_vec();
     header.extend([
-        // Flora's own layout: the tabs stand on the strip's foot. Flat's
-        // native tabs hang from the top of the bar (its default).
+        // Flora's own layout: the tabs stand on the strip's foot, `TAB_GAP`
+        // apart. Flat's native tabs hang from the top of the bar (its
+        // default).
         P::simple(CssProperty::const_align_items(LayoutAlignItems::End)),
+        tab_gap(),
         P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
         decl::font_size(13),
         P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(TAB_AIR))),
@@ -7252,9 +7325,9 @@ pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
     header.push(over_metal_clips(1));
 
     // The tabs start a curve's width in, where the first tab's foot lands
-    // when it is selected: a fixed spacer (flat's grows).
+    // when it is selected: a fixed spacer (flat's grows) and the gap after it.
     let before = vec![
-        P::simple(CssProperty::const_width(LayoutWidth::const_px(TAB_SIDE))),
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(TAB_CURVE - TAB_GAP))),
         P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];
     let after = crate::widgets::tabs::AFTER_BASE.to_vec();
@@ -10627,5 +10700,183 @@ mod flora16_look_tests {
         }
         assert_eq!(token(K::Comment, false), Some(ColorU::rgb(0x92, 0x8D, 0x80)));
         assert_eq!(token(K::Comment, true), Some(ColorU::rgb(0x85, 0x85, 0x85)));
+    }
+}
+
+#[cfg(test)]
+mod australis_tab_tests {
+    //! The Australis tab row against flora.css, the design it transcribes:
+    //! `.nav-links { gap: 8px }` and `.nav-links a { padding: 3px 12px 4px }`
+    //! with a 1px hairline, and the light raked across a selected stone.
+
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+
+    use super::*;
+
+    /// The last declaration `pick` reads among `v`'s unconditional ones.
+    fn declared(
+        v: &[CssPropertyWithConditions],
+        pick: impl Fn(&CssProperty) -> Option<f32>,
+    ) -> f32 {
+        v.iter()
+            .filter(|p| p.apply_if.as_ref().is_empty())
+            .filter_map(|p| pick(&p.property))
+            .last()
+            .unwrap_or(0.0)
+    }
+
+    fn px(value: PixelValue) -> f32 {
+        value.to_pixels_internal(0.0, 16.0, 16.0)
+    }
+
+    /// (left, right) from a tab's border edge to its label: border plus
+    /// padding on each side.
+    fn label_inset(v: &[CssPropertyWithConditions]) -> (f32, f32) {
+        let left = declared(v, |p| match p {
+            CssProperty::PaddingLeft(x) => x.get_property().map(|x| px(x.inner)),
+            _ => None,
+        }) + declared(v, |p| match p {
+            CssProperty::BorderLeftWidth(x) => x.get_property().map(|x| px(x.inner)),
+            _ => None,
+        });
+        let right = declared(v, |p| match p {
+            CssProperty::PaddingRight(x) => x.get_property().map(|x| px(x.inner)),
+            _ => None,
+        }) + declared(v, |p| match p {
+            CssProperty::BorderRightWidth(x) => x.get_property().map(|x| px(x.inner)),
+            _ => None,
+        });
+        (left, right)
+    }
+
+    fn column_gap(v: &[CssPropertyWithConditions]) -> f32 {
+        declared(v, |p| match p {
+            CssProperty::ColumnGap(x) => x.get_property().map(|x| px(x.inner)),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_flora_tab_holds_its_label_12px_from_its_edges_as_flora_css_does() {
+        let mut selected = Vec::new();
+        australis::selected(&mut selected, true);
+        let mut tab = Vec::new();
+        australis::tab(&mut tab, true);
+        let mut app = Vec::new();
+        australis::app_button(&mut app);
+        for (name, v) in [
+            ("selected", &selected),
+            ("unselected", &tab),
+            ("app button", &app),
+        ] {
+            assert_eq!(label_inset(v), (12.0, 12.0), "{name}");
+        }
+    }
+
+    /// The selected tab's curve hangs a curve's width past its box: the gap
+    /// and the neighbour's inset hold it off the neighbour's label.
+    #[test]
+    fn a_flora_tab_row_leaves_8px_between_its_tabs_and_a_curve_clear_of_every_label() {
+        let mut strip = Vec::new();
+        australis::strip(&mut strip);
+        let header = tab_header_look().header;
+        let mut tab = Vec::new();
+        australis::tab(&mut tab, true);
+        let neighbour = label_inset(&tab).0;
+        for (name, v) in [
+            ("ribbon strip", strip.as_slice()),
+            ("tab bar", header.as_ref()),
+        ] {
+            let gap = column_gap(v);
+            assert_eq!(gap, 8.0, "{name}");
+            assert!(
+                gap + neighbour >= crate::widgets::tabs::CURVE_WIDTH,
+                "{name}: a curve of {} reaches past {gap} + {neighbour}",
+                crate::widgets::tabs::CURVE_WIDTH
+            );
+        }
+    }
+
+    /// The alpha a linear gradient of concrete colours paints at (x, y) of
+    /// a `w` x `h` box, sampled along its line as the renderers sample it.
+    fn alpha_at(layer: &StyleBackgroundContent, w: f32, h: f32, x: f32, y: f32) -> f32 {
+        let StyleBackgroundContent::LinearGradient(g) = layer else {
+            panic!("the streak is a linear gradient: {layer:?}");
+        };
+        let line = g.resolve_in_box(w, h);
+        let (dx, dy) = (line.end.0 - line.start.0, line.end.1 - line.start.1);
+        let t = ((x - line.start.0) * dx + (y - line.start.1) * dy) / (dx * dx + dy * dy);
+        let stops: Vec<(f32, f32)> = line
+            .stops
+            .iter()
+            .map(|(offset, color)| match color {
+                ColorOrSystem::Color(c) => (*offset, f32::from(c.a)),
+                ColorOrSystem::System(_) => panic!("a system colour in the streak"),
+            })
+            .collect();
+        if t <= stops[0].0 {
+            return stops[0].1;
+        }
+        for pair in stops.windows(2) {
+            let ((a, from), (b, to)) = (pair[0], pair[1]);
+            if t <= b {
+                return if b > a {
+                    from + (to - from) * (t - a) / (b - a)
+                } else {
+                    to
+                };
+            }
+        }
+        stops[stops.len() - 1].1
+    }
+
+    /// The streak of every face a stone cut as a tab shows at rest and under
+    /// the pointer: the last layer of each background it declares, but the
+    /// pressed one (a pressed stone has no streak).
+    fn streaks(v: &[CssPropertyWithConditions]) -> Vec<StyleBackgroundContent> {
+        v.iter()
+            .filter(|p| {
+                !p.apply_if
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Active)))
+            })
+            .filter_map(|p| match &p.property {
+                CssProperty::BackgroundContent(layers) => layers
+                    .get_property()
+                    .and_then(|l| l.as_ref().last().cloned()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The selected tab's middle meets its left curve along its left edge,
+    /// and the streak is on the middle alone: it has to be dark all along
+    /// that edge, or the light ends there in a straight cut, a rect narrower
+    /// than the tab (flora.css hides the same cut under the tab's metal
+    /// side, which the curve replaces here).
+    #[test]
+    fn the_light_on_a_selected_stone_does_not_end_at_the_edge_of_its_middle() {
+        let mut selected = Vec::new();
+        australis::selected(&mut selected, true);
+        let mut app = Vec::new();
+        australis::app_button(&mut app);
+        let face_height = (TAB_HEIGHT - TAB_GAUGE) as f32;
+        for (name, v) in [("selected tab", &selected), ("app button", &app)] {
+            let streaks = streaks(v);
+            assert!(streaks.len() >= 2, "{name}: a streak at rest and on hover");
+            for streak in &streaks {
+                for width in [48.0, 90.0, 160.0] {
+                    for y in 0..=(face_height as usize) {
+                        let alpha = alpha_at(streak, width, face_height, 0.0, y as f32);
+                        assert!(
+                            alpha < 0.5,
+                            "{name}: the streak paints alpha {alpha:.1} at the left edge, y {y}, \
+                             of a {width}px face: {streak:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

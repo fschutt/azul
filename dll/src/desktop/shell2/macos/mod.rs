@@ -1965,6 +1965,54 @@ fn traffic_light_frames(
     (container, origins)
 }
 
+/// Whether a window of this background material shows what is behind it
+/// through its GL surface: every material but Opaque clears the frame to
+/// transparent, and the surface has to composite that alpha (a blur
+/// material's effect view, or the desktop and the parent window under a
+/// transparent one).
+fn gl_surface_see_through(material: WindowBackgroundMaterial) -> bool {
+    material != WindowBackgroundMaterial::Opaque
+}
+
+#[cfg(test)]
+mod gl_surface_tests {
+    //! Which windows let the desktop show through their GL surface. Every
+    //! window whose material is not Opaque clears to transparent
+    //! (`clear_color`) and its CPU view composites that alpha; a GL surface
+    //! that stays opaque lays a modal dialog's half-transparent backdrop
+    //! over black instead of over the app beneath.
+
+    use azul_core::window::WindowBackgroundMaterial as Material;
+
+    use super::gl_surface_see_through;
+
+    #[test]
+    fn every_window_that_is_not_opaque_shows_the_desktop_through_its_gl_surface() {
+        for material in [
+            Material::Opaque,
+            Material::Transparent,
+            Material::Sidebar,
+            Material::Menu,
+            Material::HUD,
+            Material::Titlebar,
+            Material::MicaAlt,
+        ] {
+            assert_eq!(
+                gl_surface_see_through(material),
+                material != Material::Opaque,
+                "{material:?}"
+            );
+        }
+    }
+
+    /// A modal `Dialog` is a transient window over its parent with the
+    /// Transparent material and a dimmed `::backdrop` as its root.
+    #[test]
+    fn a_modal_dialogs_window_shows_the_app_through_its_backdrop_on_the_gpu() {
+        assert!(gl_surface_see_through(Material::Transparent));
+    }
+}
+
 #[cfg(test)]
 mod traffic_light_tests {
     use super::traffic_light_frames;
@@ -7550,13 +7598,16 @@ impl MacOSWindow {
                         self.window.setTitlebarAppearsTransparent(false);
                     }
                 }
+                self.set_gl_surface_see_through(gl_surface_see_through(material));
             }
             WindowBackgroundMaterial::Transparent => {
-                // Transparent window without blur
+                // Transparent window without blur: a modal dialog's dimmed
+                // backdrop, a popup with real rounded corners.
                 unsafe {
                     self.window.setOpaque(false);
                     self.window.setBackgroundColor(Some(&NSColor::clearColor()));
                 }
+                self.set_gl_surface_see_through(gl_surface_see_through(material));
             }
             WindowBackgroundMaterial::Sidebar
             | WindowBackgroundMaterial::Menu
@@ -7632,28 +7683,10 @@ impl MacOSWindow {
                         }
                     }
 
-                    // Make the GL context surface transparent
-                    // NSOpenGLCPSurfaceOpacity = 236
-                    if let Some(ref gl_context) = self.gl_context {
-                        unsafe {
-                            const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
-                            let opacity: i32 = 0; // 0 = transparent, 1 = opaque
-                            let _: () = msg_send![
-                                &**gl_context,
-                                setValues: &opacity as *const i32
-                                forParameter: NS_OPENGL_CP_SURFACE_OPACITY
-                            ];
-                        }
-                    }
-
-                    // Make the GL/CPU view layer non-opaque so blur shows through
-                    if let Some(ref gl_view) = self.gl_view {
-                        unsafe {
-                            let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
-                            if let Some(layer) = (*view_ptr).layer() {
-                                let _: () = msg_send![&*layer, setOpaque: false];
-                            }
-                        }
+                    // Make the GL surface, or the CPU view's layer, non-opaque
+                    // so the blur shows through.
+                    if self.gl_view.is_some() {
+                        self.set_gl_surface_see_through(gl_surface_see_through(material));
                     } else if let Some(ref cpu_view) = self.cpu_view {
                         unsafe {
                             let view_ptr = Retained::as_ptr(cpu_view) as *const NSView;
@@ -7666,6 +7699,31 @@ impl MacOSWindow {
                     self.window.setOpaque(false);
                     self.window.setBackgroundColor(Some(&NSColor::clearColor()));
                     self.window.setTitlebarAppearsTransparent(true);
+                }
+            }
+        }
+    }
+
+    /// Let the desktop show through the GL surface where the frame's alpha
+    /// is below one (`NSOpenGLCPSurfaceOpacity` 0 and a non-opaque layer),
+    /// or make it opaque again. A no-op without a GL context.
+    fn set_gl_surface_see_through(&self, see_through: bool) {
+        const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
+        let opacity: i32 = i32::from(!see_through);
+        if let Some(ref gl_context) = self.gl_context {
+            unsafe {
+                let _: () = msg_send![
+                    &**gl_context,
+                    setValues: &opacity as *const i32
+                    forParameter: NS_OPENGL_CP_SURFACE_OPACITY
+                ];
+            }
+        }
+        if let Some(ref gl_view) = self.gl_view {
+            unsafe {
+                let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
+                if let Some(layer) = (*view_ptr).layer() {
+                    let _: () = msg_send![&*layer, setOpaque: !see_through];
                 }
             }
         }
