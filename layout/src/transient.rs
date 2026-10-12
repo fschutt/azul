@@ -722,7 +722,8 @@ pub struct TransientWindowManager {
     /// `set_transient_window_open(node, false)` or by a user dismissal.
     forced_open: Vec<NodeId>,
     /// Bumped whenever the set of inline-docked nodes or their zones may
-    /// have changed (a drop, a tear-off, a window opening or closing). The
+    /// have changed (a drop, a tear-off, a window opening or closing), never
+    /// for a window that only moved with its anchor. The
     /// layout fast path compares it with the generation it last laid out:
     /// an identical DOM whose docking changed must still re-layout.
     dock_generation: u64,
@@ -992,6 +993,7 @@ impl TransientWindowManager {
         mut content_size_of: impl FnMut(DomId, &TransientPlacement) -> Option<LogicalSize>,
     ) -> TransientDiff {
         let mut diff = TransientDiff::default();
+        let docks_before = self.layout_docks();
 
         // 0. A dismissed node is re-armed the moment the app stops asking for it (`open=false`);
         //    while it still asks, the dismissal wins.
@@ -1084,7 +1086,11 @@ impl TransientWindowManager {
             diff.opened.push(content_dom);
         }
 
-        if !diff.is_empty() {
+        // Only what the layout tree builder reads counts: which windows are
+        // open and which of them are grafted inline where. A window that
+        // merely moved followed its anchor, which the parent's layout has
+        // just placed - another pass would lay the page out again, cold.
+        if self.layout_docks() != docks_before {
             self.dock_generation += 1;
         }
         diff
