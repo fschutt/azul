@@ -1039,3 +1039,5 @@ mod tab_and_shift_tab_walk_the_rendered_stops_in_reading_order;
 mod a_label_names_the_control_it_is_for;
 #[path = "a_screen_reader_reaches_the_controls_of_an_open_popover.rs"]
 mod a_screen_reader_reaches_the_controls_of_an_open_popover;
+#[path = "an_accordion_frame_does_not_re_lay_out_the_page.rs"]
+mod an_accordion_frame_does_not_re_lay_out_the_page;

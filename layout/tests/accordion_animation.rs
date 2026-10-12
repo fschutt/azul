@@ -107,7 +107,7 @@ fn frames(lw: &mut LayoutWindow, node: NodeId) -> Vec<f32> {
     heights
 }
 
-fn node_with_class(lw: &LayoutWindow, class: &str) -> NodeId {
+pub(crate) fn node_with_class(lw: &LayoutWindow, class: &str) -> NodeId {
     let sd = &lw.layout_results[&DomId::ROOT_ID].styled_dom;
     let node_data = sd.node_data.as_container();
     (0..node_data.len())
@@ -140,7 +140,7 @@ fn accordion(open: bool) -> (LayoutWindow, NodeId, NodeId) {
 /// A click on `header`: its click callback runs the way the shell runs it,
 /// and the CSS writes it made land through the content chokepoint the shell
 /// applies them through.
-fn click(lw: &mut LayoutWindow, header: NodeId) {
+pub(crate) fn click(lw: &mut LayoutWindow, header: NodeId) {
     let (core_callback, mut data) = {
         let sd = &lw.layout_results[&DomId::ROOT_ID].styled_dom;
         let node_data = sd.node_data.as_container();
