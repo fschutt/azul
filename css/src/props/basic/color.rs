@@ -565,7 +565,7 @@ impl ColorU {
     /// plain mix of the channels drags it toward transparent's black). Two
     /// colours of one alpha mix exactly as [`Self::interpolate`] mixes them.
     #[must_use]
-    pub(crate) fn interpolate_premultiplied(self, other: Self, t: f32) -> Self {
+    pub fn interpolate_premultiplied(self, other: Self, t: f32) -> Self {
         if self.a == other.a {
             return self.interpolate(&other, t);
         }

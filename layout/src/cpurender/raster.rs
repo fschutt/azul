@@ -106,9 +106,16 @@ fn gradient_lut_size(line_px: f64) -> usize {
 /// `red 50%, blue 50%` (one stop left), so it is nudged past the first by
 /// [`HARD_STOP_EPSILON`]. Fewer than two stops paint nothing.
 ///
+/// Colours between two stops are mixed in premultiplied space (CSS Images 3,
+/// what Chrome and WebRender paint): red fading to a transparent blue stays
+/// red while it fades. agg mixes its stops straight, channel by channel, so
+/// [`premultiplied_steps`] gives it a stop for every entry where the alpha
+/// changes, and agg's straight steps between them are exact.
+///
 /// [`color_stops_on_the_line`]: azul_css::props::style::background::color_stops_on_the_line
 fn build_gradient_lut(stops: &[(f32, ColorU)], size: usize) -> GradientLut {
-    let mut lut = GradientLut::new(size.clamp(GRADIENT_LUT_MIN, GRADIENT_LUT_MAX));
+    let size = size.clamp(GRADIENT_LUT_MIN, GRADIENT_LUT_MAX);
+    let mut lut = GradientLut::new(size);
     let mut ordered: Vec<(f32, ColorU)> = stops
         .iter()
         .copied()
@@ -123,10 +130,10 @@ fn build_gradient_lut(stops: &[(f32, ColorU)], size: usize) -> GradientLut {
     }
     let on_line = azul_css::props::style::background::color_stops_on_the_line(
         &ordered,
-        |from: ColorU, to: ColorU, t: f32| from.interpolate(&to, t),
+        ColorU::interpolate_premultiplied,
     );
     let mut previous = f64::NEG_INFINITY;
-    for (t, c) in on_line {
+    for (t, c) in premultiplied_steps(&on_line, size) {
         let mut offset = f64::from(t);
         if offset <= previous {
             offset = previous + HARD_STOP_EPSILON;
@@ -144,6 +151,34 @@ fn build_gradient_lut(stops: &[(f32, ColorU)], size: usize) -> GradientLut {
     }
     lut.build_lut();
     lut
+}
+
+/// `stops` (ordered, on the line) with a stop of its own for every one of
+/// the `size` LUT entries inside a segment whose ends differ in alpha, its
+/// colour mixed in premultiplied space. A segment of one alpha mixes the same
+/// either way and is left to agg, and so is a hard stop (no entries between).
+fn premultiplied_steps(stops: &[(f32, ColorU)], size: usize) -> Vec<(f32, ColorU)> {
+    let mut out = Vec::with_capacity(stops.len());
+    for (i, &(t, color)) in stops.iter().enumerate() {
+        if let Some(&(from_t, from)) = i.checked_sub(1).and_then(|p| stops.get(p)) {
+            let span = t - from_t;
+            if from.a != color.a && span > 0.0 {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                #[allow(clippy::cast_precision_loss)] // size <= GRADIENT_LUT_MAX
+                let steps = ((span * size as f32).ceil() as usize).clamp(1, size);
+                for k in 1..steps {
+                    #[allow(clippy::cast_precision_loss)] // k < steps <= GRADIENT_LUT_MAX
+                    let f = k as f32 / steps as f32;
+                    out.push((
+                        span.mul_add(f, from_t),
+                        from.interpolate_premultiplied(color, f),
+                    ));
+                }
+            }
+        }
+        out.push((t, color));
+    }
+    out
 }
 
 /// Build a `GradientLut` from the stops of a radial gradient, which sit at a

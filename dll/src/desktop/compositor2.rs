@@ -1675,7 +1675,8 @@ pub fn translate_displaylist_to_wr(
                 );
 
                 // Convert gradient stops (a clamped gradient only samples the
-                // line itself, so its stops are cut to 0..=1 there).
+                // line itself, so its stops are cut to 0..=1 there, mixed in
+                // premultiplied space as WebRender mixes between them).
                 use azul_css::props::basic::color::ColorU as CssColorU;
                 let stops: Vec<(f32, CssColorU)> = resolved
                     .stops
@@ -1684,9 +1685,7 @@ pub fn translate_displaylist_to_wr(
                     .collect();
                 let stops = match gradient.extend_mode {
                     ExtendMode::Clamp => {
-                        color_stops_on_the_line(&stops, |from: CssColorU, to: CssColorU, t: f32| {
-                            from.interpolate(&to, t)
-                        })
+                        color_stops_on_the_line(&stops, CssColorU::interpolate_premultiplied)
                     }
                     ExtendMode::Repeat => stops,
                 };
