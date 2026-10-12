@@ -396,6 +396,29 @@ mod tests {
     }
 
     #[test]
+    fn a_wheel_turns_one_page_per_notch_of_travel_and_keeps_the_rest() {
+        let mut wheel = WheelPager::default();
+        assert_eq!(wheel.feed(WHEEL_TURN_PX * 0.5, 0), None, "half a notch turns nothing");
+        assert_eq!(wheel.feed(WHEEL_TURN_PX * 0.5, 10), Some(true), "the second half turns forward");
+        assert_eq!(wheel.feed(-WHEEL_TURN_PX, 400), Some(false), "back the other way");
+    }
+
+    #[test]
+    fn a_wheel_turns_no_further_page_while_the_last_one_slides_in() {
+        let mut wheel = WheelPager::default();
+        assert_eq!(wheel.feed(WHEEL_TURN_PX, 0), Some(true));
+        // A trackpad's momentum keeps sending travel while the pages slide.
+        for ms in [20, 60, 120, 200] {
+            assert_eq!(wheel.feed(WHEEL_TURN_PX * 3.0, ms), None, "at {ms} ms");
+        }
+        assert_eq!(
+            wheel.feed(WHEEL_TURN_PX, WHEEL_SETTLE_MS + 1),
+            Some(true),
+            "a notch after the slide turns the next page"
+        );
+    }
+
+    #[test]
     fn the_books_progress_weighs_the_chapters_and_comes_back_as_a_position() {
         let weights = [100, 300, 600];
         assert!(close(
