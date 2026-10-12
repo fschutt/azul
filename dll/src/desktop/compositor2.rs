@@ -2719,3 +2719,162 @@ fn push_text(
         None, // glyph_options
     );
 }
+
+#[cfg(test)]
+mod stacking_context_tests {
+    //! What WebRender is handed for a box painted inside a stacking context.
+    //! The display list gives every item in window coordinates, and
+    //! WebRender moves everything inside a stacking context by the context's
+    //! origin, so the rects it ends up with are where the box is drawn.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{DpiScaleFactor, RendererResources, TransformKey},
+        transform::ComputedTransform3D,
+    };
+    use azul_css::props::basic::color::ColorU;
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem};
+    use webrender::api::{
+        units::{DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize},
+        DisplayItem, PipelineId,
+    };
+
+    use super::translate_displaylist_to_wr;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    fn device(r: LogicalRect, dpi: f32) -> LayoutRect {
+        LayoutRect::from_origin_and_size(
+            LayoutPoint::new(r.origin.x * dpi, r.origin.y * dpi),
+            LayoutSize::new(r.size.width * dpi, r.size.height * dpi),
+        )
+    }
+
+    fn fill(r: LogicalRect) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: r.into(),
+            color: ColorU::new(30, 60, 170, 255),
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// The rects and the clip rects WebRender is handed for `items`, each in
+    /// list order.
+    fn translated(items: Vec<DisplayListItem>, dpi: f32) -> (Vec<LayoutRect>, Vec<LayoutRect>) {
+        let list = DisplayList {
+            items,
+            ..DisplayList::default()
+        };
+        let (_, built, _) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(400, 100),
+            &RendererResources::default(),
+            DpiScaleFactor::new(dpi),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("a balanced list translates");
+        let (mut rects, mut clips) = (Vec::new(), Vec::new());
+        let mut iter = built.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::Rectangle(r) => rects.push(r.bounds),
+                DisplayItem::RectClip(c) => clips.push(c.clip_rect),
+                _ => {}
+            }
+        }
+        (rects, clips)
+    }
+
+    /// A selected tab is `position: relative; z-index: 1`, a stacking
+    /// context of its own. Its face and its clip are drawn where the layout
+    /// put them, as the CPU renderer and Chrome draw them, and not a second
+    /// time the tab's offset further right and down.
+    #[test]
+    fn a_box_inside_a_stacking_context_is_drawn_where_the_layout_put_it() {
+        let tab = rect(60.0, 4.0, 80.0, 28.0);
+        let label = rect(78.0, 8.0, 44.0, 20.0);
+        for dpi in [1.0, 2.0] {
+            let (rects, clips) = translated(
+                vec![
+                    DisplayListItem::PushStackingContext {
+                        z_index: 1,
+                        bounds: tab.into(),
+                    },
+                    fill(tab),
+                    DisplayListItem::PushClip {
+                        bounds: label.into(),
+                        border_radius: BorderRadius::default(),
+                    },
+                    fill(label),
+                    DisplayListItem::PopClip,
+                    DisplayListItem::PopStackingContext,
+                ],
+                dpi,
+            );
+            assert_eq!(
+                rects,
+                vec![device(tab, dpi), device(label, dpi)],
+                "dpi {dpi}"
+            );
+            assert_eq!(clips, vec![device(label, dpi)], "dpi {dpi}");
+        }
+    }
+
+    /// Stacking contexts nest (an icon with a tint filter inside the
+    /// selected tab): the inner one moves nothing either.
+    #[test]
+    fn a_box_inside_nested_stacking_contexts_is_drawn_where_the_layout_put_it() {
+        let tab = rect(60.0, 4.0, 80.0, 28.0);
+        let icon = rect(66.0, 10.0, 16.0, 16.0);
+        let (rects, _) = translated(
+            vec![
+                DisplayListItem::PushStackingContext {
+                    z_index: 1,
+                    bounds: tab.into(),
+                },
+                DisplayListItem::PushStackingContext {
+                    z_index: 0,
+                    bounds: icon.into(),
+                },
+                fill(icon),
+                DisplayListItem::PopStackingContext,
+                DisplayListItem::PopStackingContext,
+            ],
+            1.0,
+        );
+        assert_eq!(rects, vec![device(icon, 1.0)]);
+    }
+
+    /// A transformed box gets a reference frame at the window origin (the
+    /// transform does the moving) and its stacking context inside it: the box
+    /// under an identity transform is drawn where the layout put it.
+    #[test]
+    fn a_box_inside_a_transformed_stacking_context_is_drawn_where_the_layout_put_it() {
+        let card = rect(120.0, 30.0, 100.0, 40.0);
+        let (rects, _) = translated(
+            vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 1 },
+                    initial_transform: ComputedTransform3D::IDENTITY,
+                    bounds: card.into(),
+                },
+                DisplayListItem::PushStackingContext {
+                    z_index: 0,
+                    bounds: card.into(),
+                },
+                fill(card),
+                DisplayListItem::PopStackingContext,
+                DisplayListItem::PopReferenceFrame,
+            ],
+            1.0,
+        );
+        assert_eq!(rects, vec![device(card, 1.0)]);
+    }
+}
