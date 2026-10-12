@@ -45,8 +45,6 @@ use crate::{
     event, ids, timegrid, week, CalState, BODY, EDITOR_WINDOW_ID, ERROR, LABEL, PAGE, SECONDARY,
 };
 
-/// What the form's "Add AzMeet link" line says once it is ticked.
-
 // ==== Opening ====
 
 /// Ribbon / menu "New Appointment".
