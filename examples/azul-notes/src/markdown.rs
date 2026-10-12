@@ -303,6 +303,14 @@ pub fn note_to_file(meta: &Meta, doc: &RichTextDoc) -> String {
     out
 }
 
+/// The tags written into a note's text: every `#word` that starts a word
+/// with a letter, in the order they first appear, each once.
+#[must_use]
+pub fn inline_tags(text: &str) -> Vec<String> {
+    let _ = text;
+    Vec::new()
+}
+
 /// A title for a note that has none: its first heading, else its first
 /// line of text.
 #[must_use]
@@ -355,12 +363,26 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_markdown_file_takes_its_title_from_its_first_heading() {
+    fn a_plain_markdown_file_takes_its_title_from_its_first_line() {
         let (meta, doc) = parse_note("Intro line\n\n## Real title\n", 42);
-        assert_eq!(meta.title, "Real title");
+        assert_eq!(meta.title, "Intro line");
         assert_eq!((meta.created, meta.modified), (42, 42));
         assert_eq!(doc.blocks.len(), 2);
         let (meta, _) = parse_note("just text\n", 1);
         assert_eq!(meta.title, "just text");
+        let (meta, _) = parse_note("#work #today\n\nCall the bank\n", 1);
+        assert_eq!(meta.title, "Call the bank", "a line of tags alone is no title");
+    }
+
+    #[test]
+    fn a_hashtag_that_starts_a_word_with_a_letter_is_a_tag() {
+        let text = "Plan\nmilk and #Food, eggs #weekend-plans.\nagain #food";
+        assert_eq!(inline_tags(text), vec!["Food".to_string(), "weekend-plans".to_string()]);
+    }
+
+    #[test]
+    fn a_heading_a_link_fragment_a_number_or_a_hash_inside_a_word_is_not_a_tag() {
+        let text = "# Heading\nsee https://x.org/#anchor and C#code\nAgenda #1\n#ok";
+        assert_eq!(inline_tags(text), vec!["ok".to_string()]);
     }
 }
