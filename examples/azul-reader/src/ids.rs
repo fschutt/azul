@@ -30,6 +30,9 @@ pub const PAGE: AzString = AzString::from_const_str("__azreader_page-");
 pub const PAGE_CLIP_CLASS: AzString = AzString::from_const_str("__azreader_clip");
 /// The reading column (the chapter laid out at the page's width).
 pub const COLUMN_CLASS: AzString = AzString::from_const_str("__azreader_column");
+/// The view's own node, named by its chapter and first page
+/// (`__azreader_spread-<chapter>-<page>`): a turn brings a new one, which slides in.
+pub const SPREAD_PREFIX: &str = "__azreader_spread";
 /// The "previous page" / "next page" zones at the reading area's sides.
 pub const PREV_ZONE: AzString = AzString::from_const_str("__azreader_prev");
 pub const NEXT_ZONE: AzString = AzString::from_const_str("__azreader_next");

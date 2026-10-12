@@ -15552,6 +15552,7 @@ impl LayoutWindow {
 
         use crate::solver3::display_list::{
             node_establishes_stacking_context, node_paints_as_positioned_box,
+            node_slides_on_the_animation_channel,
         };
 
         let own: BTreeMap<NodeId, FlipTransform> = self
@@ -15582,10 +15583,23 @@ impl LayoutWindow {
                 .copied()
                 .unwrap_or_default()
         };
+        // A box that slides is a stacking context while it slides, as the
+        // display list paints it (`node_slides_on_the_animation_channel`):
+        // the slides of this tick count before their keys are minted.
+        let gpu_cache = self.gpu_state_manager.get_cache(DomId::ROOT_ID);
+        let slides = |index: usize| {
+            node_slides_on_the_animation_channel(gpu_cache, tree, index)
+                || tree
+                    .get(LayoutNodeId::new(index))
+                    .and_then(|n| n.dom_node_id)
+                    .is_some_and(|id| own.contains_key(&id))
+        };
+        let is_context = |index: usize| {
+            node_establishes_stacking_context(styled_dom, tree, index) || slides(index)
+        };
         // Painted by the stacking-context walk, not by an in-flow parent's.
         let leaves_in_flow_frames = |index: usize| {
-            node_establishes_stacking_context(styled_dom, tree, index)
-                || node_paints_as_positioned_box(styled_dom, tree, index)
+            is_context(index) || node_paints_as_positioned_box(styled_dom, tree, index)
         };
 
         own.iter()
@@ -15602,7 +15616,7 @@ impl LayoutWindow {
                     else {
                         break;
                     };
-                    let is_context = node_establishes_stacking_context(styled_dom, tree, parent);
+                    let is_context = is_context(parent);
                     let slide = tree
                         .get(LayoutNodeId::new(parent))
                         .and_then(|n| n.dom_node_id)

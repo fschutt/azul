@@ -218,6 +218,50 @@ pub fn turn(
     }
 }
 
+/// How far a wheel or a trackpad travels for one page turn (logical px, in the direction a
+/// scroll box would move).
+pub const WHEEL_TURN_PX: f32 = 60.0;
+
+/// How long after a page turn the wheel turns nothing more (ms): the pages of the turn slide in
+/// for about this long, and a trackpad's momentum keeps sending travel meanwhile.
+pub const WHEEL_SETTLE_MS: u64 = 320;
+
+/// Turns wheel and trackpad travel into page turns ([`Self::feed`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct WheelPager {
+    /// The travel not turned into a page yet (logical px, positive toward the book's end).
+    travel: f32,
+    /// When the last page turned (ms on the caller's clock); `None` before the first turn.
+    last_turn_ms: Option<u64>,
+}
+
+impl WheelPager {
+    /// Feeds `travel` (logical px, positive toward the book's end) at `now_ms`: `Some(true)`
+    /// turns a page forward, `Some(false)` back, `None` turns nothing. One turn per
+    /// [`WHEEL_TURN_PX`]; travel during [`WHEEL_SETTLE_MS`] after a turn is dropped, and a
+    /// change of direction starts the count again.
+    pub fn feed(&mut self, travel: f32, now_ms: u64) -> Option<bool> {
+        if self
+            .last_turn_ms
+            .is_some_and(|last| now_ms.saturating_sub(last) <= WHEEL_SETTLE_MS)
+        {
+            self.travel = 0.0;
+            return None;
+        }
+        if self.travel != 0.0 && travel.signum() != self.travel.signum() {
+            self.travel = 0.0;
+        }
+        self.travel += travel;
+        if self.travel.abs() < WHEEL_TURN_PX {
+            return None;
+        }
+        let forward = self.travel > 0.0;
+        self.travel = 0.0;
+        self.last_turn_ms = Some(now_ms);
+        Some(forward)
+    }
+}
+
 /// The book's progress (`0..=1`) at `position`, each chapter weighing `weights[chapter]`.
 #[must_use]
 pub fn book_progress(weights: &[u64], position: Position) -> f32 {
@@ -393,6 +437,29 @@ mod tests {
             "a page past the end turns back from the last view"
         );
         assert_eq!(turn(3, 2, 5, 0, 1, false), Turn::Page(0));
+    }
+
+    #[test]
+    fn a_wheel_turns_one_page_per_notch_of_travel_and_keeps_the_rest() {
+        let mut wheel = WheelPager::default();
+        assert_eq!(wheel.feed(WHEEL_TURN_PX * 0.5, 0), None, "half a notch turns nothing");
+        assert_eq!(wheel.feed(WHEEL_TURN_PX * 0.5, 10), Some(true), "the second half turns forward");
+        assert_eq!(wheel.feed(-WHEEL_TURN_PX, 400), Some(false), "back the other way");
+    }
+
+    #[test]
+    fn a_wheel_turns_no_further_page_while_the_last_one_slides_in() {
+        let mut wheel = WheelPager::default();
+        assert_eq!(wheel.feed(WHEEL_TURN_PX, 0), Some(true));
+        // A trackpad's momentum keeps sending travel while the pages slide.
+        for ms in [20, 60, 120, 200] {
+            assert_eq!(wheel.feed(WHEEL_TURN_PX * 3.0, ms), None, "at {ms} ms");
+        }
+        assert_eq!(
+            wheel.feed(WHEEL_TURN_PX, WHEEL_SETTLE_MS + 1),
+            Some(true),
+            "a notch after the slide turns the next page"
+        );
     }
 
     #[test]

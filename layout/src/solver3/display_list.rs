@@ -9876,6 +9876,10 @@ where
             self.ctx.styled_dom,
             self.positioned_tree.tree,
             node_index,
+        ) || node_slides_on_the_animation_channel(
+            self.gpu_value_cache,
+            self.positioned_tree.tree,
+            node_index,
         )
     }
 
@@ -9885,6 +9889,10 @@ where
     fn paints_as_positioned_box(&self, node_index: usize) -> bool {
         node_paints_as_positioned_box(
             self.ctx.styled_dom,
+            self.positioned_tree.tree,
+            node_index,
+        ) && !node_slides_on_the_animation_channel(
+            self.gpu_value_cache,
             self.positioned_tree.tree,
             node_index,
         )
@@ -9899,6 +9907,33 @@ where
             .and_then(|node| node.dom_node_id)
             .is_some_and(|dom_id| self.get_styled_node_state(dom_id).dragging)
     }
+}
+
+/// Is the box at `node_index` moved by the animation channel right now - a
+/// rebuild's slide (`animation: move`), an entrance or exit track?
+///
+/// Such a box is painted through a reference frame, exactly like a box with a
+/// CSS `transform`, and a transformed box is a stacking context and the
+/// containing block of its positioned descendants (CSS Transforms 1 §2). So
+/// it is one while it moves: its `position: absolute` children are painted
+/// inside its frame and move with it, instead of jumping to their new place
+/// while the box slides. The key population this reads is part of the
+/// display list's cache key (`GpuValueCache::dl_emission_fingerprint`), so a
+/// slide that starts or ends rebuilds the list.
+pub(crate) fn node_slides_on_the_animation_channel(
+    gpu_value_cache: Option<&GpuValueCache>,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> bool {
+    let Some(cache) = gpu_value_cache else {
+        return false;
+    };
+    tree.get(LayoutNodeId::new(node_index))
+        .and_then(|node| node.dom_node_id)
+        .is_some_and(|dom_id| {
+            cache.anim_transform_keys.contains_key(&dom_id)
+                && cache.anim_current_transform_values.contains_key(&dom_id)
+        })
 }
 
 /// Is the box at `node_index` a positioned box with `z-index: auto` that is

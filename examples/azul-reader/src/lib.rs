@@ -7,9 +7,9 @@
 //! lines, widows / orphans - [`paginate`]); a page on screen is a clip window over that column
 //! ([`position::PageMap`]). Plain text and HTML files are books too ([`plainbook`]).
 //!
-//! The window is the S1 `DocumentShell` (the app-drawn `Titlebar` under
-//! `WindowDecorations::NoTitle`, the ribbon, the navigation pane, the document, the status
-//! bar) inside a `ShellThemeScope`; it follows the app theme (flat / flora) and the OS mode;
+//! The window is the S1 `DocumentShell` (the ribbon, whose tab strip is the title bar the
+//! window drags by, the navigation pane, the document, the status bar; the settings page keeps
+//! the app-drawn `Titlebar`) inside a `ShellThemeScope`; it follows the app theme (flat / flora) and the OS mode;
 //! the PAPER (auto / white / sepia / night) is the reader's own. The library is the shelves
 //! and a covers grid; the reader the pages, the table of contents and the bookmarks.
 //!
@@ -31,6 +31,7 @@ mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod library;
+pub mod pagecache;
 pub mod paginate;
 pub mod plainbook;
 pub mod position;
@@ -236,6 +237,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         if st.fonts.is_none() {
             st.fonts = Some(FontCacheSnapshot::from_layout_info(&info));
         }
+        st.dpi = info.get_dpi_factor();
     }
     let Some(guard) = data.downcast_ref::<AppState>() else {
         return Dom::create_body();
@@ -254,10 +256,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         ])
     } else {
         match st.screen {
+            // No title row while the ribbon shows: its tabs are the title bar.
             Screen::Library => DocumentShell::create(ui_library::content(&app, st))
                 .with_navigation(ui_library::navigation(&app, st))
                 .office_shell()
-                .with_title_row(kit::title_row(&title))
                 .with_ribbon(ribbon::ribbon(&app, st))
                 .with_status_bar(ui_library::status_bar(st))
                 .dom(),
@@ -268,7 +270,6 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 }
                 shell
                     .office_shell()
-                    .with_title_row(kit::title_row(&title))
                     .with_ribbon(ribbon::ribbon(&app, st))
                     .with_status_bar(ui_reader::status_bar(st))
                     .dom()
@@ -337,6 +338,9 @@ extern "C" fn area_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     // `ensure_layout` asks only for what is missing or stale (a chapter waiting for the fonts,
     // one laid out for other settings or another page size, the first one).
     commands::ensure_layout(st, &mut info.callback_info, &app);
+    // The pages around the view, drawn ahead (the chapter's pictures are in the image cache by
+    // now: they were added a callback ago).
+    commands::ensure_pages_drawn(st, &mut info.callback_info, &app);
     TimerCallbackReturn::continue_unchanged()
 }
 

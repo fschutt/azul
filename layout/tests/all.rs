@@ -1055,3 +1055,11 @@ mod a_dragged_thumb_scrolls_a_virtual_views_content;
 mod a_virtual_views_compositor_frame_scrolls_with_its_offset;
 #[path = "a_max_width_capped_flex_column_holds_its_wrapped_content.rs"]
 mod a_max_width_capped_flex_column_holds_its_wrapped_content;
+#[path = "a_sliding_box_carries_its_positioned_children.rs"]
+mod a_sliding_box_carries_its_positioned_children;
+#[path = "an_em_size_on_a_flex_item_follows_its_own_font_size.rs"]
+mod an_em_size_on_a_flex_item_follows_its_own_font_size;
+#[path = "an_icons_own_stylesheet_sizes_its_picture.rs"]
+mod an_icons_own_stylesheet_sizes_its_picture;
+#[path = "a_reader_draws_its_pages_ahead_as_pictures.rs"]
+mod a_reader_draws_its_pages_ahead_as_pictures;

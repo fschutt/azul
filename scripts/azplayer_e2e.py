@@ -299,7 +299,16 @@ def check_strip_and_sections(app, out, have_media, folders):
     app.screenshot(os.path.join(out, "1-start-strip.png"))
 
     # The strip opens on music; the arrows move between the categories and along the items.
+    # The items sit in ONE band on the middle row whichever category is focused, so Up and Down
+    # move the same way, mirrored: the names glide, the band stays and its tiles change.
+    if not app.has_id("__azplayer_items"):
+        raise Failure("the start strip has no items band (#__azplayer_items)")
+    band_before = app.rect("__azplayer_items")
     move_strip(app, "up", "pictures + videos / picture library")
+    app.settle()
+    band_after = app.rect("__azplayer_items") if app.has_id("__azplayer_items") else {}
+    if not band_after or abs(band_after["y"] - band_before["y"]) > 0.5:
+        raise Failure("the items band left the middle row on Up: %r -> %r" % (band_before, band_after))
     move_strip(app, "down", "music / music library")
     move_strip(app, "right", "music / play all")
     move_strip(app, "left", "music / music library")

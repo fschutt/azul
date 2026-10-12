@@ -628,6 +628,14 @@ fn pixel_to_lp(pv: PixelValue) -> LengthPercentage {
         .unwrap_or(LengthPercentage::ZERO)
 }
 
+/// [`pixel_to_lp`] with the node's font sizes for `em` / `rem`.
+fn pixel_to_lp_ctx(pv: PixelValue, em_size: f32, rem_size: f32) -> LengthPercentage {
+    pixel_value_to_pixels_ctx(&pv, em_size, rem_size)
+        .map(LengthPercentage::length)
+        .or_else(|| pv.to_percent().map(|p| LengthPercentage::percent(p.get())))
+        .unwrap_or(LengthPercentage::ZERO)
+}
+
 /// Slow path for flex-basis: full property cache lookup + decode.
 /// Extracted to avoid duplicating the logic in the compact fast-path fallback.
 #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
@@ -868,11 +876,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.min_size = Size {
             width: match min_width_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => Dimension::auto(),
-                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+                MultiValue::Exact(v) => pixel_to_lp_ctx(v.inner, em_size, rem_size).into(),
             },
             height: match min_height_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => Dimension::auto(),
-                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+                MultiValue::Exact(v) => pixel_to_lp_ctx(v.inner, em_size, rem_size).into(),
             },
         };
 
@@ -885,11 +893,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.max_size = Size {
             width: match max_width_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => Dimension::auto(),
-                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+                MultiValue::Exact(v) => pixel_to_lp_ctx(v.inner, em_size, rem_size).into(),
             },
             height: match max_height_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => Dimension::auto(),
-                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+                MultiValue::Exact(v) => pixel_to_lp_ctx(v.inner, em_size, rem_size).into(),
             },
         };
 
@@ -3122,7 +3130,7 @@ fn from_layout_width(
 ) -> Dimension {
     match val {
         LayoutWidth::Auto => Dimension::auto(),
-        LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(&px).map_or_else(
+        LayoutWidth::Px(px) => pixel_value_to_pixels_ctx(&px, em_size, rem_size).map_or_else(
             || {
                 px.to_percent()
                     .map_or_else(Dimension::auto, |p| Dimension::percent(p.get()))
@@ -3150,7 +3158,7 @@ fn from_layout_height(
 ) -> Dimension {
     match val {
         LayoutHeight::Auto => Dimension::auto(),
-        LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(&px).map_or_else(
+        LayoutHeight::Px(px) => pixel_value_to_pixels_ctx(&px, em_size, rem_size).map_or_else(
             || {
                 px.to_percent()
                     .map_or_else(Dimension::auto, |p| Dimension::percent(p.get()))

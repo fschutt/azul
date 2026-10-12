@@ -7,11 +7,12 @@
 //! to the next page's start) with `overflow: hidden`, and in it the column moved up by the
 //! page's start (`position: relative; top: -start`). The engine's slicer cuts its PDF pages
 //! the same way - content never moves, it is only clipped - so a page shows exactly the lines
-//! the pagination put on it.
+//! the pagination put on it. A page drawn ahead ([`crate::pagecache`]) is the same clip window
+//! over its picture instead of the column; the column is laid out only for a page not drawn yet.
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, RefAny},
-    css::{EventFilter, HoverEventFilter},
+    css::{Css, EventFilter, HoverEventFilter},
     dom::Dom,
     option::OptionString,
     str::String as AzString,
@@ -22,8 +23,10 @@ use azul_appkit::l10n::{t, t_args, Arg};
 
 use crate::{
     app::{command, AppState, Command, Pane},
-    commands::on_command,
-    ids, paginate,
+    commands::{on_command, on_wheel},
+    ids,
+    pagecache::PageRun,
+    paginate,
     position::{self, PageMap},
     settings::{PageGeometry, PaperColors},
 };
@@ -37,6 +40,17 @@ fn text(content: &str, css: &str) -> Dom {
         .with_css(css.to_string())
         .with_child(Dom::create_span_with_text(content))
 }
+
+/// The views' slides: a new view comes in from below or above with both its pages, the one it
+/// replaces leaves the other way (an exit is resolved in the old tree's sheet, an entrance in
+/// the new one's: the reading area carries them on every build).
+const KEYFRAMES: &str = "\
+@keyframes azr-in-below { from { transform: translateY(100%); } to { transform: translateY(0%); } }
+@keyframes azr-in-above { from { transform: translateY(-100%); } to { transform: translateY(0%); } }
+@keyframes azr-out-above { from { transform: translateY(0%); } to { transform: translateY(-100%); } }
+@keyframes azr-out-below { from { transform: translateY(0%); } to { transform: translateY(100%); } }
+@keyframes azr-fade-out { from { opacity: 1; } to { opacity: 0; } }
+";
 
 const PANE_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
                         overflow-y: auto; padding: 6px 0px; background: system:window-background;";
@@ -163,16 +177,48 @@ fn page_frame(
              flex-shrink: 0;"
         ))
         .with_child(shift);
+    paper(clip, geometry, colors, index)
+}
+
+/// One page drawn ahead ([`crate::pagecache`]): the paper, and on it a clip window over the
+/// picture of its run, moved up by the page's place in the run (`k` pages down).
+fn page_picture(
+    run: &PageRun,
+    k: usize,
+    geometry: &PageGeometry,
+    colors: &PaperColors,
+    index: usize,
+) -> Dom {
+    let width = geometry.text_width;
+    let height = geometry.text_height;
+    #[allow(clippy::cast_precision_loss)]
+    let (top, total) = (k as f32 * height, run.count as f32 * height);
+    let picture = Dom::create_image(run.image.clone()).with_css(format!(
+        "display: block; position: relative; top: -{top}px; width: {width}px; height: {total}px; \
+         flex-shrink: 0;"
+    ));
+    let clip = Dom::create_div()
+        .with_class(ids::PAGE_CLIP_CLASS)
+        .with_css(format!(
+            "display: block; position: relative; overflow: hidden; width: {width}px; height: \
+             {height}px; flex-shrink: 0;"
+        ))
+        .with_child(picture);
+    paper(clip, geometry, colors, index)
+}
+
+/// A page's paper (its margins and colours) around `content`.
+fn paper(content: Dom, geometry: &PageGeometry, colors: &PaperColors, index: usize) -> Dom {
     Dom::create_div()
         .with_id(ids::indexed(&ids::PAGE, index))
         .with_class(ids::PAGE_CLASS)
         .with_css(format!(
             "display: flex; flex-direction: column; flex-shrink: 0; box-sizing: content-box; \
-             width: {width}px; height: {}px; padding: {}px; margin: 0px 12px; background: {}; \
+             width: {}px; height: {}px; padding: {}px; margin: 0px 12px; background: {}; \
              color: {}; overflow: hidden; border: 1px solid system:separator;",
-            geometry.text_height, geometry.margin, colors.background, colors.text
+            geometry.text_width, geometry.text_height, geometry.margin, colors.background, colors.text
         ))
-        .with_child(clip)
+        .with_child(content)
 }
 
 /// An empty paper (the right page of a spread after the chapter's last page).
@@ -218,11 +264,36 @@ fn spread(
     geometry: &PageGeometry,
     colors: &PaperColors,
 ) -> Dom {
-    let mut row =
-        Dom::create_div().with_css("display: flex; flex-direction: row; align-items: flex-start;");
+    // The view's own node (its id names its first page): a turn brings a new one, which slides
+    // in from below (forward) or from above (back) with both its pages, while the one it
+    // replaces leaves the same way - the way of the turn before it, which is the way the reader
+    // keeps going.
+    let chapter = st.chapter.as_ref().map_or(0, |c| c.chapter);
+    let motion = match st.turned {
+        Some(true) => {
+            "-azul-animation-in: azr-in-below 300ms ease-out; -azul-animation-out: azr-out-above \
+             300ms ease-out;"
+        }
+        Some(false) => {
+            "-azul-animation-in: azr-in-above 300ms ease-out; -azul-animation-out: azr-out-below \
+             300ms ease-out;"
+        }
+        None => "-azul-animation-out: azr-fade-out 200ms ease-in;",
+    };
+    let mut row = Dom::create_div()
+        .with_id(AzString::from(format!("{}-{chapter}-{}", ids::SPREAD_PREFIX, st.page)))
+        .with_css(format!(
+            "display: flex; flex-direction: row; align-items: flex-start; {motion}"
+        ));
+    let drawn = st
+        .pictures_key()
+        .is_some_and(|key| key == st.pictures.key);
     for i in 0..geometry.per_view {
         let page = st.page + i;
-        if page < pages.page_count() {
+        let picture = st.pictures.find(page).filter(|_| drawn);
+        if let Some((run, k)) = picture {
+            row.add_child(page_picture(run, k, geometry, colors, i));
+        } else if page < pages.page_count() {
             let column = paginate::column_dom(xml, &st.settings, geometry.text_width, st.flora)
                 .with_class(ids::COLUMN_CLASS);
             row.add_child(page_frame(column, pages.span(page), geometry, colors, i));
@@ -241,6 +312,7 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
     let mut area = Dom::create_div()
         .with_id(ids::READING_AREA)
         .with_marker(OptionString::Some(st.area_marker.clone()))
+        .with_component_css(Css::from_string(KEYFRAMES))
         .with_css(
             "display: flex; flex-direction: column; align-items: center; justify-content: center; \
              flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; \
@@ -311,6 +383,11 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
             "height: 20px; padding-top: 4px; font-size: 12px; color: system:secondary-text;",
         )
         .with_id(ids::FOLIO),
+    );
+    area.add_callback(
+        EventFilter::Hover(HoverEventFilter::Scroll),
+        app.clone(),
+        on_wheel,
     );
     area.add_callback(
         EventFilter::Hover(HoverEventFilter::SwipeLeft),
