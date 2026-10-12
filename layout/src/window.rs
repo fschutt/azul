@@ -24593,6 +24593,40 @@ impl LayoutWindow {
         affected
     }
 
+    /// Whether `node` (of `dom_id`) is the topmost hit or a box it sits in:
+    /// where a press may start a selection. `None` (no hit test) allows
+    /// every node. A node of another DOM never holds it: a `VirtualView`'s
+    /// page laid over its host covers the host's text.
+    fn holds_the_topmost_hit(
+        layout_result: &DomLayoutResult,
+        dom_id: DomId,
+        node: NodeId,
+        topmost: Option<DomNodeId>,
+    ) -> bool {
+        let Some(top) = topmost else {
+            return true;
+        };
+        if top.dom != dom_id {
+            return false;
+        }
+        let Some(mut current) = top.node.into_crate_internal() else {
+            return true;
+        };
+        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        loop {
+            if current == node {
+                return true;
+            }
+            match hierarchy
+                .get(current)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            {
+                Some(parent) => current = parent,
+                None => return false,
+            }
+        }
+    }
+
     /// [`Self::process_mouse_click_for_selection`] without the reveal
     /// request.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
@@ -24613,9 +24647,16 @@ impl LayoutWindow {
         let mut found_selection: Option<(DomId, TextBlock, SelectionRange, ScrolledContentPoint)> =
             None;
 
+        // The box painted on top under the pointer. A press starts a selection
+        // only in it or in a box it sits in, as a browser's does: text that
+        // an overlay covers (AzReview's ink over a page of code) is not
+        // selected, and the window-position scan below does not run either.
+        let mut topmost: Option<DomNodeId> = None;
+
         // Try to get hit test from HoverManager first (fast path, uses WebRender's
         // point_relative_to_item)
         if let Some(hit_test) = self.hover_manager.get_current(&InputPointId::Mouse) {
+            topmost = hit_test.topmost_node();
             // Iterate through hit nodes from the HoverManager
             for (dom_id, hit) in &hit_test.hovered_nodes {
                 let Some(layout_result) = self.layout_results.get(dom_id) else {
@@ -24655,6 +24696,9 @@ impl LayoutWindow {
                 });
 
                 for (node_id, hit_item) in sorted_hits {
+                    if !Self::holds_the_topmost_hit(layout_result, *dom_id, *node_id, topmost) {
+                        continue;
+                    }
                     // Check if text is selectable
                     if !Self::is_text_selectable(&layout_result.styled_dom, *node_id) {
                         continue;
@@ -24754,7 +24798,7 @@ impl LayoutWindow {
 
         // Fallback: If HoverManager has no hit test (e.g., debug server),
         // search through IFC roots using global position
-        if found_selection.is_none() {
+        if found_selection.is_none() && topmost.is_none() {
             for (dom_id, layout_result) in &self.layout_results {
                 // Use the layout tree from layout_result, not layout_cache
                 // layout_cache.tree is for the root DOM only; layout_result.layout_tree
