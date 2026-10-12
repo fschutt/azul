@@ -10,8 +10,8 @@
 //!
 //! A JSON-merge file (`config.json` of the `.azlin` folder) is synced as its
 //! object WITHOUT the machine-local keys (azul-appkit's `MACHINE_LOCAL_KEYS`:
-//! `endpoints`), keys sorted, pretty-printed: its hash is that blob's, so a
-//! change of this computer's endpoints is no change for the sync, and a
+//! `endpoints`, `updates`), keys sorted, pretty-printed: its hash is that blob's, so a
+//! change of this computer's endpoints or update cohort is no change for the sync, and a
 //! downloaded copy gets this computer's own keys back. One that does not
 //! parse as an object is skipped (its keys cannot be held back).
 

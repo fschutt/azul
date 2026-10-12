@@ -118,6 +118,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "AzInstallManager"
+version = "0.1.0"
+dependencies = [
+ "azul-appkit",
+ "azul-dll",
+ "azul-storage",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "AzKeys"
 version = "0.1.0"
 dependencies = [

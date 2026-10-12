@@ -124,6 +124,9 @@ pub struct Kit {
     /// the look changes ([`crate::azlin_config`]); `None` = none
     /// (`AZLIN_CONFIG=off`, no home directory).
     pub config_path: Option<PathBuf>,
+    /// The update kit, from `update::app::start` on (`None`: the app has none): the periodic
+    /// check [`on_window_created`] arms and the banner's offer.
+    pub updates: Option<crate::update::app::AppUpdates>,
 }
 
 /// What an app does after Cancel put its settings back: re-read its own copies of its values
@@ -286,6 +289,7 @@ pub fn create_kit(
         kept_on_cancel: Vec::new(),
         pinned_theme: None,
         config_path,
+        updates: None,
     })
 }
 
@@ -392,6 +396,9 @@ pub fn on_window_created(kit: &RefAny, info: &mut CallbackInfo) {
         let timer = Timer::create(RefAny::new(ShotConfig { path }), shot_tick, info.get_system_time_fn())
             .with_delay(Duration::System(SystemTimeDiff::from_millis(delay_ms)));
         info.add_timer(TimerId::unique(), timer);
+    }
+    if kit.downcast_ref::<Kit>().is_some_and(|k| k.updates.is_some()) {
+        crate::update::app::arm(&kit, info);
     }
 }
 

@@ -229,3 +229,11 @@ kit-task-sort-created = Erstellt
 kit-repeat-weekdays = Werktags
 kit-repeat-month-day = { $day }.
 kit-repeat-after-completion = { $rule } nach Erledigung
+
+## Der Update-Hinweis (update::app)
+kit-update-banner = Eine neue Version von { $app } ist verfügbar ({ $version }). Jetzt aktualisieren?
+kit-update-now = Jetzt aktualisieren
+kit-update-later = Später
+kit-update-skip = Diese Version überspringen
+kit-update-failed = Das Update konnte nicht gestartet werden: { $reason }
+kit-update-no-manager = AzInstallManager wurde nicht gefunden. Schließen Sie die App und öffnen Sie AzInstallManager, um das Update abzuschließen.

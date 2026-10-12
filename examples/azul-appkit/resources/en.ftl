@@ -238,3 +238,11 @@ kit-repeat-month-day = the { $day }{ $day ->
    *[other] th
  }
 kit-repeat-after-completion = { $rule } after completion
+
+## The update banner (update::app)
+kit-update-banner = A new version of { $app } is available ({ $version }). Update now?
+kit-update-now = Update now
+kit-update-later = Later
+kit-update-skip = Skip this version
+kit-update-failed = The update could not be started: { $reason }
+kit-update-no-manager = AzInstallManager was not found. Close the app and open AzInstallManager to finish the update.

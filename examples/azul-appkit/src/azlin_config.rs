@@ -30,6 +30,13 @@
 //!   as "profile ..." in `azcloud config`. The section never leaves this
 //!   computer ([`MACHINE_LOCAL_KEYS`]): the sync of the `.azlin` folder strips
 //!   it.
+//! - `updates`: how the Azlin apps stay current ([`UpdatesSection`]), in the
+//!   shape of azul's machine-wide `updates` section (`autoupdate`,
+//!   `maintenance_window`, `overrides.<app>`) plus what only the Azlin apps
+//!   share: the `channel` (stable or beta), the machine's rollout `cohort`,
+//!   the `install_dir` AzInstallManager puts the apps in, the `manifest_url`
+//!   and the `root_public_key` of the manifests. Machine-local like the
+//!   endpoints: the cohort and the install folder belong to this computer.
 //! - Any other key is kept as it was: the file is the place for the next
 //!   shared preference, and an older app must not drop a newer one's key
 //!   (inside `endpoints` too).
@@ -90,6 +97,8 @@ pub struct AzlinConfig {
     pub mode: Option<ModePref>,
     /// `endpoints`; empty = no opinion (every endpoint from the profile).
     pub endpoints: EndpointsSection,
+    /// `updates`; empty = every app updates itself on the stable channel.
+    pub updates: UpdatesSection,
     /// Every other key, as it was read.
     rest: Map<String, Value>,
 }
@@ -145,12 +154,22 @@ impl AzlinConfig {
             }
             None => EndpointsSection::default(),
         };
+        let updates = match rest.remove(UPDATES_KEY) {
+            Some(Value::Object(map)) => UpdatesSection::parse(map, &mut problems),
+            Some(other) => {
+                problems.push(format!("{UPDATES_KEY} is not an object: {other}"));
+                rest.insert(UPDATES_KEY.to_string(), other);
+                UpdatesSection::default()
+            }
+            None => UpdatesSection::default(),
+        };
         let problem = (!problems.is_empty()).then(|| problems.join("; "));
         (
             AzlinConfig {
                 theme,
                 mode,
                 endpoints,
+                updates,
                 rest,
             },
             problem,
@@ -170,6 +189,9 @@ impl AzlinConfig {
         }
         if let Some(endpoints) = self.endpoints.to_value() {
             map.insert(ENDPOINTS_KEY.to_string(), endpoints);
+        }
+        if let Some(updates) = self.updates.to_value() {
+            map.insert(UPDATES_KEY.to_string(), updates);
         }
         let mut text =
             serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string());
@@ -223,6 +245,39 @@ impl AzlinConfig {
         }
         config.store(path)
     }
+
+    /// The config at `path` with `change` made to it, every other key kept;
+    /// written only when something changed. What the file says now is read
+    /// first, so the manager and an app writing in turn never undo each
+    /// other. A file that is no JSON object is left alone: writing would
+    /// lose what the user typed into it.
+    ///
+    /// # Errors
+    ///
+    /// The I/O error that stopped the write, or `InvalidData` for a file
+    /// that is not a config.
+    pub fn edit(
+        path: &Path,
+        change: impl FnOnce(&mut AzlinConfig),
+    ) -> std::io::Result<AzlinConfig> {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            let is_object = text.trim().is_empty()
+                || matches!(serde_json::from_str::<Value>(&text), Ok(Value::Object(_)));
+            if !is_object {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{} is not a config; left as it is", path.display()),
+                ));
+            }
+        }
+        let (mut config, _problem) = AzlinConfig::load(path);
+        let before = config.clone();
+        change(&mut config);
+        if config != before || !path.exists() {
+            config.store(path)?;
+        }
+        Ok(config)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +298,7 @@ pub const PROFILE_FLAG: &str = "--profile";
 /// would let whoever can write the bucket send this computer's credentials
 /// to a server of their choice, and a developer's local cluster must not
 /// follow the user to the laptop.
-pub const MACHINE_LOCAL_KEYS: &[&str] = &[ENDPOINTS_KEY];
+pub const MACHINE_LOCAL_KEYS: &[&str] = &[ENDPOINTS_KEY, UPDATES_KEY];
 /// The profile when nothing names one: the local mocked services. A real
 /// service is chosen on purpose (`"profile": "production"`), so a test that
 /// forgot its config never signs up against it.
@@ -590,6 +645,282 @@ impl EndpointsSection {
             }
         }
         Some(Value::Object(map))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Updates: how the Azlin apps stay current
+// ---------------------------------------------------------------------------
+
+/// The key of the updates section.
+pub const UPDATES_KEY: &str = "updates";
+
+/// The release channel an Azlin app follows. There is no nightly: an app is
+/// offered as stable releases or as betas, which testers take the moment
+/// they are published.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Channel {
+    #[default]
+    Stable,
+    Beta,
+}
+
+impl Channel {
+    /// Every channel, stable first (the choice a settings page offers).
+    pub const ALL: [Channel; 2] = [Channel::Stable, Channel::Beta];
+
+    /// The name the config and the manifests use.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Channel::Stable => "stable",
+            Channel::Beta => "beta",
+        }
+    }
+
+    /// The channel of `name` (any case); `None` for anything else, nightly
+    /// included.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Channel> {
+        Channel::ALL
+            .into_iter()
+            .find(|c| c.name().eq_ignore_ascii_case(name.trim()))
+    }
+}
+
+/// What one app does about updates: the shared choice with the app's own
+/// laid over it ([`UpdatesSection::policy_for`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdatePolicy {
+    /// Updates are fetched and verified in the background and the app shows
+    /// its banner; `false`: only when the user asks in the manager.
+    pub autoupdate: bool,
+    /// The channel the app's manifest is read for.
+    pub channel: Channel,
+    /// The version the user does not want (the banner's "Skip this version",
+    /// a revert away from it): neither offered nor staged; a newer one is.
+    pub skip_version: Option<String>,
+}
+
+/// The `updates` section. Every field is `None` when the file does not say.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UpdatesSection {
+    /// `autoupdate`, for every app without its own choice (`None`: on).
+    pub autoupdate: Option<bool>,
+    /// `channel`, for every app without its own (`None`: stable).
+    pub channel: Option<Channel>,
+    /// `cohort`: the machine's rollout bucket (0-99). AzInstallManager draws
+    /// it once and passes it into every check, so this computer is in the
+    /// same cohort for every app and every release.
+    pub cohort: Option<u8>,
+    /// `install_dir`: where AzInstallManager puts the apps (`None`:
+    /// `~/.azlin/apps`).
+    pub install_dir: Option<String>,
+    /// `manifest_url`: where an app's update manifest is, with `{app}` (the
+    /// app's key, `azwriter`) and `{channel}` filled in. `None`: no source
+    /// is configured and nothing can be checked.
+    pub manifest_url: Option<String>,
+    /// `root_public_key`: the minisign root key the manifests' signature
+    /// chain must end in; `None` or empty: the digest pin only.
+    pub root_public_key: Option<String>,
+    /// `maintenance_window`: when unattended update work may run, azul's
+    /// RRULE subset (`None`: any time).
+    pub maintenance_window: Option<String>,
+    /// `overrides`: each app's own choices by the app's key, as read (the
+    /// keys this module does not know stay with them).
+    overrides: Map<String, Value>,
+    /// Every other key of the section, as it was read.
+    rest: Map<String, Value>,
+}
+
+/// An override's key of an app's auto-update choice.
+const AUTOUPDATE_KEY: &str = "autoupdate";
+/// An override's key of an app's channel.
+const CHANNEL_KEY: &str = "channel";
+/// An override's key of the version an app skips.
+const SKIP_KEY: &str = "skip_version";
+
+impl UpdatesSection {
+    /// The section of the file's object `map`; what is wrong goes to
+    /// `problems` and stays in the section as it was.
+    fn parse(mut map: Map<String, Value>, problems: &mut Vec<String>) -> UpdatesSection {
+        let mut section = UpdatesSection::default();
+        match map.remove(AUTOUPDATE_KEY) {
+            Some(Value::Bool(on)) => section.autoupdate = Some(on),
+            Some(Value::Null) | None => {}
+            Some(other) => {
+                problems.push(format!("{UPDATES_KEY}.{AUTOUPDATE_KEY} is not true or false: {other}"));
+                section.rest.insert(AUTOUPDATE_KEY.to_string(), other);
+            }
+        }
+        match map.remove(CHANNEL_KEY) {
+            Some(Value::String(name)) => match Channel::parse(&name) {
+                Some(channel) => section.channel = Some(channel),
+                None => {
+                    problems.push(format!(
+                        "unknown channel {name:?} (known: stable, beta)"
+                    ));
+                    section.rest.insert(CHANNEL_KEY.to_string(), Value::String(name));
+                }
+            },
+            Some(Value::Null) | None => {}
+            Some(other) => {
+                problems.push(format!("{UPDATES_KEY}.{CHANNEL_KEY} is not a name: {other}"));
+                section.rest.insert(CHANNEL_KEY.to_string(), other);
+            }
+        }
+        match map.remove("cohort") {
+            Some(Value::Number(n)) if n.as_u64().is_some_and(|b| b < 100) => {
+                section.cohort = n.as_u64().and_then(|b| u8::try_from(b).ok());
+            }
+            Some(Value::Null) | None => {}
+            Some(other) => {
+                problems.push(format!("{UPDATES_KEY}.cohort is not 0 to 99: {other}"));
+                section.rest.insert("cohort".to_string(), other);
+            }
+        }
+        for (key, slot) in [
+            ("install_dir", &mut section.install_dir),
+            ("manifest_url", &mut section.manifest_url),
+            ("root_public_key", &mut section.root_public_key),
+            ("maintenance_window", &mut section.maintenance_window),
+        ] {
+            match map.remove(key) {
+                Some(Value::String(text)) => *slot = Some(text),
+                Some(Value::Null) | None => {}
+                Some(other) => {
+                    problems.push(format!("{UPDATES_KEY}.{key} is not text: {other}"));
+                    section.rest.insert(key.to_string(), other);
+                }
+            }
+        }
+        match map.remove("overrides") {
+            Some(Value::Object(overrides)) => section.overrides = overrides,
+            Some(Value::Null) | None => {}
+            Some(other) => {
+                problems.push(format!("{UPDATES_KEY}.overrides is not an object: {other}"));
+                section.rest.insert("overrides".to_string(), other);
+            }
+        }
+        section.rest.extend(map);
+        section
+    }
+
+    /// The section as the file's value; `None` when it says nothing.
+    fn to_value(&self) -> Option<Value> {
+        if self.is_empty() {
+            return None;
+        }
+        let mut map = self.rest.clone();
+        if let Some(on) = self.autoupdate {
+            map.insert(AUTOUPDATE_KEY.to_string(), Value::Bool(on));
+        }
+        if let Some(channel) = self.channel {
+            map.insert(CHANNEL_KEY.to_string(), Value::String(channel.name().to_string()));
+        }
+        if let Some(cohort) = self.cohort {
+            map.insert("cohort".to_string(), Value::from(cohort));
+        }
+        for (key, value) in [
+            ("install_dir", &self.install_dir),
+            ("manifest_url", &self.manifest_url),
+            ("root_public_key", &self.root_public_key),
+            ("maintenance_window", &self.maintenance_window),
+        ] {
+            if let Some(text) = value {
+                map.insert(key.to_string(), Value::String(text.clone()));
+            }
+        }
+        if !self.overrides.is_empty() {
+            map.insert("overrides".to_string(), Value::Object(self.overrides.clone()));
+        }
+        Some(Value::Object(map))
+    }
+
+    /// Whether the section says nothing.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == UpdatesSection::default()
+    }
+
+    /// What the app `app` (its key, `azwriter`) does: its own choices where
+    /// it has them, else the shared ones, else auto-update on the stable
+    /// channel.
+    #[must_use]
+    pub fn policy_for(&self, app: &str) -> UpdatePolicy {
+        let own = self.overrides.get(app).and_then(Value::as_object);
+        let own_value = |key: &str| own.and_then(|o| o.get(key));
+        UpdatePolicy {
+            autoupdate: own_value(AUTOUPDATE_KEY)
+                .and_then(Value::as_bool)
+                .or(self.autoupdate)
+                .unwrap_or(true),
+            channel: own_value(CHANNEL_KEY)
+                .and_then(Value::as_str)
+                .and_then(Channel::parse)
+                .or(self.channel)
+                .unwrap_or_default(),
+            skip_version: own_value(SKIP_KEY)
+                .and_then(Value::as_str)
+                .filter(|v| !v.trim().is_empty())
+                .map(str::to_string),
+        }
+    }
+
+    /// Sets auto-update for every app (`None`) or for the app `app`.
+    pub fn set_autoupdate(&mut self, app: Option<&str>, on: bool) {
+        match app {
+            None => self.autoupdate = Some(on),
+            Some(app) => {
+                self.own_mut(app)
+                    .insert(AUTOUPDATE_KEY.to_string(), Value::Bool(on));
+            }
+        }
+    }
+
+    /// Sets the channel of every app (`None`) or of the app `app`.
+    pub fn set_channel(&mut self, app: Option<&str>, channel: Channel) {
+        match app {
+            None => self.channel = Some(channel),
+            Some(app) => {
+                self.own_mut(app).insert(
+                    CHANNEL_KEY.to_string(),
+                    Value::String(channel.name().to_string()),
+                );
+            }
+        }
+    }
+
+    /// Sets the version the app `app` skips (`None`: none).
+    pub fn set_skip_version(&mut self, app: &str, version: Option<&str>) {
+        match version {
+            Some(v) => {
+                self.own_mut(app)
+                    .insert(SKIP_KEY.to_string(), Value::String(v.to_string()));
+            }
+            None => {
+                if let Some(Value::Object(own)) = self.overrides.get_mut(app) {
+                    own.remove(SKIP_KEY);
+                    if own.is_empty() {
+                        self.overrides.remove(app);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The app's own choices, made an object when they were none (or not one).
+    fn own_mut(&mut self, app: &str) -> &mut Map<String, Value> {
+        let entry = self
+            .overrides
+            .entry(app.to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !entry.is_object() {
+            *entry = Value::Object(Map::new());
+        }
+        entry
+            .as_object_mut()
+            .expect("an app's choices were made an object above")
     }
 }
 
@@ -1136,9 +1467,102 @@ mod tests {
     }
 
     #[test]
-    fn only_the_endpoints_never_leave_this_computer() {
-        assert_eq!(MACHINE_LOCAL_KEYS, &[ENDPOINTS_KEY]);
+    fn only_the_endpoints_and_the_updates_never_leave_this_computer() {
+        assert_eq!(MACHINE_LOCAL_KEYS, &[ENDPOINTS_KEY, UPDATES_KEY]);
         assert!(!MACHINE_LOCAL_KEYS.contains(&THEME_KEY));
         assert!(!MACHINE_LOCAL_KEYS.contains(&MODE_KEY));
+    }
+
+    #[test]
+    fn the_updates_section_reads_the_channel_the_cohort_and_each_apps_policy_and_keeps_the_rest() {
+        let json = r#"{"updates": {
+            "autoupdate": false, "channel": "beta", "cohort": 42,
+            "install_dir": "/home/ann/apps", "manifest_url": "https://example.org/{app}/{channel}.json",
+            "root_public_key": "RWQroot", "maintenance_window": "FREQ=DAILY;BYHOUR=2",
+            "overrides": {"azwriter": {"autoupdate": true, "channel": "stable", "skip_version": "2.0.0", "pinned": 1}},
+            "future": [1, 2]
+        }}"#;
+        let (c, problem) = AzlinConfig::parse(json);
+        assert_eq!(problem, None);
+        let u = &c.updates;
+        assert_eq!(u.autoupdate, Some(false));
+        assert_eq!(u.channel, Some(Channel::Beta));
+        assert_eq!(u.cohort, Some(42));
+        assert_eq!(u.install_dir.as_deref(), Some("/home/ann/apps"));
+        assert_eq!(
+            u.manifest_url.as_deref(),
+            Some("https://example.org/{app}/{channel}.json")
+        );
+        assert_eq!(u.root_public_key.as_deref(), Some("RWQroot"));
+        assert_eq!(u.maintenance_window.as_deref(), Some("FREQ=DAILY;BYHOUR=2"));
+        let writer = u.policy_for("azwriter");
+        assert!(writer.autoupdate, "the app's own choice wins");
+        assert_eq!(writer.channel, Channel::Stable);
+        assert_eq!(writer.skip_version.as_deref(), Some("2.0.0"));
+        let sheets = u.policy_for("azsheets");
+        assert!(!sheets.autoupdate, "the shared choice");
+        assert_eq!(sheets.channel, Channel::Beta);
+        assert_eq!(sheets.skip_version, None);
+        let text = c.to_json();
+        let (again, _) = AzlinConfig::parse(&text);
+        assert_eq!(again, c, "it round-trips");
+        assert!(text.contains("\"future\"") && text.contains("\"pinned\""), "{text}");
+    }
+
+    #[test]
+    fn without_an_updates_section_every_app_updates_itself_on_the_stable_channel() {
+        let (c, _) = AzlinConfig::parse("{}");
+        let policy = c.updates.policy_for("azmail");
+        assert!(policy.autoupdate);
+        assert_eq!(policy.channel, Channel::Stable);
+        assert!(c.updates.is_empty());
+        assert!(!c.to_json().contains("updates"), "an empty section is not written");
+    }
+
+    #[test]
+    fn nightly_is_no_channel_and_a_cohort_past_99_is_no_cohort() {
+        assert_eq!(Channel::parse("stable"), Some(Channel::Stable));
+        assert_eq!(Channel::parse("Beta"), Some(Channel::Beta));
+        assert_eq!(Channel::parse("nightly"), None);
+        let (c, problem) =
+            AzlinConfig::parse(r#"{"updates": {"channel": "nightly", "cohort": 150}}"#);
+        assert_eq!(c.updates.channel, None);
+        assert_eq!(c.updates.cohort, None);
+        let problem = problem.expect("both are reported");
+        assert!(problem.contains("nightly") && problem.contains("150"), "{problem}");
+        let text = c.to_json();
+        assert!(text.contains("nightly"), "what was not understood is kept: {text}");
+    }
+
+    #[test]
+    fn the_updates_setters_write_the_shared_choice_or_one_apps_and_edit_keeps_the_rest() {
+        let dir = std::env::temp_dir().join(format!("azlin-updates-test-{}", std::process::id()));
+        let path = dir.join("config.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, r#"{"mode": "dark", "updates": {"overrides": {"azkeys": {"x": 1}}}}"#)
+            .unwrap();
+        AzlinConfig::edit(&path, |c| {
+            c.updates.set_autoupdate(None, false);
+            c.updates.set_autoupdate(Some("azkeys"), true);
+            c.updates.set_channel(Some("azkeys"), Channel::Beta);
+            c.updates.set_skip_version("azkeys", Some("3.1.0"));
+            c.updates.cohort = Some(7);
+        })
+        .unwrap();
+        let (c, problem) = AzlinConfig::load(&path);
+        assert_eq!(problem, None);
+        assert_eq!(c.mode, Some(ModePref::Dark), "the look stays");
+        assert_eq!(c.updates.cohort, Some(7));
+        let keys = c.updates.policy_for("azkeys");
+        assert!(keys.autoupdate);
+        assert_eq!(keys.channel, Channel::Beta);
+        assert_eq!(keys.skip_version.as_deref(), Some("3.1.0"));
+        assert!(!c.updates.policy_for("azmail").autoupdate);
+        assert!(c.to_json().contains("\"x\": 1"), "an override's other keys stay");
+        AzlinConfig::edit(&path, |c| c.updates.set_skip_version("azkeys", None)).unwrap();
+        let (c, _) = AzlinConfig::load(&path);
+        assert_eq!(c.updates.policy_for("azkeys").skip_version, None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

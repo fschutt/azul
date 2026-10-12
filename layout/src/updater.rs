@@ -463,6 +463,7 @@ impl RolloutPlan {
 
 /// Which rollout gate applies to this client.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub enum UpdateAudience {
     /// Self-updating install: eligible once its cohort bucket falls under
     /// the currently-open percent.
@@ -470,6 +471,10 @@ pub enum UpdateAudience {
     /// Package-managed / notify-only install: sees the notification only
     /// after the rollout completes (100%).
     NotifyOnly,
+    /// A tester's install (a beta channel): every release the moment it is
+    /// published. The rollout protects the fleet from a bad release; testers
+    /// are the ones who find it, so the gate does not apply to them.
+    Tester,
 }
 
 /// `"2026-08-18"` / `"2026-08-18T12:30:00Z"` / unix seconds (number or
@@ -1589,6 +1594,7 @@ pub fn select_update_candidate<'a>(
         let eligible = match audience {
             UpdateAudience::AutoUpdate => bucket < candidate.rollout.allowed_percent(now_unix),
             UpdateAudience::NotifyOnly => candidate.rollout.is_complete(now_unix),
+            UpdateAudience::Tester => true,
         };
         if !eligible {
             continue;
@@ -2153,6 +2159,134 @@ pub fn apply_update(staged: &Path, target: &Path) -> Result<(), String> {
     }
     std::fs::rename(&incoming, target).map_err(|e| format!("swap: {e}"))?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// A manager updating other programs
+// ---------------------------------------------------------------------------
+//
+// An install manager (AzInstallManager) checks, stages and installs programs
+// other than itself. Each program keeps its own state folder (high-water
+// mark, accepted key generation), while the rollout cohort belongs to the
+// machine: the manager draws it once and passes it into every check, so one
+// computer sits in the same cohort for every program it runs.
+
+/// [`check_for_updates_blocking`] for another program: its state is loaded
+/// from and saved to `state_dir`, and `rollout_bucket` (the machine's cohort,
+/// 0-99) replaces whatever cohort that folder held. Blocking: run it on a
+/// `Thread`.
+#[cfg(feature = "http")]
+#[must_use]
+pub fn check_program_for_updates(
+    manifest_url: &str,
+    current_version: &str,
+    channel: &str,
+    state_dir: &Path,
+    rollout_bucket: u8,
+    audience: UpdateAudience,
+) -> UpdateCheckResult {
+    let mut state = UpdateState::load(state_dir);
+    state.rollout_bucket = Some(rollout_bucket.min(99));
+    let result =
+        check_for_updates_blocking(manifest_url, current_version, channel, &mut state, audience);
+    state.save(state_dir);
+    result
+}
+
+/// [`download_and_verify`] for another program: the artifact lands in
+/// `staging_dir`, the accepted key generation in `state_dir`. Returns the
+/// staged file. Blocking: run it on a `Thread`.
+///
+/// # Errors
+///
+/// Returns a description on transport, digest or signature-chain failure;
+/// nothing refused stays staged.
+#[cfg(feature = "http")]
+pub fn stage_program_update(
+    release: &ReleaseInfo,
+    staging_dir: &Path,
+    root_public_key: &str,
+    state_dir: &Path,
+) -> Result<PathBuf, String> {
+    let mut state = UpdateState::load(state_dir);
+    let staged = download_and_verify(release, staging_dir, root_public_key, &mut state);
+    state.save(state_dir);
+    staged.map(|outcome| outcome.path)
+}
+
+/// Checks a staged file once more right before it is installed: the digest
+/// pin and the signature chain. A file on disk is not trusted across runs -
+/// it may have changed since it was staged.
+///
+/// # Errors
+///
+/// Returns a description of the failing check; the caller must not install
+/// the file.
+pub fn verify_staged_program_update(
+    path: &Path,
+    release: &ReleaseInfo,
+    root_public_key: &str,
+    state_dir: &Path,
+) -> Result<(), String> {
+    verify_digest(path, release.digest.as_str())?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let mut state = UpdateState::load(state_dir);
+    verify_release_signature(path, release, root_public_key, &mut state, now)?;
+    state.save(state_dir);
+    Ok(())
+}
+
+/// What staging or checking a program's update concluded: the C API's
+/// `Result<PathBuf, String>` for [`stage_program_update`] and
+/// [`verify_staged_program_update`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum UpdateStageResult {
+    /// The verified file, ready to install.
+    Staged(AzString),
+    /// Why the file must not be installed.
+    Error(AzString),
+}
+
+impl From<Result<PathBuf, String>> for UpdateStageResult {
+    fn from(result: Result<PathBuf, String>) -> Self {
+        match result {
+            Ok(path) => Self::Staged(path.to_string_lossy().as_ref().into()),
+            Err(e) => Self::Error(e.into()),
+        }
+    }
+}
+
+/// Whether unattended update work may run at `now_unix` under the maintenance
+/// window `rule` (the shared config's RRULE subset, in UTC; empty: any time).
+/// A manager staging other programs passes the window its own config names;
+/// [`within_shared_maintenance_window`] reads the running program's.
+#[must_use]
+pub fn within_maintenance_window(rule: &str, now_unix: u64) -> bool {
+    if rule.trim().is_empty() {
+        return true;
+    }
+    #[cfg(feature = "telemetry")]
+    {
+        crate::telemetry::sharedconfig::within_maintenance_window(rule, now_unix)
+    }
+    // The RRULE reader lives with the shared config; without it no window
+    // can be read, and an unreadable window fails open as it does there.
+    #[cfg(not(feature = "telemetry"))]
+    {
+        let _ = now_unix;
+        true
+    }
+}
+
+/// Draws a rollout cohort (0-99) the way [`UpdateState::rollout_bucket`]
+/// does, `AZ_UPDATE_BUCKET` included. The caller keeps it: a cohort is
+/// drawn once per machine and never again.
+#[must_use]
+pub fn draw_rollout_bucket() -> u8 {
+    UpdateState::default().rollout_bucket()
 }
 
 // ---------------------------------------------------------------------------
@@ -3370,5 +3504,212 @@ mod tests {
         assert!(verify_digest(&file, "md5:abcd").is_err());
         assert!(verify_digest(&file, "not-a-digest").is_err());
         drop(std::fs::remove_dir_all(&dir));
+    }
+
+    // ---- a manager updating other programs --------------------------------
+
+    #[test]
+    fn a_tester_takes_the_newest_release_however_far_its_rollout_has_come() {
+        let unopened = RolloutPlan::Staged(vec![RolloutStage {
+            percent: 100,
+            at_unix: REL + 4 * DAY,
+        }]);
+        let candidates = vec![
+            candidate("2.0.0", RolloutPlan::Immediate),
+            candidate("2.1.0", unopened),
+        ];
+        let tester =
+            select_update_candidate(&candidates, "1.0.0", 99, UpdateAudience::Tester, REL).unwrap();
+        assert_eq!(
+            tester.release.version.as_str(),
+            "2.1.0",
+            "a tester sees a release the moment it is published"
+        );
+        let stable =
+            select_update_candidate(&candidates, "1.0.0", 99, UpdateAudience::AutoUpdate, REL)
+                .unwrap();
+        assert_eq!(
+            stable.release.version.as_str(),
+            "2.0.0",
+            "the same cohort on the gated path still waits for 2.1.0"
+        );
+    }
+
+    /// A localhost HTTP/1.1 server answering every request with `body`; the
+    /// URL of `name` on it.
+    fn serve_bytes(body: Vec<u8>, name: &str) -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/{name}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                'requests: loop {
+                    // One request head, up to its empty line.
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        match reader.read_line(&mut line) {
+                            Ok(0) | Err(_) => break 'requests,
+                            Ok(_) if line == "\r\n" => break,
+                            Ok(_) => {}
+                        }
+                    }
+                    let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                    if stream.write_all(head.as_bytes()).is_err()
+                        || stream.write_all(&body).is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        });
+        url
+    }
+
+    fn unix_now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs())
+    }
+
+    #[test]
+    fn a_manager_checks_another_program_in_its_own_state_folder_under_the_machines_cohort() {
+        let now = unix_now();
+        // Released a day ago, half the fleet open: cohort 10 is in, cohort 90 is not yet.
+        let manifest = format!(
+            r#"{{"latest": {{"version": "2.0.0", "download_url": "http://127.0.0.1:9/app.bin",
+                "release_date": {}, "slow": {{"50": {}, "100": {}}}}}}}"#,
+            now - DAY,
+            now - DAY,
+            now + 3 * DAY
+        );
+        let url = serve_bytes(manifest.into_bytes(), "updates.json");
+        let dir = std::env::temp_dir().join(format!("azul-program-check-{}", std::process::id()));
+        let inside = check_program_for_updates(
+            &url,
+            "1.0.0",
+            "stable",
+            &dir.join("in"),
+            10,
+            UpdateAudience::AutoUpdate,
+        );
+        assert!(
+            matches!(&inside, UpdateCheckResult::Available(r) if r.version.as_str() == "2.0.0"),
+            "{inside:?}"
+        );
+        let outside = check_program_for_updates(
+            &url,
+            "1.0.0",
+            "stable",
+            &dir.join("out"),
+            90,
+            UpdateAudience::AutoUpdate,
+        );
+        assert_eq!(
+            outside,
+            UpdateCheckResult::UpToDate,
+            "the rollout has not reached cohort 90"
+        );
+        let tester = check_program_for_updates(
+            &url,
+            "1.0.0",
+            "beta",
+            &dir.join("beta"),
+            90,
+            UpdateAudience::Tester,
+        );
+        assert!(
+            matches!(tester, UpdateCheckResult::Available(_)),
+            "{tester:?}"
+        );
+        // The check's bookkeeping is the program's own, the machine's cohort with it.
+        let state = UpdateState::load(&dir.join("out"));
+        assert_eq!(state.rollout_bucket, Some(90));
+        assert_eq!(state.highest_seen, "2.0.0");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_manager_stages_another_programs_update_verified_in_that_programs_folders() {
+        let f = chain_fixture(CHAIN_NOW * 2, 2, "stage");
+        let mut release = f.release.clone();
+        release.download_url =
+            serve_bytes(b"the update artifact bytes".to_vec(), "app-2.0.0.bin").into();
+        let staged = stage_program_update(
+            &release,
+            &f._dir.join("staging"),
+            &f.root_pub_b64,
+            &f._dir.join("state"),
+        )
+        .expect("a signed artifact is staged");
+        assert_eq!(staged, f._dir.join("staging").join("app-2.0.0.bin"));
+        assert_eq!(
+            std::fs::read(&staged).unwrap(),
+            b"the update artifact bytes"
+        );
+        assert_eq!(UpdateState::load(&f._dir.join("state")).key_generation, 2);
+
+        // The statement's signature is no signature of the artifact.
+        let mut forged = release.clone();
+        forged.signature = f.release.signing_key_statement_sig.clone();
+        let err = stage_program_update(
+            &forged,
+            &f._dir.join("staging-forged"),
+            &f.root_pub_b64,
+            &f._dir.join("state"),
+        )
+        .expect_err("a forged signature is refused");
+        assert!(err.contains("signature"), "{err}");
+        let left = std::fs::read_dir(f._dir.join("staging-forged")).map_or(0, Iterator::count);
+        assert_eq!(left, 0, "nothing refused stays staged");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn a_manager_verifies_a_staged_program_by_its_digest_and_its_signature_chain() {
+        let f = chain_fixture(CHAIN_NOW * 2, 4, "program");
+        let state_dir = f._dir.join("state");
+        verify_staged_program_update(&f.artifact, &f.release, &f.root_pub_b64, &state_dir)
+            .expect("the chain verifies");
+        assert_eq!(
+            UpdateState::load(&state_dir).key_generation,
+            4,
+            "the accepted generation is kept in the program's folder"
+        );
+
+        let mut wrong_pin = f.release.clone();
+        wrong_pin.digest = format!("sha256:{}", "0".repeat(64)).into();
+        let err = verify_staged_program_update(&f.artifact, &wrong_pin, "", &state_dir)
+            .expect_err("a wrong pin is refused even without a root key");
+        assert!(err.contains("mismatch"), "{err}");
+
+        std::fs::write(&f.artifact, b"tampered bytes").unwrap();
+        assert!(
+            verify_staged_program_update(&f.artifact, &f.release, &f.root_pub_b64, &state_dir)
+                .is_err(),
+            "a file changed after staging is refused"
+        );
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    #[test]
+    fn an_empty_maintenance_window_is_any_time_and_a_rule_confines_unattended_work() {
+        assert!(within_maintenance_window("", 0));
+        assert!(within_maintenance_window("  ", 12_345));
+        #[cfg(feature = "telemetry")]
+        {
+            // 2026-01-01T00:00:00Z; the window opens daily at 02:00 UTC for two hours.
+            let midnight = 1_767_225_600;
+            let rule = "FREQ=DAILY;BYHOUR=2;DURATION=PT2H";
+            assert!(within_maintenance_window(rule, midnight + 2 * 3600 + 1800));
+            assert!(!within_maintenance_window(rule, midnight + 5 * 3600));
+        }
+    }
+
+    #[test]
+    fn the_machines_cohort_is_a_bucket_from_0_to_99() {
+        assert!(draw_rollout_bucket() < 100);
     }
 }

@@ -12,7 +12,8 @@
 //! pages from the engine's pagination). Documents are Markdown files in the
 //! data tree, `writer/<uuid>.md`, exports in `writer/exports/`, written
 //! through azul-storage from a `Thread` (azul-appkit's file jobs); args,
-//! settings, About and the shortcuts are azul-appkit's.
+//! settings, About and the shortcuts are azul-appkit's, and so is the update banner
+//! ("A new version of AzWriter is available"; AzInstallManager installs it).
 //!
 //! On stdout, for scripts (`scripts/azwriter_e2e.py`): `AZWRITER_READY`,
 //! `AZWRITER_LISTED <n>`, `AZWRITER_OPENED <id>`, `AZWRITER_SAVED <id>`,
@@ -137,6 +138,8 @@ pub fn start() {
     // `--language`) says them from here.
     let mut config = kit::app_config(&kit_ref);
     crate::l10n::register(&mut config);
+    // AzInstallManager keeps AzWriter current: the registration, the periodic check, the banner.
+    azul_appkit::update::app::start(&kit_ref, &mut config, "azwriter");
     let mut kit_now = kit_ref.clone();
     let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
     if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
@@ -243,7 +246,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard)
         .dom();
-    let root = column(vec![guarded, about_modal(&app, st)]);
+    // A newer AzWriter waiting: the update kit's banner over everything else.
+    let mut children: Vec<Dom> = azul_appkit::update::app::banner(&st.kit).into_iter().collect();
+    children.push(guarded);
+    children.push(about_modal(&app, st));
+    let root = column(children);
     Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
         .with_child(ShellThemeScope::create(root).with_accent(ShellThemeAccent::Blue).dom())

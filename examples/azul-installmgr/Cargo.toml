@@ -1,0 +1,41 @@
+[package]
+name = "AzInstallManager"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzInstallManager - the first-run and update manager of the Azlin apps. The
+    first run is a wizard on azul's wizard pages (welcome, the package-manager
+    alternative, destination, the apps to install, the channel, progress,
+    finish) that fetches each app from its update manifest, verifies the
+    signature chain and puts it under ~/.azlin/apps, with the platform's
+    shortcuts and no sudo. Later runs show the installed apps in a table
+    (installed and available version, channel, size, last update) with
+    Update / Revert / Uninstall, Update All and Check for updates under the
+    machine's rollout cohort; a background check stages updates for the
+    banner the apps show (azul-appkit's `update` module).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The shared app skeleton (switches, data root, settings, About) and the update protocol the apps
+# and the manager share (`update`: current.json, staged.json, request.json, the engine calls).
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# Already in the tree (azul-appkit, azul-storage): the registry and request files.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# The one temporary folder for tests (azul_storage::testing::TempDir).
+azul-storage = { path = "../azul-storage", features = ["testing"] }
+
+[lib]
+name = "azinstallmgr"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzInstallManager"
+path = "src/main.rs"
