@@ -1,6 +1,6 @@
 //! Haiku's icons for azul: the flora theme's icon pack.
 //!
-//! 73 icons of the Haiku project's icon set (MIT, see `LICENSE`) in HVIF,
+//! 83 icons of the Haiku project's icon set (MIT, see `LICENSE`) in HVIF,
 //! drawn for the Material names azul's apps ask for ([`MATERIAL_TO_HAIKU`]:
 //! `inbox` is Haiku's mail folder, `delete` its trash can, `print` its
 //! printer). [`register`] puts them into a pack ([`PACK`]) that is searched
@@ -17,7 +17,7 @@
 //! by `tools/iom2hvif.py` (Icon-O-Matic's HVIF export, ported); 23 of them
 //! are the very bytes Haiku ships in its `.rdef` resources.
 //! `python3 tools/fetch.py` fetches and converts them again. They are
-//! embedded with `include_bytes!` - 41517 bytes for all 73 - and azul draws
+//! embedded with `include_bytes!` - 50063 bytes for all 83 - and azul draws
 //! each at the size it is shown at, with the level of detail and the pixel
 //! hinting the icon has for that size. HVIF artwork is full colour: it does
 //! not follow the text colour as a Material glyph does.
@@ -64,6 +64,7 @@ pub const MATERIAL_TO_HAIKU: &[(&str, &str)] = &[
     // people
     ("contacts", "App_People"),
     ("group", "Folder_people"),
+    ("groups", "App_People"),
     ("person", "File_Person"),
     ("account_circle", "File_Person"),
     ("person_add", "Website_Register"),
@@ -71,13 +72,17 @@ pub const MATERIAL_TO_HAIKU: &[(&str, &str)] = &[
     // folders and files
     ("folder", "Folder_generic"),
     ("folder_open", "Folder_generic"),
+    ("folder_special", "Folder_generic"),
+    ("create_new_folder", "Folder_generic"),
     ("home", "Action_GoHome"),
     ("insert_drive_file", "File_Generic"),
     ("description", "File_Text"),
     ("article", "File_Text"),
     ("notes", "File_Text"),
+    ("note_add", "File_Text"),
     ("picture_as_pdf", "File_PDF"),
     ("image", "File_Image_3"),
+    ("gif", "File_Image_3"),
     ("photo", "File_Image_3"),
     ("photo_library", "File_Image_3"),
     ("movie", "File_Video"),
@@ -94,12 +99,18 @@ pub const MATERIAL_TO_HAIKU: &[(&str, &str)] = &[
     ("html", "File_HTML"),
     ("rss_feed", "File_RSS_Feed"),
     ("saved_search", "File_Query"),
+    ("bookmarks", "File_Bookmark"),
+    ("bookmark", "File_Bookmark"),
+    ("bookmark_add", "File_Bookmark"),
+    ("bookmark_border", "File_Bookmark"),
     ("extension", "File_Plugin"),
     ("task_alt", "File_Task"),
     ("sticky_note_2", "File_Task"),
     // what is done to files
     ("file_copy", "Tracker_copy"),
+    ("content_copy", "Tracker_copy"),
     ("drive_file_move", "Tracker_move"),
+    ("content_cut", "Tracker_move"),
     ("delete", "Trash_Empty"),
     ("delete_forever", "Trash_Empty"),
     ("delete_sweep", "Trash_Full"),
@@ -107,6 +118,19 @@ pub const MATERIAL_TO_HAIKU: &[(&str, &str)] = &[
     ("content_paste", "Device_Clipboard"),
     ("print", "Prefs_Printer"),
     ("search", "Action_Search"),
+    ("find_in_page", "App_TextSearch"),
+    ("manage_search", "App_TextSearch"),
+    ("add", "List_Add"),
+    ("add_circle", "List_Add"),
+    ("download", "Action_Download"),
+    ("file_download", "Action_Download"),
+    ("cloud_download", "Action_Download"),
+    ("downloading", "Action_Download"),
+    ("upload", "Action_GoUp_3_Large"),
+    ("cloud_upload", "Action_GoUp_3_Large"),
+    ("open_in_new", "Misc_Window"),
+    ("edit", "Misc_Marker"),
+    ("drive_file_rename_outline", "Misc_Marker"),
     // going places
     ("arrow_back", "Action_GoBack_3_Large"),
     ("navigate_before", "Action_GoBack_3_Large"),
@@ -117,6 +141,18 @@ pub const MATERIAL_TO_HAIKU: &[(&str, &str)] = &[
     // devices and the world
     ("storage", "Device_Harddisk"),
     ("computer", "Prefs_Screen"),
+    ("desktop_windows", "Prefs_Screen"),
+    ("laptop", "Prefs_Screen"),
+    ("devices", "Prefs_Devices"),
+    ("usb", "Device_Pendrive"),
+    ("drive_folder_upload", "Prefs_DriveSetup"),
+    ("add_to_drive", "Prefs_DriveSetup"),
+    ("cloud", "Misc_Earth"),
+    ("cloud_queue", "Misc_Earth"),
+    ("cloud_done", "Misc_Earth"),
+    ("lan", "Misc_LAN"),
+    ("cable", "Misc_LAN"),
+    ("add_link", "Misc_LAN"),
     ("keyboard", "Prefs_Keyboard"),
     ("public", "Prefs_Locale"),
     ("language", "Prefs_Locale"),
@@ -145,6 +181,7 @@ pub const MATERIAL_TO_HAIKU: &[(&str, &str)] = &[
     ("terminal", "App_Terminal"),
     ("alarm", "App_Clock"),
     ("schedule", "App_Clock"),
+    ("history", "App_Clock"),
     ("monitor_heart", "App_Pulse"),
     ("install_desktop", "App_PackageInstaller"),
     ("font_download", "Prefs_Fonts"),
@@ -159,6 +196,7 @@ pub const MATERIAL_TO_HAIKU: &[(&str, &str)] = &[
 /// The Haiku icons, by their file name upstream (`data/artwork/icons/<name>`),
 /// sorted: (the name, the HVIF bytes).
 pub const ICONS: &[(&str, &[u8])] = &[
+    ("Action_Download", include_bytes!("../icons/Action_Download.hvif")),
     ("Action_GoBack_3_Large", include_bytes!("../icons/Action_GoBack_3_Large.hvif")),
     ("Action_GoDown_3", include_bytes!("../icons/Action_GoDown_3.hvif")),
     ("Action_GoForward_3_Large", include_bytes!("../icons/Action_GoForward_3_Large.hvif")),
@@ -179,13 +217,16 @@ pub const ICONS: &[(&str, &[u8])] = &[
     ("App_ShowImage", include_bytes!("../icons/App_ShowImage.hvif")),
     ("App_TV", include_bytes!("../icons/App_TV.hvif")),
     ("App_Terminal", include_bytes!("../icons/App_Terminal.hvif")),
+    ("App_TextSearch", include_bytes!("../icons/App_TextSearch.hvif")),
     ("Device_CD", include_bytes!("../icons/Device_CD.hvif")),
     ("Device_Clipboard", include_bytes!("../icons/Device_Clipboard.hvif")),
     ("Device_Harddisk", include_bytes!("../icons/Device_Harddisk.hvif")),
+    ("Device_Pendrive", include_bytes!("../icons/Device_Pendrive.hvif")),
     ("Document_Save", include_bytes!("../icons/Document_Save.hvif")),
     ("File_Archive", include_bytes!("../icons/File_Archive.hvif")),
     ("File_Audio", include_bytes!("../icons/File_Audio.hvif")),
     ("File_Audio_2", include_bytes!("../icons/File_Audio_2.hvif")),
+    ("File_Bookmark", include_bytes!("../icons/File_Bookmark.hvif")),
     ("File_Chart", include_bytes!("../icons/File_Chart.hvif")),
     ("File_Generic", include_bytes!("../icons/File_Generic.hvif")),
     ("File_HTML", include_bytes!("../icons/File_HTML.hvif")),
@@ -207,6 +248,7 @@ pub const ICONS: &[(&str, &[u8])] = &[
     ("HaikuDepot_Installed", include_bytes!("../icons/HaikuDepot_Installed.hvif")),
     ("HaikuDepot_StarBlue", include_bytes!("../icons/HaikuDepot_StarBlue.hvif")),
     ("HaikuDepot_StarGray", include_bytes!("../icons/HaikuDepot_StarGray.hvif")),
+    ("List_Add", include_bytes!("../icons/List_Add.hvif")),
     ("Mail_Forward", include_bytes!("../icons/Mail_Forward.hvif")),
     ("Mail_Junk", include_bytes!("../icons/Mail_Junk.hvif")),
     ("Mail_MarkRead", include_bytes!("../icons/Mail_MarkRead.hvif")),
@@ -215,11 +257,16 @@ pub const ICONS: &[(&str, &[u8])] = &[
     ("Mail_Send", include_bytes!("../icons/Mail_Send.hvif")),
     ("Misc_Antenna", include_bytes!("../icons/Misc_Antenna.hvif")),
     ("Misc_Book", include_bytes!("../icons/Misc_Book.hvif")),
+    ("Misc_Earth", include_bytes!("../icons/Misc_Earth.hvif")),
     ("Misc_Erlenmeyer", include_bytes!("../icons/Misc_Erlenmeyer.hvif")),
+    ("Misc_LAN", include_bytes!("../icons/Misc_LAN.hvif")),
     ("Misc_Magic_Wand", include_bytes!("../icons/Misc_Magic_Wand.hvif")),
     ("Misc_Marker", include_bytes!("../icons/Misc_Marker.hvif")),
     ("Misc_Speaker", include_bytes!("../icons/Misc_Speaker.hvif")),
     ("Misc_Speaker_Muted", include_bytes!("../icons/Misc_Speaker_Muted.hvif")),
+    ("Misc_Window", include_bytes!("../icons/Misc_Window.hvif")),
+    ("Prefs_Devices", include_bytes!("../icons/Prefs_Devices.hvif")),
+    ("Prefs_DriveSetup", include_bytes!("../icons/Prefs_DriveSetup.hvif")),
     ("Prefs_Fonts", include_bytes!("../icons/Prefs_Fonts.hvif")),
     ("Prefs_Keyboard", include_bytes!("../icons/Prefs_Keyboard.hvif")),
     ("Prefs_Locale", include_bytes!("../icons/Prefs_Locale.hvif")),
