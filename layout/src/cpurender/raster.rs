@@ -6308,6 +6308,138 @@ pub fn render_dom_to_rgba(
     render_component_preview(&styled_dom, &font_manager, opts, None)
 }
 
+/// What [`render_pages`] draws: pages `first_page .. first_page + page_count` of a document
+/// laid out on pages of `page_width` x `page_height` logical px, at `dpi_factor` device pixels
+/// per logical pixel, on `background_color`.
+#[derive(Debug, Clone, Copy)]
+pub struct PageRenderOptions {
+    /// The page's width in logical px (the width the document is laid out at).
+    pub page_width: f32,
+    /// The page's height in logical px (where the pages break).
+    pub page_height: f32,
+    /// Device pixels per logical pixel: a picture shown on a 2x display is drawn at 2.
+    pub dpi_factor: f32,
+    /// What a page shows where the document paints nothing (the paper).
+    pub background_color: ColorU,
+    /// The first page drawn (0-based).
+    pub first_page: usize,
+    /// How many pages are drawn at most; fewer past the document's end.
+    pub page_count: usize,
+}
+
+/// Lays `styled_dom` out on pages with the break `policy` - the pages
+/// `Pdf::compute_pagination_with_policy` counts - and draws a run of them with the CPU
+/// renderer, one under the other in one picture: page `first_page + k` is the band
+/// `k * page_height * dpi_factor` pixels down. A reader draws the pages around the one on
+/// screen this way ahead of time, off the UI thread, and shows each page as a clip window over
+/// the picture; one picture per run means one layout of the document per run.
+///
+/// # Errors
+///
+/// When the document cannot be laid out, a picture cannot be allocated, or the run starts past
+/// the document's end.
+#[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded page pixel sizes
+pub fn render_pages(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    font_manager: &mut FontManager<FontRef>,
+    image_cache: &azul_core::resources::ImageCache,
+    policy: crate::solver3::page_breaks::BreakPolicy,
+    opts: PageRenderOptions,
+) -> Result<AzulPixmap, String> {
+    use std::collections::BTreeMap;
+
+    use azul_core::{
+        dom::DomId,
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{IdNamespace, RendererResources},
+    };
+
+    use crate::{
+        font_traits::TextLayoutCache,
+        paged::FragmentationContext,
+        solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
+        text3::default::PathLoader,
+    };
+
+    let content_size = LogicalSize::new(opts.page_width, opts.page_height);
+    let mut layout_cache = crate::Solver3LayoutCache::default();
+    let mut text_cache = TextLayoutCache::new();
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+    let renderer_resources = RendererResources::default();
+    let mut debug_messages = None;
+    let loader = PathLoader::new();
+    let font_loader = |bytes, index| loader.load_font_shared(bytes, index);
+    let page_config = FakePageConfig {
+        break_policy: policy,
+        ..FakePageConfig::new()
+    };
+    let pages = layout_document_paged_with_config(
+        &mut layout_cache,
+        &mut text_cache,
+        FragmentationContext::new_paged(content_size),
+        styled_dom,
+        viewport,
+        font_manager,
+        &BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        page_config,
+        image_cache,
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
+        false,
+    )
+    .map_err(|e| format!("the pages cannot be laid out: {e:?}"))?;
+
+    let drawn: Vec<&crate::solver3::display_list::DisplayList> = pages
+        .iter()
+        .skip(opts.first_page)
+        .take(opts.page_count)
+        .collect();
+    if drawn.is_empty() {
+        return Err(format!(
+            "page {} is past the end ({} pages)",
+            opts.first_page,
+            pages.len()
+        ));
+    }
+    let page_w = ((opts.page_width * opts.dpi_factor).round() as u32).max(1);
+    let page_h = ((opts.page_height * opts.dpi_factor).round() as u32).max(1);
+    let total_h = page_h
+        .checked_mul(drawn.len() as u32)
+        .ok_or_else(|| "the run of pages is too tall".to_string())?;
+    let mut picture = AzulPixmap::new(page_w, total_h)
+        .ok_or_else(|| format!("cannot create a picture of {page_w} x {total_h}"))?;
+    let mut glyph_cache = GlyphCache::new();
+    let state = CpuRenderState::new(ScrollOffsetMap::new());
+    let bg = opts.background_color;
+    for (k, display_list) in drawn.into_iter().enumerate() {
+        let mut page = AzulPixmap::new(page_w, page_h)
+            .ok_or_else(|| format!("cannot create a page of {page_w} x {page_h}"))?;
+        page.fill(bg.r, bg.g, bg.b, bg.a);
+        render_display_list_with_state(
+            display_list,
+            &mut page,
+            opts.dpi_factor,
+            &renderer_resources,
+            font_manager,
+            &mut glyph_cache,
+            &state,
+        )?;
+        write_region(&mut picture, page.data(), page_w, page_h, 0, (k as u32 * page_h) as i32);
+    }
+    Ok(picture)
+}
+
 /// Render a short single-line string into a freshly allocated [`AzulPixmap`].
 ///
 /// Shapes + rasterizes the glyphs (e.g. a tooltip label) through the same CPU
