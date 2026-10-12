@@ -561,9 +561,9 @@ pub extern "C" fn css_animation_timer_callback(
 /// Callback for the tooltip-delay timer.
 ///
 /// Fires once after `InputMetrics::hover_time_ms` has elapsed while a node with
-/// a tooltip-bearing attribute was continuously hovered. The callback looks up
-/// the `title` / `aria-label` / `alt` attribute on the currently-hovered node,
-/// emits a `ShowTooltip` `CallbackChange`, and terminates — a single-shot timer.
+/// a `title` attribute was continuously hovered. The callback looks up the
+/// `title` of the currently-hovered node, emits a `ShowTooltip`
+/// `CallbackChange` at the pointer, and terminates — a single-shot timer.
 /// Movement to a different node (or any hover loss) removes and re-adds the
 /// timer from the platform layer, so the callback itself never needs to
 /// reschedule.
@@ -587,12 +587,9 @@ pub extern "C" fn tooltip_delay_timer_callback(
         });
 
     if let Some(dom_node_id) = hover_node_id {
-        // Priority: aria-label > alt > title (mirrors DOM get_accessible_label).
-        let tooltip_text = info
-            .callback_info
-            .get_node_attribute(dom_node_id, "aria-label")
-            .or_else(|| info.callback_info.get_node_attribute(dom_node_id, "alt"))
-            .or_else(|| info.callback_info.get_node_attribute(dom_node_id, "title"));
+        // As in Chrome, only the title is shown on hover: an aria-label names
+        // the node for a screen reader, an alt stands in for an image.
+        let tooltip_text = info.callback_info.get_node_attribute(dom_node_id, "title");
 
         if let Some(text) = tooltip_text {
             info.callback_info.show_tooltip(text);
@@ -11884,8 +11881,8 @@ impl LayoutWindow {
     /// Create a one-shot tooltip-delay timer.
     ///
     /// Fires exactly once after `hover_time_ms` elapsed. On expiry the callback
-    /// looks up the currently-hovered node's `title` / `alt` / `aria-label`
-    /// attribute and emits a `ShowTooltip` `CallbackChange`, then terminates.
+    /// looks up the currently-hovered node's `title` attribute and emits a
+    /// `ShowTooltip` `CallbackChange`, then terminates.
     pub fn create_tooltip_delay_timer(&self, hover_time_ms: u32) -> Timer {
         use azul_core::{
             refany::RefAny,
@@ -11916,8 +11913,8 @@ impl LayoutWindow {
     /// hit-testing has updated `hover_manager`). It compares the current and
     /// previous deepest hovered nodes and returns:
     ///
-    /// - `Start` if the user just hovered onto a node that has a tooltip source (`title` / `alt` /
-    ///   `aria-label`) — the shell should (re)start `TOOLTIP_DELAY_TIMER_ID` with the returned
+    /// - `Start` if the user just hovered onto a node with a `title` (the only tooltip source, as
+    ///   in Chrome) — the shell should (re)start `TOOLTIP_DELAY_TIMER_ID` with the returned
     ///   Timer.
     /// - `Stop` if the hover moved off a tooltip-bearing node (or left the window) — the shell
     ///   should stop `TOOLTIP_DELAY_TIMER_ID` and hide any currently-visible tooltip.
@@ -11936,10 +11933,12 @@ impl LayoutWindow {
         };
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
 
+        // The tooltip timer's own test (`tooltip_delay_timer_callback`): a
+        // `title`, never the accessible label.
         let node_has_tooltip = |node_id: NodeId| -> bool {
             node_data_cont
                 .get(node_id)
-                .is_some_and(|n| n.get_accessible_label().is_some())
+                .is_some_and(|n| n.get_attribute("title").is_some())
         };
 
         match current_hover {
@@ -18773,8 +18772,15 @@ impl LayoutWindow {
                 },
                 |s| s,
             );
+            // A timer hit no node, but the pointer is somewhere: what it
+            // shows at the pointer (a hover tooltip after its delay) needs
+            // that spot, or it lands in the window's top-left corner.
             let cursor_relative_to_item = OptionLogicalPosition::None;
-            let cursor_in_viewport = OptionLogicalPosition::None;
+            let cursor_in_viewport = current_window_state
+                .mouse_state
+                .cursor_position
+                .get_position()
+                .map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
 
             let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
 
