@@ -3705,9 +3705,29 @@ impl LayoutWindow {
     /// How far a compositor that draws each `VirtualView`'s child dom in a
     /// frame of its own scrolls that frame: one entry per mounted view, the
     /// child dom and the offset.
+    ///
+    /// It is minus [`Self::virtual_view_content_offset`]: the child's
+    /// 0-relative content shows from the box's corner at `content_offset`,
+    /// and a frame scrolled by `s` draws its content at `-s`. WebRender draws
+    /// a child dom as an iframe pipeline at the host item's bounds, and
+    /// `wr_translate2::scroll_all_nodes` moves that pipeline's root scroll
+    /// frame by this on every frame, from the live scroll offset. Without it
+    /// the GPU moved the rows only when the view rendered a new window of
+    /// them, while the CPU raster, which reads `content_offset`, glided.
     #[must_use]
     pub fn virtual_view_frame_scroll_offsets(&self) -> Vec<(DomId, LogicalPosition)> {
-        Vec::new()
+        self.virtual_view_manager
+            .all_view_keys()
+            .into_iter()
+            .filter_map(|(dom_id, node_id)| {
+                let child = self
+                    .virtual_view_manager
+                    .get_nested_dom_id(dom_id, node_id)
+                    .filter(|child| self.layout_results.contains_key(child))?;
+                let content = self.virtual_view_content_offset(dom_id, node_id);
+                Some((child, LogicalPosition::new(-content.x, -content.y)))
+            })
+            .collect()
     }
 
     /// Re-point the live display list's `VirtualView` item at the CURRENT
