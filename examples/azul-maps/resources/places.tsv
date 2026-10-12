@@ -1,0 +1,556 @@
+# AzMaps' places that are found by name without a network (src/places.rs): the world's
+# capitals and larger cities. A country line is `@<code> <English> <German>`; a place line is
+# `<English> <German> <other names, | between> <country> <lat> <lon> <population>`, the
+# columns split by tabs. The position is the city centre to four decimals; the population
+# (rounded) ranks the places a search finds.
+@DE	Germany	Deutschland
+@AT	Austria	Österreich
+@CH	Switzerland	Schweiz
+@FR	France	Frankreich
+@IT	Italy	Italien
+@ES	Spain	Spanien
+@PT	Portugal	Portugal
+@NL	Netherlands	Niederlande
+@BE	Belgium	Belgien
+@LU	Luxembourg	Luxemburg
+@GB	United Kingdom	Vereinigtes Königreich
+@IE	Ireland	Irland
+@DK	Denmark	Dänemark
+@SE	Sweden	Schweden
+@NO	Norway	Norwegen
+@FI	Finland	Finnland
+@IS	Iceland	Island
+@PL	Poland	Polen
+@CZ	Czechia	Tschechien
+@SK	Slovakia	Slowakei
+@HU	Hungary	Ungarn
+@SI	Slovenia	Slowenien
+@HR	Croatia	Kroatien
+@RS	Serbia	Serbien
+@BA	Bosnia and Herzegovina	Bosnien und Herzegowina
+@ME	Montenegro	Montenegro
+@MK	North Macedonia	Nordmazedonien
+@AL	Albania	Albanien
+@XK	Kosovo	Kosovo
+@GR	Greece	Griechenland
+@BG	Bulgaria	Bulgarien
+@RO	Romania	Rumänien
+@MD	Moldova	Moldau
+@UA	Ukraine	Ukraine
+@BY	Belarus	Belarus
+@LT	Lithuania	Litauen
+@LV	Latvia	Lettland
+@EE	Estonia	Estland
+@RU	Russia	Russland
+@TR	Turkey	Türkei
+@CY	Cyprus	Zypern
+@MT	Malta	Malta
+@US	United States	Vereinigte Staaten
+@CA	Canada	Kanada
+@MX	Mexico	Mexiko
+@CU	Cuba	Kuba
+@BR	Brazil	Brasilien
+@AR	Argentina	Argentinien
+@CL	Chile	Chile
+@CO	Colombia	Kolumbien
+@PE	Peru	Peru
+@VE	Venezuela	Venezuela
+@JP	Japan	Japan
+@CN	China	China
+@TW	Taiwan	Taiwan
+@KR	South Korea	Südkorea
+@IN	India	Indien
+@PK	Pakistan	Pakistan
+@BD	Bangladesh	Bangladesch
+@NP	Nepal	Nepal
+@LK	Sri Lanka	Sri Lanka
+@TH	Thailand	Thailand
+@VN	Vietnam	Vietnam
+@PH	Philippines	Philippinen
+@MY	Malaysia	Malaysia
+@SG	Singapore	Singapur
+@ID	Indonesia	Indonesien
+@AU	Australia	Australien
+@NZ	New Zealand	Neuseeland
+@ZA	South Africa	Südafrika
+@EG	Egypt	Ägypten
+@MA	Morocco	Marokko
+@TN	Tunisia	Tunesien
+@DZ	Algeria	Algerien
+@NG	Nigeria	Nigeria
+@KE	Kenya	Kenia
+@ET	Ethiopia	Äthiopien
+@GH	Ghana	Ghana
+@SN	Senegal	Senegal
+@TZ	Tanzania	Tansania
+@IL	Israel	Israel
+@JO	Jordan	Jordanien
+@LB	Lebanon	Libanon
+@AE	United Arab Emirates	Vereinigte Arabische Emirate
+@QA	Qatar	Katar
+@SA	Saudi Arabia	Saudi-Arabien
+@IR	Iran	Iran
+@IQ	Iraq	Irak
+@GE	Georgia	Georgien
+@AM	Armenia	Armenien
+@AZ	Azerbaijan	Aserbaidschan
+@KZ	Kazakhstan	Kasachstan
+@UZ	Uzbekistan	Usbekistan
+@MN	Mongolia	Mongolei
+Berlin	Berlin		DE	52.5200	13.4050	3755000
+Hamburg	Hamburg		DE	53.5511	9.9937	1892000
+Munich	München	Muenchen	DE	48.1351	11.5820	1512000
+Cologne	Köln	Koeln	DE	50.9375	6.9603	1084000
+Frankfurt am Main	Frankfurt am Main	Frankfurt	DE	50.1109	8.6821	773000
+Stuttgart	Stuttgart		DE	48.7758	9.1829	633000
+Düsseldorf	Düsseldorf	Duesseldorf	DE	51.2277	6.7735	629000
+Leipzig	Leipzig		DE	51.3397	12.3731	616000
+Dortmund	Dortmund		DE	51.5136	7.4653	593000
+Essen	Essen		DE	51.4556	7.0116	584000
+Bremen	Bremen		DE	53.0793	8.8017	577000
+Dresden	Dresden		DE	51.0504	13.7373	563000
+Hanover	Hannover		DE	52.3759	9.7320	545000
+Nuremberg	Nürnberg	Nuernberg	DE	49.4521	11.0767	523000
+Duisburg	Duisburg		DE	51.4344	6.7623	502000
+Bochum	Bochum		DE	51.4818	7.2162	365000
+Wuppertal	Wuppertal		DE	51.2562	7.1508	358000
+Bielefeld	Bielefeld		DE	52.0302	8.5325	334000
+Bonn	Bonn		DE	50.7374	7.0982	336000
+Münster	Münster	Muenster	DE	51.9607	7.6261	320000
+Mannheim	Mannheim		DE	49.4875	8.4660	315000
+Karlsruhe	Karlsruhe		DE	49.0069	8.4037	308000
+Augsburg	Augsburg		DE	48.3705	10.8978	300000
+Wiesbaden	Wiesbaden		DE	50.0782	8.2398	283000
+Mönchengladbach	Mönchengladbach	Moenchengladbach	DE	51.1805	6.4428	261000
+Gelsenkirchen	Gelsenkirchen		DE	51.5177	7.0857	263000
+Aachen	Aachen		DE	50.7753	6.0839	249000
+Brunswick	Braunschweig		DE	52.2689	10.5268	249000
+Kiel	Kiel		DE	54.3233	10.1228	247000
+Chemnitz	Chemnitz		DE	50.8278	12.9214	244000
+Halle (Saale)	Halle (Saale)	Halle	DE	51.4969	11.9688	239000
+Magdeburg	Magdeburg		DE	52.1205	11.6276	237000
+Freiburg im Breisgau	Freiburg im Breisgau	Freiburg	DE	47.9990	7.8421	236000
+Krefeld	Krefeld		DE	51.3388	6.5853	227000
+Mainz	Mainz		DE	49.9929	8.2473	220000
+Lübeck	Lübeck	Luebeck	DE	53.8655	10.6866	217000
+Erfurt	Erfurt		DE	50.9848	11.0299	214000
+Oberhausen	Oberhausen		DE	51.4963	6.8638	209000
+Rostock	Rostock		DE	54.0924	12.0991	209000
+Kassel	Kassel		DE	51.3127	9.4797	201000
+Hagen	Hagen		DE	51.3671	7.4633	189000
+Potsdam	Potsdam		DE	52.3906	13.0645	183000
+Saarbrücken	Saarbrücken	Saarbruecken	DE	49.2402	6.9969	180000
+Hamm	Hamm		DE	51.6739	7.8159	180000
+Ludwigshafen am Rhein	Ludwigshafen am Rhein	Ludwigshafen	DE	49.4774	8.4452	172000
+Mülheim an der Ruhr	Mülheim an der Ruhr	Muelheim	DE	51.4186	6.8845	170000
+Oldenburg	Oldenburg		DE	53.1435	8.2146	170000
+Osnabrück	Osnabrück	Osnabrueck	DE	52.2799	8.0472	165000
+Leverkusen	Leverkusen		DE	51.0459	6.9853	163000
+Heidelberg	Heidelberg		DE	49.3988	8.6724	160000
+Darmstadt	Darmstadt		DE	49.8728	8.6512	159000
+Solingen	Solingen		DE	51.1652	7.0671	159000
+Regensburg	Regensburg		DE	49.0134	12.1016	153000
+Herne	Herne		DE	51.5369	7.2009	156000
+Paderborn	Paderborn		DE	51.7189	8.7575	151000
+Neuss	Neuss		DE	51.2042	6.6879	152000
+Ingolstadt	Ingolstadt		DE	48.7665	11.4258	138000
+Offenbach am Main	Offenbach am Main	Offenbach	DE	50.0956	8.7761	130000
+Fürth	Fürth	Fuerth	DE	49.4771	10.9887	128000
+Würzburg	Würzburg	Wuerzburg	DE	49.7913	9.9534	127000
+Ulm	Ulm		DE	48.4011	9.9876	126000
+Heilbronn	Heilbronn		DE	49.1427	9.2109	126000
+Pforzheim	Pforzheim		DE	48.8922	8.6946	125000
+Wolfsburg	Wolfsburg		DE	52.4227	10.7865	124000
+Göttingen	Göttingen	Goettingen	DE	51.5413	9.9158	118000
+Bottrop	Bottrop		DE	51.5236	6.9285	117000
+Reutlingen	Reutlingen		DE	48.4914	9.2043	116000
+Koblenz	Koblenz		DE	50.3569	7.5890	114000
+Bremerhaven	Bremerhaven		DE	53.5396	8.5809	113000
+Erlangen	Erlangen		DE	49.5897	11.0078	112000
+Recklinghausen	Recklinghausen		DE	51.6141	7.1979	111000
+Bergisch Gladbach	Bergisch Gladbach		DE	50.9918	7.1367	111000
+Remscheid	Remscheid		DE	51.1787	7.1897	111000
+Jena	Jena		DE	50.9271	11.5892	110000
+Trier	Trier		DE	49.7499	6.6371	110000
+Salzgitter	Salzgitter		DE	52.1503	10.3593	104000
+Moers	Moers		DE	51.4516	6.6408	104000
+Siegen	Siegen		DE	50.8748	8.0243	102000
+Hildesheim	Hildesheim		DE	52.1508	9.9511	101000
+Gütersloh	Gütersloh	Guetersloh	DE	51.9032	8.3858	100000
+Cottbus	Cottbus		DE	51.7563	14.3329	99000
+Kaiserslautern	Kaiserslautern		DE	49.4447	7.7690	99000
+Schwerin	Schwerin		DE	53.6355	11.4012	96000
+Hanau	Hanau		DE	50.1264	8.9283	96000
+Esslingen am Neckar	Esslingen am Neckar	Esslingen	DE	48.7406	9.3108	94000
+Gera	Gera		DE	50.8806	12.0819	93000
+Ludwigsburg	Ludwigsburg		DE	48.8975	9.1922	93000
+Flensburg	Flensburg		DE	54.7937	9.4469	91000
+Tübingen	Tübingen	Tuebingen	DE	48.5216	9.0576	91000
+Gießen	Gießen	Giessen	DE	50.5841	8.6784	90000
+Zwickau	Zwickau		DE	50.7189	12.4964	88000
+Konstanz	Konstanz	Constance	DE	47.6779	9.1732	85000
+Worms	Worms		DE	49.6341	8.3507	83000
+Marburg	Marburg		DE	50.8021	8.7667	77000
+Bamberg	Bamberg		DE	49.8988	10.9028	77000
+Lüneburg	Lüneburg	Lueneburg	DE	53.2464	10.4115	75000
+Bayreuth	Bayreuth		DE	49.9456	11.5713	74000
+Landshut	Landshut		DE	48.5442	12.1469	73000
+Celle	Celle		DE	52.6226	10.0805	70000
+Fulda	Fulda		DE	50.5558	9.6808	68000
+Weimar	Weimar		DE	50.9795	11.3235	65000
+Rosenheim	Rosenheim		DE	47.8561	12.1289	64000
+Stralsund	Stralsund		DE	54.3091	13.0818	59000
+Greifswald	Greifswald		DE	54.0865	13.3923	59000
+Baden-Baden	Baden-Baden		DE	48.7606	8.2398	55000
+Wetzlar	Wetzlar		DE	50.5562	8.5040	53000
+Passau	Passau		DE	48.5667	13.4319	53000
+Speyer	Speyer		DE	49.3173	8.4412	50000
+Garmisch-Partenkirchen	Garmisch-Partenkirchen	Garmisch	DE	47.4921	11.0958	27000
+Vienna	Wien		AT	48.2082	16.3738	1920000
+Graz	Graz		AT	47.0707	15.4395	290000
+Linz	Linz		AT	48.3069	14.2858	207000
+Salzburg	Salzburg		AT	47.8095	13.0550	155000
+Innsbruck	Innsbruck		AT	47.2692	11.4041	131000
+Klagenfurt	Klagenfurt		AT	46.6249	14.3050	101000
+Villach	Villach		AT	46.6111	13.8558	63000
+Bregenz	Bregenz		AT	47.5031	9.7471	29000
+Zurich	Zürich	Zuerich	CH	47.3769	8.5417	421000
+Geneva	Genf	Genève|Geneve	CH	46.2044	6.1432	203000
+Basel	Basel	Bâle	CH	47.5596	7.5886	173000
+Lausanne	Lausanne		CH	46.5197	6.6323	140000
+Bern	Bern	Berne	CH	46.9480	7.4474	134000
+Winterthur	Winterthur		CH	47.4988	8.7237	114000
+Lucerne	Luzern		CH	47.0502	8.3093	82000
+St. Gallen	St. Gallen	Sankt Gallen	CH	47.4245	9.3767	76000
+Lugano	Lugano		CH	46.0037	8.9511	63000
+Paris	Paris		FR	48.8566	2.3522	2161000
+Marseille	Marseille		FR	43.2965	5.3698	870000
+Lyon	Lyon		FR	45.7640	4.8357	516000
+Toulouse	Toulouse		FR	43.6047	1.4442	480000
+Nice	Nizza		FR	43.7102	7.2620	342000
+Nantes	Nantes		FR	47.2184	-1.5536	309000
+Montpellier	Montpellier		FR	43.6108	3.8767	285000
+Strasbourg	Straßburg	Strassburg	FR	48.5734	7.7521	284000
+Bordeaux	Bordeaux		FR	44.8378	-0.5792	257000
+Lille	Lille		FR	50.6292	3.0573	233000
+Rennes	Rennes		FR	48.1173	-1.6778	217000
+Reims	Reims		FR	49.2583	4.0317	182000
+Saint-Étienne	Saint-Étienne		FR	45.4397	4.3872	172000
+Toulon	Toulon		FR	43.1242	5.9280	171000
+Le Havre	Le Havre		FR	49.4944	0.1079	170000
+Grenoble	Grenoble		FR	45.1885	5.7245	158000
+Dijon	Dijon		FR	47.3220	5.0415	156000
+Metz	Metz		FR	49.1193	6.1757	117000
+Mulhouse	Mülhausen	Muelhausen	FR	47.7508	7.3359	108000
+Nancy	Nancy		FR	48.6921	6.1844	104000
+Avignon	Avignon		FR	43.9493	4.8055	92000
+Cannes	Cannes		FR	43.5528	7.0174	74000
+Rome	Rom	Roma	IT	41.9028	12.4964	2873000
+Milan	Mailand	Milano	IT	45.4642	9.1900	1352000
+Naples	Neapel	Napoli	IT	40.8518	14.2681	967000
+Turin	Turin	Torino	IT	45.0703	7.6869	870000
+Palermo	Palermo		IT	38.1157	13.3615	663000
+Genoa	Genua	Genova	IT	44.4056	8.9463	580000
+Bologna	Bologna		IT	44.4949	11.3426	390000
+Florence	Florenz	Firenze	IT	43.7696	11.2558	382000
+Bari	Bari		IT	41.1171	16.8719	320000
+Catania	Catania		IT	37.5079	15.0830	311000
+Venice	Venedig	Venezia	IT	45.4408	12.3155	261000
+Verona	Verona		IT	45.4384	10.9916	257000
+Padua	Padua	Padova	IT	45.4064	11.8768	210000
+Trieste	Triest		IT	45.6495	13.7768	204000
+Bolzano	Bozen		IT	46.4983	11.3548	107000
+Pisa	Pisa		IT	43.7228	10.4017	90000
+Madrid	Madrid		ES	40.4168	-3.7038	3223000
+Barcelona	Barcelona		ES	41.3874	2.1686	1620000
+Valencia	Valencia	València	ES	39.4699	-0.3763	791000
+Seville	Sevilla		ES	37.3891	-5.9845	688000
+Zaragoza	Saragossa		ES	41.6488	-0.8891	666000
+Málaga	Málaga	Malaga	ES	36.7213	-4.4214	571000
+Palma	Palma	Palma de Mallorca|Mallorca	ES	39.5696	2.6502	416000
+Las Palmas de Gran Canaria	Las Palmas de Gran Canaria	Gran Canaria	ES	28.1235	-15.4363	379000
+Bilbao	Bilbao		ES	43.2630	-2.9350	346000
+Alicante	Alicante		ES	38.3452	-0.4810	334000
+Córdoba	Córdoba	Cordoba	ES	37.8882	-4.7794	326000
+Valladolid	Valladolid		ES	41.6523	-4.7245	298000
+Granada	Granada		ES	37.1773	-3.5986	232000
+Santa Cruz de Tenerife	Santa Cruz de Tenerife	Tenerife|Teneriffa	ES	28.4636	-16.2518	207000
+San Sebastián	San Sebastián	Donostia	ES	43.3183	-1.9812	187000
+Ibiza	Ibiza	Eivissa	ES	38.9067	1.4206	50000
+Lisbon	Lissabon	Lisboa	PT	38.7223	-9.1393	545000
+Porto	Porto	Oporto	PT	41.1579	-8.6291	232000
+Funchal	Funchal	Madeira	PT	32.6669	-16.9241	105000
+Faro	Faro		PT	37.0194	-7.9322	65000
+Amsterdam	Amsterdam		NL	52.3676	4.9041	872000
+Rotterdam	Rotterdam		NL	51.9244	4.4777	651000
+The Hague	Den Haag	's-Gravenhage	NL	52.0705	4.3007	545000
+Utrecht	Utrecht		NL	52.0907	5.1214	357000
+Eindhoven	Eindhoven		NL	51.4416	5.4697	235000
+Groningen	Groningen		NL	53.2194	6.5665	233000
+Nijmegen	Nimwegen		NL	51.8126	5.8372	177000
+Arnhem	Arnheim		NL	51.9851	5.8987	161000
+Enschede	Enschede		NL	52.2215	6.8937	159000
+Maastricht	Maastricht		NL	50.8514	5.6910	121000
+Brussels	Brüssel	Bruxelles|Brussel	BE	50.8503	4.3517	1209000
+Antwerp	Antwerpen	Anvers	BE	51.2194	4.4025	529000
+Ghent	Gent	Gand	BE	51.0543	3.7174	263000
+Charleroi	Charleroi		BE	50.4108	4.4446	201000
+Liège	Lüttich	Liege|Luik	BE	50.6326	5.5797	197000
+Bruges	Brügge	Brugge	BE	51.2093	3.2247	118000
+Leuven	Löwen	Louvain	BE	50.8798	4.7005	101000
+Luxembourg	Luxemburg	Lëtzebuerg	LU	49.6116	6.1319	128000
+London	London		GB	51.5074	-0.1278	8982000
+Birmingham	Birmingham		GB	52.4862	-1.8904	1141000
+Leeds	Leeds		GB	53.8008	-1.5491	793000
+Glasgow	Glasgow		GB	55.8642	-4.2518	635000
+Sheffield	Sheffield		GB	53.3811	-1.4701	585000
+Manchester	Manchester		GB	53.4808	-2.2426	553000
+Edinburgh	Edinburgh		GB	55.9533	-3.1883	525000
+Liverpool	Liverpool		GB	53.4084	-2.9916	498000
+Bristol	Bristol		GB	51.4545	-2.5879	467000
+Cardiff	Cardiff	Caerdydd	GB	51.4816	-3.1791	364000
+Leicester	Leicester		GB	52.6369	-1.1398	355000
+Belfast	Belfast		GB	54.5973	-5.9301	343000
+Nottingham	Nottingham		GB	52.9548	-1.1581	331000
+Newcastle upon Tyne	Newcastle upon Tyne	Newcastle	GB	54.9783	-1.6178	300000
+Brighton	Brighton		GB	50.8225	-0.1372	290000
+Southampton	Southampton		GB	50.9097	-1.4044	253000
+York	York		GB	53.9600	-1.0873	210000
+Aberdeen	Aberdeen		GB	57.1497	-2.0943	198000
+Oxford	Oxford		GB	51.7520	-1.2577	152000
+Cambridge	Cambridge		GB	52.2053	0.1218	145000
+Dublin	Dublin	Baile Átha Cliath	IE	53.3498	-6.2603	554000
+Cork	Cork		IE	51.8985	-8.4756	210000
+Galway	Galway		IE	53.2707	-9.0568	80000
+Copenhagen	Kopenhagen	København|Kobenhavn	DK	55.6761	12.5683	794000
+Aarhus	Aarhus	Århus	DK	56.1629	10.2039	285000
+Odense	Odense		DK	55.4038	10.4024	180000
+Aalborg	Aalborg		DK	57.0488	9.9217	119000
+Stockholm	Stockholm		SE	59.3293	18.0686	975000
+Gothenburg	Göteborg	Goeteborg	SE	57.7089	11.9746	583000
+Malmö	Malmö	Malmo	SE	55.6050	13.0038	347000
+Uppsala	Uppsala		SE	59.8586	17.6389	177000
+Oslo	Oslo		NO	59.9139	10.7522	697000
+Bergen	Bergen		NO	60.3913	5.3221	285000
+Trondheim	Trondheim		NO	63.4305	10.3951	205000
+Stavanger	Stavanger		NO	58.9700	5.7331	144000
+Tromsø	Tromsø	Tromso	NO	69.6492	18.9553	77000
+Helsinki	Helsinki	Helsingfors	FI	60.1699	24.9384	656000
+Espoo	Espoo		FI	60.2055	24.6559	292000
+Tampere	Tampere		FI	61.4978	23.7610	244000
+Oulu	Oulu		FI	65.0121	25.4651	207000
+Turku	Turku	Åbo	FI	60.4518	22.2666	195000
+Reykjavík	Reykjavík	Reykjavik	IS	64.1466	-21.9426	131000
+Warsaw	Warschau	Warszawa	PL	52.2297	21.0122	1790000
+Kraków	Krakau	Krakow|Cracow	PL	50.0647	19.9450	780000
+Łódź	Lodz		PL	51.7592	19.4560	680000
+Wrocław	Breslau	Wroclaw	PL	51.1079	17.0385	641000
+Poznań	Posen	Poznan	PL	52.4064	16.9252	534000
+Gdańsk	Danzig	Gdansk	PL	54.3520	18.6466	470000
+Szczecin	Stettin		PL	53.4285	14.5528	401000
+Bydgoszcz	Bromberg		PL	53.1235	18.0084	346000
+Lublin	Lublin		PL	51.2465	22.5684	339000
+Katowice	Kattowitz		PL	50.2649	19.0238	294000
+Gdynia	Gdingen		PL	54.5189	18.5305	246000
+Prague	Prag	Praha	CZ	50.0755	14.4378	1309000
+Brno	Brünn		CZ	49.1951	16.6068	381000
+Ostrava	Ostrau		CZ	49.8209	18.2625	287000
+Plzeň	Pilsen	Plzen	CZ	49.7384	13.3736	171000
+Karlovy Vary	Karlsbad		CZ	50.2310	12.8711	48000
+Bratislava	Bratislava	Pressburg	SK	48.1486	17.1077	437000
+Košice	Kaschau	Kosice	SK	48.7164	21.2611	238000
+Budapest	Budapest		HU	47.4979	19.0402	1752000
+Debrecen	Debrecen		HU	47.5316	21.6273	201000
+Szeged	Szeged		HU	46.2530	20.1414	160000
+Ljubljana	Laibach		SI	46.0569	14.5058	295000
+Maribor	Marburg an der Drau		SI	46.5547	15.6459	95000
+Zagreb	Zagreb	Agram	HR	45.8150	15.9819	790000
+Split	Split		HR	43.5081	16.4402	178000
+Rijeka	Rijeka		HR	45.3271	14.4422	128000
+Dubrovnik	Dubrovnik		HR	42.6507	18.0944	42000
+Belgrade	Belgrad	Beograd	RS	44.7866	20.4489	1166000
+Novi Sad	Novi Sad	Neusatz	RS	45.2671	19.8335	250000
+Sarajevo	Sarajevo		BA	43.8563	18.4131	275000
+Podgorica	Podgorica		ME	42.4304	19.2594	150000
+Skopje	Skopje		MK	41.9981	21.4254	545000
+Tirana	Tirana	Tirane	AL	41.3275	19.8187	418000
+Pristina	Pristina	Prishtina	XK	42.6629	21.1655	200000
+Athens	Athen	Athina	GR	37.9838	23.7275	664000
+Thessaloniki	Thessaloniki	Saloniki	GR	40.6401	22.9444	325000
+Heraklion	Heraklion	Iraklio	GR	35.3387	25.1442	173000
+Patras	Patras		GR	38.2466	21.7346	168000
+Sofia	Sofia		BG	42.6977	23.3219	1242000
+Plovdiv	Plowdiw		BG	42.1354	24.7453	346000
+Varna	Warna		BG	43.2141	27.9147	336000
+Burgas	Burgas		BG	42.5048	27.4626	202000
+Bucharest	Bukarest	București|Bucuresti	RO	44.4268	26.1025	1883000
+Cluj-Napoca	Klausenburg	Cluj	RO	46.7712	23.6236	324000
+Timișoara	Temeswar	Timisoara	RO	45.7489	21.2087	319000
+Iași	Iași	Iasi	RO	47.1585	27.6014	290000
+Constanța	Konstanza	Constanta	RO	44.1598	28.6348	283000
+Brașov	Kronstadt	Brasov	RO	45.6427	25.5887	253000
+Sibiu	Hermannstadt		RO	45.7983	24.1256	147000
+Chișinău	Chișinău	Chisinau|Kischinau	MD	47.0105	28.8638	532000
+Kyiv	Kiew	Kiev	UA	50.4501	30.5234	2884000
+Kharkiv	Charkiw	Kharkov	UA	49.9935	36.2304	1433000
+Odesa	Odessa		UA	46.4825	30.7233	1017000
+Dnipro	Dnipro		UA	48.4647	35.0462	980000
+Lviv	Lwiw	Lemberg|Lvov	UA	49.8397	24.0297	721000
+Minsk	Minsk		BY	53.9006	27.5590	2009000
+Vilnius	Vilnius	Wilna	LT	54.6872	25.2797	588000
+Kaunas	Kaunas	Kauen	LT	54.8985	23.9036	289000
+Riga	Riga	Rīga	LV	56.9496	24.1052	632000
+Tallinn	Tallinn	Reval	EE	59.4370	24.7536	437000
+Tartu	Tartu	Dorpat	EE	58.3780	26.7290	91000
+Moscow	Moskau	Moskva	RU	55.7558	37.6173	12506000
+Saint Petersburg	Sankt Petersburg	St. Petersburg	RU	59.9311	30.3609	5384000
+Novosibirsk	Nowosibirsk		RU	55.0084	82.9357	1626000
+Yekaterinburg	Jekaterinburg		RU	56.8389	60.6057	1493000
+Kaliningrad	Kaliningrad	Königsberg	RU	54.7104	20.4522	490000
+Istanbul	Istanbul	İstanbul	TR	41.0082	28.9784	15460000
+Ankara	Ankara		TR	39.9334	32.8597	5663000
+Izmir	Izmir	İzmir	TR	38.4237	27.1428	4367000
+Bursa	Bursa		TR	40.1885	29.0610	1983000
+Antalya	Antalya		TR	36.8969	30.7133	1319000
+Nicosia	Nikosia	Lefkosia	CY	35.1856	33.3823	200000
+Limassol	Limassol	Lemesos	CY	34.7071	33.0226	183000
+Valletta	Valletta		MT	35.8989	14.5146	6000
+New York	New York	New York City|NYC	US	40.7128	-74.0060	8336000
+Los Angeles	Los Angeles	LA	US	34.0522	-118.2437	3979000
+Chicago	Chicago		US	41.8781	-87.6298	2694000
+Houston	Houston		US	29.7604	-95.3698	2320000
+Phoenix	Phoenix		US	33.4484	-112.0740	1680000
+Philadelphia	Philadelphia		US	39.9526	-75.1652	1584000
+San Antonio	San Antonio		US	29.4241	-98.4936	1547000
+San Diego	San Diego		US	32.7157	-117.1611	1423000
+Dallas	Dallas		US	32.7767	-96.7970	1343000
+Austin	Austin		US	30.2672	-97.7431	978000
+San Francisco	San Francisco		US	37.7749	-122.4194	881000
+Seattle	Seattle		US	47.6062	-122.3321	753000
+Denver	Denver		US	39.7392	-104.9903	727000
+Washington	Washington	Washington, D.C.	US	38.9072	-77.0369	705000
+Boston	Boston		US	42.3601	-71.0589	692000
+Detroit	Detroit		US	42.3314	-83.0458	670000
+Nashville	Nashville		US	36.1627	-86.7816	670000
+Portland	Portland		US	45.5152	-122.6784	653000
+Las Vegas	Las Vegas		US	36.1699	-115.1398	651000
+Atlanta	Atlanta		US	33.7490	-84.3880	498000
+Miami	Miami		US	25.7617	-80.1918	467000
+Minneapolis	Minneapolis		US	44.9778	-93.2650	429000
+New Orleans	New Orleans		US	29.9511	-90.0715	390000
+Honolulu	Honolulu		US	21.3069	-157.8583	345000
+Pittsburgh	Pittsburgh		US	40.4406	-79.9959	302000
+Anchorage	Anchorage		US	61.2181	-149.9003	291000
+Orlando	Orlando		US	28.5383	-81.3792	287000
+Salt Lake City	Salt Lake City		US	40.7608	-111.8910	200000
+Toronto	Toronto		CA	43.6532	-79.3832	2731000
+Montreal	Montreal	Montréal	CA	45.5017	-73.5673	1780000
+Calgary	Calgary		CA	51.0447	-114.0719	1239000
+Edmonton	Edmonton		CA	53.5461	-113.4938	981000
+Ottawa	Ottawa		CA	45.4215	-75.6972	934000
+Winnipeg	Winnipeg		CA	49.8951	-97.1384	705000
+Vancouver	Vancouver		CA	49.2827	-123.1207	631000
+Quebec City	Québec	Quebec	CA	46.8139	-71.2080	531000
+Halifax	Halifax		CA	44.6488	-63.5752	403000
+Mexico City	Mexiko-Stadt	Ciudad de México|Mexico	MX	19.4326	-99.1332	9209000
+Guadalajara	Guadalajara		MX	20.6597	-103.3496	1385000
+Monterrey	Monterrey		MX	25.6866	-100.3161	1135000
+Cancún	Cancún	Cancun	MX	21.1619	-86.8515	888000
+Havana	Havanna	La Habana	CU	23.1136	-82.3666	2130000
+São Paulo	São Paulo	Sao Paulo	BR	-23.5505	-46.6333	12325000
+Rio de Janeiro	Rio de Janeiro	Rio	BR	-22.9068	-43.1729	6748000
+Brasília	Brasília	Brasilia	BR	-15.7975	-47.8919	3055000
+Salvador	Salvador		BR	-12.9777	-38.5016	2886000
+Buenos Aires	Buenos Aires		AR	-34.6037	-58.3816	3075000
+Córdoba (Argentina)	Córdoba (Argentinien)		AR	-31.4201	-64.1888	1391000
+Santiago de Chile	Santiago de Chile	Santiago	CL	-33.4489	-70.6693	6257000
+Bogotá	Bogotá	Bogota	CO	4.7110	-74.0721	7181000
+Medellín	Medellín	Medellin	CO	6.2442	-75.5812	2533000
+Lima	Lima		PE	-12.0464	-77.0428	9752000
+Caracas	Caracas		VE	10.4806	-66.9036	2245000
+Tokyo	Tokio		JP	35.6762	139.6503	13960000
+Yokohama	Yokohama		JP	35.4437	139.6380	3757000
+Osaka	Osaka		JP	34.6937	135.5023	2691000
+Nagoya	Nagoya		JP	35.1815	136.9066	2296000
+Sapporo	Sapporo		JP	43.0618	141.3545	1973000
+Fukuoka	Fukuoka		JP	33.5904	130.4017	1612000
+Kyoto	Kyoto		JP	35.0116	135.7681	1475000
+Hiroshima	Hiroshima		JP	34.3853	132.4553	1199000
+Shanghai	Shanghai		CN	31.2304	121.4737	24280000
+Beijing	Peking		CN	39.9042	116.4074	21540000
+Chengdu	Chengdu		CN	30.5728	104.0668	16330000
+Guangzhou	Guangzhou	Kanton	CN	23.1291	113.2644	15300000
+Shenzhen	Shenzhen		CN	22.5431	114.0579	12530000
+Xi'an	Xi'an	Xian	CN	34.3416	108.9398	12000000
+Wuhan	Wuhan		CN	30.5928	114.3055	11080000
+Hong Kong	Hongkong		CN	22.3193	114.1694	7482000
+Taipei	Taipeh		TW	25.0330	121.5654	2646000
+Seoul	Seoul		KR	37.5665	126.9780	9776000
+Busan	Busan	Pusan	KR	35.1796	129.0756	3429000
+Delhi	Delhi	New Delhi|Neu-Delhi	IN	28.6139	77.2090	16788000
+Mumbai	Mumbai	Bombay	IN	19.0760	72.8777	12442000
+Bengaluru	Bengaluru	Bangalore	IN	12.9716	77.5946	8443000
+Hyderabad	Hyderabad		IN	17.3850	78.4867	6810000
+Chennai	Chennai	Madras	IN	13.0827	80.2707	4646000
+Kolkata	Kalkutta	Calcutta	IN	22.5726	88.3639	4497000
+Karachi	Karatschi		PK	24.8607	67.0011	14910000
+Lahore	Lahore		PK	31.5204	74.3587	11126000
+Islamabad	Islamabad		PK	33.6844	73.0479	1015000
+Dhaka	Dhaka	Dacca	BD	23.8103	90.4125	8906000
+Kathmandu	Kathmandu		NP	27.7172	85.3240	1442000
+Colombo	Colombo		LK	6.9271	79.8612	753000
+Bangkok	Bangkok		TH	13.7563	100.5018	8281000
+Chiang Mai	Chiang Mai		TH	18.7883	98.9853	127000
+Phuket	Phuket		TH	7.8804	98.3923	79000
+Ho Chi Minh City	Ho-Chi-Minh-Stadt	Saigon	VN	10.8231	106.6297	8993000
+Hanoi	Hanoi		VN	21.0278	105.8342	8054000
+Manila	Manila		PH	14.5995	120.9842	1780000
+Kuala Lumpur	Kuala Lumpur		MY	3.1390	101.6869	1808000
+Singapore	Singapur		SG	1.3521	103.8198	5686000
+Jakarta	Jakarta		ID	-6.2088	106.8456	10560000
+Denpasar	Denpasar	Bali	ID	-8.6705	115.2126	726000
+Sydney	Sydney		AU	-33.8688	151.2093	5312000
+Melbourne	Melbourne		AU	-37.8136	144.9631	5078000
+Brisbane	Brisbane		AU	-27.4698	153.0251	2560000
+Perth	Perth		AU	-31.9505	115.8605	2085000
+Adelaide	Adelaide		AU	-34.9285	138.6007	1376000
+Canberra	Canberra		AU	-35.2809	149.1300	431000
+Auckland	Auckland		NZ	-36.8485	174.7633	1657000
+Christchurch	Christchurch		NZ	-43.5321	172.6362	381000
+Wellington	Wellington		NZ	-41.2865	174.7762	215000
+Johannesburg	Johannesburg		ZA	-26.2041	28.0473	5635000
+Cape Town	Kapstadt	Kaapstad	ZA	-33.9249	18.4241	4618000
+Durban	Durban		ZA	-29.8587	31.0218	3720000
+Pretoria	Pretoria	Tshwane	ZA	-25.7479	28.2293	2473000
+Cairo	Kairo		EG	30.0444	31.2357	9540000
+Alexandria	Alexandria		EG	31.2001	29.9187	5200000
+Casablanca	Casablanca		MA	33.5731	-7.5898	3360000
+Marrakesh	Marrakesch	Marrakech	MA	31.6295	-7.9811	929000
+Rabat	Rabat		MA	34.0209	-6.8416	577000
+Tunis	Tunis		TN	36.8065	10.1815	638000
+Algiers	Algier	Alger	DZ	36.7538	3.0588	3416000
+Lagos	Lagos		NG	6.5244	3.3792	14368000
+Abuja	Abuja		NG	9.0765	7.3986	1235000
+Nairobi	Nairobi		KE	-1.2921	36.8219	4397000
+Addis Ababa	Addis Abeba		ET	8.9806	38.7578	3384000
+Accra	Accra		GH	5.6037	-0.1870	2291000
+Dakar	Dakar		SN	14.7167	-17.4677	1146000
+Dar es Salaam	Daressalam		TZ	-6.7924	39.2083	4365000
+Jerusalem	Jerusalem		IL	31.7683	35.2137	936000
+Tel Aviv	Tel Aviv	Tel Aviv-Yafo	IL	32.0853	34.7818	460000
+Amman	Amman		JO	31.9454	35.9284	4007000
+Beirut	Beirut		LB	33.8938	35.5018	2200000
+Dubai	Dubai		AE	25.2048	55.2708	3331000
+Abu Dhabi	Abu Dhabi		AE	24.4539	54.3773	1483000
+Doha	Doha		QA	25.2854	51.5310	2382000
+Riyadh	Riad		SA	24.7136	46.6753	7676000
+Jeddah	Dschidda	Jidda	SA	21.4858	39.1925	3976000
+Tehran	Teheran		IR	35.6892	51.3890	8694000
+Baghdad	Bagdad		IQ	33.3152	44.3661	7216000
+Tbilisi	Tiflis		GE	41.7151	44.8271	1171000
+Yerevan	Jerewan	Eriwan	AM	40.1792	44.4991	1093000
+Baku	Baku		AZ	40.4093	49.8671	2293000
+Almaty	Almaty	Alma-Ata	KZ	43.2220	76.8512	1977000
+Astana	Astana		KZ	51.1694	71.4491	1184000
+Tashkent	Taschkent		UZ	41.2995	69.2401	2571000
+Ulaanbaatar	Ulaanbaatar	Ulan Bator	MN	47.8864	106.9057	1466000
