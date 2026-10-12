@@ -1041,3 +1041,5 @@ mod a_label_names_the_control_it_is_for;
 mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 #[path = "a_padded_span_in_a_flex_row_fits_its_text.rs"]
 mod a_padded_span_in_a_flex_row_fits_its_text;
+#[path = "a_press_on_an_image_over_text_selects_nothing.rs"]
+mod a_press_on_an_image_over_text_selects_nothing;
