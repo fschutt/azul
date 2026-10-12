@@ -599,11 +599,7 @@ pub fn ensure_pages_drawn(st: &mut AppState, info: &mut CallbackInfo, app: &RefA
             ..PageCache::default()
         };
     }
-    let Some((page_count, xml)) = st
-        .chapter
-        .as_ref()
-        .map(|c| (c.pages.page_count(), c.content.xml.clone()))
-    else {
+    let Some(page_count) = st.chapter.as_ref().map(|c| c.pages.page_count()) else {
         return;
     };
     let geometry = st.geometry();
@@ -620,6 +616,10 @@ pub fn ensure_pages_drawn(st: &mut AppState, info: &mut CallbackInfo, app: &RefA
     let covered = st.pictures.covered();
     let Some((first, count)) = pagecache::next_run(page, geometry.per_view, page_count, &covered)
     else {
+        return;
+    };
+    // The chapter's tree is cloned only for a run that is drawn (this runs at every tick).
+    let Some(xml) = st.chapter.as_ref().map(|c| c.content.xml.clone()) else {
         return;
     };
     let colors = st.settings.paper.colors(st.dark, st.flora);
