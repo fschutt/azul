@@ -88,11 +88,22 @@ impl WindowPlace {
 /// un-maximizing to `size`.
 #[must_use]
 pub fn startup(saved: Option<WindowPlace>, scripted: bool, size: (f32, f32)) -> Startup {
-    let _ = (saved, scripted);
-    Startup {
-        size,
-        position: None,
-        maximized: false,
+    match saved {
+        _ if scripted => Startup {
+            size,
+            position: None,
+            maximized: false,
+        },
+        Some(place) => Startup {
+            size: (place.width, place.height),
+            position: place.x.zip(place.y),
+            maximized: place.maximized,
+        },
+        None => Startup {
+            size,
+            position: None,
+            maximized: true,
+        },
     }
 }
 
@@ -100,8 +111,32 @@ pub fn startup(saved: Option<WindowPlace>, scripted: bool, size: (f32, f32)) -> 
 /// `fallback` is the size un-maximizing returns to when no normal size was ever seen.
 #[must_use]
 pub fn observe(previous: Option<WindowPlace>, seen: Seen, fallback: (f32, f32)) -> Option<WindowPlace> {
-    let _ = (seen, fallback);
-    previous
+    match seen {
+        Seen::Normal { size, position } => {
+            let usable = |v: f32| v.is_finite() && v >= 1.0;
+            if !(usable(size.0) && usable(size.1)) {
+                return previous;
+            }
+            Some(WindowPlace {
+                width: size.0,
+                height: size.1,
+                x: position.map(|p| p.0),
+                y: position.map(|p| p.1),
+                maximized: false,
+            })
+        }
+        Seen::Maximized => Some(WindowPlace {
+            maximized: true,
+            ..previous.unwrap_or(WindowPlace {
+                width: fallback.0,
+                height: fallback.1,
+                x: None,
+                y: None,
+                maximized: true,
+            })
+        }),
+        Seen::Other => previous,
+    }
 }
 
 /// Reads the place kept at `path`, if any.

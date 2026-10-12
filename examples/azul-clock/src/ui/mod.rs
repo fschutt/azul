@@ -428,6 +428,8 @@ pub fn start() {
     // Every notification AzClock posts goes here - also the tap that
     // launched it, in a process that never posted it.
     config.set_notification_handler(app_ref.clone(), on_notification as CallbackType);
+    // A small tool: its window is laid out for its own size, never maximized.
+    kit::keep_default_size(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (720.0, 560.0), (360.0, 480.0), on_window_created);
     App::create(app_ref, config).run(window);
 }

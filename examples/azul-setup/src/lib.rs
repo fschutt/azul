@@ -957,6 +957,8 @@ extern "C" fn on_settings(
 /// The wizard's window: the classic wizard's size plus the title row
 /// (azul-appkit's window: `NoTitle`, `--size`, a minimum size, `--shot`).
 fn setup_window(kit_ref: &RefAny) -> WindowCreateOptions {
+    // A wizard: its pages are laid out for the classic size, never maximized.
+    kit::keep_default_size(kit_ref);
     let mut window = kit::window_options(
         kit_ref,
         layout,
@@ -982,6 +984,7 @@ fn settings_window() -> WindowCreateOptions {
 
 /// The settings window as the first window (`--screen settings`).
 fn first_settings_window(kit_ref: &RefAny) -> WindowCreateOptions {
+    kit::keep_default_size(kit_ref);
     let mut window =
         kit::window_options(kit_ref, settings_layout, (920.0, 640.0), (640.0, 480.0), on_window_created);
     window.window_state.title = s("AzOffice Settings");

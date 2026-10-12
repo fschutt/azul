@@ -1,8 +1,9 @@
 //! The UI the Azlin apps share (feature `azul`): one [`Kit`] per app.
 //!
 //! The app keeps the kit's `RefAny` in its own state and asks it for:
-//! - the window ([`window_options`]: `NoTitle`, `--size`, a compact minimum
-//!   size) and the app config ([`app_config`]: the app theme and mode the
+//! - the window ([`window_options`]: `NoTitle`, a compact minimum size,
+//!   maximized on the first start and then where and as big as the user left
+//!   it - [`crate::window_place`] - or `--size`) and the app config ([`app_config`]: the app theme and mode the
 //!   user chose in any Azlin app - `~/.azlin/config.json`, over the app's
 //!   `settings.json` - unless the app pins its theme ([`pin_theme`]), a
 //!   `--theme` / `--mode` switch winning for one run);
@@ -41,7 +42,7 @@ use azul::{
         ButtonOnClickCallbackType, CallbackType, LayoutCallbackType, SegmentedOnChangeCallbackType,
         TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType,
     },
-    css::DarkLightMode,
+    css::{DarkLightMode, PhysicalPositionI32, WindowPosition},
     dom::{DomId, VirtualKeyCode},
     file::FilePath,
     option::{OptionDarkLightMode, OptionLogicalSize},
@@ -56,7 +57,7 @@ use azul::{
         AboutDialog, Button, Modal, ModalState, Segmented, SegmentedState, StandardDialogEvent,
         TabsInTitlebar, Titlebar,
     },
-    window::{WindowCreateOptions, WindowDecorations},
+    window::{WindowCreateOptions, WindowDecorations, WindowFrame},
 };
 use azul_storage::LocalDrive;
 
@@ -72,6 +73,7 @@ use crate::{
     options::{categories, category_id, category_index, notice_after_save, Category, Snapshot},
     settings::{AppSettings, SETTINGS_FILE},
     shortcuts::{display_keys, groups, Shortcut, KIT_SHORTCUTS},
+    window_place::{self, Seen, WindowPlace},
 };
 
 /// The kit's categories, after the app's own ([`crate::options::KIT_CATEGORIES`]).
@@ -127,6 +129,12 @@ pub struct Kit {
     /// The update kit, from `update::app::start` on (`None`: the app has none): the periodic
     /// check [`on_window_created`] arms and the banner's offer.
     pub updates: Option<crate::update::app::AppUpdates>,
+    /// The app opens at its own size on its first start, not maximized ([`keep_default_size`]:
+    /// a calculator, a clock, a wizard).
+    pub keeps_default_size: bool,
+    /// The size the main window opened at (a maximized one's restored size), from
+    /// [`window_options`]: what the kept place falls back to while no normal size was seen.
+    window_size: (f32, f32),
 }
 
 /// What an app does after Cancel put its settings back: re-read its own copies of its values
@@ -146,6 +154,12 @@ impl Kit {
     #[must_use]
     pub fn categories(&self) -> Vec<String> {
         categories(&self.app_categories)
+    }
+
+    /// The file of the main window's place on this computer ([`window_place`]).
+    #[must_use]
+    pub fn window_place_path(&self) -> PathBuf {
+        window_place::place_path(&self.data_root, self.about.app_folder)
     }
 
     /// The key of the settings file.
@@ -290,7 +304,19 @@ pub fn create_kit(
         pinned_theme: None,
         config_path,
         updates: None,
+        keeps_default_size: false,
+        window_size: (0.0, 0.0),
     })
+}
+
+/// The app opens at its own default size on its first start instead of maximized - for a
+/// small tool or a wizard, whose window is laid out for that size. It still opens where and as
+/// big as the user left it afterwards. Call it after [`create_kit`], before [`window_options`].
+pub fn keep_default_size(kit_ref: &RefAny) {
+    let mut kit = kit_ref.clone();
+    if let Some(mut k) = kit.downcast_mut::<Kit>() {
+        k.keeps_default_size = true;
+    };
 }
 
 /// Pins the app's theme: the app always shows `theme` (AzWriter flora,
@@ -341,8 +367,10 @@ pub fn add_kit_icons(config: &mut AppConfig) {
     azul_icons_haiku::register(&mut config.icon_provider);
 }
 
-/// The main window: the app's title, `NoTitle` (the app draws the title row),
-/// `--size` or the default size, a minimum size, the create callback.
+/// The main window: the app's title, `NoTitle` (the app draws the title row), a minimum size,
+/// the create callback, and where it opens ([`window_place`]): maximized on the first start
+/// (over the default size, what un-maximizing returns to), then where and as big as the user
+/// left it; a `--size` or `--shot` run at its size.
 #[must_use]
 pub fn window_options(
     kit: &RefAny,
@@ -352,13 +380,34 @@ pub fn window_options(
     on_create: CallbackType,
 ) -> WindowCreateOptions {
     let mut kit = kit.clone();
-    let (name, size) = match kit.downcast_ref::<Kit>() {
-        Some(k) => (k.spec.name.to_string(), k.args.size.unwrap_or(default_size)),
-        None => (String::new(), default_size),
+    let (name, startup) = match kit.downcast_mut::<Kit>() {
+        Some(mut k) => {
+            let scripted = k.args.size.is_some() || k.args.shot.is_some();
+            let saved = if scripted {
+                None
+            } else {
+                window_place::load(&k.window_place_path())
+            };
+            let mut startup =
+                window_place::startup(saved, scripted, k.args.size.unwrap_or(default_size));
+            if saved.is_none() && k.keeps_default_size {
+                startup.maximized = false;
+            }
+            k.window_size = startup.size;
+            (k.spec.name.to_string(), startup)
+        }
+        None => (String::new(), window_place::startup(None, true, default_size)),
     };
+    let size = startup.size;
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from(name.as_str());
     window.window_state.size.dimensions = LogicalSize::create(size.0, size.1);
+    if let Some((x, y)) = startup.position {
+        window.window_state.position = WindowPosition::Initialized(PhysicalPositionI32 { x, y });
+    }
+    if startup.maximized {
+        window.window_state.flags.frame = WindowFrame::Maximized;
+    }
     window.window_state.size.min_dimensions =
         OptionLogicalSize::Some(LogicalSize::create(min_size.0, min_size.1));
     window.window_state.flags.decorations = WindowDecorations::NoTitle;
@@ -400,6 +449,79 @@ pub fn on_window_created(kit: &RefAny, info: &mut CallbackInfo) {
     if kit.downcast_ref::<Kit>().is_some_and(|k| k.updates.is_some()) {
         crate::update::app::arm(&kit, info);
     }
+    watch_window_place(&kit, info);
+}
+
+/// How long after the window opened its place is first looked at: a maximize the OS does
+/// after the window shows has landed by then.
+const PLACE_DELAY_MS: u64 = 2000;
+
+/// How often the window's place is looked at (a write only when it changed).
+const PLACE_TICK_MS: u64 = 1000;
+
+/// What the window-place timer keeps between its ticks.
+struct PlaceWatch {
+    /// The app's window-place file ([`Kit::window_place_path`]).
+    path: PathBuf,
+    /// The place the file holds: a tick writes only when the window's differs.
+    last: Option<WindowPlace>,
+    /// The restored size of a window that was only ever seen maximized.
+    fallback: (f32, f32),
+}
+
+/// Keeps the main window's place while the app runs ([`window_place`]): a timer looks at it
+/// every second and writes the file when it changed, so even a crash keeps the last place.
+/// A scripted run (`--size`, `--shot`) leaves the file alone.
+fn watch_window_place(kit: &RefAny, info: &mut CallbackInfo) {
+    let mut kit = kit.clone();
+    let watch = kit
+        .downcast_ref::<Kit>()
+        .filter(|k| k.args.size.is_none() && k.args.shot.is_none())
+        .map(|k| {
+            let path = k.window_place_path();
+            let last = window_place::load(&path);
+            PlaceWatch {
+                path,
+                last,
+                fallback: k.window_size,
+            }
+        });
+    let Some(watch) = watch else {
+        return;
+    };
+    let timer = Timer::create(RefAny::new(watch), place_tick, info.get_system_time_fn())
+        .with_delay(Duration::System(SystemTimeDiff::from_millis(PLACE_DELAY_MS)))
+        .with_interval(Duration::System(SystemTimeDiff::from_millis(PLACE_TICK_MS)));
+    info.add_timer(TimerId::unique(), timer);
+}
+
+extern "C" fn place_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let state = info.callback_info.get_current_window_state();
+    let seen = match state.flags.frame {
+        WindowFrame::Maximized => Seen::Maximized,
+        WindowFrame::Normal => Seen::Normal {
+            size: (state.size.dimensions.width, state.size.dimensions.height),
+            position: match state.position {
+                WindowPosition::Initialized(p) => Some((p.x, p.y)),
+                _ => None,
+            },
+        },
+        _ => Seen::Other,
+    };
+    let Some(mut watch) = data.downcast_mut::<PlaceWatch>() else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let next = window_place::observe(watch.last, seen, watch.fallback);
+    if next != watch.last {
+        if let Some(place) = next {
+            match window_place::save(&watch.path, &place) {
+                Ok(()) => watch.last = next,
+                // Tried again on the next tick; a full disk must not end the app.
+                Err(e) => eprintln!("[appkit] window place not kept at {}: {e}", watch.path.display()),
+            }
+        }
+    }
+    TimerCallbackReturn::continue_unchanged()
 }
 
 struct ShotConfig {
