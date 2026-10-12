@@ -7694,6 +7694,45 @@ mod autotest_generated {
         );
     }
 
+    /// CSS Images 3 mixes colour stops in premultiplied space: red fading to
+    /// a transparent blue stays red while it fades. Chrome paints the middle
+    /// of `linear-gradient(red, rgba(0, 0, 255, 0))` over white as
+    /// (255, 128, 128), and so does WebRender. Mixed straight, the middle
+    /// would be a purple (191, 128, 191).
+    #[test]
+    fn a_gradient_fading_to_transparent_keeps_its_colour_as_chrome_paints_it() {
+        const CLEAR_BLUE: ColorU = ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 0,
+        };
+        let mut p = pixmap(4, 256);
+        render_linear_gradient(
+            &mut p,
+            &lrect(0.0, 0.0, 4.0, 256.0),
+            &linear(lin_stops(&[(0.0, RED), (100.0, CLEAR_BLUE)])),
+            &BorderRadius::default(),
+            None,
+            1.0,
+            None,
+        );
+        let middle = px_at(&p, 2, 128);
+        assert!(
+            middle[0] >= 250
+                && (120..=136).contains(&middle[1])
+                && (120..=136).contains(&middle[2]),
+            "the middle is half-transparent red over white: {middle:?}"
+        );
+
+        let lut = build_gradient_lut(&[(0.0, RED), (1.0, CLEAR_BLUE)], 256);
+        let half = lut.get(128);
+        assert!(
+            half.r >= 250 && half.b <= 5 && (120..=136).contains(&half.a),
+            "the LUT keeps the red while the alpha falls: {half:?}"
+        );
+    }
+
     #[test]
     fn adjacent_gradients_at_a_fractional_edge_leave_no_seam() {
         // WPT css/css-backgrounds/background-gradient-subpixel-fills-area:
