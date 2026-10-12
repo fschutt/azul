@@ -456,6 +456,11 @@ impl RenderContext {
             TransientAnchor::Viewport => {
                 "position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483000;"
             }
+            // A dialog window: centred in the page's top layer.
+            TransientAnchor::Dialog => {
+                "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);\
+                 z-index:2147483000;"
+            }
             TransientAnchor::Top => "bottom:100%;top:auto;left:0;",
             TransientAnchor::Left => "right:100%;top:0;left:auto;",
             TransientAnchor::Right => "left:100%;top:0;",

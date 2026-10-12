@@ -379,10 +379,12 @@ impl Win32Window {
         // A parent-owned popup (Menu type + parent id) gets its parent's HWND
         // as OWNER: it orders above the owner, hides/minimises with it, and
         // (with WS_EX_TOOLWINDOW, see create_hwnd) has no taskbar button —
-        // instead of HWND_TOPMOST floating over every other application.
-        let owner_hwnd: Option<HWND> = if options.window_state.flags.window_type
-            == azul_core::window::WindowType::Menu
-            && options.parent_window_id != 0
+        // instead of HWND_TOPMOST floating over every other application. A
+        // dialog window (`anchor="dialog"`) is owned the same way, with its frame.
+        let owner_hwnd: Option<HWND> = if matches!(
+            options.window_state.flags.window_type,
+            azul_core::window::WindowType::Menu | azul_core::window::WindowType::Dialog
+        ) && options.parent_window_id != 0
         {
             registry::get_window(options.parent_window_id as usize as HWND)
                 .map(|_| options.parent_window_id as usize as HWND)

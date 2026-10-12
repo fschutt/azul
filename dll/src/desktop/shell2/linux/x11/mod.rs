@@ -3851,6 +3851,34 @@ impl X11Window {
             }
         }
 
+        // A dialog window (`anchor="dialog"`) is TRANSIENT FOR its parent (the
+        // registry key is the parent's XID): the WM keeps it above the parent,
+        // places it over the parent and gives it no taskbar entry of its own.
+        if options.window_state.flags.window_type == azul_core::window::WindowType::Dialog
+            && options.parent_window_id != 0
+        {
+            // The predefined `XA_WINDOW` atom: the property holds one window id.
+            const XA_WINDOW: defines::Atom = 33;
+            unsafe {
+                let wm_transient_for = (xlib.XInternAtom)(
+                    display,
+                    b"WM_TRANSIENT_FOR\0".as_ptr() as *const c_char,
+                    0,
+                );
+                let parent = options.parent_window_id as std::os::raw::c_long;
+                (xlib.XChangeProperty)(
+                    display,
+                    window_handle,
+                    wm_transient_for,
+                    XA_WINDOW,
+                    32,
+                    defines::PropModeReplace,
+                    &parent as *const std::os::raw::c_long as *const u8,
+                    1,
+                );
+            }
+        }
+
         // MWA-B5: apply decoration hints BEFORE mapping, so frameless / CSD
         // windows never flash the WM frame (and the azul titlebar doesn't
         // render UNDER the WM's real titlebar — the double-chrome bug).

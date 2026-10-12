@@ -5593,10 +5593,19 @@ impl MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::new] Creating window with style mask..."
         );
-        let style_mask = NSWindowStyleMask::Titled
-            | NSWindowStyleMask::Closable
-            | NSWindowStyleMask::Miniaturizable
-            | NSWindowStyleMask::Resizable;
+        // A dialog window (`anchor="dialog"`) owned by a parent: a title bar to move it by and a
+        // close box, nothing to minimize or resize - a sheet-like panel, as AppKit's own alerts.
+        let is_dialog_child = options.window_state.flags.window_type
+            == azul_core::window::WindowType::Dialog
+            && options.parent_window_id != 0;
+        let style_mask = if is_dialog_child {
+            NSWindowStyleMask::Titled | NSWindowStyleMask::Closable
+        } else {
+            NSWindowStyleMask::Titled
+                | NSWindowStyleMask::Closable
+                | NSWindowStyleMask::Miniaturizable
+                | NSWindowStyleMask::Resizable
+        };
 
         // Create the window
         log_trace!(
@@ -5756,8 +5765,9 @@ impl MacOSWindow {
         // A parent-owned popup orders WITH its parent: above it, moving with
         // it, behind any other app that comes to the front — not at the
         // floating level, which kept the colour picker on top of every other
-        // application after its parent was sent to the background.
-        if is_popup_child {
+        // application after its parent was sent to the background. A dialog
+        // window orders with its parent the same way.
+        if is_popup_child || is_dialog_child {
             if let Some(parent) = unsafe {
                 registry::get_window(
                     options.parent_window_id as usize as *mut objc2::runtime::AnyObject,
@@ -6213,7 +6223,7 @@ impl MacOSWindow {
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             is_open: true,
-            child_of: if is_popup_child {
+            child_of: if is_popup_child || is_dialog_child {
                 options.parent_window_id
             } else {
                 0

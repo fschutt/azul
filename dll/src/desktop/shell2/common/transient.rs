@@ -63,8 +63,10 @@ use azul_core::{
     id::NodeId,
     refany::{OptionRefAny, RefAny},
     task::ThreadId,
-    transient::{TransientDismiss, TransientTearoff},
-    window::{VirtualKeyCode, WindowDecorations, WindowPosition, WindowType},
+    transient::{TransientAnchor, TransientDismiss, TransientTearoff},
+    window::{
+        VirtualKeyCode, WindowBackgroundMaterial, WindowDecorations, WindowPosition, WindowType,
+    },
 };
 use azul_layout::{
     thread::Thread,
@@ -620,6 +622,25 @@ pub fn popup_window_state(
     window_state
 }
 
+/// A popup's window state as a dialog window's (`anchor="dialog"`): the `Dialog` window type,
+/// which every backend gives the system's title bar and close box and keeps above its parent
+/// (a child window on macOS, an owned window on Windows, `WM_TRANSIENT_FOR` with
+/// `_NET_WM_WINDOW_TYPE_DIALOG` on X11, a toplevel with a parent on Wayland) without pinning
+/// it above other programs; titled by the dialog, opaque, its size the content's. X11 must
+/// manage it (no override-redirect), or there is no title bar to move it by.
+pub fn as_dialog_window(window_state: &mut FullWindowState, title: &str) {
+    window_state.flags.window_type = WindowType::Dialog;
+    window_state.flags.decorations = WindowDecorations::Normal;
+    window_state.flags.is_always_on_top = false;
+    window_state.flags.is_resizable = false;
+    window_state.flags.background_material = WindowBackgroundMaterial::Opaque;
+    window_state.title = title.into();
+    window_state
+        .platform_specific_options
+        .linux_options
+        .x11_override_redirect = false;
+}
+
 /// What the parent's sync step wants the shell to do afterwards.
 #[derive(Debug, Default)]
 pub struct SyncOutcome {
@@ -796,7 +817,7 @@ pub fn sync_parent(
                 // reached by Tab+Space rings the control it autofocuses, one
                 // opened by a click does not.
                 let focus_visible = lw.focus_manager.focus_is_visible;
-                let (options, mailbox) = if w.torn.is_some() {
+                let (mut options, mailbox) = if w.torn.is_some() {
                     let title = transient_title(styled, w.source_node);
                     toplevel_create_options(
                         parent_window_id,
@@ -816,6 +837,12 @@ pub fn sync_parent(
                         focus_visible,
                     )
                 };
+                if w.torn.is_none() && w.placement.anchor == TransientAnchor::Dialog {
+                    as_dialog_window(
+                        &mut options.window_state,
+                        &transient_title(styled, w.source_node),
+                    );
+                }
                 // If this torn window is the panel of a live inline tear, it is
                 // born FOLLOWING — mouse-transparent from its first frame — so
                 // the drag the parent already owns is not interrupted the
@@ -897,8 +924,8 @@ pub fn sync_parent(
     out
 }
 
-/// The torn-off toplevel's title: the `<transient-window>` node's `title`
-/// attribute, else its accessible name, else "Panel".
+/// The title of a torn-off toplevel or a dialog window: the `<transient-window>` node's
+/// `title` attribute, else its accessible name, else "Panel".
 fn transient_title(styled: &azul_core::styled_dom::StyledDom, node: NodeId) -> String {
     use azul_core::dom::AttributeType;
     let nodes = styled.node_data.as_container();
@@ -944,7 +971,9 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
             d.generation,
             d.origin,
             d.content_size,
-            d.torn,
+            // A dialog window, like a torn-off one, stays where the user moved it by its
+            // title bar: only its size follows the content.
+            d.torn || d.placement.anchor == TransientAnchor::Dialog,
             d.drag.is_some(),
             d.following,
         )

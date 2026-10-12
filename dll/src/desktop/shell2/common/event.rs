@@ -5618,6 +5618,23 @@ pub trait PlatformWindow {
         // outside them, an Escape that reached their owner leaves them - but
         // the click that leaves a menu does nothing else (a native menu eats
         // it, X11's grab does): the press is spent, its release owed.
+        // An open dialog window (`anchor="dialog"`) is modal: its parent is inert (HTML: the
+        // rest of the document is), so a press here reaches nothing, and the release that
+        // follows is owed to it too. The dialog holds the keyboard already
+        // (`forward_keys_to_popup`).
+        let modal_dialog_open = self.get_layout_window().is_some_and(|lw| {
+            lw.transient_windows.open_windows().iter().any(|w| {
+                w.placement.anchor == azul_core::transient::TransientAnchor::Dialog
+                    && w.torn.is_none()
+                    && !w.is_inline()
+            })
+        });
+        if modal_dialog_open && super::transient::fresh_press(&previous, &current) {
+            self.discard_input_delta("transient.modal_dialog_parent_press");
+            self.get_common_mut().menu_release_owed = true;
+            return;
+        }
+
         let menu_press = super::transient::fresh_press(&previous, &current);
         let menu_escape = super::transient::fresh_escape(&previous, &current);
         if (menu_press || menu_escape) && self.dismiss_menu_windows() {

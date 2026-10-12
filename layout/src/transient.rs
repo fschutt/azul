@@ -87,21 +87,35 @@ impl TransientPlacement {
             TransientAnchor::Cursor => cursor.unwrap_or(a.origin),
             // The anchor rect IS the viewport (`cover_viewport`).
             TransientAnchor::Viewport => a.origin,
+            // Centred over the viewport (`cover_viewport` made it the anchor).
+            TransientAnchor::Dialog => LogicalPosition::new(
+                a.origin.x + (a.size.width - size.width) / 2.0,
+                a.origin.y + (a.size.height - size.height) / 2.0,
+            ),
         }
     }
 
     /// For an `anchor="viewport"` placement, the placement that covers a
     /// parent viewport of `viewport` size: anchored to the whole viewport and
-    /// sized to it. Any other placement is returned unchanged. The shell
-    /// applies this to every placement it collects, with the parent window's
-    /// current size, so a parent resize resizes the window.
+    /// sized to it. An `anchor="dialog"` placement is anchored to the whole
+    /// viewport too, to be centred over it, and keeps its size. Any other
+    /// placement is returned unchanged. The shell applies this to every
+    /// placement it collects, with the parent window's current size, so a
+    /// parent resize resizes (or re-centres) the window.
     #[must_use]
     pub fn cover_viewport(self, viewport: LogicalSize) -> Self {
+        let whole = LogicalRect::new(azul_core::geom::LogicalPosition::zero(), viewport);
+        if self.anchor == TransientAnchor::Dialog {
+            return Self {
+                anchor_rect: whole,
+                ..self
+            };
+        }
         if self.anchor != TransientAnchor::Viewport {
             return self;
         }
         Self {
-            anchor_rect: LogicalRect::new(azul_core::geom::LogicalPosition::zero(), viewport),
+            anchor_rect: whole,
             size: OptionLogicalSize::Some(viewport),
             ..self
         }

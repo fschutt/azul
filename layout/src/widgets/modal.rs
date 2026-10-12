@@ -1,18 +1,19 @@
 //! Modal widget — HTML `<dialog>` shown with `showModal()`: a titled panel
-//! holding arbitrary content, centred over a dimmed `::backdrop` that covers
-//! the whole window, with the rest of the window inert while it is open.
+//! holding arbitrary content in a dialog window of its own, centred over its
+//! parent, with the parent inert while it is open.
 //! (Not the native OS file / message dialogs - those live in the `dialog`
 //! module of the desktop crate.)
 //!
 //! A front-end over [`crate::widgets::dialog`]: the modal is a
-//! `<transient-window anchor="viewport">` - a real OS window exactly over its
-//! parent, so it is in the top layer by construction. Everything the old
-//! in-window overlay could not do, it does:
+//! `<transient-window anchor="dialog">` - a real OS dialog window with the
+//! system's title bar, kept above its parent, so it is in the top layer by
+//! construction. Everything an in-window overlay could not do, it does:
 //!
 //! - **Escape closes it** (a close request, HTML `closedby` default for a modal dialog). Use
 //!   [`crate::widgets::dialog::Dialog`] for a cancelable `cancel`, another `closedby`, a return
 //!   value, or an invoker.
-//! - **The background is inert**: the window covers the parent, and holds the keyboard.
+//! - **The background is inert**: the shell drops a press in the parent, and the modal's
+//!   window holds the keyboard.
 //! - **Focus** moves to the modal's first control when it opens and back when it closes.
 //! - **It is announced** as a dialog, named by its title.
 //!
@@ -94,8 +95,8 @@ pub struct Modal {
     pub content: Dom,
     /// Whether to render the "×" close button.
     pub show_close_button: bool,
-    /// Style of the `::backdrop` - the modal window's root, which fills the
-    /// window and centres the panel - or `None` for the default dim.
+    /// Style of the modal window's root, behind the panel, or `None` for none:
+    /// the modal is a dialog window of its own, there is no dimmed backdrop.
     pub backdrop_style: OptionCssPropertyWithConditionsVec,
     /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the modal's parts are
@@ -135,11 +136,9 @@ impl Modal {
         }
     }
 
-    /// The `::backdrop` CSS this modal renders with.
-    ///
-    /// `None` means no opinion, so the theme's dim applies - asked of the
-    /// same skin the render uses, so the two cannot drift. Open or closed is
-    /// not a style: the backdrop is the root of the modal's own window.
+    /// The `::backdrop` CSS of this modal's theme: the app's own style, else the theme's dim,
+    /// for an app that dims something itself. The modal paints no backdrop (it is a dialog
+    /// window of its own); only an app's own style reaches its window root.
     #[must_use]
     pub fn resolved_backdrop_style(&self) -> CssPropertyWithConditionsVec {
         self.backdrop_style
@@ -254,8 +253,8 @@ impl Modal {
     }
 
     /// Renders the modal: a `__azul-native-modal` wrapper holding the modal's
-    /// `<transient-window>`, whose root is the backdrop and whose child is
-    /// the `__azul-native-modal-panel`.
+    /// `<transient-window>` (a dialog window of its own), whose child is the
+    /// `__azul-native-modal-panel`.
     ///
     /// Rendering goes through the theme modules (as `Button::dom` does):
     /// each hands [`Self::build`] its skin. Unpinned (`theme: None`), the
@@ -289,7 +288,7 @@ impl Modal {
             content: self.content,
             invoker: None,
             show_close_button: self.show_close_button,
-            anchor: TransientAnchor::Viewport,
+            anchor: TransientAnchor::Dialog,
             wrapper_style: None,
             panel_style: None,
             backdrop_style: self.backdrop_style.into_option(),
@@ -537,7 +536,7 @@ mod tests {
                 panic!("the wrapper holds the modal's window");
             };
             assert_eq!(cfg.open, open);
-            assert_eq!(cfg.anchor, TransientAnchor::Viewport);
+            assert_eq!(cfg.anchor, TransientAnchor::Dialog);
             assert_eq!(
                 cfg.dismiss,
                 TransientDismiss::None,

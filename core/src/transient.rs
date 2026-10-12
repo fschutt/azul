@@ -61,6 +61,13 @@ pub enum TransientAnchor {
     /// fills the window and the dialog sits centred on it, so nothing in
     /// the parent can be reached by the pointer while it is open.
     Viewport,
+    /// Centred over the parent window, in a window of its own with the
+    /// system's title bar and close box, sized to its content: how every
+    /// desktop shows a modal dialog. The window stays above its parent (a
+    /// child window, an owned window, `WM_TRANSIENT_FOR`) but not above other
+    /// programs, the user moves it by its title bar, and the parent takes no
+    /// press while it is open.
+    Dialog,
 }
 
 /// What closes a transient window without the app asking.
@@ -362,6 +369,7 @@ impl TransientAnchor {
             Self::Right => "right",
             Self::Cursor => "cursor",
             Self::Viewport => "viewport",
+            Self::Dialog => "dialog",
         }
     }
 
@@ -376,6 +384,7 @@ impl TransientAnchor {
             "right" => Self::Right,
             "cursor" => Self::Cursor,
             "viewport" => Self::Viewport,
+            "dialog" => Self::Dialog,
             _ => Self::Bottom,
         }
     }
@@ -433,6 +442,7 @@ mod tests {
             TransientAnchor::Right,
             TransientAnchor::Cursor,
             TransientAnchor::Viewport,
+            TransientAnchor::Dialog,
         ] {
             assert_eq!(TransientAnchor::parse(a.as_str()), a);
         }
