@@ -1610,7 +1610,7 @@ extern "C" fn on_travel_key(
             }
             Some(VirtualKeyCode::Down | VirtualKeyCode::Up) if rows > 0 => {
                 if let Some(list) = s.suggestions.as_mut() {
-                    list.highlighted = if key == Some(VirtualKeyCode::Down) {
+                    list.highlighted = if matches!(key, Some(VirtualKeyCode::Down)) {
                         (list.highlighted + 1).min(rows - 1)
                     } else {
                         list.highlighted.saturating_sub(1)
