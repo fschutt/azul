@@ -211,8 +211,11 @@ pub struct ComponentRow {
     pub label: &'static str,
     /// The message key of the row's description (empty: none).
     pub description_key: &'static str,
+    /// The estimate the total adds up (0 for a group).
     pub bytes: u64,
+    /// 0 for the runtime and the groups, 1 for an app under its group.
     pub depth: u32,
+    /// The tick cannot be cleared (the runtime).
     pub required: bool,
     /// The app the row installs; `None` for a group.
     pub entry: Option<&'static AppEntry>,
@@ -523,6 +526,7 @@ pub struct Places {
     pub data_home: PathBuf,
     /// Windows: the Start Menu's `Programs` folder of this user.
     pub start_menu: PathBuf,
+    /// The system: the file names and the kind of shortcut.
     pub os: Os,
 }
 
@@ -898,6 +902,7 @@ impl Shortcut {
 /// What every fetch works with.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fetching {
+    /// Where the apps and their records are.
     pub places: Places,
     /// The config's `updates` section as it was read when the work started.
     pub updates: UpdatesSection,
@@ -1045,13 +1050,18 @@ pub enum Status {
 /// One installed app, as the table shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installed {
+    /// The app.
     pub entry: &'static AppEntry,
+    /// Its `current.json`: the version, the program, the size, the last update.
     pub registration: Registration,
+    /// Who may update it.
     pub owner: Owner,
+    /// Its policy (the config's override, else the shared choice).
     pub channel: Channel,
     pub autoupdate: bool,
     /// The version Revert goes back to.
     pub previous: Option<String>,
+    /// What the last check or work came to.
     pub status: Status,
 }
 

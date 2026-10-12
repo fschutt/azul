@@ -157,11 +157,17 @@ pub fn unix_now() -> u64 {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Release {
+    /// The version, as the manifest says it.
     pub version: String,
+    /// Where the program of this platform is.
     pub download_url: String,
+    /// The changelog's address, and the changelog itself when the source carried it.
     pub changelog_md_url: String,
     pub changelog_md_inline: String,
+    /// The `sha256:` pin of the download (empty: none).
     pub digest: String,
+    /// The signature chain: the artifact's minisign signature, the root-signed statement that
+    /// names the signing key, and the statement's signature. Empty when unsigned.
     pub signature: String,
     pub signing_key_statement: String,
     pub signing_key_statement_sig: String,
@@ -248,11 +254,13 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
 /// What a started app writes into `current.json` ([`register`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Starting<'a> {
+    /// The app's name, key and running version (its About facts).
     pub name: &'a str,
     pub key: &'a str,
     pub version: &'a str,
     /// The running program (`std::env::current_exe`).
     pub binary: &'a Path,
+    /// The start's time, seconds since 1970.
     pub now_unix: u64,
 }
 
@@ -367,14 +375,17 @@ pub enum Check {
 /// One manifest check's question.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckRequest<'a> {
+    /// The app's manifest (the config's template filled in).
     pub manifest_url: &'a str,
     /// The installed version (`0` before the first install).
     pub current_version: &'a str,
+    /// The channel the manifest is read for.
     pub channel: Channel,
     /// The app's engine state for the channel ([`AppPaths::state`]).
     pub state_dir: &'a Path,
     /// The machine's rollout cohort.
     pub cohort: u8,
+    /// The rollout gate the answer goes through.
     pub audience: Audience,
 }
 
@@ -446,13 +457,16 @@ pub fn machine_cohort(
 /// What one background round works with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Round {
+    /// The app's folders (the state, the staging, `staged.json`).
     pub paths: AppPaths,
     /// The installed version.
     pub current_version: String,
+    /// The check's question: the manifest, the channel, the machine's cohort, the gate.
     pub manifest_url: String,
     pub channel: Channel,
     pub cohort: u8,
     pub audience: Audience,
+    /// The root key staging verifies the chain against (empty: the digest pin only).
     pub root_public_key: String,
     /// The policy's auto-update: stage what is found.
     pub autoupdate: bool,
