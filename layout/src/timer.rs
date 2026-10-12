@@ -1789,7 +1789,11 @@ mod autotest_generated {
             let CallbackChange::ShowTooltip { position, .. } = env.take_one() else {
                 panic!("expected ShowTooltip");
             };
-            assert_eq!((position.x, position.y), (3.0, 4.0));
+            // The tooltip opens below the pointer, clear of the cursor.
+            assert_eq!(
+                (position.x, position.y),
+                (3.0, 4.0 + crate::callbacks::TOOLTIP_BELOW_POINTER)
+            );
         });
     }
 

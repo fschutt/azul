@@ -221,6 +221,10 @@ impl Default for E2eScriptHandle {
     }
 }
 
+/// How far below the pointer a tooltip shown at the pointer opens, in
+/// logical px: past a standard arrow cursor, as the platforms place theirs.
+pub(crate) const TOOLTIP_BELOW_POINTER: f32 = 20.0;
+
 /// Represents a change made by a callback that will be applied after the callback returns
 ///
 /// This transaction-based system provides:
@@ -228,10 +232,6 @@ impl Default for E2eScriptHandle {
 /// - Atomic application of all changes
 /// - Easy debugging and logging of callback actions
 /// - Future extensibility for new change types
-/// How far below the pointer a tooltip shown at the pointer opens, in
-/// logical px: past a standard arrow cursor, as the platforms place theirs.
-const TOOLTIP_BELOW_POINTER: f32 = 20.0;
-
 #[derive(Debug, Clone)]
 pub enum CallbackChange {
     /// Start the remote-control HTTP debug server on the specified port.

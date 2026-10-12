@@ -34155,9 +34155,13 @@ mod hover_tooltip_tests {
         let mut timer = lw.create_tooltip_delay_timer(0);
         timer.callback = TimerCallback::create(show_a_tooltip);
         let shown = tooltips(&run(&mut lw, &ws, timer));
+        let below_pointer = LogicalPosition::new(
+            CURSOR.x,
+            CURSOR.y + crate::callbacks::TOOLTIP_BELOW_POINTER,
+        );
         assert_eq!(
             shown,
-            vec![("tip".to_string(), CURSOR)],
+            vec![("tip".to_string(), below_pointer)],
             "a timer knows where the pointer is: the hover tooltip's delay timer showed every \
              tooltip at (0, 0), the window's top-left corner"
         );
