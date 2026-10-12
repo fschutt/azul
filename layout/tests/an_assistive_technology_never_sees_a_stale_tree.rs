@@ -258,7 +258,7 @@ fn an_action_on_a_node_that_is_gone_is_answered_as_gone() {
             "an action on ({dom}, {node}), which the DOM no longer has, does nothing"
         );
         assert!(
-            focused(&lw).map_or(true, |f| exists(&lw, f)),
+            focused(&lw).is_none_or(|f| exists(&lw, f)),
             "no focus may be parked on a node that does not exist: {:?}",
             focused(&lw)
         );
@@ -340,7 +340,7 @@ fn random_rebuilds_and_requests_with_old_ids_never_desync_the_tree() {
                 let (dom, node) = azul_layout::managers::a11y::decode_a11y_node_id(id);
                 let _ = lw.process_accessibility_action(dom, node, random_action(&mut rng), now());
                 assert!(
-                    focused(&lw).map_or(true, |f| exists(&lw, f)),
+                    focused(&lw).is_none_or(|f| exists(&lw, f)),
                     "seed {seed} step {step}: a request on {id:?} parked the focus on a node \
                      that does not exist: {:?}",
                     focused(&lw)

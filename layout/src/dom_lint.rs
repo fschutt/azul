@@ -1547,7 +1547,7 @@ fn describe_node(styled_dom: &StyledDom, node_id: NodeId) -> String {
     if let Some(kind) = azul_widget_kind(node) {
         parts.push(format!("a {kind}"));
     }
-    for ic in node.get_ids_and_classes().iter() {
+    for ic in &node.get_ids_and_classes() {
         match ic {
             azul_core::dom::IdOrClass::Id(id) => parts.push(format!("#{}", id.as_str())),
             azul_core::dom::IdOrClass::Class(c)
@@ -1579,7 +1579,9 @@ fn first_text(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
         if visited > 64 {
             return None;
         }
-        if let Some(NodeType::Text(t)) = nodes.get(cur).map(|n| n.get_node_type()) {
+        if let Some(NodeType::Text(t)) =
+            nodes.get(cur).map(azul_core::dom::NodeData::get_node_type)
+        {
             if !t.as_str().trim().is_empty() {
                 return Some(t.as_str().to_string());
             }
@@ -1606,7 +1608,7 @@ pub const A11Y_NAV_SUPPRESS_TAG: &str = "a11y_nav";
 /// Whether the Tab key stops on `node`: a tab index other than
 /// "no keyboard focus", or an element focusable by itself (a link, a button,
 /// a select).
-fn is_tab_stop(node: &azul_core::dom::NodeData) -> bool {
+const fn is_tab_stop(node: &azul_core::dom::NodeData) -> bool {
     use azul_core::dom::TabIndex;
     match node.get_tab_index() {
         Some(TabIndex::NoKeyboardFocus) => false,
@@ -1620,7 +1622,7 @@ fn is_tab_stop(node: &azul_core::dom::NodeData) -> bool {
 
 /// Whether `node` edits text: Tab is how a user leaves a field, so a field
 /// inside a composite (a toolbar's search box) keeps its own Tab stop.
-fn edits_text(node: &azul_core::dom::NodeData) -> bool {
+const fn edits_text(node: &azul_core::dom::NodeData) -> bool {
     node.is_contenteditable() || matches!(node.get_node_type(), NodeType::Input | NodeType::TextArea)
 }
 

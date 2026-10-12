@@ -75,7 +75,7 @@ pub struct A11yElement {
     pub children: Vec<usize>,
     /// What a screen reader announces. Empty when the node has no name.
     pub label: String,
-    /// Extra context read after the name (UIKit's `accessibilityHint`): the
+    /// Extra context read after the name (`UIKit`'s `accessibilityHint`): the
     /// declared description, else a `title` that does not name the node.
     pub description: Option<String>,
     /// The editable / current value, for inputs and contenteditable nodes.
@@ -124,7 +124,7 @@ pub struct A11ySnapshot {
     /// needing the window state.
     pub window_size: LogicalSize,
     /// The language the window's text is in (BCP 47; empty when unknown):
-    /// UIKit's `accessibilityLanguage` of every element, the voice VoiceOver
+    /// `UIKit`'s `accessibilityLanguage` of every element, the voice `VoiceOver`
     /// reads it with. Set by `LayoutWindow::build_a11y_snapshot`.
     pub language: String,
 }

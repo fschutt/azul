@@ -104,7 +104,7 @@ fn a_white_space_text_node_is_not_announced() {
         .iter()
         .filter(|(id, _)| id.0 != 0)
         .filter(|(_, n)| n.role() == accesskit::Role::Label)
-        .filter(|(_, n)| n.label().map_or(true, |l| l.trim().is_empty()))
+        .filter(|(_, n)| n.label().is_none_or(|l| l.trim().is_empty()))
         .map(|(id, n)| (*id, n.label().map(str::to_string)))
         .collect();
     assert!(

@@ -108,7 +108,7 @@ pub fn rendered_nodes(layout_result: &DomLayoutResult) -> Vec<bool> {
     let parent_of = |idx: usize| {
         hierarchy
             .get(idx)
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .and_then(NodeHierarchyItem::parent_id)
             .map(|parent| parent.index())
     };
     let mut rendered = vec![false; node_data.len()];
@@ -163,7 +163,7 @@ pub fn hidden_from_assistive_technology(layout_result: &DomLayoutResult) -> Vec<
     for idx in 0..hidden.len() {
         let parent = hierarchy
             .get(idx)
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .and_then(NodeHierarchyItem::parent_id)
             .map(|parent| parent.index());
         if parent.is_some_and(|p| p < idx && hidden[p]) {
             hidden[idx] = true;
@@ -1165,6 +1165,10 @@ impl A11yManager {
     /// The whole accessibility tree of the current layout, as one full
     /// `TreeUpdate`, built from scratch (nothing retained) - the reference
     /// every patch [`Self::refresh`] publishes must add up to.
+    ///
+    /// `language` and `language_is_rtl` are the window's language (empty
+    /// when unknown): the root carries it, so a reference for a window has
+    /// to be built in the language that window speaks.
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn update_tree(
@@ -1177,6 +1181,8 @@ impl A11yManager {
         hidpi_factor: f32,
         dirty_text_overrides: &BTreeMap<(DomId, NodeId), String>,
         cursor_info: Option<CursorA11yInfo>,
+        language: &str,
+        language_is_rtl: bool,
     ) -> TreeUpdate {
         let no_hosts = BTreeMap::new();
         let inputs = A11yTreeInputs {
@@ -1189,8 +1195,8 @@ impl A11yManager {
             dirty_text_overrides,
             cursor_info,
             nested_dom_hosts: &no_hosts,
-            language: "",
-            language_is_rtl: false,
+            language,
+            language_is_rtl,
             translate: None,
         };
         let mut retained = A11yRetainedTree::default();
@@ -1943,9 +1949,9 @@ impl A11yManager {
         };
         let mut out = DeclaredStrings::default();
         if let Some(info) = node_data.get_accessibility_info() {
-            out.name = info.accessibility_name.as_option().map(|s| text(s));
-            out.description = info.description.as_option().map(|s| text(s));
-            out.value = info.accessibility_value.as_option().map(|s| text(s));
+            out.name = info.accessibility_name.as_option().map(&text);
+            out.description = info.description.as_option().map(&text);
+            out.value = info.accessibility_value.as_option().map(&text);
         }
         let mut aria_label = None;
         let mut alt = None;
@@ -2786,6 +2792,8 @@ mod autotest_generated {
             1.0,
             &overrides,
             None,
+            "",
+            false,
         )
     }
 
@@ -2809,6 +2817,8 @@ mod autotest_generated {
             hidpi_factor,
             &overrides,
             None,
+            "",
+            false,
         )
     }
 
@@ -3117,7 +3127,7 @@ mod autotest_generated {
 
     #[test]
     fn map_role_is_total_and_matches_the_documented_table() {
-        let cases: [(AccessibilityRole, Role); 67] = [
+        let cases: [(AccessibilityRole, Role); 68] = [
             (AccessibilityRole::TitleBar, Role::TitleBar),
             (AccessibilityRole::MenuBar, Role::MenuBar),
             (AccessibilityRole::ScrollBar, Role::ScrollBar),
@@ -4302,6 +4312,8 @@ mod autotest_generated {
             1.0,
             &overrides,
             None,
+            "",
+            false,
         );
         assert_eq!(update.nodes[0].0, root);
         assert_eq!(update.focus, root);
@@ -4371,6 +4383,8 @@ mod autotest_generated {
             1.0,
             &BTreeMap::new(),
             None,
+            "",
+            false,
         );
         let calls = BOX_ANCHOR_CALLS.with(core::cell::Cell::get);
         assert!(

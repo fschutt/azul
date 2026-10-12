@@ -175,6 +175,7 @@ fn bounds_x0(update: &TreeUpdate, id: A11yNodeId) -> Option<f64> {
 /// The tree a FRESH full build makes of the window as it is now - no retained
 /// state, the reference every published update must add up to.
 fn fresh_full_tree(lw: &LayoutWindow) -> TreeUpdate {
+    let language = lw.active_language();
     A11yManager::update_tree(
         lw.a11y_manager.root_id,
         &lw.layout_results,
@@ -185,6 +186,8 @@ fn fresh_full_tree(lw: &LayoutWindow) -> TreeUpdate {
         lw.current_window_state.size.get_hidpi_factor().inner.get(),
         &BTreeMap::new(),
         None,
+        language.id.as_str(),
+        language.is_rtl,
     )
 }
 

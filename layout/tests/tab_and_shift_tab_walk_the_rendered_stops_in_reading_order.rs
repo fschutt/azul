@@ -59,7 +59,9 @@ fn window(mut dom: Dom) -> LayoutWindow {
     lw
 }
 
-/// The text inside the stop `id`, to name it in an assertion.
+/// The first text inside the stop `id`, to name it in an assertion. It need
+/// not be a direct child: a virtual view's content wraps a button's text in
+/// an anonymous paragraph.
 fn text_of(lw: &LayoutWindow, id: DomNodeId) -> String {
     let Some(lr) = lw.layout_results.get(&id.dom) else {
         return String::new();
@@ -69,12 +71,23 @@ fn text_of(lw: &LayoutWindow, id: DomNodeId) -> String {
     };
     let data = lr.styled_dom.node_data.as_ref();
     let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
-    let mut child = hierarchy.get(node.index()).and_then(|h| h.first_child_id(node));
-    while let Some(c) = child {
+    // Depth first in document order: a node's first child is visited before
+    // its next sibling.
+    let mut stack: Vec<_> = hierarchy
+        .get(node.index())
+        .and_then(|h| h.first_child_id(node))
+        .into_iter()
+        .collect();
+    while let Some(c) = stack.pop() {
         if let Some(NodeType::Text(t)) = data.get(c.index()).map(|d| &d.node_type) {
             return t.as_str().to_string();
         }
-        child = hierarchy.get(c.index()).and_then(NodeHierarchyItem::next_sibling_id);
+        if let Some(next) = hierarchy.get(c.index()).and_then(NodeHierarchyItem::next_sibling_id) {
+            stack.push(next);
+        }
+        if let Some(first) = hierarchy.get(c.index()).and_then(|h| h.first_child_id(c)) {
+            stack.push(first);
+        }
     }
     String::new()
 }

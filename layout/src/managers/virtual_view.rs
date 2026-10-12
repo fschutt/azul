@@ -51,7 +51,7 @@ pub fn reading_order_key(
     dom: DomId,
     node_index: usize,
     hosts: &BTreeMap<DomId, (DomId, NodeId)>,
-) -> alloc::vec::Vec<usize> {
+) -> Vec<usize> {
     let mut path = alloc::vec![node_index];
     let mut current = dom;
     // Views nest a handful deep; a host map that loops must not hang.
