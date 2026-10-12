@@ -96,6 +96,12 @@ fn scale_px(val: f32, dpi: f32) -> f32 {
 
 const DEFAULT_ROOT_FONT_SIZE_PX: f32 = 16.0;
 
+/// The second half of the `SpatialTreeItemKey` of the plain frame that brings
+/// a transformed box's items back to window coordinates; the transformed
+/// frame itself is `(transform key, 0)`. Scroll frames count their second
+/// half up from 0, so they never reach it.
+const WINDOW_SPACE_FRAME: u64 = u64::MAX;
+
 #[inline]
 fn color_u_to_wr(c: &ColorU) -> ColorF {
     ColorF::new(
@@ -1472,13 +1478,22 @@ pub fn translate_displaylist_to_wr(
                 // Use the transform_key.id as the spatial tree item key
                 let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
 
-                // Push reference frame at ZERO origin.
-                // The reference frame is purely for the dynamic transform (drag delta / CSS
-                // transform). Items inside keep their absolute (DPI-scaled)
-                // coordinates. We do NOT shift the coordinate origin - the
-                // transform handles all movement.
-                let new_spatial_id = builder.push_reference_frame(
-                    LayoutPoint::zero(),
+                // The transform works about the box's own top-left corner
+                // (`transform-origin` resolves against the box, and the CPU
+                // renderer applies it about `bounds`' origin); the items
+                // inside stay in window coordinates. WebRender draws a frame's
+                // content at `transform(p) + origin`, so the transformed frame
+                // opens at the box's corner and a plain frame inside it opens
+                // at minus that corner: the transform turns the box about its
+                // corner and the items keep their coordinates. The live value
+                // `synchronize_gpu_values` sends for the key replaces the
+                // outer frame's matrix as it is.
+                let corner = LayoutPoint::new(
+                    scale_px(bounds.0.origin.x, dpi_scale),
+                    scale_px(bounds.0.origin.y, dpi_scale),
+                );
+                let transformed = builder.push_reference_frame(
+                    corner,
                     parent_spatial_id,
                     TransformStyle::Flat,
                     binding,
@@ -1489,16 +1504,31 @@ pub fn translate_displaylist_to_wr(
                     },
                     spatial_key,
                 );
+                let window_space = builder.push_reference_frame(
+                    LayoutPoint::new(-corner.x, -corner.y),
+                    transformed,
+                    TransformStyle::Flat,
+                    PropertyBinding::Value(LayoutTransform::identity()),
+                    ReferenceFrameKind::Transform {
+                        is_2d_scale_translation: true,
+                        should_snap: false,
+                        paired_with_perspective: false,
+                    },
+                    SpatialTreeItemKey::new(transform_key.id as u64, WINDOW_SPACE_FRAME),
+                );
 
-                // Push the new spatial ID so all children use this transform space.
-                // NO offset push - origin is (0,0), items keep absolute coordinates.
-                spatial_stack.push(new_spatial_id);
+                // Children are placed in the window-space frame; the pop
+                // closes both.
+                spatial_stack.push(transformed);
+                spatial_stack.push(window_space);
             }
 
             DisplayListItem::PopReferenceFrame => {
-                builder.pop_reference_frame();
-                spatial_stack.pop();
-                // NO offset_stack.pop() - we didn't push one
+                // The window-space frame and the transformed frame around it.
+                for _ in 0..2 {
+                    builder.pop_reference_frame();
+                    spatial_stack.pop();
+                }
             }
 
             DisplayListItem::VirtualView {
