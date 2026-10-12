@@ -2458,6 +2458,55 @@ mod link_focus_tests {
 }
 
 #[cfg(test)]
+mod press_tests {
+    use azul_css::{dynamic_selector::PseudoStateType, props::property::CssPropertyType};
+
+    use super::*;
+    use crate::widgets::themes::{theme_checks::resolve, UiTheme};
+
+    /// What a press can change on a button's face.
+    const FACE: [CssPropertyType; 5] = [
+        CssPropertyType::BackgroundContent,
+        CssPropertyType::Opacity,
+        CssPropertyType::TextColor,
+        CssPropertyType::BoxShadowTop,
+        CssPropertyType::BoxShadowLeft,
+    ];
+
+    /// The user's report: Submit plays a press animation, other buttons do
+    /// not. Every button type shows a pressed face (`:active`) in both themes
+    /// and both modes, the link included - the face the press animation walks
+    /// to, for the pointer and for Space / Enter alike.
+    #[test]
+    fn every_button_type_shows_a_pressed_face() {
+        let types = [
+            ButtonType::Default,
+            ButtonType::Primary,
+            ButtonType::Secondary,
+            ButtonType::Success,
+            ButtonType::Danger,
+            ButtonType::Warning,
+            ButtonType::Info,
+            ButtonType::Link,
+        ];
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for ty in types {
+                let dom = Button::with_type(AzString::from("Go"), ty)
+                    .with_theme(theme)
+                    .dom();
+                for dark in [false, true] {
+                    let pressed = FACE.iter().any(|prop| {
+                        resolve(&dom, *prop, dark, Some(PseudoStateType::Active))
+                            .is_some_and(|p| Some(p) != resolve(&dom, *prop, dark, None))
+                    });
+                    assert!(pressed, "{theme:?} {ty:?} (dark: {dark}): no pressed face");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod app_theme_tests {
     use super::*;
     use crate::widgets::themes::{theme_blocks::checks, UiTheme};
