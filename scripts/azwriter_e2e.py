@@ -10,10 +10,13 @@
     4. makes the caret's block a heading 2 (Ctrl/Cmd+2), saves: "## " in the file;
     5. exports a PDF (Ctrl/Cmd+P) into writer/exports/ and checks the bytes;
     6. opens File > Open (Ctrl/Cmd+O): the document is listed; Escape leaves it;
-    7. types again and closes the window: the close guard asks "Save changes?", Save saves and
+    7. types again and closes the window: the close guard asks "Save changes?"; Cancel keeps the
+       window and the typing, nothing is written; the next close asks again, Save saves and
        closes; the file has the text;
     8. starts AzWriter again on the same folder, opens the document from File > Open and finds the
-       text; screenshots in flat / flora x light / dark.
+       text; screenshots in flat / flora x light / dark;
+    9. types once more and closes: Don't Save closes the window (and the app) without writing,
+       the file keeps what it had.
 
 Usage (from the azul repository, after building libazul with the debug server and AzWriter):
 
@@ -26,7 +29,6 @@ Run it through the capped runner (scripts/waves/tools/run_capped.sh) on a small 
 import glob
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import azlin_e2e as e  # noqa: E402
@@ -49,41 +51,6 @@ def doc_file(data, doc_id):
 
 def saved_count(app, doc_id):
     return len([v for v in app.printed("AZWRITER_SAVED", r"[0-9a-f-]+") if v == doc_id])
-
-
-DIALOG_BUTTONS = "__azul-native-standard-dialog-buttons"
-
-
-def click_dialog_button(app, label, window="azul-transient", closes=False):
-    """Clicks the button `label` of the standard dialog showing (the text "Save" is in the
-    document too, so a click by text could land in the page). The dialog is a Modal: a window
-    of its own (`window`). Its nodes are in the owner's hierarchy too, but a click there lands in
-    the owner, on whatever lies under them - the question stayed and nothing was saved.
-    `closes`: the answer closes the app's window (and the app): no frames are asked after it."""
-    answer = app.op("get_node_hierarchy", window_id=window)
-    nodes = [d for d in e.dicts(answer) if "index" in d and "parent" in d]
-    by_index = {d["index"]: d for d in nodes}
-
-    def in_buttons(node):
-        seen = 0
-        while node is not None and seen < 64:
-            if DIALOG_BUTTONS in (node.get("classes") or []):
-                return True
-            node = by_index.get(node.get("parent"))
-            seen += 1
-        return False
-
-    for node in nodes:
-        if (node.get("text") or "").strip() == label and in_buttons(node):
-            # A text node may have no box of its own: click its nearest ancestor that has one.
-            target = node
-            while target is not None and not target.get("rect"):
-                target = by_index.get(target.get("parent"))
-            app.must("click", node_id=(target or node)["index"], window_id=window)
-            if not closes:
-                app.frame(2)
-            return
-    raise e.Failure("no dialog button %r" % label)
 
 
 def save_and_wait(app, doc_id):
@@ -174,7 +141,7 @@ def first_session(app, data, out):
     app.must("set_mode", mode="light")
     app.frame(2)
 
-    # Unsaved typing, then close: the guard asks, Save saves and closes.
+    # Unsaved typing, then close: the guard asks. Cancel keeps the window and the typing.
     app.click(BLOCK % 1)
     app.must("text_input", text="CLOSING ")
     app.frame(2)
@@ -183,13 +150,25 @@ def first_session(app, data, out):
     app.frame(2)
     app.until("the save-changes question", lambda: app.shows("Save changes"))
     app.screenshot(os.path.join(out, "close-guard.png"))
-    click_dialog_button(app, "Save", closes=True)
+    e.click_dialog_button(app, "Cancel")
+    app.until("the question to go", lambda: not app.shows("Save changes"))
+    app.frame(2)
+    if not app.alive():
+        raise e.Failure("Cancel closed the window")
+    if not app.shows("CLOSING"):
+        raise e.Failure("Cancel lost the typing")
+    if saved_count(app, doc_id) != before or "CLOSING" in read(doc_file(data, doc_id)):
+        raise e.Failure("Cancel wrote the document")
+    app.log("Cancel keeps the window and the unsaved typing")
+
+    # The next close asks again: Save saves and closes.
+    app.op("close")
+    app.frame(2)
+    app.until("the save-changes question again", lambda: app.shows("Save changes"))
+    e.click_dialog_button(app, "Save", closes=True)
     # The save runs on a thread and its write-back closes the window - and the app: wait for
     # the exit (`until` gives up on an exited app), then read what it printed.
-    end = time.time() + 20
-    while app.process.poll() is None and time.time() < end:
-        time.sleep(0.25)
-    if app.process.poll() is None:
+    if not e.exits(app):
         raise e.Failure("the window did not close after Save")
     if saved_count(app, doc_id) <= before:
         raise e.Failure("the window closed without the save on close")
@@ -199,7 +178,7 @@ def first_session(app, data, out):
     return doc_id
 
 
-def second_session(app, doc_id, out):
+def second_session(app, data, doc_id, out):
     app.until("the window", lambda: app.printed("AZWRITER_READY", r".*"))
     app.until("the list", lambda: app.printed("AZWRITER_LISTED", r"\d+"))
     app.key("o", primary=True)
@@ -210,6 +189,24 @@ def second_session(app, doc_id, out):
     app.until("the saved text after the restart", lambda: app.shows("CLOSING"))
     app.screenshot(os.path.join(out, "restart.png"))
     app.log("the restart reads the document back from its file")
+
+    # Unsaved typing, then close: Don't Save closes the window without writing.
+    on_disk = read(doc_file(data, doc_id))
+    before = saved_count(app, doc_id)
+    app.click(BLOCK % 1)
+    app.must("text_input", text="DISCARDED ")
+    app.frame(2)
+    app.op("close")
+    app.frame(2)
+    app.until("the save-changes question", lambda: app.shows("Save changes"))
+    e.click_dialog_button(app, "Don't Save", closes=True)
+    if not e.exits(app):
+        asked = app.shows("Save changes")
+        raise e.Failure("the window did not close after Don't Save (the question %s)"
+                        % ("is back" if asked else "is gone"))
+    if saved_count(app, doc_id) != before or read(doc_file(data, doc_id)) != on_disk:
+        raise e.Failure("Don't Save wrote the document")
+    app.log("Don't Save closes without writing")
 
 
 def body(args, logs, out):
@@ -228,7 +225,7 @@ def body(args, logs, out):
         app.stop()
     app = e.App("azwriter-2", binary, common, args.debug_port, logs, args.timeout)
     try:
-        second_session(app, doc_id, out)
+        second_session(app, data, doc_id, out)
     except e.Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e.tail(app.out_path), e.tail(app.err_path)))
         raise

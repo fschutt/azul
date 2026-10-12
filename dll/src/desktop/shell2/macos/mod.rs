@@ -48,7 +48,8 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSAppKitVersionNumber, NSAppKitVersionNumber10_12, NSApplication,
-    NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBitmapImageRep,
+    NSApplicationActivationPolicy, NSApplicationDelegate, NSApplicationTerminateReply,
+    NSBackingStoreType, NSBitmapImageRep,
     NSColor, NSCompositingOperation, NSDragOperation, NSDraggingInfo, NSEvent, NSEventMask,
     NSEventType, NSFilenamesPboardType, NSMenu, NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat,
     NSOpenGLPixelFormatAttribute, NSOpenGLView, NSResponder, NSScreen, NSTextInputClient,
@@ -3232,6 +3233,25 @@ define_class!(
             unsafe { crate::desktop::notifications::note_launch_notification(ptr) };
         }
 
+        /// The app is asked to quit: the app menu's Quit (Cmd+Q), the Dock's
+        /// Quit, a logout. Unanswered, AppKit ends the process at once and
+        /// asks no window, so a "Save changes?" guard never sees the quit. A
+        /// quit is the title bar's close request sent to every window: the
+        /// app ends only when every window agreed. Otherwise the quit is
+        /// cancelled; the windows that agreed close in the loop's next turn,
+        /// the others stay with their question.
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn application_should_terminate(
+            &self,
+            _sender: Option<&objc2::runtime::AnyObject>,
+        ) -> NSApplicationTerminateReply {
+            if Self::ask_every_window_to_close() {
+                NSApplicationTerminateReply::TerminateNow
+            } else {
+                NSApplicationTerminateReply::TerminateCancel
+            }
+        }
+
         /// Dock icon clicked while the app runs with no visible window:
         /// standard macOS behavior is to re-show the window.
         #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
@@ -3255,6 +3275,37 @@ impl AppDelegate {
     pub fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let result: Option<Retained<Self>> = unsafe { msg_send_id![Self::alloc(mtm), init] };
         result.expect("Failed to initialize AppDelegate")
+    }
+
+    /// Asks every top-level window to close exactly as its title bar's close
+    /// button does (`windowShouldClose:`), and returns whether all of them
+    /// agreed. A popup (a menu, a modal's own window) is left to its owner:
+    /// it goes when the owner goes. Every window is asked, also after one
+    /// held, so each shows its question at once.
+    fn ask_every_window_to_close() -> bool {
+        let mut all_agreed = true;
+        for wptr in registry::get_all_window_ptrs() {
+            // SAFETY: registered pointers are valid until windowWillClose
+            // unregisters them; AppKit calls the delegate on the main thread,
+            // between events, as it calls windowShouldClose:.
+            let window = unsafe { &mut *wptr };
+            if !window.is_open || window.child_of != 0 {
+                continue;
+            }
+            match window.handle_window_should_close() {
+                Ok(true) => {}
+                Ok(false) => {
+                    all_agreed = false;
+                    // The vetoing callback rebuilt the window: the question.
+                    window.request_redraw();
+                }
+                Err(e) => {
+                    // As windowShouldClose: an error lets the window close.
+                    log_error!(LogCategory::Window, "[AppDelegate] quit: closing a window failed: {}", e);
+                }
+            }
+        }
+        all_agreed
     }
 
     /// Order every registered window front; the LAST one becomes key
@@ -10284,6 +10335,25 @@ mod objc_class_registration_tests {
                 );
             }
         }
+    }
+
+    /// Quit (Cmd+Q, the Dock's Quit, a logout) sends `terminate:`, and
+    /// AppKit ends the process at once unless the app delegate answers
+    /// `applicationShouldTerminate:` - no window is asked, and a "Save
+    /// changes?" guard never sees the quit. The delegate must declare it.
+    #[test]
+    fn a_quit_asks_the_app_delegate_before_the_app_ends() {
+        use objc2::{sel, ClassType};
+
+        let declared: Vec<_> = super::AppDelegate::class()
+            .instance_methods()
+            .iter()
+            .map(|method| method.name())
+            .collect();
+        assert!(
+            declared.contains(&sel!(applicationShouldTerminate:)),
+            "the app delegate does not answer applicationShouldTerminate:"
+        );
     }
 }
 

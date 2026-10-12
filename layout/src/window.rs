@@ -561,9 +561,9 @@ pub extern "C" fn css_animation_timer_callback(
 /// Callback for the tooltip-delay timer.
 ///
 /// Fires once after `InputMetrics::hover_time_ms` has elapsed while a node with
-/// a tooltip-bearing attribute was continuously hovered. The callback looks up
-/// the `title` / `aria-label` / `alt` attribute on the currently-hovered node,
-/// emits a `ShowTooltip` `CallbackChange`, and terminates — a single-shot timer.
+/// a `title` attribute was continuously hovered. The callback looks up the
+/// `title` of the currently-hovered node, emits a `ShowTooltip`
+/// `CallbackChange` at the pointer, and terminates — a single-shot timer.
 /// Movement to a different node (or any hover loss) removes and re-adds the
 /// timer from the platform layer, so the callback itself never needs to
 /// reschedule.
@@ -587,12 +587,9 @@ pub extern "C" fn tooltip_delay_timer_callback(
         });
 
     if let Some(dom_node_id) = hover_node_id {
-        // Priority: aria-label > alt > title (mirrors DOM get_accessible_label).
-        let tooltip_text = info
-            .callback_info
-            .get_node_attribute(dom_node_id, "aria-label")
-            .or_else(|| info.callback_info.get_node_attribute(dom_node_id, "alt"))
-            .or_else(|| info.callback_info.get_node_attribute(dom_node_id, "title"));
+        // As in Chrome, only the title is shown on hover: an aria-label names
+        // the node for a screen reader, an alt stands in for an image.
+        let tooltip_text = info.callback_info.get_node_attribute(dom_node_id, "title");
 
         if let Some(text) = tooltip_text {
             info.callback_info.show_tooltip(text);
@@ -11912,8 +11909,8 @@ impl LayoutWindow {
     /// Create a one-shot tooltip-delay timer.
     ///
     /// Fires exactly once after `hover_time_ms` elapsed. On expiry the callback
-    /// looks up the currently-hovered node's `title` / `alt` / `aria-label`
-    /// attribute and emits a `ShowTooltip` `CallbackChange`, then terminates.
+    /// looks up the currently-hovered node's `title` attribute and emits a
+    /// `ShowTooltip` `CallbackChange`, then terminates.
     pub fn create_tooltip_delay_timer(&self, hover_time_ms: u32) -> Timer {
         use azul_core::{
             refany::RefAny,
@@ -11944,8 +11941,8 @@ impl LayoutWindow {
     /// hit-testing has updated `hover_manager`). It compares the current and
     /// previous deepest hovered nodes and returns:
     ///
-    /// - `Start` if the user just hovered onto a node that has a tooltip source (`title` / `alt` /
-    ///   `aria-label`) — the shell should (re)start `TOOLTIP_DELAY_TIMER_ID` with the returned
+    /// - `Start` if the user just hovered onto a node with a `title` (the only tooltip source, as
+    ///   in Chrome) — the shell should (re)start `TOOLTIP_DELAY_TIMER_ID` with the returned
     ///   Timer.
     /// - `Stop` if the hover moved off a tooltip-bearing node (or left the window) — the shell
     ///   should stop `TOOLTIP_DELAY_TIMER_ID` and hide any currently-visible tooltip.
@@ -11964,10 +11961,12 @@ impl LayoutWindow {
         };
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
 
+        // The tooltip timer's own test (`tooltip_delay_timer_callback`): a
+        // `title`, never the accessible label.
         let node_has_tooltip = |node_id: NodeId| -> bool {
             node_data_cont
                 .get(node_id)
-                .is_some_and(|n| n.get_accessible_label().is_some())
+                .is_some_and(|n| n.get_attribute("title").is_some())
         };
 
         match current_hover {
@@ -18801,8 +18800,15 @@ impl LayoutWindow {
                 },
                 |s| s,
             );
+            // A timer hit no node, but the pointer is somewhere: what it
+            // shows at the pointer (a hover tooltip after its delay) needs
+            // that spot, or it lands in the window's top-left corner.
             let cursor_relative_to_item = OptionLogicalPosition::None;
-            let cursor_in_viewport = OptionLogicalPosition::None;
+            let cursor_in_viewport = current_window_state
+                .mouse_state
+                .cursor_position
+                .get_position()
+                .map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
 
             let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
 
@@ -33960,5 +33966,163 @@ mod a_new_dom_through_the_layout_funnel_is_reconciled_tests {
         lw.layout_new_generation(doc(10), &ws, &rr, &sc, &mut None)
             .expect("the third layout");
         assert!((next_y(&lw) - before).abs() < 0.5, "back at y {before}: {}", next_y(&lw));
+    }
+}
+
+#[cfg(test)]
+mod hover_tooltip_tests {
+    use std::sync::Arc;
+
+    use azul_core::{
+        callbacks::{TimerCallbackReturn, Update},
+        dom::{AttributeType, Dom, DomId, NodeId},
+        geom::{LogicalPosition, LogicalSize},
+        gl::OptionGlContextPtr,
+        hit_test::{FullHitTest, HitTest, HitTestItem},
+        refany::RefAny,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+        task::{Instant, TerminateTimer, TimerId},
+        window::{CursorPosition, RawWindowHandle},
+    };
+    use azul_css::AzString;
+    use rust_fontconfig::FcFontCache;
+
+    use super::{LayoutWindow, TooltipTimerAction};
+    use crate::{
+        callbacks::{CallbackChange, ExternalSystemCallbacks},
+        managers::hover::InputPointId,
+        timer::{Timer, TimerCallback, TimerCallbackInfo},
+        window_state::FullWindowState,
+    };
+
+    /// Where the pointer rests in the tests: well away from the window's
+    /// top-left corner.
+    const CURSOR: LogicalPosition = LogicalPosition { x: 240.0, y: 130.0 };
+
+    /// `body > [div aria-label="Named" alt="Picture", div title="Advice"
+    /// aria-label="Named"]` laid out in an 800 x 600 window with the pointer
+    /// at [`CURSOR`]. Node 2 is the first div, node 3 the second.
+    fn window() -> (LayoutWindow, FullWindowState) {
+        let mut dom = Dom::create_html().with_child(
+            Dom::create_body()
+                .with_child(
+                    Dom::create_div()
+                        .with_css("height: 40px;")
+                        .with_attribute(AttributeType::AriaLabel(AzString::from("Named")))
+                        .with_attribute(AttributeType::Alt(AzString::from("Picture"))),
+                )
+                .with_child(
+                    Dom::create_div()
+                        .with_css("height: 40px;")
+                        .with_attribute(AttributeType::AriaLabel(AzString::from("Named")))
+                        .with_attribute(AttributeType::Title(AzString::from("Advice"))),
+                ),
+        );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        ws.mouse_state.cursor_position = CursorPosition::InWindow(CURSOR);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut None)
+            .expect("the layout");
+        (lw, ws)
+    }
+
+    /// The pointer moves onto `node` of the root DOM.
+    fn hover(lw: &mut LayoutWindow, node: usize) {
+        let mut hit = FullHitTest::empty(None);
+        hit.hovered_nodes
+            .entry(DomId::ROOT_ID)
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(
+                NodeId::new(node),
+                HitTestItem {
+                    point_in_viewport: CURSOR,
+                    point_relative_to_item: Default::default(),
+                    is_focusable: false,
+                    is_virtual_view_hit: None,
+                    hit_depth: 0,
+                },
+            );
+        lw.hover_manager.push_hit_test(InputPointId::Mouse, hit);
+    }
+
+    /// Runs the timer `timer` as the shells run a due one, and returns what
+    /// it asked for.
+    fn run(lw: &mut LayoutWindow, ws: &FullWindowState, timer: Timer) -> Vec<CallbackChange> {
+        let id = TimerId::unique();
+        lw.timers.insert(id, timer);
+        let (changes, _) = lw.run_single_timer(
+            id.id,
+            Instant::now(),
+            &RawWindowHandle::Unsupported,
+            &OptionGlContextPtr::None,
+            Arc::new(azul_css::system::SystemStyle::default()),
+            &ExternalSystemCallbacks::rust_internal(),
+            &None,
+            ws,
+            &RendererResources::default(),
+        );
+        changes
+    }
+
+    fn tooltips(changes: &[CallbackChange]) -> Vec<(String, LogicalPosition)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ShowTooltip { text, position } => {
+                    Some((text.as_str().to_string(), *position))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    extern "C" fn show_a_tooltip(_data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+        info.callback_info.show_tooltip(AzString::from("tip"));
+        TimerCallbackReturn {
+            should_update: Update::DoNothing,
+            should_terminate: TerminateTimer::Terminate,
+        }
+    }
+
+    #[test]
+    fn a_tooltip_a_timer_shows_appears_at_the_pointer_not_in_the_windows_corner() {
+        let (mut lw, ws) = window();
+        let mut timer = lw.create_tooltip_delay_timer(0);
+        timer.callback = TimerCallback::create(show_a_tooltip);
+        let shown = tooltips(&run(&mut lw, &ws, timer));
+        assert_eq!(
+            shown,
+            vec![("tip".to_string(), CURSOR)],
+            "a timer knows where the pointer is: the hover tooltip's delay timer showed every \
+             tooltip at (0, 0), the window's top-left corner"
+        );
+    }
+
+    #[test]
+    fn only_a_title_is_a_hover_tooltip_never_an_aria_label_or_an_alt() {
+        let (mut lw, ws) = window();
+        hover(&mut lw, 2);
+        assert!(
+            matches!(lw.handle_hover_change_for_tooltip(0), TooltipTimerAction::Stop),
+            "as in Chrome, an accessible name (aria-label) or an image's alt text shows no \
+             tooltip: only the title attribute does"
+        );
+        hover(&mut lw, 3);
+        let TooltipTimerAction::Start(timer) = lw.handle_hover_change_for_tooltip(0) else {
+            panic!("a title shows a tooltip after the hover delay");
+        };
+        let shown = tooltips(&run(&mut lw, &ws, timer));
+        assert_eq!(
+            shown.iter().map(|(text, _)| text.as_str()).collect::<Vec<_>>(),
+            vec!["Advice"],
+            "the tooltip is the title, not the aria-label beside it"
+        );
     }
 }

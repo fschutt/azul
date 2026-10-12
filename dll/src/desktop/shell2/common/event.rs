@@ -11958,7 +11958,7 @@ pub trait PlatformWindow {
         }
 
         // Tooltip-delay timer: on hover transitions onto (or off of) a node
-        // that advertises a tooltip source (title/alt/aria-label), start or
+        // with a `title` (the only tooltip source, as in Chrome), start or
         // stop `TOOLTIP_DELAY_TIMER_ID`. Delay comes from
         // `SystemStyle::input_metrics.hover_time_ms` (SPI_GETMOUSEHOVERTIME on
         // Windows, default 400ms). Timer callback emits ShowTooltip on expiry.

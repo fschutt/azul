@@ -181,6 +181,15 @@ impl AppState {
         self.doc.as_ref().is_some_and(DocumentModel::is_dirty)
     }
 
+    /// "Don't Save" in the close question: the open document closes without
+    /// writing, its file keeps what it had. The guard closes the window
+    /// right after and judges that close by the DOM rebuilt from this
+    /// state, so nothing may be left to save here.
+    pub fn discard_document(&mut self) {
+        self.doc = None;
+        self.asking_close = false;
+    }
+
     /// The window's title: the document's, a star while unsaved.
     #[must_use]
     pub fn title(&self) -> String {
@@ -267,5 +276,26 @@ mod tests {
             assert_eq!(page.index(), i);
         }
         assert_eq!(View::Web.index(), 1);
+    }
+
+    #[test]
+    fn dont_save_drops_the_changes_so_the_close_it_asks_for_is_not_held_again() {
+        let mut st = AppState::new(RefAny::new(()), PathBuf::from("data"), false);
+        // A new document with typed text: never saved, so it has changes.
+        st.doc = Some(DocumentModel::from_doc(
+            "a".to_string(),
+            azul::widgets::RichTextDoc::create_from_markdown("# Typed\n\nNot saved.\n"),
+            String::new(),
+        ));
+        st.asking_close = true;
+        assert!(st.is_dirty());
+        st.discard_document();
+        assert!(
+            !st.is_dirty(),
+            "the guard judges the close by the DOM rebuilt after the answer: a dirty document \
+             there holds the close and asks again"
+        );
+        assert!(!st.asking_close, "the question is answered");
+        assert!(st.pending_saves.is_empty(), "nothing was written");
     }
 }

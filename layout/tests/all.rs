@@ -1053,3 +1053,5 @@ mod a_button_focused_by_a_click_shows_no_focus_ring;
 mod a_dragged_thumb_scrolls_a_virtual_views_content;
 #[path = "a_virtual_views_compositor_frame_scrolls_with_its_offset.rs"]
 mod a_virtual_views_compositor_frame_scrolls_with_its_offset;
+#[path = "a_max_width_capped_flex_column_holds_its_wrapped_content.rs"]
+mod a_max_width_capped_flex_column_holds_its_wrapped_content;

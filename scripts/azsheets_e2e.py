@@ -12,13 +12,16 @@
     7. Mod+S - `AZSHEETS_SAVED <id>`, sheets/<id>.xlsx and .json on disk;
     8. DATA > CSV - the export lands IN the data tree, sheets/exports/<title>.csv;
     9. Mod+, - appkit's settings page (Outlook's Options dialog: theme / mode switches, the
-       shortcuts) covers the window, OK returns; File > About - the standard About box names
-       IronCalc;
+       shortcuts) covers the window, its OK and Cancel 8 px apart and at least 88 px wide, OK
+       returns; File > About - the standard About box names IronCalc;
    10. File > New > the Budget sample - its rows arrive (only the title did once: a ragged
        paste block lost every row of another length);
    11. the close guard: a close request with unsaved work shows the question, Cancel keeps
-       the window (reported as a NOTE when the headless backend does not dispatch the close);
-   12. a second session on --screen backstage-open opens the workbook: A3 = 9, C1 = 1, frozen.
+       the window and writes nothing (reported as a NOTE when the headless backend does not
+       dispatch the close); the next close asks again, Don't Save closes the window (and the
+       app) and writes nothing;
+   12. a second session on --screen backstage-open opens the workbook: A3 = 9, C1 = 1, frozen;
+       a cell typed and the window closed: Save writes the workbook, then the window closes.
    Screenshots after the main steps, in flat light and flora dark.
 
 Usage (from the azul repository, after building libazul with the debug server and AzSheets):
@@ -104,6 +107,15 @@ class Sheets(k.App):
     def layout_of(self, selector):
         value = self.value("get_node_layout", selector=selector)
         return (value or {}).get("rect") or {}
+
+
+def workbook_files(data_dir):
+    """The workbooks' files in the data tree (sheets/*.xlsx and their sidecars)."""
+    folder = os.path.join(data_dir, "sheets")
+    try:
+        return {f for f in os.listdir(folder) if f.endswith((".xlsx", ".json"))}
+    except OSError:
+        return set()
 
 
 def start(binary, args, logs, data_dir, extra):
@@ -196,6 +208,13 @@ def first_session(binary, args, logs, data_dir, out):
         app.until("the settings page", lambda: app.has_id("appkit-mode")
                   and (app.has_id("appkit-theme") or app.shows("is always set in")))
         app.screenshot(os.path.join(out, "options.png"))
+        # OK and Cancel sit side by side, 8 px apart, each at least 88 px wide: a narrow OK
+        # once sat at the left of an empty 88 px slot, far from Cancel.
+        ok, cancel = app.layout_of("#appkit-settings-ok"), app.layout_of("#appkit-settings-cancel")
+        gap = float(cancel.get("x", 0)) - float(ok.get("x", 0)) - float(ok.get("width", 0))
+        if float(ok.get("width", 0)) < 87.5 or not 7.5 <= gap <= 8.5:
+            raise k.Failure("OK %s and Cancel %s: %.1f px apart, not 8" % (ok, cancel, gap))
+        app.log("OK and Cancel 8 px apart, OK %.0f px wide" % float(ok["width"]))
         # OK returns to the workbook; About is the backstage's (File > About).
         app.click(selector="#appkit-settings-ok")
         app.until("the workbook again", lambda: not app.has_id("appkit-settings"))
@@ -218,14 +237,16 @@ def first_session(binary, args, logs, data_dir, out):
         app.log("the Budget sample shows its rows")
 
         # 11. The close guard (the sample is unsaved).
+        files = workbook_files(data_dir)
         try:
             app.must("close")
             app.frame(3)
             app.until("the save question", lambda: "__azul-native-message-box" in app.classes())
             app.screenshot(os.path.join(out, "close-question.png"))
-            # The question is a Modal: a window of its own.
-            app.click(text="Cancel", window="azul-transient")
+            k.click_dialog_button(app, "Cancel")
             app.until("the question gone", lambda: "__azul-native-message-box" not in app.classes())
+            if not app.shows("Rent") or workbook_files(data_dir) != files:
+                raise k.Failure("Cancel lost the sample or wrote a workbook")
             app.log("a close with unsaved work asks; Cancel keeps the window")
         except k.Failure as e:
             if app.process.poll() is not None:
@@ -238,6 +259,17 @@ def first_session(binary, args, logs, data_dir, out):
         app.must("set_mode", mode="dark")
         app.frame(3)
         app.screenshot(os.path.join(out, "sample-flora-dark.png"))
+
+        # The next close asks again: Don't Save closes the window without writing.
+        app.must("close")
+        app.frame(3)
+        app.until("the save question again", lambda: "__azul-native-message-box" in app.classes())
+        k.click_dialog_button(app, "Don't Save", closes=True)
+        if not k.exits(app):
+            raise k.Failure("the window did not close after Don't Save")
+        if workbook_files(data_dir) != files:
+            raise k.Failure("Don't Save wrote a workbook: %s" % sorted(workbook_files(data_dir) - files))
+        app.log("Don't Save closes without writing")
         return doc_id
     except k.Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (k.tail(app.out_path), k.tail(app.err_path)))
@@ -260,6 +292,20 @@ def second_session(binary, args, logs, data_dir, out, doc_id):
         app.until("C1 still 1", lambda: app.cell_line("C1") == "1")
         app.screenshot(os.path.join(out, "reopened.png"))
         app.log("reopened %s: A3 = 9, C1 = 1, panes frozen" % doc_id)
+
+        # A cell typed, then close: Save writes the workbook, then the window closes.
+        saves = app.printed("AZSHEETS_SAVED", r"[0-9a-f-]+").count(doc_id)
+        app.home(right=3)
+        app.enter_values(["42"])
+        app.must("close")
+        app.frame(3)
+        app.until("the save question", lambda: "__azul-native-message-box" in app.classes())
+        k.click_dialog_button(app, "Save", closes=True)
+        if not k.exits(app):
+            raise k.Failure("the window did not close after Save")
+        if app.printed("AZSHEETS_SAVED", r"[0-9a-f-]+").count(doc_id) <= saves:
+            raise k.Failure("the window closed without the save on close")
+        app.log("Save in the close question wrote %s and closed" % doc_id)
     except k.Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (k.tail(app.out_path), k.tail(app.err_path)))
         raise
