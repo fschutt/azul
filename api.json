@@ -36188,6 +36188,9 @@
                                 },
                                 "seat_focused": {
                                     "type": "bool"
+                                },
+                                "focus_visible": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -57227,7 +57230,8 @@
                                 "Backdrop": {},
                                 "Dragging": {},
                                 "DragOver": {},
-                                "Placeholder": {}
+                                "Placeholder": {},
+                                "FocusVisible": {}
                             }
                         ],
                         "repr": "C"
@@ -188944,7 +188948,8 @@
                                 "Left": {},
                                 "Right": {},
                                 "Cursor": {},
-                                "Viewport": {}
+                                "Viewport": {},
+                                "Dialog": {}
                             }
                         ],
                         "repr": "C"
@@ -190851,6 +190856,56 @@
                                     "type": "PaginationSnapshot"
                                 },
                                 "fn_body": "object.compute_pagination_with_policy(styled_dom, page_width_px, page_height_px, &font_cache, &image_cache, policy)"
+                            },
+                            "render_pages_with_policy": {
+                                "doc": [
+                                    "Draws pages `first_page .. first_page + page_count` of `styled_dom`, laid out on pages",
+                                    "of `page_width_px` x `page_height_px` with the break `policy` (the pages",
+                                    "[`Self::compute_pagination_with_policy`] counts), as ONE picture: the pages one under the",
+                                    "other, each `page_height_px * dpi_factor` pixels tall, on `background`. Pages past the",
+                                    "document's end are left out; `None` when nothing could be drawn. Runs off-thread fine: a",
+                                    "reader draws the pages around the one on screen ahead of time and shows each as a clip",
+                                    "window over the picture. Needs no `pdf` feature (the CPU renderer draws the pages)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "styled_dom": "StyledDom"
+                                    },
+                                    {
+                                        "page_width_px": "f32"
+                                    },
+                                    {
+                                        "page_height_px": "f32"
+                                    },
+                                    {
+                                        "font_cache": "FontCacheSnapshot"
+                                    },
+                                    {
+                                        "image_cache": "ImageCacheSnapshot"
+                                    },
+                                    {
+                                        "policy": "BreakPolicy"
+                                    },
+                                    {
+                                        "first_page": "usize"
+                                    },
+                                    {
+                                        "page_count": "usize"
+                                    },
+                                    {
+                                        "dpi_factor": "f32"
+                                    },
+                                    {
+                                        "background": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRawImage"
+                                },
+                                "fn_body": "object.render_pages_with_policy(styled_dom, page_width_px, page_height_px, &font_cache, &image_cache, policy, first_page, page_count, dpi_factor, background)"
                             }
                         },
                         "repr": "C"
