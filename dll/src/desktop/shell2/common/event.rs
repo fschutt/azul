@@ -2385,6 +2385,67 @@ pub fn apply_pointer_button_state(
     }
 }
 
+/// The buttons a window still holds down that the OS no longer does. `pressed` is the OS's
+/// mask of the buttons held now: bit 0 left, bit 1 right, bit 2 middle (AppKit's
+/// `pressedMouseButtons`).
+///
+/// A native menu runs its own tracking loop and takes every mouse event while it is up - the
+/// release that picked an item or closed it included - so a window that opened the menu on a
+/// press (a dropdown opens on focus, which a press gives) never hears that button go up. It
+/// keeps the button down, and the next move drags a text selection from the press. Once the
+/// menu returns, the shell releases these buttons through its own release path; a browser
+/// does the same after a `<select>` popup closes.
+#[must_use]
+pub fn buttons_released_meanwhile(
+    mouse_state: &azul_core::window::MouseState,
+    pressed: u64,
+) -> Vec<azul_core::events::MouseButton> {
+    use azul_core::events::MouseButton;
+    [
+        (mouse_state.left_down, 0b001_u64, MouseButton::Left),
+        (mouse_state.right_down, 0b010_u64, MouseButton::Right),
+        (mouse_state.middle_down, 0b100_u64, MouseButton::Middle),
+    ]
+    .into_iter()
+    .filter(|(down, bit, _)| *down && pressed & bit == 0)
+    .map(|(_, _, button)| button)
+    .collect()
+}
+
+#[cfg(test)]
+mod buttons_released_meanwhile_tests {
+    use azul_core::{events::MouseButton, window::MouseState};
+
+    use super::buttons_released_meanwhile;
+
+    #[test]
+    fn a_button_released_inside_a_native_menu_is_released_in_the_window_too() {
+        let mut held = MouseState::default();
+        held.left_down = true;
+        assert_eq!(buttons_released_meanwhile(&held, 0), vec![MouseButton::Left]);
+    }
+
+    #[test]
+    fn a_button_the_os_still_holds_stays_down() {
+        let mut held = MouseState::default();
+        held.left_down = true;
+        held.right_down = true;
+        assert_eq!(
+            buttons_released_meanwhile(&held, 0b001),
+            vec![MouseButton::Right],
+            "left is still held, right went up in the menu"
+        );
+        assert!(buttons_released_meanwhile(&held, 0b011).is_empty());
+    }
+
+    #[test]
+    fn a_window_holding_nothing_releases_nothing() {
+        let idle = MouseState::default();
+        assert!(buttons_released_meanwhile(&idle, 0).is_empty());
+        assert!(buttons_released_meanwhile(&idle, 0b111).is_empty());
+    }
+}
+
 /// The `MouseButton` a `WM_XBUTTONDOWN` / `WM_XBUTTONUP` names, from its WPARAM.
 ///
 /// Unlike every other `WM_*BUTTON*` message, the X-button messages carry the
@@ -5557,6 +5618,23 @@ pub trait PlatformWindow {
         // outside them, an Escape that reached their owner leaves them - but
         // the click that leaves a menu does nothing else (a native menu eats
         // it, X11's grab does): the press is spent, its release owed.
+        // An open dialog window (`anchor="dialog"`) is modal: its parent is inert (HTML: the
+        // rest of the document is), so a press here reaches nothing, and the release that
+        // follows is owed to it too. The dialog holds the keyboard already
+        // (`forward_keys_to_popup`).
+        let modal_dialog_open = self.get_layout_window().is_some_and(|lw| {
+            lw.transient_windows.open_windows().iter().any(|w| {
+                w.placement.anchor == azul_core::transient::TransientAnchor::Dialog
+                    && w.torn.is_none()
+                    && !w.is_inline()
+            })
+        });
+        if modal_dialog_open && super::transient::fresh_press(&previous, &current) {
+            self.discard_input_delta("transient.modal_dialog_parent_press");
+            self.get_common_mut().menu_release_owed = true;
+            return;
+        }
+
         let menu_press = super::transient::fresh_press(&previous, &current);
         let menu_escape = super::transient::fresh_escape(&previous, &current);
         if (menu_press || menu_escape) && self.dismiss_menu_windows() {

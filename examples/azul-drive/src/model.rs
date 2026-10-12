@@ -750,6 +750,9 @@ pub struct Settings {
     pub navigation_pane: bool,
     pub preview_pane: bool,
     pub details_pane: bool,
+    /// Finder's path bar and status line at the foot of the content (View > Status bar). Off
+    /// by default: the address row says where the window is, and the counts are rarely read.
+    pub status_bar: bool,
     pub columns: ColumnLayout,
     pub pinned: Vec<Pinned>,
     /// Ask before a delete that cannot be undone (a cloud drive, Shift+Delete).
@@ -794,6 +797,7 @@ impl Default for Settings {
             navigation_pane: true,
             preview_pane: false,
             details_pane: true,
+            status_bar: false,
             columns: ColumnLayout::default(),
             pinned: Vec::new(),
             confirm_delete: true,
@@ -1116,6 +1120,7 @@ mod tests {
         let mut settings = Settings::default();
         assert_eq!(settings.layout, ViewLayout::Details);
         assert!(settings.navigation_pane && !settings.preview_pane);
+        assert!(!settings.status_bar, "no status bar until View > Status bar");
         settings.layout = ViewLayout::LargeIcons;
         settings.group_by = GroupBy::Type;
         settings.sort = Sort {

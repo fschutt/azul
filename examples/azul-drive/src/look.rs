@@ -1,18 +1,19 @@
 //! AzDrive's body in each app theme and mode - the source list, the content leaf, the Details
-//! list, the icon cells, the path bar and the status line - one inline style per part.
+//! list, the icon cells, the path bar and the status line (View > Status bar) - one inline style
+//! per part.
 //!
 //! FLORA (the website's look, `doc/templates/flora.css`): the content is a LEAF of field paper
-//! (`--fl-fld`) laid on the linen page (`--fl-pg` and its two hairline rasters, `--fl-grain`) in
-//! a thin rule (`--fl-bd`) with a soft cast shadow (`--fl-shadow-1` / `-2`); the source list rests
-//! on a soft vertical gradient from the strip tone down to the desk (`--fl-strip` .. `--fl-desk`);
+//! (`--fl-fld`) filling its pane, over the linen page (`--fl-pg` and its two hairline rasters,
+//! `--fl-grain`); the source list rests on a soft vertical gradient from the strip tone down to
+//! the desk (`--fl-strip` .. `--fl-desk`);
 //! its section titles are flora's capitals (`.fl-label`: EB Garamond, bold, tracked, `--fl-soft1`);
 //! a selected source is the accent stone (`--az-accent`) under paper ink, with a lip and a cast;
 //! the Details header is the raised face (`--fl-rT` -> `--fl-rB`), its rows alternate field paper
 //! with a quiet wash, a selected item rests on the accent's soft wash (flora's data table and
 //! icon grid), and a selected icon cell or tile lifts off the paper.
 //!
-//! FLAT (Office 2010): the same structure in Office's silver-blue - a white leaf in a thin silver
-//! rule on the silver page, the source list on Outlook's navigation-pane gradient, Office's
+//! FLAT (Office 2010): the same structure in Office's silver-blue - a white leaf over the silver
+//! page, the source list on Outlook's navigation-pane gradient, Office's
 //! two-stop blue selection in its hairline, the list header's white-to-silver face.
 //!
 //! Each part carries all four looks in ONE string ([`themed!`]): flat by day, flat at night
@@ -254,15 +255,15 @@ pub(crate) const SMALL_BUTTON: &str = themed!(
     "border-right: 1px solid #383838; color: #BEBEBE; :hover { background: #3A3A3A; }",
 );
 
-// ==== The content: a leaf on the page ====
+// ==== The content: a leaf filling its pane ====
 
-/// The page the leaves lie on (the content's, the right pane's): Office's silver in flat, the
-/// linen in flora - the page colour and flora's two hairline rasters over it (azul paints the
-/// layers in their order; a renderer that cannot draw the rasters keeps the page colour, the
-/// declaration before).
+/// What a pane's leaf lies on (the content's, the right pane's): Office's silver in flat, the
+/// linen in flora - the page colour and flora's two hairline rasters over it (a renderer that
+/// cannot draw the rasters keeps the colour, the declaration before). The leaf fills it edge to
+/// edge, so it shows only where the leaf leaves room.
 pub(crate) const PAGE: &str = themed!(
     "display: flex; flex-direction: column; flex-grow: 1; width: 100%; height: 100%; \
-     min-width: 0px; min-height: 0px; box-sizing: border-box; padding: 8px;",
+     min-width: 0px; min-height: 0px; box-sizing: border-box;",
     "background: #DCE2E9;",
     "background: #191919;",
     "background: #E6E4DF; background: #E6E4DF, \
@@ -277,17 +278,15 @@ pub(crate) const PAGE: &str = themed!(
      rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 3px);",
 );
 
-/// The leaf: paper in a thin rule with a soft cast shadow (the page's padding holds it).
+/// A pane's leaf: the paper the view (or the preview, the details) is drawn on. The splitters
+/// between the panes are its edges.
 pub(crate) const LEAF: &str = themed!(
     "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; min-height: 0px; \
-     overflow: hidden; border-radius: 3px;",
-    "background: #FFFFFF; border: 1px solid #B8C2CE; \
-     box-shadow: 0px 1px 3px rgba(40, 60, 90, 0.14);",
-    "background: #262626; border: 1px solid #4A4A4A; box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.50);",
-    "background: #FBFAF6; border: 1px solid #C6C3BB; border-radius: 5px; \
-     box-shadow: 0px 1px 2px rgba(48, 45, 38, 0.14), 0px 4px 12px rgba(48, 45, 38, 0.12);",
-    "background: #1D1D1D; border: 1px solid #3F3F3F; \
-     box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.55), 0px 4px 12px rgba(0, 0, 0, 0.45);",
+     overflow: hidden;",
+    "background: #FFFFFF;",
+    "background: #262626;",
+    "background: #FBFAF6;",
+    "background: #1D1D1D;",
 );
 
 /// The details pane (azul's DetailsPane) inside its leaf: it fills the leaf. (A widget's own

@@ -78,6 +78,9 @@ use crate::{
 pub const NAV_CLASS: &str = "__azul-native-navigation-pane";
 /// Added to the pane while it is collapsed to a strip.
 pub const COLLAPSED_CLASS: &str = "__azul-native-navigation-pane-collapsed";
+/// A collapsed pane's strip width (logical px), in every theme. The shell that holds the
+/// pane gives its slot this width (`office_shell`), so nothing is left blank beside it.
+pub const COLLAPSED_WIDTH_PX: isize = 40;
 /// The header slot's class.
 pub const HEADER_CLASS: &str = "__azul-native-navigation-pane-header";
 /// The groups column's class.

@@ -459,6 +459,31 @@ mod view_handlers {
         }
     }
 
+    /// A native menu returned. Its tracking loop took every mouse event while it was up, so a
+    /// button the window saw go down but not up (a dropdown opens its menu on the press that
+    /// focuses it) is released now, through the window's own release pass - or the window
+    /// keeps it down and the next move drags a text selection.
+    pub(super) fn release_buttons_after_menu(window_ptr: Option<*mut std::ffi::c_void>) {
+        let Some(window_ptr) = window_ptr else {
+            return;
+        };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let held = macos_window.common.current_window_state().mouse_state;
+            let pressed = NSEvent::pressedMouseButtons() as u64;
+            let released =
+                crate::desktop::shell2::common::event::buttons_released_meanwhile(&held, pressed);
+            if released.is_empty() {
+                return;
+            }
+            for button in released {
+                let result = macos_window.release_button_taken_by_menu(button);
+                route_result(macos_window, result);
+            }
+            macos_window.sync_window_state();
+        }
+    }
+
     pub(super) fn right_mouse_up(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         if let Some(window_ptr) = window_ptr {
             // The `&mut MacOSWindow` lives in this block ONLY. A native context
@@ -483,6 +508,7 @@ mod view_handlers {
                 unsafe {
                     (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                 }
+                release_buttons_after_menu(Some(window_ptr));
             }
         }
     }
@@ -1546,6 +1572,7 @@ define_class!(
                         (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                     }
                 }
+                view_handlers::release_buttons_after_menu(window_ptr);
             }
         }
 
@@ -2537,6 +2564,7 @@ define_class!(
                         (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                     }
                 }
+                view_handlers::release_buttons_after_menu(window_ptr);
             }
         }
 
@@ -5565,10 +5593,19 @@ impl MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::new] Creating window with style mask..."
         );
-        let style_mask = NSWindowStyleMask::Titled
-            | NSWindowStyleMask::Closable
-            | NSWindowStyleMask::Miniaturizable
-            | NSWindowStyleMask::Resizable;
+        // A dialog window (`anchor="dialog"`) owned by a parent: a title bar to move it by and a
+        // close box, nothing to minimize or resize - a sheet-like panel, as AppKit's own alerts.
+        let is_dialog_child = options.window_state.flags.window_type
+            == azul_core::window::WindowType::Dialog
+            && options.parent_window_id != 0;
+        let style_mask = if is_dialog_child {
+            NSWindowStyleMask::Titled | NSWindowStyleMask::Closable
+        } else {
+            NSWindowStyleMask::Titled
+                | NSWindowStyleMask::Closable
+                | NSWindowStyleMask::Miniaturizable
+                | NSWindowStyleMask::Resizable
+        };
 
         // Create the window
         log_trace!(
@@ -5728,8 +5765,9 @@ impl MacOSWindow {
         // A parent-owned popup orders WITH its parent: above it, moving with
         // it, behind any other app that comes to the front — not at the
         // floating level, which kept the colour picker on top of every other
-        // application after its parent was sent to the background.
-        if is_popup_child {
+        // application after its parent was sent to the background. A dialog
+        // window orders with its parent the same way.
+        if is_popup_child || is_dialog_child {
             if let Some(parent) = unsafe {
                 registry::get_window(
                     options.parent_window_id as usize as *mut objc2::runtime::AnyObject,
@@ -6185,7 +6223,7 @@ impl MacOSWindow {
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             is_open: true,
-            child_of: if is_popup_child {
+            child_of: if is_popup_child || is_dialog_child {
                 options.parent_window_id
             } else {
                 0

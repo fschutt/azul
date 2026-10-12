@@ -16,7 +16,7 @@
 //! | `cancel` event (cancelable)            | [`Dialog::with_on_cancel`]; `info.prevent_default()` keeps it open |
 //! | `close` event                          | [`Dialog::with_on_close`]                               |
 //! | `closedby="any\|closerequest\|none"`    | [`DialogClosedBy`]                                      |
-//! | `::backdrop`                           | a modal dialog's window root, [`Dialog::with_backdrop_style`] |
+//! | `::backdrop`                           | none: a modal dialog is a window of its own beside an inert parent |
 //! | `role=dialog` + name                   | the panel: `AccessibilityRole::Dialog`, named by the title |
 //!
 //! ## How the pieces map onto the transient-window machinery
@@ -27,18 +27,19 @@
 //!   ([`CallbackInfo::is_transient_window_open`]). A private flag in a callback payload is what
 //!   made the old popover impossible to close - the app's rebuild re-minted it as "closed" while
 //!   the panel stayed visible.
-//! - **Modal.** `anchor="viewport"`: the window covers the parent window exactly. Its root is the
-//!   `::backdrop` (dimmed, flex-centred) and the dialog panel sits in it. The parent is inert to
-//!   the pointer because it is covered, and to the keyboard because the dialog's window holds it
-//!   (it is the key window; X11 forwards the parent's keys to it).
+//! - **Modal.** `anchor="dialog"`: a window of its own, as every desktop shows a modal dialog -
+//!   the system's title bar (the dialog's title) and close box, sized to the panel, centred over
+//!   the parent and kept above it. The panel draws no title row and no "x" then. The parent is
+//!   inert: the shell drops a press in it while the dialog is open, and the dialog's window
+//!   holds the keyboard (it is the key window; X11 forwards the parent's keys to it).
 //! - **Non-modal.** A popup below the invoker (or at `with_anchor`).
 //! - **Escape (close request).** The engine leaves Escape to the dialog (`TransientDismiss::None`
 //!   / `OutsideOnly`). The dialog's window root answers it: `cancel` runs first, and unless the
 //!   app prevented it, the dialog closes. `closedby="none"` ignores Escape.
-//! - **Light dismiss (`closedby="any"`).** A modal dialog closes on a press on its backdrop,
-//!   through the same cancelable request. A non-modal one closes on a press outside or when its
-//!   window loses focus - that is the engine's (`OutsideOnly`), and it is not cancelable (neither
-//!   is an HTML popover's).
+//! - **Light dismiss (`closedby="any"`).** A non-modal dialog closes on a press outside or when
+//!   its window loses focus - that is the engine's (`OutsideOnly`), and it is not cancelable
+//!   (neither is an HTML popover's). A modal dialog has no backdrop to press: like any desktop's
+//!   modal dialog it closes by a request (Escape, its close box) or its own buttons.
 //! - **Focus.** The engine autofocuses the dialog's `autofocus` control, else its first tab stop,
 //!   and hands focus back to wherever it was (the invoker) when the dialog closes. The close
 //!   button is LAST in tree order, so it is not what gets focus first.
@@ -171,8 +172,8 @@ pub enum DialogClosedBy {
     /// for a non-modal one - the HTML default.
     #[default]
     Auto,
-    /// Light dismiss (a press outside a non-modal dialog, a press on a modal
-    /// dialog's backdrop), a close request (Escape), or the app.
+    /// Light dismiss (a press outside a non-modal dialog), a close request
+    /// (Escape), or the app.
     Any,
     /// A close request (Escape), or the app.
     CloseRequest,
@@ -202,7 +203,8 @@ impl DialogClosedBy {
         matches!(self.resolve(modal), Self::Any | Self::CloseRequest)
     }
 
-    /// Does a press outside (non-modal) / on the backdrop (modal) close it?
+    /// Does a press outside close it? (Only a non-modal dialog has an outside: a modal one's
+    /// parent is inert.)
     #[must_use]
     pub const fn allows_light_dismiss(self, modal: bool) -> bool {
         matches!(self.resolve(modal), Self::Any)
@@ -213,7 +215,7 @@ impl DialogClosedBy {
     /// Escape is never the engine's - the dialog answers it itself, so its
     /// `cancel` can run first. A NON-modal light dismiss is the engine's
     /// (`OutsideOnly`): only it sees a press in the parent. A modal dialog's
-    /// light dismiss is a press on its own backdrop, which the dialog sees.
+    /// window is closed by nothing but the dialog and its close box.
     #[must_use]
     pub const fn transient_dismiss(self, modal: bool) -> TransientDismiss {
         if !modal && self.allows_light_dismiss(false) {
@@ -309,8 +311,8 @@ pub struct DialogStateWrapper {
 }
 
 /// An HTML `<dialog>`: a titled panel holding arbitrary content, shown
-/// modally (covering its window, over a dimmed backdrop) or as a popup
-/// below its invoker. See the module docs for the semantics.
+/// modally (in a dialog window of its own, centred over its parent) or as a
+/// popup below its invoker. See the module docs for the semantics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct Dialog {
@@ -328,12 +330,12 @@ pub struct Dialog {
     /// order).
     pub show_close_button: bool,
     /// Where a NON-modal dialog opens, relative to its invoker. A modal one
-    /// always covers its window.
+    /// always opens centred over its window.
     pub anchor: TransientAnchor,
     /// Style of the dialog panel, or `None` for the default panel.
     pub panel_style: OptionCssPropertyWithConditionsVec,
-    /// Style of a modal dialog's `::backdrop` (its window's root), or `None`
-    /// for the default dim.
+    /// Style of a modal dialog's window root, behind the panel, or `None` for
+    /// none (there is no dimmed backdrop: the dialog is a window of its own).
     pub backdrop_style: OptionCssPropertyWithConditionsVec,
     /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
     /// theme is a DOM-level choice: it picks the skin the dialog's parts are
@@ -439,8 +441,8 @@ impl Dialog {
         self
     }
 
-    /// Whether the dialog shows modally: covering its window over a dimmed
-    /// backdrop, with the rest of the window inert.
+    /// Whether the dialog shows modally: in a dialog window of its own,
+    /// centred over its parent, with the parent inert.
     #[inline]
     pub const fn set_modal(&mut self, modal: bool) {
         self.dialog_state.inner.modal = modal;
@@ -583,8 +585,8 @@ impl Dialog {
         self
     }
 
-    /// Replaces the `::backdrop` style of a modal dialog (`None` restores
-    /// the default dim).
+    /// Replaces the style of a modal dialog's window root, behind the panel
+    /// (`None`: no style).
     #[inline]
     pub fn set_backdrop_style(&mut self, style: OptionCssPropertyWithConditionsVec) {
         self.backdrop_style = style;
@@ -937,7 +939,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
         close_row: skin_close_row,
         close: skin_close,
         content: skin_content,
-        backdrop: skin_backdrop,
+        backdrop: _,
     } = skin;
 
     let data = RefAny::new(DialogData {
@@ -956,8 +958,13 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
     } else {
         title.clone()
     };
+    // A modal dialog is a window of its own (`anchor="dialog"`): the system's title bar shows
+    // its title and its close box closes it, so the panel draws neither.
+    let in_own_window = modal;
     let mut panel_children = Vec::new();
-    if !title.as_str().is_empty() {
+    if in_own_window {
+        // The window's title bar says it.
+    } else if !title.as_str().is_empty() {
         panel_children.push(
             crate::widgets::widget_p_with_text(title.clone())
                 .with_ids_and_classes(classes(DIALOG_TITLE_CLASS, extra.title))
@@ -973,7 +980,7 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
             .with_css_props(skin_content)
             .with_children(DomVec::from_vec(alloc::vec![content])),
     );
-    if show_close_button {
+    if show_close_button && !in_own_window {
         // LAST in tree order: the dialog autofocuses its first tab stop, and
         // that should be the content's first control, not "close".
         panel_children.push(
@@ -1015,14 +1022,18 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
         TransientWindowConfig::closed()
     }
     .with_anchor(if modal {
-        TransientAnchor::Viewport
+        TransientAnchor::Dialog
     } else {
         anchor
     })
     .with_dismiss(closed_by.transient_dismiss(modal))
-    // Per-pixel alpha: a modal backdrop lets the app show through dimmed,
-    // and a popup panel's rounded corners are real corners.
-    .with_material(azul_core::window::WindowBackgroundMaterial::Transparent);
+    // Per-pixel alpha for a popup panel, so its rounded corners are real
+    // corners; a dialog window is an opaque framed window.
+    .with_material(if modal {
+        azul_core::window::WindowBackgroundMaterial::Opaque
+    } else {
+        azul_core::window::WindowBackgroundMaterial::Transparent
+    });
     let mut window = NodeData::create_node(NodeType::TransientWindow(config));
     // HTML `<dialog>` is focusable (its focusing steps fall back to the dialog
     // itself) but never a SEQUENTIAL stop: tabindex=-1. Without it the
@@ -1052,17 +1063,12 @@ pub(crate) fn build_dialog(parts: DialogParts) -> Dom {
         data.clone(),
         Callback::from_ptr(on_dialog_key).to_core(),
     );
-    if modal {
-        window.add_callback(
-            EventFilter::Hover(HoverEventFilter::LeftMouseDown),
-            data.clone(),
-            Callback::from_ptr(on_dialog_backdrop_press).to_core(),
-        );
-    }
     let mut window =
         Dom::create_from_data(window).with_ids_and_classes(classes(DIALOG_WINDOW_CLASS, extra.window));
-    if modal {
-        window = window.with_css_props(backdrop_style.unwrap_or(skin_backdrop));
+    // The dialog window's root, behind the panel: what an app asked for, else nothing - there
+    // is no backdrop, the parent stays as it is beside the dialog's window.
+    if let Some(style) = backdrop_style.filter(|_| modal) {
+        window = window.with_css_props(style);
     }
     let window = window.with_child(panel);
 
@@ -1238,33 +1244,6 @@ pub(crate) extern "C" fn on_dialog_key(mut data: RefAny, mut info: CallbackInfo)
     // The Escape was the dialog's: no default action (ClearFocus) on it.
     info.prevent_default();
     everywhere(update)
-}
-
-/// A press in a modal dialog's window: on the backdrop (outside the panel)
-/// it is a light dismiss, if `closedby="any"`.
-pub(crate) extern "C" fn on_dialog_backdrop_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let allowed = {
-        let Some(d) = data.downcast_ref::<DialogData>() else {
-            return Update::DoNothing;
-        };
-        d.modal && d.closed_by.allows_light_dismiss(true)
-    };
-    if !allowed {
-        return Update::DoNothing;
-    }
-    let root = info.get_hit_node();
-    // A press inside the panel bubbles here too: only one OUTSIDE it counts.
-    // No geometry (nothing laid out yet): not a light dismiss.
-    let Some(panel) = info.get_first_child(root) else {
-        return Update::DoNothing;
-    };
-    let (Some(cursor), Some(rect)) = (info.get_cursor_position(), info.get_node_rect(panel)) else {
-        return Update::DoNothing;
-    };
-    if rect.contains(cursor) {
-        return Update::DoNothing;
-    }
-    everywhere(request_close(&mut data, &mut info, root, None))
 }
 
 /// The "×" button: HTML `close()` - no `cancel`, the return value unchanged.
@@ -1838,7 +1817,7 @@ mod tests {
             assert_eq!(
                 c.transient_dismiss(true),
                 TransientDismiss::None,
-                "a modal dialog's backdrop press is its own ({c:?})"
+                "a modal dialog's window is closed by the dialog alone ({c:?})"
             );
         }
     }
@@ -1847,12 +1826,13 @@ mod tests {
     // Structure
     // ------------------------------------------------------------------
 
-    /// `show_modal()`: the `<transient-window>` covers the parent window
-    /// (`anchor="viewport"`), is open, leaves Escape to the dialog, has
-    /// per-pixel alpha, and is itself the `::backdrop` - it answers Escape and
-    /// backdrop presses and reports the close.
+    /// `show_modal()`: the `<transient-window>` is a dialog window of its own
+    /// (`anchor="dialog"`), open, opaque, leaving Escape to the dialog. Its
+    /// root answers Escape and reports the close; there is no backdrop, and
+    /// the panel draws no title row and no "x" - the window's title bar and
+    /// close box are the system's.
     #[test]
-    fn a_modal_dialog_is_a_viewport_window_whose_root_is_the_backdrop() {
+    fn a_modal_dialog_is_a_dialog_window_of_its_own_without_a_backdrop() {
         let dom = Dialog::create(body())
             .with_title("Delete file".into())
             .show_modal()
@@ -1862,11 +1842,11 @@ mod tests {
             panic!("the wrapper's only child (no invoker) is the dialog's window");
         };
         assert!(cfg.open);
-        assert_eq!(cfg.anchor, TransientAnchor::Viewport);
+        assert_eq!(cfg.anchor, TransientAnchor::Dialog);
         assert_eq!(cfg.dismiss, TransientDismiss::None);
         assert_eq!(
             cfg.material,
-            azul_core::window::WindowBackgroundMaterial::Transparent
+            azul_core::window::WindowBackgroundMaterial::Opaque
         );
         let events: Vec<EventFilter> = window
             .root
@@ -1878,16 +1858,21 @@ mod tests {
         for e in [
             EventFilter::Component(ComponentEventFilter::Dismissed),
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-            EventFilter::Hover(HoverEventFilter::LeftMouseDown),
         ] {
             assert!(events.contains(&e), "{e:?} missing from {events:?}");
         }
         assert!(
-            window.root.style.iter_inline_properties().any(|(p, _)| matches!(
+            !window.root.style.iter_inline_properties().any(|(p, _)| matches!(
                 p,
                 CssProperty::BackgroundContent(_)
             )),
-            "the window root paints the backdrop"
+            "no backdrop: the parent stays as it is beside the dialog's window"
+        );
+        let panel = &window.children.as_ref()[0];
+        assert_eq!(
+            panel.children.as_ref().len(),
+            1,
+            "the panel holds the content alone: the title and the close box are the window's"
         );
     }
 
@@ -2352,7 +2337,7 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_flora_modal_dims_the_window_with_flora_s_warm_backdrop() {
+    fn a_flora_modal_keeps_flora_s_warm_backdrop_style_and_paints_no_backdrop() {
         let modal = Modal::create(body())
             .with_open(true)
             .with_theme(UiTheme::Flora);
@@ -2368,7 +2353,11 @@ mod theme_tests {
         let dom = modal.dom();
         assert!(tc::has_class(&dom, FLORA));
         let window = tc::find(&dom, WINDOW).expect("the modal has a window");
-        assert_eq!(bg(window, false), Some(warm));
+        assert_eq!(
+            bg(window, false),
+            None,
+            "a dialog window of its own: no backdrop behind the panel"
+        );
         assert_eq!(bg(panel_of(&dom), false), Some(flora::LIGHT_SUR));
         tc::assert_theme_invariants("modal Flora", &dom);
     }

@@ -3708,10 +3708,10 @@ fn show_probe_dialog(parent: &mut HeadlessWindow) -> (HeadlessWindow, WindowCrea
     (popup, popup_opts)
 }
 
-/// `showModal()`: the dialog's window covers its parent exactly and takes
-/// the focus (its first control). Escape runs `cancel`, then closes it: the
-/// app hears `close` with an empty return value, and the parent's focus is
-/// where it was.
+/// `showModal()`: the dialog's window (a dialog window of its own, see
+/// below) takes the focus (its first control). Escape runs `cancel`, then
+/// closes it: the app hears `close` with an empty return value, and the
+/// parent's focus is where it was.
 #[test]
 fn escape_in_a_modal_dialog_runs_cancel_then_closes_it_and_hands_focus_back() {
     let mut parent = dialog_parent(DialogClosedBy::Auto, false);
@@ -3720,23 +3720,7 @@ fn escape_in_a_modal_dialog_runs_cancel_then_closes_it_and_hands_focus_back() {
     let stop = node_with_class(&parent, "dialog-stop");
     assert_eq!(focused(&parent), Some(stop), "premise: Tab focused the stop");
 
-    let (mut popup, popup_opts) = show_probe_dialog(&mut parent);
-    assert_eq!(
-        popup_opts.window_state.size.dimensions,
-        LogicalSize {
-            width: 800.0,
-            height: 600.0
-        },
-        "the modal dialog's window covers its parent"
-    );
-    assert!(
-        matches!(
-            popup_opts.window_state.position,
-            azul_core::window::WindowPosition::RelativeToParentWindow(p) if p.x == 0 && p.y == 0
-        ),
-        "at the parent's origin: {:?}",
-        popup_opts.window_state.position
-    );
+    let (mut popup, _popup_opts) = show_probe_dialog(&mut parent);
     assert_eq!(
         focused(&popup),
         Some(node_with_class(&popup, "dialog-ok")),
@@ -3769,15 +3753,14 @@ fn a_cancel_that_prevents_default_keeps_the_modal_dialog_open() {
     assert!(!close_requested(&popup), "and kept the dialog open");
 }
 
-/// `closedby="any"`: a press on a modal dialog's backdrop is a light
-/// dismiss (a close request: `cancel` first). A press inside the dialog
-/// never is, and without `closedby="any"` the backdrop is inert.
+/// A press inside a modal dialog's window never closes it, whatever its
+/// `closedby`: the window is the dialog (there is no backdrop beside the
+/// panel), and a modal dialog closes by a request or its own buttons.
 #[test]
-fn a_press_on_the_backdrop_closes_a_modal_dialog_only_with_closedby_any() {
-    for (closed_by, closes) in [(DialogClosedBy::Any, true), (DialogClosedBy::Auto, false)] {
+fn a_press_inside_a_modal_dialog_never_closes_it() {
+    for closed_by in [DialogClosedBy::Any, DialogClosedBy::Auto] {
         let mut parent = dialog_parent(closed_by, false);
         let (mut popup, _) = show_probe_dialog(&mut parent);
-
         let panel = rect_of_class(&popup, "__azul-native-dialog-panel");
         click_at(
             &mut popup,
@@ -3787,18 +3770,7 @@ fn a_press_on_the_backdrop_closes_a_modal_dialog_only_with_closedby_any() {
             !close_requested(&popup),
             "a press inside the dialog ({closed_by:?})"
         );
-
-        click_at(&mut popup, LogicalPosition::new(5.0, 5.0));
-        assert_eq!(
-            close_requested(&popup),
-            closes,
-            "a press on the backdrop ({closed_by:?})"
-        );
-        assert_eq!(
-            with_probe(&popup, |p| p.cancels),
-            usize::from(closes),
-            "a light dismiss is a close request: cancel first ({closed_by:?})"
-        );
+        assert_eq!(with_probe(&popup, |p| p.cancels), 0, "no close request ({closed_by:?})");
     }
 }
 
@@ -4046,5 +4018,73 @@ fn an_escape_at_the_owner_reaches_its_modal_dialogs_child_window_at_once() {
     assert!(
         close_requested(&parent.children[0]),
         "then the dialog closed its window"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// A modal dialog is a dialog window of its own over an inert parent
+// ---------------------------------------------------------------------------
+
+/// `showModal()` opens the dialog the way every desktop shows a modal dialog:
+/// a window of its own with the system's title bar (the dialog's title) and
+/// close box, sized to the dialog and centred over its parent, kept above the
+/// parent but not above every other program. Not a window covering the parent
+/// with a dimmed backdrop, which reads as an overlay inside the app's window
+/// (the user's report).
+#[test]
+fn a_modal_dialog_opens_in_a_titled_window_of_its_own_centred_over_its_parent() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, false);
+    let (_popup, popup_opts) = show_probe_dialog(&mut parent);
+    let ws = &popup_opts.window_state;
+    assert_eq!(
+        ws.flags.window_type,
+        WindowType::Dialog,
+        "a dialog window, not a menu popup"
+    );
+    assert_ne!(
+        ws.flags.decorations,
+        azul_core::window::WindowDecorations::None,
+        "the system's title bar and close box"
+    );
+    assert_eq!(ws.title.as_str(), "Delete file", "titled by the dialog");
+    assert!(
+        !ws.flags.is_always_on_top,
+        "above its parent only, not above every program"
+    );
+    let size = ws.size.dimensions;
+    assert!(
+        size.width < 800.0 && size.height < 600.0,
+        "sized to the dialog, not covering the parent: {size:?}"
+    );
+    let azul_core::window::WindowPosition::RelativeToParentWindow(origin) = ws.position else {
+        panic!("placed relative to its parent: {:?}", ws.position);
+    };
+    let centre = (
+        origin.x as f32 + size.width / 2.0,
+        origin.y as f32 + size.height / 2.0,
+    );
+    assert!(
+        (centre.0 - 400.0).abs() <= 1.0 && (centre.1 - 300.0).abs() <= 1.0,
+        "centred over the 800x600 parent: origin {origin:?}, size {size:?}"
+    );
+}
+
+/// While a modal dialog is open its parent is inert (HTML: the rest of the
+/// document is): a click on a control of the parent's reaches nothing - here
+/// it does not focus the parent's focusable box.
+#[test]
+fn a_press_in_the_parent_of_a_modal_dialog_reaches_nothing_there() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, false);
+    let stop = node_with_class(&parent, "dialog-stop");
+    let at = rect_of_class(&parent, "dialog-stop");
+    let (_popup, _) = show_probe_dialog(&mut parent);
+    click_at(
+        &mut parent,
+        LogicalPosition::new(at.origin.x + 4.0, at.origin.y + 4.0),
+    );
+    assert_ne!(
+        focused(&parent),
+        Some(stop),
+        "the click beside the modal dialog focused a control of its parent"
     );
 }

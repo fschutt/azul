@@ -567,6 +567,8 @@ pub fn start() {
     }
     let app = CalcApp::new(kit_ref.clone(), &args);
     println!("AZCALC_SCREEN {}", app.pin.key());
+    // A small tool: its window is laid out for its own size, never maximized.
+    kit::keep_default_size(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, DEFAULT_SIZE, MIN_SIZE, on_window_created);
     App::create(RefAny::new(app), config).run(window);
 }

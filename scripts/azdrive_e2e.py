@@ -10,7 +10,8 @@ node layout, AzDrive's stdout markers and the files on disk:
         breadcrumb box with its location icon, crumbs and chevrons, Refresh in the box);
         Finder's body - the source list's FAVORITES (Quick access, the sample's Documents /
         Pictures / Music), LOCATIONS (This PC, Home, Azlin), CLOUD ("Add drive..."), This PC's
-        row selected, the path bar and the status line at the foot of the content's leaf;
+        row selected; the content filling its pane, no status bar until View > Status bar
+        shows the path bar and the status line at its foot;
      1b. the source list: a click on Documents goes there (its row selected, the path bar's
         trail), Down walks to Pictures, Enter opens it, Left climbs to FAVORITES' title, Left
         closes the section, Right opens it again; F6 lands on the pane, Down enters the list at
@@ -383,6 +384,12 @@ def node_by_id(app, dom_id):
     return None
 
 
+def rect_of(app, selector):
+    """The laid-out rect ({x, y, width, height}) of the node `selector` names."""
+    rect = (app.value("get_node_layout", selector=selector) or {}).get("rect") or {}
+    return {k: float(rect.get(k, 0)) for k in ("x", "y", "width", "height")}
+
+
 def classes_of(app, dom_id):
     """The classes of the node whose DOM id is `dom_id` (none when it is not there)."""
     return (node_by_id(app, dom_id) or {}).get("classes") or []
@@ -529,19 +536,28 @@ def run(args, logs):
             raise Failure("This PC's row in the source list is not the selected one")
         if app.has("#" + I("side-eject-home")):
             raise Failure("the Home drive has an eject button (it can never be removed)")
-        # The content is a leaf on the page, Finder's path bar and status line at its foot.
+        # The content fills its pane edge to edge, no page around it, and no status bar at its
+        # foot: Finder's path bar and status line are View > Status bar, off by default.
         app.until("the leaf", lambda: app.has("#" + I("leaf")))
+        app.until("This PC's groups", lambda: app.shows("Devices and drives"))
+        if not app.has("#shell-tree") or not app.has("#shell-content"):
+            raise Failure("the navigation pane and the content pane are not laid out")
+        pane, leaf = rect_of(app, "#shell-content"), rect_of(app, "#" + I("leaf"))
+        if any(abs(pane[k] - leaf[k]) > 1.0 for k in ("x", "y", "width", "height")):
+            raise Failure("the content does not fill its pane: pane %s, content %s" % (pane, leaf))
+        if app.has("#" + I("path-bar")) or app.has("#" + I("status-line")):
+            raise Failure("a status bar shows at the foot of the content (it is off by default)")
+        app.tab("View")
+        app.ribbon("Status bar")
         app.until("the path bar", lambda: app.has("#" + I("path-bar")))
         app.until("the status line", lambda: app.has("#" + I("status-line")))
         app.until("the status line's count of the drives",
                   lambda: any("drives" in t for t in app.texts_within("#" + I("status-line"))))
-        app.until("This PC's groups", lambda: app.shows("Devices and drives"))
-        if not app.has("#shell-tree") or not app.has("#shell-content"):
-            raise Failure("the navigation pane and the content pane are not laid out")
+        app.tab("Computer")
         app.screenshot(os.path.join(out, "01-this-pc.png"))
         log("1. This PC: drive tiles, the ribbon (Computer, View; no title row), the window "
             "title, the address row (arrows, breadcrumb box, Refresh), the source list, the "
-            "leaf with its path bar and status line")
+            "content filling its pane, View > Status bar: the path bar and the status line")
 
         # 1b. The source list: a click goes, the arrows walk the rows, Enter opens one, Left
         # climbs and closes, Right opens; F6 lands on the pane, Down enters the list at the
@@ -1440,7 +1456,9 @@ def sync_step(args, logs, binary, out):
     view = os.path.join(base, "data", "drive", "view.json")
     os.makedirs(os.path.dirname(view), exist_ok=True)
     with open(view, "w", encoding="utf-8") as f:
-        json.dump({"synced": [{"drive_id": paid_id, "prefix": "",
+        # The status bar on: the sync's state is read from its status line.
+        json.dump({"status_bar": True,
+                   "synced": [{"drive_id": paid_id, "prefix": "",
                                "folder": os.path.join(home, "AzDrive", PAID_NAME)}]}, f)
     switches = [
         "--screen", "this-pc", "--theme", "flat", "--mode", "light",

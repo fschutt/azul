@@ -177,8 +177,12 @@ pub fn create_hwnd(
         // parent HWND as its owner) stays above its owner, hides and minimises
         // with it, and must not get a taskbar button of its own.
         let owned_popup = !parent.is_null() && style == WS_POPUP;
+        // An owned FRAMED window (a dialog window) keeps its caption and, owned,
+        // gets no taskbar button either - unless WS_EX_APPWINDOW asked for one.
         let style_ex = if owned_popup {
             super::dlopen::constants::WS_EX_TOOLWINDOW | WS_EX_ACCEPTFILES
+        } else if !parent.is_null() {
+            WS_EX_ACCEPTFILES
         } else {
             WS_EX_APPWINDOW | WS_EX_ACCEPTFILES
         };

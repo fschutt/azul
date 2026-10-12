@@ -23,6 +23,8 @@
 //!   app's background check-and-stage under the machine's rollout cohort, and the update
 //!   engine's calls (azul's updater with the `azul` feature).
 //! - [`shortcuts`]: the keyboard-shortcut table, `Mod` = Cmd / Ctrl.
+//! - [`window_place`]: where the main window opens - maximized on the first start, then where
+//!   and as big as the user left it (per computer, in the data root's `.azlin` folder).
 //! - [`about`]: the About facts.
 //! - [`client_health`]: this device's client health, 0 to 100, for how much background work
 //!   it takes on - computed locally from azul's device-state readings (power, battery,
@@ -86,6 +88,7 @@ pub mod settings;
 pub mod shared_endpoint;
 pub mod shortcuts;
 pub mod update;
+pub mod window_place;
 #[cfg(test)]
 mod l10n_tests;
 #[cfg(all(test, feature = "azul"))]

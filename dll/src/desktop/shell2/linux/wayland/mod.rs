@@ -9829,6 +9829,12 @@ impl WaylandPopup {
                     XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
                     XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
                 ),
+                // A dialog window is a toplevel with a parent (the compositor
+                // places it); should one ever come here, centre it over the
+                // anchor rect, the parent's whole surface (`cover_viewport`).
+                TransientAnchor::Dialog => {
+                    (XDG_POSITIONER_ANCHOR_NONE, XDG_POSITIONER_GRAVITY_NONE)
+                }
             };
             (wayland.xdg_positioner_set_anchor)(positioner, anchor);
             (wayland.xdg_positioner_set_gravity)(positioner, gravity);
