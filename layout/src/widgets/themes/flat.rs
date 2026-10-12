@@ -2357,15 +2357,16 @@ pub fn button_states(
         }
     }
 
-    // The focus ring is the accent in both modes, and the consts already pair it.
-    out.push(FOCUS_BORDER_TOP);
-    out.push(FOCUS_BORDER_BOTTOM);
-    out.push(FOCUS_BORDER_LEFT);
-    out.push(FOCUS_BORDER_RIGHT);
-    out.push(FOCUS_BORDER_TOP_DARK);
-    out.push(FOCUS_BORDER_BOTTOM_DARK);
-    out.push(FOCUS_BORDER_LEFT_DARK);
-    out.push(FOCUS_BORDER_RIGHT_DARK);
+    // The focus ring is the accent in both modes, and the consts already pair
+    // it - rung on `:focus-visible`: a click focuses a button without a ring.
+    out.push(FOCUS_BORDER_TOP.when_focus_visible());
+    out.push(FOCUS_BORDER_BOTTOM.when_focus_visible());
+    out.push(FOCUS_BORDER_LEFT.when_focus_visible());
+    out.push(FOCUS_BORDER_RIGHT.when_focus_visible());
+    out.push(FOCUS_BORDER_TOP_DARK.when_focus_visible());
+    out.push(FOCUS_BORDER_BOTTOM_DARK.when_focus_visible());
+    out.push(FOCUS_BORDER_LEFT_DARK.when_focus_visible());
+    out.push(FOCUS_BORDER_RIGHT_DARK.when_focus_visible());
     out
 }
 

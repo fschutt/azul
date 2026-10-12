@@ -1959,7 +1959,10 @@ mod theme_tests {
         let mut light = None;
         let mut dark = None;
         for d in declarations(node) {
-            if d.pseudo_state_conditions() != [PseudoStateType::Focus] {
+            if !matches!(
+                d.pseudo_state_conditions().as_slice(),
+                [PseudoStateType::Focus | PseudoStateType::FocusVisible]
+            ) {
                 continue;
             }
             let colour = shadow_colour(&d.property).or(match &d.property {

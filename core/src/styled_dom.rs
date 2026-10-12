@@ -235,6 +235,10 @@ pub struct StyledNodeState {
     /// A NON-primary pointer seat focuses this node (`:seat-focus`,
     /// 9b-ii-a-i-d-iii-a). Independent of `focused`, which is the primary's.
     pub seat_focused: bool,
+    /// The node's focus should be SEEN (`:focus-visible`): it came from the
+    /// keyboard or assistive technology, not a click. Raised only with
+    /// `focused`, from `FocusManager::focus_is_visible`; focus rings read it.
+    pub focus_visible: bool,
 }
 
 impl fmt::Debug for StyledNodeState {
@@ -248,6 +252,9 @@ impl fmt::Debug for StyledNodeState {
         }
         if self.focused {
             v.push("focused");
+        }
+        if self.focus_visible {
+            v.push("focus_visible");
         }
         if self.disabled {
             v.push("disabled");
@@ -297,6 +304,7 @@ impl StyledNodeState {
             drag_over: false,
             placeholder: false,
             seat_focused: false,
+            focus_visible: false,
         }
     }
 
@@ -316,6 +324,7 @@ impl StyledNodeState {
             9 => self.dragging,
             10 => self.drag_over,
             11 => self.seat_focused,
+            12 => self.focus_visible,
             _ => false,
         }
     }
@@ -339,6 +348,7 @@ impl StyledNodeState {
             // so a `::placeholder` rule silently never applied.
             && !self.placeholder
             && !self.seat_focused
+            && !self.focus_visible
     }
 
     /// Create from `PseudoStateFlags`
@@ -359,6 +369,7 @@ impl StyledNodeState {
             drag_over: flags.drag_over,
             placeholder: flags.placeholder,
             seat_focused: flags.seat_focused,
+            focus_visible: flags.focus_visible,
         }
     }
 }
@@ -2157,6 +2168,53 @@ impl StyledDom {
         )
     }
 
+    /// `:focus-visible` on/off for `nodes`.
+    #[must_use]
+    pub fn restyle_nodes_focus_visible(&mut self, nodes: &[NodeId], visible: bool) -> RestyleNodes {
+        self.restyle_nodes_state(
+            nodes,
+            visible,
+            |state, val| state.focus_visible = val,
+            azul_css::dynamic_selector::PseudoStateType::FocusVisible,
+        )
+    }
+
+    /// Whether `node`'s focus is SEEN changed (`:focus-visible`): a focus
+    /// that came from the keyboard rings, one from a click does not. Called
+    /// after the focus restyle with the focus manager's answer; the result
+    /// is classified like [`Self::restyle_on_state_change`]'s, to be merged
+    /// into it.
+    #[must_use]
+    pub fn restyle_on_focus_visibility(&mut self, node: NodeId, visible: bool) -> RestyleResult {
+        let mut result = RestyleResult {
+            gpu_only_changes: true,
+            ..RestyleResult::default()
+        };
+        for (node_id, props) in self.restyle_nodes_focus_visible(&[node], visible) {
+            for change in &props {
+                let prop_type = change.current_prop.get_type();
+                let scope = prop_type.relayout_scope(true);
+                if scope > result.max_relayout_scope {
+                    result.max_relayout_scope = scope;
+                }
+                if scope != RelayoutScope::None {
+                    result.needs_layout = true;
+                    result.gpu_only_changes = false;
+                }
+                if !prop_type.is_gpu_only_property() {
+                    result.gpu_only_changes = false;
+                }
+                result.needs_display_list = true;
+            }
+            result
+                .changed_nodes
+                .entry(node_id)
+                .or_default()
+                .extend(props);
+        }
+        result
+    }
+
     /// `:seat-focus` on/off for `nodes` (9b-ii-a-i-d-iii-a).
     pub fn restyle_nodes_seat_focus(&mut self, nodes: &[NodeId], on: bool) -> RestyleNodes {
         self.restyle_nodes_state(
@@ -2403,6 +2461,9 @@ impl StyledDom {
         // 1. Process focus changes
         if let Some(focus) = focus_changes {
             if let Some(old) = focus.lost_focus {
+                // A node that loses focus loses its seen focus with it.
+                let changes = self.restyle_nodes_focus_visible(&[old], false);
+                process_changes(changes);
                 let changes = self.restyle_nodes_focus(&[old], false);
                 process_changes(changes);
             }

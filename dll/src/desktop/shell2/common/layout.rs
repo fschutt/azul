@@ -1909,6 +1909,10 @@ fn apply_runtime_states_before_layout(
                 let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
                 if let Some(styled_node) = styled_nodes.get_mut(node_id) {
                     styled_node.styled_node_state.focused = true;
+                    // `:focus-visible`: rung only when the focus came from
+                    // the keyboard or assistive technology, not a click.
+                    styled_node.styled_node_state.focus_visible =
+                        layout_window.focus_manager.focus_is_visible;
                     log_debug!(
                         LogCategory::Layout,
                         "[apply_runtime_states_before_layout] Set focused=true for node {:?}",

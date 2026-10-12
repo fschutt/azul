@@ -651,6 +651,7 @@ fn pseudo_state_to_css(state: &PseudoStateType) -> Option<&'static str> {
         PseudoStateType::Hover => Some(":hover"),
         PseudoStateType::Active => Some(":active"),
         PseudoStateType::Focus => Some(":focus"),
+        PseudoStateType::FocusVisible => Some(":focus-visible"),
         PseudoStateType::FocusWithin => Some(":focus-within"),
         PseudoStateType::Disabled => Some(":disabled"),
         PseudoStateType::CheckedTrue => Some(":checked"),

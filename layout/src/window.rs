@@ -30759,6 +30759,7 @@ const fn with_interaction_of(
     state.hover = interaction.hover;
     state.active = interaction.active;
     state.focused = interaction.focused;
+    state.focus_visible = interaction.focus_visible;
     state.focus_within = interaction.focus_within;
     state.backdrop = interaction.backdrop;
     state.dragging = interaction.dragging;

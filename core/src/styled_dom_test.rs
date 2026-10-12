@@ -91,6 +91,7 @@ mod autotest_generated {
             drag_over: all,
             placeholder: all,
             seat_focused: all,
+            focus_visible: all,
         }
     }
 

@@ -44,6 +44,10 @@ pub struct PseudoStateFlags {
     /// bucketing, inheritance and lookup path as `:hover` and `:focus`,
     /// with no parallel storage to keep in sync.
     pub placeholder: bool,
+    /// The focus of a focused node should be SEEN (`:focus-visible`): it came
+    /// from the keyboard or assistive technology, not from a click. Raised
+    /// only together with `focused`.
+    pub focus_visible: bool,
 }
 
 impl PseudoStateFlags {
@@ -65,6 +69,7 @@ impl PseudoStateFlags {
             PseudoStateType::Dragging => self.dragging,
             PseudoStateType::DragOver => self.drag_over,
             PseudoStateType::Placeholder => self.placeholder,
+            PseudoStateType::FocusVisible => self.focus_visible,
         }
     }
 }
@@ -1477,6 +1482,9 @@ pub enum PseudoStateType {
     /// The prompt of an empty editable (`::placeholder`) - a pseudo-ELEMENT
     /// carried through the pseudo-state machinery. See `PseudoStateFlags`.
     Placeholder,
+    /// Element has focus that should be indicated (:focus-visible): keyboard
+    /// or assistive focus, not a click. A focus ring belongs here.
+    FocusVisible,
 }
 
 impl_option!(
@@ -2057,6 +2065,7 @@ impl DynamicSelector {
             PseudoStateType::Hover => node_state.hover,
             PseudoStateType::Active => node_state.active,
             PseudoStateType::Focus => node_state.focused,
+            PseudoStateType::FocusVisible => node_state.focus_visible,
             PseudoStateType::SeatFocus => node_state.seat_focused,
             PseudoStateType::Placeholder => node_state.placeholder,
             PseudoStateType::Disabled => node_state.disabled,
@@ -2386,6 +2395,63 @@ impl CssPropertyWithConditions {
             property,
             &[DynamicSelector::PseudoState(PseudoStateType::Focus)],
         )
+    }
+
+    /// A property that applies only while the node's focus should be seen
+    /// (`:focus-visible`): keyboard focus rings, not the click's focus.
+    #[must_use]
+    pub const fn on_focus_visible(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[DynamicSelector::PseudoState(PseudoStateType::FocusVisible)],
+        )
+    }
+
+    /// [`Self::on_focus_visible`] in the dark mode.
+    #[must_use]
+    pub const fn dark_on_focus_visible(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[
+                DynamicSelector::Mode(ModeCondition::Dark),
+                DynamicSelector::PseudoState(PseudoStateType::FocusVisible),
+            ],
+        )
+    }
+
+    /// [`Self::themed`] for visible focus:
+    /// `[on_focus_visible(light), dark_on_focus_visible(dark)]`.
+    #[must_use]
+    pub fn themed_on_focus_visible(light: CssProperty, dark: CssProperty) -> [Self; 2] {
+        debug_assert_eq!(
+            light.get_type(),
+            dark.get_type(),
+            "themed_on_focus_visible(): type mismatch"
+        );
+        [
+            Self::on_focus_visible(light),
+            Self::dark_on_focus_visible(dark),
+        ]
+    }
+
+    /// This declaration with its `:focus` condition turned into
+    /// `:focus-visible`: a ring declared for focus, shown only when the focus
+    /// should be seen. Any other declaration comes back as it is.
+    #[must_use]
+    pub fn when_focus_visible(mut self) -> Self {
+        let conditions: Vec<DynamicSelector> = self
+            .apply_if
+            .as_ref()
+            .iter()
+            .map(|c| match c {
+                DynamicSelector::PseudoState(PseudoStateType::Focus) => {
+                    DynamicSelector::PseudoState(PseudoStateType::FocusVisible)
+                }
+                other => other.clone(),
+            })
+            .collect();
+        self.apply_if = conditions.into();
+        self
     }
 
     /// A property that applies only while hovered AND the theme is dark.
@@ -2889,6 +2955,11 @@ impl CssPropertyWithConditionsVec {
                     return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Active)])
                 }
                 "focus" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Focus)]),
+                "focus-visible" => {
+                    return Some(vec![DynamicSelector::PseudoState(
+                        PseudoStateType::FocusVisible,
+                    )])
+                }
                 "seat-focus" => {
                     return Some(vec![DynamicSelector::PseudoState(
                         PseudoStateType::SeatFocus,
@@ -3519,6 +3590,7 @@ mod autotest_generated {
             drag_over: true,
             placeholder: true,
             seat_focused: false,
+            focus_visible: true,
         };
         assert!(flags.has_state(PseudoStateType::Hover));
         assert!(flags.has_state(PseudoStateType::Placeholder));
