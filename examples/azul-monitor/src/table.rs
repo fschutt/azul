@@ -112,7 +112,7 @@ pub fn columns() -> Vec<DataTableColumn> {
             } else {
                 (DataTableSortKind::Text, CellGridHorizontalAlign::Left)
             };
-            DataTableColumn::create(c.title(), c.width(), kind)
+            DataTableColumn::create(azul_appkit::l10n::t(c.key()), c.width(), kind)
                 .with_align(align)
                 .with_filterable(false)
         })
@@ -440,7 +440,7 @@ pub extern "C" fn cell(mut app: RefAny, at: DataTableCellRef) -> DataTableCell {
 pub fn table(app: &RefAny, view: DataTableView, rows: u32, width: f32, height: f32) -> DataTable {
     DataTable::create(columns(), rows)
         .with_id(ids::TABLE)
-        .with_accessibility_name("Processes")
+        .with_accessibility_name(azul_appkit::l10n::t("azmonitor-tab-processes"))
         .with_view(view)
         .with_viewport(width.max(MIN_WIDTH), height.max(MIN_HEIGHT))
         .with_row_height(ROW_PX)

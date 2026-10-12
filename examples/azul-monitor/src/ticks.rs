@@ -40,14 +40,14 @@ impl Screen {
         Self::Users,
     ];
 
-    /// The tab's title.
+    /// The tab's title: a key of AzMonitor's, said in the window's language.
     #[must_use]
     pub const fn title(self) -> &'static str {
         match self {
-            Self::Processes => "Processes",
-            Self::Performance => "Performance",
-            Self::Networking => "Networking",
-            Self::Users => "Users",
+            Self::Processes => "azmonitor-tab-processes",
+            Self::Performance => "azmonitor-tab-performance",
+            Self::Networking => "azmonitor-tab-networking",
+            Self::Users => "azmonitor-tab-users",
         }
     }
 
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(Screen::at(3), Screen::Users);
         assert_eq!(Screen::at(9), Screen::Processes);
         assert_eq!(Screen::Networking.index(), 2);
-        assert_eq!(Screen::Processes.title(), "Processes");
+        assert_eq!(Screen::Processes.title(), "azmonitor-tab-processes");
         assert_eq!(Screen::Performance.name(), "performance");
         assert_eq!(Screen::named("networking"), Some(Screen::Networking));
         assert_eq!(Screen::named("services"), None);

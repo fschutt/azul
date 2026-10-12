@@ -173,7 +173,7 @@ def body(args, logs, out):
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
     app = e2e.App(TAG, binary, ["--sample", "--data-dir", data_dir, "--size", "1280x800",
-                                "--theme", "flat", "--mode", "light"],
+                                "--theme", "flat", "--mode", "light", "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         # ---- 1. the first reading builds the page ----

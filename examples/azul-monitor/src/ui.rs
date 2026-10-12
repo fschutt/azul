@@ -24,11 +24,15 @@ use azul::{
     vec::StringVec,
     widgets::{
         Button, MessageBox, MessageBoxKind, Modal, ModalState, OnTextInputReturn, Segmented,
-        SegmentedState, StandardDialogEvent, StandardDialogEventKind, StatusBar,
-        StatusBarSegment, TabHeader, TabHeaderState, TextInput, TextInputState, TextInputValid,
+        SegmentedState, StandardDialogEvent, StandardDialogEventKind, StatusBar, StatusBarSegment,
+        TabHeader, TabHeaderState, TextInput, TextInputState, TextInputValid,
     },
 };
-use azul_appkit::{files::FileJob, ui as kit};
+use azul_appkit::{
+    files::FileJob,
+    l10n::{label, t, t_args, t_label, Arg},
+    ui as kit,
+};
 
 use crate::{
     graph::{self, Line, Strips},
@@ -65,8 +69,8 @@ fn line(text: impl Into<AzString>, css: &str) -> Dom {
     Dom::create_p_with_text(text).with_css(format!("margin: 0px; {css}"))
 }
 
-/// A group box `width` x `height` px: a thin frame, its caption on top, the
-/// `body` under it.
+/// A group box `width` x `height` px: a thin frame, its caption (a key, or words said already)
+/// on top, the `body` under it.
 fn group(caption: &str, body: Dom, width: f32, height: f32) -> Dom {
     Dom::create_div()
         .with_class(ids::GROUP)
@@ -76,7 +80,7 @@ fn group(caption: &str, body: Dom, width: f32, height: f32) -> Dom {
              border: 1px solid system:separator; overflow: hidden;"
         ))
         .with_child(line(
-            caption,
+            t_label(caption),
             &format!("height: {CAPTION}px; font-size: 12px; white-space: nowrap;"),
         ))
         .with_child(body)
@@ -90,11 +94,11 @@ fn group_inner(width: f32, height: f32) -> (f32, f32) {
     )
 }
 
-/// A figure: its label at the left, its value at the right.
-fn figure(label: &str, value: String) -> Dom {
+/// A figure: its label (a key) at the left, its value at the right.
+fn figure(name: &str, value: String) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; height: 17px; font-size: 12px;")
-        .with_child(line(label, "flex-grow: 1; white-space: nowrap;"))
+        .with_child(line(t_label(name), "flex-grow: 1; white-space: nowrap;"))
         .with_child(line(value, "white-space: nowrap; text-align: right;"))
 }
 
@@ -111,10 +115,7 @@ fn figures(caption: &str, rows: Vec<(&str, String)>, width: f32, height: f32) ->
 
 /// The tab row: Processes, Performance, Networking, Users.
 pub fn tools(s: &Monitor, app: &RefAny) -> Dom {
-    let tabs: Vec<AzString> = Screen::ALL
-        .iter()
-        .map(|t| AzString::from(t.title()))
-        .collect();
+    let tabs: Vec<AzString> = Screen::ALL.iter().map(|tab| label(tab.title())).collect();
     Dom::create_div()
         .with_id(ids::TOOLS)
         .with_css(
@@ -132,10 +133,10 @@ pub fn tools(s: &Monitor, app: &RefAny) -> Dom {
 /// The Processes tab: the table (a live view) over the row with the filter
 /// at the left and "End Process" at the right.
 pub fn process_page(s: &Monitor, app: &RefAny) -> Dom {
-    let mut end = Button::create("End Process")
+    let mut end = Button::create(t("azmonitor-end-process"))
         .with_on_click(app.clone(), on_end_clicked as ButtonOnClickCallbackType);
     if s.model.selected_row().is_none() {
-        end = end.with_disabled("Select a process first");
+        end = end.with_disabled(t("azmonitor-select-first"));
     }
     let actions = Dom::create_div()
         .with_id(ids::PROCESS_ACTIONS)
@@ -146,8 +147,8 @@ pub fn process_page(s: &Monitor, app: &RefAny) -> Dom {
         .with_child(
             TextInput::create()
                 .with_text(s.model.filter())
-                .with_placeholder("Filter by name, user or PID")
-                .with_accessibility_name("Filter processes")
+                .with_placeholder(t("azmonitor-filter"))
+                .with_accessibility_name(t("azmonitor-filter-processes"))
                 .with_on_text_input(app.clone(), on_filter as TextInputOnTextInputCallbackType)
                 .dom()
                 .with_id(ids::FILTER)
@@ -165,12 +166,12 @@ pub fn process_page(s: &Monitor, app: &RefAny) -> Dom {
 
 /// The empty state until the first reading.
 pub fn waiting(s: &Monitor) -> Dom {
-    let source = if s.sample {
-        "The sample machine (--sample)."
+    let source = t(if s.sample {
+        "azmonitor-waiting-sample"
     } else {
-        "Processes, CPU, memory, disks and networks, on a background thread."
-    };
-    ShellEmptyState::create("Reading the system\u{2026}")
+        "azmonitor-waiting-live"
+    });
+    ShellEmptyState::create(t("azmonitor-reading-system"))
         .with_icon("monitor_heart")
         .with_detail(source)
         .dom()
@@ -260,29 +261,31 @@ pub fn ask_to_end(s: &mut Monitor) -> bool {
 /// The question: azul's `MessageBox` in a `Modal` - End process, Kill,
 /// Cancel (the default).
 pub fn confirm_dom(question: &Confirm, app: &RefAny) -> Dom {
-    let mut text = format!("{} ({})", question.name, question.pid);
-    if !question.user.is_empty() {
-        text.push_str(&format!(", user {}", question.user));
-    }
-    let mut detail =
-        "Unsaved work in it is lost. Kill ends it without asking it to quit.".to_string();
+    let process = [
+        ("name", Arg::from(&question.name)),
+        ("pid", Arg::from(question.pid)),
+        ("user", Arg::from(&question.user)),
+    ];
+    let text = if question.user.is_empty() {
+        format!("{} ({})", question.name, question.pid)
+    } else {
+        t_args("azmonitor-process-of-user", &process)
+    };
+    let mut detail = t("azmonitor-end-detail");
     if question.other_user {
-        detail.push_str(&format!(
-            " It belongs to {}: ending it needs administrator rights.",
-            question.user
-        ));
+        detail = format!("{detail} {}", t_args("azmonitor-end-needs-admin", &process));
     }
     let message = MessageBox::create(
         MessageBoxKind::Question,
-        format!("End {}?", question.name),
+        t_args("azmonitor-end-ask", &process),
         text,
     )
     .with_detail(detail)
     .with_buttons(
         vec![
-            AzString::from("End process"),
-            AzString::from("Kill"),
-            AzString::from("Cancel"),
+            AzString::from(t("azmonitor-end-button")),
+            AzString::from(t("azmonitor-kill")),
+            AzString::from(t("kit-button-cancel")),
         ],
         2,
     )
@@ -486,15 +489,18 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
     let (mw, mh) = group_inner(METER_W, row_h);
     let (hw, hh) = group_inner(history_w, row_h);
     let cpu_caption = if sum.cpu_brand.trim().is_empty() {
-        "CPU Usage History".to_string()
+        t("azmonitor-cpu-history")
     } else {
-        format!("CPU Usage History - {}", sum.cpu_brand.trim())
+        t_args(
+            "azmonitor-cpu-history-of",
+            &[("cpu", Arg::from(sum.cpu_brand.trim()))],
+        )
     };
     let cpu_row = Dom::create_div()
         .with_css("display: flex; flex-direction: row;")
         .with_child(
             group(
-                "CPU Usage",
+                "azmonitor-cpu-usage",
                 graph::meter(sum.cpu / 100.0, &format_whole_percent(sum.cpu), mw, mh),
                 METER_W,
                 row_h,
@@ -515,10 +521,12 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
         color: graph::LINE,
     }];
     let memory_row = Dom::create_div()
-        .with_css(format!("display: flex; flex-direction: row; margin-top: {GAP}px;"))
+        .with_css(format!(
+            "display: flex; flex-direction: row; margin-top: {GAP}px;"
+        ))
         .with_child(
             group(
-                "Memory",
+                "azmonitor-memory",
                 graph::meter(memory_share, &format_bytes(sum.memory_used), mw, mh),
                 METER_W,
                 row_h,
@@ -530,7 +538,7 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
                 .with_css(format!("margin-left: {GAP}px;"))
                 .with_child(
                     group(
-                        "Physical Memory Usage History",
+                        "azmonitor-memory-history",
                         graph::graph(strips, &memory_lines, 100.0, m.readings, hw, hh),
                         history_w,
                         row_h,
@@ -549,14 +557,16 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
     let swap_free = sum.swap_total.saturating_sub(sum.swap_used);
     let stats = Dom::create_div()
         .with_id(ids::STATS)
-        .with_css(format!("display: flex; flex-direction: row; margin-top: {GAP}px;"))
+        .with_css(format!(
+            "display: flex; flex-direction: row; margin-top: {GAP}px;"
+        ))
         .with_child(figures(
-            "Totals",
+            "azmonitor-totals",
             vec![
-                ("Processes", sum.processes.to_string()),
-                ("Cores", m.cores.len().to_string()),
-                ("Up Time", format_uptime(sum.uptime)),
-                ("Clock", clock),
+                ("azmonitor-tab-processes", sum.processes.to_string()),
+                ("azmonitor-cores", m.cores.len().to_string()),
+                ("azmonitor-up-time", format_uptime(sum.uptime)),
+                ("azmonitor-clock", clock),
             ],
             quarter,
             STATS_H,
@@ -565,11 +575,11 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
             Dom::create_div()
                 .with_css(format!("margin-left: {GAP}px;"))
                 .with_child(figures(
-                    "Physical Memory (K)",
+                    "azmonitor-physical-memory-k",
                     vec![
-                        ("Total", format_k(sum.memory_total)),
-                        ("In Use", format_k(sum.memory_used)),
-                        ("Available", format_k(available)),
+                        ("azmonitor-total", format_k(sum.memory_total)),
+                        ("azmonitor-in-use", format_k(sum.memory_used)),
+                        ("azmonitor-available", format_k(available)),
                     ],
                     quarter,
                     STATS_H,
@@ -579,11 +589,11 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
             Dom::create_div()
                 .with_css(format!("margin-left: {GAP}px;"))
                 .with_child(figures(
-                    "Swap (K)",
+                    "azmonitor-swap-k",
                     vec![
-                        ("Total", format_k(sum.swap_total)),
-                        ("In Use", format_k(sum.swap_used)),
-                        ("Free", format_k(swap_free)),
+                        ("azmonitor-total", format_k(sum.swap_total)),
+                        ("azmonitor-in-use", format_k(sum.swap_used)),
+                        ("azmonitor-free", format_k(swap_free)),
                     ],
                     quarter,
                     STATS_H,
@@ -593,10 +603,10 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
             Dom::create_div()
                 .with_css(format!("margin-left: {GAP}px;"))
                 .with_child(figures(
-                    "Disk",
+                    "azmonitor-col-disk",
                     vec![
-                        ("Read", format_rate(sum.disk_read_rate)),
-                        ("Write", format_rate(sum.disk_write_rate)),
+                        ("azmonitor-read", format_rate(sum.disk_read_rate)),
+                        ("azmonitor-write", format_rate(sum.disk_write_rate)),
                     ],
                     quarter,
                     STATS_H,
@@ -653,7 +663,10 @@ fn networking(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
             color: graph::LINE_2,
         },
     ];
-    let caption = format!("Network Utilization (scale {})", format_rate(s.net_top));
+    let caption = t_args(
+        "azmonitor-network-caption",
+        &[("scale", Arg::from(format_rate(s.net_top)))],
+    );
     let history = group(
         &caption,
         graph::graph(strips, &lines, s.net_top, m.readings, gw, gh),
@@ -665,21 +678,33 @@ fn networking(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
         .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; height: {legend_h}px;"
         ))
-        .with_child(swatch(graph::LINE, format!("Received {}", format_rate(sum.net_in_rate))))
-        .with_child(swatch(graph::LINE_2, format!("Sent {}", format_rate(sum.net_out_rate))));
+        .with_child(swatch(
+            graph::LINE,
+            t_args(
+                "azmonitor-received-rate",
+                &[("rate", Arg::from(format_rate(sum.net_in_rate)))],
+            ),
+        ))
+        .with_child(swatch(
+            graph::LINE_2,
+            t_args(
+                "azmonitor-sent-rate",
+                &[("rate", Arg::from(format_rate(sum.net_out_rate)))],
+            ),
+        ));
     let columns: [(&str, f32); 4] = [
-        ("Adapter", 0.40),
-        ("Received", 0.20),
-        ("Sent", 0.20),
-        ("Total", 0.20),
+        ("azmonitor-adapter", 0.40),
+        ("azmonitor-received", 0.20),
+        ("azmonitor-sent", 0.20),
+        ("azmonitor-total", 0.20),
     ];
     let cells = [
-        "All network interfaces".to_string(),
+        t("azmonitor-all-interfaces"),
         format_rate(sum.net_in_rate),
         format_rate(sum.net_out_rate),
         format_rate(sum.net_in_rate + sum.net_out_rate),
     ];
-    let header: Vec<String> = columns.iter().map(|(t, _)| (*t).to_string()).collect();
+    let header: Vec<String> = columns.iter().map(|(key, _)| t(key)).collect();
     let widths: Vec<f32> = columns.iter().map(|(_, share)| graph_w * share).collect();
     let figures = Dom::create_div()
         .with_id(ids::NETWORK_STATS)
@@ -728,10 +753,16 @@ fn users(app: &RefAny, w: f32, h: f32) -> Dom {
     let width = (w - 2.0 * GAP).floor().max(200.0);
     let shares: [f32; 5] = [0.36, 0.16, 0.16, 0.14, 0.18];
     let widths: Vec<f32> = shares.iter().map(|share| width * share).collect();
-    let header: Vec<String> = ["User", "Status", "Processes", "CPU", "Memory"]
-        .iter()
-        .map(|t| (*t).to_string())
-        .collect();
+    let header: Vec<String> = [
+        "azmonitor-user",
+        "azmonitor-col-status",
+        "azmonitor-tab-processes",
+        "azmonitor-col-cpu",
+        "azmonitor-memory",
+    ]
+    .iter()
+    .map(|key| t(key))
+    .collect();
     let mut rows = Dom::create_div()
         .with_id(ids::USERS_TABLE)
         .with_css(format!(
@@ -742,18 +773,18 @@ fn users(app: &RefAny, w: f32, h: f32) -> Dom {
         .with_child(table_row(&header, &widths, true));
     for user in m.users() {
         let name = if user.name.is_empty() {
-            "(unknown)".to_string()
+            t("azmonitor-unknown-user")
         } else {
             user.name.clone()
         };
         let status = if !user.name.is_empty() && user.name == m.summary.user {
-            "Active"
+            t("azmonitor-active")
         } else {
-            ""
+            String::new()
         };
         let cells = [
             name,
-            status.to_string(),
+            status,
             user.processes.to_string(),
             format_whole_percent(user.cpu),
             format_k(user.memory),
@@ -774,28 +805,43 @@ fn users(app: &RefAny, w: f32, h: f32) -> Dom {
 pub fn status_labels(s: &Monitor) -> Vec<(AzString, String)> {
     let m = &s.model;
     let processes = if m.shown_count() == m.process_count() {
-        format!("Processes: {}", m.process_count())
+        t_args(
+            "azmonitor-status-processes",
+            &[("count", Arg::from(m.process_count()))],
+        )
     } else {
-        format!("Processes: {} of {}", m.shown_count(), m.process_count())
+        t_args(
+            "azmonitor-status-processes-shown",
+            &[
+                ("shown", Arg::from(m.shown_count())),
+                ("count", Arg::from(m.process_count())),
+            ],
+        )
     };
     let mut word = s.last_word();
     if word.is_empty() {
-        word = if s.sample {
-            "Sample machine".to_string()
+        word = t(if s.sample {
+            "azmonitor-sample-machine"
         } else {
-            "This computer".to_string()
-        };
+            "azmonitor-this-computer"
+        });
     }
     let memory = percent_of(m.summary.memory_used, m.summary.memory_total);
     vec![
         (ids::STATUS_PROCESSES, processes),
         (
             ids::STATUS_CPU,
-            format!("CPU Usage: {}", format_whole_percent(m.summary.cpu)),
+            t_args(
+                "azmonitor-status-cpu",
+                &[("percent", Arg::from(format_whole_percent(m.summary.cpu)))],
+            ),
         ),
         (
             ids::STATUS_MEMORY,
-            format!("Physical Memory: {}", format_whole_percent(memory)),
+            t_args(
+                "azmonitor-status-memory",
+                &[("percent", Arg::from(format_whole_percent(memory)))],
+            ),
         ),
         (ids::STATUS_NOTICE, word),
         (ids::STATUS_SPEED, crate::speed_text(s.interval_ms)),
@@ -815,16 +861,16 @@ pub fn status_bar(s: &Monitor) -> Dom {
 
 /// The "Monitor" settings: the update speed, the history export.
 pub fn settings_sections(s: &Monitor, app: &RefAny) -> Vec<kit::AppSection> {
-    let labels: Vec<AzString> = SPEEDS.iter().map(|(l, _)| AzString::from(*l)).collect();
+    let labels: Vec<AzString> = SPEEDS.iter().map(|(key, _)| label(key)).collect();
     let source = if s.sample {
-        "The readings come from the sample machine (--sample): nothing on this computer is ended."
+        "azmonitor-source-sample"
     } else {
-        "The readings come from this computer (processes, CPU, memory, disks, networks)."
+        "azmonitor-source-live"
     };
     let content = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(kit::row(
-            "Update speed",
+            "azmonitor-update-speed",
             Segmented::create(StringVec::from_vec(labels))
                 .with_selected_index(crate::speed_index(s.interval_ms))
                 .with_on_change(app.clone(), on_speed as SegmentedOnChangeCallbackType)
@@ -832,20 +878,18 @@ pub fn settings_sections(s: &Monitor, app: &RefAny) -> Vec<kit::AppSection> {
                 .with_id(ids::SPEED),
         ))
         .with_child(kit::row(
-            "History",
-            Button::create("Export the last minute")
+            "azmonitor-history",
+            Button::create(t("azmonitor-export-minute"))
                 .with_icon("download")
                 .with_on_click(app.clone(), on_export as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::EXPORT),
         ))
-        .with_child(kit::note(
-            "The export is a CSV file in the data folder: monitor/history/<date>.csv.",
-        ))
+        .with_child(kit::note("azmonitor-export-note"))
         .with_child(kit::note(source));
     vec![kit::AppSection {
         category: 0,
-        title: "Monitor".to_string(),
+        title: t("azmonitor-category-monitor"),
         content,
     }]
 }
@@ -904,7 +948,7 @@ extern "C" fn on_exported(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
             .iter()
             .find_map(azul_appkit::FileOutcome::error);
         s.notice = match error {
-            Some(e) => format!("The history could not be exported: {e}"),
+            Some(e) => t_args("azmonitor-export-failed", &[("why", Arg::from(e))]),
             None => {
                 let key = reply
                     .outcomes
@@ -915,7 +959,7 @@ extern "C" fn on_exported(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
                     })
                     .unwrap_or_default();
                 println!("AZMON_EXPORTED {key}");
-                format!("Exported {key}")
+                t_args("azmonitor-exported", &[("key", Arg::from(key))])
             }
         };
         status_labels(s)
