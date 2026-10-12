@@ -91,6 +91,10 @@ pub struct AppState {
     pub chapter: Option<ChapterReady>,
     /// The first page of the view in that chapter.
     pub page: usize,
+    /// Turns the wheel's and the trackpad's travel over the pages into page turns.
+    pub wheel: position::WheelPager,
+    /// The clock the wheel pager reads (its start).
+    pub started: std::time::Instant,
     /// A chapter being laid out: `(chapter, generation, where it opens)`.
     pub pending: Option<(usize, u64, Target)>,
     /// The counter of layouts asked for.
@@ -144,6 +148,8 @@ impl AppState {
             opening: None,
             chapter: None,
             page: 0,
+            wheel: position::WheelPager::default(),
+            started: std::time::Instant::now(),
             pending: None,
             generation: 0,
             pane: Pane::None,

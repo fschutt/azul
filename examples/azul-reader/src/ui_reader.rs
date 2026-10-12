@@ -22,7 +22,7 @@ use azul_appkit::l10n::{t, t_args, Arg};
 
 use crate::{
     app::{command, AppState, Command, Pane},
-    commands::on_command,
+    commands::{on_command, on_wheel},
     ids, paginate,
     position::{self, PageMap},
     settings::{PageGeometry, PaperColors},
@@ -311,6 +311,11 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
             "height: 20px; padding-top: 4px; font-size: 12px; color: system:secondary-text;",
         )
         .with_id(ids::FOLIO),
+    );
+    area.add_callback(
+        EventFilter::Hover(HoverEventFilter::Scroll),
+        app.clone(),
+        on_wheel,
     );
     area.add_callback(
         EventFilter::Hover(HoverEventFilter::SwipeLeft),

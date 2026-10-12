@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use azul::{
     callbacks::{CallbackInfo, RefAny, Update},
     dialog::{FileDialog, FileOpenResult},
+    dom::NodeId,
     file::FileTypeList,
     option::{OptionFileTypeList, OptionString},
     str::String as AzString,
@@ -44,6 +45,40 @@ pub extern "C" fn on_command(mut data: RefAny, mut info: CallbackInfo) -> Update
         return Update::DoNothing;
     };
     run(&mut app, cmd, &mut info)
+}
+
+/// The wheel or the trackpad over the pages: a page turn per notch of travel, in the direction
+/// a scroll box would move ([`crate::position::WheelPager`]).
+pub extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let node = NodeId::create(hit.node.into_raw().saturating_sub(1));
+    let Some(delta) = info.get_scroll_delta(hit.dom, node).into_option() else {
+        return Update::DoNothing;
+    };
+    // The raw delta is the device's (+y = the wheel turned up); a scroll box moves by it times
+    // the engine's sign, which follows the natural-scrolling preference.
+    let sign = if info.get_natural_scroll() { 1.0 } else { -1.0 };
+    let raw = if delta.y.abs() >= delta.x.abs() {
+        delta.y
+    } else {
+        delta.x
+    };
+    let turn = {
+        let Some(mut st) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        if st.screen != Screen::Reader {
+            return Update::DoNothing;
+        }
+        let now_ms = u64::try_from(st.started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        st.wheel.feed(raw * sign, now_ms)
+    };
+    info.prevent_default();
+    match turn {
+        Some(true) => run(&mut data, Command::NextPage, &mut info),
+        Some(false) => run(&mut data, Command::PrevPage, &mut info),
+        None => Update::DoNothing,
+    }
 }
 
 /// Runs `cmd` on the app.
