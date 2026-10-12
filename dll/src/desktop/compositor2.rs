@@ -3454,3 +3454,140 @@ mod rounded_corner_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod reference_frame_tests {
+    //! Where WebRender draws a box under a CSS transform. The transform is
+    //! computed about the box's own top-left corner (`transform-origin`
+    //! resolves against the box, `GpuValueCache` keeps it that way), and the
+    //! CPU renderer applies it about that corner; the display list gives the
+    //! box itself in window coordinates.
+
+    use azul_core::{
+        resources::TransformKey,
+        transform::{ComputedTransform3D, RotationMode},
+    };
+    use azul_css::props::{
+        basic::{angle::AngleValue, color::ColorU},
+        style::{StyleTransform, StyleTransformOrigin},
+    };
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayListItem};
+    use webrender::api::{
+        units::{LayoutPoint, LayoutTransform},
+        DisplayItem, PropertyBinding, ReferenceTransformBinding, SpatialId, SpatialTreeItem,
+    };
+
+    use super::stacking_context_tests::{built, rect};
+
+    /// Where the WebRender list built from `items` at `dpi` draws `point`
+    /// (device px) of its first rect: through every reference frame the
+    /// rect sits in, out to the root.
+    fn drawn_at(items: Vec<DisplayListItem>, dpi: f32, point: LayoutPoint) -> LayoutPoint {
+        let list = built(items, dpi);
+        // (frame, its parent, its origin, its transform) of every frame.
+        let mut frames: Vec<(SpatialId, SpatialId, LayoutPoint, LayoutTransform)> = Vec::new();
+        list.iter_spatial_tree(|item| {
+            if let SpatialTreeItem::ReferenceFrame(f) = item {
+                let ReferenceTransformBinding::Static { binding } = &f.reference_frame.transform
+                else {
+                    panic!("compositor2 opens static frames");
+                };
+                let transform = match binding {
+                    PropertyBinding::Value(t) | PropertyBinding::Binding(_, t) => *t,
+                };
+                frames.push((
+                    f.reference_frame.id,
+                    f.parent_spatial_id,
+                    f.origin,
+                    transform,
+                ));
+            }
+        });
+        let mut iter = list.iter();
+        let mut spatial = None;
+        while let Some(item) = iter.next() {
+            if let DisplayItem::Rectangle(r) = item.item() {
+                spatial = Some(r.common.spatial_id);
+                break;
+            }
+        }
+        let mut at = point;
+        let mut id = spatial.expect("the rect reaches WebRender");
+        while let Some(&(_, parent, origin, transform)) = frames.iter().find(|f| f.0 == id) {
+            let moved = transform
+                .transform_point2d(at)
+                .expect("an affine transform maps every point");
+            at = LayoutPoint::new(moved.x + origin.x, moved.y + origin.y);
+            id = parent;
+        }
+        at
+    }
+
+    /// flora's tick: a 4 x 8 box with a right and a bottom border, turned
+    /// 45 degrees about its centre. Turned, its centre stays where it is, as
+    /// the CPU renderer and Chrome draw it - not swung round the window's
+    /// corner and out of its check box.
+    #[test]
+    fn a_rotated_box_turns_about_its_own_centre() {
+        let tick = rect(80.0, 190.0, 4.0, 8.0);
+        let turn = ComputedTransform3D::from_style_transform_vec(
+            &[StyleTransform::Rotate(AngleValue::deg(45.0))],
+            &StyleTransformOrigin::default(),
+            4.0,
+            8.0,
+            RotationMode::ForWebRender,
+        );
+        for dpi in [1.0, 2.0] {
+            let centre = LayoutPoint::new(82.0 * dpi, 194.0 * dpi);
+            let got = drawn_at(
+                vec![
+                    DisplayListItem::PushReferenceFrame {
+                        transform_key: TransformKey { id: 41 },
+                        initial_transform: turn,
+                        bounds: tick.into(),
+                    },
+                    DisplayListItem::Rect {
+                        bounds: tick.into(),
+                        color: ColorU::new(253, 250, 241, 255),
+                        border_radius: BorderRadius::default(),
+                    },
+                    DisplayListItem::PopReferenceFrame,
+                ],
+                dpi,
+                centre,
+            );
+            assert!(
+                (got.x - centre.x).abs() < 0.01 && (got.y - centre.y).abs() < 0.01,
+                "dpi {dpi}: the centre {centre:?} is drawn at {got:?}"
+            );
+        }
+    }
+
+    /// A drag moves a box by a translation alone: it lands that far off its
+    /// place, wherever the box is.
+    #[test]
+    fn a_translated_box_moves_by_its_translation() {
+        let card = rect(120.0, 30.0, 100.0, 40.0);
+        let got = drawn_at(
+            vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 42 },
+                    initial_transform: ComputedTransform3D::new_translation(15.0, -5.0, 0.0),
+                    bounds: card.into(),
+                },
+                DisplayListItem::Rect {
+                    bounds: card.into(),
+                    color: ColorU::new(30, 60, 170, 255),
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopReferenceFrame,
+            ],
+            2.0,
+            LayoutPoint::new(240.0, 60.0),
+        );
+        assert!(
+            (got.x - 270.0).abs() < 0.01 && (got.y - 50.0).abs() < 0.01,
+            "{got:?}"
+        );
+    }
+}
