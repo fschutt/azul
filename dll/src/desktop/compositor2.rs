@@ -2708,6 +2708,15 @@ mod stacking_context_tests {
 
     /// The WebRender display list built from `items` in a 400 x 100 window.
     pub(super) fn built(items: Vec<DisplayListItem>, dpi: f32) -> BuiltDisplayList {
+        built_with(items, dpi, &RendererResources::default())
+    }
+
+    /// [`built`] with the images and fonts of `resources` registered.
+    pub(super) fn built_with(
+        items: Vec<DisplayListItem>,
+        dpi: f32,
+        resources: &RendererResources,
+    ) -> BuiltDisplayList {
         let list = DisplayList {
             items,
             ..DisplayList::default()
@@ -2716,7 +2725,7 @@ mod stacking_context_tests {
             &list,
             PipelineId(0, 0),
             DeviceIntSize::new(400, 100),
-            &RendererResources::default(),
+            resources,
             DpiScaleFactor::new(dpi),
             Vec::new(),
             &BTreeMap::new(),
@@ -3046,5 +3055,210 @@ mod gradient_stop_tests {
                 "{name}: {got:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod image_mask_tests {
+    //! What WebRender is handed for content clipped by an image mask: an SVG
+    //! path clip, such as the S-curves of flora's selected tab. WebRender
+    //! applies an image mask to a stacking context, which it draws to a
+    //! surface and masks as a whole (Gecko hands it `clip-path` that way).
+    //! An item that only carries the mask in its own clip chain is drawn
+    //! unmasked when it takes the brush path: a gradient, text, an image.
+
+    use azul_core::resources::{
+        IdNamespace, ImageDescriptor, ImageDescriptorFlags, ImageKey, ImageRef, RawImageFormat,
+        RendererResources, ResolvedImage,
+    };
+    use azul_css::props::{
+        basic::{color::ColorU, direction::Direction, length::PercentageValue},
+        style::background::{
+            ExtendMode, LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+        },
+    };
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayListItem};
+    use webrender::api::{ClipChainId, ClipId, DisplayItem};
+
+    use super::stacking_context_tests::{built_with, rect};
+
+    /// An R8 mask registered with the renderer, as `register_frame_resources`
+    /// registers one before the list is translated.
+    fn registered_mask() -> (ImageRef, RendererResources) {
+        let mask = ImageRef::null_image(18, 28, RawImageFormat::R8, Vec::new());
+        let mut resources = RendererResources::default();
+        resources.currently_registered_images.insert(
+            mask.get_hash(),
+            ResolvedImage {
+                key: ImageKey {
+                    namespace: IdNamespace(1),
+                    key: 7,
+                },
+                descriptor: ImageDescriptor {
+                    format: RawImageFormat::R8,
+                    width: 18,
+                    height: 28,
+                    stride: azul_css::OptionI32::None,
+                    offset: 0,
+                    flags: ImageDescriptorFlags {
+                        is_opaque: false,
+                        allow_mipmaps: false,
+                    },
+                },
+            },
+        );
+        (mask, resources)
+    }
+
+    /// The metal of a tab's curve: a gradient over the curve's whole box.
+    fn metal() -> DisplayListItem {
+        DisplayListItem::LinearGradient {
+            bounds: rect(42.0, 4.0, 18.0, 28.0).into(),
+            gradient: LinearGradient {
+                direction: Direction::default(),
+                extend_mode: ExtendMode::Clamp,
+                stops: NormalizedLinearColorStopVec::from_vec(vec![
+                    NormalizedLinearColorStop::new(
+                        PercentageValue::new(0.0),
+                        ColorU::new(236, 222, 180, 255),
+                    ),
+                    NormalizedLinearColorStop::new(
+                        PercentageValue::new(100.0),
+                        ColorU::new(198, 178, 121, 255),
+                    ),
+                ]),
+            },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// What happened to the image mask in a built list, in list order.
+    #[derive(Debug, PartialEq)]
+    enum Seen {
+        /// A stacking context whose clip chain holds the image mask.
+        MaskedContext,
+        /// Any other stacking context.
+        Context,
+        Pop,
+        Gradient,
+    }
+
+    fn seen(items: Vec<DisplayListItem>, resources: &RendererResources) -> Vec<Seen> {
+        let list = built_with(items, 1.0, resources);
+        let mut masks: Vec<ClipId> = Vec::new();
+        let mut masked_chains: Vec<ClipChainId> = Vec::new();
+        let mut out = Vec::new();
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::ImageMaskClip(m) => masks.push(m.id),
+                DisplayItem::ClipChain(chain) => {
+                    let holds_mask = item.clip_chain_items().iter().any(|c| masks.contains(c))
+                        || chain.parent.is_some_and(|p| masked_chains.contains(&p));
+                    if holds_mask {
+                        masked_chains.push(chain.id);
+                    }
+                }
+                DisplayItem::PushStackingContext(sc) => {
+                    out.push(match sc.stacking_context.clip_chain_id {
+                        Some(chain) if masked_chains.contains(&chain) => Seen::MaskedContext,
+                        _ => Seen::Context,
+                    })
+                }
+                DisplayItem::PopStackingContext => out.push(Seen::Pop),
+                DisplayItem::Gradient(_) => out.push(Seen::Gradient),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The metal of flora's tab curve is cut to the S by the path's mask, as
+    /// the CPU renderer and Chrome cut it, not drawn as the curve's whole
+    /// box.
+    #[test]
+    fn a_gradient_under_an_image_mask_is_drawn_in_a_stacking_context_that_carries_the_mask() {
+        let (mask, resources) = registered_mask();
+        let curve = rect(42.0, 4.0, 18.0, 28.0);
+        let got = seen(
+            vec![
+                DisplayListItem::PushImageMaskClip {
+                    bounds: curve.into(),
+                    mask_image: mask,
+                    mask_rect: curve.into(),
+                },
+                metal(),
+                DisplayListItem::PopImageMaskClip,
+                metal(),
+            ],
+            &resources,
+        );
+        assert_eq!(
+            got,
+            vec![
+                Seen::MaskedContext,
+                Seen::Gradient,
+                Seen::Pop,
+                Seen::Gradient
+            ]
+        );
+    }
+
+    /// The selected tab is a stacking context of its own and its curves are
+    /// masked inside it: the masked context opens and closes inside the
+    /// tab's.
+    #[test]
+    fn an_image_mask_inside_a_stacking_context_opens_and_closes_inside_it() {
+        let (mask, resources) = registered_mask();
+        let tab = rect(60.0, 4.0, 80.0, 28.0);
+        let curve = rect(42.0, 4.0, 18.0, 28.0);
+        let got = seen(
+            vec![
+                DisplayListItem::PushStackingContext {
+                    z_index: 1,
+                    bounds: tab.into(),
+                },
+                DisplayListItem::PushImageMaskClip {
+                    bounds: curve.into(),
+                    mask_image: mask,
+                    mask_rect: curve.into(),
+                },
+                metal(),
+                DisplayListItem::PopImageMaskClip,
+                DisplayListItem::PopStackingContext,
+            ],
+            &resources,
+        );
+        assert_eq!(
+            got,
+            vec![
+                Seen::Context,
+                Seen::MaskedContext,
+                Seen::Gradient,
+                Seen::Pop,
+                Seen::Pop
+            ]
+        );
+    }
+
+    /// A mask whose image never reached the renderer clips nothing, and the
+    /// list stays balanced.
+    #[test]
+    fn an_unregistered_image_mask_leaves_its_content_unmasked_and_the_list_balanced() {
+        let mask = ImageRef::null_image(18, 28, RawImageFormat::R8, Vec::new());
+        let curve = rect(42.0, 4.0, 18.0, 28.0);
+        let got = seen(
+            vec![
+                DisplayListItem::PushImageMaskClip {
+                    bounds: curve.into(),
+                    mask_image: mask,
+                    mask_rect: curve.into(),
+                },
+                metal(),
+                DisplayListItem::PopImageMaskClip,
+            ],
+            &RendererResources::default(),
+        );
+        assert_eq!(got, vec![Seen::Gradient]);
     }
 }
