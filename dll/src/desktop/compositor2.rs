@@ -224,6 +224,11 @@ pub fn translate_displaylist_to_wr(
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
 
+    // One entry per open PushImageMaskClip: whether it opened a masked
+    // stacking context, which its PopImageMaskClip has to close. A mask
+    // whose image is not registered opens none.
+    let mut mask_contexts: Vec<bool> = Vec::new();
+
     // How often each scroll id has been pushed so far. The display list
     // closes a frame around a box painted outside it and reopens it after
     // (`DisplayListGenerator::enter_scroll_chain` - a position:fixed header
@@ -2293,14 +2298,39 @@ pub fn translate_displaylist_to_wr(
                     };
                     let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
 
-                    clip_stack.push(new_clip_chain_id);
+                    // WebRender masks a stacking context with an image mask:
+                    // it draws the context to a surface and masks that. In an
+                    // item's own clip chain the mask is skipped by every item
+                    // that takes the brush path (gradients, text, images), so
+                    // the content goes into a context that carries the mask,
+                    // and the items inside keep the clip around it. Opened at
+                    // zero, like every context here: the items are already in
+                    // frame coordinates.
+                    builder.push_stacking_context(
+                        LayoutPoint::zero(),
+                        current_spatial,
+                        WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+                        Some(new_clip_chain_id),
+                        TransformStyle::Flat,
+                        webrender::api::MixBlendMode::Normal,
+                        &[],
+                        &[],
+                        &[],
+                        webrender::api::RasterSpace::Screen,
+                        webrender::api::StackingContextFlags::empty(),
+                    );
+                    mask_contexts.push(true);
                 } else {
-                    // If mask image not found, push current clip to keep stack balanced
-                    clip_stack.push(current_clip);
+                    mask_contexts.push(false);
                 }
+                // Push the clip around the mask to keep the stack balanced.
+                clip_stack.push(current_clip);
             }
 
             DisplayListItem::PopImageMaskClip => {
+                if mask_contexts.pop() == Some(true) {
+                    builder.pop_stacking_context();
+                }
                 let before_len = clip_stack.len();
                 if clip_stack.len() > 1 {
                     let popped = clip_stack.pop();
