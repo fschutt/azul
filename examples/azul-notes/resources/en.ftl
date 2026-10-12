@@ -2,7 +2,7 @@
 
 ## AzNotes
 
-aznotes-about-summary = Notes as plain Markdown files, with notebooks, tags, pinning, search, version history and a rich-text editor.
+aznotes-about-summary = Notes as plain Markdown files, with folders, tags, pinning, search, version history and a rich-text editor.
 aznotes-category-editor = Editor
 aznotes-category-storage = Storage
 aznotes-notes = Notes
@@ -45,10 +45,10 @@ aznotes-words = { $count ->
    *[other] { $count } words
  }
 aznotes-checked = { $done } of { $total } done
-aznotes-notebook-dot = a notebook name cannot start with a dot
-aznotes-notebook-backslash = a notebook name cannot hold a backslash or a control character
+aznotes-notebook-dot = a folder name cannot start with a dot
+aznotes-notebook-backslash = a folder name cannot hold a backslash or a control character
 aznotes-notebook-assets = "assets" is the name of a note's image folder
-aznotes-notebook-no-name = the notebook needs a name
+aznotes-notebook-no-name = the folder needs a name
 aznotes-text-small = Small
 aznotes-text-medium = Medium
 aznotes-text-large = Large
@@ -59,22 +59,22 @@ aznotes-back-note = Back to the note
 aznotes-restore-version = Restore this version
 aznotes-title = Title
 aznotes-add-tag = Add tag
-aznotes-notebook-name = Notebook name
+aznotes-notebook-name = Folder name
 aznotes-open-note-move-run = Open a note, move it, run a command
-aznotes-new-notebook = New notebook
+aznotes-new-notebook = New folder
 aznotes-settings = Settings
 aznotes-link-address = Link address
 aznotes-loading-notes = Loading notes
 aznotes-no-note-open = No note open
 aznotes-choose-note-list-start = Choose a note in the list, or start a new one.
 aznotes-back-notes = Back to notes
-aznotes-notebooks = Notebooks
+aznotes-notebooks = Folders
 aznotes-tags = Tags
-aznotes-notebooks-tags = Notebooks and tags
+aznotes-notebooks-tags = Folders and tags
 aznotes-about-aznotes = About AzNotes
 aznotes-library = Library
 aznotes-note-trash = This note is in the Trash.
-aznotes-name-path-notebook-inside = A name, or a path for a notebook inside another (Work/Ideas).
+aznotes-name-path-notebook-inside = A name, or a path for a folder inside another (Work/Ideas).
 aznotes-loading-versions = Loading versions...
 aznotes-no-versions-yet-aznotes = No versions yet: AzNotes keeps one per save, at most every few minutes while you type.
 aznotes-changes-from-version-now = Changes from this version to now
@@ -152,7 +152,7 @@ aznotes-markdown-shortcuts = Markdown shortcuts
 aznotes-files = Files
 aznotes-notes-folder = Notes folder: { $folder }
 aznotes-every-note-file = Every note is a Markdown file, notes/<notebook>/<id>.md, with its title, tags, pin and dates in a front matter; its images sit in notes/<notebook>/<id>/assets/, its versions in notes/.history/<id>/, deleted notes in notes/.trash/. Edit them with any editor: AzNotes reads them again when its window gets the focus.
-aznotes-about-counts = { $summary } { $notes } notes in { $notebooks } notebooks, { $pinned } pinned, { $trash } in the Trash.
+aznotes-about-counts = { $summary } { $notes } notes in { $notebooks } folders, { $pinned } pinned, { $trash } in the Trash.
 aznotes-history-of = History: { $title }
 aznotes-no-text = No text
 aznotes-loading-version = Loading the version...
