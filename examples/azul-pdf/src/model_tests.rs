@@ -335,6 +335,23 @@ fn a_zoom_change_or_a_new_document_takes_the_live_size_at_once() {
 }
 
 #[test]
+fn a_view_that_shows_no_page_yet_has_nothing_to_settle() {
+    // The pump settles the view while the start screen shows, and between a
+    // document opening and its first layout: the first size still counts.
+    let t0 = Instant::now();
+    let mut view = ViewSize::new((900.0, 700.0));
+    assert!(!view.settle(at(t0, 1000)));
+    assert!(!view.settle_now());
+    view.see((1200.0, 800.0), at(t0, 1100));
+    assert_eq!(view.settled(), (1200.0, 800.0));
+    view.reset();
+    assert!(!view.settle(at(t0, 5000)));
+    view.see((1000.0, 780.0), at(t0, 5010));
+    assert_eq!(view.settled(), (1000.0, 780.0));
+    assert!(!view.is_resizing());
+}
+
+#[test]
 fn every_frame_of_a_drag_lays_the_page_out_at_the_same_size() {
     // Fit width, the view dragged from 1200 px to 912 px wide. The text
     // cache only serves a page laid out at bit for bit the size it was.
