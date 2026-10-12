@@ -313,7 +313,7 @@ pub fn new_note(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState) {
     match &state.query.scope {
         // In a tag's list the new note starts with the tag in its text.
         Scope::Tag(tag) => {
-            note.doc = azul::widgets::RichTextDoc::create_from_markdown(&format!("#{tag}\n"));
+            note.doc = azul::widgets::RichTextDoc::create_from_markdown(format!("#{tag}\n"));
             note.adopt_text();
         }
         Scope::Pinned => note.meta.pinned = true,

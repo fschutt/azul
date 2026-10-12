@@ -229,7 +229,7 @@ impl Note {
             text.push_str(&missing.join(" "));
             text.push('\n');
         }
-        self.doc = RichTextDoc::create_from_markdown(&text);
+        self.doc = RichTextDoc::create_from_markdown(text.as_str());
     }
 
     /// Marks the note as needing a save (without a new modified date: a
