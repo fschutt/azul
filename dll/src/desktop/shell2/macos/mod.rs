@@ -10139,6 +10139,25 @@ mod objc_class_registration_tests {
             }
         }
     }
+
+    /// Quit (Cmd+Q, the Dock's Quit, a logout) sends `terminate:`, and
+    /// AppKit ends the process at once unless the app delegate answers
+    /// `applicationShouldTerminate:` - no window is asked, and a "Save
+    /// changes?" guard never sees the quit. The delegate must declare it.
+    #[test]
+    fn a_quit_asks_the_app_delegate_before_the_app_ends() {
+        use objc2::{sel, ClassType};
+
+        let declared: Vec<_> = super::AppDelegate::class()
+            .instance_methods()
+            .iter()
+            .map(|method| method.name())
+            .collect();
+        assert!(
+            declared.contains(&sel!(applicationShouldTerminate:)),
+            "the app delegate does not answer applicationShouldTerminate:"
+        );
+    }
 }
 
 /// Play one haptic request on the trackpad.
