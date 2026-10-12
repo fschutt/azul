@@ -651,6 +651,46 @@ mod view_handlers {
         }
     }
 
+    /// `swipeWithEvent:` - a page swipe when the user set "swipe between
+    /// pages" to three fingers (the two-finger default arrives as scroll
+    /// events, see `handle_scroll_wheel`). One event per swipe, `deltaX` /
+    /// `deltaY` +-1 in the same direction convention as the scroll deltas,
+    /// so the natural-scrolling inversion is taken out the same way.
+    pub(super) fn swipe(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            use azul_layout::managers::gesture::{GestureDirection, NativeGestureEvent};
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let to_fingers = if event.isDirectionInvertedFromDevice() {
+                1.0
+            } else {
+                -1.0
+            };
+            let (dx, dy) = (event.deltaX() * to_fingers, event.deltaY() * to_fingers);
+            if dx == 0.0 && dy == 0.0 {
+                return;
+            }
+            let dir = if dx.abs() >= dy.abs() {
+                if dx > 0.0 {
+                    GestureDirection::Right
+                } else {
+                    GestureDirection::Left
+                }
+            } else if dy > 0.0 {
+                GestureDirection::Down
+            } else {
+                GestureDirection::Up
+            };
+            if let Some(lw) = macos_window.common.layout_window.as_mut() {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Swipe(dir));
+            }
+            macos_window.snapshot_window_state_baseline("macos.swipe");
+            let result = macos_window.process_window_events(0);
+            macos_window.apply_activation_pass_result(result);
+        }
+    }
+
     /// MWA-B4: macOS native rotation. NSEvent's rotation is in DEGREES with
     /// counterclockwise positive; azul's DetectedRotation wants radians with
     /// clockwise positive — hence the negated to_radians.
@@ -1241,6 +1281,11 @@ define_class!(
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
             view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(swipeWithEvent:))]
+        fn swipe_with_event(&self, event: &NSEvent) {
+            view_handlers::swipe(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(pressureChangeWithEvent:))]
@@ -2272,6 +2317,11 @@ define_class!(
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
             view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(swipeWithEvent:))]
+        fn swipe_with_event(&self, event: &NSEvent) {
+            view_handlers::swipe(*self.ivars().window_ptr.borrow(), event);
         }
 
         #[unsafe(method(pressureChangeWithEvent:))]

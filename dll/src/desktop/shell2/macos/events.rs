@@ -588,6 +588,9 @@ impl MacOSWindow {
         // 0-delta TrackpadEnd from wl_pointer.axis_stop for the same reason).
         let is_trackpad_end =
             source == azul_layout::managers::scroll_state::ScrollInputSource::TrackpadEnd;
+        // Whether a box took the sideways part of this event: then a
+        // two-finger gesture is a scroll, not a page swipe (see below).
+        let mut scrolled_across = false;
         if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 || is_trackpad_end {
             let mut should_start_timer = false;
             let mut input_queue_clone = None;
@@ -598,7 +601,7 @@ impl MacOSWindow {
 
                 let now = Instant::from(std::time::Instant::now());
 
-                if let Some((_dom_id, _node_id, start_timer)) =
+                if let Some((dom_id, node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
                         // Raw delta; direction sign applied centrally in
                         // ScrollManager (natural-scroll flag). NOTE: macOS already
@@ -626,8 +629,20 @@ impl MacOSWindow {
                     crate::log_debug!(
                         LogCategory::Input,
                         "[scrollWheel] queued for node {:?}/{:?}, start_timer={}",
-                        _dom_id, _node_id, start_timer
+                        dom_id, node_id, start_timer
                     );
+                    // The offset moves by minus the device delta under the
+                    // traditional sign; AppKit already applied the user's
+                    // direction to `delta_x`.
+                    let across = -delta_x as f32;
+                    scrolled_across = layout_window
+                        .scroll_manager
+                        .get_scroll_node_info(dom_id, node_id)
+                        .is_some_and(|info| {
+                            (across < -0.01 && info.current_offset.x > 0.5)
+                                || (across > 0.01
+                                    && info.current_offset.x < info.max_scroll_x - 0.5)
+                        });
                     // GUARD: `start_timer` only means "the input queue was drained
                     // when this event arrived", which the 16 ms physics tick
                     // makes true for almost every event of a gesture. Without
@@ -659,6 +674,51 @@ impl MacOSWindow {
                         self.common.frame_interval_nanos(),
                     );
                     self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                }
+            }
+        }
+
+        // A Mac's page swipe ("swipe between pages: scroll left or right with
+        // two fingers", the default) arrives as this scroll gesture, and
+        // AppKit apps turn it into one where nothing scrolls sideways
+        // (Safari's back and forward). Momentum events carry no `phase` and
+        // are not part of it. Judged here, injected before the event pass, so
+        // `SwipeLeft` / `SwipeRight` reach the app as on the other platforms.
+        if has_precise {
+            use azul_layout::managers::gesture::{NativeGestureEvent, TrackpadGesturePhase};
+            use objc2_app_kit::NSEventPhase;
+            let phase = unsafe { event.phase() };
+            let swipe_phase = if phase == NSEventPhase::Began {
+                // The user's setting, read once per gesture.
+                let enabled: bool = unsafe {
+                    objc2::msg_send![
+                        objc2::class!(NSEvent),
+                        isSwipeTrackingFromScrollEventsEnabled
+                    ]
+                };
+                enabled.then_some(TrackpadGesturePhase::Began)
+            } else if phase == NSEventPhase::Changed || phase == NSEventPhase::Stationary {
+                Some(TrackpadGesturePhase::Changed)
+            } else if phase == NSEventPhase::Ended || phase == NSEventPhase::Cancelled {
+                Some(TrackpadGesturePhase::Ended)
+            } else {
+                None
+            };
+            // Finger motion in device terms: AppKit's deltas follow the
+            // natural-scrolling preference, the swipe follows the fingers.
+            let to_fingers = if direction_inverted { 1.0 } else { -1.0 };
+            let finger = LogicalPosition::new(
+                (raw_delta_x * to_fingers) as f32,
+                (raw_delta_y * to_fingers) as f32,
+            );
+            if let (Some(swipe_phase), Some(layout_window)) =
+                (swipe_phase, self.get_layout_window_mut())
+            {
+                let manager = &mut layout_window.gesture_drag_manager;
+                if let Some(dir) =
+                    manager.trackpad_scroll_swipe(swipe_phase, finger, scrolled_across)
+                {
+                    manager.inject_native_gesture(NativeGestureEvent::Swipe(dir));
                 }
             }
         }

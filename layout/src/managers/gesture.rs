@@ -933,7 +933,26 @@ impl GestureAndDragManager {
         finger: LogicalPosition,
         scrolled_across: bool,
     ) -> Option<GestureDirection> {
-        let _ = (phase, finger, scrolled_across);
+        /// The sideways finger travel a page swipe needs, px.
+        const MIN_TRAVEL: f32 = 60.0;
+        let travel = match phase {
+            TrackpadGesturePhase::Began => Some(finger),
+            TrackpadGesturePhase::Changed => self
+                .trackpad_swipe_travel
+                .map(|t| LogicalPosition::new(t.x + finger.x, t.y + finger.y)),
+            TrackpadGesturePhase::Ended => {
+                let t = self.trackpad_swipe_travel.take()?;
+                let sideways = t.x.abs() >= MIN_TRAVEL && t.x.abs() > 2.0 * t.y.abs();
+                return sideways.then_some(if t.x > 0.0 {
+                    GestureDirection::Right
+                } else {
+                    GestureDirection::Left
+                });
+            }
+        };
+        // A box that scrolls sideways owns the motion: the gesture is a
+        // scroll, never a page turn, for the rest of it.
+        self.trackpad_swipe_travel = travel.filter(|_| !scrolled_across);
         None
     }
 
