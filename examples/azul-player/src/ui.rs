@@ -404,6 +404,24 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
     band
 }
 
+/// A round glass face `size` across with the icon `icon_px` square in its middle. The face is a
+/// box of its own around the icon: an icon drawn as a picture (flora's Haiku icons) is an img,
+/// which centres nothing inside it, so the glyph and the picture are both a child the face
+/// centres.
+fn round_face(icon_name: &str, size: f32, icon_px: f32, stage: Stage) -> Dom {
+    let radius = size / 2.0;
+    Dom::create_div()
+        .with_css(format!(
+            "{} width: {size}px; height: {size}px; border-radius: {radius}px; {}",
+            look::ROUND,
+            look::icon_fade(stage)
+        ))
+        .with_child(Dom::create_icon(icon_name).with_css(format!(
+            "font-size: {icon_px}px; width: {icon_px}px; height: {icon_px}px; text-align: \
+             center; line-height: {icon_px}px;"
+        )))
+}
+
 /// A round glass button doing `command`: an icon, named for assistive technology (`face`: the
 /// icon and the name, a key); the glow under the pointer, and the keyboard's ring while `lit` (Tab
 /// brought the keys to it: the app's own focus, which fades in and out - never the engine's
@@ -420,7 +438,7 @@ fn round_button(
     let (icon_name, name) = face;
     let icon_px = (size * 0.5).round();
     let radius = size / 2.0;
-    // The box takes the click and the name; its icon is the face, the ring is over it.
+    // The box takes the click and the name; the face holds the icon, the ring is over it.
     Dom::create_div()
         .with_id(id)
         .with_css(format!(
@@ -437,12 +455,7 @@ fn round_button(
             }),
             media::on_command,
         )
-        .with_child(Dom::create_icon(icon_name).with_css(format!(
-            "{} width: {size}px; height: {size}px; border-radius: {radius}px; font-size: \
-             {icon_px}px; {}",
-            look::ROUND,
-            look::icon_fade(stage)
-        )))
+        .with_child(round_face(icon_name, size, icon_px, stage))
         .with_child(Dom::create_div().with_css(look::ring(lit, size, stage)))
 }
 
@@ -532,11 +545,7 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
                     }),
                     nav::on_inset_stop,
                 )
-                .with_child(Dom::create_icon("stop").with_css(format!(
-                    "{} width: 30px; height: 30px; border-radius: 15px; font-size: 16px; {}",
-                    look::ROUND,
-                    look::icon_fade(stage)
-                ))),
+                .with_child(round_face("stop", 30.0, 16.0, stage)),
         );
     Some(act_part(
         inset,
@@ -616,7 +625,7 @@ fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
         let h = if is_focused { FOCUSED_ROW_H } else { ROW_H };
         let name = Dom::create_p_with_text(word(category.name))
             .with_css(format!(
-                "position: absolute; left: {left}px; width: {NAME_W}px; top: 0px; height: {h}px; \
+                "position: absolute; left: {left}px; width: {NAME_W}px; top: 0px; bottom: 0px; \
                  margin: 0px; display: flex; align-items: center; justify-content: flex-end; \
                  font-size: {}px; font-weight: 300; color: {}; white-space: nowrap; cursor: \
                  pointer; {} animation: opacity {}ms ease-in, color 220ms ease-out, font-size \
@@ -634,20 +643,20 @@ fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
                 }),
                 nav::on_act,
             );
-        let mut row_dom = Dom::create_div()
+        let row_dom = Dom::create_div()
             .with_id(ids::id(&format!("row-{row}")))
             .with_css(format!(
                 "position: relative; height: {h}px; flex-shrink: 0; animation: move \
                  {STRIP_GLIDE_MS}ms spring, height 260ms ease-out;"
             ))
             .with_child(name);
-        if is_focused {
-            row_dom.add_child(strip_items(s, app, row, items_left, width, stage));
-        }
         column.add_child(row_dom);
     }
+    // The focused row's top on screen, wherever the column stands: the items band stays there.
+    let band_top = height * 0.52 - FOCUSED_ROW_H / 2.0 + 14.0;
     Dom::create_div()
         .with_child(column)
+        .with_child(strip_items(s, app, focused, items_left, band_top, width, stage))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Scroll),
             app.clone(),
@@ -655,13 +664,16 @@ fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
         )
 }
 
-/// The focused category's items, side by side; they slide in one after another when the
-/// category comes to the middle, and the row slides left to keep the focused one in view.
+/// The focused category's items, side by side, in one band on the middle row (`top`): the band
+/// is the same node whichever category is focused, so Up and Down change only its tiles - the
+/// old ones fade, the new ones slide in one after another - and the names glide past it the
+/// same way in both directions. The band slides left to keep the focused item in view.
 fn strip_items(
     s: &Player,
     app: &RefAny,
     row: usize,
     items_left: f32,
+    top: f32,
     width: f32,
     stage: Stage,
 ) -> Dom {
@@ -672,9 +684,9 @@ fn strip_items(
     let focused_right = items_left + (col + 1) as f32 * step;
     let shift = (focused_right - (width - 48.0)).max(0.0).round();
     let mut items = Dom::create_div()
-        .with_id(ids::id(&format!("items-{row}")))
+        .with_id(ids::id("items"))
         .with_css(format!(
-            "position: absolute; left: {:.1}px; top: 14px; height: {}px; display: flex; \
+            "position: absolute; left: {:.1}px; top: {top:.1}px; height: {}px; display: flex; \
              flex-direction: row; animation: move {STRIP_GLIDE_MS}ms spring;",
             items_left - shift,
             STRIP_TILE_H + 36.0
