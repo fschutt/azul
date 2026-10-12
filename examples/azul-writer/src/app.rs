@@ -268,4 +268,25 @@ mod tests {
         }
         assert_eq!(View::Web.index(), 1);
     }
+
+    #[test]
+    fn dont_save_drops_the_changes_so_the_close_it_asks_for_is_not_held_again() {
+        let mut st = AppState::new(RefAny::new(()), PathBuf::from("data"), false);
+        // A new document with typed text: never saved, so it has changes.
+        st.doc = Some(DocumentModel::from_doc(
+            "a".to_string(),
+            azul::widgets::RichTextDoc::create_from_markdown("# Typed\n\nNot saved.\n"),
+            String::new(),
+        ));
+        st.asking_close = true;
+        assert!(st.is_dirty());
+        st.discard_document();
+        assert!(
+            !st.is_dirty(),
+            "the guard judges the close by the DOM rebuilt after the answer: a dirty document \
+             there holds the close and asks again"
+        );
+        assert!(!st.asking_close, "the question is answered");
+        assert!(st.pending_saves.is_empty(), "nothing was written");
+    }
 }

@@ -10,10 +10,13 @@
     4. makes the caret's block a heading 2 (Ctrl/Cmd+2), saves: "## " in the file;
     5. exports a PDF (Ctrl/Cmd+P) into writer/exports/ and checks the bytes;
     6. opens File > Open (Ctrl/Cmd+O): the document is listed; Escape leaves it;
-    7. types again and closes the window: the close guard asks "Save changes?", Save saves and
+    7. types again and closes the window: the close guard asks "Save changes?"; Cancel keeps the
+       window and the typing, nothing is written; the next close asks again, Save saves and
        closes; the file has the text;
     8. starts AzWriter again on the same folder, opens the document from File > Open and finds the
-       text; screenshots in flat / flora x light / dark.
+       text; screenshots in flat / flora x light / dark;
+    9. types once more and closes: Don't Save closes the window (and the app) without writing,
+       the file keeps what it had.
 
 Usage (from the azul repository, after building libazul with the debug server and AzWriter):
 
@@ -174,7 +177,7 @@ def first_session(app, data, out):
     app.must("set_mode", mode="light")
     app.frame(2)
 
-    # Unsaved typing, then close: the guard asks, Save saves and closes.
+    # Unsaved typing, then close: the guard asks. Cancel keeps the window and the typing.
     app.click(BLOCK % 1)
     app.must("text_input", text="CLOSING ")
     app.frame(2)
@@ -183,6 +186,21 @@ def first_session(app, data, out):
     app.frame(2)
     app.until("the save-changes question", lambda: app.shows("Save changes"))
     app.screenshot(os.path.join(out, "close-guard.png"))
+    click_dialog_button(app, "Cancel")
+    app.until("the question to go", lambda: not app.shows("Save changes"))
+    app.frame(2)
+    if not app.alive():
+        raise e.Failure("Cancel closed the window")
+    if not app.shows("CLOSING"):
+        raise e.Failure("Cancel lost the typing")
+    if saved_count(app, doc_id) != before or "CLOSING" in read(doc_file(data, doc_id)):
+        raise e.Failure("Cancel wrote the document")
+    app.log("Cancel keeps the window and the unsaved typing")
+
+    # The next close asks again: Save saves and closes.
+    app.op("close")
+    app.frame(2)
+    app.until("the save-changes question again", lambda: app.shows("Save changes"))
     click_dialog_button(app, "Save", closes=True)
     # The save runs on a thread and its write-back closes the window - and the app: wait for
     # the exit (`until` gives up on an exited app), then read what it printed.
@@ -199,7 +217,7 @@ def first_session(app, data, out):
     return doc_id
 
 
-def second_session(app, doc_id, out):
+def second_session(app, data, doc_id, out):
     app.until("the window", lambda: app.printed("AZWRITER_READY", r".*"))
     app.until("the list", lambda: app.printed("AZWRITER_LISTED", r"\d+"))
     app.key("o", primary=True)
@@ -210,6 +228,27 @@ def second_session(app, doc_id, out):
     app.until("the saved text after the restart", lambda: app.shows("CLOSING"))
     app.screenshot(os.path.join(out, "restart.png"))
     app.log("the restart reads the document back from its file")
+
+    # Unsaved typing, then close: Don't Save closes the window without writing.
+    on_disk = read(doc_file(data, doc_id))
+    before = saved_count(app, doc_id)
+    app.click(BLOCK % 1)
+    app.must("text_input", text="DISCARDED ")
+    app.frame(2)
+    app.op("close")
+    app.frame(2)
+    app.until("the save-changes question", lambda: app.shows("Save changes"))
+    click_dialog_button(app, "Don't Save", closes=True)
+    end = time.time() + 20
+    while app.process.poll() is None and time.time() < end:
+        time.sleep(0.25)
+    if app.process.poll() is None:
+        asked = app.shows("Save changes")
+        raise e.Failure("the window did not close after Don't Save (the question %s)"
+                        % ("is back" if asked else "is gone"))
+    if saved_count(app, doc_id) != before or read(doc_file(data, doc_id)) != on_disk:
+        raise e.Failure("Don't Save wrote the document")
+    app.log("Don't Save closes without writing")
 
 
 def body(args, logs, out):
@@ -228,7 +267,7 @@ def body(args, logs, out):
         app.stop()
     app = e.App("azwriter-2", binary, common, args.debug_port, logs, args.timeout)
     try:
-        second_session(app, doc_id, out)
+        second_session(app, data, doc_id, out)
     except e.Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e.tail(app.out_path), e.tail(app.err_path)))
         raise
