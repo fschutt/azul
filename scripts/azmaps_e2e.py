@@ -29,7 +29,14 @@
        (`AZMAPS_ABOUT open`), Escape closes the box, Escape the page;
     9. flora / dark: a screenshot;
    10. a second start opens where the first one was left (the kept `AZMAPS_VIEW`) with its pin
-       (`AZMAPS_PINS_LOADED 1`).
+       (`AZMAPS_PINS_LOADED 1`);
+   11. place names, timed: "Frankfurt" typed into the start key by key - each keystroke is the
+       field's own edit, no window rebuild, under KEY_BUDGET_MS - and once the typing rests the
+       geocoder worker answers (`AZMAPS_SUGGEST from <n> <ms>`); a click on the first
+       suggestion makes Frankfurt am Main the start, "Berlin" + Return makes Berlin the
+       destination, the route worker answers a car route of 500 to 600 km in five to six hours
+       (`AZMAPS_ROUTE car ...`) and the map frames it; a drag over the map with the route on it
+       keeps every step under PAN_BUDGET_MS (median).
 
 Tiles need the network: headless runs see the map's ground, the pins and the chrome (offline, the
 tile workers fail fast; `AZ_MAP_TILES` / `AZ_MAP_TILE` lines are logged, not required). AzMaps
@@ -52,6 +59,12 @@ from azlin_e2e import Failure
 
 TAG = "azmaps"
 WIDTH, HEIGHT = 1100, 720
+# Budgets of the timed steps, wall clock per step of the driver (the op, then one frame, which
+# headless paints on the CPU). A keystroke in a travel field repaints the field only; a step of
+# a pan repaints the map's view. Before the text-shadow fix a pan step took ~830 ms and a
+# keystroke ~1.5 s (a window rebuild and two full repaints).
+KEY_BUDGET_MS = 120
+PAN_BUDGET_MS = 250
 MAP = "__azmaps_map"
 TITLE = "__azmaps_title"
 SIDEBAR = "__azmaps_sidebar"
@@ -292,13 +305,78 @@ def body(args, logs, out):
             raise Failure("the second start opened on %s, not the kept %s" % (first, kept))
         app.expect_line("AZMAPS_PINS_LOADED", "1", "the pin is read back")
         app.screenshot(os.path.join(out, "7-second-start.png"))
+
+        # Place names: Frankfurt to Berlin by car. A keystroke is the field's own edit - the
+        # window is not rebuilt for it (a rebuild per keystroke locked the UI for 1.5 s each);
+        # the geocoder worker searches once the typing rests.
+        app.must("focus_node", selector="#__azmaps_travel-from")
+        app.frame()
+        layouts = app.count("AZMAPS_LAYOUT")
+        keys = []
+        for ch in "Frankfurt":
+            started = time.time()
+            app.must("text_input", text=ch)
+            app.frame()
+            keys.append((time.time() - started) * 1000.0)
+        typed_layouts = app.count("AZMAPS_LAYOUT") - layouts
+        app.log("keystrokes (ms): %s; %d rebuild(s) while typing" % ([round(k) for k in keys], typed_layouts))
+        if sorted(keys)[len(keys) // 2] > KEY_BUDGET_MS:
+            raise Failure("a keystroke in a travel field took %s ms (median over %d ms)" % (keys, KEY_BUDGET_MS))
+        if typed_layouts > 1:
+            raise Failure("typing nine letters rebuilt the window %d times" % typed_layouts)
+        app.until("the suggestions for Frankfurt", lambda: app.has_id("__azmaps_suggestion-0"))
+        app.log("geocoder: %s" % app.last("AZMAPS_SUGGEST"))
+        if not app.printed("AZMAPS_SUGGEST", r"from [1-9]\d* \d+\.\d{3}"):
+            raise Failure("no AZMAPS_SUGGEST line for the start: %s" % app.printed("AZMAPS_SUGGEST"))
+        if not app.shows("Frankfurt am Main, Germany"):
+            raise Failure("Frankfurt am Main is not among the suggestions")
+        app.click(selector="#__azmaps_suggestion-0")
+        app.until("Frankfurt am Main is the start",
+                  lambda: app.printed("AZMAPS_TRAVEL", r"car 50\.1109,8\.6821 -"))
+        app.must("focus_node", selector="#__azmaps_travel-to")
+        app.frame()
+        app.must("text_input", text="Berlin")
+        app.frame()
+        app.until("the suggestions for Berlin", lambda: app.has_id("__azmaps_suggestion-0"))
+        app.key("return")
+        app.until("Berlin is the destination",
+                  lambda: app.printed("AZMAPS_TRAVEL", r"car 50\.1109,8\.6821 52\.5200,13\.4050"))
+        route = app.until("the car route",
+                          lambda: app.printed("AZMAPS_ROUTE", r"car \d+\.\d \d+ \d+\.\d{3}"))
+        km, minutes = (float(v) for v in route[-1].split()[1:3])
+        app.log("Frankfurt to Berlin: %s" % route[-1])
+        if not (500.0 <= km <= 600.0 and 300.0 <= minutes <= 360.0):
+            raise Failure("Frankfurt to Berlin by car came out as %.1f km in %.0f min" % (km, minutes))
+        wait_view(app, "the map frames the route", lambda lat, lon, zoom: 5.0 <= zoom <= 8.0
+                  and 47.0 < lat < 55.0 and 0.0 < lon < 16.0)
+        app.screenshot(os.path.join(out, "8-frankfurt-berlin.png"))
+
+        # A pan with the route on the map, timed per step.
+        app.frame(3)
+        x0, y0 = WIDTH * 0.70, HEIGHT * 0.55
+        app.must("mouse_move", x=x0, y=y0)
+        app.frame()
+        app.must("mouse_down", x=x0, y=y0)
+        app.frame()
+        steps = []
+        for i in range(1, 13):
+            started = time.time()
+            app.must("mouse_move", x=x0 - 15 * i, y=y0 - 8 * i)
+            app.frame()
+            steps.append((time.time() - started) * 1000.0)
+        app.must("mouse_up", x=x0 - 180, y=y0 - 96)
+        app.frame(2)
+        app.log("pan steps (ms): %s" % [round(t) for t in steps])
+        if sorted(steps)[len(steps) // 2] > PAN_BUDGET_MS:
+            raise Failure("a pan step took %s ms (median over %d ms)" % (steps, PAN_BUDGET_MS))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
     finally:
         app.stop()
     app.log("PASS: full-window map, controls, keys, pins, the place's card, travel, sidebar, "
-            "settings, About, kept view and pins; screenshots in %s" % out)
+            "settings, About, kept view and pins, place names and timed typing and panning; "
+            "screenshots in %s" % out)
     return True
 
 
