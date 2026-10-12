@@ -353,14 +353,20 @@ pub fn pan_step(drawn: &Marks, next: &Marks) -> PanStep {
 pub const DETOUR_FACTOR: f64 = 1.3;
 
 impl TravelMode {
-    /// A typical door-to-door speed, km/h: the estimate's divisor.
+    /// A typical door-to-door speed for a way of `km`, km/h: the estimate's divisor. A car
+    /// crosses a town at town speed and a country on the motorway; a long trip by public
+    /// transport is a train.
     #[must_use]
-    pub const fn speed_kmh(self) -> f64 {
+    pub fn speed_kmh(self, km: f64) -> f64 {
         match self {
-            Self::Car => 80.0,
+            Self::Car if km < 15.0 => 35.0,
+            Self::Car if km < 80.0 => 70.0,
+            Self::Car => 95.0,
             Self::Walk => 5.0,
             Self::Bike => 16.0,
-            Self::Transit => 40.0,
+            Self::Transit if km < 30.0 => 25.0,
+            Self::Transit if km < 150.0 => 60.0,
+            Self::Transit => 110.0,
         }
     }
 }
@@ -380,7 +386,7 @@ pub fn estimate_route(from: (f64, f64), to: (f64, f64), mode: TravelMode) -> Rou
     let km = distance_km(from, to) * DETOUR_FACTOR;
     RouteEstimate {
         km,
-        minutes: km / mode.speed_kmh() * 60.0,
+        minutes: km / mode.speed_kmh(km) * 60.0,
     }
 }
 
@@ -400,8 +406,27 @@ pub fn mercator_px(lat: f64, lon: f64, zoom: f32) -> (f64, f64) {
 /// pixels the sidebar covers: both ends in the free part, a margin from its edges.
 #[must_use]
 pub fn fit_view(a: (f64, f64), b: (f64, f64), size: (f32, f32), left_inset: f32) -> (f64, f64, f32) {
-    let _ = (b, size, left_inset);
-    (a.0, a.1, MIN_ZOOM)
+    use std::f64::consts::PI;
+    /// Space kept between an end and the edge of the free part.
+    const MARGIN: f64 = 40.0;
+    /// The deepest zoom a route is framed at: one place shows its town, not a street.
+    const PLACE_ZOOM: f32 = 13.0;
+    let (w, h, inset) = (f64::from(size.0), f64::from(size.1), f64::from(left_inset));
+    let free_w = (w - inset - 2.0 * MARGIN).max(1.0);
+    let free_h = (h - 2.0 * MARGIN).max(1.0);
+    let (pa, pb) = (mercator_px(a.0, a.1, 0.0), mercator_px(b.0, b.1, 0.0));
+    let (dx, dy) = ((pa.0 - pb.0).abs(), (pa.1 - pb.1).abs());
+    let fit = (free_w / dx.max(1e-9)).min(free_h / dy.max(1e-9));
+    let zoom = (fit.log2() as f32).clamp(MIN_ZOOM, PLACE_ZOOM);
+    // The ends' midpoint goes to the middle of the free part: the window's centre lies half
+    // the sidebar to the left of it.
+    let scale = 2f64.powf(f64::from(zoom));
+    let world = 256.0 * scale;
+    let x = (pa.0 + pb.0) / 2.0 * scale - inset / 2.0;
+    let y = (pa.1 + pb.1) / 2.0 * scale;
+    let lon = (x / world * 360.0 - 180.0 + 540.0).rem_euclid(360.0) - 180.0;
+    let lat = (PI * (1.0 - 2.0 * y / world)).sinh().atan().to_degrees();
+    (lat.clamp(-85.0, 85.0), lon, zoom)
 }
 
 /// A travel time the way the panel shows it: `~ 25 min`, `~ 5 h 10 min`,
@@ -674,7 +699,7 @@ mod tests {
         let crow = distance_km(vienna, munich);
         let car = estimate_route(vienna, munich, TravelMode::Car);
         assert!((car.km - crow * DETOUR_FACTOR).abs() < 1e-9, "{car:?}");
-        assert!((car.minutes - car.km / TravelMode::Car.speed_kmh() * 60.0).abs() < 1e-9);
+        assert!((car.minutes - car.km / TravelMode::Car.speed_kmh(car.km) * 60.0).abs() < 1e-9);
         let walk = estimate_route(vienna, munich, TravelMode::Walk);
         assert!(walk.minutes > car.minutes * 10.0, "walking takes far longer: {walk:?} {car:?}");
         assert_eq!(estimate_route(vienna, vienna, TravelMode::Bike).minutes, 0.0);

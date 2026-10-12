@@ -171,8 +171,72 @@ impl Gazetteer {
     /// (`Be` is Berlin over Frankfurt, Beijing over San Francisco).
     #[must_use]
     pub fn search(&self, query: &str, near: Option<(f64, f64)>, limit: usize) -> Vec<Suggestion> {
-        let _ = (query, near, limit);
-        Vec::new()
+        // A picked label (`Frankfurt am Main, Germany`) names its country after the comma.
+        let (name, country) = match query.split_once(',') {
+            Some((name, country)) => (fold(name), fold(country)),
+            None => (fold(query), String::new()),
+        };
+        if name.is_empty() {
+            return Vec::new();
+        }
+        let word_start = format!(" {name}");
+        let mut found: Vec<(u8, f64, &Place)> = Vec::new();
+        for place in &self.places {
+            // How well a name matches: the whole name, its start, the start of a later word.
+            let Some(tier) = place
+                .keys
+                .iter()
+                .filter_map(|key| {
+                    if *key == name {
+                        Some(0)
+                    } else if key.starts_with(&name) {
+                        Some(1)
+                    } else if key.contains(&word_start) {
+                        Some(2)
+                    } else {
+                        None
+                    }
+                })
+                .min()
+            else {
+                continue;
+            };
+            let Some(home) = self.country(&place.country) else {
+                continue;
+            };
+            if !country.is_empty()
+                && ![&home.en, &home.de, &home.code]
+                    .iter()
+                    .any(|n| fold(n).starts_with(&country))
+            {
+                continue;
+            }
+            // A big city far away weighs like a small one nearby.
+            let weight = match near {
+                Some(near) => {
+                    let km = crate::model::distance_km(near, (place.lat, place.lon));
+                    place.population as f64 / (1.0 + km / 500.0).powi(2)
+                }
+                None => place.population as f64,
+            };
+            found.push((tier, weight, place));
+        }
+        found.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1)));
+        found
+            .into_iter()
+            .take(limit)
+            .filter_map(|(_, _, place)| {
+                let home = self.country(&place.country)?;
+                Some(Suggestion {
+                    en: place.en.clone(),
+                    de: place.de.clone(),
+                    country_en: home.en.clone(),
+                    country_de: home.de.clone(),
+                    lat: place.lat,
+                    lon: place.lon,
+                })
+            })
+            .collect()
     }
 }
 
