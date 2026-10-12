@@ -463,6 +463,7 @@ impl RolloutPlan {
 
 /// Which rollout gate applies to this client.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub enum UpdateAudience {
     /// Self-updating install: eligible once its cohort bucket falls under
     /// the currently-open percent.
@@ -470,6 +471,10 @@ pub enum UpdateAudience {
     /// Package-managed / notify-only install: sees the notification only
     /// after the rollout completes (100%).
     NotifyOnly,
+    /// A tester's install (a beta channel): every release the moment it is
+    /// published. The rollout protects the fleet from a bad release; testers
+    /// are the ones who find it, so the gate does not apply to them.
+    Tester,
 }
 
 /// `"2026-08-18"` / `"2026-08-18T12:30:00Z"` / unix seconds (number or
@@ -1589,6 +1594,7 @@ pub fn select_update_candidate<'a>(
         let eligible = match audience {
             UpdateAudience::AutoUpdate => bucket < candidate.rollout.allowed_percent(now_unix),
             UpdateAudience::NotifyOnly => candidate.rollout.is_complete(now_unix),
+            UpdateAudience::Tester => true,
         };
         if !eligible {
             continue;
@@ -2153,6 +2159,112 @@ pub fn apply_update(staged: &Path, target: &Path) -> Result<(), String> {
     }
     std::fs::rename(&incoming, target).map_err(|e| format!("swap: {e}"))?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// A manager updating other programs
+// ---------------------------------------------------------------------------
+//
+// An install manager (AzInstallManager) checks, stages and installs programs
+// other than itself. Each program keeps its own state folder (high-water
+// mark, accepted key generation), while the rollout cohort belongs to the
+// machine: the manager draws it once and passes it into every check, so one
+// computer sits in the same cohort for every program it runs.
+
+/// [`check_for_updates_blocking`] for another program: its state is loaded
+/// from and saved to `state_dir`, and `rollout_bucket` (the machine's cohort,
+/// 0-99) replaces whatever cohort that folder held. Blocking: run it on a
+/// `Thread`.
+#[cfg(feature = "http")]
+#[must_use]
+pub fn check_program_for_updates(
+    manifest_url: &str,
+    current_version: &str,
+    channel: &str,
+    state_dir: &Path,
+    rollout_bucket: u8,
+    audience: UpdateAudience,
+) -> UpdateCheckResult {
+    let mut state = UpdateState::load(state_dir);
+    state.rollout_bucket = Some(rollout_bucket.min(99));
+    let result =
+        check_for_updates_blocking(manifest_url, current_version, channel, &mut state, audience);
+    state.save(state_dir);
+    result
+}
+
+/// [`download_and_verify`] for another program: the artifact lands in
+/// `staging_dir`, the accepted key generation in `state_dir`. Returns the
+/// staged file. Blocking: run it on a `Thread`.
+///
+/// # Errors
+///
+/// Returns a description on transport, digest or signature-chain failure;
+/// nothing refused stays staged.
+#[cfg(feature = "http")]
+pub fn stage_program_update(
+    release: &ReleaseInfo,
+    staging_dir: &Path,
+    root_public_key: &str,
+    state_dir: &Path,
+) -> Result<PathBuf, String> {
+    let mut state = UpdateState::load(state_dir);
+    let staged = download_and_verify(release, staging_dir, root_public_key, &mut state);
+    state.save(state_dir);
+    staged.map(|outcome| outcome.path)
+}
+
+/// Checks a staged file once more right before it is installed: the digest
+/// pin and the signature chain. A file on disk is not trusted across runs -
+/// it may have changed since it was staged.
+///
+/// # Errors
+///
+/// Returns a description of the failing check; the caller must not install
+/// the file.
+pub fn verify_staged_program_update(
+    path: &Path,
+    release: &ReleaseInfo,
+    root_public_key: &str,
+    state_dir: &Path,
+) -> Result<(), String> {
+    verify_digest(path, release.digest.as_str())?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let mut state = UpdateState::load(state_dir);
+    verify_release_signature(path, release, root_public_key, &mut state, now)?;
+    state.save(state_dir);
+    Ok(())
+}
+
+/// What staging or checking a program's update concluded: the C API's
+/// `Result<PathBuf, String>` for [`stage_program_update`] and
+/// [`verify_staged_program_update`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum UpdateStageResult {
+    /// The verified file, ready to install.
+    Staged(AzString),
+    /// Why the file must not be installed.
+    Error(AzString),
+}
+
+impl From<Result<PathBuf, String>> for UpdateStageResult {
+    fn from(result: Result<PathBuf, String>) -> Self {
+        match result {
+            Ok(path) => Self::Staged(path.to_string_lossy().as_ref().into()),
+            Err(e) => Self::Error(e.into()),
+        }
+    }
+}
+
+/// Draws a rollout cohort (0-99) the way [`UpdateState::rollout_bucket`]
+/// does, `AZ_UPDATE_BUCKET` included. The caller keeps it: a cohort is
+/// drawn once per machine and never again.
+#[must_use]
+pub fn draw_rollout_bucket() -> u8 {
+    UpdateState::default().rollout_bucket()
 }
 
 // ---------------------------------------------------------------------------
