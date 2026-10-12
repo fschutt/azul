@@ -76,6 +76,23 @@ impl Pdf {
     ) -> azul_layout::resource_handles::PaginationSnapshot {
         azul_layout::resource_handles::PaginationSnapshot::empty()
     }
+    /// No CPU renderer on wasm: draws nothing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_pages_with_policy(
+        &self,
+        _styled_dom: azul_core::styled_dom::StyledDom,
+        _page_width_px: f32,
+        _page_height_px: f32,
+        _font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
+        _image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
+        _policy: azul_layout::solver3::page_breaks::BreakPolicy,
+        _first_page: usize,
+        _page_count: usize,
+        _dpi_factor: f32,
+        _background: azul_css::props::basic::color::ColorU,
+    ) -> azul_core::resources::OptionRawImage {
+        azul_core::resources::OptionRawImage::None
+    }
     /// No PDF backend on wasm: returns an empty byte vec.
     pub fn from_styled_dom_with_resources(
         &self,

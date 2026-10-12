@@ -313,6 +313,68 @@ impl Pdf {
         }
     }
 
+    /// Draws pages `first_page .. first_page + page_count` of `styled_dom`, laid out on pages
+    /// of `page_width_px` x `page_height_px` with the break `policy` (the pages
+    /// [`Self::compute_pagination_with_policy`] counts), as ONE picture: the pages one under the
+    /// other, each `page_height_px * dpi_factor` pixels tall, on `background`. Pages past the
+    /// document's end are left out; `None` when nothing could be drawn. Runs off-thread fine: a
+    /// reader draws the pages around the one on screen ahead of time and shows each as a clip
+    /// window over the picture. Needs no `pdf` feature (the CPU renderer draws the pages).
+    #[allow(clippy::too_many_arguments)] // one flat C-API call: the document, the page, the run
+    pub fn render_pages_with_policy(
+        &self,
+        styled_dom: azul_core::styled_dom::StyledDom,
+        page_width_px: f32,
+        page_height_px: f32,
+        font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
+        image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
+        policy: azul_layout::solver3::page_breaks::BreakPolicy,
+        first_page: usize,
+        page_count: usize,
+        dpi_factor: f32,
+        background: azul_css::props::basic::color::ColorU,
+    ) -> azul_core::resources::OptionRawImage {
+        let mut font_manager = match font_cache.as_font_manager() {
+            Some(fm) => fm.clone_shared(),
+            None => {
+                let fc_cache = azul_layout::font::loading::build_font_cache();
+                match azul_layout::font_traits::FontManager::new(fc_cache) {
+                    Ok(f) => f,
+                    Err(_) => return azul_core::resources::OptionRawImage::None,
+                }
+            }
+        };
+        let empty_images = azul_core::resources::ImageCache::default();
+        let images = image_cache.as_image_cache().unwrap_or(&empty_images);
+        let options = azul_layout::cpurender::PageRenderOptions {
+            page_width: page_width_px,
+            page_height: page_height_px,
+            dpi_factor,
+            background_color: background,
+            first_page,
+            page_count,
+        };
+        match azul_layout::cpurender::render_pages(
+            &styled_dom,
+            &mut font_manager,
+            images,
+            policy,
+            options,
+        ) {
+            Ok(picture) => azul_core::resources::OptionRawImage::Some(
+                azul_core::resources::RawImage {
+                    pixels: azul_core::resources::RawImageData::U8(picture.data().to_vec().into()),
+                    width: picture.width as usize,
+                    height: picture.height as usize,
+                    premultiplied_alpha: true,
+                    data_format: azul_core::resources::RawImageFormat::RGBA8,
+                    tag: Vec::new().into(),
+                },
+            ),
+            Err(_) => azul_core::resources::OptionRawImage::None,
+        }
+    }
+
     /// REVERSE path: PDF bytes -> one standalone SVG string per page.
     /// Empty without the `pdf` feature or on parse failure.
     pub fn to_svg_pages(&self, bytes: &[u8]) -> azul_css::StringVec {
