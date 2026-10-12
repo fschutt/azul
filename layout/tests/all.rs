@@ -1041,3 +1041,5 @@ mod a_label_names_the_control_it_is_for;
 mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 #[path = "the_file_menu_sets_its_own_type_and_its_rows_grow_with_their_words.rs"]
 mod the_file_menu_sets_its_own_type_and_its_rows_grow_with_their_words;
+#[path = "a_collapsed_navigation_pane_leaves_no_space_behind.rs"]
+mod a_collapsed_navigation_pane_leaves_no_space_behind;
