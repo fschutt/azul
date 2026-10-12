@@ -38,3 +38,13 @@ fn switching_the_language_changes_a_label_of_azmeet() {
     assert_eq!(t("azmeet-new-meeting"), "Neue Besprechung");
     set_locale("en-US");
 }
+
+/// rooms.rs is compiled into azul-calendar-core too, which has neither the kit nor AzMeet's
+/// modules (no libazul): AzMeet says a meeting's times elsewhere.
+#[test]
+fn the_rooms_file_names_neither_the_kit_nor_azmeets_words_so_the_calendar_core_compiles_it() {
+    let source = include_str!("rooms.rs");
+    for name in ["azul_appkit", "crate::l10n", "azul::"] {
+        assert!(!source.contains(name), "rooms.rs names {name}");
+    }
+}
