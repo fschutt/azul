@@ -74,8 +74,7 @@ use azul::{
         ButtonOnClickCallbackType, PopoverOnToggleCallbackType, TextInputOnTextInputCallbackType,
         TimerCallbackInfo, TimerCallbackReturn,
     },
-    css::{CssProperty, LayoutLeft, LayoutTop, PixelValue},
-    dom::{DomId, DomNodeId, GeolocationProbeConfig, VirtualKeyCode},
+    dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
     prelude::*,
     sensor::SensorKind,
     shells::{ShellThemeAccent, ShellThemeScope},
@@ -326,9 +325,9 @@ struct MapState {
     /// The newest route request's number, shared with the route workers: an
     /// older one gives up, its reply is dropped.
     route_latest: Arc<AtomicU64>,
-    /// What the last build drew at places on the map (`map_area`); `None`
-    /// before the first build. A step of a pan compares with it.
-    drawn: RefCell<Option<Drawn>>,
+    /// The marks the last build drew (`map_area`), planned a window past every
+    /// edge; empty before the first build. A step of a pan compares with them.
+    drawn: RefCell<Marks>,
     /// The generation in the marks' ids (`ids::mark`). A pan moves the marks
     /// with overrides of their `left` / `top`, and an override follows its node
     /// into the next build when the node keeps its id: the first build after a
@@ -336,19 +335,6 @@ struct MapState {
     mark_generation: Cell<u64>,
     /// A pan moved the marks since the last build (see `mark_generation`).
     marks_moved: Cell<bool>,
-}
-
-/// What a build drew at places on the map: what a step of a pan compares the
-/// marks that show with (`MapState::pan_step`), and where it moves each mark's
-/// box from (`MapState::shift_marks`).
-struct Drawn {
-    /// The viewport and the window size the build drew for.
-    viewport: MapViewport,
-    size: (f32, f32),
-    /// The marks as the build planned them, a window past every edge.
-    marks: Marks,
-    /// Each mark's outer box: its id and its `left` / `top` as built.
-    boxes: Vec<(AzString, f32, f32)>,
 }
 
 impl MapState {
@@ -445,52 +431,15 @@ impl MapState {
     }
 
     /// What a step of a pan to `viewport` does with the marks the last build
-    /// drew (`model::pan_step`).
-    fn pan_step(&self, viewport: MapViewport) -> PanStep {
-        let size = self.size.get();
-        let now = self.marks_at(viewport, (0.0, 0.0));
-        let drawn = self.drawn.borrow();
-        let step = match drawn.as_ref() {
-            Some(d) => pan_step(&d.marks, &now, translation(d, viewport, size), size),
-            None => pan_step(&Marks::default(), &now, None, size),
-        };
-        match step {
+    /// drew (`model::pan_step`), and the marks a build would draw there.
+    fn pan_step(&self, viewport: MapViewport) -> (PanStep, Marks) {
+        let next = self.marks_at(viewport, self.size.get());
+        let step = match pan_step(&self.drawn.borrow(), &next) {
             // An open card is a popover at its pin: only a build moves it along.
-            PanStep::Shift(..) if self.selected.is_some() => PanStep::Rebuild,
+            PanStep::Move if self.selected.is_some() => PanStep::Rebuild,
             step => step,
-        }
-    }
-
-    /// Moves every mark the last build drew by `(dx, dy)` px from where it was
-    /// built, in place: only its box's `left` / `top` change, which costs one
-    /// relayout of the window's boxes instead of a rebuild of the window. The
-    /// values are overrides (see `mark_generation`).
-    fn shift_marks(&self, info: &mut CallbackInfo, (dx, dy): (f32, f32)) {
-        let drawn = self.drawn.borrow();
-        let Some(drawn) = drawn.as_ref() else {
-            return;
         };
-        let dom = DomId { inner: 0 };
-        for (id, left, top) in &drawn.boxes {
-            let node = info.get_node_id_by_id_attribute(dom, id.clone());
-            if node.into_raw() == 0 {
-                continue;
-            }
-            let node = DomNodeId { dom, node };
-            info.override_css_property(
-                node,
-                CssProperty::left(LayoutLeft {
-                    inner: PixelValue::px(left + dx),
-                }),
-            );
-            info.override_css_property(
-                node,
-                CssProperty::top(LayoutTop {
-                    inner: PixelValue::px(top + dy),
-                }),
-            );
-        }
-        self.marks_moved.set(true);
+        (step, next)
     }
 
     /// The generation in this build's mark ids: the next one once a pan moved
@@ -546,25 +495,6 @@ fn place_px(viewport: MapViewport, size: (f32, f32), lat: f64, lon: f64) -> (f32
         LogicalSize::create(size.0, size.1),
     );
     (p.x, p.y)
-}
-
-/// How far every place moved on screen between the viewport `drawn` was built
-/// for and `to`, when the step only moved the map: the same zoom, the same
-/// turn, no tilt, the same window. `None` when it did more - the places then
-/// move apart, not along.
-fn translation(drawn: &Drawn, to: MapViewport, size: (f32, f32)) -> Option<(f32, f32)> {
-    let from = drawn.viewport;
-    let moved_only = drawn.size == size
-        && from.zoom == to.zoom
-        && from.bearing_deg == to.bearing_deg
-        && from.pitch_deg == 0.0
-        && to.pitch_deg == 0.0;
-    if !moved_only {
-        return None;
-    }
-    let (lat, lon) = (from.centre_lat_deg, from.centre_lon_deg);
-    let (a, b) = (place_px(from, size, lat, lon), place_px(to, size, lat, lon));
-    Some((b.0 - a.0, b.1 - a.1))
 }
 
 /// The travel panel may have changed: its route is asked of a route worker
@@ -947,23 +877,18 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
     // (`on_viewport_changed`) until it would show one this build did not draw.
     let marks = s.marks_at(s.viewport, size);
     let generation = s.next_mark_generation();
-    let mut boxes = Vec::new();
-    let mut mark = |key: &str, dom: Dom, left: f32, top: f32| {
-        let id = ids::mark(generation, key);
-        boxes.push((id.clone(), left, top));
-        dom.with_id(id)
-    };
+    let mark = |key: &str, dom: Dom| dom.with_id(ids::mark(generation, key));
 
     // The travel preview, until there is routing: start to destination as
     // the crow flies.
     if let Some((p, q)) = marks.route {
-        area.add_child(mark("route", route_line(p, q), p.0, p.1));
+        area.add_child(mark("route", route_line(p, q)));
     }
     if let Some((x, y)) = marks.from {
-        area.add_child(mark("from", map_dot(x, y, FROM_MARK), x, y));
+        area.add_child(mark("from", map_dot(x, y, FROM_MARK)));
     }
     if let Some((x, y)) = marks.to {
-        area.add_child(mark("to", map_dot(x, y, TO_MARK), x, y));
+        area.add_child(mark("to", map_dot(x, y, TO_MARK)));
     }
 
     if s.locating {
@@ -978,21 +903,14 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
             let dom = Dom::create_div()
                 .with_css(dot.as_str())
                 .with_accessibility_name(label("azmaps-you-are-here"));
-            area.add_child(mark("here", dom, x, y));
+            area.add_child(mark("here", dom));
         }
     }
 
     for &(index, (x, y)) in &marks.pins {
-        let (left, top) = pin_box(x, y);
-        let pin = place_pin(s, app, index, x, y);
-        area.add_child(mark(&format!("pin-{index}"), pin, left, top));
+        area.add_child(mark(&format!("pin-{index}"), place_pin(s, app, index, x, y)));
     }
-    *s.drawn.borrow_mut() = Some(Drawn {
-        viewport: s.viewport,
-        size,
-        marks,
-        boxes,
-    });
+    *s.drawn.borrow_mut() = marks;
 
     if let Some(heading) = s.heading() {
         let needle = format!(
@@ -1208,21 +1126,17 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
 /// the last build did not draw (`MapState::pan_step`); only then is the
 /// window rebuilt. A rebuild per pointer move made a pan with a route or a
 /// pin on the map crawl.
-extern "C" fn on_viewport_changed(mut data: RefAny, mut info: CallbackInfo, vp: MapViewport) -> Update {
+extern "C" fn on_viewport_changed(mut data: RefAny, _info: CallbackInfo, vp: MapViewport) -> Update {
     let started = std::time::Instant::now();
     let Some(mut s) = data.downcast_mut::<MapState>() else {
         return Update::DoNothing;
     };
-    let step = s.pan_step(vp);
+    let (step, _next) = s.pan_step(vp);
     s.viewport = vp;
     s.moved();
     let (update, done) = match step {
         PanStep::MapOnly => (Update::DoNothing, "map"),
-        PanStep::Shift(dx, dy) => {
-            s.shift_marks(&mut info, (dx, dy));
-            (Update::DoNothing, "shift")
-        }
-        PanStep::Rebuild => (Update::RefreshDom, "rebuild"),
+        PanStep::Move | PanStep::Rebuild => (Update::RefreshDom, "rebuild"),
     };
     if STATS.load(Ordering::Relaxed) {
         println!("AZMAPS_PAN {done} {}", started.elapsed().as_micros());
@@ -1713,7 +1627,7 @@ pub fn start() {
         route: None,
         route_asked: None,
         route_latest: Arc::new(AtomicU64::new(0)),
-        drawn: RefCell::new(None),
+        drawn: RefCell::new(Marks::default()),
         mark_generation: Cell::new(0),
         marks_moved: Cell::new(false),
     };
