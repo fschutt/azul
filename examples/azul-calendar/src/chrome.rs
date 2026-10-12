@@ -1646,9 +1646,7 @@ extern "C" fn on_server_save(mut data: RefAny, mut info: CallbackInfo) -> Update
     let app = data.clone();
     with_state(&mut data, |s| {
         let Some(server) = meet_rooms::normalize_server(&s.server_text) else {
-            s.server_error = String::from(
-                "azcalendar-server-give-address",
-            );
+            s.server_error = t("azcalendar-server-give-address");
             return Update::RefreshDom;
         };
         s.save_setting(&settings::meeting_server_line(&server));
