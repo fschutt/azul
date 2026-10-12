@@ -18,6 +18,10 @@
 //! - [`shared_endpoint`]: a service's address from the shared config's
 //!   `endpoints` section (the meeting server, the tile server, S3), for an
 //!   app to weigh under its own switch and variable.
+//! - [`update`]: how an app and AzInstallManager talk about updates - the app's registration
+//!   (`~/.azlin/apps/<key>/current.json`), the staged update, the "Update now" request, one
+//!   app's background check-and-stage under the machine's rollout cohort, and the update
+//!   engine's calls (azul's updater with the `azul` feature).
 //! - [`shortcuts`]: the keyboard-shortcut table, `Mod` = Cmd / Ctrl.
 //! - [`about`]: the About facts.
 //! - [`client_health`]: this device's client health, 0 to 100, for how much background work
@@ -81,6 +85,7 @@ pub mod qr;
 pub mod settings;
 pub mod shared_endpoint;
 pub mod shortcuts;
+pub mod update;
 #[cfg(test)]
 mod l10n_tests;
 #[cfg(all(test, feature = "azul"))]
