@@ -47,6 +47,8 @@ pub const SHEET_CANCEL: AzString = AzString::from_const_str("__azphoto_sheet-can
 pub const TEXT_FAMILY: AzString = AzString::from_const_str("__azphoto_text-family");
 pub const TEXT_COMMIT: AzString = AzString::from_const_str("__azphoto_text-commit");
 pub const TEXT_CANCEL: AzString = AzString::from_const_str("__azphoto_text-cancel");
+/// The lock of the active layer (the Layers panel's lock row).
+pub const LAYER_LOCK: AzString = AzString::from_const_str("__azphoto_layer-lock");
 pub const PANEL_NAVIGATOR: AzString = AzString::from_const_str("__azphoto_panel-navigator");
 pub const PANEL_COLOR: AzString = AzString::from_const_str("__azphoto_panel-color");
 pub const PANEL_LAYERS: AzString = AzString::from_const_str("__azphoto_panel-layers");

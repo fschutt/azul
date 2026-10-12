@@ -188,6 +188,7 @@ azphoto-new-image = Neues Bild...
 azphoto-swap-colours-x = Farben tauschen (X)
 azphoto-show-hide = Ein- oder ausblenden
 azphoto-lock-unlock = Sperren oder entsperren
+azphoto-lock = Sperren:
 azphoto-open-close-group = Die Gruppe auf- oder zuklappen
 azphoto-new-layer = Neue Ebene
 azphoto-new-group = Neue Gruppe
