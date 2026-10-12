@@ -975,4 +975,28 @@ mod tests {
         let view = main_view(&s, &RefAny::new(0u8));
         assert!(!texts(&view).iter().any(|t| t.contains("the disk is full")));
     }
+
+    /// The page in view is the one whose sheet starts nearest the strip's
+    /// left edge - what the lit number shows.
+    #[test]
+    fn the_page_in_view_is_the_sheet_nearest_the_strips_left_edge() {
+        let stride = page_stride();
+        assert_eq!(page_at(0.0, 3), 0);
+        assert_eq!(page_at(stride * 1.4, 3), 1);
+        assert_eq!(page_at(stride * 1.6, 3), 2);
+        assert_eq!(page_at(stride * 9.0, 3), 2, "past the last sheet: the last");
+        assert_eq!(page_at(-5.0, 3), 0, "an overscroll before the first: the first");
+    }
+
+    /// A wheel or a trackpad scrolling the strip tells the app, which lights
+    /// the number of the page that came into view (it went stale before).
+    #[test]
+    fn the_strip_tells_the_app_when_it_scrolls() {
+        let s = app(1);
+        let area = sheet(&s, &RefAny::new(0u8));
+        let strip = with_id(&area, &ids::STRIP).expect("the sheet strip");
+        let events = events_of(strip, crate::on_strip_scroll);
+        assert!(events.contains(&EventFilter::Hover(HoverEventFilter::Scroll)), "{events:?}");
+        assert!(events.contains(&EventFilter::Hover(HoverEventFilter::ScrollEnd)), "{events:?}");
+    }
 }
