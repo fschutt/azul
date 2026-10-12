@@ -341,10 +341,12 @@ fn menu_items(app: &RefAny, entries: Vec<Entry>) -> Vec<MenuItem> {
         .collect()
 }
 
-/// Whether the window draws its own menu row.
+/// Whether the window draws its own menu row: everywhere but on macOS, whose
+/// menu bar at the top of the screen holds the window's menu (`layout`
+/// hands it `native_menu`). Both at once showed every menu twice.
 #[must_use]
 pub const fn in_window_menu() -> bool {
-    true
+    !cfg!(target_os = "macos")
 }
 
 /// The whole menu bar (the native one on macOS).
@@ -1146,8 +1148,11 @@ fn title_row(a: &PhotoApp) -> Dom {
 }
 
 fn editor(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
-    CanvasShell::create(canvas_area(app, a, p))
-        .with_menu_bar(menu_row(app, p))
+    let mut shell = CanvasShell::create(canvas_area(app, a, p));
+    if in_window_menu() {
+        shell = shell.with_menu_bar(menu_row(app, p));
+    }
+    shell
         .with_tool_options(options_bar(app, a, p))
         .with_tool_palette(tools_column(app, a, p))
         .with_document_tabs(doc_tab(app, a, p))
@@ -1212,9 +1217,9 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;"),
         )
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app_ref.clone(), canvas::on_key);
-    if cfg!(target_os = "macos") {
-        body.with_menu_bar(native_menu(&app_ref))
-    } else {
+    if in_window_menu() {
         body
+    } else {
+        body.with_menu_bar(native_menu(&app_ref))
     }
 }

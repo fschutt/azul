@@ -410,12 +410,15 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 }
 
 /// The page the window opens on for `--screen` (`screen`), with or without
-/// an image to open (`has_doc`).
+/// an image to open (`has_doc`). Like Photoshop with a new file, a launch
+/// without an image opens the editor on an empty untitled canvas; the start
+/// page (open, new, the saved documents) only when asked for or after the
+/// last document closed.
 #[must_use]
 pub fn first_screen(screen: Screen, has_doc: bool) -> AppScreen {
+    let _ = has_doc;
     match screen {
         Screen::Start => AppScreen::Start,
-        Screen::Auto | Screen::Settings if !has_doc => AppScreen::Start,
         _ => AppScreen::Editor,
     }
 }
