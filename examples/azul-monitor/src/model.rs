@@ -16,6 +16,8 @@
 
 use std::{cmp::Ordering, collections::HashMap};
 
+use azul_appkit::phrase::Text;
+
 use crate::history::History;
 
 /// Readings kept for the charts (one a second: a minute).
@@ -84,8 +86,8 @@ pub struct Snapshot {
     /// The processes.
     pub processes: Vec<ProcSample>,
     /// What the sampler did on the window's behalf since the previous
-    /// reading ("Ended cargo (5102)", or why it could not).
-    pub notices: Vec<String>,
+    /// reading ("Ended cargo (5102)", or why it could not), said in the window.
+    pub notices: Vec<Text>,
 }
 
 /// `bytes` counted over `elapsed_ms`, per second (0 when no time passed).
@@ -282,6 +284,21 @@ impl Column {
             Self::Disk => "Disk",
             Self::Status => "Status",
             Self::Description => "Description",
+        }
+    }
+
+    /// The header's words: a key of AzMonitor's, said in the window's language.
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Name => "azmonitor-col-name",
+            Self::Pid => "azmonitor-col-pid",
+            Self::User => "azmonitor-col-user",
+            Self::Cpu => "azmonitor-col-cpu",
+            Self::Memory => "azmonitor-col-memory",
+            Self::Disk => "azmonitor-col-disk",
+            Self::Status => "azmonitor-col-status",
+            Self::Description => "azmonitor-col-description",
         }
     }
 
@@ -494,7 +511,7 @@ pub trait Source {
     ///
     /// # Errors
     /// The process is gone, or ending it needs rights the app lacks.
-    fn end(&mut self, pid: u32, force: bool) -> Result<String, String>;
+    fn end(&mut self, pid: u32, force: bool) -> Result<Text, Text>;
 }
 
 // ---- the model ----
@@ -567,7 +584,7 @@ pub struct Model {
     /// How many readings arrived.
     pub readings: u64,
     /// The sampler's latest notices (shown in the status bar).
-    pub notices: Vec<String>,
+    pub notices: Vec<Text>,
 }
 
 impl Default for Model {

@@ -400,15 +400,15 @@ pub enum EditError {
 }
 
 impl EditError {
-    /// The message for the status bar.
+    /// The message for the status bar: a key of AzVideoCut's words, said in the window.
     #[must_use]
     pub fn message(self) -> &'static str {
         match self {
-            EditError::NoSuchClip => "That clip is gone.",
-            EditError::NoSuchTrack => "That track does not exist.",
-            EditError::TrackLocked => "The track is locked.",
-            EditError::WrongTrackKind => "That clip cannot go on this kind of track.",
-            EditError::NothingToDo => "Nothing to change.",
+            EditError::NoSuchClip => "azvideocut-error-clip-gone",
+            EditError::NoSuchTrack => "azvideocut-error-no-track",
+            EditError::TrackLocked => "azvideocut-error-track-locked",
+            EditError::WrongTrackKind => "azvideocut-error-wrong-track",
+            EditError::NothingToDo => "azvideocut-error-nothing",
         }
     }
 }

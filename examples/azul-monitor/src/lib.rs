@@ -76,6 +76,10 @@ pub mod graph;
 pub mod history;
 /// The DOM ids, classes and markers (`__azmonitor_` prefix), each once.
 pub mod ids;
+/// AzMonitor's words in English and German.
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 /// The live machine: this computer through the `sysinfo` crate.
 pub mod live;
 /// The sampling model: readings, rates, the process rows, sort and filter.
@@ -106,7 +110,8 @@ use azul::{
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::{AppArgs, AppSpec, LanguagePref},
+    l10n::{begin_layout, decimal, t, t_args, t_text, Arg},
     settings::AppSettings,
     shortcuts::Shortcut,
     ui as kit,
@@ -150,38 +155,65 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: "monitor",
 };
 
-/// The keyboard shortcuts the settings page lists.
+/// The keyboard shortcuts the settings page lists: the groups and what the keys do are keys of
+/// AzMonitor's words.
 pub const SHORTCUTS: [Shortcut; 8] = [
-    Shortcut::new("Processes", "Up  Down", "Select a process"),
     Shortcut::new(
-        "Processes",
+        "azmonitor-tab-processes",
+        "Up  Down",
+        "azmonitor-shortcut-select",
+    ),
+    Shortcut::new(
+        "azmonitor-tab-processes",
         "Page Up  Page Down",
-        "Move by a screen of processes",
+        "azmonitor-shortcut-screen",
     ),
-    Shortcut::new("Processes", "Mod+Home  Mod+End", "The first / last process"),
     Shortcut::new(
-        "Processes",
+        "azmonitor-tab-processes",
+        "Mod+Home  Mod+End",
+        "azmonitor-shortcut-first-last",
+    ),
+    Shortcut::new(
+        "azmonitor-tab-processes",
         "Click  Shift+Click",
-        "Sort by a column, add a second key",
+        "azmonitor-shortcut-sort",
     ),
     Shortcut::new(
-        "Processes",
+        "azmonitor-tab-processes",
         "Delete",
-        "End the selected process (asks first)",
+        "azmonitor-shortcut-end",
     ),
-    Shortcut::new("Processes", "Mod+C", "Copy the selected rows"),
-    Shortcut::new("Monitor", "F5", "Read the system now"),
-    Shortcut::new("Monitor", "Escape", "Close the question"),
+    Shortcut::new(
+        "azmonitor-tab-processes",
+        "Mod+C",
+        "azmonitor-shortcut-copy",
+    ),
+    Shortcut::new(
+        "azmonitor-category-monitor",
+        "F5",
+        "azmonitor-shortcut-read-now",
+    ),
+    Shortcut::new(
+        "azmonitor-category-monitor",
+        "Escape",
+        "azmonitor-shortcut-close-question",
+    ),
 ];
 
-/// The settings page's own category (first on the page).
+/// The settings page's own category (first on the page): an id, shown as
+/// `azmonitor-category-monitor`.
 pub const APP_CATEGORIES: [&str; 1] = ["Monitor"];
 
 // ==== The update speed ====
 
-/// The update speeds the settings offer: a label and the interval in ms
-/// (0 = paused).
-pub const SPEEDS: [(&str, u64); 4] = [("0.5 s", 500), ("1 s", 1000), ("2 s", 2000), ("Paused", 0)];
+/// The update speeds the settings offer: a label (a key of AzMonitor's words) and the interval
+/// in ms (0 = paused).
+pub const SPEEDS: [(&str, u64); 4] = [
+    ("azmonitor-speed-half", 500),
+    ("azmonitor-speed-one", 1000),
+    ("azmonitor-speed-two", 2000),
+    ("azmonitor-paused", 0),
+];
 
 /// The settings key of the update speed (`monitor/settings.json`).
 pub const SPEED_KEY: &str = "update_ms";
@@ -206,21 +238,26 @@ pub fn speed_index(interval_ms: u64) -> usize {
         .unwrap_or(0)
 }
 
-/// The status bar's word on the update speed: "Updated every 1 s", "Paused".
+/// The status bar's word on the update speed: "Updated every 1 s", "Paused" (in the language of
+/// the layout pass, "0,5 s" in German).
 #[must_use]
 pub fn speed_text(interval_ms: u64) -> String {
     if interval_ms == 0 {
-        return "Paused".to_string();
+        return t("azmonitor-paused");
     }
-    if interval_ms % 1000 == 0 {
-        format!("Updated every {} s", interval_ms / 1000)
+    let seconds = if interval_ms % 1000 == 0 {
+        (interval_ms / 1000).to_string()
     } else {
-        format!(
-            "Updated every {}.{} s",
+        decimal(&format!(
+            "{}.{}",
             interval_ms / 1000,
             (interval_ms % 1000) / 100
-        )
-    }
+        ))
+    };
+    t_args(
+        "azmonitor-updated-every",
+        &[("seconds", Arg::from(seconds))],
+    )
 }
 
 /// The time between two readings as they really arrive (the sampler looks
@@ -452,7 +489,7 @@ impl Monitor {
         if !self.notice.is_empty() {
             return self.notice.clone();
         }
-        self.model.notices.last().cloned().unwrap_or_default()
+        self.model.notices.last().map(t_text).unwrap_or_default()
     }
 }
 
@@ -476,12 +513,20 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
     let interval = stored_speed(&kit_ref);
     let app = Monitor::new(kit_ref.clone(), &args, interval);
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(
         &kit_ref,
         layout,
@@ -538,7 +583,7 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         let s = &mut *guard;
         let first = s.model.readings == 0;
         for notice in &snapshot.notices {
-            println!("AZMON_NOTICE {notice}");
+            println!("AZMON_NOTICE {}", t_text(notice));
         }
         if !snapshot.notices.is_empty() {
             s.notice.clear();
@@ -723,6 +768,8 @@ fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &AppSet
 /// bar) in the theme scope; the question over it while it is open; the
 /// kit's and the app's keys on the window.
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for every word this pass says.
+    begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let window = (info.get_window_width(), info.get_window_height());
@@ -857,6 +904,7 @@ mod tests {
         assert_eq!(speed_index(1000), 1);
         assert_eq!(speed_index(0), 3);
         assert_eq!(speed_index(7), 1);
+        crate::l10n::in_english();
         assert_eq!(speed_text(1000), "Updated every 1 s");
         assert_eq!(speed_text(500), "Updated every 0.5 s");
         assert_eq!(speed_text(0), "Paused");

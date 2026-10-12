@@ -21,6 +21,8 @@ use sysinfo::{
     ProcessesToUpdate, Signal, System, UpdateKind, Users,
 };
 
+use azul_appkit::phrase::{Phrase, Text};
+
 use crate::model::{ProcSample, Snapshot, Source};
 
 /// A command line as one line: its words joined by spaces.
@@ -49,20 +51,13 @@ pub fn disk_traffic(disks: (u64, u64), processes: (u64, u64)) -> (u64, u64) {
 ///
 /// # Errors
 /// The signal was not delivered (another user's process, or gone).
-pub fn end_outcome(
-    name: &str,
-    pid: u32,
-    force: bool,
-    sent: Option<bool>,
-) -> Result<String, String> {
+pub fn end_outcome(name: &str, pid: u32, force: bool, sent: Option<bool>) -> Result<Text, Text> {
+    let said = |key: &str| Text::from(Phrase::new(key).arg("name", name).arg("pid", pid));
     match sent {
-        Some(true) if force => Ok(format!("Killed {name} ({pid})")),
-        Some(true) => Ok(format!("Ended {name} ({pid})")),
-        Some(false) => Err(format!(
-            "{name} ({pid}) could not be ended: it belongs to another user (administrator rights \
-             are needed) or it has just quit."
-        )),
-        None => Err(format!("{name} ({pid}) cannot be ended on this system.")),
+        Some(true) if force => Ok(said("azmonitor-killed")),
+        Some(true) => Ok(said("azmonitor-ended")),
+        Some(false) => Err(said("azmonitor-not-ended")),
+        None => Err(said("azmonitor-cannot-end")),
     }
 }
 
@@ -241,13 +236,13 @@ impl Source for LiveMachine {
         }
     }
 
-    fn end(&mut self, pid: u32, force: bool) -> Result<String, String> {
+    fn end(&mut self, pid: u32, force: bool) -> Result<Text, Text> {
         let target = Pid::from_u32(pid);
         // That one process again: a process that quit meanwhile is gone.
         self.system
             .refresh_processes(ProcessesToUpdate::Some(&[target]), true);
         let Some(process) = self.system.process(target) else {
-            return Err(format!("No process {pid} is running."));
+            return Err(Phrase::new("azmonitor-no-process").arg("pid", pid).into());
         };
         let name = process.name().to_string_lossy().into_owned();
         let signal = if force { Signal::Kill } else { Signal::Term };
@@ -282,18 +277,22 @@ mod tests {
 
     #[test]
     fn ending_says_what_was_done_or_why_not() {
+        let keys = |said: &Text| said.keys().join(" ");
+        let ended = end_outcome("cargo", 5102, false, Some(true)).expect("ended");
+        assert_eq!(keys(&ended), "azmonitor-ended");
+        let phrase = ended.phrase("azmonitor-ended").expect("the phrase");
         assert_eq!(
-            end_outcome("cargo", 5102, false, Some(true)),
-            Ok("Ended cargo (5102)".to_string())
+            phrase.get("name"),
+            Some(&azul_appkit::phrase::Arg::from("cargo"))
         );
         assert_eq!(
-            end_outcome("cargo", 5102, true, Some(true)),
-            Ok("Killed cargo (5102)".to_string())
+            phrase.get("pid"),
+            Some(&azul_appkit::phrase::Arg::from(5102_u32))
         );
-        let refused = end_outcome("sshd", 702, false, Some(false));
-        assert!(refused
-            .as_ref()
-            .is_err_and(|why| why.contains("sshd (702)") && why.contains("administrator")));
+        let killed = end_outcome("cargo", 5102, true, Some(true)).expect("killed");
+        assert_eq!(keys(&killed), "azmonitor-killed");
+        let refused = end_outcome("sshd", 702, false, Some(false)).expect_err("refused");
+        assert_eq!(keys(&refused), "azmonitor-not-ended");
         assert!(end_outcome("x", 1, false, None).is_err());
     }
 

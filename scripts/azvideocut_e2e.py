@@ -92,7 +92,7 @@ class App:
         self.out_path = os.path.join(logs, "azvideocut.stdout")
         self.err_path = os.path.join(logs, "azvideocut.stderr")
         self.process = subprocess.Popen(
-            [binary, "--sample", "--data-dir", data_root], env=env, stdin=subprocess.DEVNULL,
+            [binary, "--sample", "--data-dir", data_root, "--language", "en"], env=env, stdin=subprocess.DEVNULL,
             stdout=open(self.out_path, "wb"), stderr=open(self.err_path, "wb"),
         )
 

@@ -18,6 +18,7 @@
 //! [`DataSet::orders`]).
 
 use azul::widgets::{MoneyCurrency, MoneyInput, MoneyLocale};
+use azul_appkit::l10n::{named, t, t_args, Arg};
 use chrono::{Datelike, NaiveDate};
 
 /// The orders the dashboard shows.
@@ -34,6 +35,7 @@ pub enum Kind {
 /// One column of the table.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Column {
+    /// Its English name, its id too (the scripts' sort line).
     pub title: &'static str,
     /// The width in px.
     pub width: f32,
@@ -78,6 +80,14 @@ pub mod c {
     pub const RETURNED: usize = 22;
     pub const RATING: usize = 23;
     pub const SALES_REP: usize = 24;
+}
+
+impl Column {
+    /// Its title in the language of the layout pass (`azdashboard-col-<title>`).
+    #[must_use]
+    pub fn said(&self) -> String {
+        named(crate::ABOUT.name, "col", self.title)
+    }
 }
 
 /// The 25 columns, in table order.
@@ -500,60 +510,75 @@ impl DataSet {
     }
 
     /// Sets column `column` of order `row` from what the user typed, or
-    /// says why not. The texts and numbers derived from it (sales, profit,
-    /// the ship date) follow at once.
+    /// says why not (in the window's language). The texts and numbers derived
+    /// from it (sales, profit, the ship date) follow at once.
     pub fn edit(&mut self, row: u32, column: usize, typed: &str) -> Result<(), String> {
-        let t = typed.trim();
+        let typed = typed.trim();
         let Some(o) = self.orders.get_mut(row as usize) else {
-            return Err("There is no such order.".to_string());
+            return Err(t("azdashboard-no-such-order"));
         };
         match column {
             c::ORDER_DATE => {
-                o.date = parse_day(t).ok_or_else(|| format!("\"{t}\" is not a date (YYYY-MM-DD)."))?;
+                o.date = parse_day(typed).ok_or_else(|| {
+                    t_args("azdashboard-not-a-date", &[("text", Arg::from(typed))])
+                })?;
             }
             c::PRIORITY => {
                 let i = PRIORITIES
                     .iter()
-                    .position(|p| p.eq_ignore_ascii_case(t))
-                    .ok_or_else(|| format!("The priority is one of {}.", PRIORITIES.join(", ")))?;
+                    .position(|p| p.eq_ignore_ascii_case(typed))
+                    .ok_or_else(|| {
+                        t_args(
+                            "azdashboard-priority-one-of",
+                            &[("choices", Arg::from(PRIORITIES.join(", ")))],
+                        )
+                    })?;
                 o.priority = u8::try_from(i).unwrap_or(0);
             }
             c::QUANTITY => {
-                o.quantity = t
+                o.quantity = typed
                     .parse::<u16>()
                     .ok()
                     .filter(|q| (1..=999).contains(q))
-                    .ok_or_else(|| "The quantity is a whole number from 1 to 999.".to_string())?;
+                    .ok_or_else(|| t("azdashboard-quantity-range"))?;
             }
             c::UNIT_PRICE => {
-                o.unit_price_cents = parse_cents(t)
+                o.unit_price_cents = parse_cents(typed)
                     .filter(|c| (1..=9_999_999).contains(c))
-                    .ok_or_else(|| "The unit price is an amount from 0.01 to 99,999.99.".to_string())?;
+                    .ok_or_else(|| t("azdashboard-unit-price-range"))?;
             }
             c::DISCOUNT => {
-                o.discount = t
+                o.discount = typed
                     .trim_end_matches('%')
                     .trim()
                     .parse::<u8>()
                     .ok()
                     .filter(|d| *d <= 90)
-                    .ok_or_else(|| "The discount is a whole percentage from 0 to 90.".to_string())?;
+                    .ok_or_else(|| t("azdashboard-discount-range"))?;
             }
             c::RETURNED => {
-                o.returned = match t.to_ascii_lowercase().as_str() {
+                o.returned = match typed.to_ascii_lowercase().as_str() {
                     "yes" | "y" => true,
                     "no" | "n" => false,
-                    _ => return Err("Returned is Yes or No.".to_string()),
+                    _ => return Err(t("azdashboard-returned-yes-no")),
                 };
             }
             c::RATING => {
-                o.rating = t
+                o.rating = typed
                     .parse::<u8>()
                     .ok()
                     .filter(|r| (1..=5).contains(r))
-                    .ok_or_else(|| "The rating is 1, 2, 3, 4 or 5.".to_string())?;
+                    .ok_or_else(|| t("azdashboard-rating-range"))?;
             }
-            _ => return Err(format!("{} is not editable.", COLUMNS.get(column).map_or("This column", |c| c.title))),
+            _ => {
+                let what = COLUMNS
+                    .get(column)
+                    .map_or_else(|| t("azdashboard-this-column"), Column::said);
+                return Err(t_args(
+                    "azdashboard-not-editable",
+                    &[("column", Arg::from(what))],
+                ));
+            }
         }
         self.edits += 1;
         Ok(())

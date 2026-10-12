@@ -32,6 +32,10 @@
 pub mod args;
 pub mod decode;
 pub mod export;
+/// AzVideoCut's words in English and German.
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod render;
 pub mod sample;
@@ -72,13 +76,18 @@ use azul::{
     video::{VideoDecoder, VideoEncoder},
     widgets::{
         AboutDialog, ButtonType, Dialog, DialogState, NumberInputState, ProgressDialog, Segmented,
-        StandardDialogEvent, StandardDialogEventKind,
-        SegmentedState, Slider, SliderState, StatusBar, StatusBarSegment, Timeline, TimelineClip,
-        TimelineClipTint, TimelineEdge, TimelineEvent, TimelineEventKind, TimelineTrack,
-        TimelineTrackKind, Titlebar,
+        SegmentedState, Slider, SliderState, StandardDialogEvent, StandardDialogEventKind,
+        StatusBar, StatusBarSegment, Timeline, TimelineClip, TimelineClipTint, TimelineEdge,
+        TimelineEvent, TimelineEventKind, TimelineTrack, TimelineTrackKind, Titlebar,
     },
 };
-use azul_appkit::{about::AboutInfo, shortcuts::Shortcut, ui as kit};
+use azul_appkit::{
+    about::AboutInfo,
+    args::LanguagePref,
+    l10n::{named, t, t_args, t_label, Arg},
+    shortcuts::Shortcut,
+    ui as kit,
+};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
@@ -125,16 +134,24 @@ pub enum Tool {
 }
 
 impl Tool {
-    const ALL: [Tool; 6] = [Tool::Select, Tool::Razor, Tool::Ripple, Tool::Slip, Tool::Hand, Tool::Zoom];
+    const ALL: [Tool; 6] = [
+        Tool::Select,
+        Tool::Razor,
+        Tool::Ripple,
+        Tool::Slip,
+        Tool::Hand,
+        Tool::Zoom,
+    ];
 
+    /// Its words: a key of AzVideoCut's, said in the window's language.
     fn label(self) -> &'static str {
         match self {
-            Tool::Select => "Select (V)",
-            Tool::Razor => "Razor (C)",
-            Tool::Ripple => "Ripple (B)",
-            Tool::Slip => "Slip (Y)",
-            Tool::Hand => "Hand (H)",
-            Tool::Zoom => "Zoom (Z)",
+            Tool::Select => "azvideocut-tool-select",
+            Tool::Razor => "azvideocut-tool-razor",
+            Tool::Ripple => "azvideocut-tool-ripple",
+            Tool::Slip => "azvideocut-tool-slip",
+            Tool::Hand => "azvideocut-tool-hand",
+            Tool::Zoom => "azvideocut-tool-zoom",
         }
     }
 
@@ -601,11 +618,18 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
                     app.playhead = 0;
                     app.view_start = 0.0;
                     app.selected.clear();
-                    app.status = String::from("Ready.");
-                    let id = app.project.as_ref().map_or_else(String::new, |p| p.id.clone());
+                    app.status = t("azvideocut-ready");
+                    let id = app
+                        .project
+                        .as_ref()
+                        .map_or_else(String::new, |p| p.id.clone());
                     announce(&format!("PROJECT {id} {} {}", app.clip_count(), app.end()));
                     if let Some(encoded) = sample_encoded {
-                        announce(if encoded { "SAMPLE encoded" } else { "SAMPLE generated" });
+                        announce(if encoded {
+                            "SAMPLE encoded"
+                        } else {
+                            "SAMPLE generated"
+                        });
                     }
                     request_program_frame(&mut info, &app_ref, app);
                 }
@@ -685,9 +709,15 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
                 }
             }
             app.status = if errors.is_empty() {
-                format!("Imported {added} file(s).")
+                t_args("azvideocut-imported", &[("count", Arg::from(added))])
             } else {
-                format!("Imported {added} file(s); {}", errors.join("; "))
+                t_args(
+                    "azvideocut-imported-errors",
+                    &[
+                        ("count", Arg::from(added)),
+                        ("errors", Arg::from(errors.join("; "))),
+                    ],
+                )
             };
             save(&mut info, &app_ref, app);
             Update::RefreshDom
@@ -695,11 +725,14 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
         Outcome::Exported { result } => {
             match result {
                 Ok((key, bytes, format)) => {
-                    app.status = format!("Exported {key} ({bytes} bytes).");
+                    app.status = t_args(
+                        "azvideocut-exported",
+                        &[("key", Arg::from(&key)), ("bytes", Arg::from(bytes))],
+                    );
                     announce(&format!("EXPORTED {key} {bytes} {}", format.extension()));
                 }
                 Err(e) => {
-                    app.status = format!("Export failed: {e}");
+                    app.status = t_args("azvideocut-export-failed", &[("why", Arg::from(&e))]);
                     announce(&format!("ERROR export {e}"));
                 }
             }
@@ -947,7 +980,7 @@ fn start_playback(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut,
         shown: app.playhead,
         last_ui: StdInstant::now(),
     });
-    app.status = format!("Playing at {speed}x.");
+    app.status = t_args("azvideocut-playing-at", &[("speed", Arg::from(speed))]);
 }
 
 /// Stops playback; its job ends by itself, its timer ends at its next tick.
@@ -956,7 +989,7 @@ fn stop_playback(app: &mut VideoCut) {
         pb.shared.stop.store(true, Ordering::Relaxed);
         pb.shared.room.notify_all();
         app.playhead = pb.shown;
-        app.status = String::from("Stopped.");
+        app.status = t("azvideocut-stopped");
         let _ = (pb.timer, pb.thread);
     }
 }
@@ -1060,12 +1093,15 @@ const TOOLBAR_CSS: &str = "display: flex; flex-direction: row; align-items: cent
      padding: 4px 8px; background-color: system:window-background; @theme(flora) { \
      background-color: #E9E7E2; border-bottom: 1px solid system:separator; @media \
      (prefers-color-scheme: dark) { background-color: #1F1F1F; } }";
-const TIMELINE_HOST_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
-const DIALOG_BODY_CSS: &str = "display: flex; flex-direction: column; min-width: 420px; padding: 4px;";
+const TIMELINE_HOST_CSS: &str =
+    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
+const DIALOG_BODY_CSS: &str =
+    "display: flex; flex-direction: column; min-width: 420px; padding: 4px;";
 
 /// What a pane title or a note says, as a paragraph.
-fn text(t: &str, css: &str) -> Dom {
-    Dom::create_p_with_text(t).with_css(css)
+/// A line of text: a key said in the window's language, plain words (a name) as they are.
+fn text(words: &str, css: &str) -> Dom {
+    Dom::create_p_with_text(t_label(words)).with_css(css)
 }
 
 /// A pane: its title over its content.
@@ -1079,7 +1115,7 @@ fn pane(title: &str, content: Vec<Dom>) -> Dom {
 
 /// A button calling `cb` with the app.
 fn button(label: &str, app_ref: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label)
+    Button::create(t_label(label))
         .with_on_click(app_ref.clone(), cb)
         .dom()
         .with_css(GAP_CSS)
@@ -1087,7 +1123,7 @@ fn button(label: &str, app_ref: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
 
 /// A primary button calling `cb` with the app.
 fn primary(label: &str, app_ref: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::with_type(label, ButtonType::Primary)
+    Button::with_type(t_label(label), ButtonType::Primary)
         .with_on_click(app_ref.clone(), cb)
         .dom()
         .with_css(GAP_CSS)
@@ -1113,6 +1149,8 @@ fn monitor_image(picture: Option<&Canvas>, marker: AzString, size: (u32, u32)) -
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for every word this pass says.
+    azul_appkit::l10n::begin_layout(&info);
     let mode = info.get_mode();
     let width = info.get_window_width();
     let theme = info.get_theme();
@@ -1139,7 +1177,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
             .with_child(Titlebar::create("AzVideoCut").without_border_bottom().dom())
             .with_child(
-                ShellEmptyState::create("Opening the project...")
+                ShellEmptyState::create(t("azvideocut-opening-the-project"))
                     .with_icon("hourglass_empty")
                     .dom(),
             )
@@ -1178,17 +1216,17 @@ fn empty_state(app_ref: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: column; flex-grow: 1; align-items: center; justify-content: center;")
         .with_child(Titlebar::create("AzVideoCut").without_border_bottom().dom())
         .with_child(
-            ShellEmptyState::create("No project yet")
+            ShellEmptyState::create(t("azvideocut-no-project-yet"))
                 .with_icon("movie")
                 .with_detail(
                     "Make the sample project (generated clips, encoded to MP4 where this \
                      machine can), or start an empty project and import MP4 files.",
                 )
-                .with_action_label("Make the sample project")
+                .with_action_label(t("azvideocut-make-the-sample-project"))
                 .with_on_action(app_ref.clone(), on_make_sample as ButtonOnClickCallbackType)
                 .dom(),
         )
-        .with_child(row(vec![button("New empty project", app_ref, on_new_project)]))
+        .with_child(row(vec![button("azvideocut-new-empty-project", app_ref, on_new_project)]))
 }
 
 /// The editor: the S3 shell, the menu row, the meters, the status bar.
@@ -1210,17 +1248,20 @@ fn editor(app: &VideoCut, app_ref: &RefAny) -> Dom {
 /// The title row (the window is `NoTitle`) over the tools.
 fn menu_row(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let name = app.project.as_ref().map_or("", |p| p.name.as_str());
-    let tools: Vec<AzString> = Tool::ALL.iter().map(|t| AzString::from(t.label())).collect();
+    let tools: Vec<AzString> = Tool::ALL
+        .iter()
+        .map(|tool| azul_appkit::l10n::label(tool.label()))
+        .collect();
     let undo = app
         .project
         .as_ref()
         .and_then(Project::undo_label)
-        .map_or_else(|| String::from("Undo"), |l| format!("Undo {l}"));
+        .map_or_else(|| t("azvideocut-undo"), |l| said_edit(&format!("Undo {l}")));
     let redo = app
         .project
         .as_ref()
         .and_then(Project::redo_label)
-        .map_or_else(|| String::from("Redo"), |l| format!("Redo {l}"));
+        .map_or_else(|| t("azvideocut-redo"), |l| said_edit(&format!("Redo {l}")));
     let toolbar = Dom::create_div()
         .with_css(TOOLBAR_CSS)
         .with_child(
@@ -1230,13 +1271,21 @@ fn menu_row(app: &VideoCut, app_ref: &RefAny) -> Dom {
                 .dom()
                 .with_css(GAP_CSS),
         )
-        .with_child(button(if app.snapping { "Snap: on (S)" } else { "Snap: off (S)" }, app_ref, on_snap))
+        .with_child(button(
+            if app.snapping {
+                "azvideocut-snap-on"
+            } else {
+                "azvideocut-snap-off"
+            },
+            app_ref,
+            on_snap,
+        ))
         .with_child(button(&undo, app_ref, on_undo))
         .with_child(button(&redo, app_ref, on_redo))
-        .with_child(button("Import...", app_ref, on_import))
-        .with_child(primary("Export...", app_ref, on_export_open))
-        .with_child(button("Settings", app_ref, on_settings_open))
-        .with_child(button("About", app_ref, on_about_open));
+        .with_child(button("azvideocut-import", app_ref, on_import))
+        .with_child(primary("azvideocut-export-open", app_ref, on_export_open))
+        .with_child(button("azvideocut-settings", app_ref, on_settings_open))
+        .with_child(button("azvideocut-about", app_ref, on_about_open));
     Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(
@@ -1255,15 +1304,15 @@ fn media_line(app: &VideoCut, m: &MediaItem) -> String {
 /// The media bin.
 fn media_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let Some(project) = app.project.as_ref() else {
-        return pane("Project", Vec::new());
+        return pane("azvideocut-project", Vec::new());
     };
     let mut list = Dom::create_div().with_css(LIST_CSS);
     if project.media.is_empty() {
         list.add_child(
-            ShellEmptyState::create("No media")
+            ShellEmptyState::create(t("azvideocut-no-media"))
                 .with_icon("perm_media")
-                .with_detail("Import MP4 files (Ctrl+I).")
-                .with_action_label("Import...")
+                .with_detail(t("azvideocut-import-mp4-files-ctrl-i"))
+                .with_action_label(t("azvideocut-import"))
                 .with_on_action(app_ref.clone(), on_import as ButtonOnClickCallbackType)
                 .dom(),
         );
@@ -1306,12 +1355,15 @@ fn media_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
         );
     }
     pane(
-        &format!("Project: {}", project.name),
+        &t_args(
+            "azvideocut-project-of",
+            &[("name", Arg::from(&project.name))],
+        ),
         vec![
             list,
             row(vec![
-                button("Import...", app_ref, on_import),
-                button("Open in source", app_ref, on_bin_open_selected),
+                button("azvideocut-import", app_ref, on_import),
+                button("azvideocut-open-in-source", app_ref, on_bin_open_selected),
             ]),
         ],
     )
@@ -1324,14 +1376,12 @@ fn source_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
         .and_then(|marks| app.project.as_ref().and_then(|p| p.media(marks.media)));
     let Some((marks, media)) = app.source.zip(media) else {
         return pane(
-            "Source",
+            "azvideocut-source",
             vec![
-                Dom::create_div().with_css(STAGE_CSS).with_child(monitor_image(
-                    None,
-                    SOURCE_IMAGE,
-                    (MONITOR_W, MONITOR_H),
-                )),
-                text("Double-click an item of the bin to open it here.", NOTE_CSS),
+                Dom::create_div()
+                    .with_css(STAGE_CSS)
+                    .with_child(monitor_image(None, SOURCE_IMAGE, (MONITOR_W, MONITOR_H))),
+                text("azvideocut-double-click-an-item-of-the", NOTE_CSS),
             ],
         );
     };
@@ -1343,12 +1393,25 @@ fn source_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let mark = |f: Option<Frame>| f.map_or_else(|| String::from("--"), |f| app.timecode(f));
     #[allow(clippy::cast_precision_loss)]
     let slider = Slider::create(marks.position as f32, 0.0, (media.frames - 1).max(1) as f32)
-        .with_on_value_change(app_ref.clone(), on_source_slider as SliderOnValueChangeCallbackType)
-        .with_accessibility_name("Source position")
+        .with_on_value_change(
+            app_ref.clone(),
+            on_source_slider as SliderOnValueChangeCallbackType,
+        )
+        .with_accessibility_name(t("azvideocut-source-position"))
         .dom();
-    let active = if app.active == Monitor::Source { " (active)" } else { "" };
+    let active = if app.active == Monitor::Source {
+        t("azvideocut-active")
+    } else {
+        String::new()
+    };
     pane(
-        &format!("Source: {}{active}", media.name),
+        &t_args(
+            "azvideocut-source-of",
+            &[
+                ("name", Arg::from(&media.name)),
+                ("active", Arg::from(active)),
+            ],
+        ),
         vec![
             Dom::create_div()
                 .with_css(STAGE_CSS)
@@ -1359,22 +1422,20 @@ fn source_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
                     on_activate_source,
                 ),
             slider,
-            row(vec![
-                text(
-                    &format!(
-                        "{}  In {}  Out {}",
-                        app.timecode(marks.position),
-                        mark(marks.mark_in),
-                        mark(marks.mark_out)
-                    ),
-                    TC_CSS,
+            row(vec![text(
+                &format!(
+                    "{}  In {}  Out {}",
+                    app.timecode(marks.position),
+                    mark(marks.mark_in),
+                    mark(marks.mark_out)
                 ),
-            ]),
+                TC_CSS,
+            )]),
             row(vec![
-                button("Mark In (I)", app_ref, on_source_in),
-                button("Mark Out (O)", app_ref, on_source_out),
-                button("Insert (,)", app_ref, on_insert),
-                button("Overwrite (.)", app_ref, on_overwrite),
+                button("azvideocut-mark-in-i", app_ref, on_source_in),
+                button("azvideocut-mark-out-o", app_ref, on_source_out),
+                button("azvideocut-insert", app_ref, on_insert),
+                button("azvideocut-overwrite", app_ref, on_overwrite),
             ]),
         ],
     )
@@ -1386,9 +1447,16 @@ fn program_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let picture = app.program_frame.as_ref().map(|(_, c)| c);
     let playing = app.playback.is_some();
     let mark = |f: Option<Frame>| f.map_or_else(|| String::from("--"), |f| app.timecode(f));
-    let active = if app.active == Monitor::Program { " (active)" } else { "" };
+    let active = if app.active == Monitor::Program {
+        t("azvideocut-active")
+    } else {
+        String::new()
+    };
     pane(
-        &format!("Program: {name}{active}"),
+        &t_args(
+            "azvideocut-program-of",
+            &[("name", Arg::from(&name)), ("active", Arg::from(active))],
+        ),
         vec![
             Dom::create_div()
                 .with_css(STAGE_CSS)
@@ -1414,14 +1482,22 @@ fn program_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
             ]),
             row(vec![
                 button("|<", app_ref, on_go_start),
-                button("< Frame", app_ref, on_step_back),
-                primary(if playing { "Pause (K)" } else { "Play (L)" }, app_ref, on_play_toggle),
-                button("Frame >", app_ref, on_step_forward),
+                button("azvideocut-frame", app_ref, on_step_back),
+                primary(
+                    if playing {
+                        "azvideocut-pause"
+                    } else {
+                        "azvideocut-play"
+                    },
+                    app_ref,
+                    on_play_toggle,
+                ),
+                button("azvideocut-frame-2", app_ref, on_step_forward),
                 button(">|", app_ref, on_go_end),
-                button("In (I)", app_ref, on_program_in),
-                button("Out (O)", app_ref, on_program_out),
+                button("azvideocut-in-i", app_ref, on_program_in),
+                button("azvideocut-out-o", app_ref, on_program_out),
             ]),
-            text("Space plays and pauses; J / K / L shuttle; Home / End; Up / Down jump to edits.", NOTE_CSS),
+            text("azvideocut-space-plays-and-pauses-j-k", NOTE_CSS),
         ],
     )
 }
@@ -1441,7 +1517,7 @@ fn effect_field(app_ref: &RefAny, clip: u64, field: EffectField, value: f32) -> 
                     }),
                     on_effect_value as NumberInputOnValueChangeCallbackType,
                 )
-                .with_accessibility_name(field.label())
+                .with_accessibility_name(t(field.label()))
                 .dom(),
         )
 }
@@ -1455,10 +1531,10 @@ fn inspector_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     });
     let Some((clip, name)) = clip else {
         return pane(
-            "Effect Controls",
-            vec![ShellEmptyState::create("No clip selected")
+            "azvideocut-effect-controls",
+            vec![ShellEmptyState::create(t("azvideocut-no-clip-selected"))
                 .with_icon("tune")
-                .with_detail("Select a clip in the timeline to set its position, scale, opacity, crop and transition.")
+                .with_detail(t("azvideocut-select-a-clip-in-the-timeline"))
                 .dom()],
         );
     };
@@ -1491,23 +1567,42 @@ fn inspector_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     };
     #[allow(clippy::cast_precision_loss)]
     let frames = clip.transition.map_or(12, |t| t.frames) as f32;
-    content.push(text("Transition at the clip's head", FIELD_LABEL_CSS));
+    content.push(text(
+        "azvideocut-transition-at-the-clip-s-head",
+        FIELD_LABEL_CSS,
+    ));
     content.push(
         Segmented::create(StringVec::from_vec(vec![
-            AzString::from("None"),
-            AzString::from("Cross dissolve"),
-            AzString::from("Dip to black"),
+            AzString::from(t("azvideocut-transition-none")),
+            AzString::from(t("azvideocut-cross-dissolve")),
+            AzString::from(t("azvideocut-dip-to-black")),
         ]))
         .with_selected_index(kind)
-        .with_on_change(app_ref.clone(), on_transition_kind as SegmentedOnChangeCallbackType)
+        .with_on_change(
+            app_ref.clone(),
+            on_transition_kind as SegmentedOnChangeCallbackType,
+        )
         .dom(),
     );
-    content.push(effect_field(app_ref, clip.id, EffectField::TransitionFrames, frames));
+    content.push(effect_field(
+        app_ref,
+        clip.id,
+        EffectField::TransitionFrames,
+        frames,
+    ));
     content.push(row(vec![
-        button(if clip.enabled { "Disable clip" } else { "Enable clip" }, app_ref, on_toggle_enabled),
-        button("Reset effects", app_ref, on_reset_effects),
+        button(
+            if clip.enabled {
+                "azvideocut-disable-clip"
+            } else {
+                "azvideocut-enable-clip"
+            },
+            app_ref,
+            on_toggle_enabled,
+        ),
+        button("azvideocut-reset-effects", app_ref, on_reset_effects),
     ]));
-    pane("Effect Controls", content)
+    pane("azvideocut-effect-controls", content)
 }
 
 /// The timeline: azul's Timeline widget over the sequence. The wheel over
@@ -1532,22 +1627,33 @@ fn timeline_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
                 .iter()
                 .map(|c| {
                     let media = project.media(c.media);
-                    let name = media.map_or_else(|| String::from("(missing media)"), |m| m.name.clone());
+                    let name = media.map_or_else(
+                        || azul_appkit::l10n::t("azvideocut-missing-media"),
+                        |m| m.name.clone(),
+                    );
                     let tint = match (t.kind, media.map(|m| &m.source)) {
                         (TrackKind::Audio, _) => TimelineClipTint::Audio,
-                        (_, Some(MediaSource::Generated { pattern: model::Pattern::Matte { .. } })) => {
-                            TimelineClipTint::Title
-                        }
+                        (
+                            _,
+                            Some(MediaSource::Generated {
+                                pattern: model::Pattern::Matte { .. },
+                            }),
+                        ) => TimelineClipTint::Title,
                         _ => TimelineClipTint::Video,
                     };
-                    let mut clip = TimelineClip::create(c.id, secs(c.start), secs(c.length), name.as_str())
-                        .with_selected(app.selected.contains(&c.id))
-                        .with_tint(tint)
-                        .with_disabled(!c.enabled);
+                    let mut clip =
+                        TimelineClip::create(c.id, secs(c.start), secs(c.length), name.as_str())
+                            .with_selected(app.selected.contains(&c.id))
+                            .with_tint(tint)
+                            .with_disabled(!c.enabled);
                     if let Some(tr) = c.transition {
                         clip = clip.with_detail(match tr.kind {
-                            TransitionKind::CrossDissolve => "Cross dissolve",
-                            TransitionKind::DipToBlack => "Dip to black",
+                            TransitionKind::CrossDissolve => {
+                                azul_appkit::l10n::t("azvideocut-cross-dissolve")
+                            }
+                            TransitionKind::DipToBlack => {
+                                azul_appkit::l10n::t("azvideocut-dip-to-black")
+                            }
                         });
                     }
                     if let Some(image) = app.thumbs.get(&c.media) {
@@ -1594,21 +1700,38 @@ fn meters() -> Dom {
                 .with_child(Dom::create_div().with_css(METER_CSS))
                 .with_child(Dom::create_div().with_css(METER_CSS)),
         )
-        .with_child(text("-inf dB", NOTE_CSS))
-        .with_child(text("no audio decoder", NOTE_CSS))
+        .with_child(text("azvideocut-inf-db", NOTE_CSS))
+        .with_child(text("azvideocut-no-audio-decoder", NOTE_CSS))
 }
 
 /// The status bar: the last message, the tool, the snapping, the format.
 fn status_bar(app: &VideoCut) -> Dom {
     let format = app.project.as_ref().map_or_else(String::new, |p| {
-        format!("{} x {} at {} fps", p.sequence.width, p.sequence.height, p.sequence.fps)
+        t_args(
+            "azvideocut-format",
+            &[
+                ("width", Arg::from(p.sequence.width)),
+                ("height", Arg::from(p.sequence.height)),
+                ("fps", Arg::from(p.sequence.fps.to_string())),
+            ],
+        )
     });
     StatusBar::create(StatusBarSegmentVec::from_vec(vec![
         StatusBarSegment::create(app.status.as_str()),
-        StatusBarSegment::create(format!("Tool: {}", app.tool.label()).as_str()),
-        StatusBarSegment::create(if app.snapping { "Snapping on" } else { "Snapping off" }),
+        StatusBarSegment::create(tool_status(app.tool).as_str()),
+        StatusBarSegment::create(t(if app.snapping {
+            "azvideocut-snapping-on"
+        } else {
+            "azvideocut-snapping-off"
+        })),
         StatusBarSegment::create(format.as_str()),
-        StatusBarSegment::create(format!("Encoder: {}", app.encoder).as_str()),
+        StatusBarSegment::create(
+            t_args(
+                "azvideocut-encoder",
+                &[("encoder", Arg::from(&app.encoder))],
+            )
+            .as_str(),
+        ),
     ]))
     .dom()
 }
@@ -1623,63 +1746,102 @@ fn export_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
     let running = progress.as_ref().is_some_and(|p| !p.finished);
     let percent = progress.as_ref().map_or(0.0, |p| p.percent());
     let line = progress.as_ref().map_or_else(
-        || String::from("Ready."),
+        || t("azvideocut-ready"),
         |p| match (&p.error, &p.output, p.finished) {
-            (Some(e), _, _) => format!("Failed: {e}"),
-            (None, Some(out), true) => format!("Done: {out}"),
-            _ => format!("{} of {} frames - {}", p.done, p.total, p.how),
+            (Some(e), _, _) => t_args("azvideocut-failed", &[("why", Arg::from(e))]),
+            (None, Some(out), true) => t_args("azvideocut-done", &[("file", Arg::from(out))]),
+            _ => t_args(
+                "azvideocut-frames-of",
+                &[
+                    ("done", Arg::from(p.done)),
+                    ("total", Arg::from(p.total)),
+                    ("how", Arg::from(&p.how)),
+                ],
+            ),
         },
     );
     if running {
         // While it runs: azul's standard ProgressDialog (status, bar, Cancel).
-        let progress = ProgressDialog::create("Exporting", percent)
+        let progress = ProgressDialog::create(t("azvideocut-exporting-title"), percent)
             .with_text(line.as_str())
-            .with_detail(format!("H.264 in MP4 by {}", app.encoder).as_str())
-            .with_cancel("Cancel export", true)
-            .with_on_event(app_ref.clone(), on_export_event as StandardDialogOnEventCallbackType)
+            .with_detail(
+                t_args(
+                    "azvideocut-h264-by",
+                    &[("encoder", Arg::from(&app.encoder))],
+                )
+                .as_str(),
+            )
+            .with_cancel(t("azvideocut-cancel-export"), true)
+            .with_on_event(
+                app_ref.clone(),
+                on_export_event as StandardDialogOnEventCallbackType,
+            )
             .dom();
         return Dialog::create(progress)
-            .with_title("Export")
+            .with_title(t("azvideocut-export"))
             .with_open(true)
             .with_modal(true)
             .with_close_button(false)
             .dom();
     }
-    let labels = |items: &[&str]| StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>());
+    let labels = |items: &[&str]| {
+        StringVec::from_vec(
+            items
+                .iter()
+                .map(|s| azul_appkit::l10n::label(s))
+                .collect::<Vec<_>>(),
+        )
+    };
     let body = Dom::create_div()
         .with_css(DIALOG_BODY_CSS)
         .with_child(text(
-            &format!("H.264 in MP4, encoded by {}; a machine without an H.264 encoder writes Y4M.", app.encoder),
+            &t_args(
+                "azvideocut-encoder-note",
+                &[("encoder", Arg::from(&app.encoder))],
+            ),
             NOTE_CSS,
         ))
-        .with_child(text("Size", FIELD_LABEL_CSS))
+        .with_child(text("azvideocut-size", FIELD_LABEL_CSS))
         .with_child(
             Segmented::create(labels(&["1280 x 720", "854 x 480", "640 x 360"]))
                 .with_selected_index(app.export.size)
-                .with_on_change(app_ref.clone(), on_export_size as SegmentedOnChangeCallbackType)
+                .with_on_change(
+                    app_ref.clone(),
+                    on_export_size as SegmentedOnChangeCallbackType,
+                )
                 .dom(),
         )
-        .with_child(text("Bitrate", FIELD_LABEL_CSS))
+        .with_child(text("azvideocut-bitrate", FIELD_LABEL_CSS))
         .with_child(
             Segmented::create(labels(&["8 Mbit/s", "4 Mbit/s", "1.5 Mbit/s"]))
                 .with_selected_index(app.export.bitrate)
-                .with_on_change(app_ref.clone(), on_export_bitrate as SegmentedOnChangeCallbackType)
+                .with_on_change(
+                    app_ref.clone(),
+                    on_export_bitrate as SegmentedOnChangeCallbackType,
+                )
                 .dom(),
         )
-        .with_child(text("Range", FIELD_LABEL_CSS))
+        .with_child(text("azvideocut-range", FIELD_LABEL_CSS))
         .with_child(
-            Segmented::create(labels(&["Sequence", "In to Out", "First second"]))
-                .with_selected_index(app.export.range)
-                .with_on_change(app_ref.clone(), on_export_range as SegmentedOnChangeCallbackType)
-                .dom(),
+            Segmented::create(labels(&[
+                "azvideocut-range-sequence",
+                "azvideocut-range-in-out",
+                "azvideocut-range-first-second",
+            ]))
+            .with_selected_index(app.export.range)
+            .with_on_change(
+                app_ref.clone(),
+                on_export_range as SegmentedOnChangeCallbackType,
+            )
+            .dom(),
         )
         .with_child(text(&line, NOTE_CSS))
         .with_child(row(vec![
-            primary("Export now", app_ref, on_export_start),
-            button("Close", app_ref, on_export_close),
+            primary("azvideocut-export-now", app_ref, on_export_start),
+            button("azvideocut-close", app_ref, on_export_close),
         ]));
     Dialog::create(body)
-        .with_title("Export")
+        .with_title(t("azvideocut-export"))
         .with_open(true)
         .with_modal(true)
         .with_close_button(true)
@@ -1691,17 +1853,21 @@ fn export_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
 fn about_dialog(app_ref: &RefAny) -> Dom {
     let body = AboutDialog::create("AzVideoCut", env!("CARGO_PKG_VERSION"))
         .with_icon("movie")
-        .with_description(
-            "A video editor on the public azul API: Mp4Demuxer + VideoDecoder read the \
-             frames, a CPU compositor puts the tracks together, VideoEncoder + Mp4Muxer write \
-             the export. The project is files on a Drive.",
-        )
-        .with_copyright("MIT license")
+        .with_description(azul_appkit::l10n::app_word(
+            ABOUT.name,
+            "about-summary",
+            ABOUT.summary,
+        ))
+        .with_copyright(t("azvideocut-mit-license"))
+        .with_labels(t("azvideocut-about-credits"), t("kit-button-ok"))
         .with_credit("azul", "MIT")
-        .with_on_event(app_ref.clone(), on_about_event as StandardDialogOnEventCallbackType)
+        .with_on_event(
+            app_ref.clone(),
+            on_about_event as StandardDialogOnEventCallbackType,
+        )
         .dom();
     Dialog::create(body)
-        .with_title("About AzVideoCut")
+        .with_title(t("azvideocut-about-azvideocut"))
         .with_open(true)
         .with_modal(true)
         .with_close_button(true)
@@ -1732,17 +1898,18 @@ enum EffectField {
 }
 
 impl EffectField {
+    /// Its words: a key of AzVideoCut's, said in the window's language.
     fn label(self) -> &'static str {
         match self {
-            EffectField::X => "Position X",
-            EffectField::Y => "Position Y",
-            EffectField::Scale => "Scale %",
-            EffectField::Opacity => "Opacity %",
-            EffectField::CropLeft => "Crop left %",
-            EffectField::CropRight => "Crop right %",
-            EffectField::CropTop => "Crop top %",
-            EffectField::CropBottom => "Crop bottom %",
-            EffectField::TransitionFrames => "Frames",
+            EffectField::X => "azvideocut-field-position-x",
+            EffectField::Y => "azvideocut-field-position-y",
+            EffectField::Scale => "azvideocut-field-scale",
+            EffectField::Opacity => "azvideocut-field-opacity",
+            EffectField::CropLeft => "azvideocut-field-crop-left",
+            EffectField::CropRight => "azvideocut-field-crop-right",
+            EffectField::CropTop => "azvideocut-field-crop-top",
+            EffectField::CropBottom => "azvideocut-field-crop-bottom",
+            EffectField::TransitionFrames => "azvideocut-field-frames",
         }
     }
 }
@@ -1763,6 +1930,27 @@ fn apply_edit(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, edi
     after_change(info, app_ref, app, label, result)
 }
 
+/// The status bar's word on the tool: "Tool: Razor (C)".
+fn tool_status(tool: Tool) -> String {
+    t_args(
+        "azvideocut-tool-status",
+        &[("tool", Arg::from(t(tool.label())))],
+    )
+}
+
+/// An edit's name (the undo history's English one, "Undo " / "Redo " before it for those) as
+/// the window says it.
+fn said_edit(label: &str) -> String {
+    let edit = |name: &str| named(ABOUT.name, "edit", name);
+    if let Some(name) = label.strip_prefix("Undo ") {
+        t_args("azvideocut-undo-edit", &[("edit", Arg::from(edit(name)))])
+    } else if let Some(name) = label.strip_prefix("Redo ") {
+        t_args("azvideocut-redo-edit", &[("edit", Arg::from(edit(name)))])
+    } else {
+        edit(label)
+    }
+}
+
 /// What every change of the sequence is followed by (an edit, an undo).
 fn after_change(
     info: &mut CallbackInfo,
@@ -1778,7 +1966,7 @@ fn after_change(
             if let Some(p) = app.project.as_ref() {
                 app.selected.retain(|id| p.sequence.clip(*id).is_some());
             }
-            app.status = label.to_string();
+            app.status = said_edit(label);
             announce(&format!(
                 "EDIT {} {} {}",
                 label.replace(' ', "_"),
@@ -1789,7 +1977,7 @@ fn after_change(
             request_program_frame(info, app_ref, app);
         }
         Err(e) => {
-            app.status = e.message().to_string();
+            app.status = t(e.message());
         }
     }
     Update::RefreshDom
@@ -1816,10 +2004,15 @@ fn selected_clip(app: &VideoCut) -> Option<model::Clip> {
 }
 
 /// The selected clips lifted (or ripple-deleted with `ripple`).
-fn delete_selected(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, ripple: bool) -> Update {
+fn delete_selected(
+    info: &mut CallbackInfo,
+    app_ref: &RefAny,
+    app: &mut VideoCut,
+    ripple: bool,
+) -> Update {
     let ids = app.selected.clone();
     if ids.is_empty() {
-        app.status = String::from("Select a clip to delete.");
+        app.status = t("azvideocut-select-clip-to-delete");
         return Update::RefreshDom;
     }
     let mut update = Update::DoNothing;
@@ -1856,14 +2049,19 @@ fn open_in_source(
 }
 
 /// Puts the source monitor's marked range on V1 at the playhead.
-fn source_to_timeline(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut, insert: bool) -> Update {
+fn source_to_timeline(
+    info: &mut CallbackInfo,
+    app_ref: &RefAny,
+    app: &mut VideoCut,
+    insert: bool,
+) -> Update {
     let Some(marks) = app.source else {
-        app.status = String::from("Open a clip in the source monitor first.");
+        app.status = t("azvideocut-open-clip-first");
         return Update::RefreshDom;
     };
     let at = app.playhead;
     let Some(clip) = app.project.as_mut().and_then(|p| p.clip_from_marks(&marks)) else {
-        app.status = String::from("The out mark lies before the in mark.");
+        app.status = t("azvideocut-out-before-in");
         return Update::RefreshDom;
     };
     let length = clip.length;
@@ -2063,7 +2261,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 fn set_tool(app: &mut VideoCut, tool: Tool) -> Update {
     app.tool = tool;
-    app.status = format!("Tool: {}", tool.label());
+    app.status = tool_status(tool);
     Update::RefreshDom
 }
 
@@ -2076,7 +2274,7 @@ fn undo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) -> Update
         .unwrap_or_default();
     let done = app.project.as_mut().is_some_and(Project::undo);
     if !done {
-        app.status = String::from("Nothing to undo.");
+        app.status = t("azvideocut-nothing-to-undo");
         return Update::RefreshDom;
     }
     after_change(info, app_ref, app, &format!("Undo {label}"), Ok(()))
@@ -2091,7 +2289,7 @@ fn redo(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) -> Update
         .unwrap_or_default();
     let done = app.project.as_mut().is_some_and(Project::redo);
     if !done {
-        app.status = String::from("Nothing to redo.");
+        app.status = t("azvideocut-nothing-to-redo");
         return Update::RefreshDom;
     }
     after_change(info, app_ref, app, &format!("Redo {label}"), Ok(()))
@@ -2320,10 +2518,10 @@ extern "C" fn on_import(data: RefAny, _info: CallbackInfo) -> Update {
             AzString::from("m4v"),
             AzString::from("mov"),
         ]),
-        document_descriptor: AzString::from("Video"),
+        document_descriptor: AzString::from(t("azvideocut-video-files")),
     });
     let _request = FileDialog::open_multiple_files(
-        "Import media",
+        t("azvideocut-import-media"),
         OptionString::None,
         filter,
         data,
@@ -2353,7 +2551,7 @@ extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result:
     if app.project.is_none() {
         return Update::DoNothing;
     }
-    app.status = format!("Importing {} file(s)...", paths.len());
+    app.status = t_args("azvideocut-importing", &[("count", Arg::from(paths.len()))]);
     let fps = app.fps();
     spawn(&mut info, &app_ref, &app, Job::Import { paths, fps });
     Update::RefreshDom
@@ -2722,8 +2920,17 @@ extern "C" fn on_export_start(mut data: RefAny, mut info: CallbackInfo) -> Updat
     let shared = Arc::new(ExportShared::default());
     app.export.shared = Some(shared.clone());
     app.export.last_line.clear();
-    app.status = String::from("Exporting...");
-    spawn(&mut info, &app_ref, app, Job::Export { project, settings, shared });
+    app.status = t("azvideocut-exporting");
+    spawn(
+        &mut info,
+        &app_ref,
+        app,
+        Job::Export {
+            project,
+            settings,
+            shared,
+        },
+    );
     let timer = TimerId::unique();
     let get_time = info.get_system_time_fn();
     info.add_timer(
@@ -2769,7 +2976,7 @@ extern "C" fn on_export_cancel(mut data: RefAny, _info: CallbackInfo) -> Update 
     if let Some(s) = app.export.shared.as_ref() {
         s.cancel.store(true, Ordering::Relaxed);
     }
-    app.status = String::from("Cancelling the export...");
+    app.status = t("azvideocut-cancelling");
     Update::RefreshDom
 }
 
@@ -2884,20 +3091,76 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keyboard shortcuts the settings page lists (`Mod` = Cmd / Ctrl).
 pub const SHORTCUTS: [Shortcut; 14] = [
-    Shortcut::new("Playback", "Space", "Play, pause"),
-    Shortcut::new("Playback", "J  K  L", "Shuttle back, stop, forward"),
-    Shortcut::new("Playback", "Left  Right", "One frame (Shift: one second)"),
-    Shortcut::new("Playback", "Home  End  Up  Down", "Start, end, previous / next edit"),
-    Shortcut::new("Marks", "I  O", "Mark in, out (the active monitor)"),
-    Shortcut::new("Edit", ",  .", "Insert, overwrite the source range"),
-    Shortcut::new("Edit", "Mod+K", "Razor every track at the playhead"),
-    Shortcut::new("Edit", "Delete  Shift+Delete", "Lift, ripple delete"),
-    Shortcut::new("Edit", "Mod+Z  Mod+Shift+Z", "Undo, redo"),
-    Shortcut::new("Tools", "V C B Y H Z", "Select, razor, ripple, slip, hand, zoom"),
-    Shortcut::new("Timeline", "S", "Snapping on / off"),
-    Shortcut::new("Timeline", "=  -", "Zoom in, out"),
-    Shortcut::new("File", "Mod+I", "Import media"),
-    Shortcut::new("File", "Mod+E", "Export into the data folder"),
+    Shortcut::new(
+        "azvideocut-category-playback",
+        "Space",
+        "azvideocut-shortcut-play-pause",
+    ),
+    Shortcut::new(
+        "azvideocut-category-playback",
+        "J  K  L",
+        "azvideocut-shortcut-shuttle-back-stop-forward",
+    ),
+    Shortcut::new(
+        "azvideocut-category-playback",
+        "Left  Right",
+        "azvideocut-shortcut-one-frame-shift-one",
+    ),
+    Shortcut::new(
+        "azvideocut-category-playback",
+        "Home  End  Up  Down",
+        "azvideocut-shortcut-start-end-previous-next",
+    ),
+    Shortcut::new(
+        "azvideocut-group-marks",
+        "I  O",
+        "azvideocut-shortcut-mark-in-out-the",
+    ),
+    Shortcut::new(
+        "azvideocut-group-edit",
+        ",  .",
+        "azvideocut-shortcut-insert-overwrite-the-source",
+    ),
+    Shortcut::new(
+        "azvideocut-group-edit",
+        "Mod+K",
+        "azvideocut-shortcut-razor-every-track-at",
+    ),
+    Shortcut::new(
+        "azvideocut-group-edit",
+        "Delete  Shift+Delete",
+        "azvideocut-shortcut-lift-ripple-delete",
+    ),
+    Shortcut::new(
+        "azvideocut-group-edit",
+        "Mod+Z  Mod+Shift+Z",
+        "azvideocut-shortcut-undo-redo",
+    ),
+    Shortcut::new(
+        "azvideocut-group-tools",
+        "V C B Y H Z",
+        "azvideocut-shortcut-select-razor-ripple-slip",
+    ),
+    Shortcut::new(
+        "azvideocut-group-timeline",
+        "S",
+        "azvideocut-shortcut-snapping-on-off",
+    ),
+    Shortcut::new(
+        "azvideocut-group-timeline",
+        "=  -",
+        "azvideocut-shortcut-zoom-in-out",
+    ),
+    Shortcut::new(
+        "azvideocut-group-file",
+        "Mod+I",
+        "azvideocut-shortcut-import-media",
+    ),
+    Shortcut::new(
+        "azvideocut-group-file",
+        "Mod+E",
+        "azvideocut-shortcut-export-into-the-data",
+    ),
 ];
 
 /// The settings page's own categories (before the kit's).
@@ -2908,18 +3171,15 @@ fn settings_sections(app: &VideoCut) -> Vec<kit::AppSection> {
     vec![
         kit::AppSection {
             category: 0,
-            title: String::from("Playback"),
-            content: kit::note(
-                "Playback is paced by the monitor's refresh: each tick shows the frame that is \
-                 due. Pictures are composed on the CPU at the monitor's size.",
-            ),
+            title: t("azvideocut-category-playback"),
+            content: kit::note("azvideocut-playback-note"),
         },
         kit::AppSection {
             category: 1,
-            title: String::from("Export"),
-            content: kit::note(&format!(
-                "Encoder: {}. Exports go to videocut/<project>/exports/ in the data folder.",
-                app.encoder
+            title: t("azvideocut-category-export"),
+            content: kit::note(&t_args(
+                "azvideocut-export-settings-note",
+                &[("encoder", Arg::from(&app.encoder))],
             )),
         },
     ]
@@ -2937,6 +3197,15 @@ pub fn start() {
     // The kit: the data root (--data-dir, $AZLIN_DATA, the user's), the
     // remembered theme and mode, the shortcuts.
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, app_args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let root = {
         let mut k = kit_ref.clone();
         let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
@@ -2955,7 +3224,7 @@ pub fn start() {
         project: None,
         revision: 0,
         loading: true,
-        status: String::from("Ready."),
+        status: t("azvideocut-ready"),
         tool: Tool::Select,
         snapping: true,
         playhead: 0,
@@ -2990,7 +3259,6 @@ pub fn start() {
         encoder,
         args: args.clone(),
     };
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (960.0, 600.0), startup);
     App::create(RefAny::new(state), config).run(window);
 }

@@ -88,9 +88,12 @@ impl Shared {
     }
 }
 
-/// Runs `commands` against `source`: what each came to (one sentence each)
+/// Runs `commands` against `source`: what each came to (one sentence each, said in the window)
 /// and whether a reading is wanted at once.
-pub fn run_commands(source: &mut dyn Source, commands: &[Command]) -> (Vec<String>, bool) {
+pub fn run_commands(
+    source: &mut dyn Source,
+    commands: &[Command],
+) -> (Vec<azul_appkit::phrase::Text>, bool) {
     let mut notices = Vec::new();
     for command in commands {
         match *command {
@@ -240,8 +243,18 @@ mod tests {
         );
         assert!(wanted);
         assert_eq!(notices.len(), 2);
-        assert_eq!(notices[0], format!("Ended pipewire ({pipewire})"));
-        assert!(notices[1].contains("administrator"), "{}", notices[1]);
+        assert_eq!(notices[0].keys(), vec!["azmonitor-ended"]);
+        let ended = notices[0].phrase("azmonitor-ended").expect("the phrase");
+        assert_eq!(
+            ended.get("pid"),
+            Some(&azul_appkit::phrase::Arg::from(pipewire))
+        );
+        assert_eq!(
+            notices[1].keys(),
+            vec!["azmonitor-needs-admin"],
+            "{}",
+            notices[1]
+        );
         assert!(m.read(1000).processes.iter().all(|p| p.pid != pipewire));
     }
 

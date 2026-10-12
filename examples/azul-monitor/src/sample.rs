@@ -11,6 +11,8 @@
 //! machine's. Ending a process removes it from the next reading - nothing is
 //! killed; a root process needs administrator rights, as on a real machine.
 
+use azul_appkit::phrase::{Phrase, Text};
+
 use crate::model::{ProcSample, Snapshot, Source};
 
 /// The sample machine's cores.
@@ -401,20 +403,21 @@ impl Source for SampleMachine {
         }
     }
 
-    fn end(&mut self, pid: u32, force: bool) -> Result<String, String> {
+    fn end(&mut self, pid: u32, force: bool) -> Result<Text, Text> {
         let Some(at) = self.processes.iter().position(|p| p.pid == pid) else {
-            return Err(format!("No process {pid} is running."));
+            return Err(Phrase::new("azmonitor-no-process").arg("pid", pid).into());
         };
         let name = self.processes[at].name;
+        let said = |key: &str| Text::from(Phrase::new(key).arg("name", name).arg("pid", pid));
         if self.processes[at].user == "root" {
-            return Err(format!("Ending {name} ({pid}) needs administrator rights."));
+            return Err(said("azmonitor-needs-admin"));
         }
         self.processes.remove(at);
-        Ok(if force {
-            format!("Killed {name} ({pid})")
+        Ok(said(if force {
+            "azmonitor-killed"
         } else {
-            format!("Ended {name} ({pid})")
-        })
+            "azmonitor-ended"
+        }))
     }
 }
 

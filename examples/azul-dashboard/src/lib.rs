@@ -37,6 +37,10 @@ pub mod data;
 pub mod chart;
 /// The DOM ids and classes (`__azdash_` prefix), each defined once.
 pub mod ids;
+/// AzDashboard's words in English and German.
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 /// The orders table: azul's DataTable over the data set (the table half).
 pub mod table;
 
@@ -49,7 +53,7 @@ use azul::{
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::{AppArgs, AppSpec, LanguagePref},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -77,20 +81,69 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: "dashboard",
 };
 
-/// The keyboard shortcuts the settings page lists (the table's own keys).
+/// The keyboard shortcuts the settings page lists (the table's own keys): the groups and what
+/// the keys do are keys of AzDashboard's words.
 pub const SHORTCUTS: [Shortcut; 12] = [
-    Shortcut::new("Table", "Up  Down  Left  Right", "Move the cell cursor"),
-    Shortcut::new("Table", "Shift+Up  Shift+Down", "Extend the row selection"),
-    Shortcut::new("Table", "Page Up  Page Down", "Move by a screen of rows"),
-    Shortcut::new("Table", "Home  End", "The first / last column"),
-    Shortcut::new("Table", "Mod+Home  Mod+End", "The first / last row"),
-    Shortcut::new("Table", "Mod+A", "Select every row shown"),
-    Shortcut::new("Table", "Mod+C", "Copy the selected rows"),
-    Shortcut::new("Edit", "F2  Enter", "Edit the cell"),
-    Shortcut::new("Edit", "Enter  Tab", "Keep the edit (Tab moves right)"),
-    Shortcut::new("Edit", "Escape", "Cancel the edit"),
-    Shortcut::new("Sort", "Click  Shift+Click", "Sort by a column, add a second key"),
-    Shortcut::new("Filter", "Mod+F", "Filter the cursor's column"),
+    Shortcut::new(
+        "azdashboard-group-table",
+        "Up  Down  Left  Right",
+        "azdashboard-shortcut-move",
+    ),
+    Shortcut::new(
+        "azdashboard-group-table",
+        "Shift+Up  Shift+Down",
+        "azdashboard-shortcut-extend",
+    ),
+    Shortcut::new(
+        "azdashboard-group-table",
+        "Page Up  Page Down",
+        "azdashboard-shortcut-screen",
+    ),
+    Shortcut::new(
+        "azdashboard-group-table",
+        "Home  End",
+        "azdashboard-shortcut-first-last-column",
+    ),
+    Shortcut::new(
+        "azdashboard-group-table",
+        "Mod+Home  Mod+End",
+        "azdashboard-shortcut-first-last-row",
+    ),
+    Shortcut::new(
+        "azdashboard-group-table",
+        "Mod+A",
+        "azdashboard-shortcut-select-all",
+    ),
+    Shortcut::new(
+        "azdashboard-group-table",
+        "Mod+C",
+        "azdashboard-shortcut-copy",
+    ),
+    Shortcut::new(
+        "azdashboard-group-edit",
+        "F2  Enter",
+        "azdashboard-shortcut-edit",
+    ),
+    Shortcut::new(
+        "azdashboard-group-edit",
+        "Enter  Tab",
+        "azdashboard-shortcut-keep",
+    ),
+    Shortcut::new(
+        "azdashboard-group-edit",
+        "Escape",
+        "azdashboard-shortcut-cancel",
+    ),
+    Shortcut::new(
+        "azdashboard-group-sort",
+        "Click  Shift+Click",
+        "azdashboard-shortcut-sort",
+    ),
+    Shortcut::new(
+        "azdashboard-group-filter",
+        "Mod+F",
+        "azdashboard-shortcut-filter",
+    ),
 ];
 
 /// The settings page's own categories (none: the kit's are enough).
@@ -151,12 +204,26 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
     let app = Dashboard::new(kit_ref.clone(), &args);
-    let config = kit::app_config(&kit_ref);
-    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (640.0, 420.0), on_window_created);
+    let window = kit::window_options(
+        &kit_ref,
+        layout,
+        (1280.0, 800.0),
+        (640.0, 420.0),
+        on_window_created,
+    );
     App::create(RefAny::new(app), config).run(window);
 }
 
@@ -267,6 +334,8 @@ impl chart::ChartSource for Shown<'_> {
 /// The window: the RecordsShell (title row, tool row, charts over the
 /// table, status bar) in the theme scope, the kit's keys on the window.
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for every word this pass says.
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let window = (info.get_window_width(), info.get_window_height());
