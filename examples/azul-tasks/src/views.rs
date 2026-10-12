@@ -363,8 +363,8 @@ pub fn sections(
             let mut overdue =
                 Section::new("overdue".into(), t("aztasks-overdue"), SectionKind::Overdue);
             let mut by_key: BTreeMap<String, Section> = BTreeMap::new();
-            for (i, t) in tasks.iter().enumerate() {
-                let (true, Some(due)) = (in_smart(Smart::Scheduled, t, today), t.due) else {
+            for (i, task) in tasks.iter().enumerate() {
+                let (true, Some(due)) = (in_smart(Smart::Scheduled, task, today), task.due) else {
                     continue;
                 };
                 if due < today {
