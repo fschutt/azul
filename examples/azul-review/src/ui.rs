@@ -904,12 +904,13 @@ mod tests {
         nodes(dom).into_iter().find(|n| n.root.has_id(id.clone()))
     }
 
-    /// The texts inside `dom`.
+    /// The words inside `dom` (an icon's glyph leaf is empty: no word).
     fn texts(dom: &Dom) -> Vec<String> {
         nodes(dom)
             .into_iter()
             .filter_map(|n| n.root.node_type.get_text().into_option())
             .map(|t| t.as_str().to_string())
+            .filter(|t| !t.trim().is_empty())
             .collect()
     }
 
