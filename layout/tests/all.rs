@@ -1041,3 +1041,5 @@ mod a_label_names_the_control_it_is_for;
 mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 #[path = "an_accordion_frame_does_not_re_lay_out_the_page.rs"]
 mod an_accordion_frame_does_not_re_lay_out_the_page;
+#[path = "a_date_pickers_rows_are_one_cell_tall.rs"]
+mod a_date_pickers_rows_are_one_cell_tall;
