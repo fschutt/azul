@@ -24,6 +24,8 @@ use azul::{
     },
 };
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 use crate::{
     data::{self, DataSet, Kind},
     ids, Dashboard,
@@ -70,7 +72,8 @@ pub fn columns() -> Vec<DataTableColumn> {
                 Kind::Number => DataTableSortKind::Number,
                 Kind::Date => DataTableSortKind::Date,
             };
-            DataTableColumn::create(AzString::from(c.title), c.width, kind).with_editable(c.editable)
+            DataTableColumn::create(AzString::from(c.said()), c.width, kind)
+                .with_editable(c.editable)
         })
         .collect()
 }
@@ -81,7 +84,8 @@ pub fn grouped(n: u32) -> String {
     data::formatted(i64::from(n), 0)
 }
 
-/// What the sort is, for the status bar ("Sales \u{25BC}, Region \u{25B2}").
+/// What the sort is, for the status bar ("Sales \u{25BC}, Region \u{25B2}"), in the language
+/// of the layout pass.
 #[must_use]
 pub fn sort_text(view: &DataTableView) -> String {
     let keys: Vec<String> = view
@@ -89,7 +93,9 @@ pub fn sort_text(view: &DataTableView) -> String {
         .as_slice()
         .iter()
         .map(|k| {
-            let title = data::COLUMNS.get(k.column as usize).map_or("?", |c| c.title);
+            let title = data::COLUMNS
+                .get(k.column as usize)
+                .map_or_else(|| "?".to_string(), data::Column::said);
             let arrow = match k.direction {
                 DataTableSortDirection::Ascending => "\u{25B2}",
                 DataTableSortDirection::Descending => "\u{25BC}",
@@ -98,9 +104,12 @@ pub fn sort_text(view: &DataTableView) -> String {
         })
         .collect();
     if keys.is_empty() {
-        "Unsorted".to_string()
+        t("azdashboard-unsorted")
     } else {
-        format!("Sorted by {}", keys.join(", "))
+        t_args(
+            "azdashboard-sorted-by",
+            &[("keys", Arg::from(keys.join(", ")))],
+        )
     }
 }
 
@@ -117,9 +126,13 @@ extern "C" fn cell(mut source: RefAny, at: DataTableCellRef) -> DataTableCell {
 }
 
 /// The edit callback: the data set takes the value or says why not.
-extern "C" fn on_table_edit(mut source: RefAny, _info: CallbackInfo, edit: DataTableEdit) -> DataTableEditResult {
+extern "C" fn on_table_edit(
+    mut source: RefAny,
+    _info: CallbackInfo,
+    edit: DataTableEdit,
+) -> DataTableEditResult {
     let Some(mut set) = source.downcast_mut::<DataSet>() else {
-        return DataTableEditResult::create_refused(AzString::from("The orders are not loaded yet."));
+        return DataTableEditResult::create_refused(AzString::from(t("azdashboard-not-loaded")));
     };
     match set.edit(edit.cell.row, edit.cell.column as usize, edit.text.as_str()) {
         Ok(()) => DataTableEditResult::create_accepted(),
@@ -147,7 +160,7 @@ fn first_keys(source: &Option<RefAny>, rows: u32, view: &DataTableView) -> Optio
         .first()
         .map(|k| k.column)
         .or_else(|| view.filters.as_slice().first().map(|f| f.column))?;
-    let title = data::COLUMNS.get(column as usize)?.title;
+    let title = data::COLUMNS.get(column as usize)?.said();
     let mut source = source.clone()?;
     let set = source.downcast_ref::<DataSet>()?;
     let texts: Vec<String> = (0..5)
@@ -196,7 +209,14 @@ extern "C" fn on_table_event(mut app: RefAny, _info: CallbackInfo, event: DataTa
         DataTableEventKind::EditCancel => s.table.notice.clear(),
         DataTableEventKind::Copy => {
             let lines = event.text.as_str().lines().count().saturating_sub(1);
-            s.table.notice = format!("Copied {} rows", grouped(u32::try_from(lines).unwrap_or(u32::MAX)));
+            let count = u32::try_from(lines).unwrap_or(u32::MAX);
+            s.table.notice = t_args(
+                "azdashboard-copied-rows",
+                &[
+                    ("count", Arg::from(count)),
+                    ("rows", Arg::from(grouped(count))),
+                ],
+            );
         }
         _ => {}
     }
@@ -210,9 +230,12 @@ fn table(s: &Dashboard, app: &RefAny, source: RefAny, charts_height: f32) -> Dat
     let (width, height) = s.window;
     DataTable::create(columns(), s.rows)
         .with_id(ids::TABLE)
-        .with_accessibility_name(AzString::from("Orders"))
+        .with_accessibility_name(AzString::from(t("azdashboard-orders")))
         .with_view(s.table.view.clone())
-        .with_viewport(width.max(200.0), (height - CHROME_HEIGHT - charts_height).max(120.0))
+        .with_viewport(
+            width.max(200.0),
+            (height - CHROME_HEIGHT - charts_height).max(120.0),
+        )
         .with_frozen_columns(1)
         .with_data_source(source.clone(), cell as DataTableDataSourceCallbackType)
         .with_on_edit(source, on_table_edit as DataTableOnEditCallbackType)
@@ -224,12 +247,12 @@ fn table(s: &Dashboard, app: &RefAny, source: RefAny, charts_height: f32) -> Dat
 pub fn view(s: &Dashboard, app: &RefAny, charts_height: f32) -> Dom {
     match s.source.clone() {
         Some(source) => table(s, app, source, charts_height).dom(),
-        None => ShellEmptyState::create(AzString::from(format!(
-            "Generating {} orders...",
-            grouped(s.rows)
+        None => ShellEmptyState::create(AzString::from(t_args(
+            "azdashboard-generating",
+            &[("rows", Arg::from(grouped(s.rows)))],
         )))
         .with_icon(AzString::from("table_chart"))
-        .with_detail(AzString::from("The same orders every time, on a background thread."))
+        .with_detail(AzString::from(t("azdashboard-generating-detail")))
         .dom()
         .with_id(ids::LOADING),
     }
@@ -241,14 +264,14 @@ pub fn tools(_s: &Dashboard, app: &RefAny) -> Dom {
         .with_id(ids::TOOLS)
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 8px;")
         .with_child(
-            Button::create(AzString::from("Clear filters"))
+            Button::create(AzString::from(t("azdashboard-clear-filters")))
                 .with_on_click(app.clone(), on_clear_filters as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::CLEAR_FILTERS)
                 .with_css("margin-right: 6px;"),
         )
         .with_child(
-            Button::create(AzString::from("Clear sort"))
+            Button::create(AzString::from(t("azdashboard-clear-sort")))
                 .with_on_click(app.clone(), on_clear_sort as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::CLEAR_SORT),
@@ -292,12 +315,18 @@ extern "C" fn on_clear_sort(mut app: RefAny, mut info: CallbackInfo) -> Update {
 /// The status bar: the rows, the rows shown, the sort, the last notice.
 pub fn status_bar(s: &Dashboard) -> Dom {
     let view = &s.table.view;
-    let mut segments = vec![StatusBarSegment::create(AzString::from(format!("{} orders", grouped(s.rows))))];
+    let mut segments = vec![StatusBarSegment::create(AzString::from(t_args(
+        "azdashboard-orders-count",
+        &[("rows", Arg::from(grouped(s.rows)))],
+    )))];
     if s.source.is_some() {
         let shown = if view.is_sorting() {
-            "Sorting...".to_string()
+            t("azdashboard-sorting")
         } else {
-            format!("Showing {}", grouped(view.shown_count(s.rows)))
+            t_args(
+                "azdashboard-showing",
+                &[("rows", Arg::from(grouped(view.shown_count(s.rows))))],
+            )
         };
         segments.push(StatusBarSegment::create(AzString::from(shown)));
         segments.push(StatusBarSegment::create(AzString::from(sort_text(view))));
@@ -332,6 +361,7 @@ mod tests {
 
     #[test]
     fn the_sort_reads_as_its_columns_and_arrows() {
+        crate::l10n::in_english();
         let mut v = DataTableView::create();
         assert_eq!(sort_text(&v), "Unsorted");
         v.click_sort(data::c::SALES as u32, false);

@@ -70,7 +70,7 @@ def body(args, logs, out):
     binary = e2e.find_binary("AzDashboard", args.bin, "AZDASHBOARD_BIN")
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
-    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--size", "1280x800", "--theme", "flat",
+    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--size", "1280x800", "--language", "en", "--theme", "flat",
                                 "--mode", "light"],
                   args.debug_port, logs, args.timeout)
     try:

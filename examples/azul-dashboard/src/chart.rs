@@ -124,8 +124,17 @@ impl Charts {
     }
 }
 
-/// The folded bar's name.
+/// The folded bar's name (an id: said by [`bar_name`]).
 const OTHER: &str = "Other";
+
+/// A bar's name as the window says it: a category's own, or the folded bar's word.
+fn bar_name(name: &str) -> String {
+    if name == OTHER {
+        azul_appkit::l10n::t("azdashboard-other")
+    } else {
+        name.to_string()
+    }
+}
 
 /// The line's points: the value column along the shown rows, x = the row's
 /// place. A row without a number in the column is left out (the line joins
@@ -203,17 +212,34 @@ pub fn caption(charts: &Charts, value_name: &str) -> String {
     };
     let mut parts = Vec::new();
     if let Some(p) = charts.picked_point {
-        parts.push(format!("Row {}: {value_name} {:.2}", p.x + 1.0, p.y));
+        parts.push(azul_appkit::l10n::t_args(
+            "azdashboard-picked-row",
+            &[
+                (
+                    "row",
+                    azul_appkit::l10n::Arg::from(format!("{}", p.x + 1.0)),
+                ),
+                ("column", azul_appkit::l10n::Arg::from(value_name)),
+                ("value", azul_appkit::l10n::Arg::from(format!("{:.2}", p.y))),
+            ],
+        ));
     }
     if let Some(b) = charts.picked_bar {
         if let Some((name, total)) = series.bars.get(b.index) {
-            parts.push(format!("{name}: {value_name} {total:.2} in total"));
+            parts.push(azul_appkit::l10n::t_args(
+                "azdashboard-picked-bar",
+                &[
+                    ("name", azul_appkit::l10n::Arg::from(bar_name(name))),
+                    ("column", azul_appkit::l10n::Arg::from(value_name)),
+                    ("total", azul_appkit::l10n::Arg::from(format!("{total:.2}"))),
+                ],
+            ));
         }
     }
     if parts.is_empty() {
-        format!(
-            "{} rows charted. Click a point or a bar (or Tab to a chart and press Enter) to pick it.",
-            series.line.len()
+        azul_appkit::l10n::t_args(
+            "azdashboard-charted",
+            &[("count", azul_appkit::l10n::Arg::from(series.line.len()))],
         )
     } else {
         parts.join("   |   ")
@@ -256,8 +282,9 @@ pub fn charts_dom(charts_ref: &RefAny, src: &dyn ChartSource, width: f32) -> Dom
         return Dom::create_div();
     };
     charts.refresh(src);
-    let value_name = src.column_name(charts.value_column).to_string();
-    let category_name = src.column_name(charts.category_column).to_string();
+    let said = |name: &str| azul_appkit::l10n::named(crate::ABOUT.name, "col", name);
+    let value_name = said(src.column_name(charts.value_column));
+    let category_name = said(src.column_name(charts.category_column));
     let w = chart_width(width);
     let (line, bars) = charts
         .series
@@ -266,8 +293,17 @@ pub fn charts_dom(charts_ref: &RefAny, src: &dyn ChartSource, width: f32) -> Dom
         .unwrap_or_default();
 
     let mut line_chart = Chart::create(ChartKind::Line, w, CHART_HEIGHT)
-        .with_title(format!("{value_name} by row").as_str())
-        .with_axis_titles("Row (table order)", value_name.as_str())
+        .with_title(
+            azul_appkit::l10n::t_args(
+                "azdashboard-by-row",
+                &[("column", azul_appkit::l10n::Arg::from(&value_name))],
+            )
+            .as_str(),
+        )
+        .with_axis_titles(
+            azul_appkit::l10n::t("azdashboard-row-axis"),
+            value_name.as_str(),
+        )
         .with_added_series(ChartSeries::create(value_name.as_str(), line))
         .with_on_select(
             charts_ref.clone(),
@@ -279,7 +315,7 @@ pub fn charts_dom(charts_ref: &RefAny, src: &dyn ChartSource, width: f32) -> Dom
 
     let names: Vec<AzString> = bars
         .iter()
-        .map(|(n, _)| AzString::from(n.as_str()))
+        .map(|(n, _)| AzString::from(bar_name(n)))
         .collect();
     #[allow(clippy::cast_precision_loss)] // at most MAX_BARS bars
     let totals: Vec<ChartPoint> = bars
@@ -288,11 +324,24 @@ pub fn charts_dom(charts_ref: &RefAny, src: &dyn ChartSource, width: f32) -> Dom
         .map(|(i, (_, v))| ChartPoint::create(i as f64, *v))
         .collect();
     let mut bar_chart = Chart::create(ChartKind::Bar, w, CHART_HEIGHT)
-        .with_title(format!("{value_name} by {category_name}").as_str())
+        .with_title(
+            azul_appkit::l10n::t_args(
+                "azdashboard-by-category",
+                &[
+                    ("column", azul_appkit::l10n::Arg::from(&value_name)),
+                    ("category", azul_appkit::l10n::Arg::from(&category_name)),
+                ],
+            )
+            .as_str(),
+        )
         .with_axis_titles(category_name.as_str(), value_name.as_str())
         .with_categories(names)
         .with_added_series(ChartSeries::create(
-            format!("Total {value_name}").as_str(),
+            azul_appkit::l10n::t_args(
+                "azdashboard-total-of",
+                &[("column", azul_appkit::l10n::Arg::from(&value_name))],
+            )
+            .as_str(),
             totals,
         ))
         .with_on_select(
@@ -442,6 +491,7 @@ mod tests {
 
     #[test]
     fn the_caption_names_the_pick() {
+        crate::l10n::in_english();
         let mut charts = Charts::new(0, 1);
         charts.refresh(&rows(&[("North", Some(10.0)), ("South", Some(4.0))]));
         assert!(caption(&charts, "Revenue").starts_with("2 rows charted"));
