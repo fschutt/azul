@@ -341,6 +341,8 @@ pub enum PanStep {
 pub fn pan_step(drawn: &Marks, next: &Marks) -> PanStep {
     if drawn.is_empty() && next.is_empty() {
         PanStep::MapOnly
+    } else if drawn.same_marks(next) {
+        PanStep::Move
     } else {
         PanStep::Rebuild
     }

@@ -47,10 +47,10 @@
 //! Nothing here blocks the UI thread: the tiles are fetched, decoded AND drawn
 //! on the map's workers, the pins file and settings.json go through
 //! azul-appkit's file thread, a route is worked out on the route worker
-//! (`route.rs`). A pan does not rebuild the window: what AzMaps draws at a
-//! place (a pin, the travel line and its ends, where you are) is drawn a
-//! window past every edge and moved in place with the map, until a pan would
-//! show a mark the last build did not draw, or zooms or turns the map.
+//! (`route.rs`). A pan or a zoom does not rebuild the window: what AzMaps
+//! draws at a place (a pin, the travel line and its ends, where you are) is
+//! drawn a window past every edge and moved in place with the map, until a
+//! mark enters or leaves that area.
 
 pub mod args;
 pub mod ids;
@@ -74,13 +74,17 @@ use azul::{
         ButtonOnClickCallbackType, PopoverOnToggleCallbackType, TextInputOnTextInputCallbackType,
         TimerCallbackInfo, TimerCallbackReturn,
     },
-    dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
+    css::{
+        AngleValue, CssProperty, LayoutLeft, LayoutTop, LayoutWidth, PixelValue, StyleTransform,
+    },
+    dom::{DomId, DomNodeId, GeolocationProbeConfig, VirtualKeyCode},
     prelude::*,
     sensor::SensorKind,
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     task::{TerminateTimer, Thread, ThreadId},
     time::{Duration, SystemTimeDiff},
+    vec::StyleTransformVec,
     widgets::{
         Button, ButtonType, MapLatLon, MapTileLayer, MapViewport, MapWidget, OnTextInputReturn,
         Popover, PopoverState, TextInputState, TextInputValid,
@@ -329,9 +333,10 @@ struct MapState {
     /// edge; empty before the first build. A step of a pan compares with them.
     drawn: RefCell<Marks>,
     /// The generation in the marks' ids (`ids::mark`). A pan moves the marks
-    /// with overrides of their `left` / `top`, and an override follows its node
-    /// into the next build when the node keeps its id: the first build after a
-    /// move gives the marks new ids, so they stand where that build puts them.
+    /// with overrides of their boxes (`left`, `top`, the line's `width` and
+    /// turn), and an override follows its node into the next build when the
+    /// node keeps its id: the first build after a move gives the marks new
+    /// ids, so they stand where that build puts them.
     mark_generation: Cell<u64>,
     /// A pan moved the marks since the last build (see `mark_generation`).
     marks_moved: Cell<bool>,
@@ -442,6 +447,39 @@ impl MapState {
         (step, next)
     }
 
+    /// Moves the marks the last build drew to where a build would draw them
+    /// now (`next`, the same marks), in place: each mark's box changes its
+    /// `left` / `top`, the line also its length and angle. That costs one
+    /// relayout of the window's boxes instead of a rebuild of the window. The
+    /// values are overrides (see `mark_generation`).
+    fn move_marks(&self, info: &mut CallbackInfo, next: &Marks) {
+        let id = |key: &str| ids::mark(self.mark_generation.get(), key);
+        if let Some((a, b)) = next.route {
+            let (left, top, length, degrees) = route_box(a, b);
+            if let Some(node) = move_box(info, id("route"), (left, top)) {
+                info.override_css_property(
+                    node,
+                    CssProperty::width(LayoutWidth::px(PixelValue::px(length))),
+                );
+                info.override_css_property(
+                    node,
+                    CssProperty::transform(StyleTransformVec::from_vec(vec![
+                        StyleTransform::Rotate(AngleValue::deg(degrees)),
+                    ])),
+                );
+            }
+        }
+        for (key, point) in [("from", next.from), ("to", next.to), ("here", next.here)] {
+            if let Some(point) = point {
+                move_box(info, id(key), point);
+            }
+        }
+        for &(index, (x, y)) in &next.pins {
+            move_box(info, id(format!("pin-{index}").as_str()), pin_box(x, y));
+        }
+        self.marks_moved.set(true);
+    }
+
     /// The generation in this build's mark ids: the next one once a pan moved
     /// the marks (see `mark_generation`).
     fn next_mark_generation(&self) -> u64 {
@@ -495,6 +533,30 @@ fn place_px(viewport: MapViewport, size: (f32, f32), lat: f64, lon: f64) -> (f32
         LogicalSize::create(size.0, size.1),
     );
     (p.x, p.y)
+}
+
+/// Moves the box with the id `id` (a mark's, in the window's DOM) to `left` /
+/// `top`, as overrides; the box's node, `None` when the window has no such box.
+fn move_box(info: &mut CallbackInfo, id: AzString, (left, top): (f32, f32)) -> Option<DomNodeId> {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, id);
+    if node.into_raw() == 0 {
+        return None;
+    }
+    let node = DomNodeId { dom, node };
+    info.override_css_property(
+        node,
+        CssProperty::left(LayoutLeft {
+            inner: PixelValue::px(left),
+        }),
+    );
+    info.override_css_property(
+        node,
+        CssProperty::top(LayoutTop {
+            inner: PixelValue::px(top),
+        }),
+    );
+    Some(node)
 }
 
 /// The travel panel may have changed: its route is asked of a route worker
@@ -836,17 +898,20 @@ fn pin_box(x: f32, y: f32) -> (f32, f32) {
 /// The travel preview: the straight line from `a` to `b` (both in view
 /// pixels, already cut to the area the build draws).
 fn route_line(a: (f32, f32), b: (f32, f32)) -> Dom {
-    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let (left, top, length, degrees) = route_box(a, b);
     let css = format!(
-        "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: 4px; \
-         margin-top: -2px; border-radius: 2px; opacity: 0.85; transform-origin: 0px 50%; \
-         transform: rotate({:.2}deg); {ROUTE_PAINT}",
-        a.0,
-        a.1,
-        dx.hypot(dy),
-        dy.atan2(dx).to_degrees(),
+        "position: absolute; left: {left:.1}px; top: {top:.1}px; width: {length:.1}px; height: \
+         4px; margin-top: -2px; border-radius: 2px; opacity: 0.85; transform-origin: 0px 50%; \
+         transform: rotate({degrees:.2}deg); {ROUTE_PAINT}",
     );
     Dom::create_div().with_css(css.as_str())
+}
+
+/// The travel line's box from `a` to `b`: its `left` / `top` (the start), its
+/// length and its angle in degrees (it turns about its start).
+fn route_box(a: (f32, f32), b: (f32, f32)) -> (f32, f32, f32, f32) {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    (a.0, a.1, dx.hypot(dy), dy.atan2(dx).to_degrees())
 }
 
 /// A small round mark on the map (the start of a route).
@@ -873,8 +938,8 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
         .with_child(map);
 
     // The map fills the window, so the window's size is the map's. The marks
-    // are drawn a window past every edge: a pan moves them in place
-    // (`on_viewport_changed`) until it would show one this build did not draw.
+    // are drawn a window past every edge: a pan or a zoom moves them in place
+    // (`on_viewport_changed`) until one enters or leaves that area.
     let marks = s.marks_at(s.viewport, size);
     let generation = s.next_mark_generation();
     let mark = |key: &str, dom: Dom| dom.with_id(ids::mark(generation, key));
@@ -908,7 +973,8 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
     }
 
     for &(index, (x, y)) in &marks.pins {
-        area.add_child(mark(&format!("pin-{index}"), place_pin(s, app, index, x, y)));
+        let pin = place_pin(s, app, index, x, y);
+        area.add_child(mark(format!("pin-{index}").as_str(), pin));
     }
     *s.drawn.borrow_mut() = marks;
 
@@ -1122,21 +1188,25 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
 
 /// The map was panned / zoomed / turned by the user. It moves its tiles
 /// itself (its own view re-renders in place). What AzMaps draws at places
-/// moves along in place while the step only moved the map and shows nothing
-/// the last build did not draw (`MapState::pan_step`); only then is the
-/// window rebuilt. A rebuild per pointer move made a pan with a route or a
-/// pin on the map crawl.
-extern "C" fn on_viewport_changed(mut data: RefAny, _info: CallbackInfo, vp: MapViewport) -> Update {
+/// moves along in place while a build would draw the same marks
+/// (`MapState::pan_step`); the window is rebuilt only when a mark enters or
+/// leaves the drawn area. A rebuild costs a full layout of the window, too
+/// much for every pointer move of a drag or every step of a pinch.
+extern "C" fn on_viewport_changed(mut data: RefAny, mut info: CallbackInfo, vp: MapViewport) -> Update {
     let started = std::time::Instant::now();
     let Some(mut s) = data.downcast_mut::<MapState>() else {
         return Update::DoNothing;
     };
-    let (step, _next) = s.pan_step(vp);
+    let (step, next) = s.pan_step(vp);
     s.viewport = vp;
     s.moved();
     let (update, done) = match step {
         PanStep::MapOnly => (Update::DoNothing, "map"),
-        PanStep::Move | PanStep::Rebuild => (Update::RefreshDom, "rebuild"),
+        PanStep::Move => {
+            s.move_marks(&mut info, &next);
+            (Update::DoNothing, "move")
+        }
+        PanStep::Rebuild => (Update::RefreshDom, "rebuild"),
     };
     if STATS.load(Ordering::Relaxed) {
         println!("AZMAPS_PAN {done} {}", started.elapsed().as_micros());
