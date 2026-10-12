@@ -56,7 +56,7 @@ def body(args, logs, out):
     fixture(folder)
 
     app = e2e.App("review", binary,
-                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT)],
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.until("AzReview's window", lambda: app.has_id(STRIP))

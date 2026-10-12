@@ -52,7 +52,10 @@ use azul::{
         MicrophoneWidget, ScreenCaptureWidget, Segmented, Titlebar,
     },
 };
-use azul_appkit::ui::{self as kit, AppSection};
+use azul_appkit::{
+    l10n::{self, and_list, label, t, t_args, Arg},
+    ui::{self as kit, AppSection},
+};
 use azul_pim::initials::initials;
 
 use crate::{ids, tiles::TileKind};
@@ -511,7 +514,7 @@ fn gear(data: &RefAny, actions: &Actions) -> Dom {
         .with_on_click(data.clone(), actions.settings)
         .dom()
         .with_id(ids::SETTINGS)
-        .with_accessibility_name("Settings")
+        .with_accessibility_name(label("azmeet-settings"))
         .with_css("flex-shrink: 0;")
 }
 
@@ -602,7 +605,7 @@ pub(crate) fn tile_id(t: &TileView) -> String {
 /// A person's name as the window shows it: this side's own with "(you)" after it.
 pub(crate) fn shown_name(name: &str, me: bool) -> String {
     if me {
-        format!("{name} (you)")
+        t_args("azmeet-you-name", &[("name", Arg::from(name))])
     } else {
         name.to_string()
     }
@@ -612,11 +615,12 @@ pub(crate) fn shown_name(name: &str, me: bool) -> String {
 fn tile_label(t: &TileView) -> String {
     let mut label = match t.kind {
         TileKind::Camera => shown_name(&t.name, t.me),
-        TileKind::Screen if t.me => String::from("Your screen"),
-        TileKind::Screen => format!("{}'s screen", t.name),
+        TileKind::Screen if t.me => l10n::t("azmeet-your-screen"),
+        TileKind::Screen => t_args("azmeet-their-screen", &[("name", Arg::from(&t.name))]),
     };
     if t.muted && t.kind == TileKind::Camera {
-        label.push_str(" · muted");
+        label.push_str(" · ");
+        label.push_str(&l10n::t("azmeet-tile-muted"));
     }
     label
 }
@@ -671,19 +675,19 @@ fn own_picture(view: &CallView, t: &TileView, data: &RefAny, large: bool) -> Dom
                 .with_css(own_video_css(view.mirror).as_str())
         }
         TileKind::Camera if view.cam && view.cam_culled => {
-            text("Test pattern - not shown to anyone, not sent", SECONDARY)
+            text(&l10n::t("azmeet-pattern-unseen"), SECONDARY)
         }
         TileKind::Camera if view.cam => match &view.pattern_still {
             Some(still) => Dom::create_image(still.clone())
                 .with_css(own_video_css(view.mirror).as_str())
-                .with_accessibility_name("Test pattern"),
-            None => text("Test pattern", SECONDARY),
+                .with_accessibility_name(label("azmeet-pattern")),
+            None => text(&l10n::t("azmeet-pattern"), SECONDARY),
         },
         TileKind::Camera => Dom::create_div()
             .with_css("display: flex; flex-direction: column; align-items: center;")
             .with_child(avatar(&t.name, large))
-            .with_child(text("Camera is off", "font-size: 12px; margin-top: 6px;")),
-        TileKind::Screen if view.pattern_video => text("Your screen - test pattern", SECONDARY),
+            .with_child(text(&l10n::t("azmeet-camera-is-off"), "font-size: 12px; margin-top: 6px;")),
+        TileKind::Screen if view.pattern_video => text(&l10n::t("azmeet-screen-pattern"), SECONDARY),
         TileKind::Screen => {
             let mut screen = ScreenCaptureWidget::create(ScreenCaptureConfig {
                 output_format: crate::VIDEO_FORMAT,
@@ -720,14 +724,14 @@ const PANEL_TABS: [PanelView; 3] = [PanelView::People, PanelView::Chat, PanelVie
 fn side_panel(view: &CallView, data: &RefAny, actions: &Actions) -> Option<Dom> {
     let selected = PANEL_TABS.iter().position(|p| *p == view.panel)?;
     let chat_tab = if view.chat_unread > 0 {
-        format!("Chat ({})", view.chat_unread)
+        t_args("azmeet-tab-chat-unread", &[("count", Arg::from(view.chat_unread.to_string()))])
     } else {
-        String::from("Chat")
+        t("azmeet-tab-chat")
     };
     let tabs = Segmented::create(strings(&[
-        String::from("People"),
+        t("azmeet-tab-people"),
         chat_tab,
-        String::from("Statistics"),
+        t("azmeet-tab-statistics"),
     ]))
     .with_selected_index(selected)
     .with_on_change(data.clone(), actions.panel)
@@ -758,7 +762,7 @@ const PERSON_TEXT: &str = "display: flex; flex-direction: column; flex-grow: 1; 
 
 /// "Safety code 05881 39114 50072 66310": what two people compare (CRYPTO.md section 3).
 pub(crate) fn safety_line(code: &str) -> String {
-    format!("Safety code {code}")
+    t_args("azmeet-safety-line", &[("code", Arg::from(code))])
 }
 
 /// Everyone in the call (initials, name, what they do, their safety code), then the devices
@@ -784,21 +788,21 @@ fn people(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             )
             .with_child(column);
         if person.verified {
-            row = row.with_child(Badge::create(AzString::from("verified")).dom());
+            row = row.with_child(Badge::create(label("azmeet-badge-verified")).dom());
         }
         if person.speaking {
-            row = row.with_child(Badge::create(AzString::from("speaking")).dom());
+            row = row.with_child(Badge::create(label("azmeet-badge-speaking")).dom());
         }
         if person.muted {
-            row = row.with_child(Badge::create(AzString::from("muted")).dom());
+            row = row.with_child(Badge::create(label("azmeet-tile-muted")).dom());
         }
         if person.deafened {
-            row = row.with_child(Badge::create(AzString::from("deafened")).dom());
+            row = row.with_child(Badge::create(label("azmeet-badge-deafened")).dom());
         }
         list = list.with_child(row);
     }
     if !view.knocks.is_empty() {
-        list = list.with_child(text("Asking to join", SECTION_TITLE));
+        list = list.with_child(text(&t("azmeet-asking-to-join"), SECTION_TITLE));
         for knock in &view.knocks {
             list = list.with_child(knock_row(knock, data, actions));
         }
@@ -823,7 +827,7 @@ fn knock_row(k: &MemberRow, data: &RefAny, actions: &Actions) -> Dom {
                 .with_child(text(&safety_line(&k.code), SECONDARY)),
         )
         .with_child(
-            Button::with_type("Admit", ButtonType::Primary)
+            Button::with_type(label("azmeet-admit"), ButtonType::Primary)
                 .with_on_click(row_data(data, format!("{} {}", k.room, k.device)), actions.admit)
                 .dom()
                 .with_id(keyed_id(ids::ADMIT_PREFIX, &k.device, DEVICE_ID_CHARS))
@@ -851,10 +855,10 @@ fn member_row(m: &MemberRow, data: &RefAny, actions: &Actions) -> Dom {
         return row;
     }
     row = if m.verified {
-        row.with_child(Badge::create(AzString::from("verified")).dom())
+        row.with_child(Badge::create(label("azmeet-badge-verified")).dom())
     } else {
         row.with_child(
-            Button::create("Mark verified")
+            Button::create(label("azmeet-mark-verified"))
                 .with_on_click(row_data(data, format!("{} {}", m.room, m.device)), actions.verify)
                 .dom()
                 .with_id(keyed_id(ids::VERIFY_PREFIX, &m.device, DEVICE_ID_CHARS))
@@ -873,31 +877,31 @@ fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         messages = messages.with_child(text(&view.chat_note, SECONDARY));
     }
     if view.chat.is_empty() {
-        messages = messages.with_child(text("No messages yet.", SECONDARY));
+        messages = messages.with_child(text(&t("azmeet-no-messages"), SECONDARY));
     }
     for line in &view.chat {
         let who = match (line.mine, line.sending) {
-            (true, true) => "You (sending...)",
-            (true, false) => "You",
-            (false, _) => line.name.as_str(),
+            (true, true) => t("azmeet-you-sending"),
+            (true, false) => t("azmeet-you"),
+            (false, _) => line.name.clone(),
         };
         messages = messages.with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column; padding: 3px 0px;")
-                .with_child(text(who, "font-size: 12px; font-weight: bold;"))
+                .with_child(text(&who, "font-size: 12px; font-weight: bold;"))
                 .with_child(text(&line.text, "font-size: 13px;")),
         );
     }
     let field = TextInput::create()
         .with_text(view.chat_draft.as_str())
-        .with_placeholder("Message everyone")
+        .with_placeholder(label("azmeet-message-everyone"))
         .with_on_text_input(data.clone(), actions.chat_text)
         .with_on_virtual_key_down(data.clone(), actions.chat_key)
         .with_on_focus_lost(data.clone(), actions.chat_blur)
         .dom()
         .with_css(ROW_FIELD)
         .with_id(ids::CHAT_FIELD);
-    let send = Button::with_type("Send", ButtonType::Primary)
+    let send = Button::with_type(label("azmeet-send"), ButtonType::Primary)
         .with_on_click(data.clone(), actions.chat_send)
         .dom()
         .with_id(ids::CHAT_SEND);
@@ -920,7 +924,7 @@ fn statistics(view: &CallView) -> Dom {
     for section in &view.stats {
         panel = panel.with_child(text(&section.title, SECTION_TITLE));
         if section.lines.is_empty() {
-            panel = panel.with_child(text("(nothing yet)", SECONDARY));
+            panel = panel.with_child(text(&t("azmeet-nothing-yet"), SECONDARY));
         }
         for line in &section.lines {
             panel = panel.with_child(text(line, STAT_LINE));
@@ -968,7 +972,7 @@ fn link_row_with(
              nowrap; text-overflow: ellipsis;",
         ))
         .with_child(
-            Button::create(if copied { "Copied" } else { "Copy link" })
+            Button::create(label(if copied { "azmeet-copied" } else { "azmeet-copy-link" }))
                 .with_on_click(data.clone(), action)
                 .dom()
                 .with_id(id)
@@ -1011,21 +1015,20 @@ fn room_view(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             actions.room_copy,
             ids::ROOM_COPY,
         ))
-        .with_child(text("Your safety code", SECTION_TITLE))
+        .with_child(text(&t("azmeet-your-safety-code"), SECTION_TITLE))
         .with_child(
             text(&page.my_code, "font-size: 15px; font-weight: bold;").with_id(ids::MY_CODE),
         )
-        .with_child(text(
-            "Compare it with the code each member sees for you, and theirs with yours, then mark \
-             them verified.",
-            SECONDARY,
-        ))
+        .with_child(text(&t("azmeet-compare-codes"), SECONDARY))
         .with_child(text(&page.key_line, SECONDARY));
     if page.before_join > 0 || page.unreadable > 0 {
         facts = facts.with_child(text(
-            &format!(
-                "{} sealed before you joined, {} that failed a check.",
-                page.before_join, page.unreadable
+            &t_args(
+                "azmeet-sealed-failed",
+                &[
+                    ("before", Arg::from(page.before_join.to_string())),
+                    ("failed", Arg::from(page.unreadable.to_string())),
+                ],
             ),
             SECONDARY,
         ));
@@ -1034,7 +1037,7 @@ fn room_view(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_css("display: flex; flex-direction: column;")
         .with_id(ids::MEMBERS)
         .with_child(text(
-            &format!("Members ({})", page.members.len()),
+            &t_args("azmeet-members-count", &[("count", Arg::from(page.members.len().to_string()))]),
             SECTION_TITLE,
         ));
     for m in &page.members {
@@ -1045,7 +1048,7 @@ fn room_view(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         let mut knocks = Dom::create_div()
             .with_css("display: flex; flex-direction: column;")
             .with_id(ids::KNOCKS)
-            .with_child(text("Asking to join", SECTION_TITLE));
+            .with_child(text(&t("azmeet-asking-to-join"), SECTION_TITLE));
         for k in &page.knocks {
             knocks = knocks.with_child(knock_row(k, data, actions));
         }
@@ -1053,7 +1056,7 @@ fn room_view(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     }
     if page.can_call {
         facts = facts.with_child(
-            Button::with_type("Join call", ButtonType::Primary)
+            Button::with_type(label("azmeet-join-call"), ButtonType::Primary)
                 .with_on_click(data.clone(), actions.room_call)
                 .dom()
                 .with_id(ids::ROOM_CALL)
@@ -1062,14 +1065,14 @@ fn room_view(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     }
     facts = facts
         .with_child(
-            Button::with_type("Leave room", ButtonType::Danger)
+            Button::with_type(label("azmeet-leave-room"), ButtonType::Danger)
                 .with_on_click(data.clone(), actions.room_leave)
                 .dom()
                 .with_id(ids::ROOM_LEAVE)
                 .with_css(WIDE),
         )
         .with_child(
-            Button::create("Back")
+            Button::create(label("azmeet-back"))
                 .with_on_click(data.clone(), actions.room_back)
                 .dom()
                 .with_id(ids::ROOM_BACK)
@@ -1107,12 +1110,12 @@ fn level_meter(view: &CallView, data: &RefAny) -> Dom {
     Dom::create_div()
         .with_css(ROW)
         .with_child(text(
-            "Mic level",
+            &t("azmeet-mic-level"),
             "font-size: 12px; margin-right: 8px; white-space: nowrap;",
         ))
         .with_child(
             LevelMeter::create(view.mic_level)
-                .with_accessibility_name("Microphone level")
+                .with_accessibility_name(label("azmeet-microphone-level"))
                 .dom()
                 .with_css("flex-grow: 1; min-width: 40px;")
                 .with_callback(
@@ -1145,21 +1148,17 @@ fn control(label: &str, id: AzString, on: bool, data: &RefAny, action: ButtonOnC
 }
 
 /// The microphone switch's label: what a click does.
-pub(crate) fn mic_label(on: bool) -> &'static str {
-    if on {
-        "Mute"
-    } else {
-        "Unmute"
-    }
+pub(crate) fn mic_label(on: bool) -> String {
+    t(if on { "azmeet-mute" } else { "azmeet-unmute" })
 }
 
 /// The camera switch's label: what a click does (and that nobody sees a camera that is on).
-pub(crate) fn cam_label(on: bool, culled: bool) -> &'static str {
-    match (on, culled) {
-        (true, true) => "Stop video (not shown to anyone)",
-        (true, false) => "Stop video",
-        (false, _) => "Start video",
-    }
+pub(crate) fn cam_label(on: bool, culled: bool) -> String {
+    t(match (on, culled) {
+        (true, true) => "azmeet-stop-video-unseen",
+        (true, false) => "azmeet-stop-video",
+        (false, _) => "azmeet-start-video",
+    })
 }
 
 /// A device switch: the device's icon and what a click does, red while the device is off - the
@@ -1188,14 +1187,14 @@ fn device_switch(
 /// The microphone switch (the waiting room and the call).
 fn mic_switch(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let icon = if view.mic { "mic" } else { "mic_off" };
-    device_switch(mic_label(view.mic), icon, ids::MIC, view.mic, data, actions.mic)
+    device_switch(&mic_label(view.mic), icon, ids::MIC, view.mic, data, actions.mic)
 }
 
 /// The camera switch (the waiting room and the call).
 fn cam_switch(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let icon = if view.cam { "videocam" } else { "videocam_off" };
-    let label = cam_label(view.cam, view.cam_culled);
-    device_switch(label, icon, ids::CAM, view.cam, data, actions.cam)
+    let said = cam_label(view.cam, view.cam_culled);
+    device_switch(&said, icon, ids::CAM, view.cam, data, actions.cam)
 }
 
 /// The call's controls bar: the microphone and the camera, sharing, deafening, the view, and
@@ -1209,29 +1208,29 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_child(mic_switch(view, data, actions))
         .with_child(cam_switch(view, data, actions))
         .with_child(control(
-            if view.screen_on {
-                "Stop sharing"
+            &t(if view.screen_on {
+                "azmeet-stop-sharing"
             } else {
-                "Share screen"
-            },
+                "azmeet-share-screen"
+            }),
             ids::SHARE,
             view.screen_on,
             data,
             actions.share,
         ))
         .with_child(control(
-            if view.deafened { "Undeafen" } else { "Deafen" },
+            &t(if view.deafened { "azmeet-undeafen" } else { "azmeet-deafen" }),
             ids::DEAFEN,
             view.deafened,
             data,
             actions.deafen,
         ))
         .with_child(control(
-            if view.speaker_view {
-                "Gallery view"
+            &t(if view.speaker_view {
+                "azmeet-gallery-view"
             } else {
-                "Speaker view"
-            },
+                "azmeet-speaker-view"
+            }),
             ids::VIEW,
             false,
             data,
@@ -1239,7 +1238,7 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         ));
     if view.video_debug {
         row = row.with_child(control(
-            "Drop a video packet",
+            &t("azmeet-drop-packet"),
             ids::DROP,
             false,
             data,
@@ -1248,7 +1247,7 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     }
     if view.in_room {
         row = row.with_child(
-            Button::with_type("Leave", ButtonType::Danger)
+            Button::with_type(label("azmeet-leave"), ButtonType::Danger)
                 .with_on_click(data.clone(), actions.leave)
                 .dom()
                 .with_id(ids::LEAVE)
@@ -1266,16 +1265,15 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
 fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let mut card = Dom::create_div()
         .with_css(CARD)
-        .with_child(text("Video meetings and chat rooms", "font-size: 24px; margin-bottom: 4px;"))
+        .with_child(text(&t("azmeet-lobby-title"), "font-size: 24px; margin-bottom: 4px;"))
         .with_child(text(
-            "Start a meeting or a chat room, or join one with its link or its code. Everything \
-             is end-to-end encrypted.",
+            &t("azmeet-lobby-intro"),
             "font-size: 13px; color: system:secondary-text; margin-bottom: 20px;",
         ));
     if let Some(lobby) = &view.lobby {
         let join_field = TextInput::create()
             .with_text(lobby.join_text.as_str())
-            .with_placeholder("azlin://meet/... or a code")
+            .with_placeholder(label("azmeet-join-placeholder"))
             .with_on_text_input(data.clone(), actions.join_text)
             .dom()
             .with_css(ROW_FIELD)
@@ -1292,7 +1290,7 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         let mut server_row = Dom::create_div().with_css(ROW).with_child(server);
         if !lobby.server_ok && !lobby.server_unset {
             server_row = server_row.with_child(
-                Button::create("Retry")
+                Button::create(label("azmeet-retry"))
                     .with_on_click(data.clone(), actions.retry_server)
                     .dom()
                     .with_id(ids::RETRY)
@@ -1300,18 +1298,18 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             );
         }
         let new_meeting = Button::with_type(
-            if lobby.opening {
-                "Please wait..."
+            label(if lobby.opening {
+                "azmeet-please-wait"
             } else {
-                "New meeting"
-            },
+                "azmeet-new-meeting"
+            }),
             ButtonType::Primary,
         )
         .with_on_click(data.clone(), actions.new_meeting)
         .dom()
         .with_id(ids::NEW_MEETING)
         .with_css("margin-right: 8px;");
-        let new_chat_room = Button::create("New chat room")
+        let new_chat_room = Button::create(label("azmeet-new-chat-room"))
             .with_on_click(data.clone(), actions.new_chat_room)
             .dom()
             .with_id(ids::NEW_CHAT_ROOM);
@@ -1329,14 +1327,14 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             .with_child(
                 TextInput::create()
                     .with_text(lobby.schedule_minutes.as_str())
-                    .with_placeholder("minutes")
+                    .with_placeholder(label("azmeet-minutes"))
                     .with_on_text_input(data.clone(), actions.schedule_minutes)
                     .dom()
                     .with_css("width: 80px; flex-shrink: 0; margin-right: 6px;")
                     .with_id(ids::SCHEDULE_MINUTES),
             )
             .with_child(
-                Button::create("Schedule")
+                Button::create(label("azmeet-schedule"))
                     .with_on_click(data.clone(), actions.schedule)
                     .dom()
                     .with_id(ids::SCHEDULE)
@@ -1350,19 +1348,19 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                     .with_child(new_chat_room),
             )
             .with_child(labelled(
-                "Join with a link or a code",
+                &t("azmeet-join-with"),
                 Dom::create_div()
                     .with_css(ROW)
                     .with_child(join_field)
                     .with_child(
-                        Button::create("Join")
+                        Button::create(label("azmeet-join"))
                             .with_on_click(data.clone(), actions.join)
                             .dom()
                             .with_id(ids::JOIN),
                     ),
             ))
-            .with_child(labelled("Schedule a meeting (your time, minutes)", schedule))
-            .with_child(labelled("Meeting server", server_row))
+            .with_child(labelled(&t("azmeet-schedule-label"), schedule))
+            .with_child(labelled(&t("azmeet-meeting-server"), server_row))
             .with_child(text(
                 &lobby.server_status,
                 if lobby.server_ok {
@@ -1376,7 +1374,7 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 },
             ));
         if !lobby.identity_ready {
-            card = card.with_child(text("Loading this device's key...", SECONDARY));
+            card = card.with_child(text(&t("azmeet-loading-key"), SECONDARY));
         }
         card = card.with_child(rooms_list(&lobby.rooms, data, actions));
     }
@@ -1391,9 +1389,9 @@ fn rooms_list(rooms: &[RoomRow], data: &RefAny, actions: &Actions) -> Dom {
     let mut list = Dom::create_div()
         .with_css("display: flex; flex-direction: column; margin-top: 8px; min-width: 0px;")
         .with_id(ids::ROOMS)
-        .with_child(text("Your rooms", SECTION_TITLE));
+        .with_child(text(&t("azmeet-your-rooms"), SECTION_TITLE));
     if rooms.is_empty() {
-        return list.with_child(text("None yet.", SECONDARY));
+        return list.with_child(text(&t("azmeet-none-yet"), SECONDARY));
     }
     for room in rooms {
         let mut row = Dom::create_div().with_css(PERSON_ROW).with_child(
@@ -1408,7 +1406,7 @@ fn rooms_list(rooms: &[RoomRow], data: &RefAny, actions: &Actions) -> Dom {
                 .with_child(text(&room.detail, SECONDARY)),
         );
         if room.unread > 0 {
-            let unread = format!("{} unread", room.unread);
+            let unread = t_args("azmeet-unread", &[("count", Arg::from(room.unread.to_string()))]);
             row = row.with_child(Badge::create(AzString::from(unread.as_str())).dom());
         }
         list = list.with_child(row);
@@ -1427,20 +1425,16 @@ fn labelled(label: &str, field: Dom) -> Dom {
 // ==== The waiting room ====
 
 /// "Join now", or "Start meeting" for a meeting this side just made.
-pub(crate) fn join_label(created: bool) -> &'static str {
-    if created {
-        "Start meeting"
-    } else {
-        "Join now"
-    }
+pub(crate) fn join_label(created: bool) -> String {
+    t(if created { "azmeet-start-meeting" } else { "azmeet-join-now" })
 }
 
 /// The waiting room's button: [`join_label`], or with only the meeting's code (`knock`) "Ask to
 /// join", and once asked "Waiting to be let in...".
-pub(crate) fn waiting_button_label(created: bool, knock: Option<bool>) -> &'static str {
+pub(crate) fn waiting_button_label(created: bool, knock: Option<bool>) -> String {
     match knock {
-        Some(false) => "Ask to join",
-        Some(true) => "Waiting to be let in...",
+        Some(false) => t("azmeet-ask-to-join"),
+        Some(true) => t("azmeet-waiting-let-in"),
         None => join_label(created),
     }
 }
@@ -1479,11 +1473,11 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let created = view.waiting.as_ref().is_some_and(|w| w.created);
     let knock = view.waiting.as_ref().and_then(|w| w.knock);
     let mut column = Dom::create_div().with_css(JOIN_COLUMN).with_child(text(
-        if created {
-            "Your meeting is ready"
+        &t(if created {
+            "azmeet-meeting-ready"
         } else {
-            "Ready to join?"
-        },
+            "azmeet-ready-to-join"
+        }),
         "font-size: 22px; margin-bottom: 6px;",
     ));
     if let Some(times) = view.waiting.as_ref().and_then(|w| w.times.as_ref()) {
@@ -1499,24 +1493,23 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     }
     if knock.is_some() {
         column = column.with_child(text(
-            "You joined with the meeting's code: someone in the meeting lets you in. Compare your \
-             safety code with theirs.",
+            &t("azmeet-joined-with-code"),
             "font-size: 12px; color: system:secondary-text; margin-bottom: 10px;",
         ));
     }
-    let join = Button::with_type(waiting_button_label(created, knock), ButtonType::Primary);
+    let join = Button::with_type(AzString::from(waiting_button_label(created, knock)), ButtonType::Primary);
     let join = if knock == Some(true) {
         join.dom()
     } else {
         join.with_on_click(data.clone(), actions.join_now).dom()
     };
     column = column
-        .with_child(labelled("Your name", name_field(&view.name, data, actions)))
-        .with_child(text("Devices", SECTION_TITLE))
+        .with_child(labelled(&t("azmeet-your-name"), name_field(&view.name, data, actions)))
+        .with_child(text(&t("azmeet-devices"), SECTION_TITLE))
         .with_child(device_pickers(&view.settings, data, actions))
         .with_child(join.with_id(ids::JOIN_NOW).with_css(WIDE))
         .with_child(
-            Button::create("Back")
+            Button::create(label("azmeet-back"))
                 .with_on_click(data.clone(), actions.waiting_back)
                 .dom()
                 .with_id(ids::WAITING_BACK)
@@ -1543,18 +1536,14 @@ const FACES: usize = 4;
 pub(crate) fn who_is_here(people: &[String]) -> String {
     let count = people.len();
     match people {
-        [] => String::from("No one else is here yet"),
-        [one] => format!("{one} is in this meeting"),
-        _ if count <= FACES => format!(
-            "{} and {} are in this meeting",
-            people[..count - 1].join(", "),
-            people[count - 1]
-        ),
-        _ => format!(
-            "{} and {} others are in this meeting",
-            people[..FACES - 1].join(", "),
-            count - (FACES - 1)
-        ),
+        [] => t("azmeet-nobody-here"),
+        [one] => t_args("azmeet-one-here", &[("name", Arg::from(one))]),
+        _ if count <= FACES => t_args("azmeet-many-here", &[("names", Arg::from(and_list(people.to_vec())))]),
+        _ => {
+            let mut names = people[..FACES - 1].to_vec();
+            names.push(t_args("azmeet-others", &[("count", Arg::from((count - (FACES - 1)).to_string()))]));
+            t_args("azmeet-many-here", &[("names", Arg::from(and_list(names)))])
+        }
     }
 }
 
@@ -1583,7 +1572,7 @@ fn who_is_here_row(people: &[String]) -> Dom {
 fn name_field(name: &str, data: &RefAny, actions: &Actions) -> Dom {
     TextInput::create()
         .with_text(name)
-        .with_placeholder("Your name")
+        .with_placeholder(label("azmeet-your-name"))
         .with_on_text_input(data.clone(), actions.name_text)
         .with_on_focus_lost(data.clone(), actions.name_blur)
         .dom()
@@ -1599,7 +1588,7 @@ fn meeting_facts(w: &WaitingView, data: &RefAny, actions: &Actions) -> Dom {
     };
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; margin-bottom: 16px; min-width: 0px;")
-        .with_child(text("Meeting", SECONDARY))
+        .with_child(text(&t("azmeet-meeting"), SECONDARY))
         .with_child(
             text(code, "font-size: 18px; font-weight: bold; margin: 2px 0px 6px 0px;")
                 .with_id(ids::MEETING_CODE),
@@ -1613,31 +1602,27 @@ fn device_pickers(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(labelled(
-            "Microphone",
-            choice(&s.mics, s.mic_choice, "Microphone", data, actions.mic_choice),
+            &t("azmeet-microphone"),
+            choice(&s.mics, s.mic_choice, "azmeet-microphone", data, actions.mic_choice),
         ))
         .with_child(labelled(
-            "Speaker",
-            choice(&s.speakers, s.speaker_choice, "Speaker", data, actions.speaker_choice),
+            &t("azmeet-speaker"),
+            choice(&s.speakers, s.speaker_choice, "azmeet-speaker", data, actions.speaker_choice),
         ))
         .with_child(labelled(
-            "Camera",
-            choice(&s.cameras, s.camera_choice, "Camera", data, actions.camera_choice),
+            &t("azmeet-camera"),
+            choice(&s.cameras, s.camera_choice, "azmeet-camera", data, actions.camera_choice),
         ))
 }
 
 // ==== The settings: azul-appkit's page with AzMeet's own categories ====
 
 /// AzMeet's categories on the kit's settings page, before the kit's Appearance, Data, Shortcuts
-/// and About.
+/// and About: ids, shown as `azmeet-category-<name>` (`crate::l10n::word`).
 pub(crate) const APP_CATEGORIES: [&str; 3] = ["Audio & Video", "Meetings", "Recording"];
 
-/// The video quality choices, in `Quality` order.
-pub(crate) const QUALITY_LABELS: [&str; 3] = [
-    "Automatic (up to 720p)",
-    "Data saver (up to 360p)",
-    "Low (up to 180p)",
-];
+/// The video quality choices, in `Quality` order (keys of AzMeet's resources).
+pub(crate) const QUALITY_LABELS: [&str; 3] = ["azmeet-quality-auto", "azmeet-quality-saver", "azmeet-quality-low"];
 
 /// The settings: the title row over the kit's page (its Back and Escape close it).
 fn settings(view: &CallView, data: &RefAny, kit_ref: &RefAny, actions: &Actions) -> Dom {
@@ -1663,82 +1648,65 @@ fn settings_sections(s: &SettingsView, data: &RefAny, actions: &Actions) -> Vec<
     let audio_video = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(kit::row(
-            "Microphone",
-            choice(&s.mics, s.mic_choice, "Microphone", data, actions.mic_choice),
+            "azmeet-microphone",
+            choice(&s.mics, s.mic_choice, "azmeet-microphone", data, actions.mic_choice),
         ))
         .with_child(kit::row(
-            "Speaker",
-            choice(&s.speakers, s.speaker_choice, "Speaker", data, actions.speaker_choice),
+            "azmeet-speaker",
+            choice(&s.speakers, s.speaker_choice, "azmeet-speaker", data, actions.speaker_choice),
         ))
         .with_child(kit::row(
-            "Camera",
-            choice(&s.cameras, s.camera_choice, "Camera", data, actions.camera_choice),
+            "azmeet-camera",
+            choice(&s.cameras, s.camera_choice, "azmeet-camera", data, actions.camera_choice),
         ))
         .with_child(kit::row(
-            "Mirror my video",
+            "azmeet-mirror",
             check(s.mirror, ids::MIRROR, data, actions.mirror),
         ))
         .with_child(kit::row(
-            "Video I receive",
+            "azmeet-video-received",
             choice(
-                &QUALITY_LABELS.map(String::from),
+                &QUALITY_LABELS.map(t),
                 s.quality,
-                "Video quality",
+                "azmeet-video-quality",
                 data,
                 actions.quality,
             ),
         ))
-        .with_child(kit::note(
-            "Mirror my video turns only your own picture, as a mirror does: the others see you \
-             the right way round.",
-        ))
-        .with_child(kit::note(
-            "The microphone and the speaker are the system's for now; the ones picked here are \
-             remembered for when AzMeet can open another.",
-        ))
+        .with_child(kit::note("azmeet-mirror-note"))
+        .with_child(kit::note("azmeet-devices-note"))
         .with_child(kit::note(&s.codec));
     let meetings = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
-        .with_child(kit::row("Your name", name_field(&s.name, data, actions)))
+        .with_child(kit::row("azmeet-your-name", name_field(&s.name, data, actions)))
         .with_child(kit::row(
-            "Join with the microphone off",
+            "azmeet-join-muted",
             check(s.join_muted, ids::JOIN_MUTED, data, actions.join_muted),
         ))
         .with_child(kit::row(
-            "Join with the camera off",
+            "azmeet-join-camera-off",
             check(s.join_camera_off, ids::JOIN_CAMERA_OFF, data, actions.join_camera_off),
         ))
-        .with_child(kit::row("Meeting server", text(&s.server, "font-size: 13px;")))
+        .with_child(kit::row("azmeet-meeting-server", text(&s.server, "font-size: 13px;")))
         .with_child(kit::row(
-            "This device's safety code",
+            "azmeet-device-safety-code",
             text(&s.identity, "font-size: 13px;"),
         ))
-        .with_child(kit::note(
-            "The waiting room starts with the microphone and the camera as set here; switch \
-             them there before you join. The meeting server is changed on the start screen.",
-        ))
-        .with_child(kit::note(
-            "Rooms and their chats are end-to-end encrypted with this device's key: the meeting \
-             server keeps only what it cannot read. Compare safety codes with the others (a \
-             room's members list shows them) to be sure nobody stands in between.",
-        ));
+        .with_child(kit::note("azmeet-waiting-room-note"))
+        .with_child(kit::note("azmeet-encryption-note"));
     let recording = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(kit::row(
-            "Recordings go to",
+            "azmeet-recordings-go-to",
             text(&s.recordings, "font-size: 13px;"),
         ))
-        .with_child(kit::note(
-            "Recording, a transcript made on this computer and a summary sent by mail are on \
-             the way. A recording will be kept in its meeting's folder, next to the meeting's \
-             chat and record, and travel with your Azlin storage.",
-        ));
+        .with_child(kit::note("azmeet-recording-note"));
     [audio_video, meetings, recording]
         .into_iter()
         .enumerate()
         .map(|(category, content)| AppSection {
             category,
-            title: APP_CATEGORIES[category].to_string(),
+            title: crate::l10n::word("category", APP_CATEGORIES[category]),
             content,
         })
         .collect()
@@ -1754,7 +1722,7 @@ fn choice(
 ) -> Dom {
     DropDown::create(strings(choices))
         .with_selected(selected.min(choices.len().saturating_sub(1)))
-        .with_accessibility_name(AzString::from(name))
+        .with_accessibility_name(label(name))
         .with_on_choice_change(data.clone(), action)
         .dom()
 }
@@ -1787,6 +1755,7 @@ mod tests {
 
     #[test]
     fn this_sides_tile_says_you_and_its_avatar_keeps_the_names_initials() {
+        crate::l10n::in_english();
         let mut me = tile("Ada Lovelace", true, TileKind::Camera);
         me.muted = true;
         assert_eq!(tile_label(&me), "Ada Lovelace (you) · muted");
@@ -1797,6 +1766,7 @@ mod tests {
 
     #[test]
     fn a_tile_label_says_whose_screen_and_who_is_muted() {
+        crate::l10n::in_english();
         let mut ada = tile("Ada", false, TileKind::Camera);
         ada.muted = true;
         assert_eq!(tile_label(&ada), "Ada · muted");
@@ -1806,6 +1776,7 @@ mod tests {
     /// The waiting room says who is in the meeting already, as Meet's "No one else is here".
     #[test]
     fn the_waiting_room_says_who_is_in_the_meeting_already() {
+        crate::l10n::in_english();
         let names = |list: &[&str]| list.iter().map(|n| n.to_string()).collect::<Vec<String>>();
         assert_eq!(who_is_here(&[]), "No one else is here yet");
         assert_eq!(who_is_here(&names(&["Ada"])), "Ada is in this meeting");
@@ -1823,17 +1794,19 @@ mod tests {
     #[test]
     fn the_switches_say_what_a_click_does_and_the_join_button_who_made_the_meeting() {
         // The scripts click these words (two-clients.mjs: "Mute"; azmeet_e2e.py's waiting room).
-        assert_eq!((mic_label(true), mic_label(false)), ("Mute", "Unmute"));
+        crate::l10n::in_english();
+        assert_eq!((mic_label(true).as_str(), mic_label(false).as_str()), ("Mute", "Unmute"));
         assert_eq!(cam_label(true, false), "Stop video");
         assert_eq!(cam_label(false, true), "Start video", "an off camera is culled by nobody");
         assert!(cam_label(true, true).starts_with("Stop video"));
-        assert_eq!((join_label(true), join_label(false)), ("Start meeting", "Join now"));
+        assert_eq!((join_label(true).as_str(), join_label(false).as_str()), ("Start meeting", "Join now"));
     }
 
     /// With only a meeting's code a device knocks: the button says so, and once asked, that it
     /// waits (azmeet_e2e.py's crypto phase clicks "Ask to join").
     #[test]
     fn the_waiting_rooms_button_asks_to_join_with_only_the_code() {
+        crate::l10n::in_english();
         assert_eq!(waiting_button_label(false, None), "Join now");
         assert_eq!(waiting_button_label(true, None), "Start meeting");
         assert_eq!(waiting_button_label(false, Some(false)), "Ask to join");
@@ -1843,6 +1816,7 @@ mod tests {
     /// A row's buttons carry the start of its key: the scripts find "Admit" by the device id.
     #[test]
     fn a_rows_button_id_carries_the_start_of_its_key() {
+        crate::l10n::in_english();
         let device = "0123456789abcdef0123456789abcdef";
         assert_eq!(
             keyed_id(ids::ADMIT_PREFIX, device, DEVICE_ID_CHARS).as_str(),

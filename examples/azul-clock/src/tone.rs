@@ -31,10 +31,10 @@ impl Sound {
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Sound::Bells => "Morning bells",
-            Sound::Beep => "Beep",
-            Sound::Chime => "Chime",
-            Sound::Silent => "Silent",
+            Sound::Bells => "azclock-sound-bells",
+            Sound::Beep => "azclock-sound-beep",
+            Sound::Chime => "azclock-sound-chime",
+            Sound::Silent => "azclock-sound-silent",
         }
     }
 

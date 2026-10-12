@@ -27,6 +27,7 @@ use azul::{
         TextInputValid,
     },
 };
+use azul_appkit::l10n::{t, t_args, Arg};
 use chrono::{Datelike, NaiveDate};
 
 use super::{action_button, column, text, with_erp, Erp};
@@ -116,7 +117,7 @@ fn form_dom(s: &Erp, app: &RefAny, view: &View, draft: &FormDraft) -> Dom {
     }
     if spec::actions(&view.actions, &s.state.labels).is_empty() {
         let save = ActionSpec {
-            label: "Save".to_string(),
+            label: t("azerp-save"),
             kind: ActionKind::Submit,
             icon: String::new(),
             primary: true,
@@ -191,9 +192,9 @@ fn control(s: &Erp, app: &RefAny, f: &FieldSpec, value: &str) -> Dom {
         }
         FieldKind::Date if f.required => match model::parse_date(value) {
             Some(day) => date_picker(app, f, day),
-            None => text_input(app, f, value, "YYYY-MM-DD"),
+            None => text_input(app, f, value, &t("azerp-date-placeholder")),
         },
-        FieldKind::Date => text_input(app, f, value, "YYYY-MM-DD"),
+        FieldKind::Date => text_input(app, f, value, &t("azerp-date-placeholder")),
         FieldKind::Decimal => money_input(app, f, value),
         FieldKind::Integer => text_input(app, f, value, "0"),
         FieldKind::Text | FieldKind::Password | FieldKind::Switch => text_input(app, f, value, ""),
@@ -277,7 +278,10 @@ fn reference_picker(
         .collect();
     let mut picker = ReferencePicker::create(items)
         .with_filter(ReferencePickerFilter::Local)
-        .with_placeholder(format!("Type to find a {}", f.label.to_lowercase()))
+        .with_placeholder(t_args(
+            "azerp-type-to-find",
+            &[("what", Arg::from(&f.label))],
+        ))
         .with_accessibility_name(f.label.as_str())
         .with_on_event(
             RefAny::new(ChoiceRef {

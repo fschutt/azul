@@ -392,11 +392,22 @@ pub fn when_text(starts: u64, ends: u64, offset_secs: i32) -> String {
     let (Some(a), Some(b)) = (at(starts), at(ends)) else {
         return String::new();
     };
-    const DAY: &str = "%a %-d %b %Y, %H:%M";
+    // "Fri 9 Oct 2026, 14:00": the kit's short date with the year, in the window's language.
+    let day = |at: &chrono::DateTime<FixedOffset>| {
+        use chrono::Datelike;
+        let date = azul_appkit::l10n::date_text(
+            azul_appkit::l10n::DateStyle::ShortDateYear,
+            at.year(),
+            at.month(),
+            at.day(),
+            at.weekday().num_days_from_monday(),
+        );
+        format!("{date}, {}", at.format("%H:%M"))
+    };
     if a.date_naive() == b.date_naive() {
-        format!("{}-{}", a.format(DAY), b.format("%H:%M"))
+        format!("{}-{}", day(&a), b.format("%H:%M"))
     } else {
-        format!("{} - {}", a.format(DAY), b.format(DAY))
+        format!("{} - {}", day(&a), day(&b))
     }
 }
 
@@ -411,14 +422,16 @@ pub fn parse_local_start(text: &str, offset_secs: i32) -> Option<u64> {
     u64::try_from(at.timestamp()).ok()
 }
 
-/// `n` minutes as people say it: "5 min", "2 h", "2 h 5 min", "3 days".
+/// `n` minutes as people say it: "5 min", "2 h", "2 h 5 min", "3 days" (in the window's
+/// language).
 fn span(minutes: u64) -> String {
+    use azul_appkit::l10n::{t_args, Arg};
+    let n = |v: u64| Arg::from(v.to_string());
     match minutes {
-        0..=59 => format!("{} min", minutes.max(1)),
-        60..=1439 if minutes % 60 == 0 => format!("{} h", minutes / 60),
-        60..=1439 => format!("{} h {} min", minutes / 60, minutes % 60),
-        _ if minutes / 1440 == 1 => String::from("1 day"),
-        _ => format!("{} days", minutes / 1440),
+        0..=59 => t_args("azmeet-span-min", &[("min", n(minutes.max(1)))]),
+        60..=1439 if minutes % 60 == 0 => t_args("azmeet-span-h", &[("h", n(minutes / 60))]),
+        60..=1439 => t_args("azmeet-span-h-min", &[("h", n(minutes / 60)), ("min", n(minutes % 60))]),
+        _ => t_args("azmeet-span-days", &[("days", Arg::from(minutes / 1440))]),
     }
 }
 
@@ -427,16 +440,16 @@ fn span(minutes: u64) -> String {
 #[must_use]
 pub fn meeting_status(starts: u64, ends: u64, now: u64) -> String {
     let minutes = |a: u64, b: u64| a.saturating_sub(b).div_ceil(60);
+    use azul_appkit::l10n::{t_args, Arg};
     if now < starts {
-        format!("starts in {}", span(minutes(starts, now)))
+        t_args("azmeet-starts-in", &[("span", Arg::from(span(minutes(starts, now))))])
     } else if now < ends {
-        format!(
-            "started {} ago, ends in {}",
-            span(minutes(now, starts)),
-            span(minutes(ends, now))
+        t_args(
+            "azmeet-started-ago",
+            &[("ago", Arg::from(span(minutes(now, starts)))), ("left", Arg::from(span(minutes(ends, now))))],
         )
     } else {
-        format!("ended {} ago", span(minutes(now, ends)))
+        t_args("azmeet-ended-ago", &[("ago", Arg::from(span(minutes(now, ends))))])
     }
 }
 
@@ -508,6 +521,7 @@ mod tests {
 
     #[test]
     fn a_meetings_times_read_as_people_say_them() {
+        crate::l10n::in_english();
         let starts = 1_760_000_000;
         let ends = starts + 3600;
         assert_eq!(meeting_status(starts, ends, starts - 25 * 60), "starts in 25 min");
@@ -524,6 +538,7 @@ mod tests {
 
     #[test]
     fn a_meetings_times_show_in_the_time_zone_and_a_typed_start_reads_back() {
+        crate::l10n::in_english();
         let t = FRIDAY_14_UTC;
         assert_eq!(when_text(t, t + 3600, 0), "Fri 9 Oct 2026, 14:00-15:00");
         assert_eq!(when_text(t, t + 3600, 7200), "Fri 9 Oct 2026, 16:00-17:00");

@@ -12,6 +12,8 @@ use azul::{
     xml::{ExternalResourceKind, Xml, XmlTagName},
 };
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 use crate::{fetch::FeedLink, ids, links};
 
 /// Elements whose text is never shown.
@@ -229,7 +231,8 @@ pub struct Article {
     /// The web pictures it shows, each once (`Xml::scan_external_resources` of the cleaned tree):
     /// what is fetched on a Thread and put into the image cache under its address.
     pub images: Vec<String>,
-    /// Pictures not loaded (shown as `[image: alt]`): the "load pictures" notice counts them.
+    /// Pictures not loaded (shown as `[image: alt]`, in the window's language): the "load
+    /// pictures" notice counts them.
     pub blocked: usize,
     /// Words of text (the reading time).
     pub words: usize,
@@ -570,9 +573,9 @@ impl Cleaner<'_> {
         } else {
             self.blocked += 1;
             let label = if alt.is_empty() {
-                "[image]".to_string()
+                t("aznews-image")
             } else {
-                format!("[image: {alt}]")
+                t_args("aznews-image-alt", &[("alt", Arg::from(&alt))])
             };
             Some(element(
                 "span",
@@ -701,6 +704,7 @@ mod tests {
 
     #[test]
     fn the_pictures_are_listed_when_loaded_and_placeholders_otherwise() {
+        crate::l10n::in_english();
         let loaded = article(PAGE, "https://example.org/blog/post.html", true, false, "");
         assert_eq!(
             loaded.images,

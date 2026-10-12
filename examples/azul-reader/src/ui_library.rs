@@ -19,6 +19,8 @@ use azul::{
     },
 };
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 use crate::{
     app::{command, AppState, Command},
     commands::on_command,
@@ -67,11 +69,11 @@ pub fn navigation(app: &RefAny, st: &AppState) -> Dom {
                 "display: flex; flex-direction: row; align-items: center; padding: 6px 14px; \
                  color: system:text; cursor: pointer;"
             })
-            .with_accessibility_name(shelf.label())
+            .with_accessibility_name(t(shelf.label()))
             .with_child(
                 Dom::create_div()
                     .with_css("flex-grow: 1; font-size: 13px;")
-                    .with_child(Dom::create_span_with_text(shelf.label())),
+                    .with_child(Dom::create_span_with_text(t(shelf.label()))),
             )
             .with_child(
                 Dom::create_div()
@@ -109,9 +111,9 @@ fn tile(app: &RefAny, st: &AppState, index: usize, entry: &LibraryEntry) -> Dom 
         }
     };
     let progress = if entry.state.finished {
-        "Finished".to_string()
+        t("azreader-badge-finished")
     } else if entry.state.last_read == 0 {
-        "New".to_string()
+        t("azreader-badge-new")
     } else {
         position::percent_label(entry.state.progress)
     };
@@ -161,12 +163,10 @@ fn tile(app: &RefAny, st: &AppState, index: usize, entry: &LibraryEntry) -> Dom 
 #[must_use]
 pub fn content(app: &RefAny, st: &AppState) -> Dom {
     if st.listed && st.entries.is_empty() {
-        return ShellEmptyState::create(s("Your library is empty"))
+        return ShellEmptyState::create(t("azreader-library-empty"))
             .with_icon(s("local_library"))
-            .with_detail(s(
-                "Add an EPUB book, a text or an HTML file. Each book is kept in your data folder.",
-            ))
-            .with_action_label(s("Add a Book"))
+            .with_detail(t("azreader-library-empty-detail"))
+            .with_action_label(t("azreader-add-book"))
             .with_on_action(
                 command(app, Command::AddBooks),
                 on_command as ButtonOnClickCallbackType,
@@ -176,8 +176,8 @@ pub fn content(app: &RefAny, st: &AppState) -> Dom {
     }
     let search = TextInput::create_search()
         .with_text(st.query.as_str())
-        .with_placeholder("Search titles and authors")
-        .with_accessibility_name("Search the library")
+        .with_placeholder(t("azreader-search"))
+        .with_accessibility_name(t("azreader-search-library"))
         .with_on_text_input(
             app.clone(),
             on_search_text as TextInputOnTextInputCallbackType,
@@ -200,11 +200,11 @@ pub fn content(app: &RefAny, st: &AppState) -> Dom {
         grid.add_child(
             Dom::create_div()
                 .with_css("padding: 24px; color: system:secondary-text; font-size: 13px;")
-                .with_child(Dom::create_span_with_text(if st.listed {
-                    "No book here."
+                .with_child(Dom::create_span_with_text(t(if st.listed {
+                    "azreader-no-book-here"
                 } else {
-                    "Reading the library..."
-                })),
+                    "azreader-reading-library"
+                }))),
         );
     }
     Dom::create_div()
@@ -221,10 +221,13 @@ pub fn content(app: &RefAny, st: &AppState) -> Dom {
 #[must_use]
 pub fn status_bar(st: &AppState) -> Dom {
     let shown = library::shown(&st.entries, st.shelf, &st.query, st.sort).len();
-    let mut segments = vec![StatusBarSegment::create(s(&format!(
-        "{shown} OF {} BOOKS",
-        st.entries.len()
-    )))];
+    let mut segments = vec![StatusBarSegment::create(t_args(
+        "azreader-books-shown",
+        &[
+            ("shown", Arg::from(shown)),
+            ("count", Arg::from(st.entries.len())),
+        ],
+    ))];
     if !st.notice.is_empty() {
         segments.push(StatusBarSegment::create(s(&st.notice)));
     }

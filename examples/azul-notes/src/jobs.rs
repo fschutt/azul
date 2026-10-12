@@ -415,9 +415,9 @@ fn apply(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, outcome: O
                 let open = state.open.as_deref() == Some(note.id.as_str());
                 match state.library.get(&note.id) {
                     Some(mine) if mine.dirty => {
-                        state.notice = format!(
-                            "\"{}\" changed on disk; your edits are kept and will be saved over it.",
-                            mine.display_title()
+                        state.notice = azul_appkit::l10n::t_args(
+                            "aznotes-changed-on-disk",
+                            &[("title", azul_appkit::l10n::Arg::from(mine.display_title()))],
                         );
                     }
                     Some(mine) if mine.saved == note.saved && mine.key() == note.key() => {}
@@ -514,7 +514,10 @@ fn apply(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, outcome: O
         }
         Outcome::Deleted { id, result } => {
             if let Err(e) = result {
-                state.notice = format!("The note could not be deleted: {e}");
+                state.notice = azul_appkit::l10n::t_args(
+                    "aznotes-delete-failed",
+                    &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                );
             }
             state.library.notes.retain(|n| n.id != id);
             Update::RefreshDom
@@ -522,7 +525,10 @@ fn apply(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, outcome: O
         Outcome::Done { what, result } => match result {
             Ok(()) => Update::DoNothing,
             Err(e) => {
-                state.notice = format!("{what} could not be written: {e}");
+                state.notice = azul_appkit::l10n::t_args(
+                    "aznotes-write-failed",
+                    &[("what", azul_appkit::l10n::Arg::from(what.to_string())), ("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                );
                 Update::RefreshDom
             }
         },

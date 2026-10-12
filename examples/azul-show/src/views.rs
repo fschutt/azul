@@ -23,8 +23,12 @@ use azul::{
     },
 };
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 use crate::{
     app::{command, AppState, Command, Play, TransitionFrom, View},
+    l10n::word,
+    s,
     commands::{self, on_command},
     editor::Editor,
     model::{Background, Deck, ElementKind, Frame, PlaceholderRole, Slide, TextBody},
@@ -32,9 +36,6 @@ use crate::{
 };
 
 
-fn s(text: &str) -> AzString {
-    AzString::from(text)
-}
 
 // ==== The slide rail and the sorter ====
 
@@ -53,9 +54,9 @@ pub fn strip(app: &RefAny, st: &AppState, ed: &Editor, layout: ThumbnailStripLay
     for (i, slide) in ed.deck.slides.iter().enumerate() {
         let title = slide.title();
         let name = if title.is_empty() {
-            format!("Slide {}", i + 1)
+            t_args("azshow-slide-n", &[("n", Arg::from((i + 1).to_string()))])
         } else {
-            format!("Slide {}: {title}", i + 1)
+            t_args("azshow-slide-n-title", &[("n", Arg::from((i + 1).to_string())), ("title", Arg::from(&title))])
         };
         let badge = if !slide.build_steps().is_empty() {
             "auto_awesome"
@@ -79,7 +80,7 @@ pub fn strip(app: &RefAny, st: &AppState, ed: &Editor, layout: ThumbnailStripLay
         .with_layout(layout)
         .with_active(ed.current)
         .with_thumb_size(width, height)
-        .with_accessibility_name(s("Slides"))
+        .with_accessibility_name(s("azshow-slides"))
         .with_on_event(app.clone(), on_strip_event as ThumbnailStripOnEventCallbackType)
         .dom()
 }
@@ -171,7 +172,10 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
         .with_items(items)
         .with_guides(st.guides.clone())
         .with_nudge(1.0)
-        .with_accessibility_name(s(&format!("Slide {} of {}", ed.current + 1, deck.slides.len())))
+        .with_accessibility_name(s(&t_args(
+            "azshow-slide-of",
+            &[("n", Arg::from((ed.current + 1).to_string())), ("count", Arg::from(deck.slides.len().to_string()))],
+        )))
         .with_on_event(app.clone(), on_adorner_event as SelectionAdornerOnEventCallbackType);
     if let Some(m) = st.marquee {
         adorner = adorner.with_marquee(m);
@@ -495,8 +499,8 @@ pub fn next_cell(shape: &[usize], row: usize, col: usize, back: bool) -> Option<
 fn notes_field(app: &RefAny, notes: &str) -> Dom {
     TextArea::create()
         .with_text(s(notes))
-        .with_placeholder(s("Click to add notes"))
-        .with_accessibility_name(s("Notes"))
+        .with_placeholder(s("azshow-notes-prompt"))
+        .with_accessibility_name(s("azshow-notes"))
         .with_on_text_input(app.clone(), on_notes_input as TextAreaOnTextInputCallbackType)
         .with_on_focus_lost(app.clone(), on_notes_done as TextAreaOnFocusLostCallbackType)
         .dom()
@@ -607,8 +611,8 @@ pub fn outline(app: &RefAny, ed: &Editor) -> Dom {
                     .with_child(
                         TextInput::create()
                             .with_text(s(&slide.title()))
-                            .with_placeholder(s("Title"))
-                            .with_accessibility_name(s(&format!("Slide {} title", i + 1)))
+                            .with_placeholder(s("azshow-outline-title"))
+                            .with_accessibility_name(s(&t_args("azshow-outline-slide-title", &[("n", Arg::from((i + 1).to_string()))])))
                             .with_on_focus_lost(field(PlaceholderRole::Title), on_outline_title as TextInputOnFocusLostCallbackType)
                             .dom(),
                     ),
@@ -620,8 +624,8 @@ pub fn outline(app: &RefAny, ed: &Editor) -> Dom {
             row.add_child(
                 TextArea::create()
                     .with_text(s(&text_of(slide, role).unwrap_or_default()))
-                    .with_placeholder(s("Bullets, one per line"))
-                    .with_accessibility_name(s(&format!("Slide {} text", i + 1)))
+                    .with_placeholder(s("azshow-outline-bullets"))
+                    .with_accessibility_name(s(&t_args("azshow-outline-slide-text", &[("n", Arg::from((i + 1).to_string()))])))
                     .with_on_focus_lost(field(role), on_outline_body as TextAreaOnFocusLostCallbackType)
                     .dom(),
             );
@@ -646,7 +650,7 @@ pub fn notes_page(app: &RefAny, st: &AppState, ed: &Editor) -> Dom {
         let notes = if i == ed.current {
             notes_field(app, &slide.notes)
         } else {
-            Dom::create_p_with_text(if slide.notes.is_empty() { "(no notes)" } else { slide.notes.as_str() })
+            Dom::create_p_with_text(if slide.notes.is_empty() { s("azshow-no-notes") } else { AzString::from(slide.notes.as_str()) })
                 .with_css("margin: 0px; font-size: 14px; color: #262626;")
         };
         pages.add_child(
@@ -710,7 +714,7 @@ extern "C" fn on_frame_field(mut data: RefAny, _info: CallbackInfo, state: Numbe
 fn frame_field(app: &RefAny, label: &str, field: FrameField, value: f32) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; margin: 0px 0px 4px 0px;")
-        .with_child(Dom::create_p_with_text(label).with_css("margin: 0px 8px 0px 0px; width: 70px; font-size: 12px;"))
+        .with_child(Dom::create_p_with_text(s(label)).with_css("margin: 0px 8px 0px 0px; width: 70px; font-size: 12px;"))
         .with_child(
             NumberInput::create(value.round())
                 .with_accessibility_name(s(label))
@@ -727,7 +731,7 @@ fn frame_field(app: &RefAny, label: &str, field: FrameField, value: f32) -> Dom 
 
 /// A pane's section title: bold in flat; flora's label under flora (capitals in the label ink).
 fn section_title(text: &str) -> Dom {
-    Dom::create_p_with_text(text).with_css(
+    Dom::create_p_with_text(s(text)).with_css(
         "margin: 12px 0px 6px 0px; font-size: 13px; font-weight: bold; @theme(flora) { \
          font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: \
          system:secondary-text; }",
@@ -751,26 +755,26 @@ pub fn format_pane(app: &RefAny, ed: &Editor) -> Dom {
     let selected = ed.selected_indices();
     if let Some(&i) = selected.first() {
         let e = &ed.slide().elements[i];
-        pane.add_child(section_title(&format!("Format: {}", e.name())));
-        pane.add_child(section_title("Size & Position"));
+        pane.add_child(section_title(&t_args("azshow-format-of", &[("name", Arg::from(e.name()))])));
+        pane.add_child(section_title("azshow-size-position"));
         pane.add_child(frame_field(app, "X", FrameField::X, e.frame.x));
         pane.add_child(frame_field(app, "Y", FrameField::Y, e.frame.y));
-        pane.add_child(frame_field(app, "Width", FrameField::W, e.frame.w));
-        pane.add_child(frame_field(app, "Height", FrameField::H, e.frame.h));
-        pane.add_child(frame_field(app, "Rotation", FrameField::Rotation, e.frame.rotation));
+        pane.add_child(frame_field(app, "azshow-width", FrameField::W, e.frame.w));
+        pane.add_child(frame_field(app, "azshow-height", FrameField::H, e.frame.h));
+        pane.add_child(frame_field(app, "azshow-rotation", FrameField::Rotation, e.frame.rotation));
         if matches!(e.kind, ElementKind::Shape { .. }) {
-            pane.add_child(section_title("Fill"));
+            pane.add_child(section_title("azshow-fill"));
             pane.add_child(
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: row; flex-wrap: wrap;")
-                    .with_child(swatch(app, "Accent", Command::Fill(Some(c.accent))))
-                    .with_child(swatch(app, "Accent 2", Command::Fill(Some(c.accent2))))
-                    .with_child(swatch(app, "Accent 3", Command::Fill(Some(c.accent3))))
-                    .with_child(swatch(app, "None", Command::Fill(None))),
+                    .with_child(swatch(app, "azshow-accent", Command::Fill(Some(c.accent))))
+                    .with_child(swatch(app, "azshow-accent-2", Command::Fill(Some(c.accent2))))
+                    .with_child(swatch(app, "azshow-accent-3", Command::Fill(Some(c.accent3))))
+                    .with_child(swatch(app, "azshow-none", Command::Fill(None))),
             );
         }
         if let Some(body) = e.body() {
-            pane.add_child(section_title("Text"));
+            pane.add_child(section_title("azshow-text"));
             pane.add_child(
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: row; align-items: center;")
@@ -780,27 +784,30 @@ pub fn format_pane(app: &RefAny, ed: &Editor) -> Dom {
             );
         }
         if selected.len() > 1 {
-            pane.add_child(Dom::create_p_with_text(format!("{} objects selected", selected.len())).with_css("margin: 8px 0px;"));
+            pane.add_child(
+                Dom::create_p_with_text(t_args("azshow-objects-selected", &[("count", Arg::from(selected.len()))]))
+                    .with_css("margin: 8px 0px;"),
+            );
         }
     } else {
         let slide = ed.slide();
-        pane.add_child(section_title("Format Background"));
+        pane.add_child(section_title("azshow-format-background"));
         pane.add_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; flex-wrap: wrap;")
-                .with_child(swatch(app, "Theme", Command::Background(None, false)))
-                .with_child(swatch(app, "Soft", Command::Background(Some(Background::Solid { color: c.accent3 }), false)))
+                .with_child(swatch(app, "azshow-ground-theme", Command::Background(None, false)))
+                .with_child(swatch(app, "azshow-ground-soft", Command::Background(Some(Background::Solid { color: c.accent3 }), false)))
                 .with_child(swatch(
                     app,
-                    "Gradient",
+                    "azshow-gradient",
                     Command::Background(Some(Background::Gradient { from: c.accent, to: c.title }), false),
                 )),
         );
-        pane.add_child(section_title("Transition"));
+        pane.add_child(section_title("azshow-transition"));
         pane.add_child(
             Dom::create_p_with_text(format!(
                 "{}, {:.2} s",
-                slide.transition.kind.label(),
+                word("transition", slide.transition.kind.label()),
                 slide.transition.duration_ms as f32 / 1000.0
             ))
             .with_css("margin: 0px;"),
@@ -809,14 +816,14 @@ pub fn format_pane(app: &RefAny, ed: &Editor) -> Dom {
     // The animation pane: the slide's builds in click order.
     let slide = ed.slide();
     let steps = slide.build_steps();
-    pane.add_child(section_title("Animation Pane"));
+    pane.add_child(section_title("azshow-animation-pane"));
     if steps.is_empty() {
-        pane.add_child(Dom::create_p_with_text("No animations on this slide.").with_css("margin: 0px;"));
+        pane.add_child(Dom::create_p_with_text(s("azshow-no-animations")).with_css("margin: 0px;"));
     }
     for (n, step) in steps.iter().enumerate() {
         for id in step {
             if let Some(e) = slide.element(*id) {
-                let effect = e.animation.map_or("", |a| a.effect.label());
+                let effect = e.animation.map_or_else(String::new, |a| word("effect", a.effect.label()));
                 let selected = ed.selection.contains(*id);
                 pane.add_child(Dom::create_p_with_text(format!("{}  {effect}  {}", n + 1, e.name())).with_css(format!(
                     "margin: 0px 0px 2px 0px; padding: 2px 4px; {}",
@@ -861,14 +868,15 @@ pub fn status_bar(app: &RefAny, st: &AppState, zoom_percent: f32) -> Dom {
     let (slide_label, count) = st
         .editor
         .as_ref()
-        .map_or((String::from("NO PRESENTATION"), 0), |e| {
-            (format!("SLIDE {} OF {}", e.current + 1, e.deck.slides.len()), e.deck.slides.len())
+        .map_or((t("azshow-status-no-deck"), 0), |e| {
+            let n = [("n", Arg::from((e.current + 1).to_string())), ("count", Arg::from(e.deck.slides.len().to_string()))];
+            (t_args("azshow-status-slide", &n), e.deck.slides.len())
         });
     let _ = count;
     let mut segments = vec![
         StatusBarSegment::create(s(&slide_label)),
-        StatusBarSegment::create(s("ENGLISH (UNITED STATES)")),
-        StatusBarSegment::create(s(if st.show_notes { "NOTES" } else { "NOTES (HIDDEN)" }))
+        StatusBarSegment::create(s("azshow-status-language")),
+        StatusBarSegment::create(s(if st.show_notes { "azshow-status-notes" } else { "azshow-status-notes-hidden" }))
             .with_icon(s("notes"))
             .with_on_click(command(app, Command::ToggleNotes), on_command as ButtonOnClickCallbackType),
     ];

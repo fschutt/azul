@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use azul_appkit::l10n::{t_args, Arg};
 use chrono::{Datelike, NaiveDate};
 
 use super::{Action, FieldDef, Labels, View};
@@ -314,7 +315,8 @@ pub fn visible(field: &FieldSpec, values: &BTreeMap<String, String>) -> bool {
 }
 
 /// What is wrong with a form's `values`, field by field: `(field name,
-/// sentence)`. Hidden fields are not checked.
+/// sentence)`, the sentences in the window's language. Hidden fields are not
+/// checked.
 #[must_use]
 pub fn validate(fields: &[FieldSpec], values: &BTreeMap<String, String>) -> Vec<(String, String)> {
     let mut problems = Vec::new();
@@ -325,7 +327,10 @@ pub fn validate(fields: &[FieldSpec], values: &BTreeMap<String, String>) -> Vec<
         let text = values.get(&f.name).map_or("", |s| s.trim());
         if text.is_empty() {
             if f.required {
-                problems.push((f.name.clone(), format!("{} is required.", f.label)));
+                problems.push((
+                    f.name.clone(),
+                    t_args("azerp-problem-required", &[("label", Arg::from(&f.label))]),
+                ));
             }
             continue;
         }
@@ -338,17 +343,22 @@ pub fn validate(fields: &[FieldSpec], values: &BTreeMap<String, String>) -> Vec<
 
 /// What is wrong with a field's non-empty `text`.
 fn check(f: &FieldSpec, text: &str) -> Option<String> {
-    let label = &f.label;
+    // The sentence `key` about the field, with `extra` arguments.
+    let say = |key: &str, extra: &[(&str, Arg)]| -> String {
+        let mut args = vec![("label", Arg::from(&f.label))];
+        args.extend(extra.iter().cloned());
+        t_args(key, &args)
+    };
     // `unit`: minor units per unit of the bounds (an amount's are cents).
     let bounds = |n: i64, unit: i64| -> Option<String> {
         if let Some(min) = f.min {
             if n < min.saturating_mul(unit) {
-                return Some(format!("{label} must be at least {min}."));
+                return Some(say("azerp-problem-at-least", &[("min", Arg::from(min))]));
             }
         }
         if let Some(max) = f.max {
             if n > max.saturating_mul(unit) {
-                return Some(format!("{label} must be at most {max}."));
+                return Some(say("azerp-problem-at-most", &[("max", Arg::from(max))]));
             }
         }
         None
@@ -356,17 +366,17 @@ fn check(f: &FieldSpec, text: &str) -> Option<String> {
     match &f.kind {
         FieldKind::Integer => match text.parse::<i64>() {
             Ok(n) => bounds(n, 1),
-            Err(_) => Some(format!("{label} must be a whole number.")),
+            Err(_) => Some(say("azerp-problem-whole-number", &[])),
         },
         FieldKind::Decimal => match money::parse_amount(text) {
             Ok(cents) => bounds(cents, money::MINOR_PER_MAJOR),
-            Err(e) => Some(format!("{label}: {e}")),
+            Err(e) => Some(say("azerp-problem-field-amount", &[("why", Arg::from(e))])),
         },
         FieldKind::Date => model::parse_date(text)
             .is_none()
-            .then(|| format!("{label} must be a day (YYYY-MM-DD).")),
+            .then(|| say("azerp-problem-field-day", &[])),
         FieldKind::Select(options) => (!options.iter().any(|(value, _)| value == text))
-            .then(|| format!("{label} must be one of the choices.")),
+            .then(|| say("azerp-problem-field-choice", &[])),
         _ => None,
     }
 }
@@ -522,6 +532,7 @@ mod tests {
 
     #[test]
     fn validation_names_each_wrong_field_in_words() {
+        crate::l10n::in_english();
         let file = ViewFile::assets();
         let form = fields(
             &file.view("assets_fixed_asset_form").unwrap().fields,

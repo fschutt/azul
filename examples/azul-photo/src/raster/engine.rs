@@ -58,16 +58,17 @@ pub enum EngineError {
     Invalid,
 }
 
+/// What the status bar says, in the window's language.
 impl fmt::Display for EngineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::NoActiveLayer => "Select a layer first.",
-            Self::NoSuchLayer => "That layer is gone.",
-            Self::Locked => "The layer is locked.",
-            Self::NotRaster => "This needs a pixel layer; the active one is an adjustment or a group.",
-            Self::Empty => "Nothing would be left.",
-            Self::Invalid => "That does not work here.",
-        })
+        f.write_str(&azul_appkit::l10n::t(match self {
+            Self::NoActiveLayer => "azphoto-err-no-layer",
+            Self::NoSuchLayer => "azphoto-err-layer-gone",
+            Self::Locked => "azphoto-err-locked",
+            Self::NotRaster => "azphoto-err-not-raster",
+            Self::Empty => "azphoto-err-empty",
+            Self::Invalid => "azphoto-err-invalid",
+        }))
     }
 }
 
@@ -152,49 +153,52 @@ pub enum Op {
 }
 
 impl Op {
-    /// The History panel's label.
+    /// The History panel's label, in the window's language.
     #[must_use]
     pub fn label(&self) -> String {
+        use azul_appkit::l10n::{t, t_args, Arg};
         match self {
-            Self::NewLayer { .. } => "New Layer".into(),
-            Self::NewAdjustment(a) => a.name().into(),
-            Self::NewGroup => "New Group".into(),
-            Self::DeleteLayer(_) => "Delete Layer".into(),
-            Self::DuplicateLayer(_) => "Duplicate Layer".into(),
-            Self::MergeDown(_) => "Merge Down".into(),
-            Self::MoveLayer { .. } => "Move Layer".into(),
-            Self::SetVisible(_, true) => "Show Layer".into(),
-            Self::SetVisible(_, false) => "Hide Layer".into(),
-            Self::SetLocked(_, true) => "Lock Layer".into(),
-            Self::SetLocked(_, false) => "Unlock Layer".into(),
-            Self::SetOpacity(..) => "Opacity".into(),
-            Self::SetBlend(..) => "Blend Mode".into(),
-            Self::Rename(..) => "Rename Layer".into(),
-            Self::SetAdjustment(_, a) => format!("Edit {}", a.name()),
-            Self::SetExpanded(..) => "Expand Group".into(),
-            Self::Select(Shape::Rect(_), _) => "Rectangular Marquee".into(),
-            Self::Select(Shape::Ellipse(_), _) => "Elliptical Marquee".into(),
-            Self::Select(Shape::Polygon(_), _) => "Lasso".into(),
-            Self::SelectMagicWand { .. } => "Magic Wand".into(),
-            Self::SelectAll => "Select All".into(),
-            Self::Deselect => "Deselect".into(),
-            Self::InvertSelection => "Inverse".into(),
-            Self::Feather(_) => "Feather".into(),
-            Self::FloodFill { .. } => "Paint Bucket".into(),
-            Self::FillSelection(_) => "Fill".into(),
-            Self::ClearSelection => "Clear".into(),
-            Self::Gradient { .. } => "Gradient".into(),
-            Self::DrawShape { .. } => "Shape".into(),
-            Self::Filter(f) => f.name().into(),
-            Self::Offset { .. } => "Move".into(),
-            Self::TransformLayer { .. } => "Transform".into(),
-            Self::FlipLayer { .. } => "Flip Layer".into(),
-            Self::FlipCanvas { .. } => "Flip Canvas".into(),
-            Self::RotateCanvas90 { .. } => "Rotate Canvas".into(),
-            Self::Crop(_) => "Crop".into(),
-            Self::ResizeImage { .. } => "Image Size".into(),
-            Self::ResizeCanvas { .. } => "Canvas Size".into(),
-            Self::AddRasterLayer { name, .. } => format!("Place {name}"),
+            Self::NewLayer { .. } => t("azphoto-history-new-layer"),
+            Self::NewAdjustment(a) => crate::l10n::word("adjustment", a.name()),
+            Self::NewGroup => t("azphoto-history-new-group"),
+            Self::DeleteLayer(_) => t("azphoto-history-delete-layer"),
+            Self::DuplicateLayer(_) => t("azphoto-history-duplicate-layer"),
+            Self::MergeDown(_) => t("azphoto-history-merge-down"),
+            Self::MoveLayer { .. } => t("azphoto-history-move-layer"),
+            Self::SetVisible(_, true) => t("azphoto-history-show-layer"),
+            Self::SetVisible(_, false) => t("azphoto-history-hide-layer"),
+            Self::SetLocked(_, true) => t("azphoto-history-lock-layer"),
+            Self::SetLocked(_, false) => t("azphoto-history-unlock-layer"),
+            Self::SetOpacity(..) => t("azphoto-history-opacity"),
+            Self::SetBlend(..) => t("azphoto-history-blend-mode"),
+            Self::Rename(..) => t("azphoto-history-rename-layer"),
+            Self::SetAdjustment(_, a) => {
+                t_args("azphoto-history-edit", &[("name", Arg::from(crate::l10n::word("adjustment", a.name())))])
+            }
+            Self::SetExpanded(..) => t("azphoto-history-expand-group"),
+            Self::Select(Shape::Rect(_), _) => t("azphoto-tool-rectangular-marquee"),
+            Self::Select(Shape::Ellipse(_), _) => t("azphoto-tool-elliptical-marquee"),
+            Self::Select(Shape::Polygon(_), _) => t("azphoto-tool-lasso"),
+            Self::SelectMagicWand { .. } => t("azphoto-tool-magic-wand"),
+            Self::SelectAll => t("azphoto-history-select-all"),
+            Self::Deselect => t("azphoto-history-deselect"),
+            Self::InvertSelection => t("azphoto-history-inverse"),
+            Self::Feather(_) => t("azphoto-history-feather"),
+            Self::FloodFill { .. } => t("azphoto-tool-paint-bucket"),
+            Self::FillSelection(_) => t("azphoto-history-fill"),
+            Self::ClearSelection => t("azphoto-history-clear"),
+            Self::Gradient { .. } => t("azphoto-tool-gradient"),
+            Self::DrawShape { .. } => t("azphoto-tool-shape"),
+            Self::Filter(f) => crate::l10n::word("filter", f.name()),
+            Self::Offset { .. } => t("azphoto-tool-move"),
+            Self::TransformLayer { .. } => t("azphoto-history-transform"),
+            Self::FlipLayer { .. } => t("azphoto-history-flip-layer"),
+            Self::FlipCanvas { .. } => t("azphoto-history-flip-canvas"),
+            Self::RotateCanvas90 { .. } => t("azphoto-history-rotate-canvas"),
+            Self::Crop(_) => t("azphoto-tool-crop"),
+            Self::ResizeImage { .. } => t("azphoto-history-image-size"),
+            Self::ResizeCanvas { .. } => t("azphoto-history-canvas-size"),
+            Self::AddRasterLayer { name, .. } => t_args("azphoto-history-place", &[("name", Arg::from(name.as_str()))]),
         }
     }
 
@@ -432,7 +436,7 @@ impl TileEngine {
     /// An engine over `doc`; its History starts with "Open".
     #[must_use]
     pub fn new(doc: Document) -> Self {
-        Self::with_label(doc, "Open")
+        Self::with_label(doc, &azul_appkit::l10n::t("azphoto-history-open"))
     }
 
     /// An engine over `doc` whose first History state is `label`.
@@ -543,7 +547,7 @@ impl TileEngine {
             }
             Op::NewGroup => {
                 let id = self.doc.mint_id();
-                let name = format!("Group {id}");
+                let name = azul_appkit::l10n::t_args("azphoto-group-n", &[("n", azul_appkit::l10n::Arg::from(id.to_string()))]);
                 layer::insert_above(&mut self.doc.layers, self.active, Layer::group(id, name, Vec::new()));
                 self.active = Some(id);
                 Ok(true)
@@ -562,7 +566,7 @@ impl TileEngine {
             Op::DuplicateLayer(id) => {
                 let mut copy = self.doc.layer(id).ok_or(EngineError::NoSuchLayer)?.clone();
                 fresh_ids(&mut copy, &mut self.doc.next_id);
-                copy.name = format!("{} copy", copy.name);
+                copy.name = azul_appkit::l10n::t_args("azphoto-layer-copy", &[("name", azul_appkit::l10n::Arg::from(copy.name.as_str()))]);
                 let new_id = copy.id;
                 let dirty = self.extent(id);
                 layer::insert_above(&mut self.doc.layers, Some(id), copy);
@@ -929,7 +933,7 @@ impl RasterEngine for TileEngine {
         let before = self.stroke_before.take();
         if let (Some(stroke), Some(before)) = (self.stroke.take(), before) {
             if !stroke.dirty.is_empty() {
-                self.history.checkpoint(stroke.settings.tool.label(), before);
+                self.history.checkpoint(&crate::l10n::word("tool", stroke.settings.tool.label()), before);
             }
         }
     }

@@ -77,7 +77,7 @@ SCENARIOS = [
 
 
 def scenario_flags(worker, name, scenario, extra=()):
-    return ["--worker", worker, "--name", name, "--relay", "off"] + list(scenario) + list(extra)
+    return ["--worker", worker, "--name", name, "--relay", "off", "--language", "en"] + list(scenario) + list(extra)
 
 
 def run_scenario(name, args, binary, worker, logs, scenario):

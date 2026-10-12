@@ -34,7 +34,10 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::StyledTextRunVec,
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{
+    l10n::{t, t_args, Arg},
+    ui as kit,
+};
 use azul_storage::LocalDrive;
 
 use crate::app::{device_unlock_key, now, DeviceUnlock, KeyringOp, KeysApp, Screen};
@@ -109,10 +112,7 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
                 eprintln!("[azkeys] {problem}");
             }
             if !problems.is_empty() {
-                s.notice = format!(
-                    "{} file(s) in the vault folder are not vaults",
-                    problems.len()
-                );
+                s.notice = t_args("azkeys-not-vaults", &[("count", Arg::from(problems.len()))]);
             }
             s.vaults = vaults;
             println!("AZKEYS_LISTED {}", s.vaults.len());
@@ -123,7 +123,7 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
                 .position(|v| Some(v.id()) == last.as_deref())
                 .unwrap_or(0);
             if s.vaults.is_empty() && s.sample {
-                s.busy = Some("Making the sample vault\u{2026}".to_string());
+                s.busy = Some(t("azkeys-making-sample"));
                 let work = Work::Create {
                     vault: sample_vault(now()),
                     password: Zeroizing::new(SAMPLE_PASSWORD.to_string()),
@@ -179,7 +179,7 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
             s.saving = false;
             replace_envelope(s, &key, envelope);
             s.change = Default::default();
-            s.change.message = "The master password is changed.".to_string();
+            s.change.message = t("azkeys-password-changed");
             println!("AZKEYS_PASSWORD_CHANGED");
             // A change made while the file was rewritten is saved now.
             if s.save_again {
@@ -192,43 +192,44 @@ fn handle(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, done: Done) {
             after_save(s, info);
         }
         Done::Put { key } => {
-            s.notice = format!(
-                "Written to {}",
-                azul_appkit::data::local_path(&s.data_root, &key).display()
+            let path = azul_appkit::data::local_path(&s.data_root, &key);
+            s.notice = t_args(
+                "azkeys-written-to",
+                &[("path", Arg::from(path.display().to_string()))],
             );
             println!("AZKEYS_WRITTEN {key}");
         }
         Done::Failed(f) => {
             s.busy = None;
             println!("AZKEYS_FAILED {}", f.what);
-            let t = now();
+            let at = now();
+            // The failure's message is the vault's or the drive's own detail (English).
+            let why = [("why", Arg::from(&f.message))];
             if f.wrong_password {
                 // The field starts empty for the next try.
                 zeroize::Zeroize::zeroize(&mut *s.unlock.password);
-                s.attempts.failed(t);
-                s.unlock.message = s.attempts.message(t);
-                println!("AZKEYS_WRONG_PASSWORD {}", s.attempts.wait(t));
+                s.attempts.failed(at);
+                s.unlock.message = s.attempts.message(at);
+                println!("AZKEYS_WRONG_PASSWORD {}", s.attempts.wait(at));
             } else if f.wrong_key {
                 if let Some(v) = s.chosen_vault() {
                     let id = v.id().to_string();
                     kit::set_value(&s.kit, info, &device_unlock_key(&id), "");
                 }
-                s.unlock.message = "The key kept on this device no longer opens this vault. \
-                                    Unlock it with the master password."
-                    .to_string();
+                s.unlock.message = t("azkeys-key-stale");
             } else if f.what == "save" || f.what == "change the password" {
                 s.saving = false;
-                s.notice = format!("Not saved: {}", f.message);
+                s.notice = t_args("azkeys-not-saved", &why);
                 if f.what == "change the password" {
-                    s.change.message = format!("The password is not changed: {}", f.message);
+                    s.change.message = t_args("azkeys-password-not-changed", &why);
                 }
                 after_save(s, info);
             } else if s.screen == Screen::Create {
-                s.create.message = format!("The vault could not be made: {}", f.message);
+                s.create.message = t_args("azkeys-create-failed", &why);
             } else if s.screen == Screen::Unlock {
-                s.unlock.message = format!("The vault cannot be opened: {}", f.message);
+                s.unlock.message = t_args("azkeys-open-failed", &why);
             } else {
-                s.notice = format!("Could not {}: {}", f.what, f.message);
+                s.notice = t_args("azkeys-failed", &why);
             }
         }
     }
@@ -336,7 +337,7 @@ pub fn lock(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny) {
     if s.saving {
         s.lock_pending = true;
         s.screen = Screen::Unlock;
-        s.busy = Some("Saving, then locking\u{2026}".to_string());
+        s.busy = Some(t("azkeys-saving-then-locking"));
         return;
     }
     finish_lock(s, info);
@@ -383,8 +384,11 @@ pub fn copy_secret(s: &mut KeysApp, info: &mut CallbackInfo, field: &str) {
     s.clipboard.clear_after = s.settings.clear_seconds;
     s.clipboard.copied(&text, &label, t);
     s.notice = match s.clipboard.remaining(t) {
-        Some(secs) => format!("Copied the {label}; the clipboard clears in {secs} s"),
-        None => format!("Copied the {label}"),
+        Some(secs) => t_args(
+            "azkeys-copied-clears",
+            &[("label", Arg::from(&label)), ("seconds", Arg::from(secs))],
+        ),
+        None => t_args("azkeys-copied", &[("label", Arg::from(&label))]),
     };
     println!("AZKEYS_COPIED {label}");
 }
@@ -431,21 +435,21 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
         return TimerCallbackReturn::continue_unchanged();
     };
     let s = &mut *guard;
-    let t = now();
+    let at = now();
     let mut refresh = false;
-    if s.clipboard.due(t) {
+    if s.clipboard.due(at) {
         set_clipboard(&mut info.callback_info, "");
         s.clipboard.cleared();
-        s.notice = "The clipboard is cleared.".to_string();
+        s.notice = t("azkeys-clipboard-cleared");
         println!("AZKEYS_CLIPBOARD_CLEARED");
         refresh = true;
     }
-    if s.session.is_some() && !s.lock_pending && s.auto_lock.due(t) {
+    if s.session.is_some() && !s.lock_pending && s.auto_lock.due(at) {
         println!("AZKEYS_AUTO_LOCK");
         lock(s, &mut info.callback_info, &app);
         refresh = true;
     }
-    if refresh || ticking(s, t) {
+    if refresh || ticking(s, at) {
         TimerCallbackReturn::continue_and_refresh_dom()
     } else {
         TimerCallbackReturn::continue_unchanged()
@@ -457,7 +461,7 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
 /// Sends a keyring request when none is on the way; `false` (and a notice) when one is.
 fn keyring(s: &mut KeysApp, info: &mut CallbackInfo, op: KeyringOp, call: KeyringCall) -> bool {
     if s.keyring_waiting.is_some() {
-        s.notice = "The system keyring is still answering; try again in a moment.".to_string();
+        s.notice = t("azkeys-keyring-busy");
         return false;
     }
     match &call {
@@ -527,33 +531,31 @@ pub fn unlock_with_device(s: &mut KeysApp, info: &mut CallbackInfo) {
     match s.device_unlock(&vault_id) {
         Some(DeviceUnlock::Prompt) => {
             s.biometric_for = Some((vault_id, key));
+            let reason = t_args("azkeys-biometric-reason", &[("name", Arg::from(name))]);
             info.request_biometric_auth(BiometricPrompt {
-                reason: AzString::from(format!("Unlock the vault \u{201c}{name}\u{201d}")),
-                cancel_label: AzString::from("Use the password"),
+                reason: AzString::from(reason),
+                cancel_label: AzString::from(t("azkeys-use-password")),
                 allow_device_credential: true,
             });
         }
         Some(_) => {
             let call = KeyringCall::Get(store::keyring_name(&vault_id));
             if keyring(s, info, KeyringOp::Get { vault_id, key }, call) {
-                s.busy = Some("Waiting for the system keyring\u{2026}".to_string());
+                s.busy = Some(t("azkeys-waiting-keyring"));
             }
         }
-        None => {
-            s.unlock.message = "This device keeps no key of this vault yet: unlock it with the \
-                                master password, then turn on device unlock in the settings."
-                .to_string();
-        }
+        None => s.unlock.message = t("azkeys-no-device-key"),
     }
 }
 
-fn keyring_problem(result: &KeyringResult) -> &'static str {
-    match result {
-        KeyringResult::NotFound => "the keyring has no key of this vault",
-        KeyringResult::Denied => "the prompt was cancelled or refused",
-        KeyringResult::Unavailable => "no system keyring is available",
-        _ => "the keyring reported an error",
-    }
+/// Why the keyring did not do it, in the language of the last layout.
+fn keyring_problem(result: &KeyringResult) -> String {
+    t(match result {
+        KeyringResult::NotFound => "azkeys-keyring-not-found",
+        KeyringResult::Denied => "azkeys-keyring-denied",
+        KeyringResult::Unavailable => "azkeys-keyring-unavailable",
+        _ => "azkeys-keyring-error",
+    })
 }
 
 /// The keyring answered the request on the way.
@@ -578,13 +580,10 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
                     &device_unlock_key(&vault_id),
                     mode.name(),
                 );
-                s.notice = match mode {
-                    DeviceUnlock::Keyring => {
-                        "This device now unlocks the vault from the system keyring."
-                    }
-                    _ => "This device now unlocks the vault with biometrics.",
-                }
-                .to_string();
+                s.notice = t(match mode {
+                    DeviceUnlock::Keyring => "azkeys-device-unlock-keyring-on",
+                    _ => "azkeys-device-unlock-biometric-on",
+                });
                 println!("AZKEYS_DEVICE_UNLOCK {vault_id} {}", mode.name());
             }
             // A keychain that cannot bind the item to biometry (an unsigned build): keep the key
@@ -595,7 +594,10 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
                 store_device_key(s, &mut info, DeviceUnlock::Prompt);
             }
             other => {
-                s.notice = format!("Device unlock is not on: {}.", keyring_problem(other));
+                s.notice = t_args(
+                    "azkeys-device-unlock-not-on",
+                    &[("why", Arg::from(keyring_problem(other)))],
+                );
             }
         },
         KeyringOp::Get { vault_id, key } => {
@@ -603,7 +605,7 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
             match &result {
                 KeyringResult::Retrieved(secret) => match SecretKey::from_base64(secret.as_str()) {
                     Some(vault_key) => {
-                        s.busy = Some("Unlocking\u{2026}".to_string());
+                        s.busy = Some(t("azkeys-unlocking"));
                         spawn(
                             &mut info,
                             &app,
@@ -611,27 +613,23 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
                             Work::UnlockWithKey { key, vault_key },
                         );
                     }
-                    None => {
-                        s.unlock.message =
-                            "The keyring's entry is not a vault key. Unlock with the master password."
-                                .to_string();
-                    }
+                    None => s.unlock.message = t("azkeys-keyring-not-a-key"),
                 },
                 KeyringResult::NotFound => {
                     kit::set_value(&s.kit, &mut info, &device_unlock_key(&vault_id), "");
-                    s.unlock.message = "This device no longer keeps the key of this vault. Unlock \
-                                        it with the master password."
-                        .to_string();
+                    s.unlock.message = t("azkeys-device-key-gone");
                 }
                 other => {
-                    s.unlock.message =
-                        format!("Device unlock did not work: {}.", keyring_problem(other));
+                    s.unlock.message = t_args(
+                        "azkeys-device-unlock-failed",
+                        &[("why", Arg::from(keyring_problem(other)))],
+                    );
                 }
             }
         }
         KeyringOp::Delete { vault_id } => {
             kit::set_value(&s.kit, &mut info, &device_unlock_key(&vault_id), "");
-            s.notice = "This device no longer unlocks the vault without its password.".to_string();
+            s.notice = t("azkeys-device-unlock-off");
             println!("AZKEYS_DEVICE_UNLOCK {vault_id} off");
         }
     }
@@ -654,16 +652,11 @@ pub extern "C" fn on_biometric_result(mut data: RefAny, mut info: CallbackInfo) 
         BiometricResult::Authenticated | BiometricResult::FellBackToPasscode => {
             let call = KeyringCall::Get(store::keyring_name(&vault_id));
             if keyring(s, &mut info, KeyringOp::Get { vault_id, key }, call) {
-                s.busy = Some("Waiting for the system keyring\u{2026}".to_string());
+                s.busy = Some(t("azkeys-waiting-keyring"));
             }
         }
-        BiometricResult::Cancelled => {
-            s.unlock.message = "Cancelled: unlock with the master password.".to_string();
-        }
-        _ => {
-            s.unlock.message =
-                "The biometric check did not pass: unlock with the master password.".to_string();
-        }
+        BiometricResult::Cancelled => s.unlock.message = t("azkeys-biometric-cancelled"),
+        _ => s.unlock.message = t("azkeys-biometric-failed"),
     }
     Update::RefreshDom
 }
@@ -698,7 +691,7 @@ pub extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -
     if s.saving {
         info.prevent_window_close();
         s.close_after_save = true;
-        s.busy = Some("Saving before closing\u{2026}".to_string());
+        s.busy = Some(t("azkeys-saving-before-closing"));
         return Update::RefreshDom;
     }
     // Closing: the vault's strings are overwritten before the process ends.

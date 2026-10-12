@@ -26,6 +26,9 @@ pub mod graph;
 pub mod history;
 /// The DOM ids and classes (`__azcalc_` prefix), each defined once.
 pub mod ids;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod num;
 pub mod programmer;
 pub mod typing;

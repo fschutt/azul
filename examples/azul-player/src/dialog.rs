@@ -12,9 +12,11 @@ use azul::{
     dom::{KeyModifiers, VirtualKeyCode},
     prelude::*,
 };
+use azul_appkit::l10n::{app_word, t, t_args, Arg};
 
 use crate::{
     app::{self, Player},
+    l10n::word,
     library::{self, Shelf},
     media::{self, Command},
     nav,
@@ -50,18 +52,19 @@ pub fn more_info(s: &Player) -> Option<Overlay> {
     match &place.screen {
         Screen::Start if s.zone() == Zone::Content => {
             let entry = s.strip.entry();
-            let mut lines = vec![s.strip.category().name.to_string()];
-            let why = entry
-                .never
-                .map(str::to_string)
-                .or_else(|| nav::missing(s, entry.action));
+            let mut lines = vec![word(s.strip.category().name)];
+            let why = nav::why_not(s, entry);
             if let Some(why) = why {
                 lines.push(why);
             }
             Some(overlay::more_info(
-                entry.label,
+                &word(entry.label),
                 lines,
-                vec![choice("open", "chevron_right", Do::Strip(entry.action))],
+                vec![choice(
+                    "azplayer-choice-open",
+                    "chevron_right",
+                    Do::Strip(entry.action),
+                )],
             ))
         }
         Screen::Section(_) | Screen::Group { .. } | Screen::Search
@@ -89,30 +92,38 @@ fn tile_info(s: &Player, index: usize) -> Option<Overlay> {
             shelf: Shelf::Music,
             group,
         } => {
-            lines.push(library::count(group.items.len(), "song", "songs"));
+            lines.push(library::count("azplayer-count-songs", group.items.len()));
             vec![
-                choice("play", "play_arrow", Do::Play(index)),
-                choice("add to queue", "queue_music", Do::Queue(index)),
-                choice("open", "chevron_right", Do::Open(index)),
+                choice("azplayer-choice-play", "play_arrow", Do::Play(index)),
+                choice("azplayer-choice-queue", "queue_music", Do::Queue(index)),
+                choice("azplayer-choice-open", "chevron_right", Do::Open(index)),
             ]
         }
         Tile::Group {
             shelf: Shelf::Pictures,
             group,
         } => {
-            lines.push(library::count(group.items.len(), "picture", "pictures"));
+            lines.push(library::count("azplayer-count-pictures", group.items.len()));
             vec![
-                choice("play slide show", "slideshow", Do::SlideShow(index)),
-                choice("open", "chevron_right", Do::Open(index)),
+                choice(
+                    "azplayer-word-play-slide-show",
+                    "slideshow",
+                    Do::SlideShow(index),
+                ),
+                choice("azplayer-choice-open", "chevron_right", Do::Open(index)),
             ]
         }
-        Tile::Group { .. } => vec![choice("open", "chevron_right", Do::Open(index))],
+        Tile::Group { .. } => vec![choice(
+            "azplayer-choice-open",
+            "chevron_right",
+            Do::Open(index),
+        )],
         Tile::Item {
             shelf: Shelf::Music,
             ..
         } => vec![
-            choice("play", "play_arrow", Do::Open(index)),
-            choice("add to queue", "queue_music", Do::Queue(index)),
+            choice("azplayer-choice-play", "play_arrow", Do::Open(index)),
+            choice("azplayer-choice-queue", "queue_music", Do::Queue(index)),
         ],
         Tile::Item {
             shelf: Shelf::Pictures,
@@ -120,34 +131,62 @@ fn tile_info(s: &Player, index: usize) -> Option<Overlay> {
         } => {
             let path = s.items(Shelf::Pictures).get(*item)?.path.clone();
             vec![
-                choice("view", "photo", Do::Open(index)),
-                choice("play slide show from here", "slideshow", Do::SlideShow(index)),
-                choice("delete", "delete", Do::AskDelete(path)),
+                choice("azplayer-choice-view", "photo", Do::Open(index)),
+                choice(
+                    "azplayer-choice-slide-show-from-here",
+                    "slideshow",
+                    Do::SlideShow(index),
+                ),
+                choice("azplayer-choice-delete", "delete", Do::AskDelete(path)),
             ]
         }
         Tile::Item { shelf, index: item } => {
             let path = s.items(*shelf).get(*item)?.path.clone();
-            let mut c = vec![choice("play", "play_arrow", Do::Open(index))];
+            let mut c = vec![choice(
+                "azplayer-choice-play",
+                "play_arrow",
+                Do::Open(index),
+            )];
             if resumes(&path) {
-                c.push(choice("play from the start", "replay", Do::FromStart(path.clone())));
+                c.push(choice(
+                    "azplayer-choice-from-start",
+                    "replay",
+                    Do::FromStart(path.clone()),
+                ));
             }
-            c.push(choice("delete", "delete", Do::AskDelete(path)));
+            c.push(choice(
+                "azplayer-choice-delete",
+                "delete",
+                Do::AskDelete(path),
+            ));
             c
         }
         Tile::Recent(i) => {
             let path = s.history.entries.get(*i)?.path.clone();
-            let mut c = vec![choice("play", "play_arrow", Do::Open(index))];
+            let mut c = vec![choice(
+                "azplayer-choice-play",
+                "play_arrow",
+                Do::Open(index),
+            )];
             if resumes(&path) {
-                c.push(choice("play from the start", "replay", Do::FromStart(path.clone())));
+                c.push(choice(
+                    "azplayer-choice-from-start",
+                    "replay",
+                    Do::FromStart(path.clone()),
+                ));
             }
             c.push(choice(
-                "remove from recently played",
+                "azplayer-choice-forget",
                 "playlist_remove",
                 Do::Forget(path),
             ));
             c
         }
-        Tile::OpenFile => vec![choice("open a file", "folder_open", Do::Open(index))],
+        Tile::OpenFile => vec![choice(
+            "azplayer-word-open-a-file",
+            "folder_open",
+            Do::Open(index),
+        )],
     };
     Some(overlay::more_info(&title, lines, choices))
 }
@@ -171,17 +210,25 @@ fn now_playing_info(s: &Player) -> Option<Overlay> {
         lines.push(format!("{} \u{b7} {}", i.filed_artist(), i.album_or_unknown()));
     }
     let playing = music.playing();
-    lines.push(String::from(if playing { "now playing" } else { "paused" }));
+    lines.push(t(if playing {
+        "azplayer-now-playing"
+    } else {
+        "azplayer-paused"
+    }));
     let mut choices = Vec::new();
     if s.place().screen != Screen::NowPlaying {
-        choices.push(choice("now playing", "queue_music", Do::NowPlaying));
+        choices.push(choice(
+            "azplayer-now-playing",
+            "queue_music",
+            Do::NowPlaying,
+        ));
     }
     choices.push(if playing {
-        choice("pause", "pause", Do::PlayPause)
+        choice("azplayer-choice-pause", "pause", Do::PlayPause)
     } else {
-        choice("play", "play_arrow", Do::PlayPause)
+        choice("azplayer-choice-play", "play_arrow", Do::PlayPause)
     });
-    choices.push(choice("stop", "stop", Do::Stop));
+    choices.push(choice("azplayer-choice-stop", "stop", Do::Stop));
     Some(overlay::more_info(&title, lines, choices))
 }
 
@@ -207,9 +254,15 @@ pub fn open_about(s: &mut Player) {
     open(
         s,
         overlay::about(vec![
-            format!("AzPlayer {}", facts.version),
-            about.summary.to_string(),
-            format!("{} license. The data is in {}.", about.license, facts.data),
+            format!("{} {}", about.name, facts.version),
+            app_word(about.name, "about-summary", about.summary),
+            t_args(
+                "azplayer-about-license",
+                &[
+                    ("license", Arg::from(about.license)),
+                    ("data", Arg::from(facts.data)),
+                ],
+            ),
         ]),
     );
 }
@@ -372,7 +425,7 @@ pub fn choose(app: &RefAny, info: &mut CallbackInfo, act: Do) -> Update {
                 close(&mut s);
                 s.history.remove(path);
                 println!("AZPLAYER_HISTORY {}", s.history.entries.len());
-                s.notice("Removed from recently played (the file stays).");
+                s.notice("azplayer-forgotten");
                 app::save_history(app, &s, info);
             }
             _ => close(&mut s),
@@ -532,13 +585,13 @@ fn delete_file(app: &RefAny, info: &mut CallbackInfo, path: &str) -> Update {
         .into_iter()
         .find(|shelf| s.items(*shelf).iter().any(|i| i.path == path));
     let Some(shelf) = shelf else {
-        s.notice("Only a file of a library is deleted here.");
+        s.notice("azplayer-delete-only-library");
         return Update::RefreshDom;
     };
     let plays = s.video.as_ref().is_some_and(|v| v.path == path)
         || s.music.as_ref().is_some_and(|m| m.paths.iter().any(|p| p == path));
     if plays {
-        s.notice("It is playing or queued: stop it first.");
+        s.notice("azplayer-delete-playing");
         return Update::RefreshDom;
     }
     match std::fs::remove_file(path) {
@@ -547,14 +600,14 @@ fn delete_file(app: &RefAny, info: &mut CallbackInfo, path: &str) -> Update {
             s.history.remove(path);
             println!("AZPLAYER_DELETED {path}");
             let title = library::file_title(Path::new(path));
-            s.notice(&format!("{title} was deleted."));
+            s.notice(&t_args("azplayer-deleted", &[("title", Arg::from(title))]));
             app::save_library(app, &s, info);
             app::save_history(app, &s, info);
         }
         Err(e) => open(
             &mut s,
             overlay::error(
-                "the file was not deleted",
+                "azplayer-delete-failed",
                 vec![path.to_string(), e.to_string()],
             ),
         ),

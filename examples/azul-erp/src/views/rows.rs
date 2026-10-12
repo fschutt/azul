@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use azul_appkit::l10n::{t_args, Arg};
 use chrono::NaiveDate;
 
 use super::spec::{self, ColumnSpec, FieldSpec};
@@ -113,9 +114,14 @@ fn optional_int(n: u32) -> Value {
     }
 }
 
+/// What is wrong with a form's text `t`: the message `key` naming it.
+fn not_a(key: &str, t: &str) -> String {
+    t_args(key, &[("text", Arg::from(t))])
+}
+
 /// A day from a form's text.
 fn day(t: &str) -> Result<NaiveDate, String> {
-    model::parse_date(t).ok_or_else(|| format!("\"{t}\" is not a day"))
+    model::parse_date(t).ok_or_else(|| not_a("azerp-problem-not-a-day", t))
 }
 
 /// An optional day from a form's text ("" = none).
@@ -142,7 +148,7 @@ fn count(t: &str) -> Result<u32, String> {
         return Ok(0);
     }
     t.parse::<u32>()
-        .map_err(|_| format!("\"{t}\" is not a whole number"))
+        .map_err(|_| not_a("azerp-problem-not-a-whole-number", t))
 }
 
 /// The asset `id`'s number and name ("" for an unknown one).
@@ -186,10 +192,10 @@ impl ViewRecord for Asset {
             "acquisition_cost" => Value::Money(self.cost),
             "residual_value" => Value::Money(self.residual),
             "useful_life_years" => Value::Int(i64::from(self.life_years)),
-            "depreciation_method" => coded(self.method.code(), self.method.label()),
+            "depreciation_method" => coded(self.method.code(), &self.method.said()),
             // Basis points read as a percentage with two decimals: 2500 = "25.00".
             "declining_rate_percent" => optional_money(i64::from(self.declining_rate_bp)),
-            "status" => coded(self.status.code(), self.status.label()),
+            "status" => coded(self.status.code(), &self.status.said()),
             "custodian" => text(&self.custodian),
             "maintenance_interval_months" => optional_int(self.maintenance_months),
             "disposal_date" => self.disposed.map_or(Value::Empty, Value::Date),
@@ -213,15 +219,16 @@ impl ViewRecord for Asset {
             "residual_value" => self.residual = amount_or_zero(t)?,
             "useful_life_years" => self.life_years = count(t)?,
             "depreciation_method" => {
-                self.method = Method::parse(t)
-                    .ok_or_else(|| format!("\"{t}\" is not a depreciation method"))?;
+                self.method =
+                    Method::parse(t).ok_or_else(|| not_a("azerp-problem-not-a-method", t))?;
             }
             "declining_rate_percent" => {
                 self.declining_rate_bp = u32::try_from(amount_or_zero(t)?)
-                    .map_err(|_| format!("\"{t}\" is not a rate"))?;
+                    .map_err(|_| not_a("azerp-problem-not-a-rate", t))?;
             }
             "status" => {
-                self.status = Status::parse(t).ok_or_else(|| format!("\"{t}\" is not a status"))?;
+                self.status =
+                    Status::parse(t).ok_or_else(|| not_a("azerp-problem-not-a-status", t))?;
             }
             "custodian" => self.custodian = t.to_string(),
             "maintenance_interval_months" => self.maintenance_months = count(t)?,
@@ -240,7 +247,7 @@ impl ViewRecord for Category {
             "id" => text(&self.id),
             "name" => text(&self.name),
             "useful_life_years" => Value::Int(i64::from(self.life_years)),
-            "depreciation_method" => coded(self.method.code(), self.method.label()),
+            "depreciation_method" => coded(self.method.code(), &self.method.said()),
             "notes" => text(&self.notes),
             "asset_count" => {
                 let n = ctx
@@ -261,8 +268,8 @@ impl ViewRecord for Category {
             "name" => self.name = t.to_string(),
             "useful_life_years" => self.life_years = count(t)?,
             "depreciation_method" => {
-                self.method = Method::parse(t)
-                    .ok_or_else(|| format!("\"{t}\" is not a depreciation method"))?;
+                self.method =
+                    Method::parse(t).ok_or_else(|| not_a("azerp-problem-not-a-method", t))?;
             }
             "notes" => self.notes = text.to_string(),
             _ => return Err(format!("a category has no field \"{field}\"")),
@@ -311,7 +318,7 @@ impl ViewRecord for MaintenanceEntry {
             "asset_number" => text(asset_label(ctx.book, &self.asset).0),
             "asset_name" => text(asset_label(ctx.book, &self.asset).1),
             "date" => Value::Date(self.date),
-            "kind" => coded(self.kind.code(), self.kind.label()),
+            "kind" => coded(self.kind.code(), &self.kind.said()),
             "description" => text(&self.description),
             "cost" => Value::Money(self.cost),
             "performed_by" => text(&self.by),
@@ -326,7 +333,7 @@ impl ViewRecord for MaintenanceEntry {
             "date" => self.date = day(t)?,
             "kind" => {
                 self.kind = MaintenanceKind::parse(t)
-                    .ok_or_else(|| format!("\"{t}\" is not a kind of maintenance"))?;
+                    .ok_or_else(|| not_a("azerp-problem-not-a-maintenance-kind", t))?;
             }
             "description" => self.description = t.to_string(),
             "cost" => self.cost = amount_or_zero(t)?,
@@ -491,7 +498,8 @@ pub fn reference_choices(source: &str, book: &Book) -> Vec<(String, String)> {
         _ => Vec::new(),
     };
     choices.sort_by_key(|(_, name)| name.to_lowercase());
-    choices.insert(0, (String::new(), "(none)".to_string()));
+    let none = crate::l10n::or_english("azerp-choice-none", "(none)");
+    choices.insert(0, (String::new(), none));
     choices
 }
 

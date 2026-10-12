@@ -99,7 +99,7 @@ def form_session(binary, args, logs, out):
     form_pdf(pdf)
     data_dir = os.path.join(logs, "form-data")
     os.makedirs(data_dir, exist_ok=True)
-    app = e2e.App("pdf-form", binary, [pdf, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT)],
+    app = e2e.App("pdf-form", binary, [pdf, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.expect_line("AZPDF_FORM", "2", "the form's two fields are read")
@@ -146,7 +146,7 @@ def body(args, logs, out):
     pdf = os.path.join(logs, "three pages.pdf")
     fixture(pdf)
 
-    app = e2e.App("pdf", binary, [pdf, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT)],
+    app = e2e.App("pdf", binary, [pdf, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.until("AzPdf's page view", lambda: app.has_id(PAGES))

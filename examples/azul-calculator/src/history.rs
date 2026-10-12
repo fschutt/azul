@@ -134,6 +134,7 @@ mod tests {
 
     #[test]
     fn the_history_file_round_trips_one_entry_per_line() {
+        crate::l10n::in_english();
         let entries = vec![entry("1,280 \u{d7} 0.19", "243.2"), entry("243.2 + 18.5", "261.7")];
         let text = to_jsonl(&entries);
         assert_eq!(text.lines().count(), 2);
@@ -144,6 +145,7 @@ mod tests {
 
     #[test]
     fn a_damaged_line_costs_only_that_line() {
+        crate::l10n::in_english();
         let text = format!(
             "{}\nnot json\n\n{}",
             serde_json::to_string(&entry("1 + 1", "2")).unwrap(),
@@ -158,6 +160,7 @@ mod tests {
 
     #[test]
     fn only_the_newest_two_hundred_entries_are_kept() {
+        crate::l10n::in_english();
         let entries: Vec<HistoryEntry> = (0..250).map(|i| entry(&format!("{i} + 0"), &i.to_string())).collect();
         let (kept, _) = parse_jsonl(&to_jsonl(&entries));
         assert_eq!(kept.len(), MAX_HISTORY);
@@ -167,6 +170,7 @@ mod tests {
 
     #[test]
     fn memory_store_recall_add_and_clear() {
+        crate::l10n::in_english();
         let mut m = Memory::default();
         assert_eq!(m.recall(), None);
         let add = |n: i64| move |top: &str| top.parse::<i64>().ok().map(|t| (t + n).to_string());

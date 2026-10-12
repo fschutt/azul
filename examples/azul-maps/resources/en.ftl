@@ -1,0 +1,50 @@
+# AzMaps' words in English (src/l10n.rs). Every key the source names is here and in de.ftl.
+
+## AzMaps
+
+azmaps-about-summary = A map with pins on azul's MapWidget: OpenStreetMap vector tiles, your pins kept in your data folder.
+azmaps-shortcuts-map = Map
+azmaps-pan-west = Pan west
+azmaps-pan-east = Pan east
+azmaps-pan-north = Pan north
+azmaps-pan-south = Pan south
+azmaps-zoom-in = Zoom in
+azmaps-zoom-out = Zoom out
+azmaps-hide-sidebar = Hide sidebar
+azmaps-show-sidebar = Show sidebar
+azmaps-settings = Settings
+azmaps-my-location = My Location
+azmaps-from = From
+azmaps-start = Start
+azmaps-to = To
+azmaps-destination = Destination
+azmaps-swap = Swap start and destination
+azmaps-directions = Directions
+azmaps-recents = Recents
+azmaps-clear-recents = Clear recents
+azmaps-sidebar = Sidebar
+azmaps-dropped-pin = Dropped Pin
+azmaps-remove = Remove
+azmaps-you-are-here = You are here
+azmaps-heading = Heading { $direction } { $degrees }°
+azmaps-direction-n = N
+azmaps-direction-ne = NE
+azmaps-direction-e = E
+azmaps-direction-se = SE
+azmaps-direction-s = S
+azmaps-direction-sw = SW
+azmaps-direction-w = W
+azmaps-direction-nw = NW
+azmaps-location-unavailable = Location unavailable
+azmaps-show-location = Show my location
+azmaps-pins-unreadable = The pins file could not be read: { $why }
+azmaps-pins-unsaved = The pins could not be saved: { $why }
+azmaps-not-pins-file = not a pins file: { $why }
+azmaps-not-a-place = { $lat }, { $lon } is not a place on the map
+azmaps-mode-drive = Drive
+azmaps-mode-walk = Walk
+azmaps-mode-cycle = Cycle
+azmaps-mode-transit = Public transport
+azmaps-duration-min = ~ { $min } min
+azmaps-duration-h = ~ { $h } h
+azmaps-duration-h-min = ~ { $h } h { $min } min

@@ -355,12 +355,14 @@ mod tests {
 
     #[test]
     fn the_keys_follow_the_bucket_layout() {
+        crate::l10n::in_english();
         assert_eq!(doc_key("u1"), "photo/u1/doc.json");
         assert_eq!(tile_key("u1", 7, 2, 3), "photo/u1/layers/7/2_3.png");
     }
 
     #[test]
     fn a_saved_document_loads_back_pixel_for_pixel() {
+        crate::l10n::in_english();
         let (drive, dir) = temp_drive("roundtrip");
         let doc = sample_doc();
         let saved = save(&drive, "u1", "Harbour", &doc, &fake_encode).unwrap();
@@ -383,6 +385,7 @@ mod tests {
 
     #[test]
     fn saving_again_drops_the_tiles_the_document_no_longer_has() {
+        crate::l10n::in_english();
         let (drive, dir) = temp_drive("resave");
         let mut doc = sample_doc();
         save(&drive, "u2", "A", &doc, &fake_encode).unwrap();
@@ -396,6 +399,7 @@ mod tests {
 
     #[test]
     fn the_document_list_names_every_saved_document() {
+        crate::l10n::in_english();
         let (drive, dir) = temp_drive("list");
         save(&drive, "a", "First", &sample_doc(), &fake_encode).unwrap();
         save(&drive, "b", "Second", &sample_doc(), &fake_encode).unwrap();
@@ -407,6 +411,7 @@ mod tests {
 
     #[test]
     fn an_export_lands_in_the_documents_exports_folder_and_a_resave_keeps_it() {
+        crate::l10n::in_english();
         let (drive, dir) = temp_drive("export");
         let doc = sample_doc();
         save(&drive, "u3", "A", &doc, &fake_encode).unwrap();
@@ -423,6 +428,7 @@ mod tests {
 
     #[test]
     fn a_foreign_file_is_refused() {
+        crate::l10n::in_english();
         let mut file = doc_to_file(&sample_doc(), "x");
         file.format = "something/9".into();
         assert!(file_to_doc(&file, &mut |_, _, _| Ok(Vec::new())).is_err());

@@ -52,16 +52,20 @@ use azul::{
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::{AppArgs, AppSpec, LanguagePref},
     data::{app_key, local_path},
     files::{FileJob, FileOutcome},
     find::TextMatch,
+    l10n::{t, t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
 };
 
 pub mod ids;
 pub mod jobs;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod ui;
 
@@ -94,18 +98,31 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: "pdf",
 };
 
-/// The keys AzPdf answers (the kit adds Mod+, / F1 / Escape).
+/// The keys AzPdf answers (the kit adds Mod+, / F1 / Escape): the groups and what the keys do
+/// are keys of AzPdf's words.
 pub const SHORTCUTS: [Shortcut; 7] = [
-    Shortcut::new("Document", "Mod+O", "Open a PDF"),
-    Shortcut::new("View", "Mod+=", "Zoom in"),
-    Shortcut::new("View", "Mod+-", "Zoom out"),
-    Shortcut::new("View", "Mod+0", "Actual size (100 %)"),
-    Shortcut::new("Pages", "Page Down / Page Up", "The next / previous page"),
-    Shortcut::new("Pages", "Mod+Home / Mod+End", "The first / last page"),
+    Shortcut::new("azpdf-document", "Mod+O", "azpdf-open-pdf"),
+    Shortcut::new("azpdf-shortcuts-view", "Mod+=", "azpdf-zoom-in"),
+    Shortcut::new("azpdf-shortcuts-view", "Mod+-", "azpdf-zoom-out"),
     Shortcut::new(
-        "Search",
+        "azpdf-shortcuts-view",
+        "Mod+0",
+        "azpdf-shortcut-actual-size",
+    ),
+    Shortcut::new(
+        "azpdf-pages",
+        "Page Down / Page Up",
+        "azpdf-shortcut-next-previous",
+    ),
+    Shortcut::new(
+        "azpdf-pages",
+        "Mod+Home / Mod+End",
+        "azpdf-shortcut-first-last",
+    ),
+    Shortcut::new(
+        "azpdf-shortcuts-search",
         "Return in the search field",
-        "Find in the document",
+        "azpdf-shortcut-find",
     ),
 ];
 
@@ -371,12 +388,11 @@ impl AppState {
         self.search.running = false;
         println!("AZPDF_HITS {}", self.search.hits.len());
         self.status = match self.search.hits.len() {
-            0 => format!(
-                "No matches for \u{201c}{}\u{201d}",
-                self.search.query.trim()
+            0 => t_args(
+                "azpdf-no-matches-for",
+                &[("query", Arg::from(self.search.query.trim()))],
             ),
-            1 => "1 match".to_string(),
-            n => format!("{n} matches"),
+            n => t_args("azpdf-matches", &[("count", Arg::from(n))]),
         };
     }
 }
@@ -408,6 +424,15 @@ pub fn run() {
     let open_on_start = args.files.first().map(|p| p.display().to_string());
     let sample = args.sample;
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let data_root = {
         let mut k = kit_ref.clone();
         k.downcast_ref::<kit::Kit>()
@@ -415,7 +440,7 @@ pub fn run() {
             .unwrap_or_default()
     };
     let state = AppState::new(kit_ref.clone(), data_root, open_on_start, sample);
-    let app = App::create(RefAny::new(state), kit::app_config(&kit_ref));
+    let app = App::create(RefAny::new(state), config);
     let window = kit::window_options(
         &kit_ref,
         ui::layout,
@@ -494,7 +519,7 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     if let Some(path) = s.open_on_start.take() {
         start_open(&mut info, &handle, &mut s, path);
     } else if s.sample {
-        s.status = "Making the sample document\u{2026}".to_string();
+        s.status = t("azpdf-making-sample");
         spawn(&mut info, &handle, Job::Sample);
     }
     Update::RefreshDom
@@ -518,7 +543,10 @@ pub(crate) fn start_open(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState
     s.loading = Some(path.clone());
     s.error = None;
     s.running.clear();
-    s.status = format!("Opening {}\u{2026}", model::file_title(&path));
+    s.status = t_args(
+        "azpdf-opening",
+        &[("title", Arg::from(model::file_title(&path)))],
+    );
     spawn(
         info,
         app,
@@ -538,13 +566,18 @@ fn show(s: &mut AppState, doc: Doc) {
         .min(doc.page_count().saturating_sub(1));
     println!("AZPDF_OPENED {} {}", doc.page_count(), doc.path);
     s.status = if doc.warnings > 0 {
-        format!(
-            "{} pages \u{2014} {} parts of the file were skipped",
-            doc.page_count(),
-            doc.warnings
+        t_args(
+            "azpdf-pages-skipped",
+            &[
+                ("count", Arg::from(doc.page_count())),
+                ("skipped", Arg::from(doc.warnings)),
+            ],
         )
     } else {
-        format!("{} pages", doc.page_count())
+        t_args(
+            "azpdf-page-count",
+            &[("count", Arg::from(doc.page_count()))],
+        )
     };
     s.pages.clear();
     s.thumbs.clear();
@@ -691,7 +724,10 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                 }
                 Err(why) => {
                     println!("AZPDF_OPEN_ERROR {why}");
-                    s.status = format!("{} could not be opened", model::file_title(&path));
+                    s.status = t_args(
+                        "azpdf-not-opened",
+                        &[("title", Arg::from(model::file_title(&path)))],
+                    );
                     s.error = Some(why);
                 }
             }
@@ -761,12 +797,13 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             match result {
                 Ok(bytes) => {
                     let len = bytes.len();
-                    if azul::dialog::FileDialog::save_bytes(name.as_str(), "application/pdf", bytes) {
+                    if azul::dialog::FileDialog::save_bytes(name.as_str(), "application/pdf", bytes)
+                    {
                         println!("AZPDF_FILLED {len}");
-                        s.status = format!("Saved {name}");
+                        s.status = t_args("azpdf-saved", &[("name", Arg::from(&name))]);
                     }
                 }
-                Err(why) => s.status = format!("The form could not be filled: {why}"),
+                Err(why) => s.status = t_args("azpdf-not-filled", &[("why", Arg::from(why))]),
             }
             Update::RefreshDom
         }
@@ -787,7 +824,7 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                 Update::DoNothing
             }
             Err(why) => {
-                s.status = format!("The sample could not be made: {why}");
+                s.status = t_args("azpdf-sample-not-made", &[("why", Arg::from(why))]);
                 Update::RefreshDom
             }
         },
@@ -825,7 +862,9 @@ extern "C" fn on_file_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackI
         TAG_RECENT_SAVE => {
             s.saving_recent = false;
             match reply.outcomes.iter().find_map(FileOutcome::error) {
-                Some(why) => s.status = format!("The recent list could not be saved: {why}"),
+                Some(why) => {
+                    s.status = t_args("azpdf-recent-not-saved", &[("why", Arg::from(why))]);
+                }
                 None => println!("AZPDF_RECENT_SAVED"),
             }
             Update::DoNothing
@@ -834,7 +873,7 @@ extern "C" fn on_file_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackI
             let key = app_key(ABOUT.app_folder, SAMPLE_FILE);
             match reply.outcomes.iter().find_map(FileOutcome::error) {
                 Some(why) => {
-                    s.status = format!("The sample could not be saved: {why}");
+                    s.status = t_args("azpdf-sample-not-saved", &[("why", Arg::from(why))]);
                 }
                 None => {
                     let path = local_path(&s.data_root, &key).display().to_string();
@@ -853,10 +892,10 @@ extern "C" fn on_file_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackI
 pub extern "C" fn on_open(data: RefAny, _info: CallbackInfo) -> Update {
     let filter = FileTypeList {
         document_types: StringVec::from_vec(vec![AzString::from("*.pdf")]),
-        document_descriptor: AzString::from("PDF documents"),
+        document_descriptor: AzString::from(t("azpdf-pdf-documents")),
     };
     let _request = FileDialog::open_file(
-        "Open a PDF",
+        t("azpdf-open-pdf"),
         OptionString::None,
         OptionFileTypeList::Some(filter),
         data,
@@ -914,7 +953,10 @@ pub extern "C" fn on_recent(mut data: RefAny, mut info: CallbackInfo) -> Update 
         return Update::DoNothing;
     };
     if !Path::new(&path).exists() {
-        s.status = format!("{} is no longer there", model::file_title(&path));
+        s.status = t_args(
+            "azpdf-gone",
+            &[("title", Arg::from(model::file_title(&path)))],
+        );
         return Update::RefreshDom;
     }
     start_open(&mut info, &handle, &mut s, path);
@@ -1074,7 +1116,7 @@ fn start_search(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, query: 
     };
     if !s.search.running {
         s.search.running = true;
-        s.status = "Reading the pages\u{2019} text\u{2026}".to_string();
+        s.status = t("azpdf-reading-text");
         spawn(
             info,
             app,
@@ -1109,7 +1151,7 @@ pub extern "C" fn on_export_filled(mut data: RefAny, mut info: CallbackInfo) -> 
     let Some((pdf, title)) = s.doc.as_ref().map(|d| (d.pdf.clone(), d.title.clone())) else {
         return Update::DoNothing;
     };
-    s.status = "Filling in the form\u{2026}".to_string();
+    s.status = t("azpdf-filling-form");
     let job = Job::Fill {
         generation: s.generation,
         pdf,

@@ -39,6 +39,9 @@ mod format_dialog;
 pub mod functions;
 pub mod ids;
 pub mod ironcalc_engine;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod ops;
 pub mod refs;
@@ -87,6 +90,7 @@ use azul::{
     },
 };
 use azul_appkit::{
+    l10n::{label, t, t_args, t_text, Arg, Phrase, Text},
     ribbon::{column, group, icon_button, large, row, small, toggle, RibbonCommand},
     ui as kit, AboutInfo, Shortcut,
 };
@@ -125,29 +129,29 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// on macOS, Ctrl elsewhere). The window's and the grid's handlers are the
 /// ones that act; this table is what they do.
 pub const SHORTCUTS: [Shortcut; 23] = [
-    Shortcut::new("File", "Mod+S", "Save the workbook"),
-    Shortcut::new("File", "Mod+O", "Open a workbook"),
-    Shortcut::new("File", "Mod+N", "New blank workbook"),
-    Shortcut::new("Edit", "Mod+Z", "Undo"),
-    Shortcut::new("Edit", "Mod+Y / Mod+Shift+Z", "Redo"),
-    Shortcut::new("Edit", "Mod+C / Mod+X / Mod+V", "Copy / cut / paste the selection"),
-    Shortcut::new("Edit", "Delete", "Clear the selection's contents"),
-    Shortcut::new("Edit", "Mod+F / Mod+H", "Find / replace"),
-    Shortcut::new("Format", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
-    Shortcut::new("Format", "Mod+1", "Format Cells"),
-    Shortcut::new("Cells", "F2", "Edit the active cell"),
-    Shortcut::new("Cells", "F4 (editing)", "Cycle the reference at the caret: A1, $A$1, A$1, $A1"),
-    Shortcut::new("Cells", "Enter / Tab", "Commit and move down / right (Shift: back)"),
-    Shortcut::new("Cells", "Escape", "Cancel the edit (or leave the backstage)"),
-    Shortcut::new("Move", "Arrows", "Move the cell cursor"),
-    Shortcut::new("Move", "Mod+Arrows", "To the edge of the data"),
-    Shortcut::new("Move", "Shift+Arrows", "Extend the selection"),
-    Shortcut::new("Move", "Mod+Home / Mod+End", "To A1 / to the last cell with data"),
-    Shortcut::new("Move", "PageUp / PageDown", "A screen up / down"),
-    Shortcut::new("Select", "Mod+A", "Select the whole sheet"),
-    Shortcut::new("Sheets", "Mod+PageDown / Mod+PageUp", "The next / previous sheet"),
-    Shortcut::new("Select", "Shift+Space / Mod+Space", "Select the row / the column"),
-    Shortcut::new("Formulas", "F9", "Calculate now"),
+    Shortcut::new("azsheets-shortcuts-file", "Mod+S", "azsheets-shortcut-save"),
+    Shortcut::new("azsheets-shortcuts-file", "Mod+O", "azsheets-open-workbook"),
+    Shortcut::new("azsheets-shortcuts-file", "Mod+N", "azsheets-shortcut-new"),
+    Shortcut::new("azsheets-shortcuts-edit", "Mod+Z", "azsheets-undo"),
+    Shortcut::new("azsheets-shortcuts-edit", "Mod+Y / Mod+Shift+Z", "azsheets-redo"),
+    Shortcut::new("azsheets-shortcuts-edit", "Mod+C / Mod+X / Mod+V", "azsheets-shortcut-clipboard"),
+    Shortcut::new("azsheets-shortcuts-edit", "Delete", "azsheets-shortcut-clear"),
+    Shortcut::new("azsheets-shortcuts-edit", "Mod+F / Mod+H", "azsheets-shortcut-find"),
+    Shortcut::new("azsheets-shortcuts-format", "Mod+B / Mod+I / Mod+U", "azsheets-shortcut-font"),
+    Shortcut::new("azsheets-shortcuts-format", "Mod+1", "azsheets-format-cells"),
+    Shortcut::new("azsheets-shortcuts-cells", "F2", "azsheets-shortcut-edit-cell"),
+    Shortcut::new("azsheets-shortcuts-cells", "F4", "azsheets-shortcut-cycle-reference"),
+    Shortcut::new("azsheets-shortcuts-cells", "Enter / Tab", "azsheets-shortcut-commit"),
+    Shortcut::new("azsheets-shortcuts-cells", "Escape", "azsheets-shortcut-cancel-edit"),
+    Shortcut::new("azsheets-shortcuts-move", "Arrows", "azsheets-shortcut-move-cursor"),
+    Shortcut::new("azsheets-shortcuts-move", "Mod+Arrows", "azsheets-shortcut-data-edge"),
+    Shortcut::new("azsheets-shortcuts-move", "Shift+Arrows", "azsheets-shortcut-extend"),
+    Shortcut::new("azsheets-shortcuts-move", "Mod+Home / Mod+End", "azsheets-shortcut-first-last"),
+    Shortcut::new("azsheets-shortcuts-move", "PageUp / PageDown", "azsheets-shortcut-screen"),
+    Shortcut::new("azsheets-shortcuts-select", "Mod+A", "azsheets-shortcut-select-sheet"),
+    Shortcut::new("azsheets-shortcuts-sheets", "Mod+PageDown / Mod+PageUp", "azsheets-shortcut-next-sheet"),
+    Shortcut::new("azsheets-shortcuts-select", "Shift+Space / Mod+Space", "azsheets-shortcut-select-row-column"),
+    Shortcut::new("azsheets-shortcuts-formulas", "F9", "azsheets-shortcut-calculate"),
 ];
 
 // ==== The state ====
@@ -159,7 +163,8 @@ pub enum Screen {
     Backstage,
 }
 
-/// The backstage's panes, in the nav's order.
+/// The backstage's panes, in the nav's order: identifiers (what the code matches), shown as
+/// `azsheets-backstage-<name>` ([`backstage_word`]).
 pub const BACKSTAGE_ITEMS: [&str; 9] = [
     "Info", "New", "Open", "Save", "Save As", "Export", "Close", "Options", "About",
 ];
@@ -353,7 +358,7 @@ impl AppState {
             show_headers: true,
             doc: DocInfo {
                 id: storage::new_id(),
-                title: String::from("Book1"),
+                title: model::next_book_title(&[]),
                 dirty: false,
             },
             screen: Screen::Workbook,
@@ -639,8 +644,13 @@ pub fn safe_name(title: &str) -> String {
     }
 }
 
+/// A worker's failure `key` with its `$why` (the error's own words), for the UI thread to say.
+fn failed(key: &str, why: &dyn std::fmt::Display) -> Text {
+    Text::from(Phrase::new(key).arg("why", why.to_string()))
+}
+
 /// The post step of a reply.
-fn run_post(post: Post, reply: &Reply) -> Option<Result<String, String>> {
+fn run_post(post: Post, reply: &Reply) -> Option<Result<String, Text>> {
     match post {
         Post::None => None,
         Post::Save { drive, id, sidecar } => {
@@ -648,7 +658,7 @@ fn run_post(post: Post, reply: &Reply) -> Option<Result<String, String>> {
             Some(
                 storage::save(&*drive, &id, bytes, &sidecar)
                     .map(|()| id)
-                    .map_err(|e| format!("Could not save the workbook: {e}")),
+                    .map_err(|e| failed("azsheets-save-failed", &e)),
             )
         }
         Post::Csv { drive, name } => {
@@ -658,7 +668,7 @@ fn run_post(post: Post, reply: &Reply) -> Option<Result<String, String>> {
                 drive
                     .put(&key, csv.as_bytes())
                     .map(|()| storage::shown_path(&*drive, &key))
-                    .map_err(|e| format!("Could not export: {e}")),
+                    .map_err(|e| failed("azsheets-export-failed", &e)),
             )
         }
     }
@@ -697,7 +707,7 @@ fn send(
     post: Post,
 ) {
     let Some(engine) = s.engine.clone() else {
-        s.message = String::from("The spreadsheet engine is not running.");
+        s.message = t("azsheets-engine-not-running");
         return;
     };
     s.seq += 1;
@@ -710,7 +720,7 @@ fn send(
     };
     if engine.send(msg).is_err() {
         s.engine = None;
-        s.message = String::from("The spreadsheet engine stopped.");
+        s.message = t("azsheets-engine-stopped");
         return;
     }
     s.in_flight += 1;
@@ -786,7 +796,13 @@ fn go_to(s: &mut AppState, sheet: u32, range: CellGridRange) {
 
 /// A reply arrives: the snapshot (if it is the newest), the command's
 /// extras, the post step's outcome.
-fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: Reply, io: Option<Result<String, String>>) {
+fn apply_reply(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut AppState,
+    reply: Reply,
+    io: Option<Result<String, Text>>,
+) {
     s.in_flight = s.in_flight.saturating_sub(1);
     let pending = s.pending.remove(&reply.seq).unwrap_or(Pending::Other);
     println!(
@@ -796,13 +812,13 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
     );
     match &reply.result {
         Ok(()) => {}
-        Err(e) => s.message = e.clone(),
+        Err(e) => s.message = t_text(&engine::error_text(e)),
     }
     match io {
         Some(Ok(text)) => match pending {
             Pending::Saved => {
                 s.doc.dirty = false;
-                s.message = format!("Saved \"{}\".", s.doc.title);
+                s.message = t_args("azsheets-saved", &[("title", Arg::from(&s.doc.title))]);
                 println!("AZSHEETS_SAVED {text}");
                 if s.close_after_save {
                     // "Save" in the close question: written, now the window goes.
@@ -811,7 +827,7 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
                 }
             }
             Pending::Exported => {
-                s.message = format!("Exported to {text}");
+                s.message = t_args("azsheets-exported-to", &[("path", Arg::from(&text))]);
                 println!("AZSHEETS_EXPORTED {text}");
             }
             _ => {}
@@ -819,7 +835,7 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
         Some(Err(e)) => {
             // A failed save keeps the window (and the work) open.
             s.close_after_save = false;
-            s.message = e;
+            s.message = t_text(&e);
         }
         None => {}
     }
@@ -828,13 +844,13 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
             Some(at) => {
                 let cell = to_cell(at);
                 go_to(s, at.sheet, CellGridRange { first: cell, last: cell });
-                s.find_status = format!("Found in {}.", a1(at));
+                s.find_status = t_args("azsheets-found-in", &[("cell", Arg::from(a1(at)))]);
             }
-            None => s.find_status = format!("\"{}\" was not found.", s.find),
+            None => s.find_status = t_args("azsheets-not-found", &[("text", Arg::from(&s.find))]),
         },
         Pending::Replaced => {
             if let Some(n) = reply.count {
-                s.find_status = format!("{n} cell(s) replaced.");
+                s.find_status = t_args("azsheets-cells-replaced", &[("count", Arg::from(n))]);
             }
         }
         Pending::SumRange(at) => {
@@ -856,12 +872,12 @@ fn apply_reply(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, reply: R
         }
         Pending::RemoveDuplicates => {
             if let Some(n) = reply.count {
-                s.message = format!("{n} duplicate row(s) removed.");
+                s.message = t_args("azsheets-duplicates-removed", &[("count", Arg::from(n))]);
             }
         }
         Pending::Filter => {
             if let Some(n) = reply.count {
-                s.message = format!("{n} row(s) hidden by the filter.");
+                s.message = t_args("azsheets-rows-filtered", &[("count", Arg::from(n))]);
             }
         }
         Pending::Opened(id) => {
@@ -916,12 +932,12 @@ enum Job {
     Write { drive: Arc<dyn Drive>, key: String, bytes: Vec<u8> },
 }
 
-/// What a job answers.
+/// What a job answers (its failure as words the UI thread says: a worker has no language).
 enum JobDone {
-    Listed(Result<Vec<(String, Sidecar)>, String>),
+    Listed(Result<Vec<(String, Sidecar)>, Text>),
     /// (id, bytes, sidecar, imported?)
-    Loaded(Result<(String, Vec<u8>, Sidecar, bool), String>),
-    Wrote(Result<String, String>),
+    Loaded(Result<(String, Vec<u8>, Sidecar, bool), Text>),
+    Wrote(Result<String, Text>),
 }
 
 struct JobInit {
@@ -935,12 +951,12 @@ struct JobMsg {
 fn run_job(job: Job) -> JobDone {
     match job {
         Job::List { drive } => JobDone::Listed(
-            storage::list(&*drive).map_err(|e| format!("Could not list the workbooks: {e}")),
+            storage::list(&*drive).map_err(|e| failed("azsheets-list-failed", &e)),
         ),
         Job::Load { drive, id } => JobDone::Loaded(
             storage::load(&*drive, &id)
                 .map(|(bytes, sidecar)| (id.clone(), bytes, sidecar, false))
-                .map_err(|e| format!("Could not open the workbook: {e}")),
+                .map_err(|e| failed("azsheets-open-failed", &e)),
         ),
         Job::Import { path } => JobDone::Loaded(
             std::fs::read(&path)
@@ -950,13 +966,21 @@ fn run_job(job: Job) -> JobDone {
                         .map_or_else(|| String::from("Imported"), |s| s.to_string_lossy().into_owned());
                     (storage::new_id(), bytes, Sidecar::titled(&title), true)
                 })
-                .map_err(|e| format!("Could not read {}: {e}", path.display())),
+                .map_err(|e| {
+                    Text::from(
+                        Phrase::new("azsheets-read-failed")
+                            .arg("path", path.display().to_string())
+                            .arg("why", e.to_string()),
+                    )
+                }),
         ),
         Job::Write { drive, key, bytes } => JobDone::Wrote(
             drive
                 .put(&key, &bytes)
                 .map(|()| storage::shown_path(&*drive, &key))
-                .map_err(|e| format!("Could not write {key}: {e}")),
+                .map_err(|e| {
+                    Text::from(Phrase::new("azsheets-write-failed").arg("path", key.clone()).arg("why", e.to_string()))
+                }),
         ),
     }
 }
@@ -991,9 +1015,9 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
     let s = &mut *guard;
     match done {
         JobDone::Listed(Ok(list)) => s.workbooks = list,
-        JobDone::Listed(Err(e)) | JobDone::Wrote(Err(e)) | JobDone::Loaded(Err(e)) => s.message = e,
+        JobDone::Listed(Err(e)) | JobDone::Wrote(Err(e)) | JobDone::Loaded(Err(e)) => s.message = t_text(&e),
         JobDone::Wrote(Ok(path)) => {
-            s.message = format!("Exported to {path}");
+            s.message = t_args("azsheets-exported-to", &[("path", Arg::from(&path))]);
             println!("AZSHEETS_EXPORTED {path}");
         }
         JobDone::Loaded(Ok((id, bytes, sidecar, imported))) => {
@@ -1140,7 +1164,7 @@ fn grid(s: &AppState, app: &RefAny) -> Dom {
     let name = snap
         .sheets
         .get(s.sheet as usize)
-        .map_or_else(|| String::from("Sheet"), |x| x.name.clone());
+        .map_or_else(|| t("azsheets-sheet"), |x| x.name.clone());
     let source = RefAny::new(GridSource {
         cache: Arc::clone(&s.cache),
     });
@@ -1284,12 +1308,13 @@ impl RibbonCommand for Action {
 
 /// A group whose launcher (the corner arrow) opens Format Cells on `tab`,
 /// as Excel's Font, Alignment and Number groups do.
-fn format_group(app: &RefAny, tab: u8, label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    group(label, items).with_launcher(action_ref(app, Action::FormatCells(tab)), on_action as ButtonOnClickCallbackType)
+fn format_group(app: &RefAny, tab: u8, name: &str, items: Vec<RibbonItem>) -> RibbonGroup {
+    group(name, items).with_launcher(action_ref(app, Action::FormatCells(tab)), on_action as ButtonOnClickCallbackType)
 }
 
-fn tab(label: &str, groups: Vec<RibbonGroup>) -> RibbonTab {
-    RibbonTab::create(AzString::from(label)).with_groups(groups)
+/// A ribbon tab named `name` (a key, said in the window's language).
+fn tab(name: &str, groups: Vec<RibbonGroup>) -> RibbonTab {
+    RibbonTab::create(label(name)).with_groups(groups)
 }
 
 fn ribbon(s: &AppState, app: &RefAny) -> Dom {
@@ -1312,18 +1337,18 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
     // whole tab fits a 1280 px window (labelled, Cells and Editing fell off
     // its right edge and could not be clicked).
     let home = tab(
-        "HOME",
+        "azsheets-tab-home",
         vec![
             group(
-                "Clipboard",
+                "azsheets-clipboard",
                 vec![
-                    large(app, "content_paste", "Paste", Action::Paste),
+                    large(app, "content_paste", "azsheets-paste", Action::Paste),
                     column(vec![
-                        small(app, "content_cut", "Cut", Action::Cut),
-                        small(app, "content_copy", "Copy", Action::Copy),
+                        small(app, "content_cut", "azsheets-cut", Action::Cut),
+                        small(app, "content_copy", "azsheets-copy", Action::Copy),
                         row(vec![
-                            icon_button(app, "undo", "Undo", Action::Undo, false),
-                            icon_button(app, "redo", "Redo", Action::Redo, false),
+                            icon_button(app, "undo", "azsheets-undo", Action::Undo, false),
+                            icon_button(app, "redo", "azsheets-redo", Action::Redo, false),
                         ]),
                     ]),
                 ],
@@ -1331,208 +1356,208 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
             format_group(
                 app,
                 2,
-                "Font",
+                "azsheets-font",
                 vec![column(vec![
                     row(vec![
-                        icon_button(app, "format_bold", "Bold", Action::Bold, style.bold),
-                        icon_button(app, "format_italic", "Italic", Action::Italic, style.italic),
-                        icon_button(app, "format_underlined", "Underline", Action::Underline, style.underline),
-                        icon_button(app, "format_strikethrough", "Strikethrough", Action::Strike, style.strike),
-                        icon_button(app, "text_increase", "Grow font", Action::Grow, false),
-                        icon_button(app, "text_decrease", "Shrink font", Action::Shrink, false),
+                        icon_button(app, "format_bold", "azsheets-bold", Action::Bold, style.bold),
+                        icon_button(app, "format_italic", "azsheets-italic", Action::Italic, style.italic),
+                        icon_button(app, "format_underlined", "azsheets-underline", Action::Underline, style.underline),
+                        icon_button(app, "format_strikethrough", "azsheets-strikethrough", Action::Strike, style.strike),
+                        icon_button(app, "text_increase", "azsheets-grow-font", Action::Grow, false),
+                        icon_button(app, "text_decrease", "azsheets-shrink-font", Action::Shrink, false),
                     ]),
                     row(vec![
-                        icon_button(app, "format_color_text", "Red text", Action::InkRed, false),
-                        icon_button(app, "format_color_reset", "Automatic text colour", Action::InkAuto, false),
-                        icon_button(app, "format_color_fill", "Yellow fill", Action::FillYellow, false),
-                        icon_button(app, "format_paint", "Green fill", Action::FillGreen, false),
-                        icon_button(app, "block", "No fill", Action::FillNone, false),
+                        icon_button(app, "format_color_text", "azsheets-red-text", Action::InkRed, false),
+                        icon_button(app, "format_color_reset", "azsheets-automatic-text-colour", Action::InkAuto, false),
+                        icon_button(app, "format_color_fill", "azsheets-yellow-fill", Action::FillYellow, false),
+                        icon_button(app, "format_paint", "azsheets-green-fill", Action::FillGreen, false),
+                        icon_button(app, "block", "azsheets-no-fill", Action::FillNone, false),
                     ]),
                     row(vec![
-                        icon_button(app, "border_all", "All borders", Action::BordersAll, false),
-                        icon_button(app, "border_outer", "Outside borders", Action::BordersOutline, false),
-                        icon_button(app, "border_clear", "No borders", Action::BordersNone, false),
+                        icon_button(app, "border_all", "azsheets-all-borders", Action::BordersAll, false),
+                        icon_button(app, "border_outer", "azsheets-outside-borders", Action::BordersOutline, false),
+                        icon_button(app, "border_clear", "azsheets-no-borders", Action::BordersNone, false),
                     ]),
                 ])],
             ),
             format_group(
                 app,
                 1,
-                "Alignment",
+                "azsheets-alignment",
                 vec![column(vec![
                     row(vec![
-                        icon_button(app, "vertical_align_top", "Top", Action::AlignTop, style.v_align == VAlign::Top),
-                        icon_button(app, "vertical_align_center", "Middle", Action::AlignMiddle, style.v_align == VAlign::Center),
-                        icon_button(app, "vertical_align_bottom", "Bottom", Action::AlignBottom, style.v_align == VAlign::Bottom),
+                        icon_button(app, "vertical_align_top", "azsheets-align-top", Action::AlignTop, style.v_align == VAlign::Top),
+                        icon_button(app, "vertical_align_center", "azsheets-align-middle", Action::AlignMiddle, style.v_align == VAlign::Center),
+                        icon_button(app, "vertical_align_bottom", "azsheets-align-bottom", Action::AlignBottom, style.v_align == VAlign::Bottom),
                     ]),
                     row(vec![
-                        icon_button(app, "format_align_left", "Left", Action::AlignLeft, style.h_align == HAlign::Left),
-                        icon_button(app, "format_align_center", "Center", Action::AlignCenter, style.h_align == HAlign::Center),
-                        icon_button(app, "format_align_right", "Right", Action::AlignRight, style.h_align == HAlign::Right),
+                        icon_button(app, "format_align_left", "azsheets-align-left", Action::AlignLeft, style.h_align == HAlign::Left),
+                        icon_button(app, "format_align_center", "azsheets-align-center", Action::AlignCenter, style.h_align == HAlign::Center),
+                        icon_button(app, "format_align_right", "azsheets-align-right", Action::AlignRight, style.h_align == HAlign::Right),
                     ]),
                     row(vec![
-                        icon_button(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap),
-                        icon_button(app, "merge_type", "Merge & Center", Action::MergeCenter, merged_here),
+                        icon_button(app, "wrap_text", "azsheets-wrap-text", Action::Wrap, style.wrap),
+                        icon_button(app, "merge_type", "azsheets-merge-center", Action::MergeCenter, merged_here),
                     ]),
                 ])],
             ),
             format_group(
                 app,
                 0,
-                "Number",
+                "azsheets-number",
                 vec![column(vec![
                     row(vec![
-                        icon_button(app, "notes", "General", Action::FormatGeneral, false),
-                        icon_button(app, "pin", "Number", Action::FormatNumber, false),
-                        icon_button(app, "payments", "Currency", Action::FormatCurrency, false),
+                        icon_button(app, "notes", "azsheets-general", Action::FormatGeneral, false),
+                        icon_button(app, "pin", "azsheets-number", Action::FormatNumber, false),
+                        icon_button(app, "payments", "azsheets-currency", Action::FormatCurrency, false),
                     ]),
                     row(vec![
-                        icon_button(app, "percent", "Percent", Action::FormatPercent, false),
-                        icon_button(app, "calendar_today", "Date", Action::FormatDate, false),
+                        icon_button(app, "percent", "azsheets-percent", Action::FormatPercent, false),
+                        icon_button(app, "calendar_today", "azsheets-date", Action::FormatDate, false),
                     ]),
                     row(vec![
-                        icon_button(app, "add", "More decimals", Action::DecimalMore, false),
-                        icon_button(app, "remove", "Fewer decimals", Action::DecimalLess, false),
+                        icon_button(app, "add", "azsheets-more-decimals", Action::DecimalMore, false),
+                        icon_button(app, "remove", "azsheets-fewer-decimals", Action::DecimalLess, false),
                     ]),
                 ])],
             ),
             group(
-                "Styles",
+                "azsheets-styles",
                 vec![
-                    large(app, "rule", "Conditional Formatting", Action::Conditional),
+                    large(app, "rule", "azsheets-conditional-formatting", Action::Conditional),
                     column(vec![
-                        small(app, "title", "Heading", Action::StyleHeading),
-                        small(app, "functions", "Total", Action::StyleTotal),
+                        small(app, "title", "azsheets-heading", Action::StyleHeading),
+                        small(app, "functions", "azsheets-total", Action::StyleTotal),
                     ]),
                     column(vec![
-                        small(app, "thumb_up", "Good", Action::StyleGood),
-                        small(app, "thumb_down", "Bad", Action::StyleBad),
+                        small(app, "thumb_up", "azsheets-good", Action::StyleGood),
+                        small(app, "thumb_down", "azsheets-bad", Action::StyleBad),
                     ]),
                 ],
             ),
             group(
-                "Cells",
+                "azsheets-cells",
                 vec![column(vec![
                     row(vec![
-                        icon_button(app, "table_rows", "Insert row", Action::InsertRow, false),
-                        icon_button(app, "view_column", "Insert column", Action::InsertColumn, false),
-                        icon_button(app, "add_box", "Insert sheet", Action::InsertSheet, false),
+                        icon_button(app, "table_rows", "azsheets-insert-row", Action::InsertRow, false),
+                        icon_button(app, "view_column", "azsheets-insert-column", Action::InsertColumn, false),
+                        icon_button(app, "add_box", "azsheets-insert-sheet", Action::InsertSheet, false),
                     ]),
                     row(vec![
-                        icon_button(app, "delete_sweep", "Delete row", Action::DeleteRow, false),
-                        icon_button(app, "delete", "Delete column", Action::DeleteColumn, false),
-                        icon_button(app, "delete_forever", "Delete sheet", Action::DeleteSheet, false),
+                        icon_button(app, "delete_sweep", "azsheets-delete-row", Action::DeleteRow, false),
+                        icon_button(app, "delete", "azsheets-delete-column", Action::DeleteColumn, false),
+                        icon_button(app, "delete_forever", "azsheets-delete-sheet", Action::DeleteSheet, false),
                     ]),
                     row(vec![
-                        icon_button(app, "drive_file_rename_outline", "Rename sheet", Action::RenameSheet, false),
-                        icon_button(app, "arrow_back", "Move sheet left", Action::SheetLeft, false),
-                        icon_button(app, "arrow_forward", "Move sheet right", Action::SheetRight, false),
-                        icon_button(app, "palette", "Tab color", Action::TabColor, false),
+                        icon_button(app, "drive_file_rename_outline", "azsheets-rename-sheet", Action::RenameSheet, false),
+                        icon_button(app, "arrow_back", "azsheets-move-sheet-left", Action::SheetLeft, false),
+                        icon_button(app, "arrow_forward", "azsheets-move-sheet-right", Action::SheetRight, false),
+                        icon_button(app, "palette", "azsheets-tab-color", Action::TabColor, false),
                     ]),
                 ])],
             ),
             group(
-                "Editing",
+                "azsheets-editing",
                 vec![
-                    large(app, "functions", "AutoSum", Action::AutoSum),
+                    large(app, "functions", "azsheets-autosum", Action::AutoSum),
                     column(vec![
-                        small(app, "sort_by_alpha", "Sort A to Z", Action::SortAsc),
-                        small(app, "filter_alt", "Filter", Action::Filter),
+                        small(app, "sort_by_alpha", "azsheets-sort-a-z", Action::SortAsc),
+                        small(app, "filter_alt", "azsheets-filter", Action::Filter),
                         row(vec![
-                            icon_button(app, "arrow_downward", "Fill down", Action::FillDown, false),
-                            icon_button(app, "arrow_forward", "Fill right", Action::FillRight, false),
-                            icon_button(app, "backspace", "Clear contents", Action::ClearContents, false),
-                            icon_button(app, "find_replace", "Replace", Action::Replace, false),
+                            icon_button(app, "arrow_downward", "azsheets-fill-down", Action::FillDown, false),
+                            icon_button(app, "arrow_forward", "azsheets-fill-right", Action::FillRight, false),
+                            icon_button(app, "backspace", "azsheets-clear-contents", Action::ClearContents, false),
+                            icon_button(app, "find_replace", "azsheets-replace", Action::Replace, false),
                         ]),
                     ]),
-                    large(app, "search", "Find", Action::Find),
+                    large(app, "search", "azsheets-find", Action::Find),
                 ],
             ),
         ],
     );
     let insert = tab(
-        "INSERT",
+        "azsheets-tab-insert",
         vec![
-            group("Charts", vec![large(app, "insert_chart", "Chart", Action::Chart)]),
-            group("Functions", vec![large(app, "functions", "Function", Action::InsertFunction)]),
+            group("azsheets-charts", vec![large(app, "insert_chart", "azsheets-chart", Action::Chart)]),
+            group("azsheets-functions", vec![large(app, "functions", "azsheets-function", Action::InsertFunction)]),
         ],
     );
     let formulas = tab(
-        "FORMULAS",
+        "azsheets-tab-formulas",
         vec![
             group(
-                "Function Library",
+                "azsheets-function-library",
                 vec![
-                    large(app, "functions", "Insert Function", Action::InsertFunction),
-                    large(app, "functions", "AutoSum", Action::AutoSum),
+                    large(app, "functions", "azsheets-insert-function", Action::InsertFunction),
+                    large(app, "functions", "azsheets-autosum", Action::AutoSum),
                 ],
             ),
             group(
-                "Defined Names",
+                "azsheets-defined-names",
                 vec![
-                    large(app, "badge", "Name Manager", Action::NameManager),
-                    column(vec![small(app, "label", "Define name", Action::DefineName)]),
+                    large(app, "badge", "azsheets-name-manager", Action::NameManager),
+                    column(vec![small(app, "label", "azsheets-define-name", Action::DefineName)]),
                 ],
             ),
             group(
-                "Calculation",
-                vec![large(app, "calculate", "Calculate Now", Action::CalculateNow)],
+                "azsheets-calculation",
+                vec![large(app, "calculate", "azsheets-calculate-now", Action::CalculateNow)],
             ),
         ],
     );
     let data = tab(
-        "DATA",
+        "azsheets-tab-data",
         vec![
             group(
-                "Sort & Filter",
+                "azsheets-sort-filter",
                 vec![
                     column(vec![
-                        small(app, "arrow_upward", "Sort A to Z", Action::SortAsc),
-                        small(app, "arrow_downward", "Sort Z to A", Action::SortDesc),
+                        small(app, "arrow_upward", "azsheets-sort-a-z", Action::SortAsc),
+                        small(app, "arrow_downward", "azsheets-sort-z-a", Action::SortDesc),
                     ]),
-                    large(app, "filter_alt", "Filter", Action::Filter),
-                    column(vec![small(app, "filter_alt_off", "Clear filter", Action::ClearFilter)]),
+                    large(app, "filter_alt", "azsheets-filter", Action::Filter),
+                    column(vec![small(app, "filter_alt_off", "azsheets-clear-filter", Action::ClearFilter)]),
                 ],
             ),
             group(
-                "Data Tools",
-                vec![large(app, "cleaning_services", "Remove Duplicates", Action::RemoveDuplicates)],
+                "azsheets-data-tools",
+                vec![large(app, "cleaning_services", "azsheets-remove-duplicates", Action::RemoveDuplicates)],
             ),
             group(
-                "Export",
+                "azsheets-export",
                 vec![
-                    large(app, "description", "CSV", Action::ExportCsv),
-                    large(app, "picture_as_pdf", "PDF", Action::ExportPdf),
+                    large(app, "description", "azsheets-csv", Action::ExportCsv),
+                    large(app, "picture_as_pdf", "azsheets-pdf", Action::ExportPdf),
                 ],
             ),
         ],
     );
     let view = tab(
-        "VIEW",
+        "azsheets-tab-view",
         vec![
             group(
-                "Show",
+                "azsheets-show",
                 vec![column(vec![
-                    toggle(app, "grid_on", "Gridlines", Action::Gridlines, s.cache.snapshot.grid_lines),
-                    toggle(app, "view_headline", "Headings", Action::Headings, s.show_headers),
+                    toggle(app, "grid_on", "azsheets-gridlines", Action::Gridlines, s.cache.snapshot.grid_lines),
+                    toggle(app, "view_headline", "azsheets-headings", Action::Headings, s.show_headers),
                 ])],
             ),
             group(
-                "Window",
+                "azsheets-window",
                 vec![
-                    large(app, "view_compact", "Freeze Panes", Action::FreezePanes),
+                    large(app, "view_compact", "azsheets-freeze-panes", Action::FreezePanes),
                     column(vec![
-                        toggle(app, "vertical_align_top", "Freeze top row", Action::FreezeTopRow, fr == 1 && fc == 0),
-                        toggle(app, "border_left", "Freeze first column", Action::FreezeFirstColumn, fr == 0 && fc == 1),
-                        small(app, "grid_off", "Unfreeze panes", Action::Unfreeze),
+                        toggle(app, "vertical_align_top", "azsheets-freeze-top-row", Action::FreezeTopRow, fr == 1 && fc == 0),
+                        toggle(app, "border_left", "azsheets-freeze-first-column", Action::FreezeFirstColumn, fr == 0 && fc == 1),
+                        small(app, "grid_off", "azsheets-unfreeze-panes", Action::Unfreeze),
                     ]),
                 ],
             ),
             group(
-                "Zoom",
+                "azsheets-zoom",
                 vec![column(vec![
-                    small(app, "zoom_in", "Zoom in", Action::ZoomIn),
-                    small(app, "zoom_out", "Zoom out", Action::ZoomOut),
+                    small(app, "zoom_in", "azsheets-zoom-in", Action::ZoomIn),
+                    small(app, "zoom_out", "azsheets-zoom-out", Action::ZoomOut),
                     small(app, "fit_screen", "100%", Action::Zoom100),
                 ])],
             ),
@@ -1540,7 +1565,7 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
     );
     Ribbon::create(vec![home, insert, formulas, data, view])
         .with_app_button(
-            RibbonAppButton::create(AzString::from("FILE"))
+            RibbonAppButton::create(label("azsheets-tab-file"))
                 .with_on_click(app.clone(), on_file as ButtonOnClickCallbackType),
         )
         .with_active_tab(s.ribbon_tab)
@@ -1565,6 +1590,7 @@ struct FieldRef {
     field: Field,
 }
 
+/// A field reporting as `which`; its placeholder a key (or nothing).
 fn field(app: &RefAny, which: Field, text: &str, placeholder: &str) -> TextInput {
     let data = || {
         RefAny::new(FieldRef {
@@ -1574,7 +1600,7 @@ fn field(app: &RefAny, which: Field, text: &str, placeholder: &str) -> TextInput
     };
     TextInput::create()
         .with_text(AzString::from(text))
-        .with_placeholder(AzString::from(placeholder))
+        .with_placeholder(label(placeholder))
         .with_on_text_input(data(), on_field_text as TextInputOnTextInputCallbackType)
         .with_on_virtual_key_down(data(), on_field_key as TextInputOnVirtualKeyDownCallbackType)
 }
@@ -1605,8 +1631,8 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
     let name_box = Dom::create_div()
         .with_css("display: flex; flex-direction: row; width: 110px; flex-grow: 0; flex-shrink: 0; margin-right: 6px;")
         .with_child(
-            field(app, Field::NameBox, &name, "Name box")
-                .with_accessibility_name(AzString::from("Name box"))
+            field(app, Field::NameBox, &name, "azsheets-name-box")
+                .with_accessibility_name(label("azsheets-name-box"))
                 .dom()
                 .with_id(ids::NAME_BOX),
         );
@@ -1621,7 +1647,7 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
         .dom()
         .with_css("flex-grow: 0; margin-right: 6px;");
     let input = field(app, Field::Formula, &formula, "")
-        .with_accessibility_name(AzString::from("Formula bar"))
+        .with_accessibility_name(label("azsheets-formula-bar"))
         .dom()
         .with_id(ids::FORMULA)
         .with_css("flex-grow: 1; min-width: 0px;");
@@ -1690,14 +1716,14 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
              border-top: 1px solid rgba(128, 128, 128, 0.35); @theme(flora) { border-top: 1px solid \
              system:separator; }",
         )
-        .with_accessibility_info(AccessibilityInfo::named(AzString::from("Sheets"), AccessibilityRole::PageTabList));
+        .with_accessibility_info(AccessibilityInfo::named(label("azsheets-sheets"), AccessibilityRole::PageTabList));
     // An icon-only button, named for assistive technology ("New sheet").
     row.add_child(
         Button::create(AzString::from(""))
             .with_icon(AzString::from("add"))
             .with_on_click(action_ref(app, Action::InsertSheet), on_action as ButtonOnClickCallbackType)
             .dom()
-            .with_accessibility_name(AzString::from("New sheet"))
+            .with_accessibility_name(label("azsheets-new-sheet"))
             .with_css("flex-grow: 0; margin: 2px 6px 0px 0px;"),
     );
     for (i, info) in s.cache.snapshot.sheets.iter().enumerate() {
@@ -1708,8 +1734,8 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
         if let Some((renaming, text)) = &s.renaming {
             if *renaming == sheet {
                 row.add_child(
-                    field(app, Field::Rename, text, "Sheet name")
-                        .with_accessibility_name(AzString::from("Sheet name"))
+                    field(app, Field::Rename, text, "azsheets-sheet-name")
+                        .with_accessibility_name(label("azsheets-sheet-name"))
                         .dom()
                         .with_id(ids::SHEET_RENAME)
                         .with_css("width: 140px; flex-grow: 0; margin: 2px 4px 0px 0px;"),
@@ -1781,9 +1807,9 @@ const ZOOM_MIN: u32 = 10;
 const ZOOM_MAX: u32 = 400;
 
 /// Labels for a Segmented / DropDown / TabHeader (one helper for the
-/// app's dialogs and panels).
+/// app's dialogs and panels): keys said in the window's language.
 pub(crate) fn strs<'a>(items: impl IntoIterator<Item = &'a str>) -> StringVec {
-    StringVec::from_vec(items.into_iter().map(AzString::from).collect())
+    StringVec::from_vec(items.into_iter().map(label).collect())
 }
 
 /// The data of a button that runs `action`.
@@ -1795,8 +1821,8 @@ fn action_ref(app: &RefAny, action: Action) -> RefAny {
 }
 
 fn status_bar(s: &AppState, app: &RefAny) -> Dom {
-    let state = if s.in_flight > 0 { "CALCULATING..." } else { "READY" };
-    let mut segments = vec![StatusBarSegment::create(AzString::from(state))];
+    let state = if s.in_flight > 0 { "azsheets-calculating" } else { "azsheets-ready" };
+    let mut segments = vec![StatusBarSegment::create(label(state))];
     if !s.message.is_empty() {
         segments.push(StatusBarSegment::create(AzString::from(s.message.as_str())));
     }
@@ -1849,24 +1875,25 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
                  @theme(flora) { border-left: 1px solid system:separator; }",
             )
             // The panel's title: flora's label under flora (capitals in the label ink).
-            .with_child(Dom::create_p_with_text(AzString::from(title)).with_css(
+            .with_child(Dom::create_p_with_text(label(title)).with_css(
                 "font-weight: 600; margin: 4px 0px 8px 0px; @theme(flora) { font-size: 11px; \
                  font-weight: bold; text-transform: uppercase; letter-spacing: 0.12em; color: \
                  system:secondary-text; }",
             ))
     };
     let close = || {
-        Button::create(AzString::from("Close"))
+        Button::create(label("azsheets-close"))
             .with_on_click(app.clone(), on_panel_close as ButtonOnClickCallbackType)
             .dom()
             .with_css("flex-grow: 0; margin-top: 8px;")
     };
-    let line = |text: &str| Dom::create_p_with_text(AzString::from(text)).with_css("font-size: 12px; margin: 2px 0px;");
+    // A key said, plain words (a name and its formula) as they are.
+    let line = |text: &str| Dom::create_p_with_text(label(text)).with_css("font-size: 12px; margin: 2px 0px;");
     match s.panel {
         Panel::None => None,
         Panel::Conditional => Some(conditional_panel::panel(s, app)),
         Panel::Functions => {
-            let mut p = frame("Insert Function");
+            let mut p = frame("azsheets-insert-function");
             for category in functions::Category::ALL {
                 p.add_child(line(category.label()).with_css("font-weight: 600; margin-top: 6px;"));
                 for f in functions::in_category(category) {
@@ -1886,14 +1913,14 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
             Some(p.with_child(close()))
         }
         Panel::Names => {
-            let mut p = frame("Name Manager");
+            let mut p = frame("azsheets-name-manager");
             if s.cache.snapshot.names.is_empty() {
-                p.add_child(line("No names yet. Select a range, type a name in the name box, then Define name."));
+                p.add_child(line("azsheets-no-names"));
             }
             for (i, n) in s.cache.snapshot.names.iter().enumerate() {
                 p.add_child(line(&format!("{}  {}", n.name, n.formula)));
                 p.add_child(
-                    Button::with_type(AzString::from("Delete"), azul::widgets::ButtonType::Link)
+                    Button::with_type(label("azsheets-delete"), azul::widgets::ButtonType::Link)
                         .with_on_click(
                             RefAny::new(NameRef {
                                 app: app.clone(),
@@ -1916,15 +1943,12 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
             if s.show_replace {
                 dialog = dialog.with_replace(AzString::from(s.replace.as_str()));
             }
-            let title = if s.show_replace { "Find and Replace" } else { "Find" };
+            let title = if s.show_replace { "azsheets-find-replace" } else { "azsheets-find" };
             Some(frame(title).with_child(dialog.dom().with_id(ids::FIND)))
         }
         Panel::Chart => {
-            let mut p = frame("Charts");
-            p.add_child(line(
-                "Charts are not in the spreadsheet engine yet (IronCalc has none); they will be drawn \
-                 by the app from a range.",
-            ));
+            let mut p = frame("azsheets-charts");
+            p.add_child(line("azsheets-charts-later"));
             Some(p.with_child(close()))
         }
     }
@@ -1941,18 +1965,19 @@ struct OpenRef {
 fn backstage(s: &AppState, app: &RefAny) -> Dom {
     let items: Vec<BackstageNavItem> = BACKSTAGE_ITEMS
         .iter()
-        .map(|label| {
-            let item = BackstageNavItem::create(AzString::from(*label));
-            if *label == "Options" {
+        .map(|name| {
+            let item = BackstageNavItem::create(AzString::from(backstage_word(name)));
+            if *name == "Options" {
                 item.with_gap_before()
             } else {
                 item
             }
         })
         .collect();
-    let line = |text: &str| Dom::create_p_with_text(AzString::from(text)).with_css("font-size: 13px; margin: 4px 0px;");
-    let button = |label: &str, action: Action| {
-        Button::create(AzString::from(label))
+    // A key said, plain words as they are.
+    let line = |text: &str| Dom::create_p_with_text(label(text)).with_css("font-size: 13px; margin: 4px 0px;");
+    let button = |name: &str, action: Action| {
+        Button::create(label(name))
             .with_on_click(
                 RefAny::new(ActionRef {
                     app: app.clone(),
@@ -1967,27 +1992,27 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
         .with_id(ids::BACKSTAGE_PANE)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; padding: 24px 40px;")
         .with_child(
-            Dom::create_p_with_text(AzString::from(BACKSTAGE_ITEMS[s.backstage_pane.min(BACKSTAGE_ITEMS.len() - 1)]))
+            Dom::create_p_with_text(AzString::from(backstage_word(BACKSTAGE_ITEMS[s.backstage_pane.min(BACKSTAGE_ITEMS.len() - 1)])))
                 .with_css("font-size: 28px; margin: 0px 0px 16px 0px;"),
         );
     match BACKSTAGE_ITEMS.get(s.backstage_pane).copied().unwrap_or("Info") {
         "Info" => {
-            pane.add_child(line(&format!("Workbook: {}", s.doc.title)));
-            pane.add_child(line(&format!("File: sheets/{}.xlsx", s.doc.id)));
-            pane.add_child(line(&format!("Folder: {}", s.data_root.display())));
-            pane.add_child(line(&format!("Sheets: {}", s.cache.snapshot.sheets.len())));
-            pane.add_child(line(if s.doc.dirty { "Changed since the last save." } else { "Saved." }));
+            pane.add_child(line(&t_args("azsheets-info-workbook", &[("title", Arg::from(&s.doc.title))])));
+            pane.add_child(line(&t_args("azsheets-info-file", &[("file", Arg::from(format!("sheets/{}.xlsx", s.doc.id)))])));
+            pane.add_child(line(&t_args("azsheets-info-folder", &[("folder", Arg::from(s.data_root.display().to_string()))])));
+            pane.add_child(line(&t_args("azsheets-info-sheets", &[("count", Arg::from(s.cache.snapshot.sheets.len()))])));
+            pane.add_child(line(if s.doc.dirty { "azsheets-info-changed" } else { "azsheets-info-saved" }));
         }
         "New" => {
             pane.add_child(
-                Button::create(AzString::from("Blank workbook"))
+                Button::create(label("azsheets-blank-workbook"))
                     .with_on_click(app.clone(), on_new_blank as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::NEW_BLANK)
                     .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;"),
             );
             pane.add_child(
-                Button::create(AzString::from("Budget 2027 (sample)"))
+                Button::create(label("azsheets-sample-workbook"))
                     .with_on_click(app.clone(), on_new_sample as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::NEW_SAMPLE)
@@ -1996,13 +2021,13 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
         }
         "Open" => {
             pane.add_child(
-                Button::create(AzString::from("Browse for an .xlsx file..."))
+                Button::create(label("azsheets-browse"))
                     .with_on_click(app.clone(), on_browse as ButtonOnClickCallbackType)
                     .dom()
                     .with_css("flex-grow: 0; margin: 4px 0px 12px 0px; width: 260px;"),
             );
             if s.workbooks.is_empty() {
-                pane.add_child(line("No workbooks in the data folder yet."));
+                pane.add_child(line("azsheets-no-workbooks"));
             }
             for (i, (id, sidecar)) in s.workbooks.iter().enumerate() {
                 let title = if sidecar.title.is_empty() { id.as_str() } else { sidecar.title.as_str() };
@@ -2021,27 +2046,30 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
             }
         }
         "Save" => {
-            pane.add_child(line(&format!("Saves \"{}\" as sheets/{}.xlsx.", s.doc.title, s.doc.id)));
-            pane.add_child(button("Save", Action::Save));
+            pane.add_child(line(&t_args(
+                "azsheets-save-pane",
+                &[("title", Arg::from(&s.doc.title)), ("file", Arg::from(format!("sheets/{}.xlsx", s.doc.id)))],
+            )));
+            pane.add_child(button("azsheets-save", Action::Save));
         }
         "Save As" => {
-            pane.add_child(line("Saves a copy under a new file id; the copy stays open."));
+            pane.add_child(line("azsheets-save-as-pane"));
             pane.add_child(
-                Button::create(AzString::from("Save a copy"))
+                Button::create(label("azsheets-save-copy"))
                     .with_on_click(app.clone(), on_save_as as ButtonOnClickCallbackType)
                     .dom()
                     .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;"),
             );
         }
         "Export" => {
-            pane.add_child(line("Writes the sheet shown into exports/ in the data folder."));
-            pane.add_child(button("Export CSV", Action::ExportCsv));
-            pane.add_child(button("Export PDF", Action::ExportPdf));
+            pane.add_child(line("azsheets-export-pane"));
+            pane.add_child(button("azsheets-export-csv", Action::ExportCsv));
+            pane.add_child(button("azsheets-export-pdf", Action::ExportPdf));
         }
         "Close" => {
-            pane.add_child(line("Closes the workbook and opens a blank one."));
+            pane.add_child(line("azsheets-close-pane"));
             pane.add_child(
-                Button::create(AzString::from("Close workbook"))
+                Button::create(label("azsheets-close-workbook"))
                     .with_on_click(app.clone(), on_new_blank as ButtonOnClickCallbackType)
                     .dom()
                     .with_css("flex-grow: 0; margin: 4px 0px; width: 220px;"),
@@ -2050,15 +2078,15 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
         "Options" => {
             // The kit's settings page covers the window instead (backstage_pane); this pane
             // shows only without a kit.
-            pane.add_child(line("The settings are not available."));
+            pane.add_child(line("azsheets-no-settings"));
         }
         _ => {
             // The standard About box (DEDUP_OFFICE D12); OK goes back.
             pane.add_child(
                 AboutDialog::create(AzString::from(ABOUT.name), AzString::from(ABOUT.version))
                     .with_icon(AzString::from("grid_on"))
-                    .with_description(AzString::from(ABOUT.summary))
-                    .with_copyright(AzString::from("Copyright 2026 Felix Schuett. MIT license."))
+                    .with_description(AzString::from(azul_appkit::l10n::app_word(ABOUT.name, "about-summary", ABOUT.summary)))
+                    .with_copyright(label("azsheets-copyright"))
                     .with_credit(AzString::from("IronCalc 0.8.3"), AzString::from("MIT OR Apache-2.0"))
                     .with_credit(AzString::from("azul"), AzString::from("MIT"))
                     .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
@@ -2075,6 +2103,12 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
         .dom()
 }
 
+/// A backstage pane's name in the window's language (`azsheets-backstage-save-as` for
+/// "Save As"; the name as it is without one).
+fn backstage_word(name: &str) -> String {
+    azul_appkit::l10n::named(ABOUT.name, "backstage", name)
+}
+
 // ==== The window ====
 
 fn title_row(s: &AppState) -> Dom {
@@ -2085,6 +2119,7 @@ fn title_row(s: &AppState) -> Dom {
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let window = (info.get_window_width(), info.get_window_height());
@@ -2418,14 +2453,15 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
             match merged {
                 Some(m) => run(info, app, s, Command::Unmerge { area: m }),
                 None if area.width * area.height > 1 => run(info, app, s, Command::MergeCenter { area }),
-                None => s.message = String::from("Select two or more cells to merge."),
+                None => s.message = t("azsheets-merge-needs-cells"),
             }
         }
         Action::Undo => run(info, app, s, Command::Undo),
         Action::Redo => run(info, app, s, Command::Redo),
         Action::Copy | Action::Cut => {
             s.clipboard = Some((area, action == Action::Cut, inputs_of(s, area)));
-            s.message = format!("{} {}.", if action == Action::Cut { "Cut" } else { "Copied" }, a1_area(area));
+            let said = if action == Action::Cut { "azsheets-cut-area" } else { "azsheets-copied-area" };
+            s.message = t_args(said, &[("area", Arg::from(a1_area(area)))]);
         }
         Action::Paste => match s.clipboard.clone() {
             Some((source, cut, rows)) => {
@@ -2435,7 +2471,7 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
                     s.clipboard = None;
                 }
             }
-            None => s.message = String::from("Nothing copied in AzSheets yet; Ctrl+V pastes from other apps."),
+            None => s.message = t("azsheets-nothing-copied"),
         },
         Action::Bold => restyle(info, app, s, vec![StylePatch::Bold(!style.bold)]),
         Action::Italic => restyle(info, app, s, vec![StylePatch::Italic(!style.italic)]),
@@ -2555,7 +2591,7 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
                 s.sheet = sheet.saturating_sub(1);
                 s.view = CellGridView::create();
             } else {
-                s.message = String::from("A workbook keeps at least one sheet.");
+                s.message = t("azsheets-last-sheet");
             }
         }
         Action::RenameSheet => {
@@ -2679,7 +2715,7 @@ fn act(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, action: Action) 
         Action::InsertFunction => s.panel = Panel::Functions,
         Action::NameManager => s.panel = Panel::Names,
         Action::DefineName => {
-            s.message = String::from("Select the range, type the name into the name box and press Enter.");
+            s.message = t("azsheets-define-name-how");
         }
         Action::CalculateNow => run(info, app, s, Command::Evaluate),
         Action::FreezePanes => {
@@ -2738,7 +2774,7 @@ extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
 fn export_pdf(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
     let (max_row, max_column) = s.cache.snapshot.extent;
     if max_row == 0 || max_column == 0 {
-        s.message = String::from("The sheet is empty: nothing to export.");
+        s.message = t("azsheets-nothing-to-export");
         return;
     }
     let mut table = Dom::create_div().with_css("display: flex; flex-direction: column; font-size: 10px;");
@@ -2771,7 +2807,7 @@ fn export_pdf(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState) {
         .as_ref()
         .to_vec();
     if bytes.is_empty() {
-        s.message = String::from("The PDF export produced nothing.");
+        s.message = t("azsheets-pdf-empty");
         return;
     }
     spawn_job(
@@ -2897,9 +2933,12 @@ extern "C" fn on_field_key(mut data: RefAny, mut info: CallbackInfo, state: Text
                             formula,
                         },
                     );
-                    s.message = format!("Defined the name {} for {}.", text.trim(), a1_area(area));
+                    s.message = t_args(
+                        "azsheets-name-defined",
+                        &[("name", Arg::from(text.trim())), ("area", Arg::from(a1_area(area)))],
+                    );
                 }
-                None => s.message = format!("\"{text}\" is not a cell, a range or a name."),
+                None => s.message = t_args("azsheets-not-a-reference", &[("text", Arg::from(text.as_str()))]),
             }
             s.name_box = None;
         }
@@ -3127,9 +3166,9 @@ extern "C" fn on_find_event(mut data: RefAny, mut info: CallbackInfo, event: Sta
                 // The active cell is in the grid's own edit: replace there.
                 let replacement = s.replace.clone();
                 s.find_status = if replace_in_edit(s, &needle, &replacement, opts) {
-                    String::from("Replaced in the cell being edited.")
+                    t("azsheets-replaced-in-edit")
                 } else {
-                    format!("\"{needle}\" is not in the cell being edited.")
+                    t_args("azsheets-not-in-edit", &[("text", Arg::from(&needle))])
                 };
             }
             StandardDialogEventKind::Replace if !needle.is_empty() => {
@@ -3207,7 +3246,7 @@ extern "C" fn on_new_sample(mut data: RefAny, mut info: CallbackInfo) -> Update 
 extern "C" fn on_save_as(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |info, app, s| {
         s.doc.id = storage::new_id();
-        s.doc.title = format!("{} (copy)", s.doc.title);
+        s.doc.title = t_args("azsheets-copy-title", &[("title", Arg::from(&s.doc.title))]);
         save(info, app, s);
         s.screen = Screen::Workbook;
     })
@@ -3219,7 +3258,7 @@ extern "C" fn on_open_entry(mut data: RefAny, mut info: CallbackInfo) -> Update 
     };
     with_app(&mut app, &mut info, |info, app, s| {
         if let Some((id, _)) = s.workbooks.get(index).cloned() {
-            s.message = String::from("Opening...");
+            s.message = t("azsheets-opening");
             spawn_job(
                 info,
                 app,
@@ -3234,7 +3273,7 @@ extern "C" fn on_open_entry(mut data: RefAny, mut info: CallbackInfo) -> Update 
 
 extern "C" fn on_browse(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::open_file(
-        AzString::from("Open a workbook"),
+        AzString::from(t("azsheets-open-workbook")),
         OptionString::None,
         OptionFileTypeList::None,
         data,
@@ -3252,7 +3291,7 @@ extern "C" fn on_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny
     };
     let path = PathBuf::from(path.as_string().as_str());
     with_app(&mut data, &mut info, |info, app, s| {
-        s.message = format!("Opening {}...", path.display());
+        s.message = t_args("azsheets-opening-path", &[("path", Arg::from(path.display().to_string()))]);
         spawn_job(info, app, Job::Import { path });
     })
 }
@@ -3381,14 +3420,22 @@ pub fn start(args: Args) {
     let kit_ref = kit::create_kit(args::SPEC, ABOUT, &SHORTCUTS, &[], args.kit.clone());
     // AzSheets is always set in flora's green, whatever the other apps show.
     kit::pin_theme(&kit_ref, azul_appkit::Theme::FloraGreen);
+    // The words first: from here on everything is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let mut state = AppState::new(kit_data_root(&kit_ref));
     state.kit = Some(kit_ref.clone());
     match worker::spawn_engine(make_engine) {
         Ok(tx) => state.engine = Some(tx),
-        Err(e) => state.message = format!("The spreadsheet engine could not start: {e}"),
+        Err(e) => state.message = t_args("azsheets-engine-start-failed", &[("why", Arg::from(e.to_string()))]),
     }
     state.window = args.size().unwrap_or((1280.0, 800.0));
-    let config = kit::app_config(&kit_ref);
     eprintln!("[azsheets] data folder {}", state.data_root.display());
     state.args = Some(args);
     let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), startup);

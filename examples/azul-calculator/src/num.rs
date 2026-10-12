@@ -46,10 +46,12 @@ pub enum CalcError {
 
 impl fmt::Display for CalcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // What the display shows, in the window's language (a syntax error is said where it
+        // is found).
         match self {
-            CalcError::DivideByZero => write!(f, "Cannot divide by zero"),
-            CalcError::InvalidInput => write!(f, "Invalid input"),
-            CalcError::Overflow => write!(f, "Overflow"),
+            CalcError::DivideByZero => f.write_str(&azul_appkit::l10n::t("azcalculator-err-divide-by-zero")),
+            CalcError::InvalidInput => f.write_str(&azul_appkit::l10n::t("azcalculator-err-invalid")),
+            CalcError::Overflow => f.write_str(&azul_appkit::l10n::t("azcalculator-err-overflow")),
             CalcError::Syntax(what) => write!(f, "{what}"),
         }
     }
@@ -472,6 +474,7 @@ mod tests {
 
     #[test]
     fn decimal_arithmetic_has_no_binary_artefacts() {
+        crate::l10n::in_english();
         assert_eq!(show(&n("0.1").add(&n("0.2")).unwrap()), "0.3");
         assert_eq!(show(&n("1280").mul(&n("0.19")).unwrap()), "243.2");
         assert_eq!(show(&n("243.2").add(&n("18.5")).unwrap()), "261.7");
@@ -481,6 +484,7 @@ mod tests {
 
     #[test]
     fn division_keeps_thirty_two_digits_and_one_third_times_three_is_one() {
+        crate::l10n::in_english();
         let third = n("1").div(&n("3")).unwrap();
         assert_eq!(show(&third), "0.33333333333333333333333333333333");
         assert_eq!(show(&third.mul(&n("3")).unwrap()), "1");
@@ -489,6 +493,7 @@ mod tests {
 
     #[test]
     fn dividing_by_zero_is_an_error_not_a_panic() {
+        crate::l10n::in_english();
         assert_eq!(n("5").div(&Num::zero()), Err(CalcError::DivideByZero));
         assert_eq!(n("5").rem(&Num::zero()), Err(CalcError::DivideByZero));
         assert_eq!(CalcError::DivideByZero.to_string(), "Cannot divide by zero");
@@ -496,6 +501,7 @@ mod tests {
 
     #[test]
     fn the_remainder_has_the_sign_of_the_dividend() {
+        crate::l10n::in_english();
         assert_eq!(show(&n("7").rem(&n("3")).unwrap()), "1");
         assert_eq!(show(&n("-7").rem(&n("3")).unwrap()), "-1");
         assert_eq!(show(&n("7.5").rem(&n("2")).unwrap()), "1.5");
@@ -503,6 +509,7 @@ mod tests {
 
     #[test]
     fn typed_and_pasted_numbers_parse() {
+        crate::l10n::in_english();
         assert_eq!(n("1,280"), n("1280"));
         assert_eq!(n(".5"), n("0.5"));
         assert_eq!(n("5."), n("5"));
@@ -517,6 +524,7 @@ mod tests {
 
     #[test]
     fn results_are_grouped_and_trimmed() {
+        crate::l10n::in_english();
         assert_eq!(show(&n("1234567.890")), "1,234,567.89");
         assert_eq!(show(&n("-1234")), "-1,234");
         assert_eq!(show(&n("100")), "100");
@@ -531,6 +539,7 @@ mod tests {
 
     #[test]
     fn huge_and_tiny_results_switch_to_scientific_notation() {
+        crate::l10n::in_english();
         assert_eq!(show(&n("1e40")), "1e+40");
         assert_eq!(show(&n("-1.5e40")), "-1.5e+40");
         assert_eq!(show(&n("1.25e-12")), "1.25e-12");
@@ -545,6 +554,7 @@ mod tests {
 
     #[test]
     fn a_result_beyond_ten_to_the_9999_is_an_overflow() {
+        crate::l10n::in_english();
         let big = n("1e9999");
         assert_eq!(big.mul(&n("10")), Err(CalcError::Overflow));
         assert_eq!(n("10").pow(&n("10000")), Err(CalcError::Overflow));
@@ -556,6 +566,7 @@ mod tests {
 
     #[test]
     fn integer_powers_are_exact_and_fractional_ones_go_through_f64() {
+        crate::l10n::in_english();
         assert_eq!(show(&n("2").pow(&n("10")).unwrap()), "1,024");
         assert_eq!(show(&n("1.1").pow(&n("2")).unwrap()), "1.21");
         assert_eq!(show(&n("2").pow(&n("-2")).unwrap()), "0.25");
@@ -568,6 +579,7 @@ mod tests {
 
     #[test]
     fn roots_and_factorials() {
+        crate::l10n::in_english();
         assert_eq!(show(&n("2").sqrt().unwrap()), "1.4142135623730950488016887242097");
         assert_eq!(show(&n("144").sqrt().unwrap()), "12");
         assert_eq!(n("-1").sqrt(), Err(CalcError::InvalidInput));
@@ -583,6 +595,7 @@ mod tests {
 
     #[test]
     fn f64_results_are_rounded_to_fifteen_digits() {
+        crate::l10n::in_english();
         assert_eq!(show(&Num::from_f64(0.1 + 0.2).unwrap()), "0.3");
         assert_eq!(show(&Num::from_f64((30f64).to_radians().sin()).unwrap()), "0.5");
         assert_eq!(show(&Num::from_f64(1000f64.log10()).unwrap()), "3");
@@ -595,6 +608,7 @@ mod tests {
 
     #[test]
     fn a_number_being_typed_keeps_its_trailing_zeros_and_point() {
+        crate::l10n::in_english();
         assert_eq!(format_typed("1280.50", true), "1,280.50");
         assert_eq!(format_typed("0.", true), "0.");
         assert_eq!(format_typed("-1234", true), "-1,234");
@@ -606,6 +620,7 @@ mod tests {
 
     #[test]
     fn a_result_typed_on_with_is_its_plain_text() {
+        crate::l10n::in_english();
         assert_eq!(n("1234.5").to_literal(), "1234.5");
         assert_eq!(n("1e40").to_literal(), "1e+40");
         assert_eq!(Num::parse(&n("1e40").to_literal()).unwrap(), n("1e40"));
@@ -614,6 +629,7 @@ mod tests {
 
     #[test]
     fn the_exponent_is_the_position_of_the_leading_digit() {
+        crate::l10n::in_english();
         assert_eq!(n("5").exponent(), Some(0));
         assert_eq!(n("123.4").exponent(), Some(2));
         assert_eq!(n("0.05").exponent(), Some(-2));

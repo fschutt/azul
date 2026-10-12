@@ -1,8 +1,9 @@
 //! Amounts in integer minor units (cents): money is never a float here (the
 //! ERP README's "money is f64" is one of its bugs; MoneyInput's rule).
 //!
-//! - [`format_amount`]: `159664` -> `"1,596.64"` (what the tables show:
-//!   azul's `MoneyInput::format_amount` in [`currency`], no symbol).
+//! - [`format_amount`]: `159664` -> `"1,596.64"`, `"1.596,64"` in German
+//!   (what the tables show: azul's `MoneyInput::format_amount` in
+//!   [`currency`], no symbol).
 //! - [`file_amount`] / [`parse_file_amount`]: `"1596.64"` (what the record
 //!   files and the CSV export hold: no grouping, a point, two decimals).
 //! - [`parse_amount`]: what a user types or a CSV file holds - `1,596.64`,
@@ -12,6 +13,7 @@
 //! widget parses what is typed); the CSV import keeps [`parse_amount`].
 
 use azul::widgets::{MoneyCurrency, MoneyInput, MoneyLocale};
+use azul_appkit::l10n::{t, t_args, Arg};
 
 /// Minor units per major unit (two decimals: EUR, USD, GBP, CHF, ...).
 pub const MINOR_PER_MAJOR: i64 = 100;
@@ -24,14 +26,20 @@ pub fn currency() -> MoneyCurrency {
     MoneyCurrency::create("", "", 2)
 }
 
-/// How amounts are written: `1,596.64` (a point, a comma between thousands).
+/// How amounts are written in the language of the layout pass: `1,596.64` (a
+/// point, a comma between thousands), in German `1.596,64`.
 #[must_use]
 pub fn locale() -> MoneyLocale {
-    MoneyLocale::en_us()
+    if azul_appkit::l10n::locale().starts_with("de") {
+        MoneyLocale::en_us().with_separators(u32::from(','), u32::from('.'))
+    } else {
+        MoneyLocale::en_us()
+    }
 }
 
 /// `cents` with thousands separators and two decimals: `"1,596.64"`,
-/// `"-0.50"`, `"0.00"` (azul's `MoneyInput::format_amount`).
+/// `"-0.50"`, `"0.00"` (azul's `MoneyInput::format_amount`; German marks in
+/// German).
 #[must_use]
 pub fn format_amount(cents: i64) -> String {
     MoneyInput::format_amount(cents, currency(), locale())
@@ -118,7 +126,12 @@ fn ungroup(int: &str) -> Option<String> {
 /// refused (no silent rounding of money).
 pub fn parse_amount(text: &str) -> Result<i64, String> {
     let shown = text.trim();
-    let bad = |why: &str| format!("\"{shown}\" is not an amount: {why}");
+    let bad = |why: &str| {
+        t_args(
+            "azerp-problem-not-an-amount",
+            &[("text", Arg::from(shown)), ("why", Arg::from(t(why)))],
+        )
+    };
     // Spaces and apostrophes group thousands (`1 596`, `1'596`): dropped.
     let mut body: String = shown
         .chars()
@@ -138,20 +151,18 @@ pub fn parse_amount(text: &str) -> Result<i64, String> {
         (false, trimmed)
     };
     if minus && negative {
-        return Err(bad("two minus signs"));
+        return Err(bad("azerp-amount-two-minus-signs"));
     }
     negative |= minus;
     let rest = rest.trim_matches(is_currency);
     if rest.is_empty() {
-        return Err(bad("no digits"));
+        return Err(bad("azerp-amount-no-digits"));
     }
     if !rest
         .chars()
         .all(|c| c.is_ascii_digit() || c == '.' || c == ',')
     {
-        return Err(bad(
-            "only digits, one decimal separator and thousands separators",
-        ));
+        return Err(bad("azerp-amount-only-digits"));
     }
     let dots = rest.matches('.').count();
     let commas = rest.matches(',').count();
@@ -163,7 +174,7 @@ pub fn parse_amount(text: &str) -> Result<i64, String> {
             ','
         };
         if rest.matches(sep).count() != 1 {
-            return Err(bad("two decimal separators"));
+            return Err(bad("azerp-amount-two-decimal-separators"));
         }
         Some(sep)
     } else if dots + commas == 1 {
@@ -186,13 +197,13 @@ pub fn parse_amount(text: &str) -> Result<i64, String> {
         None => (rest, ""),
     };
     if frac.len() > 2 {
-        return Err(bad("more than two decimals"));
+        return Err(bad("azerp-amount-more-than-two-decimals"));
     }
     if int.is_empty() && frac.is_empty() {
-        return Err(bad("no digits"));
+        return Err(bad("azerp-amount-no-digits"));
     }
-    let digits = ungroup(int).ok_or_else(|| bad("the thousands are not grouped by three"))?;
-    compose(&digits, frac, negative).ok_or_else(|| bad("too large"))
+    let digits = ungroup(int).ok_or_else(|| bad("azerp-amount-not-grouped-by-three"))?;
+    compose(&digits, frac, negative).ok_or_else(|| bad("azerp-amount-too-large"))
 }
 
 /// `numerator / denominator` rounded half away from zero (the rounding of

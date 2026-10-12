@@ -2,6 +2,8 @@
 //! a lap's `00:51.12`, the timer's `05:48`, the footer's "in 15 h 58 min",
 //! a city's "+7 h".
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 /// The stopwatch's big text: hours, minutes, seconds and hundredths
 /// (`00:04:17.36`), always with the hours.
 #[must_use]
@@ -60,30 +62,47 @@ pub fn clock(hour: u32, minute: u32, twelve_hour: bool) -> String {
 }
 
 /// How long until something: "less than a minute", "3 min", "15 h 58 min",
-/// "1 day 2 h", "3 days".
+/// "1 day 2 h", "3 days" (in the window's language; German says it after "in": "3 Tagen").
 #[must_use]
 pub fn until(ms: i64) -> String {
     let total_min = ms.max(0) / 60_000;
     if total_min == 0 {
-        return "less than a minute".to_string();
+        return t("azclock-less-than-minute");
     }
     let (days, hours, mins) = (total_min / 1440, (total_min / 60) % 24, total_min % 60);
-    let plural = |n: i64, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
     if days > 0 {
         if hours > 0 {
-            format!("{} {hours} h", plural(days, "day", "days"))
+            t_args("azclock-span-days-h", &[("days", Arg::from(days)), ("h", Arg::from(hours.to_string()))])
         } else {
-            plural(days, "day", "days")
+            t_args("azclock-span-days", &[("days", Arg::from(days))])
         }
     } else if hours > 0 {
         if mins > 0 {
-            format!("{hours} h {mins} min")
+            span_h_min(hours, mins)
         } else {
-            format!("{hours} h")
+            span_h(hours)
         }
     } else {
-        format!("{mins} min")
+        span_min(mins)
     }
+}
+
+/// "15 min" (German "15 Min.").
+fn span_min(minutes: impl ToString) -> String {
+    t_args("azclock-span-min", &[("min", Arg::from(minutes.to_string()))])
+}
+
+/// "2 h" (German "2 Std.").
+fn span_h(hours: impl ToString) -> String {
+    t_args("azclock-span-h", &[("h", Arg::from(hours.to_string()))])
+}
+
+/// "1 h 30 min" (German "1 Std. 30 Min.").
+fn span_h_min(hours: impl ToString, minutes: impl ToString) -> String {
+    t_args(
+        "azclock-span-h-min",
+        &[("h", Arg::from(hours.to_string())), ("min", Arg::from(minutes.to_string()))],
+    )
 }
 
 /// A city's offset from here, in minutes: "same time", "+7 h", "-6 h",
@@ -91,15 +110,15 @@ pub fn until(ms: i64) -> String {
 #[must_use]
 pub fn offset_difference(minutes: i32) -> String {
     if minutes == 0 {
-        return "same time".to_string();
+        return t("azclock-same-time");
     }
     let sign = if minutes > 0 { '+' } else { '-' };
     let abs = minutes.unsigned_abs();
     let (h, m) = (abs / 60, abs % 60);
     if m == 0 {
-        format!("{sign}{h} h")
+        span_h(format!("{sign}{h}"))
     } else {
-        format!("{sign}{h}:{m:02} h")
+        span_h(format!("{sign}{h}:{m:02}"))
     }
 }
 
@@ -108,9 +127,9 @@ pub fn offset_difference(minutes: i32) -> String {
 pub fn minutes(total: u32) -> String {
     let (h, m) = (total / 60, total % 60);
     match (h, m) {
-        (0, m) => format!("{m} min"),
-        (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m} min"),
+        (0, m) => span_min(m),
+        (h, 0) => span_h(h),
+        (h, m) => span_h_min(h, m),
     }
 }
 
@@ -120,6 +139,7 @@ mod tests {
 
     #[test]
     fn the_stopwatch_shows_hundredths_and_always_the_hours() {
+        crate::l10n::in_english();
         assert_eq!(stopwatch(0), "00:00:00.00");
         assert_eq!(stopwatch(257_369), "00:04:17.36", "hundredths are cut, not rounded");
         assert_eq!(stopwatch(3_723_450), "01:02:03.45");
@@ -127,6 +147,7 @@ mod tests {
 
     #[test]
     fn a_lap_shows_hours_only_once_there_are_some() {
+        crate::l10n::in_english();
         assert_eq!(lap(51_120), "00:51.12");
         assert_eq!(lap(257_360), "04:17.36");
         assert_eq!(lap(3_723_450), "1:02:03.45");
@@ -134,6 +155,7 @@ mod tests {
 
     #[test]
     fn a_countdown_rounds_up_to_the_second() {
+        crate::l10n::in_english();
         assert_eq!(countdown(347_001), "05:48");
         assert_eq!(countdown(348_000), "05:48");
         assert_eq!(countdown(1), "00:01");
@@ -144,6 +166,7 @@ mod tests {
 
     #[test]
     fn a_time_of_day_reads_in_24_or_12_hours() {
+        crate::l10n::in_english();
         assert_eq!(clock(6, 30, false), "06:30");
         assert_eq!(clock(6, 30, true), "6:30 AM");
         assert_eq!(clock(0, 5, true), "12:05 AM");
@@ -153,6 +176,7 @@ mod tests {
 
     #[test]
     fn how_long_until_reads_in_days_hours_and_minutes() {
+        crate::l10n::in_english();
         assert_eq!(until(20_000), "less than a minute");
         assert_eq!(until(3 * 60_000 + 59_000), "3 min", "minutes are cut");
         assert_eq!(until((15 * 60 + 58) * 60_000), "15 h 58 min");
@@ -163,6 +187,7 @@ mod tests {
 
     #[test]
     fn a_city_offset_reads_in_hours() {
+        crate::l10n::in_english();
         assert_eq!(offset_difference(0), "same time");
         assert_eq!(offset_difference(420), "+7 h");
         assert_eq!(offset_difference(-360), "-6 h");
@@ -172,6 +197,7 @@ mod tests {
 
     #[test]
     fn a_length_reads_in_minutes_and_hours() {
+        crate::l10n::in_english();
         assert_eq!(minutes(1), "1 min");
         assert_eq!(minutes(25), "25 min");
         assert_eq!(minutes(60), "1 h");

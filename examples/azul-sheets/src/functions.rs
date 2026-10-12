@@ -30,18 +30,18 @@ impl Category {
         Category::Information,
     ];
 
-    /// The group's caption.
+    /// The group's caption (a key of AzSheets' resources).
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Category::Math => "Math & Trig",
-            Category::Statistical => "Statistical",
-            Category::Logical => "Logical",
-            Category::Text => "Text",
-            Category::Lookup => "Lookup & Reference",
-            Category::DateTime => "Date & Time",
-            Category::Financial => "Financial",
-            Category::Information => "Information",
+            Category::Math => "azsheets-functions-math",
+            Category::Statistical => "azsheets-functions-statistical",
+            Category::Logical => "azsheets-functions-logical",
+            Category::Text => "azsheets-functions-text",
+            Category::Lookup => "azsheets-functions-lookup",
+            Category::DateTime => "azsheets-functions-date-time",
+            Category::Financial => "azsheets-functions-financial",
+            Category::Information => "azsheets-functions-information",
         }
     }
 }

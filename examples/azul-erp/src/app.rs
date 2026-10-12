@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 
+use azul_appkit::l10n::{t, t_args, Arg};
 use azul_pim::write_queue::WriteQueue;
 use chrono::{Datelike, NaiveDate};
 
@@ -153,7 +154,7 @@ impl State {
     /// Goes to `path`: a form opens over the page, anything else is the page.
     pub fn open(&mut self, path: &str) {
         let Some(route) = self.views.route(path) else {
-            self.notice = format!("There is no page at {path}.");
+            self.notice = t_args("azerp-no-page", &[("path", Arg::from(path))]);
             return;
         };
         let kind = route.view.kind;
@@ -290,10 +291,7 @@ impl State {
                     address: String::new(),
                     notes: String::new(),
                 }),
-                _ => Err(vec![(
-                    String::new(),
-                    "This form cannot be saved yet.".to_string(),
-                )]),
+                _ => Err(gone(&t("azerp-form-not-savable"))),
             },
         };
         match saved {
@@ -321,7 +319,7 @@ impl State {
             self.book
                 .get::<R>(&id)
                 .cloned()
-                .ok_or_else(|| gone("The record is not there any more."))
+                .ok_or_else(|| gone(&t("azerp-record-gone")))
         } else {
             Ok(blank(new_id()))
         }
@@ -340,7 +338,7 @@ impl State {
         self.put_write(&record);
         self.book.put(record);
         self.book.sort();
-        Ok("Saved.".to_string())
+        Ok(t("azerp-saved"))
     }
 
     /// An asset: the form's texts, a number no other asset has, its file; a
@@ -359,7 +357,13 @@ impl State {
             if other.id != asset.id {
                 problems.push((
                     "asset_number".to_string(),
-                    format!("{} is the number of {} already.", asset.number, other.name),
+                    t_args(
+                        "azerp-number-taken",
+                        &[
+                            ("number", Arg::from(&asset.number)),
+                            ("name", Arg::from(&other.name)),
+                        ],
+                    ),
                 ));
             }
         }
@@ -368,7 +372,13 @@ impl State {
             return Err(problems);
         }
         self.put_write(&asset);
-        let notice = format!("Saved {} {}.", asset.number, asset.name);
+        let notice = t_args(
+            "azerp-saved-asset",
+            &[
+                ("number", Arg::from(&asset.number)),
+                ("name", Arg::from(&asset.name)),
+            ],
+        );
         let id = asset.id.clone();
         self.book.put(asset);
         self.book.sort();
@@ -384,7 +394,7 @@ impl State {
         self.book
             .get::<Asset>(&id)
             .cloned()
-            .ok_or_else(|| gone("The asset is not there any more."))
+            .ok_or_else(|| gone(&t("azerp-asset-gone")))
     }
 
     /// A maintenance entry for the asset.
@@ -408,7 +418,10 @@ impl State {
         self.put_write(&entry);
         self.book.put(entry);
         self.book.sort();
-        Ok(format!("Logged maintenance of {}.", asset.number))
+        Ok(t_args(
+            "azerp-maintenance-logged",
+            &[("number", Arg::from(&asset.number))],
+        ))
     }
 
     /// A check-out of the asset: the check-out's file and the asset's (it
@@ -423,14 +436,14 @@ impl State {
         if self.book.open_checkout(&asset.id).is_some() || asset.status == Status::CheckedOut {
             return Err(vec![(
                 "custodian".to_string(),
-                format!(
-                    "{} is checked out already; check it in first.",
-                    asset.number
+                t_args(
+                    "azerp-checked-out-already",
+                    &[("number", Arg::from(&asset.number))],
                 ),
             )]);
         }
         if asset.status == Status::Disposed {
-            return Err(gone("A disposed asset cannot be checked out."));
+            return Err(gone(&t("azerp-disposed-no-checkout")));
         }
         let mut checkout = Checkout {
             id: new_id(),
@@ -446,7 +459,13 @@ impl State {
         asset.custodian = checkout.custodian.clone();
         self.put_write(&checkout);
         self.put_write(&asset);
-        let notice = format!("{} is checked out to {}.", asset.number, checkout.custodian);
+        let notice = t_args(
+            "azerp-checked-out-to",
+            &[
+                ("number", Arg::from(&asset.number)),
+                ("custodian", Arg::from(&checkout.custodian)),
+            ],
+        );
         self.book.put(checkout);
         self.book.put(asset);
         self.book.sort();
@@ -471,7 +490,7 @@ impl State {
             return Err(problems);
         }
         self.put_write(&asset);
-        let notice = format!("{} is disposed of.", asset.number);
+        let notice = t_args("azerp-disposed-of", &[("number", Arg::from(&asset.number))]);
         self.book.put(asset);
         Ok(notice)
     }
@@ -479,7 +498,7 @@ impl State {
     /// Checks the asset in: its open check-out ends today.
     pub fn check_in(&mut self, asset: &str) {
         let Some(mut checkout) = self.book.open_checkout(asset).cloned() else {
-            self.notice = "The asset is not checked out.".to_string();
+            self.notice = t("azerp-not-checked-out");
             return;
         };
         checkout.returned = Some(self.today);
@@ -489,7 +508,7 @@ impl State {
             a.status = Status::InUse;
             a.custodian.clear();
             self.put_write(&a);
-            self.notice = format!("{} is checked in.", a.number);
+            self.notice = t_args("azerp-checked-in", &[("number", Arg::from(&a.number))]);
             self.book.put(a);
         }
     }
@@ -532,7 +551,7 @@ impl State {
         self.back.clear();
         self.tab = 0;
         self.form = None;
-        self.notice = format!("Deleted {number}.");
+        self.notice = t_args("azerp-deleted", &[("number", Arg::from(number))]);
     }
 
     /// The register as CSV into `erp/exports/assets-<today>.csv`; its key.
@@ -540,7 +559,7 @@ impl State {
         let key = store::export_key(&format!("assets-{}.csv", model::format_date(self.today)));
         let csv = csv_io::export_assets(&self.book, self.today);
         self.queue.put(key.clone(), csv.into_bytes());
-        self.notice = format!("Exported the register to {key}.");
+        self.notice = t_args("azerp-exported-register", &[("key", Arg::from(&key))]);
         key
     }
 
@@ -565,7 +584,7 @@ impl State {
         ));
         let csv = csv_io::export_schedule(a);
         self.queue.put(key.clone(), csv.into_bytes());
-        self.notice = format!("Exported the schedule to {key}.");
+        self.notice = t_args("azerp-exported-schedule", &[("key", Arg::from(&key))]);
         Some(key)
     }
 
@@ -606,9 +625,13 @@ impl State {
             csv_io::export_journal(&lines, year).into_bytes(),
         );
         self.run_step = 0;
-        self.notice = format!(
-            "Posted the depreciation run of {year} ({}) to {key}.",
-            money::format_amount(total)
+        self.notice = t_args(
+            "azerp-run-posted",
+            &[
+                ("year", Arg::from(year)),
+                ("total", Arg::from(money::format_amount(total))),
+                ("key", Arg::from(&key)),
+            ],
         );
         key
     }
@@ -619,10 +642,9 @@ impl State {
         self.book = book;
         self.loaded = true;
         if !skipped.is_empty() {
-            let n = skipped.len();
-            self.notice = format!(
-                "{n} file{} could not be read.",
-                if n == 1 { "" } else { "s" }
+            self.notice = t_args(
+                "azerp-files-unreadable",
+                &[("count", Arg::from(skipped.len()))],
             );
         }
         self.skipped = skipped;
@@ -661,9 +683,9 @@ impl State {
             n += 1;
         }
         self.book.sort();
-        self.notice = format!(
-            "The sample register is in: {} assets.",
-            self.book.assets.len()
+        self.notice = t_args(
+            "azerp-sample-in",
+            &[("count", Arg::from(self.book.assets.len()))],
         );
         n
     }
@@ -728,15 +750,17 @@ impl State {
             self.book.put(a);
         }
         self.book.sort();
-        let left_out = if done.problems.is_empty() {
-            String::new()
+        let imported = [
+            ("new", Arg::from(done.created)),
+            ("changed", Arg::from(done.updated)),
+            ("file", Arg::from(&draft.name)),
+            ("left", Arg::from(done.problems.len())),
+        ];
+        self.notice = if done.problems.is_empty() {
+            t_args("azerp-imported", &imported)
         } else {
-            format!("; {} rows left out", done.problems.len())
+            t_args("azerp-imported-left-out", &imported)
         };
-        self.notice = format!(
-            "Imported {} new and {} changed assets from {}{left_out}.",
-            done.created, done.updated, draft.name
-        );
         self.go(HOME);
         n
     }
@@ -1136,6 +1160,7 @@ mod tests {
 
     #[test]
     fn loading_reads_the_files_and_names_the_ones_it_skipped() {
+        crate::l10n::in_english();
         let mut s = State::new(today());
         assert!(!s.loaded);
         let a = Asset::new("a1", "A-0001", "Desk", today(), 100, 1);

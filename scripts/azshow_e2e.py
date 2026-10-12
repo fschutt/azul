@@ -137,7 +137,7 @@ def blank_start(args, binary, logs, out):
     one title slide in the normal view, and nothing written to the data folder until it is saved."""
     data_root = os.path.join(logs, "data-blank")
     os.makedirs(data_root, exist_ok=True)
-    argv = ["--data-dir", data_root, "--size", "%dx%d" % (WIDTH, HEIGHT), "--no-presenter"]
+    argv = ["--data-dir", data_root, "--size", "%dx%d" % (WIDTH, HEIGHT), "--no-presenter", "--language", "en"]
     app = Show(TAG + "-blank", binary, argv, args.debug_port, logs, args.timeout)
     try:
         app.until("AzShow's window", lambda: app.has_line("AZSHOW_READY"))
@@ -157,7 +157,7 @@ def body(args, logs, out):
     blank_start(args, binary, logs, out)
     data_root = os.path.join(logs, "data")
     os.makedirs(data_root, exist_ok=True)
-    argv = ["--data-dir", data_root, "--size", "%dx%d" % (WIDTH, HEIGHT), "--screen", "backstage-new"]
+    argv = ["--data-dir", data_root, "--size", "%dx%d" % (WIDTH, HEIGHT), "--screen", "backstage-new", "--language", "en"]
     if os.environ.get("AZSHOW_E2E_PRESENTER") != "1":
         argv.append("--no-presenter")
     app = Show(TAG, binary, argv, args.debug_port, logs, args.timeout)

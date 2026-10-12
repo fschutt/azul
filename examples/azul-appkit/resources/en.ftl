@@ -89,6 +89,7 @@ kit-key-up = Up
 kit-key-down = Down
 kit-key-left = Left
 kit-key-right = Right
+kit-key-arrows = Arrows
 
 ## Numbers
 

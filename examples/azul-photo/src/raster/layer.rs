@@ -56,7 +56,7 @@ impl Layer {
 
     #[must_use]
     pub fn adjustment(id: LayerId, adjustment: Adjustment) -> Self {
-        let name = adjustment.name().to_string();
+        let name = crate::l10n::word("adjustment", adjustment.name());
         Self::with(id, name, LayerContent::Adjustment(adjustment))
     }
 

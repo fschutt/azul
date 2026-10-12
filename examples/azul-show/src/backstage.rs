@@ -14,7 +14,6 @@ use azul::{
     },
     dom::Dom,
     shells::ShellEmptyState,
-    str::String as AzString,
     vec::StringVec,
     widgets::{
         AboutDialog, Backstage, BackstageNavItem, Button, ButtonType, Segmented, SegmentedState,
@@ -22,20 +21,20 @@ use azul::{
     },
 };
 
+use azul_appkit::l10n::{t_args, Arg};
+
 use crate::{
     app::{command, AppState, BackstagePage, Command},
+    l10n::word,
+    s,
     commands::on_command,
     model::{Deck, FontScheme, PlaceholderRole, SlideSize},
     render::{self, RenderOptions},
     themes,
 };
 
-fn s(text: &str) -> AzString {
-    AzString::from(text)
-}
-
 fn strings(items: &[&str]) -> StringVec {
-    StringVec::from(items.iter().map(|i| AzString::from(*i)).collect::<Vec<_>>())
+    azul_appkit::l10n::labels(items)
 }
 
 fn button(app: &RefAny, label: &str, cmd: Command) -> Dom {
@@ -52,11 +51,11 @@ fn primary(app: &RefAny, label: &str, cmd: Command) -> Dom {
 }
 
 fn heading(text: &str) -> Dom {
-    Dom::create_h2_with_text(text).with_css("margin: 0px 0px 16px 0px; font-size: 26px; font-weight: normal;")
+    Dom::create_h2_with_text(s(text)).with_css("margin: 0px 0px 16px 0px; font-size: 26px; font-weight: normal;")
 }
 
 fn line(text: &str) -> Dom {
-    Dom::create_p_with_text(text).with_css("margin: 0px 0px 8px 0px; font-size: 13px;")
+    Dom::create_p_with_text(s(text)).with_css("margin: 0px 0px 8px 0px; font-size: 13px;")
 }
 
 fn pane(children: Vec<Dom>) -> Dom {
@@ -167,28 +166,28 @@ fn new_page(app: &RefAny, st: &AppState) -> Dom {
     let row = |label: &str, control: Dom| {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; margin: 0px 0px 10px 0px;")
-            .with_child(Dom::create_p_with_text(label).with_css("margin: 0px 12px 0px 0px; width: 90px; font-size: 13px;"))
+            .with_child(Dom::create_p_with_text(s(label)).with_css("margin: 0px 12px 0px 0px; width: 90px; font-size: 13px;"))
             .with_child(control)
     };
     pane(vec![
-        heading("New"),
+        heading("azshow-backstage-new"),
         cards,
-        row("Variant", segmented(app, Segment::Variant, &themes::VARIANTS, st.new_variant)),
-        row("Fonts", segmented(app, Segment::Fonts, &font_labels, st.new_fonts)),
+        row("azshow-variant", segmented(app, Segment::Variant, &themes::VARIANTS, st.new_variant)),
+        row("azshow-fonts", segmented(app, Segment::Fonts, &font_labels, st.new_fonts)),
         row(
-            "Slide size",
+            "azshow-slide-size",
             segmented(
                 app,
                 Segment::Size,
-                &["Widescreen (16:9)", "Standard (4:3)"],
+                &["azshow-size-widescreen-16-9", "azshow-size-standard-4-3"],
                 usize::from(st.new_size == SlideSize::Standard),
             ),
         ),
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; margin: 8px 0px 0px 0px;")
-            .with_child(primary(app, "Create", Command::NewDeck))
+            .with_child(primary(app, "azshow-create", Command::NewDeck))
             .with_child(Dom::create_div().with_css("width: 12px;"))
-            .with_child(button(app, "Open the sample deck", Command::OpenSample)),
+            .with_child(button(app, "azshow-open-sample", Command::OpenSample)),
     ])
 }
 
@@ -196,10 +195,13 @@ fn open_page(app: &RefAny, st: &AppState) -> Dom {
     let mut list = Dom::create_div().with_css("display: flex; flex-direction: column;");
     if st.decks.is_empty() {
         list.add_child(
-            ShellEmptyState::create(s("No presentations yet"))
+            ShellEmptyState::create(s("azshow-no-decks"))
                 .with_icon(s("slideshow"))
-                .with_detail(s(&format!("Decks are saved under {}", st.data_root.join("show").display())))
-                .with_action_label(s("Open the sample deck"))
+                .with_detail(s(&t_args(
+                    "azshow-decks-saved-under",
+                    &[("folder", Arg::from(st.data_root.join("show").display().to_string()))],
+                )))
+                .with_action_label(s("azshow-open-sample"))
                 .with_on_action(command(app, Command::OpenSample), on_command as ButtonOnClickCallbackType)
                 .dom(),
         );
@@ -217,63 +219,76 @@ fn open_page(app: &RefAny, st: &AppState) -> Dom {
                         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
                         .with_child(Dom::create_p_with_text(deck.title.as_str()).with_css("margin: 0px; font-size: 15px;"))
                         .with_child(
-                            Dom::create_p_with_text(format!("{} slides - show/{}", deck.slides, deck.id))
+                            Dom::create_p_with_text(t_args(
+                                "azshow-deck-row",
+                                &[("count", Arg::from(deck.slides)), ("path", Arg::from(format!("show/{}", deck.id)))],
+                            ))
                                 .with_css("margin: 0px; font-size: 11px;"),
                         ),
                 )
-                .with_child(button(app, "Open", Command::OpenDeck(deck.id.clone()))),
+                .with_child(button(app, "azshow-open", Command::OpenDeck(deck.id.clone()))),
         );
     }
     pane(vec![
-        heading("Open"),
+        heading("azshow-backstage-open"),
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; margin: 0px 0px 12px 0px;")
-            .with_child(button(app, "Refresh", Command::RefreshDecks))
+            .with_child(button(app, "azshow-refresh", Command::RefreshDecks))
             .with_child(Dom::create_div().with_css("width: 12px;"))
-            .with_child(button(app, "Sample deck", Command::OpenSample)),
+            .with_child(button(app, "azshow-sample-deck", Command::OpenSample)),
         list,
     ])
 }
 
 fn info_page(app: &RefAny, st: &AppState) -> Dom {
     let Some(ed) = st.editor.as_ref() else {
-        return pane(vec![heading("Info"), line("No presentation is open."), button(app, "New", Command::OpenBackstage(BackstagePage::New))]);
+        return pane(vec![
+            heading("azshow-backstage-info"),
+            line("azshow-no-deck-open"),
+            button(app, "azshow-backstage-new", Command::OpenBackstage(BackstagePage::New)),
+        ]);
     };
     let path = st.data_root.join("show").join(&ed.deck.id).join("deck.json");
     pane(vec![
         heading(&ed.deck.title),
-        line(&format!("{} slides, {}", ed.deck.slides.len(), ed.deck.size.label())),
-        line(&format!("Theme: {} ({})", ed.deck.theme.name, ed.deck.theme.fonts.name)),
-        line(&format!("File: {}", path.display())),
-        line(if ed.dirty { "Changed since the last save." } else { "Saved." }),
+        line(&t_args(
+            "azshow-info-slides",
+            &[("count", Arg::from(ed.deck.slides.len())), ("size", Arg::from(word("size", ed.deck.size.label())))],
+        )),
+        line(&t_args(
+            "azshow-info-theme",
+            &[("theme", Arg::from(&ed.deck.theme.name)), ("fonts", Arg::from(&ed.deck.theme.fonts.name))],
+        )),
+        line(&t_args("azshow-info-file", &[("file", Arg::from(path.display().to_string()))])),
+        line(if ed.dirty { "azshow-info-changed" } else { "azshow-info-saved" }),
         Dom::create_div().with_css("height: 8px;"),
-        primary(app, "Save", Command::Save),
+        primary(app, "azshow-backstage-save", Command::Save),
     ])
 }
 
 fn export_page(app: &RefAny) -> Dom {
     pane(vec![
-        heading("Export"),
-        line("Create a PDF: every slide shown in the show, one per page, through azul's PDF path (opacity and filters are dropped). It is written to show/exports/ in the data folder."),
-        primary(app, "Create PDF", Command::ExportPdf),
+        heading("azshow-backstage-export"),
+        line("azshow-export-pdf-about"),
+        primary(app, "azshow-create-pdf", Command::ExportPdf),
         Dom::create_div().with_css("height: 20px;"),
-        line("Save the current slide as a PNG picture in show/exports/ (open the normal view first)."),
-        button(app, "Save Slide as Picture", Command::ExportImages),
+        line("azshow-export-picture-about"),
+        button(app, "azshow-save-picture", Command::ExportImages),
     ])
 }
 
 /// Options without a kit (with one, File > Options opens azul-appkit's settings page over the
 /// whole window instead: commands.rs, `OpenBackstage(Options)`).
 fn options_page() -> Dom {
-    pane(vec![heading("Options"), line("The settings are not available.")])
+    pane(vec![heading("azshow-backstage-options"), line("azshow-no-settings")])
 }
 
 /// About: the standard About box (DEDUP_OFFICE D12); OK goes back.
 fn about_page(app: &RefAny) -> Dom {
     pane(vec![AboutDialog::create(s(crate::ABOUT.name), s(crate::ABOUT.version))
         .with_icon(s("slideshow"))
-        .with_description(s(crate::ABOUT.summary))
-        .with_copyright(s("Copyright 2026 Felix Schuett. MIT license."))
+        .with_description(s(&azul_appkit::l10n::app_word(crate::ABOUT.name, "about-summary", crate::ABOUT.summary)))
+        .with_copyright(s("azshow-copyright"))
         .with_credit(s("azul"), s("MIT"))
         .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
         .dom()])
@@ -294,7 +309,7 @@ pub fn backstage(app: &RefAny, st: &AppState) -> Dom {
     let nav: Vec<BackstageNavItem> = BackstagePage::NAV
         .iter()
         .map(|p| {
-            let item = BackstageNavItem::create(s(p.label()));
+            let item = BackstageNavItem::create(s(&word("backstage", p.label())));
             if *p == BackstagePage::Options {
                 item.with_gap_before()
             } else {

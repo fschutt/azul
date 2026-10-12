@@ -13,8 +13,9 @@
 //!
 //! - this module: the serde models ([`ViewFile`], [`View`], ...), routing a
 //!   path to its view ([`ViewFile::route`], `:id` parameters), the labels
-//!   ([`Labels`]: `en.json`, else the key made readable - the ERP's own
-//!   translations are empty), and which record kind an `api` path reads
+//!   ([`Labels`]: a key's message in the window's language, `en.json` on a
+//!   thread without AzERP's words, else the key made readable - the ERP's
+//!   own translations are empty), and which record kind an `api` path reads
 //!   ([`api_kind`]).
 //! - [`spec`]: a view as the screen needs it - table columns, typed form
 //!   fields, actions, detail tabs, wizard steps - plus the condition
@@ -420,10 +421,13 @@ impl Labels {
         Labels::parse(LABELS_EN).unwrap_or_default()
     }
 
-    /// The label of `key`, else the key made readable ([`humanize`]).
+    /// The label of `key` in the language of the layout pass (its message
+    /// `azerp-label-<key>`), else the English table's, else the key made
+    /// readable ([`humanize`]).
     #[must_use]
     pub fn get(&self, key: &str) -> String {
-        self.map.get(key).cloned().unwrap_or_else(|| humanize(key))
+        let english = self.map.get(key).cloned().unwrap_or_else(|| humanize(key));
+        crate::l10n::view_label(key, &english)
     }
 }
 

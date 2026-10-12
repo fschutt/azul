@@ -254,12 +254,14 @@ mod tests {
 
     #[test]
     fn the_marathon_sample_in_kilometres_and_miles() {
+        crate::l10n::in_english();
         assert_eq!(conv("Length", "42.195", "km", "mi"), "26.21875746");
         assert_eq!(conv("Length", "26.2187574564543", "mi", "km"), "42.195");
     }
 
     #[test]
     fn exact_factors_convert_exactly() {
+        crate::l10n::in_english();
         assert_eq!(conv("Length", "1", "mi", "m"), "1,609.344");
         assert_eq!(conv("Length", "12", "in", "ft"), "1");
         assert_eq!(conv("Mass", "1", "lb", "g"), "453.59237");
@@ -273,6 +275,7 @@ mod tests {
 
     #[test]
     fn temperatures_use_their_offsets() {
+        crate::l10n::in_english();
         assert_eq!(conv("Temperature", "100", "\u{b0}F", "\u{b0}C"), "37.77777778");
         assert_eq!(conv("Temperature", "0", "\u{b0}C", "\u{b0}F"), "32");
         assert_eq!(conv("Temperature", "100", "\u{b0}C", "\u{b0}F"), "212");
@@ -282,6 +285,7 @@ mod tests {
 
     #[test]
     fn converting_there_and_back_returns_the_value() {
+        crate::l10n::in_english();
         for c in &CATEGORIES {
             for a in c.units {
                 for b in c.units {
@@ -296,6 +300,7 @@ mod tests {
 
     #[test]
     fn the_rate_and_recent_lines() {
+        crate::l10n::in_english();
         let len = category("length").unwrap();
         let (km, mi) = (&len.units[3], &len.units[7]);
         assert_eq!(rate_line(km, mi).unwrap(), "1 km = 0.621371 mi");
@@ -312,6 +317,7 @@ mod tests {
 
     #[test]
     fn every_category_has_a_valid_default_pair_and_distinct_symbols() {
+        crate::l10n::in_english();
         for c in &CATEGORIES {
             assert!(c.default_pair.0 < c.units.len() && c.default_pair.1 < c.units.len(), "{}", c.name);
             assert_ne!(c.default_pair.0, c.default_pair.1, "{}", c.name);
@@ -331,6 +337,7 @@ mod tests {
 
     #[test]
     fn a_category_change_falls_back_to_the_default_pair() {
+        crate::l10n::in_english();
         let len = category("Length").unwrap();
         let mass = category("Mass").unwrap();
         assert_eq!(

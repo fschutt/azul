@@ -20,8 +20,9 @@ use crate::{
     settings::{FontChoice, PageLayout, Paper},
 };
 
+/// A tab's name: a key said in the window's language.
 fn s(text: &str) -> AzString {
-    AzString::from(text)
+    azul_appkit::l10n::label(text)
 }
 
 /// Every ribbon button runs a [`Command`] through [`on_command`] (azul-appkit's ribbon
@@ -42,36 +43,46 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo, index: usiz
 
 fn window_group(app: &RefAny) -> RibbonGroup {
     group(
-        "Window",
+        "azreader-group-window",
         vec![
-            large(app, "settings", "Settings", Command::Settings),
-            large(app, "info", "About", Command::About),
+            large(app, "settings", "azreader-settings", Command::Settings),
+            large(app, "info", "azreader-about", Command::About),
         ],
     )
 }
 
 fn library_home(app: &RefAny, st: &AppState) -> RibbonTab {
     let selected = st.selected.clone();
-    let mut books = vec![large(app, "library_add", "Add a Book", Command::AddBooks)];
+    let mut books = vec![large(
+        app,
+        "library_add",
+        "azreader-add-book",
+        Command::AddBooks,
+    )];
     if let Some(id) = selected {
         books.push(large(
             app,
             "menu_book",
-            "Open",
+            "azreader-open",
             Command::OpenBook(id.clone()),
         ));
-        books.push(large(app, "delete", "Remove", Command::RemoveBook(id)));
+        books.push(large(
+            app,
+            "delete",
+            "azreader-remove",
+            Command::RemoveBook(id),
+        ));
     }
     if st.open.is_some() {
         books.push(large(
             app,
             "auto_stories",
-            "Back to the Book",
+            "azreader-back-to-book",
             Command::ShowReader,
         ));
     }
     let sort = group(
-        "Sort by",
+        "azreader-group-sort",
         vec![column(
             Sort::ALL
                 .iter()
@@ -88,7 +99,7 @@ fn library_home(app: &RefAny, st: &AppState) -> RibbonTab {
         )],
     );
     RibbonTab::create(s(LIBRARY_TABS[0]))
-        .with_group(group("Books", books))
+        .with_group(group("azreader-group-books", books))
         .with_group(sort)
 }
 
@@ -99,27 +110,32 @@ fn reader_read(app: &RefAny, st: &AppState) -> RibbonTab {
         .zip(st.position())
         .is_some_and(|(open, at)| open.state.bookmark_at(at).is_some());
     let go = group(
-        "Go",
+        "azreader-group-go",
         vec![
-            large(app, "local_library", "Library", Command::ShowLibrary),
+            large(
+                app,
+                "local_library",
+                "azreader-library",
+                Command::ShowLibrary,
+            ),
             large_toggle(
                 app,
                 "toc",
-                "Contents",
+                "azreader-contents",
                 Command::Pane(Pane::Contents),
                 st.pane == Pane::Contents,
             ),
             large_toggle(
                 app,
                 "bookmarks",
-                "Bookmarks",
+                "azreader-bookmarks",
                 Command::Pane(Pane::Bookmarks),
                 st.pane == Pane::Bookmarks,
             ),
         ],
     );
     let mark = group(
-        "Bookmark",
+        "azreader-group-bookmark",
         vec![large_toggle(
             app,
             if marked {
@@ -128,20 +144,30 @@ fn reader_read(app: &RefAny, st: &AppState) -> RibbonTab {
                 "bookmark_add"
             },
             if marked {
-                "Remove Bookmark"
+                "azreader-remove-bookmark"
             } else {
-                "Bookmark Page"
+                "azreader-bookmark-page"
             },
             Command::ToggleBookmark,
             marked,
         )],
     );
     let pages = group(
-        "Pages",
+        "azreader-group-pages",
         vec![column(vec![
-            small(app, "navigate_before", "Previous Page", Command::PrevPage),
-            small(app, "navigate_next", "Next Page", Command::NextPage),
-            small(app, "first_page", "Book Start", Command::BookStart),
+            small(
+                app,
+                "navigate_before",
+                "azreader-previous-page",
+                Command::PrevPage,
+            ),
+            small(
+                app,
+                "navigate_next",
+                "azreader-next-page",
+                Command::NextPage,
+            ),
+            small(app, "first_page", "azreader-book-start", Command::BookStart),
         ])],
     );
     RibbonTab::create(s(READER_TABS[0]))
@@ -152,15 +178,25 @@ fn reader_read(app: &RefAny, st: &AppState) -> RibbonTab {
 
 fn reader_view(app: &RefAny, st: &AppState) -> RibbonTab {
     let type_group = group(
-        "Text",
+        "azreader-group-text",
         vec![
             column(vec![
-                small(app, "text_increase", "Larger", Command::FontSize(2)),
-                small(app, "text_decrease", "Smaller", Command::FontSize(-2)),
+                small(
+                    app,
+                    "text_increase",
+                    "azreader-larger",
+                    Command::FontSize(2),
+                ),
+                small(
+                    app,
+                    "text_decrease",
+                    "azreader-smaller",
+                    Command::FontSize(-2),
+                ),
                 toggle(
                     app,
                     "format_align_justify",
-                    "Justify",
+                    "azreader-justify",
                     Command::Justify(!st.settings.justify),
                     st.settings.justify,
                 ),
@@ -182,35 +218,40 @@ fn reader_view(app: &RefAny, st: &AppState) -> RibbonTab {
         ],
     );
     let spacing = group(
-        "Spacing",
+        "azreader-group-spacing",
         vec![
             column(vec![
                 small(
                     app,
                     "format_line_spacing",
-                    "More Line Space",
+                    "azreader-more-line-space",
                     Command::LineSpacing(1),
                 ),
                 small(
                     app,
                     "density_small",
-                    "Less Line Space",
+                    "azreader-less-line-space",
                     Command::LineSpacing(-1),
                 ),
             ]),
             column(vec![
-                small(app, "width_wide", "Wider Margins", Command::Margins(8)),
+                small(
+                    app,
+                    "width_wide",
+                    "azreader-wider-margins",
+                    Command::Margins(8),
+                ),
                 small(
                     app,
                     "width_normal",
-                    "Narrower Margins",
+                    "azreader-narrower-margins",
                     Command::Margins(-8),
                 ),
             ]),
         ],
     );
     let paper = group(
-        "Paper",
+        "azreader-group-paper",
         vec![column(
             Paper::ALL
                 .iter()
@@ -227,7 +268,7 @@ fn reader_view(app: &RefAny, st: &AppState) -> RibbonTab {
         )],
     );
     let layout = group(
-        "Pages",
+        "azreader-group-layout",
         vec![column(
             PageLayout::ALL
                 .iter()

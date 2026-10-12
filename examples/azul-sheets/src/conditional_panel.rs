@@ -13,6 +13,8 @@ use azul::{
     widgets::{Button, ButtonType, DropDown, OnTextInputReturn, TextInput, TextInputState},
 };
 
+use azul_appkit::l10n::{self, t_args, t_text, Arg};
+
 use crate::{
     a1_area,
     engine::{CondLook, CondRule},
@@ -21,16 +23,16 @@ use crate::{
     AppState,
 };
 
-/// The rules offered, in the panel's order.
+/// The rules offered, in the panel's order (keys of AzSheets' resources).
 pub const KINDS: [&str; 8] = [
-    "Greater than",
-    "Less than",
-    "Between",
-    "Equal to",
-    "Text that contains",
-    "Duplicate values",
-    "Above average",
-    "Below average",
+    "azsheets-cond-greater",
+    "azsheets-cond-less",
+    "azsheets-cond-between",
+    "azsheets-cond-equal",
+    "azsheets-cond-contains",
+    "azsheets-cond-duplicates",
+    "azsheets-cond-above-average",
+    "azsheets-cond-below-average",
 ];
 
 /// The panel's choices while it is open.
@@ -55,14 +57,14 @@ impl CondDraft {
         }
     }
 
-    /// The rule the choices make, or what is missing.
+    /// The rule the choices make, or what is missing (a key of AzSheets' resources).
     pub fn rule(&self) -> Result<CondRule, &'static str> {
         let (a, b) = (self.value1.trim().to_string(), self.value2.trim().to_string());
         if self.values() >= 1 && a.is_empty() {
-            return Err("Enter a value for the rule.");
+            return Err("azsheets-cond-needs-value");
         }
         if self.values() == 2 && b.is_empty() {
-            return Err("Enter both values of the rule.");
+            return Err("azsheets-cond-needs-both");
         }
         Ok(match self.kind {
             0 => CondRule::GreaterThan(a),
@@ -101,20 +103,23 @@ fn cond_ref(app: &RefAny, which: Which) -> RefAny {
     RefAny::new(CondRef { app: app.clone(), which })
 }
 
+/// A caption: a key said in the window's language.
 fn label(text: &str) -> Dom {
-    Dom::create_p_with_text(AzString::from(text)).with_css("font-size: 12px; font-weight: 600; margin: 8px 0px 3px 0px;")
+    Dom::create_p_with_text(l10n::label(text)).with_css("font-size: 12px; font-weight: 600; margin: 8px 0px 3px 0px;")
 }
 
+/// A line: a key said, plain words as they are.
 fn line(text: &str) -> Dom {
-    Dom::create_p_with_text(AzString::from(text)).with_css("font-size: 12px; margin: 2px 0px;")
+    Dom::create_p_with_text(l10n::label(text)).with_css("font-size: 12px; margin: 2px 0px;")
 }
 
+/// A value's field, named (and its placeholder) by the key `name`.
 fn value_field(app: &RefAny, which: Which, text: &str, name: &str) -> Dom {
     TextInput::create()
         .with_text(AzString::from(text))
-        .with_placeholder(AzString::from(name))
+        .with_placeholder(l10n::label(name))
         .with_on_text_input(cond_ref(app, which), on_value as TextInputOnTextInputCallbackType)
-        .with_accessibility_name(AzString::from(name))
+        .with_accessibility_name(l10n::label(name))
         .dom()
 }
 
@@ -128,30 +133,30 @@ pub(crate) fn panel(s: &AppState, app: &RefAny) -> Dom {
              border-left: 1px solid rgba(128, 128, 128, 0.35); overflow-y: auto;",
         )
         .with_child(
-            Dom::create_p_with_text(AzString::from("Conditional Formatting"))
+            Dom::create_p_with_text(l10n::label("azsheets-conditional-formatting"))
                 .with_css("font-weight: 600; margin: 4px 0px 8px 0px;"),
         )
-        .with_child(line(&format!("Format the cells of {} that match:", a1_area(s.current_area()))))
-        .with_child(label("Rule"))
+        .with_child(line(&t_args("azsheets-cond-format-cells", &[("area", Arg::from(a1_area(s.current_area())))])))
+        .with_child(label("azsheets-cond-rule"))
         .with_child(
             DropDown::create(strs(KINDS))
                 .with_selected(d.kind)
-                .with_accessibility_name("Rule")
+                .with_accessibility_name(l10n::label("azsheets-cond-rule"))
                 .with_on_choice_change(cond_ref(app, Which::Kind), on_choice as DropDownOnChoiceChangeCallbackType)
                 .dom(),
         );
     if d.values() >= 1 {
-        p.add_child(value_field(app, Which::Value1, &d.value1, "Value"));
+        p.add_child(value_field(app, Which::Value1, &d.value1, "azsheets-cond-value"));
     }
     if d.values() == 2 {
-        p.add_child(line("and"));
-        p.add_child(value_field(app, Which::Value2, &d.value2, "Second value"));
+        p.add_child(line("azsheets-cond-and"));
+        p.add_child(value_field(app, Which::Value2, &d.value2, "azsheets-cond-second-value"));
     }
-    p.add_child(label("Format with"));
+    p.add_child(label("azsheets-cond-format-with"));
     p.add_child(
         DropDown::create(strs(CondLook::ALL.iter().map(|l| l.label())))
             .with_selected(d.look)
-            .with_accessibility_name("Format with")
+            .with_accessibility_name(l10n::label("azsheets-cond-format-with"))
             .with_on_choice_change(cond_ref(app, Which::Look), on_choice as DropDownOnChoiceChangeCallbackType)
             .dom(),
     );
@@ -159,27 +164,27 @@ pub(crate) fn panel(s: &AppState, app: &RefAny) -> Dom {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; margin-top: 10px;")
             .with_child(
-                Button::create(AzString::from("Apply"))
+                Button::create(l10n::label("azsheets-apply"))
                     .with_button_type(ButtonType::Primary)
                     .with_on_click(app.clone(), on_apply as ButtonOnClickCallbackType)
                     .dom(),
             )
             .with_child(Dom::create_div().with_css("width: 8px;"))
             .with_child(
-                Button::create(AzString::from("Clear Rules"))
+                Button::create(l10n::label("azsheets-clear-rules"))
                     .with_on_click(app.clone(), on_clear as ButtonOnClickCallbackType)
                     .dom(),
             ),
     );
-    p.add_child(label("Rules on this sheet"));
+    p.add_child(label("azsheets-cond-rules-sheet"));
     if s.cache.snapshot.conditional.is_empty() {
-        p.add_child(line("None yet."));
+        p.add_child(line("azsheets-cond-none"));
     }
     for c in &s.cache.snapshot.conditional {
-        p.add_child(line(&format!("{}: {}", a1_area(c.area), c.description)));
+        p.add_child(line(&format!("{}: {}", a1_area(c.area), t_text(&c.description))));
     }
     p.with_child(
-        Button::create(AzString::from("Close"))
+        Button::create(l10n::label("azsheets-close"))
             .with_on_click(app.clone(), on_panel_close as ButtonOnClickCallbackType)
             .dom()
             .with_css("flex-grow: 0; margin-top: 8px;"),
@@ -218,10 +223,13 @@ extern "C" fn on_apply(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Ok(rule) => {
             let area = s.current_area();
             let look = s.cond.look();
-            s.message = format!("{} on {}.", rule.describe(), a1_area(area));
+            s.message = t_args(
+                "azsheets-cond-applied",
+                &[("rule", Arg::from(t_text(&rule.describe()))), ("area", Arg::from(a1_area(area)))],
+            );
             run(info, app, s, Command::AddConditional { area, rule, look });
         }
-        Err(why) => s.message = why.to_string(),
+        Err(why) => s.message = l10n::t(why),
     })
 }
 
@@ -239,11 +247,11 @@ mod tests {
     #[test]
     fn the_choices_make_the_rule_and_say_what_is_missing() {
         let mut d = CondDraft::default();
-        assert_eq!(d.rule(), Err("Enter a value for the rule."));
+        assert_eq!(d.rule(), Err("azsheets-cond-needs-value"));
         d.value1 = String::from(" 5 ");
         assert_eq!(d.rule(), Ok(CondRule::GreaterThan(String::from("5"))));
         d.kind = 2;
-        assert_eq!(d.rule(), Err("Enter both values of the rule."));
+        assert_eq!(d.rule(), Err("azsheets-cond-needs-both"));
         d.value2 = String::from("9");
         assert_eq!(d.rule(), Ok(CondRule::Between(String::from("5"), String::from("9"))));
         d.kind = 5;

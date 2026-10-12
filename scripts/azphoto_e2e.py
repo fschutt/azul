@@ -262,7 +262,7 @@ def run(args, logs, out):
         "AZ_BACKEND": "headless",
         "AZ_DEBUG": str(args.debug_port),
     })
-    app = App(binary, ["--sample", "--theme", "flat", "--mode", "light", "--data-dir", data],
+    app = App(binary, ["--sample", "--theme", "flat", "--mode", "light", "--data-dir", data, "--language", "en"],
               args.debug_port, env, logs, deadline)
     try:
         # 1-2: the sample is open.

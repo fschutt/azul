@@ -10,6 +10,8 @@ use azul::{
     widgets::Button,
 };
 
+use azul_appkit::l10n::{label, t, t_args, Arg};
+
 use crate::{
     app::{command, AppState, Command, ShowRuntime, TransitionFrom},
     commands::on_command,
@@ -120,7 +122,7 @@ pub fn show_screen(app: &RefAny, st: &AppState, window_w: f32, window_h: f32) ->
     let deck = &ed.deck;
     if rt.state.ended {
         return root(
-            Dom::create_p_with_text("End of slide show, click to exit.").with_css("margin: 0px; color: #f0f0f0; font-size: 20px;"),
+            Dom::create_p_with_text(label("azshow-show-ended-click")).with_css("margin: 0px; color: #f0f0f0; font-size: 20px;"),
             "#000000",
         );
     }
@@ -160,8 +162,8 @@ pub fn show_screen(app: &RefAny, st: &AppState, window_w: f32, window_h: f32) ->
     root(render::stage(w, h, layers).with_id(crate::ids::STAGE), "#000000")
 }
 
-fn control(app: &RefAny, label: &str, icon: &str, cmd: Command) -> Dom {
-    Button::create(AzString::from(label))
+fn control(app: &RefAny, name: &str, icon: &str, cmd: Command) -> Dom {
+    Button::create(label(name))
         .with_icon(AzString::from(icon))
         .with_on_click(command(app, cmd), on_command as ButtonOnClickCallbackType)
         .dom()
@@ -181,7 +183,7 @@ pub fn presenter(app: &RefAny, st: &AppState) -> Dom {
     let (Some(ed), Some(rt)) = (st.editor.as_ref(), st.show.as_ref()) else {
         return Dom::create_div()
             .with_css("display: flex; align-items: center; justify-content: center; flex-grow: 1;")
-            .with_child(Dom::create_p_with_text("The slide show has ended."));
+            .with_child(Dom::create_p_with_text(label("azshow-show-ended")));
     };
     let deck = &ed.deck;
     let current_scale = 640.0 / deck.size.width();
@@ -196,13 +198,13 @@ pub fn presenter(app: &RefAny, st: &AppState) -> Dom {
                  align-items: center; justify-content: center;",
                 deck.size.height() * next_scale
             ))
-            .with_child(Dom::create_p_with_text("End of slide show")),
+            .with_child(Dom::create_p_with_text(label("azshow-show-end"))),
     };
     let notes = deck.slides.get(rt.state.slide).map_or("", |s| s.notes.as_str());
     let shown = deck.shown_slides();
     let position = shown.iter().position(|&i| i == rt.state.slide).map_or(0, |p| p + 1);
     let heading = |text: &str| {
-        Dom::create_p_with_text(text).with_css("margin: 0px 0px 6px 0px; font-size: 12px; font-weight: bold; color: #b0b0b0;")
+        Dom::create_p_with_text(label(text)).with_css("margin: 0px 0px 6px 0px; font-size: 12px; font-weight: bold; color: #b0b0b0;")
     };
     let mut strip = Dom::create_div().with_css("display: flex; flex-direction: row; flex-wrap: wrap; margin: 8px 0px 0px 0px;");
     for &i in &shown {
@@ -227,18 +229,18 @@ pub fn presenter(app: &RefAny, st: &AppState) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css("display: flex; flex-direction: column; margin: 0px 16px 0px 0px;")
-                        .with_child(heading(&format!("CURRENT (slide {})", rt.state.slide + 1)))
+                        .with_child(heading(&t_args("azshow-presenter-current", &[("n", Arg::from((rt.state.slide + 1).to_string()))])))
                         .with_child(current),
                 )
                 .with_child(
                     Dom::create_div()
                         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
-                        .with_child(heading("NEXT"))
+                        .with_child(heading("azshow-presenter-next"))
                         .with_child(next)
                         .with_child(Dom::create_div().with_css("height: 12px;"))
-                        .with_child(heading("NOTES"))
+                        .with_child(heading("azshow-presenter-notes"))
                         .with_child(
-                            Dom::create_p_with_text(if notes.is_empty() { "(no notes)" } else { notes })
+                            Dom::create_p_with_text(if notes.is_empty() { label("azshow-no-notes") } else { AzString::from(notes) })
                                 .with_css("margin: 0px; font-size: 18px; line-height: 1.35;"),
                         ),
                 ),
@@ -248,21 +250,27 @@ pub fn presenter(app: &RefAny, st: &AppState) -> Dom {
                 .with_css("display: flex; flex-direction: row; align-items: center; margin: 12px 0px 0px 0px;")
                 .with_child(
                     Dom::create_p_with_text(format!(
-                        "Elapsed {}   Slide {position} of {}{}",
-                        clock(rt.started.elapsed().as_secs()),
-                        shown.len(),
+                        "{}{}",
+                        t_args(
+                            "azshow-presenter-status",
+                            &[
+                                ("elapsed", Arg::from(clock(rt.started.elapsed().as_secs()))),
+                                ("position", Arg::from(position.to_string())),
+                                ("count", Arg::from(shown.len().to_string())),
+                            ],
+                        ),
                         match rt.state.blank {
-                            Some(Blank::Black) => "   (black screen)",
-                            Some(Blank::White) => "   (white screen)",
-                            None => "",
+                            Some(Blank::Black) => format!("   {}", t("azshow-black-screen")),
+                            Some(Blank::White) => format!("   {}", t("azshow-white-screen")),
+                            None => String::new(),
                         }
                     ))
                     .with_css("margin: 0px 16px 0px 0px; font-size: 16px;"),
                 )
-                .with_child(control(app, "Previous", "navigate_before", Command::ShowPrev))
-                .with_child(control(app, "Next", "navigate_next", Command::ShowNext))
-                .with_child(control(app, "Black", "square", Command::ShowBlank(Blank::Black)))
-                .with_child(control(app, "End Show", "close", Command::ShowEnd)),
+                .with_child(control(app, "azshow-show-previous", "navigate_before", Command::ShowPrev))
+                .with_child(control(app, "azshow-show-next", "navigate_next", Command::ShowNext))
+                .with_child(control(app, "azshow-show-black", "square", Command::ShowBlank(Blank::Black)))
+                .with_child(control(app, "azshow-show-end-show", "close", Command::ShowEnd)),
         )
         .with_child(strip)
 }

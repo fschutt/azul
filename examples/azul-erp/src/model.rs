@@ -21,8 +21,11 @@
 //! with a higher `version` was written by a newer AzERP and is left alone,
 //! never guessed at; fields this version does not know are ignored.
 
+use azul_appkit::l10n::{t, t_args, Arg};
 use chrono::NaiveDate;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::l10n::or_english;
 
 /// The file version this AzERP writes, and the newest it reads.
 pub const VERSION: u64 = 1;
@@ -72,13 +75,23 @@ impl Method {
         }
     }
 
-    /// What the user reads: `Straight-line`.
+    /// Its English name: `Straight-line` (what an import reads, too).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Method::StraightLine => "Straight-line",
             Method::DecliningBalance => "Declining balance",
         }
+    }
+
+    /// What the user reads, in the window's language: `Straight-line`, `Linear`.
+    #[must_use]
+    pub fn said(self) -> String {
+        let key = match self {
+            Method::StraightLine => "azerp-method-straight-line",
+            Method::DecliningBalance => "azerp-method-declining-balance",
+        };
+        or_english(key, self.label())
     }
 
     /// A code, a label or a common name (`linear`, `degressive`, any case).
@@ -137,7 +150,7 @@ impl Status {
         }
     }
 
-    /// What the user reads: `In use`.
+    /// Its English name: `In use` (what an import reads, too).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
@@ -147,6 +160,19 @@ impl Status {
             Status::InRepair => "In repair",
             Status::Disposed => "Disposed",
         }
+    }
+
+    /// What the user reads, in the window's language: `In use`, `In Gebrauch`.
+    #[must_use]
+    pub fn said(self) -> String {
+        let key = match self {
+            Status::InUse => "azerp-status-in-use",
+            Status::InStorage => "azerp-status-in-storage",
+            Status::CheckedOut => "azerp-status-checked-out",
+            Status::InRepair => "azerp-status-in-repair",
+            Status::Disposed => "azerp-status-disposed",
+        };
+        or_english(key, self.label())
     }
 
     /// A code or a label, any case.
@@ -201,6 +227,7 @@ impl MaintenanceKind {
             .find(|k| k.code().eq_ignore_ascii_case(t) || k.label().eq_ignore_ascii_case(t))
     }
 
+    /// Its English name: `Service`.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
@@ -210,6 +237,19 @@ impl MaintenanceKind {
             MaintenanceKind::Calibration => "Calibration",
             MaintenanceKind::Other => "Other",
         }
+    }
+
+    /// What the user reads, in the window's language: `Repair`, `Reparatur`.
+    #[must_use]
+    pub fn said(self) -> String {
+        let key = match self {
+            MaintenanceKind::Service => "azerp-maintenance-service",
+            MaintenanceKind::Inspection => "azerp-maintenance-inspection",
+            MaintenanceKind::Repair => "azerp-maintenance-repair",
+            MaintenanceKind::Calibration => "azerp-maintenance-calibration",
+            MaintenanceKind::Other => "azerp-maintenance-other",
+        };
+        or_english(key, self.label())
     }
 }
 
@@ -341,36 +381,37 @@ impl Asset {
         (2 * FULL_RATE_BP / self.life_years).min(FULL_RATE_BP)
     }
 
-    /// What is wrong with the asset, one sentence each (empty = it can be
-    /// saved).
+    /// What is wrong with the asset, one sentence each in the window's
+    /// language (empty = it can be saved).
     #[must_use]
     pub fn problems(&self) -> Vec<String> {
         let mut p: Vec<String> = Vec::new();
         if self.name.trim().is_empty() {
-            p.push("The asset needs a name.".into());
+            p.push(t("azerp-problem-asset-needs-name"));
         }
         if self.number.trim().is_empty() {
-            p.push("The asset needs an asset number.".into());
+            p.push(t("azerp-problem-asset-needs-number"));
         }
         if self.cost < 0 {
-            p.push("The cost cannot be negative.".into());
+            p.push(t("azerp-problem-cost-negative"));
         }
         if self.residual < 0 || (self.cost >= 0 && self.residual > self.cost) {
-            p.push("The residual value must be between 0 and the cost.".into());
+            p.push(t("azerp-problem-residual-range"));
         }
         if self.life_years > MAX_LIFE_YEARS {
-            p.push(format!(
-                "The useful life is at most {MAX_LIFE_YEARS} years."
+            p.push(t_args(
+                "azerp-problem-life-at-most",
+                &[("years", Arg::from(MAX_LIFE_YEARS))],
             ));
         }
         if self.declining_rate_bp > FULL_RATE_BP {
-            p.push("The declining-balance rate is at most 100 %.".into());
+            p.push(t("azerp-problem-rate-at-most"));
         }
         if self.disposal_amount < 0 {
-            p.push("The disposal amount cannot be negative.".into());
+            p.push(t("azerp-problem-disposal-negative"));
         }
         if self.disposed.is_some_and(|d| d < self.acquired) {
-            p.push("The disposal date is before the acquisition date.".into());
+            p.push(t("azerp-problem-disposal-before-acquisition"));
         }
         p
     }

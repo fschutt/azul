@@ -9,6 +9,7 @@ use azul::{
     prelude::*,
     widgets::{OnTextInputReturn, TextInputState, TextInputValid},
 };
+use azul_appkit::l10n::{t, t_args, Arg};
 
 use crate::{
     app::{self, Player},
@@ -20,7 +21,7 @@ use crate::{
     overlay,
     pages::{self, Place, Screen, Section, Tile, View, Zone},
     settings,
-    strip::{Action, Needs, CATEGORIES},
+    strip::{Action, Entry, Needs, CATEGORIES},
 };
 
 /// What a click or the pointer over a part of the window asks for.
@@ -180,16 +181,27 @@ fn now_seed() -> u64 {
 #[must_use]
 pub fn missing(s: &Player, action: Action) -> Option<String> {
     match action.needs() {
-        Needs::Songs if s.items(Shelf::Music).is_empty() => Some(format!(
-            "There is no music in {}.",
-            s.folders.shown(Shelf::Music)
+        Needs::Songs if s.items(Shelf::Music).is_empty() => Some(t_args(
+            "azplayer-no-music-in",
+            &[("folder", Arg::from(s.folders.shown(Shelf::Music)))],
         )),
-        Needs::Pictures if s.items(Shelf::Pictures).is_empty() => Some(format!(
-            "There are no pictures in {}.",
-            s.folders.shown(Shelf::Pictures)
-        )),
+        Needs::Pictures if s.items(Shelf::Pictures).is_empty() => Some(no_pictures(s)),
         _ => None,
     }
+}
+
+/// Why the strip's `entry` does nothing here, said (`None`: it works).
+#[must_use]
+pub fn why_not(s: &Player, entry: &Entry) -> Option<String> {
+    entry.never.map(t).or_else(|| missing(s, entry.action))
+}
+
+/// Why there is no slide show: no pictures in the pictures' folders.
+fn no_pictures(s: &Player) -> String {
+    t_args(
+        "azplayer-no-pictures-in",
+        &[("folder", Arg::from(s.folders.shown(Shelf::Pictures)))],
+    )
 }
 
 /// What an item of the start strip does.
@@ -399,7 +411,7 @@ pub fn open_view(app: &RefAny, info: &mut CallbackInfo, view: usize) -> Update {
             .map(|i| i.path.clone())
             .collect();
         if paths.is_empty() {
-            let why = format!("There are no pictures in {}.", s.folders.shown(Shelf::Pictures));
+            let why = no_pictures(&s);
             s.notice(&why);
         } else {
             media::show_pictures(&mut s, paths, 0, true);
@@ -729,7 +741,7 @@ pub fn open_address(app: &RefAny, info: &mut CallbackInfo, sample: Option<&str>)
         if media::web_address(&text).is_none() {
             // The dialog stays (comes back) to have it corrected.
             dialog::open(&mut s, overlay::address());
-            s.notice("An address starts with http:// or https:// and names an MP4 or MOV video.");
+            s.notice("azplayer-address-hint");
             return Update::RefreshDom;
         }
         text

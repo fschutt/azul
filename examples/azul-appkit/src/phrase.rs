@@ -7,7 +7,7 @@
 //! sentence): `"3 files failed: " + <the error's message>`.
 
 /// A value of a message's argument.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Arg {
     Str(String),
     /// A count: Fluent picks the plural form by it (`{ $count -> [one] ... *[other] ... }`).
@@ -90,7 +90,7 @@ impl std::fmt::Display for Arg {
 }
 
 /// A message of the app's resources and its arguments.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Phrase {
     pub key: String,
     pub args: Vec<(String, Arg)>,
@@ -127,7 +127,7 @@ impl Phrase {
 }
 
 /// One part of a [`Text`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Part {
     /// Text as it is (a name, a server's own words).
     Plain(String),
@@ -135,7 +135,7 @@ pub enum Part {
 }
 
 /// Words to show: phrases of the app's resources and plain text, in a row.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Text {
     pub parts: Vec<Part>,
 }

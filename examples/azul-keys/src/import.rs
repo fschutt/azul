@@ -19,6 +19,7 @@
 //! A row that has nothing to keep is skipped with its row number and the reason - never with a
 //! value from the file.
 
+use azul_appkit::phrase::{Phrase, Text};
 use azul_storage::time::parse_iso8601;
 use serde_json::Value;
 
@@ -57,12 +58,13 @@ impl Format {
     }
 }
 
-/// What a file holds: its format, the items to add, and the rows skipped (one sentence each).
+/// What a file holds: its format, the items to add, and the rows skipped (one sentence each,
+/// which the window says).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Imported {
     pub format: Format,
     pub items: Vec<Item>,
-    pub skipped: Vec<String>,
+    pub skipped: Vec<Text>,
 }
 
 /// The header names of a CSV, lower case and trimmed.
@@ -224,17 +226,14 @@ fn millis(cell: &str) -> Option<u64> {
         .map(|ms| ms / 1000)
 }
 
-/// The items of a CSV export; `Err` when the file is no table or has no column to import.
-pub fn import_csv(text: &str, now: u64) -> Result<Imported, String> {
-    let table = azul_appkit::csv::read_table(text)?;
+/// The items of a CSV export; `Err` when the file is no table (the reader's words) or has no
+/// column to import.
+pub fn import_csv(text: &str, now: u64) -> Result<Imported, Text> {
+    let table = azul_appkit::csv::read_table(text).map_err(Text::from)?;
     let headers = &table.headers;
     let columns = Columns::of(headers);
     if !columns.any() {
-        return Err(
-            "No column of this file is one AzKeys imports: it needs a header row naming \
-                    name or title, url, username, password or notes."
-                .to_string(),
-        );
+        return Err(Text::key("azkeys-import-no-column"));
     }
     let format = detect(headers);
     let mut items = Vec::new();
@@ -259,9 +258,11 @@ pub fn import_csv(text: &str, now: u64) -> Result<Imported, String> {
             .iter()
             .all(|s| s.is_empty())
         {
-            skipped.push(format!(
-                "row {row}: nothing to import (no name, website, user name, password or note)"
-            ));
+            skipped.push(
+                Phrase::new("azkeys-import-row-empty")
+                    .arg("row", row)
+                    .into(),
+            );
             continue;
         }
         // LastPass writes its secure notes as rows with the url `http://sn`.
@@ -379,27 +380,23 @@ fn fields_from(object: Option<&Value>, table: &[(&str, &str, bool)]) -> Vec<Fiel
 }
 
 /// The items of a Bitwarden JSON export; `Err` for an encrypted export or a file that is not one.
-pub fn import_bitwarden_json(text: &str, now: u64) -> Result<Imported, String> {
+pub fn import_bitwarden_json(text: &str, now: u64) -> Result<Imported, Text> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let value: Value = serde_json::from_str(text).map_err(|e| {
-        format!(
-            "This is not a JSON file (line {}, column {}).",
-            e.line(),
-            e.column()
+        Text::from(
+            Phrase::new("azkeys-import-not-json")
+                .arg("line", e.line())
+                .arg("column", e.column()),
         )
     })?;
     let Some(root) = value.as_object() else {
-        return Err("This JSON file is not a Bitwarden export.".to_string());
+        return Err(Text::key("azkeys-import-not-bitwarden"));
     };
     if root.get("encrypted").and_then(Value::as_bool) == Some(true) {
-        return Err(
-            "This is an encrypted Bitwarden export. Export the vault again choosing \
-                    \"JSON\" (unencrypted), import that file, then delete it."
-                .to_string(),
-        );
+        return Err(Text::key("azkeys-import-encrypted"));
     }
     let Some(entries) = root.get("items").and_then(Value::as_array) else {
-        return Err("This JSON file has no \"items\": it is not a Bitwarden export.".to_string());
+        return Err(Text::key("azkeys-import-no-items"));
     };
     let folders: Vec<(String, String)> = root
         .get("folders")
@@ -420,7 +417,11 @@ pub fn import_bitwarden_json(text: &str, now: u64) -> Result<Imported, String> {
             Some(4) => Kind::Identity,
             Some(5) => Kind::SshKey,
             _ => {
-                skipped.push(format!("item {}: a type AzKeys does not know", n + 1));
+                skipped.push(
+                    Phrase::new("azkeys-import-unknown-type")
+                        .arg("item", n + 1)
+                        .into(),
+                );
                 continue;
             }
         };
@@ -528,13 +529,11 @@ pub fn import_bitwarden_json(text: &str, now: u64) -> Result<Imported, String> {
 }
 
 /// The items of a file the user picked: JSON when it starts with `{`, else CSV.
-pub fn import_file(bytes: &[u8], now: u64) -> Result<Imported, String> {
+pub fn import_file(bytes: &[u8], now: u64) -> Result<Imported, Text> {
     let bytes = bytes
         .strip_prefix(b"\xef\xbb\xbf".as_slice())
         .unwrap_or(bytes);
-    let text = std::str::from_utf8(bytes).map_err(|_| {
-        "The file is not UTF-8 text: save it as a UTF-8 CSV or as JSON.".to_string()
-    })?;
+    let text = std::str::from_utf8(bytes).map_err(|_| Text::key("azkeys-import-not-utf8"))?;
     if text.trim_start().starts_with('{') {
         import_bitwarden_json(text, now)
     } else {
@@ -686,12 +685,14 @@ mod tests {
         assert_eq!(imported.items.len(), 2);
         assert_eq!(imported.items[1].title, "x.example");
         assert_eq!(imported.skipped.len(), 1);
-        assert!(
-            imported.skipped[0].contains("row 2"),
+        let row = imported.skipped[0].phrase("azkeys-import-row-empty");
+        assert_eq!(
+            row.and_then(|p| p.get("row")),
+            Some(&azul_appkit::phrase::Arg::from(2_usize)),
             "{:?}",
             imported.skipped
         );
-        assert!(!imported.skipped.join(" ").contains("hunter2"));
+        assert!(!format!("{:?}", imported.skipped).contains("hunter2"));
     }
 
     #[test]
@@ -786,7 +787,7 @@ mod tests {
             NOW,
         )
         .expect_err("encrypted");
-        assert!(err.contains("unencrypted"), "{err}");
+        assert_eq!(err.keys(), vec!["azkeys-import-encrypted"], "{err}");
         assert!(import_bitwarden_json("[1, 2]", NOW).is_err());
         assert!(import_bitwarden_json("{ broken", NOW).is_err());
     }

@@ -336,7 +336,7 @@ impl Calculator {
         }
         if self.just_evaluated {
             if let Some(i) = self.plotted {
-                return format!("Plotted as y{}", subscript(i + 1));
+                return azul_appkit::l10n::t_args("azcalculator-plotted-as", &[("n", azul_appkit::l10n::Arg::from(subscript(i + 1)))]);
             }
         } else {
             if !self.letters.is_empty() {
@@ -815,7 +815,7 @@ impl Calculator {
             if self.tokens.is_empty() && !programmer {
                 self.defining = true;
             } else {
-                self.hint = Some("y = starts a function: type it on an empty entry".to_string());
+                self.hint = Some(azul_appkit::l10n::t("azcalculator-y-hint"));
             }
             return true;
         }
@@ -891,12 +891,12 @@ impl Calculator {
         }
         if !dropped.is_empty() {
             self.hint = Some(if self.mode.is_programmer() {
-                format!(
-                    "\u{201c}{dropped}\u{201d} is not a {} digit or an operator",
-                    self.base.label()
+                azul_appkit::l10n::t_args(
+                    "azcalculator-not-digit",
+                    &[("text", azul_appkit::l10n::Arg::from(dropped.as_str())), ("base", azul_appkit::l10n::Arg::from(self.base.label()))],
                 )
             } else {
-                format!("\u{201c}{dropped}\u{201d} is not a name the calculator knows")
+                azul_appkit::l10n::t_args("azcalculator-not-a-name", &[("text", azul_appkit::l10n::Arg::from(dropped.as_str()))])
             });
         }
     }
@@ -1605,6 +1605,7 @@ mod tests {
 
     #[test]
     fn the_standard_sample_1280_times_0_19() {
+        crate::l10n::in_english();
         let c = std("1280*0.19=");
         assert_eq!(lines(&c), ("1,280 \u{d7} 0.19 =".to_string(), "243.2".to_string()));
         assert_eq!(c.history.len(), 1);
@@ -1615,6 +1616,7 @@ mod tests {
 
     #[test]
     fn while_typing_the_expression_line_holds_what_is_committed() {
+        crate::l10n::in_english();
         let c = std("1280*0.1");
         assert_eq!(lines(&c), ("1,280 \u{d7}".to_string(), "0.1".to_string()));
         let c = std("1280*");
@@ -1627,6 +1629,7 @@ mod tests {
 
     #[test]
     fn no_binary_artefacts_and_precedence() {
+        crate::l10n::in_english();
         assert_eq!(std("0.1+0.2=").result_line(), "0.3");
         assert_eq!(std("2+3*4=").result_line(), "14");
         assert_eq!(std("(2+3)*4=").result_line(), "20");
@@ -1634,6 +1637,7 @@ mod tests {
 
     #[test]
     fn a_digit_after_equals_starts_over_and_an_operator_continues() {
+        crate::l10n::in_english();
         let c = std("2+3=4");
         assert_eq!(lines(&c), (String::new(), "4".to_string()));
         let c = std("2+3=*2=");
@@ -1642,6 +1646,7 @@ mod tests {
 
     #[test]
     fn equals_again_repeats_the_last_operation() {
+        crate::l10n::in_english();
         let c = std("10+2===");
         assert_eq!(c.result_line(), "16");
         assert_eq!(c.expression_line(), "14 + 2 =");
@@ -1650,18 +1655,21 @@ mod tests {
 
     #[test]
     fn a_second_operator_replaces_the_first() {
+        crate::l10n::in_english();
         assert_eq!(std("5+*2=").result_line(), "10");
         assert_eq!(std("5*-2=").result_line(), "-10", "minus after times is a sign");
     }
 
     #[test]
     fn times_equals_squares_the_left_side() {
+        crate::l10n::in_english();
         assert_eq!(std("5*=").result_line(), "25");
         assert_eq!(std("5*=").expression_line(), "5 \u{d7} 5 =");
     }
 
     #[test]
     fn the_percent_keys() {
+        crate::l10n::in_english();
         assert_eq!(std("50+10%=").result_line(), "55");
         assert_eq!(std("200*10%=").result_line(), "20");
         assert_eq!(std("50+10%").result_line(), "55", "live");
@@ -1669,6 +1677,7 @@ mod tests {
 
     #[test]
     fn plus_minus_changes_the_typed_numbers_sign() {
+        crate::l10n::in_english();
         assert_eq!(std("5N").result_line(), "-5");
         assert_eq!(std("5NN").result_line(), "5");
         assert_eq!(std("3*5N=").result_line(), "-15");
@@ -1680,6 +1689,7 @@ mod tests {
 
     #[test]
     fn backspace_ce_and_c() {
+        crate::l10n::in_english();
         assert_eq!(std("123B").result_line(), "12");
         // After a result, a new number typed is a number being typed: Backspace
         // deletes its digit (AzCalculator E2E 2026-10-02: 7*6= 123 B kept 123).
@@ -1696,6 +1706,7 @@ mod tests {
 
     #[test]
     fn the_point_and_leading_zeros() {
+        crate::l10n::in_english();
         assert_eq!(std(".5").result_line(), "0.5");
         assert_eq!(std("0.5.5").result_line(), "0.55", "a second point is ignored");
         assert_eq!(std("007").result_line(), "7");
@@ -1706,12 +1717,14 @@ mod tests {
 
     #[test]
     fn typing_stops_at_thirty_two_digits() {
+        crate::l10n::in_english();
         let c = std(&"1".repeat(40));
         assert_eq!(c.result_line().chars().filter(char::is_ascii_digit).count(), 32);
     }
 
     #[test]
     fn dividing_by_zero_shows_an_error_until_the_next_key() {
+        crate::l10n::in_english();
         let c = std("5/0=");
         assert_eq!(c.result_line(), "Cannot divide by zero");
         assert_eq!(c.expression_line(), "5 \u{f7} 0 =");
@@ -1722,6 +1735,7 @@ mod tests {
 
     #[test]
     fn function_keys_wrap_the_operand_or_open_a_call() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Scientific);
         c.type_char('2', 1);
@@ -1738,6 +1752,7 @@ mod tests {
 
     #[test]
     fn the_scientific_sample_by_keyboard() {
+        crate::l10n::in_english();
         let c = sci("sin30)+2^10=");
         assert_eq!(c.expression_line(), "sin(30) + 2^10 =");
         assert_eq!(c.result_line(), "1,024.5");
@@ -1745,6 +1760,7 @@ mod tests {
 
     #[test]
     fn a_function_key_after_equals_wraps_the_result() {
+        crate::l10n::in_english();
         let mut c = std("9+16=");
         c.apply(Cmd::Func(Func::Sqrt), 1);
         assert_eq!(lines(&c), ("\u{221a}(25)".to_string(), "5".to_string()));
@@ -1757,6 +1773,7 @@ mod tests {
 
     #[test]
     fn parentheses_close_themselves_on_equals() {
+        crate::l10n::in_english();
         let c = sci("2*(3+4=");
         assert_eq!(c.expression_line(), "2 \u{d7} (3 + 4) =");
         assert_eq!(c.result_line(), "14");
@@ -1771,6 +1788,7 @@ mod tests {
 
     #[test]
     fn the_exponent_key_enters_scientific_notation() {
+        crate::l10n::in_english();
         let c = sci("1.5E3");
         assert_eq!(c.result_line(), "1.5e+3");
         let c = sci("1.5E3N");
@@ -1781,6 +1799,7 @@ mod tests {
 
     #[test]
     fn constants_multiply_implicitly() {
+        crate::l10n::in_english();
         let c = sci("2pi=");
         assert_eq!(c.expression_line(), "2 \u{d7} \u{3c0} =");
         assert!(c.result_line().starts_with("6.283185307179586"));
@@ -1788,6 +1807,7 @@ mod tests {
 
     #[test]
     fn memory_keys() {
+        crate::l10n::in_english();
         let mut c = std("5");
         c.apply(Cmd::MemStore, 1);
         c.apply(Cmd::Clear, 1);
@@ -1810,6 +1830,7 @@ mod tests {
 
     #[test]
     fn a_recalled_value_is_replaced_by_typing() {
+        crate::l10n::in_english();
         let mut c = std("5");
         c.apply(Cmd::MemStore, 1);
         c.apply(Cmd::Op(BinOp::Add), 1);
@@ -1821,6 +1842,7 @@ mod tests {
 
     #[test]
     fn programmer_mode_types_in_the_chosen_base() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Programmer);
         c.set_base(Base::Hex);
@@ -1839,6 +1861,7 @@ mod tests {
 
     #[test]
     fn programmer_arithmetic_and_bitwise_keys() {
+        crate::l10n::in_english();
         let c = typed(CalcMode::Programmer, "17/5=");
         assert_eq!(c.result_line(), "3");
         let c = typed(CalcMode::Programmer, "6&3=");
@@ -1857,6 +1880,7 @@ mod tests {
 
     #[test]
     fn the_word_size_caps_typing_and_wraps_results() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Programmer);
         c.set_word(WordSize::Byte);
@@ -1876,6 +1900,7 @@ mod tests {
 
     #[test]
     fn the_bit_field_toggles_the_current_value() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Programmer);
         c.toggle_bit(0);
@@ -1891,6 +1916,7 @@ mod tests {
 
     #[test]
     fn switching_between_decimals_and_programmer_keeps_the_entry() {
+        crate::l10n::in_english();
         let mut c = std("12+3=");
         c.set_mode(CalcMode::Scientific);
         assert_eq!(c.result_line(), "15", "Standard and Scientific share the entry");
@@ -1918,6 +1944,7 @@ mod tests {
 
     #[test]
     fn a_history_entry_comes_back_as_the_value_to_go_on_with() {
+        crate::l10n::in_english();
         let mut c = std("1280*0.19=C");
         c.use_history(0);
         assert_eq!(lines(&c), ("1,280 \u{d7} 0.19 =".to_string(), "243.2".to_string()));
@@ -1930,6 +1957,7 @@ mod tests {
 
     #[test]
     fn copy_gives_the_plain_value_and_paste_reads_an_expression() {
+        crate::l10n::in_english();
         let c = std("1234*2=");
         assert_eq!(c.result_line(), "2,468");
         assert_eq!(c.copy_text(), "2468");
@@ -1946,6 +1974,7 @@ mod tests {
 
     #[test]
     fn the_keyboard_map_per_mode() {
+        crate::l10n::in_english();
         assert_eq!(char_command('7', CalcMode::Standard), Some(Cmd::Digit(7)));
         assert_eq!(char_command(',', CalcMode::Standard), Some(Cmd::Point));
         assert_eq!(char_command('@', CalcMode::Standard), Some(Cmd::Func(Func::Sqrt)));
@@ -1967,6 +1996,7 @@ mod tests {
 
     #[test]
     fn typed_operators_from_any_layout_compute() {
+        crate::l10n::in_english();
         // `*` arrives as the CHARACTER, whatever key made it (Shift+8 on a US
         // keyboard, Shift++ on a German one, the keypad's `*`).
         assert_eq!(lines(&std("12*3=")), ("12 \u{d7} 3 =".to_string(), "36".to_string()));
@@ -1980,6 +2010,7 @@ mod tests {
 
     #[test]
     fn typed_names_open_their_calls() {
+        crate::l10n::in_english();
         let c = std("sqrt(16)=");
         assert_eq!(lines(&c), ("\u{221a}(16) =".to_string(), "4".to_string()));
         let c = std("sqrt16=");
@@ -1995,6 +2026,7 @@ mod tests {
 
     #[test]
     fn a_name_shows_while_it_is_typed_and_backspace_takes_its_letters() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.type_text("2+si", 1);
         assert_eq!(lines(&c), ("2 +".to_string(), "si".to_string()));
@@ -2012,6 +2044,7 @@ mod tests {
 
     #[test]
     fn letters_that_are_no_name_are_dropped_with_a_hint() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.type_text("q", 1);
         assert!(c.letters.is_empty());
@@ -2023,6 +2056,7 @@ mod tests {
 
     #[test]
     fn x_makes_the_entry_a_function_and_equals_plots_it() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Scientific);
         c.type_text("sin(x)*x^2", 1);
@@ -2043,6 +2077,7 @@ mod tests {
 
     #[test]
     fn y_equals_defines_a_function_even_without_x() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.type_text("y=", 1);
         assert!(c.defining);
@@ -2058,6 +2093,7 @@ mod tests {
 
     #[test]
     fn programmer_prefixes_switch_the_base() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Programmer);
         c.type_text("0xff", 1);
@@ -2081,6 +2117,7 @@ mod tests {
 
     #[test]
     fn subscripts_name_the_graphs_functions() {
+        crate::l10n::in_english();
         assert_eq!(subscript(1), "\u{2081}");
         assert_eq!(subscript(12), "\u{2081}\u{2082}");
     }

@@ -24,7 +24,10 @@ use azul::{
     },
 };
 
-use azul_appkit::ui as kit;
+use azul_appkit::{
+    l10n::{label, t_args, Arg},
+    ui as kit,
+};
 
 use crate::{
     canvas, ids,
@@ -95,16 +98,14 @@ fn selected_css(p: &Palette) -> String {
     )
 }
 
+/// Choices: keys said in the window's language, plain words (a font family) as they are.
 fn strings(items: &[&str]) -> StringVec {
-    items
-        .iter()
-        .map(|s| AzString::from(*s))
-        .collect::<Vec<AzString>>()
-        .into()
+    items.iter().map(|s| label(s)).collect::<Vec<AzString>>().into()
 }
 
+/// A key said, plain words (a name, a size) as they are.
 fn text(s: &str, css: &str) -> Dom {
-    Dom::create_span_with_text(AzString::from(s)).with_css(css)
+    Dom::create_span_with_text(label(s)).with_css(css)
 }
 
 /// The swatch's colour, opaque (`#rrggbb`).
@@ -121,29 +122,29 @@ fn column(css: &str) -> Dom {
 }
 
 /// A button that runs `command`.
-fn button(app: &RefAny, label: &str, command: Command) -> Dom {
-    Button::create(AzString::from(label))
+fn button(app: &RefAny, name: &str, command: Command) -> Dom {
+    Button::create(label(name))
         .with_on_click(cmd(app, command), commands::on_command as ButtonOnClickCallbackType)
         .dom()
 }
 
 /// An icon button that runs `command` (named for assistive technology by
 /// its label).
-fn icon_button(app: &RefAny, icon: &str, label: &str, command: Command) -> Dom {
+fn icon_button(app: &RefAny, icon: &str, name: &str, command: Command) -> Dom {
     Button::create(AzString::from(""))
         .with_icon(AzString::from(icon))
         .with_on_click(cmd(app, command), commands::on_command as ButtonOnClickCallbackType)
         .dom()
-        .with_accessibility_assign(AccessibilityInfo::named(label, AccessibilityRole::PushButton))
+        .with_accessibility_assign(AccessibilityInfo::named(label(name), AccessibilityRole::PushButton))
 }
 
 /// A labelled number field.
-fn number(app: &RefAny, label: &str, value: f32, f: Field, p: &Palette) -> Dom {
+fn number(app: &RefAny, name: &str, value: f32, f: Field, p: &Palette) -> Dom {
     row("margin-right: 10px;")
-        .with_child(text(label, &format!("font-size: 12px; color: {}; margin-right: 4px;", p.muted)))
+        .with_child(text(name, &format!("font-size: 12px; color: {}; margin-right: 4px;", p.muted)))
         .with_child(
             NumberInput::create(value)
-                .with_accessibility_name(AzString::from(label))
+                .with_accessibility_name(label(name))
                 .with_on_value_change(field(app, f), commands::on_number as NumberInputOnValueChangeCallbackType)
                 .dom()
                 .with_css("width: 64px;"),
@@ -151,12 +152,12 @@ fn number(app: &RefAny, label: &str, value: f32, f: Field, p: &Palette) -> Dom {
 }
 
 /// A labelled slider.
-fn slider(app: &RefAny, label: &str, value: f32, min: f32, max: f32, f: Field, p: &Palette) -> Dom {
+fn slider(app: &RefAny, name: &str, value: f32, min: f32, max: f32, f: Field, p: &Palette) -> Dom {
     row("margin-right: 10px;")
-        .with_child(text(label, &format!("font-size: 12px; color: {}; margin-right: 4px;", p.muted)))
+        .with_child(text(name, &format!("font-size: 12px; color: {}; margin-right: 4px;", p.muted)))
         .with_child(
             Slider::create(value, min, max)
-                .with_accessibility_name(AzString::from(label))
+                .with_accessibility_name(label(name))
                 .with_on_value_change(field(app, f), commands::on_slider as SliderOnValueChangeCallbackType)
                 .dom()
                 .with_css("width: 110px;"),
@@ -165,15 +166,15 @@ fn slider(app: &RefAny, label: &str, value: f32, min: f32, max: f32, f: Field, p
 }
 
 /// A labelled check box.
-fn check(app: &RefAny, label: &str, value: bool, f: Field, p: &Palette) -> Dom {
+fn check(app: &RefAny, name: &str, value: bool, f: Field, p: &Palette) -> Dom {
     row("margin-right: 10px;")
         .with_child(
             CheckBox::create(value)
-                .with_accessibility_name(AzString::from(label))
+                .with_accessibility_name(label(name))
                 .with_on_toggle(field(app, f), commands::on_check as CheckBoxOnToggleCallbackType)
                 .dom(),
         )
-        .with_child(text(label, &format!("font-size: 12px; color: {}; margin-left: 4px;", p.text)))
+        .with_child(text(name, &format!("font-size: 12px; color: {}; margin-left: 4px;", p.text)))
 }
 
 /// A segmented choice.
@@ -211,108 +212,108 @@ fn menu_table() -> Vec<(&'static str, Vec<Entry>)> {
     let adjustments = Adjustment::catalog()
         .iter()
         .enumerate()
-        .map(|(i, a)| Item(a.name(), C::NewAdjustment(i), NONE))
+        .map(|(i, a)| Item(a.message_id(), C::NewAdjustment(i), NONE))
         .collect();
     vec![
         (
-            "File",
+            "azphoto-menu-file",
             vec![
-                Item("New...", C::Sheet(Sheet::NewImage), &[K::N]),
-                Item("Open...", C::Open, &[K::O]),
-                Item("Open Sample", C::OpenSample, NONE),
-                Item("Place Image as Layer...", C::Place, NONE),
+                Item("azphoto-new", C::Sheet(Sheet::NewImage), &[K::N]),
+                Item("azphoto-open", C::Open, &[K::O]),
+                Item("azphoto-open-sample-menu", C::OpenSample, NONE),
+                Item("azphoto-place-image-as-layer", C::Place, NONE),
                 Separator,
-                Item("Save", C::Save, &[K::S]),
-                Item("Export...", C::Sheet(Sheet::Export), &[K::LShift, K::E]),
+                Item("azphoto-save", C::Save, &[K::S]),
+                Item("azphoto-export", C::Sheet(Sheet::Export), &[K::LShift, K::E]),
                 Separator,
-                Item("Close", C::CloseDocument, NONE),
+                Item("azphoto-close", C::CloseDocument, NONE),
             ],
         ),
         (
-            "Edit",
+            "azphoto-menu-edit",
             vec![
-                Item("Undo", C::Undo, &[K::Z]),
-                Item("Redo", C::Redo, &[K::LShift, K::Z]),
+                Item("azphoto-undo", C::Undo, &[K::Z]),
+                Item("azphoto-redo", C::Redo, &[K::LShift, K::Z]),
                 Separator,
-                Item("Fill with Foreground", C::Fill, NONE),
-                Item("Clear", C::Clear, NONE),
+                Item("azphoto-fill-foreground", C::Fill, NONE),
+                Item("azphoto-history-clear", C::Clear, NONE),
                 Separator,
-                Item("Settings...", C::Settings, NONE),
+                Item("azphoto-settings", C::Settings, NONE),
             ],
         ),
         (
-            "Image",
+            "azphoto-menu-image",
             vec![
-                Item("Image Size...", C::Sheet(Sheet::ImageSize), NONE),
-                Item("Canvas Size...", C::Sheet(Sheet::CanvasSize), NONE),
+                Item("azphoto-image-size", C::Sheet(Sheet::ImageSize), NONE),
+                Item("azphoto-canvas-size", C::Sheet(Sheet::CanvasSize), NONE),
                 Separator,
-                Item("Rotate 90\u{b0} Clockwise", C::RotateCanvas(true), NONE),
-                Item("Rotate 90\u{b0} Counter-clockwise", C::RotateCanvas(false), NONE),
-                Item("Flip Canvas Horizontal", C::FlipCanvas(true), NONE),
-                Item("Flip Canvas Vertical", C::FlipCanvas(false), NONE),
+                Item("azphoto-rotate-90-clockwise", C::RotateCanvas(true), NONE),
+                Item("azphoto-rotate-90-counter-clockwise", C::RotateCanvas(false), NONE),
+                Item("azphoto-flip-canvas-horizontal", C::FlipCanvas(true), NONE),
+                Item("azphoto-flip-canvas-vertical", C::FlipCanvas(false), NONE),
                 Separator,
-                Item("Crop to Selection", C::CropToSelection, NONE),
+                Item("azphoto-crop-selection", C::CropToSelection, NONE),
             ],
         ),
         (
-            "Layer",
+            "azphoto-menu-layer",
             vec![
-                Item("New Layer", C::NewLayer, &[K::LShift, K::N]),
-                Item("New Group", C::NewGroup, NONE),
-                Sub("New Adjustment Layer", adjustments),
-                Item("Duplicate Layer", C::Duplicate, &[K::J]),
-                Item("Delete Layer", C::Delete, NONE),
-                Item("Merge Down", C::MergeDown, &[K::E]),
+                Item("azphoto-history-new-layer", C::NewLayer, &[K::LShift, K::N]),
+                Item("azphoto-history-new-group", C::NewGroup, NONE),
+                Sub("azphoto-new-adjustment-layer", adjustments),
+                Item("azphoto-history-duplicate-layer", C::Duplicate, &[K::J]),
+                Item("azphoto-history-delete-layer", C::Delete, NONE),
+                Item("azphoto-history-merge-down", C::MergeDown, &[K::E]),
                 Separator,
                 Sub(
-                    "Transform",
+                    "azphoto-history-transform",
                     vec![
-                        Item("Flip Horizontal", C::FlipLayer(true), NONE),
-                        Item("Flip Vertical", C::FlipLayer(false), NONE),
-                        Item("Rotate...", C::Sheet(Sheet::Rotate), NONE),
-                        Item("Scale 50 %", C::ScaleLayer(0.5), NONE),
-                        Item("Scale 200 %", C::ScaleLayer(2.0), NONE),
+                        Item("azphoto-flip-horizontal", C::FlipLayer(true), NONE),
+                        Item("azphoto-flip-vertical", C::FlipLayer(false), NONE),
+                        Item("azphoto-rotate", C::Sheet(Sheet::Rotate), NONE),
+                        Item("azphoto-scale-50", C::ScaleLayer(0.5), NONE),
+                        Item("azphoto-scale-200", C::ScaleLayer(2.0), NONE),
                     ],
                 ),
-                Item("Move Up", C::LayerUp, NONE),
-                Item("Move Down", C::LayerDown, NONE),
+                Item("azphoto-layer-move-up", C::LayerUp, NONE),
+                Item("azphoto-layer-move-down", C::LayerDown, NONE),
             ],
         ),
         (
-            "Select",
+            "azphoto-menu-select",
             vec![
-                Item("All", C::SelectAll, &[K::A]),
-                Item("Deselect", C::Deselect, &[K::D]),
-                Item("Inverse", C::Inverse, &[K::LShift, K::I]),
-                Item("Feather...", C::Sheet(Sheet::Feather), NONE),
+                Item("azphoto-all", C::SelectAll, &[K::A]),
+                Item("azphoto-history-deselect", C::Deselect, &[K::D]),
+                Item("azphoto-history-inverse", C::Inverse, &[K::LShift, K::I]),
+                Item("azphoto-feather", C::Sheet(Sheet::Feather), NONE),
             ],
         ),
         (
-            "Filter",
+            "azphoto-menu-filter",
             vec![
-                Item("Gaussian Blur...", C::Sheet(Sheet::GaussianBlur), NONE),
-                Item("Sharpen...", C::Sheet(Sheet::Sharpen), NONE),
+                Item("azphoto-gaussian-blur", C::Sheet(Sheet::GaussianBlur), NONE),
+                Item("azphoto-sharpen", C::Sheet(Sheet::Sharpen), NONE),
             ],
         ),
         (
-            "View",
+            "azphoto-menu-view",
             vec![
-                Item("Zoom In", C::ZoomIn, &[K::Equals]),
-                Item("Zoom Out", C::ZoomOut, &[K::Minus]),
-                Item("Fit on Screen", C::Fit, &[K::Key0]),
-                Item("Actual Pixels", C::ActualPixels, &[K::Key1]),
+                Item("azphoto-zoom-in", C::ZoomIn, &[K::Equals]),
+                Item("azphoto-zoom-out", C::ZoomOut, &[K::Minus]),
+                Item("azphoto-fit-screen", C::Fit, &[K::Key0]),
+                Item("azphoto-actual-pixels", C::ActualPixels, &[K::Key1]),
                 Separator,
-                Item("Light Mode", C::Mode(false), NONE),
-                Item("Dark Mode", C::Mode(true), NONE),
-                Item("Flat Theme", C::Theme("flat"), NONE),
-                Item("Flora Theme", C::Theme("flora"), NONE),
+                Item("azphoto-light-mode", C::Mode(false), NONE),
+                Item("azphoto-dark-mode", C::Mode(true), NONE),
+                Item("azphoto-flat-theme", C::Theme("flat"), NONE),
+                Item("azphoto-flora-theme", C::Theme("flora"), NONE),
             ],
         ),
         (
-            "Help",
+            "azphoto-menu-help",
             vec![
-                Item("Keyboard Shortcuts", C::Settings, NONE),
-                Item("About AzPhoto", C::Sheet(Sheet::About), NONE),
+                Item("azphoto-keyboard-shortcuts", C::Settings, NONE),
+                Item("azphoto-about-azphoto", C::Sheet(Sheet::About), NONE),
             ],
         ),
     ]
@@ -322,8 +323,8 @@ fn menu_items(app: &RefAny, entries: Vec<Entry>) -> Vec<MenuItem> {
     entries
         .into_iter()
         .map(|e| match e {
-            Entry::Item(label, command, keys) => {
-                let mut item = StringMenuItem::create(AzString::from(label))
+            Entry::Item(name, command, keys) => {
+                let mut item = StringMenuItem::create(label(name))
                     .with_callback(cmd(app, command), commands::on_command);
                 if !keys.is_empty() {
                     let mut combo = vec![cmd_key()];
@@ -332,8 +333,8 @@ fn menu_items(app: &RefAny, entries: Vec<Entry>) -> Vec<MenuItem> {
                 }
                 MenuItem::string(item)
             }
-            Entry::Sub(label, children) => MenuItem::string(
-                StringMenuItem::create(AzString::from(label)).with_children(menu_items(app, children)),
+            Entry::Sub(name, children) => MenuItem::string(
+                StringMenuItem::create(label(name)).with_children(menu_items(app, children)),
             ),
             Entry::Separator => MenuItem::separator(),
         })
@@ -346,7 +347,7 @@ pub fn native_menu(app: &RefAny) -> Menu {
         menu_table()
             .into_iter()
             .map(|(title, entries)| {
-                MenuItem::string(StringMenuItem::create(AzString::from(title)).with_children(menu_items(app, entries)))
+                MenuItem::string(StringMenuItem::create(label(title)).with_children(menu_items(app, entries)))
             })
             .collect::<Vec<MenuItem>>(),
     )
@@ -375,7 +376,7 @@ fn menu_row(app: &RefAny, p: &Palette) -> Dom {
     let mut bar = row(&format!("padding: 2px 6px; background: {}; flex-shrink: 0;", p.chrome)).with_id(ids::MENU);
     for (i, (title, _)) in menu_table().iter().enumerate() {
         bar.add_child(
-            Button::create(AzString::from(*title))
+            Button::create(label(title))
                 .with_button_type(ButtonType::Link)
                 .with_on_click(
                     RefAny::new(MenuRef {
@@ -401,98 +402,103 @@ fn options_bar(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     let hint = |t: &str| text(t, &format!("font-size: 12px; color: {}; margin-right: 10px;", p.muted));
     let mut bar = row(&format!("padding: 4px 8px; background: {}; flex-shrink: 0; min-height: 30px;", p.chrome))
         .with_id(ids::OPTIONS)
-        .with_child(text(s.tool.name(), &format!("font-size: 12px; font-weight: bold; color: {}; margin-right: 12px;", p.text)));
+        .with_child(text(
+            &crate::l10n::word("tool", s.tool.name()),
+            &format!("font-size: 12px; font-weight: bold; color: {}; margin-right: 12px;", p.text),
+        ));
     match s.tool {
         Tool::Brush | Tool::Pencil | Tool::Eraser | Tool::CloneStamp => {
-            bar.add_child(number(app, "Size", s.brush_size(), Field::BrushSize, p));
+            bar.add_child(number(app, "azphoto-size", s.brush_size(), Field::BrushSize, p));
             if s.tool != Tool::Pencil {
-                bar.add_child(slider(app, "Hardness", o.hardness * 100.0, 0.0, 100.0, Field::Hardness, p));
+                bar.add_child(slider(app, "azphoto-hardness", o.hardness * 100.0, 0.0, 100.0, Field::Hardness, p));
             }
-            bar.add_child(slider(app, "Opacity", o.opacity * 100.0, 1.0, 100.0, Field::Opacity, p));
-            bar.add_child(slider(app, "Flow", o.flow * 100.0, 1.0, 100.0, Field::Flow, p));
-            bar.add_child(check(app, "Pressure \u{2192} size", o.pressure_size, Field::PressureSize, p));
-            bar.add_child(check(app, "Pressure \u{2192} flow", o.pressure_flow, Field::PressureFlow, p));
+            bar.add_child(slider(app, "azphoto-history-opacity", o.opacity * 100.0, 1.0, 100.0, Field::Opacity, p));
+            bar.add_child(slider(app, "azphoto-flow", o.flow * 100.0, 1.0, 100.0, Field::Flow, p));
+            bar.add_child(check(app, "azphoto-pressure-size", o.pressure_size, Field::PressureSize, p));
+            bar.add_child(check(app, "azphoto-pressure-flow", o.pressure_flow, Field::PressureFlow, p));
             if s.tool == Tool::CloneStamp {
                 bar.add_child(hint(match o.clone_source {
-                    Some(_) => "Source set (Alt-click to move it)",
-                    None => "Alt-click sets the source",
+                    Some(_) => "azphoto-source-set",
+                    None => "azphoto-source-how",
                 }));
             }
         }
         Tool::MarqueeRect | Tool::MarqueeEllipse | Tool::Lasso => {
-            let modes: Vec<&str> = SelectMode::ALL.iter().map(|m| m.name()).collect();
+            let words: Vec<String> = SelectMode::ALL.iter().map(|m| crate::l10n::word("select", m.name())).collect();
+            let modes: Vec<&str> = words.iter().map(String::as_str).collect();
             let at = SelectMode::ALL.iter().position(|m| *m == o.select_mode).unwrap_or(0);
             bar.add_child(segments(app, &modes, at, Field::SelectMode));
             bar.add_child(Dom::create_div().with_css("width: 12px;"));
-            bar.add_child(number(app, "Feather", o.feather, Field::Feather, p));
-            bar.add_child(hint("Shift adds, Alt subtracts"));
+            bar.add_child(number(app, "azphoto-history-feather", o.feather, Field::Feather, p));
+            bar.add_child(hint("azphoto-shift-adds-alt-subtracts"));
         }
         Tool::MagicWand => {
-            let modes: Vec<&str> = SelectMode::ALL.iter().map(|m| m.name()).collect();
+            let words: Vec<String> = SelectMode::ALL.iter().map(|m| crate::l10n::word("select", m.name())).collect();
+            let modes: Vec<&str> = words.iter().map(String::as_str).collect();
             let at = SelectMode::ALL.iter().position(|m| *m == o.select_mode).unwrap_or(0);
             bar.add_child(segments(app, &modes, at, Field::SelectMode));
             bar.add_child(Dom::create_div().with_css("width: 12px;"));
-            bar.add_child(number(app, "Tolerance", f32::from(o.wand_tolerance), Field::WandTolerance, p));
-            bar.add_child(check(app, "Contiguous", o.wand_contiguous, Field::WandContiguous, p));
-            bar.add_child(check(app, "Sample all layers", o.sample_merged, Field::SampleMerged, p));
+            bar.add_child(number(app, "azphoto-tolerance", f32::from(o.wand_tolerance), Field::WandTolerance, p));
+            bar.add_child(check(app, "azphoto-contiguous", o.wand_contiguous, Field::WandContiguous, p));
+            bar.add_child(check(app, "azphoto-sample-all-layers", o.sample_merged, Field::SampleMerged, p));
         }
         Tool::Bucket => {
-            bar.add_child(number(app, "Tolerance", f32::from(o.bucket_tolerance), Field::BucketTolerance, p));
-            bar.add_child(check(app, "Contiguous", o.bucket_contiguous, Field::BucketContiguous, p));
+            bar.add_child(number(app, "azphoto-tolerance", f32::from(o.bucket_tolerance), Field::BucketTolerance, p));
+            bar.add_child(check(app, "azphoto-contiguous", o.bucket_contiguous, Field::BucketContiguous, p));
         }
         Tool::Gradient => {
-            bar.add_child(hint("Drag: foreground colour to background colour, in the selection"));
+            bar.add_child(hint("azphoto-drag-foreground-colour-background"));
         }
         Tool::Shape => {
-            bar.add_child(segments(app, &["Rectangle", "Ellipse"], usize::from(o.shape_ellipse), Field::ShapeKind));
-            bar.add_child(hint("Filled with the foreground colour; Shift for a square"));
+            bar.add_child(segments(app, &["azphoto-shape-rectangle", "azphoto-shape-ellipse"], usize::from(o.shape_ellipse), Field::ShapeKind));
+            bar.add_child(hint("azphoto-filled-foreground-colour-shift"));
         }
         Tool::Crop => {
-            bar.add_child(hint("Drag the frame to keep; Image > Crop to Selection crops to the selection"));
+            bar.add_child(hint("azphoto-drag-frame-keep-image"));
         }
-        Tool::Move => bar.add_child(hint("Drag to move the active layer")),
-        Tool::Eyedropper => bar.add_child(hint("Click picks the foreground colour, Alt-click the background")),
+        Tool::Move => bar.add_child(hint("azphoto-drag-move-active-layer")),
+        Tool::Eyedropper => bar.add_child(hint("azphoto-click-picks-foreground-colour")),
         Tool::Hand | Tool::Zoom => {
-            bar.add_child(button(app, "Zoom In", Command::ZoomIn));
-            bar.add_child(button(app, "Zoom Out", Command::ZoomOut));
-            bar.add_child(button(app, "Fit", Command::Fit));
+            bar.add_child(button(app, "azphoto-zoom-in", Command::ZoomIn));
+            bar.add_child(button(app, "azphoto-zoom-out", Command::ZoomOut));
+            bar.add_child(button(app, "azphoto-fit", Command::Fit));
             bar.add_child(button(app, "100 %", Command::ActualPixels));
         }
         Tool::Text => {
             bar.add_child(
                 DropDown::create(strings(&TEXT_FAMILIES))
                     .with_selected(o.text_family)
-                    .with_accessibility_name(AzString::from("Font"))
+                    .with_accessibility_name(AzString::from(label("azphoto-font")))
                     .with_on_choice_change(field(app, Field::TextFamily), commands::on_choice as DropDownOnChoiceChangeCallbackType)
                     .dom()
                     .with_id(ids::TEXT_FAMILY)
                     .with_css("margin-right: 10px;"),
             );
-            bar.add_child(number(app, "Size", o.text_size, Field::TextSize, p));
-            bar.add_child(check(app, "Bold", o.text_bold, Field::TextBold, p));
-            bar.add_child(check(app, "Italic", o.text_italic, Field::TextItalic, p));
+            bar.add_child(number(app, "azphoto-size", o.text_size, Field::TextSize, p));
+            bar.add_child(check(app, "azphoto-bold", o.text_bold, Field::TextBold, p));
+            bar.add_child(check(app, "azphoto-italic", o.text_italic, Field::TextItalic, p));
             match &s.text {
                 Some(draft) => {
                     bar.add_child(
                         TextInput::create()
                             .with_text(AzString::from(draft.text.as_str()))
-                            .with_placeholder(AzString::from("Type the text"))
-                            .with_accessibility_name(AzString::from("Text"))
+                            .with_placeholder(AzString::from(label("azphoto-type-text")))
+                            .with_accessibility_name(AzString::from(label("azphoto-tool-text")))
                             .with_on_text_input(field(app, Field::Text), commands::on_text as TextInputOnTextInputCallbackType)
                             .dom()
                             .with_id(ids::TEXT_FIELD)
                             .with_css("width: 220px; margin-right: 8px;"),
                     );
                     bar.add_child(
-                        Button::with_type(AzString::from("Commit"), ButtonType::Primary)
+                        Button::with_type(AzString::from(label("azphoto-commit")), ButtonType::Primary)
                             .with_on_click(cmd(app, Command::TextCommit), commands::on_command as ButtonOnClickCallbackType)
                             .dom()
                             .with_id(ids::TEXT_COMMIT)
                             .with_css("margin-right: 6px;"),
                     );
-                    bar.add_child(button(app, "Cancel", Command::TextCancel).with_id(ids::TEXT_CANCEL));
+                    bar.add_child(button(app, "kit-button-cancel", Command::TextCancel).with_id(ids::TEXT_CANCEL));
                 }
-                None => bar.add_child(hint("Click the canvas where the text starts")),
+                None => bar.add_child(hint("azphoto-click-canvas-where-text")),
             }
         }
     }
@@ -514,7 +520,7 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
             .with_icon(AzString::from(t.icon()))
             .with_toggled(t == a.s.tool);
         if !a.s.tool_available(t) {
-            b = b.with_disabled(AzString::from("Needs a pixel layer that is not locked"));
+            b = b.with_disabled(AzString::from(label("azphoto-needs-pixel-layer-not")));
         }
         col.add_child(
             b.with_on_click(cmd(app, Command::Tool(t)), commands::on_command as ButtonOnClickCallbackType)
@@ -522,7 +528,7 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 .with_id(t.dom_id())
                 .with_css("margin: 1px;")
                 .with_accessibility_assign(AccessibilityInfo::named(
-                    format!("{} ({})", t.name(), t.key()),
+                    format!("{} ({})", crate::l10n::word("tool", t.name()), t.key()),
                     AccessibilityRole::PushButton,
                 )),
         );
@@ -578,19 +584,19 @@ fn navigator_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     }
     body.add_child(
         row("")
-            .with_child(icon_button(app, "zoom_out", "Zoom out", Command::ZoomOut))
+            .with_child(icon_button(app, "zoom_out", "azphoto-navigator-zoom-out", Command::ZoomOut))
             .with_child(
                 NumberInput::create((a.s.view.zoom * 100.0 * 10.0).round() / 10.0)
-                    .with_accessibility_name(AzString::from("Zoom %"))
+                    .with_accessibility_name(AzString::from(label("azphoto-zoom-percent")))
                     .with_on_value_change(field(app, Field::ZoomPercent), commands::on_number as NumberInputOnValueChangeCallbackType)
                     .dom()
                     .with_id(ids::ZOOM_INPUT)
                     .with_css("width: 70px;"),
             )
-            .with_child(icon_button(app, "zoom_in", "Zoom in", Command::ZoomIn))
-            .with_child(button(app, "Fit", Command::Fit)),
+            .with_child(icon_button(app, "zoom_in", "azphoto-navigator-zoom-in", Command::ZoomIn))
+            .with_child(button(app, "azphoto-fit", Command::Fit)),
     );
-    section("NAVIGATOR", ids::PANEL_NAVIGATOR, p, body)
+    section("azphoto-navigator", ids::PANEL_NAVIGATOR, p, body)
 }
 
 fn color_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
@@ -618,26 +624,29 @@ fn color_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
             row("")
                 .with_child(
                     ColorInput::create(color(a.s.fg))
-                        .with_accessibility_name(AzString::from("Foreground colour"))
+                        .with_accessibility_name(AzString::from(label("azphoto-foreground-colour")))
                         .with_on_value_change(field(app, Field::FgColor), commands::on_color as ColorInputOnValueChangeCallbackType)
                         .dom(),
                 )
-                .with_child(text(&format!("Foreground {}", hex(a.s.fg)), &format!("font-size: 12px; color: {}; margin: 0px 8px;", p.text)))
+                .with_child(text(
+                    &t_args("azphoto-foreground-hex", &[("hex", Arg::from(hex(a.s.fg)))]),
+                    &format!("font-size: 12px; color: {}; margin: 0px 8px;", p.text),
+                ))
                 .with_child(
                     ColorInput::create(color(a.s.bg))
-                        .with_accessibility_name(AzString::from("Background colour"))
+                        .with_accessibility_name(AzString::from(label("azphoto-background-colour")))
                         .with_on_value_change(field(app, Field::BgColor), commands::on_color as ColorInputOnValueChangeCallbackType)
                         .dom(),
                 )
-                .with_child(text("Background", &format!("font-size: 12px; color: {}; margin-left: 8px;", p.text))),
+                .with_child(text("azphoto-background", &format!("font-size: 12px; color: {}; margin-left: 8px;", p.text))),
         )
         .with_child(
             row("margin-top: 4px;")
-                .with_child(icon_button(app, "swap_horiz", "Swap colours (X)", Command::SwapColors))
-                .with_child(button(app, "Default", Command::DefaultColors)),
+                .with_child(icon_button(app, "swap_horiz", "azphoto-swap-colours-x", Command::SwapColors))
+                .with_child(button(app, "azphoto-default", Command::DefaultColors)),
         )
         .with_child(swatches);
-    section("COLOR", ids::PANEL_COLOR, p, body)
+    section("azphoto-color", ids::PANEL_COLOR, p, body)
 }
 
 fn layer_icon(content: &LayerContent) -> &'static str {
@@ -652,7 +661,8 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     let doc = a.s.engine.document();
     let active = a.s.engine.active_layer();
     let active_layer = active.and_then(|id| doc.layer(id));
-    let blend_names: Vec<&str> = BlendMode::ALL.iter().map(|m| m.name()).collect();
+    let blend_words: Vec<String> = BlendMode::ALL.iter().map(|m| crate::l10n::word("blend", m.name())).collect();
+    let blend_names: Vec<&str> = blend_words.iter().map(String::as_str).collect();
     let mut body = column("");
     if let Some(l) = active_layer {
         body.add_child(
@@ -660,16 +670,16 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 .with_child(
                     DropDown::create(strings(&blend_names))
                         .with_selected(l.blend.index())
-                        .with_accessibility_name(AzString::from("Blend mode"))
+                        .with_accessibility_name(AzString::from(label("azphoto-blend-mode")))
                         .with_on_choice_change(field(app, Field::LayerBlend), commands::on_choice as DropDownOnChoiceChangeCallbackType)
                         .dom()
                         .with_id(ids::LAYER_BLEND)
                         .with_css("margin-right: 8px;"),
                 )
-                .with_child(text("Opacity", &format!("font-size: 12px; color: {}; margin-right: 4px;", p.muted)))
+                .with_child(text("azphoto-history-opacity", &format!("font-size: 12px; color: {}; margin-right: 4px;", p.muted)))
                 .with_child(
                     NumberInput::create((l.opacity * 100.0).round())
-                        .with_accessibility_name(AzString::from("Layer opacity %"))
+                        .with_accessibility_name(AzString::from(label("azphoto-layer-opacity-percent")))
                         .with_on_value_change(field(app, Field::LayerOpacity), commands::on_number as NumberInputOnValueChangeCallbackType)
                         .dom()
                         .with_id(ids::LAYER_OPACITY_INPUT)
@@ -678,7 +688,7 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         );
         body.add_child(
             Slider::create((l.opacity * 100.0).round(), 0.0, 100.0)
-                .with_accessibility_name(AzString::from("Layer opacity"))
+                .with_accessibility_name(AzString::from(label("azphoto-layer-opacity-name")))
                 .with_on_value_change(field(app, Field::LayerOpacity), commands::on_slider as SliderOnValueChangeCallbackType)
                 .dom()
                 .with_id(ids::LAYER_OPACITY)
@@ -703,20 +713,20 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         .with_child(icon_button(
             app,
             if l.visible { "visibility" } else { "visibility_off" },
-            "Show or hide",
+            "azphoto-show-hide",
             Command::ToggleVisible(id),
         ))
         .with_child(icon_button(
             app,
             if l.locked { "lock" } else { "lock_open" },
-            "Lock or unlock",
+            "azphoto-lock-unlock",
             Command::ToggleLock(id),
         ));
         if matches!(l.content, LayerContent::Group(_)) {
             r.add_child(icon_button(
                 app,
                 if l.expanded { "expand_more" } else { "chevron_right" },
-                "Open or close the group",
+                "azphoto-open-close-group",
                 Command::ToggleExpanded(id),
             ));
         }
@@ -724,7 +734,7 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         r.add_child(text(&l.name, &format!("font-size: 13px; color: {}; flex-grow: 1;", p.text)));
         if l.opacity < 0.999 || l.blend != BlendMode::Normal {
             r.add_child(text(
-                &format!("{} {} %", l.blend.name(), (l.opacity * 100.0).round()),
+                &format!("{} {} %", crate::l10n::word("blend", l.blend.name()), (l.opacity * 100.0).round()),
                 &format!("font-size: 11px; color: {};", p.muted),
             ));
         }
@@ -733,23 +743,23 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     body.add_child(list);
     body.add_child(
         row("margin-top: 4px; flex-wrap: wrap;")
-            .with_child(icon_button(app, "add", "New layer", Command::NewLayer).with_id(ids::LAYER_NEW))
-            .with_child(icon_button(app, "create_new_folder", "New group", Command::NewGroup).with_id(ids::LAYER_NEW_GROUP))
-            .with_child(icon_button(app, "control_point_duplicate", "Duplicate layer", Command::Duplicate).with_id(ids::LAYER_DUPLICATE))
-            .with_child(icon_button(app, "merge_type", "Merge down", Command::MergeDown).with_id(ids::LAYER_MERGE))
-            .with_child(icon_button(app, "arrow_upward", "Move up", Command::LayerUp).with_id(ids::LAYER_UP))
-            .with_child(icon_button(app, "arrow_downward", "Move down", Command::LayerDown).with_id(ids::LAYER_DOWN))
-            .with_child(icon_button(app, "delete", "Delete layer", Command::Delete).with_id(ids::LAYER_DELETE)),
+            .with_child(icon_button(app, "add", "azphoto-new-layer", Command::NewLayer).with_id(ids::LAYER_NEW))
+            .with_child(icon_button(app, "create_new_folder", "azphoto-new-group", Command::NewGroup).with_id(ids::LAYER_NEW_GROUP))
+            .with_child(icon_button(app, "control_point_duplicate", "azphoto-duplicate-layer", Command::Duplicate).with_id(ids::LAYER_DUPLICATE))
+            .with_child(icon_button(app, "merge_type", "azphoto-merge-down", Command::MergeDown).with_id(ids::LAYER_MERGE))
+            .with_child(icon_button(app, "arrow_upward", "azphoto-move-up", Command::LayerUp).with_id(ids::LAYER_UP))
+            .with_child(icon_button(app, "arrow_downward", "azphoto-move-down", Command::LayerDown).with_id(ids::LAYER_DOWN))
+            .with_child(icon_button(app, "delete", "azphoto-delete-layer", Command::Delete).with_id(ids::LAYER_DELETE)),
     );
-    section("LAYERS", ids::PANEL_LAYERS, p, body)
+    section("azphoto-layers", ids::PANEL_LAYERS, p, body)
 }
 
 fn adjustments_panel(app: &RefAny, p: &Palette) -> Dom {
     let mut body = row("flex-wrap: wrap;");
     for (i, a) in Adjustment::catalog().iter().enumerate() {
-        body.add_child(button(app, a.name(), Command::NewAdjustment(i)).with_id(ids::numbered(ids::ADJUST_PREFIX, i)).with_css("margin: 0px 4px 4px 0px;"));
+        body.add_child(button(app, a.message_id(), Command::NewAdjustment(i)).with_id(ids::numbered(ids::ADJUST_PREFIX, i)).with_css("margin: 0px 4px 4px 0px;"));
     }
-    section("ADJUSTMENTS", ids::PANEL_ADJUSTMENTS, p, body)
+    section("azphoto-adjustments", ids::PANEL_ADJUSTMENTS, p, body)
 }
 
 fn properties_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
@@ -757,25 +767,40 @@ fn properties_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     let mut body = column("");
     let small = format!("font-size: 12px; color: {};", p.text);
     match a.s.engine.active_layer().and_then(|id| doc.layer(id)) {
-        None => body.add_child(text("No layer selected.", &small)),
+        None => body.add_child(text("azphoto-no-layer-selected", &small)),
         Some(l) => {
-            body.add_child(text(&format!("{} - {}", l.name, l.kind_name()), &small));
+            body.add_child(text(&format!("{} - {}", l.name, crate::l10n::word("layer", l.kind_name())), &small));
             match &l.content {
                 LayerContent::Raster(g) => body.add_child(text(
-                    &format!("{} x {} px, {} of {} tiles hold pixels", g.width(), g.height(), g.non_empty_tiles().len(), g.cols() * g.rows()),
+                    &t_args(
+                        "azphoto-raster-info",
+                        &[
+                            ("w", Arg::from(g.width().to_string())),
+                            ("h", Arg::from(g.height().to_string())),
+                            ("used", Arg::from(g.non_empty_tiles().len().to_string())),
+                            ("tiles", Arg::from((g.cols() * g.rows()).to_string())),
+                        ],
+                    ),
                     &format!("font-size: 11px; color: {};", p.muted),
                 )),
                 LayerContent::Group(children) => {
-                    body.add_child(text(&format!("{} layers", children.len()), &format!("font-size: 11px; color: {};", p.muted)));
+                    body.add_child(text(
+                        &t_args("azphoto-group-layers", &[("count", Arg::from(children.len()))]),
+                        &format!("font-size: 11px; color: {};", p.muted),
+                    ));
                 }
                 LayerContent::Adjustment(adj) => {
                     let params = commands::adjustment_params(adj);
                     if params.is_empty() {
-                        body.add_child(text("No settings.", &format!("font-size: 11px; color: {};", p.muted)));
+                        body.add_child(text("azphoto-no-settings", &format!("font-size: 11px; color: {};", p.muted)));
                     }
-                    for (n, (label, v, min, max)) in params.into_iter().enumerate() {
-                        let label = if label == "Point" { format!("Point {}", n + 1) } else { label.to_string() };
-                        body.add_child(slider(app, &label, v, min, max, Field::Adjust(n as u8), p));
+                    for (n, (name, v, min, max)) in params.into_iter().enumerate() {
+                        let name = if name == "azphoto-param-point" {
+                            t_args("azphoto-param-point-n", &[("n", Arg::from((n + 1).to_string()))])
+                        } else {
+                            name.to_string()
+                        };
+                        body.add_child(slider(app, &name, v, min, max, Field::Adjust(n as u8), p));
                     }
                 }
             }
@@ -784,7 +809,7 @@ fn properties_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     if let Some(label) = commands::selection_label(a) {
         body.add_child(text(&label, &format!("font-size: 11px; color: {}; margin-top: 4px;", p.muted)));
     }
-    section("PROPERTIES", ids::PANEL_PROPERTIES, p, body)
+    section("azphoto-properties", ids::PANEL_PROPERTIES, p, body)
 }
 
 fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
@@ -805,9 +830,9 @@ fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     // Undo / redo sit in the title row: below the list they ended under the
     // status bar at 1400 x 900 (the panels column 13 px too tall).
     let actions = row("")
-        .with_child(icon_button(app, "undo", "Undo", Command::Undo).with_id(ids::HISTORY_UNDO))
-        .with_child(icon_button(app, "redo", "Redo", Command::Redo).with_id(ids::HISTORY_REDO));
-    section_with("HISTORY", ids::PANEL_HISTORY, p, Some(actions), list)
+        .with_child(icon_button(app, "undo", "azphoto-undo", Command::Undo).with_id(ids::HISTORY_UNDO))
+        .with_child(icon_button(app, "redo", "azphoto-redo", Command::Redo).with_id(ids::HISTORY_REDO));
+    section_with("azphoto-history", ids::PANEL_HISTORY, p, Some(actions), list)
 }
 
 /// The panels column (scrolls when it is taller than the window).
@@ -905,7 +930,7 @@ fn doc_tab(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                     &format!("{}{}", a.s.name, if a.s.modified { " \u{25cf}" } else { "" }),
                     &format!("font-size: 12px; color: {}; margin-right: 6px;", p.text),
                 ))
-                .with_child(icon_button(app, "close", "Close the document", Command::CloseDocument)),
+                .with_child(icon_button(app, "close", "azphoto-close-document", Command::CloseDocument)),
         )
 }
 
@@ -917,7 +942,7 @@ fn status_bar(a: &PhotoApp) -> Dom {
         StatusBarSegment::create(AzString::from(canvas::cursor_label(a))).with_marker(ids::CURSOR),
     ];
     if a.busy > 0 {
-        segments.push(StatusBarSegment::create(AzString::from("Working...")));
+        segments.push(StatusBarSegment::create(AzString::from(label("azphoto-working"))));
     }
     StatusBar::create(segments).dom().with_id(ids::STATUS)
 }
@@ -928,13 +953,13 @@ fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     let mut recent = column("margin-top: 16px; min-width: 360px;").with_id(ids::RECENT);
     if a.recent.is_empty() {
         recent.add_child(
-            ShellEmptyState::create(AzString::from("No saved documents yet"))
+            ShellEmptyState::create(AzString::from(label("azphoto-no-saved-documents-yet")))
                 .with_icon(AzString::from("photo_library"))
-                .with_detail(AzString::from("Documents you save appear here."))
+                .with_detail(AzString::from(label("azphoto-documents-you-save-appear")))
                 .dom(),
         );
     } else {
-        recent.add_child(text("RECENT", &format!("font-size: 11px; font-weight: bold; color: {}; margin-bottom: 4px;", p.muted)));
+        recent.add_child(text("azphoto-recent", &format!("font-size: 11px; font-weight: bold; color: {}; margin-bottom: 4px;", p.muted)));
         for (i, d) in a.recent.iter().enumerate().take(12) {
             recent.add_child(
                 row("margin-bottom: 2px;")
@@ -948,16 +973,16 @@ fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         .with_child(text("AzPhoto", &format!("font-size: 28px; font-weight: bold; color: {}; margin-bottom: 12px;", p.text)))
         .with_child(
             row("")
-                .with_child(button(app, "Open...", Command::Open).with_id(ids::START_OPEN).with_css("margin-right: 8px;"))
-                .with_child(button(app, "New image...", Command::Sheet(Sheet::NewImage)).with_id(ids::START_NEW).with_css("margin-right: 8px;"))
-                .with_child(button(app, "Open sample", Command::OpenSample).with_id(ids::START_SAMPLE)),
+                .with_child(button(app, "azphoto-open", Command::Open).with_id(ids::START_OPEN).with_css("margin-right: 8px;"))
+                .with_child(button(app, "azphoto-new-image", Command::Sheet(Sheet::NewImage)).with_id(ids::START_NEW).with_css("margin-right: 8px;"))
+                .with_child(button(app, "azphoto-open-sample", Command::OpenSample).with_id(ids::START_SAMPLE)),
         )
         .with_child(text(
-            "Opens PNG \u{b7} JPEG \u{b7} WebP \u{b7} GIF (first frame) \u{b7} BMP \u{b7} TIFF \u{b7} TGA",
+            "azphoto-opens-png-jpeg-webp",
             &format!("font-size: 12px; color: {}; margin-top: 10px;", p.muted),
         ))
         .with_child(text(
-            "Not yet: RAW \u{b7} HEIC \u{b7} AVIF \u{b7} PSD (no decoders in azul)",
+            "azphoto-not-yet-raw-heic",
             &format!("font-size: 12px; color: {}; margin-top: 2px;", p.muted),
         ))
         .with_child(recent)
@@ -969,10 +994,10 @@ fn start_screen(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 /// the body, then Cancel (Close) and the OK button when it has one.
 fn sheet_frame(app: &RefAny, _p: &Palette, title: &str, body: Dom, ok: Option<(&str, Command)>) -> Dom {
     let mut buttons = row("justify-content: flex-end; margin-top: 12px;");
-    buttons.add_child(button(app, if ok.is_some() { "Cancel" } else { "Close" }, Command::CloseSheet).with_id(ids::SHEET_CANCEL));
-    if let Some((label, command)) = ok {
+    buttons.add_child(button(app, if ok.is_some() { "kit-button-cancel" } else { "azphoto-close" }, Command::CloseSheet).with_id(ids::SHEET_CANCEL));
+    if let Some((name, command)) = ok {
         buttons.add_child(
-            Button::with_type(AzString::from(label), ButtonType::Primary)
+            Button::with_type(label(name), ButtonType::Primary)
                 .with_on_click(cmd(app, command), commands::on_command as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::SHEET_OK)
@@ -980,7 +1005,7 @@ fn sheet_frame(app: &RefAny, _p: &Palette, title: &str, body: Dom, ok: Option<(&
         );
     }
     Dialog::create(column("min-width: 340px;").with_child(body).with_child(buttons))
-        .with_title(AzString::from(title))
+        .with_title(label(title))
         .with_open(true)
         .with_modal(true)
         .with_close_button(true)
@@ -998,90 +1023,102 @@ fn sheet_dom(app: &RefAny, a: &PhotoApp, p: &Palette, sheet: Sheet) -> Dom {
             let body = column("")
                 .with_child(
                     row("")
-                        .with_child(number(app, "Width", f.new_width, Field::NewWidth, p))
-                        .with_child(number(app, "Height", f.new_height, Field::NewHeight, p)),
+                        .with_child(number(app, "azphoto-width", f.new_width, Field::NewWidth, p))
+                        .with_child(number(app, "azphoto-height", f.new_height, Field::NewHeight, p)),
                 )
-                .with_child(row("margin-top: 8px;").with_child(check(app, "Transparent background", f.new_transparent, Field::NewTransparent, p)))
-                .with_child(hint(&format!("About {mb:.1} MiB per layer (8-bit RGBA tiles)")));
-            sheet_frame(app, p, "New image", body, Some(("Create", Command::NewImageCreate)))
+                .with_child(row("margin-top: 8px;").with_child(check(app, "azphoto-transparent-background", f.new_transparent, Field::NewTransparent, p)))
+                .with_child(hint(&t_args("azphoto-mib-per-layer", &[("mb", Arg::from(format!("{mb:.1}")))])));
+            sheet_frame(app, p, "azphoto-new-image-title", body, Some(("azphoto-create", Command::NewImageCreate)))
         }
         Sheet::Export => {
             let jpeg = a.export_format == ExportFormat::Jpeg;
             let mut body = column("").with_child(segments(app, &["PNG", "JPEG"], usize::from(jpeg), Field::ExportFormat));
             if jpeg {
-                body.add_child(row("margin-top: 8px;").with_child(number(app, "Quality", f32::from(a.jpeg_quality), Field::JpegQuality, p)));
-                body.add_child(hint("JPEG has no transparency: the image is flattened on white."));
+                body.add_child(row("margin-top: 8px;").with_child(number(app, "azphoto-quality", f32::from(a.jpeg_quality), Field::JpegQuality, p)));
+                body.add_child(hint("azphoto-jpeg-has-no-transparency"));
             }
             let (w, h) = a.s.engine.size();
-            body.add_child(hint(&format!("{w} x {h} px, all visible layers flattened")));
-            body.add_child(hint(&format!(
-                "Into the data folder: {}",
-                crate::storage::export_key(&a.s.uuid, &commands::file_name(&a.s.name, a.export_format.extension()))
+            body.add_child(hint(&t_args(
+                "azphoto-export-flattened",
+                &[("w", Arg::from(w.to_string())), ("h", Arg::from(h.to_string()))],
             )));
-            sheet_frame(app, p, "Export", body, Some(("Export", Command::ExportApply)))
+            body.add_child(hint(&t_args(
+                "azphoto-export-into",
+                &[(
+                    "path",
+                    Arg::from(crate::storage::export_key(&a.s.uuid, &commands::file_name(&a.s.name, a.export_format.extension()))),
+                )],
+            )));
+            sheet_frame(app, p, "azphoto-export-title", body, Some(("azphoto-export-title", Command::ExportApply)))
         }
         Sheet::ImageSize => {
             let body = column("")
                 .with_child(
                     row("")
-                        .with_child(number(app, "Width", f.size_width, Field::SizeWidth, p))
-                        .with_child(number(app, "Height", f.size_height, Field::SizeHeight, p)),
+                        .with_child(number(app, "azphoto-width", f.size_width, Field::SizeWidth, p))
+                        .with_child(number(app, "azphoto-height", f.size_height, Field::SizeHeight, p)),
                 )
-                .with_child(hint("Every layer is resampled (bilinear; an average when shrinking)."));
-            sheet_frame(app, p, "Image size", body, Some(("Resize", Command::ImageSizeApply)))
+                .with_child(hint("azphoto-every-layer-resampled-bilinear"));
+            sheet_frame(app, p, "azphoto-image-size-title", body, Some(("azphoto-resize", Command::ImageSizeApply)))
         }
         Sheet::CanvasSize => {
             let body = column("")
                 .with_child(
                     row("")
-                        .with_child(number(app, "Width", f.canvas_width, Field::CanvasWidth, p))
-                        .with_child(number(app, "Height", f.canvas_height, Field::CanvasHeight, p)),
+                        .with_child(number(app, "azphoto-width", f.canvas_width, Field::CanvasWidth, p))
+                        .with_child(number(app, "azphoto-height", f.canvas_height, Field::CanvasHeight, p)),
                 )
-                .with_child(hint("The image stays centred; new area is transparent."));
-            sheet_frame(app, p, "Canvas size", body, Some(("Resize", Command::CanvasSizeApply)))
+                .with_child(hint("azphoto-image-stays-centred-new"));
+            sheet_frame(app, p, "azphoto-canvas-size-title", body, Some(("azphoto-resize", Command::CanvasSizeApply)))
         }
         Sheet::GaussianBlur => {
             let body = column("")
-                .with_child(number(app, "Radius (sigma, px)", f.blur_sigma, Field::BlurSigma, p))
-                .with_child(hint("Blurs the active layer inside the selection."));
-            sheet_frame(app, p, "Gaussian blur", body, Some(("Blur", Command::BlurApply)))
+                .with_child(number(app, "azphoto-radius-sigma-px", f.blur_sigma, Field::BlurSigma, p))
+                .with_child(hint("azphoto-blurs-active-layer-inside"));
+            sheet_frame(app, p, "azphoto-gaussian-blur-title", body, Some(("azphoto-blur", Command::BlurApply)))
         }
         Sheet::Sharpen => {
             let body = column("")
                 .with_child(
                     row("")
-                        .with_child(number(app, "Amount", f.sharpen_amount, Field::SharpenAmount, p))
-                        .with_child(number(app, "Radius", f.sharpen_radius, Field::SharpenRadius, p)),
+                        .with_child(number(app, "azphoto-amount", f.sharpen_amount, Field::SharpenAmount, p))
+                        .with_child(number(app, "azphoto-radius", f.sharpen_radius, Field::SharpenRadius, p)),
                 )
-                .with_child(hint("Unsharp mask on the active layer, inside the selection."));
-            sheet_frame(app, p, "Sharpen", body, Some(("Sharpen", Command::SharpenApply)))
+                .with_child(hint("azphoto-unsharp-mask-active-layer"));
+            sheet_frame(app, p, "azphoto-filter-sharpen", body, Some(("azphoto-filter-sharpen", Command::SharpenApply)))
         }
         Sheet::Rotate => {
             let body = column("")
-                .with_child(number(app, "Degrees", f.rotate_degrees, Field::RotateDegrees, p))
-                .with_child(hint("Turns the active layer about the image centre (bilinear)."));
-            sheet_frame(app, p, "Rotate layer", body, Some(("Rotate", Command::RotateLayerApply)))
+                .with_child(number(app, "azphoto-degrees", f.rotate_degrees, Field::RotateDegrees, p))
+                .with_child(hint("azphoto-turns-active-layer-about"));
+            sheet_frame(app, p, "azphoto-rotate-layer", body, Some(("azphoto-rotate-ok", Command::RotateLayerApply)))
         }
         Sheet::Feather => {
             let body = column("")
-                .with_child(number(app, "Radius (px)", f.feather, Field::FeatherForm, p))
-                .with_child(hint("Softens the selection's edge."));
-            sheet_frame(app, p, "Feather selection", body, Some(("Feather", Command::FeatherApply)))
+                .with_child(number(app, "azphoto-radius-px", f.feather, Field::FeatherForm, p))
+                .with_child(hint("azphoto-softens-selection-s-edge"));
+            sheet_frame(app, p, "azphoto-feather-selection", body, Some(("azphoto-history-feather", Command::FeatherApply)))
         }
         Sheet::About => {
             let about = AboutDialog::create(AzString::from(crate::ABOUT.name), AzString::from(crate::ABOUT.version))
                 .with_icon(AzString::from("photo"))
-                .with_description(AzString::from(crate::ABOUT.summary))
-                .with_copyright(AzString::from(format!(
-                    "{} license. Documents: {}",
-                    crate::ABOUT.license,
-                    azul_appkit::data::local_path(&a.data_root, crate::ABOUT.app_folder).display()
+                .with_description(AzString::from(azul_appkit::l10n::app_word(
+                    crate::ABOUT.name,
+                    "about-summary",
+                    crate::ABOUT.summary,
+                )))
+                .with_copyright(AzString::from(t_args(
+                    "azphoto-about-copyright",
+                    &[
+                        ("license", Arg::from(crate::ABOUT.license)),
+                        ("folder", Arg::from(azul_appkit::data::local_path(&a.data_root, crate::ABOUT.app_folder).display().to_string())),
+                    ],
                 )))
                 .with_credit(AzString::from("azul"), AzString::from("MIT"))
                 .with_on_event(app.clone(), commands::on_about_event as StandardDialogOnEventCallbackType)
                 .dom();
             Dialog::create(about)
-                .with_title(AzString::from("About AzPhoto"))
+                .with_title(AzString::from(label("azphoto-about-azphoto")))
                 .with_open(true)
                 .with_modal(true)
                 .with_close_button(true)
@@ -1117,6 +1154,7 @@ fn editor(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 
 /// The window's layout callback.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
     let theme = info.get_theme().as_str().to_string();
     let app_ref = data.clone();

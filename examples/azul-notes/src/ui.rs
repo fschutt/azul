@@ -39,6 +39,7 @@ use azul::{
 
 use azul_appkit::{
     args::{ModePref, Theme},
+    l10n::{label, t, t_args, Arg},
     settings::AppSettings,
     ui::{self as kit, AppSection},
 };
@@ -52,19 +53,23 @@ use crate::{
     with_state, AppState, HistoryView, Overlay, Screen, Status,
 };
 
+/// Keys of the resources (or words as they are), said.
 fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
+    azul_appkit::l10n::labels(items)
 }
 
 /// A line of text.
+/// (A key of the resources, or words as they are.)
 fn text_line(text: &str, css: &str) -> Dom {
-    Dom::create_p_with_text(text).with_css(format!("margin: 0px; {css}"))
+    Dom::create_p_with_text(label(text)).with_css(format!("margin: 0px; {css}"))
 }
 
 // ==== The window ====
 
 /// The window's layout.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The layout's language says the words (a switch of it too).
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window (a
     // theme switch always does).
     let look = look::of(
@@ -146,13 +151,13 @@ fn title_row(look: &Look) -> Dom {
 /// The notes: the PIM shell, or a placeholder while loading.
 fn notes_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     if !s.loaded {
-        return ShellEmptyState::create("Loading notes")
+        return ShellEmptyState::create(label("aznotes-loading-notes"))
             .with_icon("hourglass_empty")
             .with_detail(s.root.display().to_string())
             .dom();
     }
     PimShell::create(navigation_pane(s, app), note_list(s, app), reading_pane(s, app, look))
-        .with_list_label("Notes")
+        .with_list_label(label("aznotes-notes"))
         .with_navigation_ratio(s.nav.navigation_ratio)
         .with_list_ratio(s.nav.list_ratio)
         .office_shell()
@@ -164,19 +169,18 @@ fn notes_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
 /// The status bar: how many notes, the open note's words, the save state.
 fn status_bar(s: &AppState) -> Dom {
     let counts = s.library.counts();
-    let mut segments = vec![StatusBarSegment::create(format!(
-        "{} note{}",
-        counts.all,
-        if counts.all == 1 { "" } else { "s" }
+    let mut segments = vec![StatusBarSegment::create(t_args(
+        "aznotes-status-notes",
+        &[("count", Arg::from(counts.all))],
     ))];
     if let Some(note) = s.open_note() {
         segments.push(StatusBarSegment::create(model::status_text(note)));
     }
     let (label, kind) = match &s.status {
-        Status::Saving => ("Saving...".to_string(), StatusBarSyncKind::Syncing),
-        Status::Editing => ("Edited".to_string(), StatusBarSyncKind::Syncing),
+        Status::Saving => (t("aznotes-status-saving"), StatusBarSyncKind::Syncing),
+        Status::Editing => (t("aznotes-status-edited"), StatusBarSyncKind::Syncing),
         Status::Error(_) => (s.status.label(), StatusBarSyncKind::Error),
-        Status::Idle | Status::Saved => ("Saved".to_string(), StatusBarSyncKind::Connected),
+        Status::Idle | Status::Saved => (t("aznotes-status-saved"), StatusBarSyncKind::Connected),
     };
     StatusBar::create(segments)
         .with_sync(StatusBarSync::create(label, kind))
@@ -338,28 +342,28 @@ fn tag_order(s: &AppState) -> Vec<String> {
 
 fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
     let counts = s.library.counts();
-    let library = TreeViewNode::create(format!("All notes ({})", counts.all))
+    let library = TreeViewNode::create(t_args("aznotes-all-notes-count", &[("count", Arg::from(counts.all))]))
         .with_icon("notes")
         .with_expanded(true)
         .with_selected(s.query.scope == Scope::All)
         .with_child(
-            TreeViewNode::create(format!("Pinned ({})", counts.pinned))
+            TreeViewNode::create(t_args("aznotes-pinned-count", &[("count", Arg::from(counts.pinned))]))
                 .with_icon("push_pin")
                 .with_selected(s.query.scope == Scope::Pinned),
         )
         .with_child(
-            TreeViewNode::create(format!("Trash ({})", counts.trash))
+            TreeViewNode::create(t_args("aznotes-trash-count", &[("count", Arg::from(counts.trash))]))
                 .with_icon("delete")
                 .with_selected(s.query.scope == Scope::Trash),
         );
     let tree = s.library.notebook_tree();
-    let mut notebooks = TreeViewNode::create("Notebooks")
+    let mut notebooks = TreeViewNode::create(label("aznotes-notebooks"))
         .with_icon("menu_book")
         .with_expanded(true);
     for node in &tree {
         notebooks = notebooks.with_child(notebook_node(node, s));
     }
-    let mut tags = TreeViewNode::create("Tags").with_icon("sell").with_expanded(true);
+    let mut tags = TreeViewNode::create(label("aznotes-tags")).with_icon("sell").with_expanded(true);
     for (tag, count) in s.library.tags() {
         let selected = matches!(&s.query.scope, Scope::Tag(t) if t.eq_ignore_ascii_case(&tag));
         tags = tags.with_child(
@@ -371,7 +375,7 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
     let header = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center;")
         .with_child(
-            Button::create("New note")
+            Button::create(label("aznotes-new-note"))
                 .with_icon("note_add")
                 .with_button_type(ButtonType::Primary)
                 .with_on_click(app.clone(), on_new_note as ButtonOnClickCallbackType)
@@ -385,7 +389,7 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .with_on_click(app.clone(), on_new_notebook as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::NEW_NOTEBOOK)
-                .with_accessibility_name("New notebook"),
+                .with_accessibility_name(label("aznotes-new-notebook")),
         )
         .with_child(
             Button::create("")
@@ -393,23 +397,23 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .with_on_click(app.clone(), on_open_settings as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::OPEN_SETTINGS)
-                .with_accessibility_name("Settings")
+                .with_accessibility_name(label("aznotes-settings"))
                 .with_css("margin-left: 4px;"),
         );
     ShellNavigationPane::create()
         .with_header(header)
         .with_group(
-            ShellNavigationGroup::create("Library", library)
+            ShellNavigationGroup::create(label("aznotes-library"), library)
                 .with_count(counts.all)
                 .with_open(s.nav.groups_open[0]),
         )
         .with_group(
-            ShellNavigationGroup::create("Notebooks", notebooks)
+            ShellNavigationGroup::create(label("aznotes-notebooks"), notebooks)
                 .with_count(tree.len())
                 .with_open(s.nav.groups_open[1]),
         )
-        .with_group(ShellNavigationGroup::create("Tags", tags).with_open(s.nav.groups_open[2]))
-        .with_label("Notebooks and tags")
+        .with_group(ShellNavigationGroup::create(label("aznotes-tags"), tags).with_open(s.nav.groups_open[2]))
+        .with_label(label("aznotes-notebooks-tags"))
         .with_collapsed(s.nav.collapsed)
         .with_on_event(app.clone(), on_nav_event as ShellNavigationPaneOnEventCallbackType)
         .dom()
@@ -577,7 +581,7 @@ fn note_list(s: &AppState, app: &RefAny) -> Dom {
                 let id = u64::try_from(*i + 1).unwrap_or(0);
                 let mut preview = model::row_preview(note);
                 if preview.is_empty() {
-                    preview = String::from("No text");
+                    preview = t("aznotes-no-text");
                 }
                 message_rows.push(
                     SummaryRow::create(id, note.display_title(), preview)
@@ -593,8 +597,8 @@ fn note_list(s: &AppState, app: &RefAny) -> Dom {
     let cb = on_list_event as SummaryListOnEventCallbackType;
     let list = SummaryList::create(SummaryRowVec::from_vec(message_rows))
         .with_search(s.query.search.as_str())
-        .with_search_placeholder("Search notes")
-        .with_sort("Arrange by:", s.query.sort.label(), s.query.descending)
+        .with_search_placeholder(label("aznotes-search"))
+        .with_sort(label("aznotes-arrange-by"), s.query.sort.label(), s.query.descending)
         .with_sort_direction_label(s.query.sort.direction_label(s.query.descending))
         .with_mark(SummaryListMark::Pin)
         .with_row_height(64)
@@ -620,24 +624,30 @@ fn note_list(s: &AppState, app: &RefAny) -> Dom {
     if !any_note {
         let (title, detail) = if !s.query.search.trim().is_empty() {
             (
-                "Nothing matches".to_string(),
-                format!("No note holds \"{}\" in {}.", s.query.search.trim(), s.query.scope.label()),
+                t("aznotes-nothing-matches"),
+                t_args(
+                    "aznotes-nothing-matches-what",
+                    &[
+                        ("query", Arg::from(s.query.search.trim())),
+                        ("scope", Arg::from(s.query.scope.label())),
+                    ],
+                ),
             )
         } else if s.query.scope == Scope::Trash {
-            ("The Trash is empty".to_string(), String::from("Deleted notes wait here."))
+            (t("aznotes-trash-empty"), t("aznotes-trash-empty-what"))
         } else if s.library.notes.is_empty() {
-            (
-                "No notes yet".to_string(),
-                String::from("Notes are Markdown files in your AzNotes folder."),
-            )
+            (t("aznotes-no-notes"), t("aznotes-no-notes-what"))
         } else {
-            (format!("No notes in {}", s.query.scope.label()), String::new())
+            (
+                t_args("aznotes-no-notes-in", &[("scope", Arg::from(s.query.scope.label()))]),
+                String::new(),
+            )
         };
         column.add_child(
             ShellEmptyState::create(title)
                 .with_icon("note_add")
                 .with_detail(detail)
-                .with_action_label("New note")
+                .with_action_label(label("aznotes-new-note"))
                 .with_on_action(app.clone(), on_new_note as ButtonOnClickCallbackType)
                 .dom(),
         );
@@ -801,38 +811,38 @@ fn tools() -> Vec<(AzString, &'static str, &'static str, &'static str, Tool)> {
     let kind = |kind: RichBlockKind| Tool::Command(RichTextCommand::ToggleKind(kind));
     let format = |format: RichFormat| Tool::Command(RichTextCommand::ToggleFormat(format));
     vec![
-        (ids::TOOL_H1, "", "H1", "Heading 1", kind(RichBlockKind::Heading(1))),
-        (ids::TOOL_H2, "", "H2", "Heading 2", kind(RichBlockKind::Heading(2))),
-        (ids::TOOL_H3, "", "H3", "Heading 3", kind(RichBlockKind::Heading(3))),
-        (ids::TOOL_BOLD, "format_bold", "", "Bold", format(RichFormat::Bold)),
-        (ids::TOOL_ITALIC, "format_italic", "", "Italic", format(RichFormat::Italic)),
-        (ids::TOOL_UNDERLINE, "format_underlined", "", "Underline", format(RichFormat::Underline)),
-        (ids::TOOL_STRIKE, "format_strikethrough", "", "Strikethrough", format(RichFormat::Strike)),
-        (ids::TOOL_CODE, "code", "", "Inline code", format(RichFormat::Code)),
-        (ids::TOOL_BULLETS, "format_list_bulleted", "", "Bulleted list", kind(RichBlockKind::Bullet(0))),
-        (ids::TOOL_NUMBERS, "format_list_numbered", "", "Numbered list", kind(RichBlockKind::Numbered(0))),
+        (ids::TOOL_H1, "", "H1", "aznotes-tool-heading-1", kind(RichBlockKind::Heading(1))),
+        (ids::TOOL_H2, "", "H2", "aznotes-tool-heading-2", kind(RichBlockKind::Heading(2))),
+        (ids::TOOL_H3, "", "H3", "aznotes-tool-heading-3", kind(RichBlockKind::Heading(3))),
+        (ids::TOOL_BOLD, "format_bold", "", "aznotes-tool-bold", format(RichFormat::Bold)),
+        (ids::TOOL_ITALIC, "format_italic", "", "aznotes-tool-italic", format(RichFormat::Italic)),
+        (ids::TOOL_UNDERLINE, "format_underlined", "", "aznotes-tool-underline", format(RichFormat::Underline)),
+        (ids::TOOL_STRIKE, "format_strikethrough", "", "aznotes-strikethrough", format(RichFormat::Strike)),
+        (ids::TOOL_CODE, "code", "", "aznotes-inline-code", format(RichFormat::Code)),
+        (ids::TOOL_BULLETS, "format_list_bulleted", "", "aznotes-tool-bullets", kind(RichBlockKind::Bullet(0))),
+        (ids::TOOL_NUMBERS, "format_list_numbered", "", "aznotes-tool-numbers", kind(RichBlockKind::Numbered(0))),
         (
             ids::TOOL_CHECKLIST,
             "checklist",
             "",
-            "Checklist",
+            "aznotes-tool-checklist",
             kind(RichBlockKind::Check(RichCheck {
                 indent: 0,
                 checked: false,
             })),
         ),
-        (ids::TOOL_OUTDENT, "format_indent_decrease", "", "Outdent", Tool::Command(RichTextCommand::Outdent)),
-        (ids::TOOL_INDENT, "format_indent_increase", "", "Indent", Tool::Command(RichTextCommand::Indent)),
-        (ids::TOOL_QUOTE, "format_quote", "", "Quote", Tool::Command(RichTextCommand::ToggleQuote)),
+        (ids::TOOL_OUTDENT, "format_indent_decrease", "", "aznotes-tool-outdent", Tool::Command(RichTextCommand::Outdent)),
+        (ids::TOOL_INDENT, "format_indent_increase", "", "aznotes-tool-indent", Tool::Command(RichTextCommand::Indent)),
+        (ids::TOOL_QUOTE, "format_quote", "", "aznotes-tool-quote", Tool::Command(RichTextCommand::ToggleQuote)),
         (
             ids::TOOL_CODEBLOCK,
             "data_object",
             "",
-            "Code block",
+            "aznotes-tool-code-block",
             kind(RichBlockKind::Code(AzString::from(""))),
         ),
-        (ids::TOOL_LINK, "link", "", "Link", Tool::Link),
-        (ids::TOOL_RULE, "horizontal_rule", "", "Horizontal rule", Tool::Command(RichTextCommand::InsertRule)),
+        (ids::TOOL_LINK, "link", "", "aznotes-link", Tool::Link),
+        (ids::TOOL_RULE, "horizontal_rule", "", "aznotes-tool-rule", Tool::Command(RichTextCommand::InsertRule)),
     ]
 }
 
@@ -841,7 +851,7 @@ fn tools() -> Vec<(AzString, &'static str, &'static str, &'static str, Tool)> {
 /// tool's id is its `ids::TOOL_*` (what its event carries).
 fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     let mut items = Vec::new();
-    for (id, icon, label, name, tool) in tools() {
+    for (id, icon, text, name, tool) in tools() {
         let divider = [ids::TOOL_H3, ids::TOOL_CODE, ids::TOOL_INDENT, ids::TOOL_CODEBLOCK].contains(&id);
         let pressed = match &tool {
             Tool::Command(RichTextCommand::ToggleKind(kind)) => Some(s.editor.is_current_kind(kind.clone())),
@@ -853,12 +863,12 @@ fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         };
         // A tool without an icon shows its label (H1 - H3) and says its name as a
         // tooltip; an icon-only tool is named by its label.
-        let shown = if icon.is_empty() { label } else { name };
+        let shown = if icon.is_empty() { text } else { name };
         let item = match pressed {
-            Some(on) => ToolbarItem::create_toggle(id, shown, icon, on),
-            None => ToolbarItem::create_button(id, shown, icon),
+            Some(on) => ToolbarItem::create_toggle(id, label(shown), icon, on),
+            None => ToolbarItem::create_button(id, label(shown), icon),
         };
-        items.push(if icon.is_empty() { item.with_tooltip(name) } else { item });
+        items.push(if icon.is_empty() { item.with_tooltip(label(name)) } else { item });
         if divider {
             items.push(ToolbarItem::create_separator());
         }
@@ -870,7 +880,7 @@ fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             look.line
         ))
         .with_child(
-            Toolbar::create("Formatting")
+            Toolbar::create(label("aznotes-formatting"))
                 .with_items(items)
                 .with_on_event(app.clone(), on_tool_event as ToolbarOnEventCallbackType)
                 .dom(),
@@ -921,7 +931,7 @@ fn header_button(app: &RefAny, id: AzString, icon: &str, name: &str, primary: bo
     button
         .dom()
         .with_id(id)
-        .with_accessibility_name(name)
+        .with_accessibility_name(label(name))
         .with_css("margin-left: 4px;")
 }
 
@@ -929,10 +939,10 @@ fn header_button(app: &RefAny, id: AzString, icon: &str, name: &str, primary: bo
 /// note's buttons), its title, its tags, the toolbar and the text.
 fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     let Some(note) = s.open_note() else {
-        return ShellEmptyState::create("No note open")
+        return ShellEmptyState::create(label("aznotes-no-note-open"))
             .with_icon("description")
-            .with_detail("Choose a note in the list, or start a new one.")
-            .with_action_label("New note")
+            .with_detail(label("aznotes-choose-note-list-start"))
+            .with_action_label(label("aznotes-new-note"))
             .with_on_action(app.clone(), on_new_note as ButtonOnClickCallbackType)
             .dom();
     };
@@ -951,15 +961,15 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                      background: {}; flex-shrink: 0;",
                     look.code_bg
                 ))
-                .with_child(text_line("This note is in the Trash.", "flex-grow: 1; font-size: 13px;"))
+                .with_child(text_line("aznotes-note-trash", "flex-grow: 1; font-size: 13px;"))
                 .with_child(
-                    Button::create("Restore")
+                    Button::create(label("aznotes-restore"))
                         .with_on_click(app.clone(), on_restore as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::RESTORE_NOTE),
                 )
                 .with_child(
-                    Button::create("Delete forever")
+                    Button::create(label("aznotes-delete-forever"))
                         .with_button_type(ButtonType::Danger)
                         .with_on_click(app.clone(), on_delete_forever as ButtonOnClickCallbackType)
                         .dom()
@@ -971,7 +981,10 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
 
     // Where the note is and when it was edited, the note's buttons.
     let place = note.home_notebook().replace('/', " \u{203a} ");
-    let meta = format!("Edited {} \u{b7} {}", model::long_date(note.meta.modified, offset), place);
+    let meta = t_args(
+        "aznotes-edited-at",
+        &[("when", Arg::from(model::long_date(note.meta.modified, offset))), ("place", Arg::from(place))],
+    );
     pane.add_child(
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; padding: 10px 24px 0px 24px; flex-shrink: 0;")
@@ -980,21 +993,21 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 app,
                 ids::PIN_NOTE,
                 "push_pin",
-                if note.meta.pinned { "Unpin" } else { "Pin" },
+                if note.meta.pinned { "aznotes-unpin" } else { "aznotes-pin" },
                 note.meta.pinned,
                 on_pin as ButtonOnClickCallbackType,
             ))
-            .with_child(header_button(app, ids::NOTE_HISTORY, "history", "Version history", false, on_history as ButtonOnClickCallbackType))
-            .with_child(header_button(app, ids::EXPORT_PDF, "picture_as_pdf", "Export as PDF", false, on_export_pdf as ButtonOnClickCallbackType))
+            .with_child(header_button(app, ids::NOTE_HISTORY, "history", "aznotes-version-history", false, on_history as ButtonOnClickCallbackType))
+            .with_child(header_button(app, ids::EXPORT_PDF, "picture_as_pdf", "aznotes-export-pdf", false, on_export_pdf as ButtonOnClickCallbackType))
             .with_child(header_button(
                 app,
                 ids::EXPORT_MARKDOWN,
                 "file_download",
-                "Export as Markdown",
+                "aznotes-export-markdown",
                 false,
                 on_export_markdown as ButtonOnClickCallbackType,
             ))
-            .with_child(header_button(app, ids::TRASH_NOTE, "delete", "Move to Trash", false, on_trash as ButtonOnClickCallbackType)),
+            .with_child(header_button(app, ids::TRASH_NOTE, "delete", "aznotes-move-to-trash", false, on_trash as ButtonOnClickCallbackType)),
     );
 
     // The title.
@@ -1004,8 +1017,8 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             .with_child(
                 TextInput::create()
                     .with_text(note.meta.title.as_str())
-                    .with_placeholder("Title")
-                    .with_accessibility_name("Title")
+                    .with_placeholder(label("aznotes-title"))
+                    .with_accessibility_name(label("aznotes-title"))
                     .with_on_text_input(app.clone(), on_title_input as TextInputOnTextInputCallbackType)
                     .with_on_virtual_key_down(app.clone(), on_title_key as TextInputOnVirtualKeyDownCallbackType)
                     .dom()
@@ -1039,8 +1052,8 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     tags.add_child(
         TextInput::create()
             .with_text(s.tag_draft.as_str())
-            .with_placeholder("Add tag")
-            .with_accessibility_name("Add tag")
+            .with_placeholder(label("aznotes-add-tag"))
+            .with_accessibility_name(label("aznotes-add-tag"))
             .with_on_text_input(app.clone(), on_tag_input as TextInputOnTextInputCallbackType)
             .with_on_virtual_key_down(app.clone(), on_tag_key as TextInputOnVirtualKeyDownCallbackType)
             .with_on_focus_lost(app.clone(), on_tag_blur as TextInputOnFocusLostCallbackType)
@@ -1297,7 +1310,7 @@ fn sheet(look: &Look, id: AzString, title: &str, body: Dom, buttons: Dom) -> Dom
         .with_child(
             Dom::create_div()
                 .with_id(id)
-                .with_accessibility_name(title)
+                .with_accessibility_name(label(title))
                 .with_css(format!(
                     "width: 440px; padding: 18px 20px; background: {}; color: {}; border-radius: {}; \
                      border: 1px solid {}; display: flex; flex-direction: column;",
@@ -1314,8 +1327,8 @@ fn sheet(look: &Look, id: AzString, title: &str, body: Dom, buttons: Dom) -> Dom
 }
 
 /// A sheet's button.
-fn sheet_button(app: &RefAny, id: AzString, label: &str, kind: ButtonType, action: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label)
+fn sheet_button(app: &RefAny, id: AzString, text: &str, kind: ButtonType, action: ButtonOnClickCallbackType) -> Dom {
+    Button::create(label(text))
         .with_button_type(kind)
         .with_on_click(app.clone(), action)
         .dom()
@@ -1331,15 +1344,14 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         Overlay::NewNotebook { name, error } => {
             let mut body = Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
-                .with_child(text_line(
-                    "A name, or a path for a notebook inside another (Work/Ideas).",
+                .with_child(text_line("aznotes-name-path-notebook-inside",
                     &format!("font-size: 12px; color: {}; margin-bottom: 8px;", look.muted),
                 ))
                 .with_child(
                     TextInput::create()
                         .with_text(name.as_str())
-                        .with_placeholder("Notebook name")
-                        .with_accessibility_name("Notebook name")
+                        .with_placeholder(label("aznotes-notebook-name"))
+                        .with_accessibility_name(label("aznotes-notebook-name"))
                         .with_on_text_input(app.clone(), on_sheet_text as TextInputOnTextInputCallbackType)
                         .with_on_virtual_key_down(app.clone(), on_sheet_key as TextInputOnVirtualKeyDownCallbackType)
                         .dom()
@@ -1349,15 +1361,15 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 body.add_child(text_line(error, &format!("font-size: 12px; color: {}; margin-top: 6px;", look.error)));
             }
             let buttons = Dom::create_div()
-                .with_child(sheet_button(app, ids::SHEET_CANCEL, "Cancel", ButtonType::Default, on_sheet_cancel))
-                .with_child(sheet_button(app, ids::SHEET_OK, "Create", ButtonType::Primary, on_sheet_ok));
-            sheet(look, ids::SHEET_NEW_NOTEBOOK, "New notebook", body, buttons)
+                .with_child(sheet_button(app, ids::SHEET_CANCEL, "kit-button-cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, ids::SHEET_OK, "aznotes-create", ButtonType::Primary, on_sheet_ok));
+            sheet(look, ids::SHEET_NEW_NOTEBOOK, "aznotes-new-notebook", body, buttons)
         }
         Overlay::Link { url, spans, .. } => {
             let hint = if spans.is_empty() {
-                "Nothing is selected: the link is added as its own text."
+                "aznotes-link-no-selection"
             } else {
-                "The selected text links to this address."
+                "aznotes-link-selection"
             };
             let body = Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
@@ -1366,7 +1378,7 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                     TextInput::create_url()
                         .with_text(url.as_str())
                         .with_placeholder("https://")
-                        .with_accessibility_name("Link address")
+                        .with_accessibility_name(label("aznotes-link-address"))
                         .with_on_text_input(app.clone(), on_sheet_text as TextInputOnTextInputCallbackType)
                         .with_on_virtual_key_down(app.clone(), on_sheet_key as TextInputOnVirtualKeyDownCallbackType)
                         .dom()
@@ -1374,24 +1386,24 @@ fn overlay_dom(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 );
             let mut buttons = Dom::create_div();
             if !url.trim().is_empty() {
-                buttons.add_child(sheet_button(app, ids::SHEET_OPEN, "Open", ButtonType::Link, on_link_open));
+                buttons.add_child(sheet_button(app, ids::SHEET_OPEN, "aznotes-open", ButtonType::Link, on_link_open));
             }
             let buttons = buttons
-                .with_child(sheet_button(app, ids::SHEET_REMOVE, "Remove link", ButtonType::Default, on_link_remove))
-                .with_child(sheet_button(app, ids::SHEET_CANCEL, "Cancel", ButtonType::Default, on_sheet_cancel))
-                .with_child(sheet_button(app, ids::SHEET_OK, "Link", ButtonType::Primary, on_sheet_ok));
-            sheet(look, ids::SHEET_LINK, "Link", body, buttons)
+                .with_child(sheet_button(app, ids::SHEET_REMOVE, "aznotes-remove-link", ButtonType::Default, on_link_remove))
+                .with_child(sheet_button(app, ids::SHEET_CANCEL, "kit-button-cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, ids::SHEET_OK, "aznotes-link", ButtonType::Primary, on_sheet_ok));
+            sheet(look, ids::SHEET_LINK, "aznotes-link", body, buttons)
         }
         Overlay::ConfirmDelete { id } => {
             let title = s.library.get(id).map_or(model::UNTITLED, |n| n.display_title());
             let body = text_line(
-                &format!("\"{title}\" is deleted for good: its file, its images and its versions."),
+                &t_args("aznotes-delete-forever-what", &[("title", Arg::from(title))]),
                 "font-size: 13px;",
             );
             let buttons = Dom::create_div()
-                .with_child(sheet_button(app, ids::SHEET_CANCEL, "Cancel", ButtonType::Default, on_sheet_cancel))
-                .with_child(sheet_button(app, ids::SHEET_OK, "Delete forever", ButtonType::Danger, on_sheet_ok));
-            sheet(look, ids::SHEET_DELETE, "Delete forever?", body, buttons)
+                .with_child(sheet_button(app, ids::SHEET_CANCEL, "kit-button-cancel", ButtonType::Default, on_sheet_cancel))
+                .with_child(sheet_button(app, ids::SHEET_OK, "aznotes-delete-forever", ButtonType::Danger, on_sheet_ok));
+            sheet(look, ids::SHEET_DELETE, "aznotes-delete-forever-ask", body, buttons)
         }
     }
 }
@@ -1577,50 +1589,50 @@ enum Action {
 /// from the state alone (a run names a row of the same table).
 fn palette_actions(s: &AppState) -> Vec<(Action, String, &'static str, &'static str, &'static str)> {
     let mut out = vec![
-        (Action::NewNote, "New note".to_string(), "Notes", "note_add", "Ctrl+N"),
-        (Action::NewNotebook, "New notebook".to_string(), "Notes", "create_new_folder", ""),
+        (Action::NewNote, t("aznotes-new-note"), "aznotes-notes", "note_add", "Ctrl+N"),
+        (Action::NewNotebook, t("aznotes-new-notebook"), "aznotes-notes", "create_new_folder", ""),
     ];
     if let Some(note) = s.open_note() {
         out.push((
             Action::Pin,
-            if note.meta.pinned { "Unpin note" } else { "Pin note" }.to_string(),
-            "Note",
+            t(if note.meta.pinned { "aznotes-unpin-note" } else { "aznotes-pin-note" }),
+            "aznotes-palette-note",
             "push_pin",
             "Ctrl+Shift+P",
         ));
-        out.push((Action::History, "Version history".to_string(), "Note", "history", "Ctrl+Shift+H"));
-        out.push((Action::ExportPdf, "Export as PDF".to_string(), "Note", "picture_as_pdf", ""));
-        out.push((Action::ExportMarkdown, "Export as Markdown".to_string(), "Note", "file_download", ""));
-        out.push((Action::Trash, "Move to Trash".to_string(), "Note", "delete", ""));
+        out.push((Action::History, t("aznotes-version-history"), "aznotes-palette-note", "history", "Ctrl+Shift+H"));
+        out.push((Action::ExportPdf, t("aznotes-export-pdf"), "aznotes-palette-note", "picture_as_pdf", ""));
+        out.push((Action::ExportMarkdown, t("aznotes-export-markdown"), "aznotes-palette-note", "file_download", ""));
+        out.push((Action::Trash, t("aznotes-move-to-trash"), "aznotes-palette-note", "delete", ""));
         let here = note.home_notebook().to_string();
         for path in s.library.notebook_paths() {
             if path != here {
-                out.push((Action::MoveTo(path.clone()), format!("Move to {path}"), "Move", "drive_file_move", ""));
+                out.push((Action::MoveTo(path.clone()), t_args("aznotes-palette-move-to", &[("path", Arg::from(path.as_str()))]), "aznotes-palette-move", "drive_file_move", ""));
             }
         }
     }
-    out.push((Action::Show(Scope::All), "Show all notes".to_string(), "Go", "notes", ""));
-    out.push((Action::Show(Scope::Pinned), "Show pinned notes".to_string(), "Go", "push_pin", ""));
-    out.push((Action::Show(Scope::Trash), "Show the Trash".to_string(), "Go", "delete", ""));
+    out.push((Action::Show(Scope::All), t("aznotes-palette-show-all"), "aznotes-palette-go", "notes", ""));
+    out.push((Action::Show(Scope::Pinned), t("aznotes-palette-show-pinned"), "aznotes-palette-go", "push_pin", ""));
+    out.push((Action::Show(Scope::Trash), t("aznotes-palette-show-trash"), "aznotes-palette-go", "delete", ""));
     for path in s.library.notebook_paths() {
-        out.push((Action::Show(Scope::Notebook(path.clone())), format!("Show {path}"), "Go", "folder", ""));
+        out.push((Action::Show(Scope::Notebook(path.clone())), t_args("aznotes-palette-show", &[("what", Arg::from(path.as_str()))]), "aznotes-palette-go", "folder", ""));
     }
     for (tag, _) in s.library.tags() {
-        out.push((Action::Show(Scope::Tag(tag.clone())), format!("Show #{tag}"), "Go", "tag", ""));
+        out.push((Action::Show(Scope::Tag(tag.clone())), t_args("aznotes-palette-show", &[("what", Arg::from(format!("#{tag}")))]), "aznotes-palette-go", "tag", ""));
     }
-    out.push((Action::Settings(None), "Settings".to_string(), "App", "settings", "Ctrl+,"));
-    out.push((Action::Settings(Some("Shortcuts")), "Keyboard shortcuts".to_string(), "App", "keyboard", "F1"));
-    out.push((Action::About, "About AzNotes".to_string(), "App", "info", ""));
-    out.push((Action::Theme("flat"), "Theme: Flat".to_string(), "App", "palette", ""));
-    out.push((Action::Theme("flora"), "Theme: Flora".to_string(), "App", "palette", ""));
-    out.push((Action::Mode("light"), "Mode: Light".to_string(), "App", "light_mode", ""));
-    out.push((Action::Mode("dark"), "Mode: Dark".to_string(), "App", "dark_mode", ""));
-    out.push((Action::Mode("system"), "Mode: Follow the system".to_string(), "App", "contrast", ""));
+    out.push((Action::Settings(None), t("aznotes-settings"), "aznotes-palette-app", "settings", "Ctrl+,"));
+    out.push((Action::Settings(Some("Shortcuts")), t("aznotes-palette-shortcuts"), "aznotes-palette-app", "keyboard", "F1"));
+    out.push((Action::About, t("aznotes-about-aznotes"), "aznotes-palette-app", "info", ""));
+    out.push((Action::Theme("flat"), t("aznotes-palette-theme-flat"), "aznotes-palette-app", "palette", ""));
+    out.push((Action::Theme("flora"), t("aznotes-palette-theme-flora"), "aznotes-palette-app", "palette", ""));
+    out.push((Action::Mode("light"), t("aznotes-palette-mode-light"), "aznotes-palette-app", "light_mode", ""));
+    out.push((Action::Mode("dark"), t("aznotes-palette-mode-dark"), "aznotes-palette-app", "dark_mode", ""));
+    out.push((Action::Mode("system"), t("aznotes-palette-mode-system"), "aznotes-palette-app", "contrast", ""));
     // Jump to a note: the most recently edited first.
     let mut notes: Vec<&model::Note> = s.library.notes.iter().filter(|n| !n.is_trashed()).collect();
     notes.sort_by(|a, b| b.meta.modified.cmp(&a.meta.modified));
     for note in notes.into_iter().take(500) {
-        out.push((Action::Open(note.id.clone()), note.display_title().to_string(), "Open", "description", ""));
+        out.push((Action::Open(note.id.clone()), note.display_title().to_string(), "aznotes-open", "description", ""));
     }
     out
 }
@@ -1628,8 +1640,8 @@ fn palette_actions(s: &AppState) -> Vec<(Action, String, &'static str, &'static 
 fn palette_dom(s: &AppState, app: &RefAny) -> Dom {
     let commands: Vec<ShellPaletteCommand> = palette_actions(s)
         .into_iter()
-        .map(|(_, label, category, icon, shortcut)| {
-            let mut c = ShellPaletteCommand::create(label).with_category(category).with_icon(icon);
+        .map(|(_, name, category, icon, shortcut)| {
+            let mut c = ShellPaletteCommand::create(name).with_category(label(category)).with_icon(icon);
             if !shortcut.is_empty() {
                 c = c.with_shortcut(shortcut);
             }
@@ -1639,7 +1651,7 @@ fn palette_dom(s: &AppState, app: &RefAny) -> Dom {
     ShellCommandPalette::create()
         .with_commands(commands)
         .with_query(s.palette_query.as_str())
-        .with_placeholder("Open a note, move it, run a command")
+        .with_placeholder(label("aznotes-open-note-move-run"))
         .with_open(true)
         .with_on_query(app.clone(), on_palette_query as ShellCommandPaletteOnQueryCallbackType)
         .with_on_run(app.clone(), on_palette_run as ShellCommandPaletteOnRunCallbackType)
@@ -1813,18 +1825,18 @@ fn app_sections(s: &AppState, app: &RefAny, look: &Look) -> Vec<AppSection> {
     vec![
         section(
             0,
-            "Text size",
+            "aznotes-text-size",
             choice(
                 app,
                 Setting::TextSize,
-                &["Small", "Medium", "Large"],
+                &["aznotes-text-small", "aznotes-text-medium", "aznotes-text-large"],
                 TextSize::ALL.iter().position(|t| *t == s.settings.text_size).unwrap_or(1),
                 ids::SETTING_TEXT_SIZE,
             ),
         ),
         section(
             0,
-            "Save after a pause of",
+            "aznotes-save-after",
             choice(
                 app,
                 Setting::Autosave,
@@ -1835,11 +1847,11 @@ fn app_sections(s: &AppState, app: &RefAny, look: &Look) -> Vec<AppSection> {
         ),
         section(
             0,
-            "Keep a version",
+            "aznotes-keep-version",
             choice(
                 app,
                 Setting::Versions,
-                &["Every save", "Every 5 minutes", "Every 15 minutes", "Every hour"],
+                &["aznotes-every-save", "aznotes-every-5-minutes", "aznotes-every-15-minutes", "aznotes-every-hour"],
                 VERSION_MINUTES
                     .iter()
                     .position(|m| *m == s.settings.version_minutes)
@@ -1849,28 +1861,26 @@ fn app_sections(s: &AppState, app: &RefAny, look: &Look) -> Vec<AppSection> {
         ),
         section(
             0,
-            "Markdown shortcuts",
-            info_text(
-                "Type # , ## , ### , - , 1. , [ ] , > or ``` at the start of a line to make it a \
-                 heading, a list item, a check item, a quote or a code block.",
+            "aznotes-markdown-shortcuts",
+            info_text("aznotes-type-1-at-start",
                 look,
             ),
         ),
         section(
             1,
-            "Files",
+            "aznotes-files",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
-                .with_child(info_text(&format!("Notes folder: {}", folder.display()), look).with_id(ids::SETTING_FOLDER))
+                .with_child(
+                    info_text(&t_args("aznotes-notes-folder", &[("folder", Arg::from(folder.display().to_string()))]), look)
+                        .with_id(ids::SETTING_FOLDER),
+                )
                 .with_child(info_text(
-                    "Every note is a Markdown file, notes/<notebook>/<id>.md, with its title, tags, \
-                     pin and dates in a front matter; its images sit in notes/<notebook>/<id>/assets/, \
-                     its versions in notes/.history/<id>/, deleted notes in notes/.trash/. Edit them \
-                     with any editor: AzNotes reads them again when its window gets the focus.",
+                    "aznotes-every-note-file",
                     look,
                 ))
                 .with_child(
-                    Button::create("Read the folder again")
+                    Button::create(label("aznotes-read-folder-again"))
                         .with_icon("refresh")
                         .with_on_click(app.clone(), on_reload as ButtonOnClickCallbackType)
                         .dom()
@@ -1953,13 +1963,18 @@ fn about_modal(s: &AppState, app: &RefAny) -> Dom {
     let counts = s.library.counts();
     let about = AboutDialog::create("AzNotes", format!("Version {}", crate::ABOUT.version))
         .with_icon("sticky_note_2")
-        .with_description(format!(
-            "{} {} notes in {} notebooks, {} pinned, {} in the Trash.",
-            crate::ABOUT.summary,
-            counts.all,
-            s.library.notebook_paths().len(),
-            counts.pinned,
-            counts.trash
+        .with_description(t_args(
+            "aznotes-about-counts",
+            &[
+                (
+                    "summary",
+                    Arg::from(azul_appkit::l10n::app_word(crate::ABOUT.name, "about-summary", crate::ABOUT.summary)),
+                ),
+                ("notes", Arg::from(counts.all)),
+                ("notebooks", Arg::from(s.library.notebook_paths().len())),
+                ("pinned", Arg::from(counts.pinned)),
+                ("trash", Arg::from(counts.trash)),
+            ],
         ))
         .with_copyright("Copyright 2026 the azul contributors")
         .with_credit("azul", "MIT")
@@ -1967,7 +1982,7 @@ fn about_modal(s: &AppState, app: &RefAny) -> Dom {
         .dom()
         .with_id(ids::ABOUT);
     Modal::create(about)
-        .with_title("About AzNotes")
+        .with_title(label("aznotes-about-aznotes"))
         .with_open(s.about_open)
         .with_on_close(app.clone(), on_about_close)
         .dom()
@@ -2017,9 +2032,9 @@ struct VersionRef {
 
 fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     let (Some(view), Some(note)) = (s.history.as_ref(), s.open_note()) else {
-        return ShellEmptyState::create("No note open")
+        return ShellEmptyState::create(label("aznotes-no-note-open"))
             .with_icon("history")
-            .with_action_label("Back to notes")
+            .with_action_label(label("aznotes-back-notes"))
             .with_on_action(app.clone(), on_back_to_notes as ButtonOnClickCallbackType)
             .dom();
     };
@@ -2027,18 +2042,18 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     let header = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 6px 12px; flex-shrink: 0;")
         .with_child(
-            Button::create("Back to the note")
+            Button::create(label("aznotes-back-note"))
                 .with_icon("arrow_back")
                 .with_on_click(app.clone(), on_back_to_notes as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::HISTORY_BACK),
         )
         .with_child(text_line(
-            &format!("History: {}", note.display_title()),
+            &t_args("aznotes-history-of", &[("title", Arg::from(note.display_title()))]),
             "flex-grow: 1; font-size: 15px; font-weight: bold; margin-left: 12px;",
         ))
         .with_child(
-            Button::create("Restore this version")
+            Button::create(label("aznotes-restore-version"))
                 .with_icon("restore")
                 .with_button_type(ButtonType::Primary)
                 .with_on_click(app.clone(), on_restore_version as ButtonOnClickCallbackType)
@@ -2053,10 +2068,9 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         look.line
     ));
     if view.loading {
-        list.add_child(text_line("Loading versions...", "font-size: 13px; padding: 6px;"));
+        list.add_child(text_line("aznotes-loading-versions", "font-size: 13px; padding: 6px;"));
     } else if view.versions.is_empty() {
-        list.add_child(text_line(
-            "No versions yet: AzNotes keeps one per save, at most every few minutes while you type.",
+        list.add_child(text_line("aznotes-no-versions-yet-aznotes",
             &format!("font-size: 13px; padding: 6px; color: {};", look.muted),
         ));
     }
@@ -2091,9 +2105,9 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     match &view.text {
         None => detail.add_child(text_line(
             if view.selected.is_some() {
-                "Loading the version..."
+                "aznotes-loading-version"
             } else {
-                "Choose a version on the left."
+                "aznotes-choose-version"
             },
             &format!("font-size: 13px; color: {};", look.muted),
         )),
@@ -2117,8 +2131,7 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                     look.line
                 ));
                 // The heading over the (monospace) diff, in the theme's hand.
-                changes.add_child(text_line(
-                    "Changes from this version to now",
+                changes.add_child(text_line("aznotes-changes-from-version-now",
                     &format!(
                         "font-family: {}; font-weight: bold; margin-bottom: 6px;",
                         look::paper_font(look.flora)
@@ -2126,7 +2139,7 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 ));
                 let changed = diff.iter().filter(|(c, _)| *c != model::Change::Kept).count();
                 if changed == 0 {
-                    changes.add_child(text_line("No changes.", ""));
+                    changes.add_child(text_line("aznotes-no-changes", ""));
                 }
                 for (change, line) in diff {
                     let (mark, colour) = match change {

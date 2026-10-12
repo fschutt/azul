@@ -1,0 +1,50 @@
+# AzMaps' words in German (src/l10n.rs): Apple Maps' and Google Maps' terms, "du".
+
+## AzMaps
+
+azmaps-about-summary = Eine Karte mit Pins auf azuls MapWidget: OpenStreetMap-Vektorkacheln, deine Pins in deinem Datenordner.
+azmaps-shortcuts-map = Karte
+azmaps-pan-west = Nach Westen schieben
+azmaps-pan-east = Nach Osten schieben
+azmaps-pan-north = Nach Norden schieben
+azmaps-pan-south = Nach Süden schieben
+azmaps-zoom-in = Vergrößern
+azmaps-zoom-out = Verkleinern
+azmaps-hide-sidebar = Seitenleiste ausblenden
+azmaps-show-sidebar = Seitenleiste einblenden
+azmaps-settings = Einstellungen
+azmaps-my-location = Mein Standort
+azmaps-from = Von
+azmaps-start = Start
+azmaps-to = Nach
+azmaps-destination = Ziel
+azmaps-swap = Start und Ziel tauschen
+azmaps-directions = Route
+azmaps-recents = Zuletzt verwendet
+azmaps-clear-recents = Zuletzt verwendete löschen
+azmaps-sidebar = Seitenleiste
+azmaps-dropped-pin = Markierte Stelle
+azmaps-remove = Entfernen
+azmaps-you-are-here = Du bist hier
+azmaps-heading = Richtung { $direction } { $degrees }°
+azmaps-direction-n = N
+azmaps-direction-ne = NO
+azmaps-direction-e = O
+azmaps-direction-se = SO
+azmaps-direction-s = S
+azmaps-direction-sw = SW
+azmaps-direction-w = W
+azmaps-direction-nw = NW
+azmaps-location-unavailable = Standort nicht verfügbar
+azmaps-show-location = Meinen Standort zeigen
+azmaps-pins-unreadable = Die Pin-Datei konnte nicht gelesen werden: { $why }
+azmaps-pins-unsaved = Die Pins konnten nicht gespeichert werden: { $why }
+azmaps-not-pins-file = keine Pin-Datei: { $why }
+azmaps-not-a-place = { $lat }, { $lon } ist kein Ort auf der Karte
+azmaps-mode-drive = Auto
+azmaps-mode-walk = Zu Fuß
+azmaps-mode-cycle = Fahrrad
+azmaps-mode-transit = Öffentliche Verkehrsmittel
+azmaps-duration-min = ~ { $min } Min.
+azmaps-duration-h = ~ { $h } Std.
+azmaps-duration-h-min = ~ { $h } Std. { $min } Min.

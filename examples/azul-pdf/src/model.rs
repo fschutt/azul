@@ -6,7 +6,10 @@
 
 use std::{collections::BTreeMap, ops::Range};
 
-use azul_appkit::find::{matches, TextMatch};
+use azul_appkit::{
+    find::{matches, TextMatch},
+    l10n::t,
+};
 use serde::{Deserialize, Serialize};
 
 /// CSS px per PDF point: a point is 1/72 inch, a CSS px 1/96 inch (azul's
@@ -123,12 +126,12 @@ impl Zoom {
         Zoom::Percent(step)
     }
 
-    /// What the zoom box shows.
+    /// What the zoom box shows, in the window's language.
     #[must_use]
     pub fn label(self) -> String {
         match self {
-            Zoom::FitWidth => "Fit width".to_string(),
-            Zoom::FitPage => "Fit page".to_string(),
+            Zoom::FitWidth => t("azpdf-fit-width"),
+            Zoom::FitPage => t("azpdf-fit-page"),
             Zoom::Percent(p) => format!("{p} %"),
         }
     }
@@ -267,9 +270,9 @@ pub fn size_label(size: PageSize) -> String {
             continue;
         }
         let orientation = if landscape && !portrait {
-            " landscape"
+            format!(" {}", t("azpdf-landscape"))
         } else {
-            ""
+            String::new()
         };
         let dims = if inches {
             format!(

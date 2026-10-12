@@ -181,8 +181,8 @@ impl Tool {
     }
 }
 
-/// What the Text tool says while a text is being set.
-pub const TEXT_TOOL_HINT: &str = "Type in the Text field; Enter or Commit places it, Escape drops it.";
+/// What the Text tool says while a text is being set (a key of AzPhoto's resources).
+pub const TEXT_TOOL_HINT: &str = "azphoto-text-hint";
 
 /// The font families the Text tool offers (a family that is not installed
 /// falls back to one that covers the text).
@@ -218,7 +218,7 @@ pub type TextRaster<'a> = &'a dyn Fn(&TextSpec) -> Option<(u32, u32, Vec<u8>)>;
 pub fn text_layer_name(text: &str) -> String {
     let first: String = text.lines().next().unwrap_or("").trim().chars().take(32).collect();
     if first.is_empty() {
-        String::from("Text")
+        crate::l10n::word("tool", "Text")
     } else {
         first
     }
@@ -749,7 +749,7 @@ impl PhotoState {
             return Effects::default();
         };
         if !self.engine.is_live() {
-            self.engine.begin_live("Text");
+            self.engine.begin_live(&crate::l10n::word("tool", "Text"));
         }
         self.engine.live_reset();
         if let Some((width, height, rgba)) = raster(&self.text_spec(&draft.text)) {
@@ -958,11 +958,11 @@ impl PhotoState {
                     if mods.alt {
                         self.opts.clone_source = Some(doc);
                         self.opts.clone_offset = None;
-                        self.status = "Clone source set.".into();
+                        self.status = azul_appkit::l10n::t("azphoto-clone-source-set");
                         return Effects::dom();
                     }
                     let Some(source) = self.opts.clone_source else {
-                        self.status = "Alt-click to set where the clone stamp copies from.".into();
+                        self.status = azul_appkit::l10n::t("azphoto-clone-source-how");
                         return Effects::dom();
                     };
                     if self.opts.clone_offset.is_none() {
@@ -1047,7 +1047,7 @@ impl PhotoState {
                     return self.refused(e);
                 }
                 // The layer follows the pointer: a live edit, one "Move" step.
-                self.engine.begin_live("Move");
+                self.engine.begin_live(&crate::l10n::word("tool", "Move"));
                 self.drag = Some(Drag::Move { start: doc, end: doc });
                 Effects::default()
             }
@@ -1062,7 +1062,7 @@ impl PhotoState {
             Tool::Text => {
                 // A click elsewhere places the text being set and starts the next.
                 let committed = self.commit_pending_text();
-                self.engine.begin_live("Text");
+                self.engine.begin_live(&crate::l10n::word("tool", "Text"));
                 self.text = Some(TextDraft {
                     at: (dx.floor() as i32, dy.floor() as i32),
                     text: String::new(),
@@ -1291,6 +1291,7 @@ mod tests {
 
     #[test]
     fn a_brush_drag_paints_and_redraws_only_around_the_stroke() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.fg = [255, 0, 0, 255];
         s.opts.brush_size = 10.0;
@@ -1308,6 +1309,7 @@ mod tests {
 
     #[test]
     fn a_marquee_drag_selects_and_a_click_deselects() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.tool = Tool::MarqueeRect;
         s.pointer_down(10.0, 10.0, 1.0, NO);
@@ -1331,6 +1333,7 @@ mod tests {
 
     #[test]
     fn the_hand_pans_the_view_and_leaves_the_document_alone() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.tool = Tool::Hand;
         s.pointer_down(100.0, 100.0, 1.0, NO);
@@ -1343,6 +1346,7 @@ mod tests {
 
     #[test]
     fn the_zoom_tool_zooms_in_about_the_click_and_alt_zooms_out() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.tool = Tool::Zoom;
         let before = s.view.view_to_doc(200.0, 150.0);
@@ -1356,6 +1360,7 @@ mod tests {
 
     #[test]
     fn the_eyedropper_picks_the_composite_colour() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.engine.apply(Op::FillSelection([10, 200, 30, 255])).unwrap();
         s.tool = Tool::Eyedropper;
@@ -1367,6 +1372,7 @@ mod tests {
 
     #[test]
     fn the_bucket_and_the_wand_act_where_clicked() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.fg = [0, 0, 255, 255];
         s.tool = Tool::Bucket;
@@ -1380,6 +1386,7 @@ mod tests {
 
     #[test]
     fn a_crop_drag_crops_and_fits_the_view() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.tool = Tool::Crop;
         s.pointer_down(100.0, 50.0, 1.0, NO);
@@ -1392,6 +1399,7 @@ mod tests {
 
     #[test]
     fn a_gradient_drag_fills_from_the_foreground_to_the_background_colour() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.fg = [0, 0, 0, 255];
         s.bg = [255, 255, 255, 255];
@@ -1406,6 +1414,7 @@ mod tests {
 
     #[test]
     fn the_clone_stamp_wants_a_source_first() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.tool = Tool::CloneStamp;
         let e = s.pointer_down(50.0, 50.0, 1.0, NO);
@@ -1432,6 +1441,7 @@ mod tests {
 
     #[test]
     fn the_text_tool_places_a_text_layer_where_clicked_in_one_history_step() {
+        crate::l10n::in_english();
         let mut s = editor();
         let e = s.set_tool(Tool::Text);
         assert!(e.dom);
@@ -1457,6 +1467,7 @@ mod tests {
 
     #[test]
     fn typing_replaces_the_preview_and_escape_drops_the_text() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.set_tool(Tool::Text);
         s.pointer_down(20.0, 20.0, 1.0, NO);
@@ -1472,6 +1483,7 @@ mod tests {
 
     #[test]
     fn choosing_another_tool_or_clicking_elsewhere_commits_the_text() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.set_tool(Tool::Text);
         s.pointer_down(20.0, 20.0, 1.0, NO);
@@ -1488,6 +1500,7 @@ mod tests {
 
     #[test]
     fn the_move_tool_shows_the_layer_at_the_pointer_while_dragging() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.engine.apply(Op::NewLayer { name: "Square".into() }).unwrap();
         s.engine
@@ -1519,6 +1532,7 @@ mod tests {
 
     #[test]
     fn a_pixel_tool_is_unavailable_on_an_adjustment_or_a_locked_layer() {
+        crate::l10n::in_english();
         let mut s = editor();
         assert!(s.tool_available(Tool::Brush));
         s.engine.apply(Op::NewAdjustment(crate::raster::Adjustment::Invert)).unwrap();
@@ -1545,6 +1559,7 @@ mod tests {
 
     #[test]
     fn undo_after_a_stroke_redraws_the_stroke_rect_only() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.fg = [255, 0, 0, 255];
         s.pointer_down(50.0, 50.0, 1.0, NO);
@@ -1557,6 +1572,7 @@ mod tests {
 
     #[test]
     fn a_tool_key_cycles_through_the_tools_that_share_it() {
+        crate::l10n::in_english();
         assert_eq!(Tool::for_key('M', Tool::Brush), Some(Tool::MarqueeRect));
         assert_eq!(Tool::for_key('M', Tool::MarqueeRect), Some(Tool::MarqueeEllipse));
         assert_eq!(Tool::for_key('M', Tool::MarqueeEllipse), Some(Tool::MarqueeRect));
@@ -1567,6 +1583,7 @@ mod tests {
 
     #[test]
     fn the_marching_ants_redraw_only_the_selection() {
+        crate::l10n::in_english();
         let mut s = editor();
         s.engine.apply(Op::Select(Shape::Rect(IRect::new(10, 10, 20, 20)), SelectMode::Replace)).unwrap();
         let _ = s.refresh();
@@ -1577,6 +1594,7 @@ mod tests {
 
     #[test]
     fn a_digit_sets_the_layer_opacity_with_the_move_tool_and_the_paint_opacity_with_a_brush() {
+        crate::l10n::in_english();
         let mut s = editor();
         let bg = s.engine.active_layer().unwrap();
         s.tool = Tool::Move;

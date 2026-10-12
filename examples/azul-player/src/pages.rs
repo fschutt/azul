@@ -485,6 +485,7 @@ mod tests {
 
     #[test]
     fn each_page_has_its_views_and_its_gallery() {
+        crate::l10n::in_english();
         let lib = library();
         let history = History::default();
         let albums = tiles(Section::Music, View::Albums, &lib, &history);
@@ -508,6 +509,7 @@ mod tests {
 
     #[test]
     fn a_tiles_key_stays_the_same_across_builds_and_differs_between_tiles() {
+        crate::l10n::in_english();
         let lib = library();
         let history = History::default();
         let a = tiles(Section::Music, View::Songs, &lib, &history);
@@ -535,6 +537,7 @@ mod tests {
     /// page's zones - the back button among them - round, never off the page.
     #[test]
     fn tab_walks_a_pages_zones_round_and_shift_tab_walks_back() {
+        crate::l10n::in_english();
         let music = Screen::Section(Section::Music);
         assert_eq!(zones(&music, false), vec![Zone::Corner, Zone::Content]);
         assert_eq!(

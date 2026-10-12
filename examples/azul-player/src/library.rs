@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use azul_appkit::l10n::{t, t_args, Arg};
 use serde::{Deserialize, Serialize};
 
 /// The library's file, in the app's folder of the data tree.
@@ -60,7 +61,8 @@ impl Shelf {
         }
     }
 
-    /// The word on screen ("music", "pictures", "videos", "recorded tv").
+    /// Its English name ("music", "pictures", "videos", "recorded tv": markers, the settings'
+    /// folder rows), said on screen by `crate::l10n::word`.
     #[must_use]
     pub fn word(self) -> &'static str {
         match self {
@@ -131,8 +133,7 @@ impl Item {
         [self.album_artist.trim(), self.artist.trim()]
             .into_iter()
             .find(|s| !s.is_empty())
-            .unwrap_or("unknown artist")
-            .to_string()
+            .map_or_else(|| t("azplayer-unknown-artist"), str::to_string)
     }
 
     /// The album, or "unknown album".
@@ -140,7 +141,7 @@ impl Item {
     pub fn album_or_unknown(&self) -> String {
         let album = self.album.trim();
         if album.is_empty() {
-            String::from("unknown album")
+            t("azplayer-unknown-album")
         } else {
             album.to_string()
         }
@@ -459,14 +460,10 @@ fn group_by(
     groups.into_values().collect()
 }
 
-/// "1 song", "12 songs".
+/// "1 song", "12 songs": the message `key` (a plural of `$count`) for `n`.
 #[must_use]
-pub fn count(n: usize, one: &str, many: &str) -> String {
-    if n == 1 {
-        format!("1 {one}")
-    } else {
-        format!("{n} {many}")
-    }
+pub fn count(key: &str, n: usize) -> String {
+    t_args(key, &[("count", Arg::from(n))])
 }
 
 /// The albums of a music library: by (filed artist, album), the songs in disc and track order.
@@ -505,7 +502,7 @@ pub fn artists(items: &[Item]) -> Vec<Group> {
     group_by(items, songs_in_album_order(items).into_iter(), Item::filed_artist)
         .into_iter()
         .map(|(artist, songs)| Group {
-            subtitle: count(songs.len(), "song", "songs"),
+            subtitle: count("azplayer-count-songs", songs.len()),
             title: artist,
             items: songs,
         })
@@ -518,14 +515,14 @@ pub fn genres(items: &[Item]) -> Vec<Group> {
     group_by(items, songs_in_album_order(items).into_iter(), |i| {
         let g = i.genre.trim();
         if g.is_empty() {
-            String::from("unknown genre")
+            t("azplayer-unknown-genre")
         } else {
             g.to_string()
         }
     })
     .into_iter()
     .map(|(genre, songs)| Group {
-        subtitle: count(songs.len(), "song", "songs"),
+        subtitle: count("azplayer-count-songs", songs.len()),
         title: genre,
         items: songs,
     })
@@ -554,21 +551,21 @@ pub fn by_title(items: &[Item]) -> Vec<usize> {
 pub fn folders(items: &[Item]) -> Vec<Group> {
     group_by(items, by_title(items).into_iter(), |i| {
         if i.folder.is_empty() {
-            String::from("(no folder)")
+            t("azplayer-in-no-folder")
         } else {
             i.folder.clone()
         }
     })
     .into_iter()
     .map(|(folder, files)| Group {
-        subtitle: count(files.len(), "item", "items"),
+        subtitle: count("azplayer-count-items", files.len()),
         title: folder,
         items: files,
     })
     .collect()
 }
 
-/// The month names, for [`months`].
+/// The months' names in appkit's keys (`kit-month-<name>`), for [`months`].
 const MONTHS: [&str; 12] = [
     "january",
     "february",
@@ -623,15 +620,22 @@ pub fn months(items: &[Item]) -> Vec<Group> {
         .into_iter()
         .rev()
         .map(|((year, month), files)| Group {
-            title: format!("{} {year}", MONTHS[(month as usize).saturating_sub(1).min(11)]),
-            subtitle: count(files.len(), "item", "items"),
+            title: format!(
+                "{} {year}",
+                t(&format!(
+                    "kit-month-{}",
+                    MONTHS[(month as usize).saturating_sub(1).min(11)]
+                ))
+                .to_lowercase()
+            ),
+            subtitle: count("azplayer-count-items", files.len()),
             items: files,
         })
         .collect();
     if !undated.is_empty() {
         out.push(Group {
-            title: String::from("no date"),
-            subtitle: count(undated.len(), "item", "items"),
+            title: t("azplayer-no-date"),
+            subtitle: count("azplayer-count-items", undated.len()),
             items: undated,
         });
     }
@@ -781,6 +785,7 @@ mod tests {
 
     #[test]
     fn the_scan_finds_a_librarys_files_sorted_skipping_hidden_ones_and_the_skipped_folder() {
+        crate::l10n::in_english();
         let root = std::env::temp_dir().join(format!("azplayer-scan-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for p in [
@@ -827,6 +832,7 @@ mod tests {
     /// folders - or a library remembered from the last start - from being counted again.
     #[test]
     fn each_picture_is_found_once_whatever_reaches_it_twice() {
+        crate::l10n::in_english();
         let root = std::env::temp_dir().join(format!("azplayer-twice-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for p in [
@@ -911,6 +917,7 @@ mod tests {
 
     #[test]
     fn a_videos_length_is_read_from_its_mvhd_box_past_a_big_media_box() {
+        crate::l10n::in_english();
         // mvhd version 0: version+flags, creation, modification, timescale 600, duration 3000.
         let mut mvhd = vec![0, 0, 0, 0];
         mvhd.extend_from_slice(&[0; 8]);
@@ -948,6 +955,7 @@ mod tests {
 
     #[test]
     fn songs_group_into_albums_artists_and_genres_in_track_order() {
+        crate::l10n::in_english();
         let mut items = vec![
             song("Second", "Band", "Record", 2),
             song("First", "Band", "Record", 1),
@@ -974,6 +982,7 @@ mod tests {
 
     #[test]
     fn pictures_group_by_folder_and_by_month_newest_first() {
+        crate::l10n::in_english();
         let mut items = vec![Item::default(), Item::default(), Item::default()];
         items[0].title = "b".into();
         items[0].folder = "Trip".into();
@@ -996,6 +1005,7 @@ mod tests {
 
     #[test]
     fn a_movie_is_a_long_video_and_a_search_needs_every_word() {
+        crate::l10n::in_english();
         let mut items = vec![Item::default(), Item::default()];
         items[0].title = "Short clip".into();
         items[0].duration_s = 120.0;
@@ -1005,12 +1015,13 @@ mod tests {
         assert!(matches(&items[1], "long FILM"));
         assert!(!matches(&items[1], "long clip"));
         assert!(!matches(&items[1], "   "), "an empty query finds nothing");
-        assert_eq!(count(1, "song", "songs"), "1 song");
-        assert_eq!(count(3, "song", "songs"), "3 songs");
+        assert_eq!(count("azplayer-count-songs", 1), "1 song");
+        assert_eq!(count("azplayer-count-songs", 3), "3 songs");
     }
 
     #[test]
     fn the_library_file_round_trips_without_the_scan_state() {
+        crate::l10n::in_english();
         let mut lib = Library::default();
         lib.music.folder = "/m".into();
         lib.music.items.push(song("One", "A", "B", 1));

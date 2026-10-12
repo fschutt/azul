@@ -30,6 +30,7 @@ use azul::{
     },
 };
 use azul_appkit::{
+    l10n::{label, t, t_args, t_text, Arg, Phrase, Text},
     settings::AppSettings,
     ui::{self as kit, AppSection},
 };
@@ -37,7 +38,7 @@ use azul_appkit::{
 use crate::app::{
     minutes_label, now, seconds_label, KeysApp, Screen, CLEAR_CHOICES, IDLE_CHOICES, SPEC,
 };
-use crate::generator::{estimate, percent, Strength};
+use crate::generator::{estimate, percent};
 use crate::ids;
 use crate::jobs;
 use crate::session::{Form, Reading, Session};
@@ -56,11 +57,11 @@ pub(crate) use azul_appkit::pieces::{
 /// the label ink, unfaded (appended after the part's own `opacity`).
 pub(crate) const QUIET_FLORA: &str = "@theme(flora) { opacity: 1; color: system:secondary-text; }";
 
-/// A line of secondary text.
+/// A line of secondary text: a key said, plain words as they are.
 pub(crate) fn note(content: &str) -> Dom {
     block(
         &format!("font-size: 12px; opacity: 0.75; padding: 2px 0px; {QUIET_FLORA}"),
-        text(content),
+        text(label(content)),
     )
 }
 
@@ -68,23 +69,23 @@ pub(crate) fn note(content: &str) -> Dom {
 pub(crate) const PROBLEM_INK: &str = "color: #d13438; @theme(flora) { color: #7E4A42; @media \
                                       (prefers-color-scheme: dark) { color: #B3837A; } }";
 
-/// A line that reports a problem.
+/// A line that reports a problem: a key said, plain words as they are.
 pub(crate) fn problem(content: &str, id: AzString) -> Dom {
     block(
         &format!("font-size: 12px; padding: 4px 0px; {PROBLEM_INK}"),
-        text(content),
+        text(label(content)),
     )
     .with_id(id)
 }
 
-/// A labelled form row.
-pub(crate) fn form_row(label: &str, control: Dom) -> Dom {
+/// A labelled form row: the label a key said, plain words as they are.
+pub(crate) fn form_row(name: &str, control: Dom) -> Dom {
     flex_row(
         "padding: 4px 0px;",
         vec![
             block(
                 "width: 110px; flex-shrink: 0; font-size: 13px;",
-                text(label),
+                text(label(name)),
             ),
             block("flex-grow: 1; min-width: 0px;", control),
         ],
@@ -97,7 +98,7 @@ pub(crate) fn strength_bar(password: &str, id: AzString) -> Dom {
     let words = if password.is_empty() {
         String::new()
     } else {
-        format!("{} (~{:.0} bits)", Strength::of_bits(bits).label(), bits)
+        crate::l10n::strength_bits(bits)
     };
     flex_row(
         "padding: 2px 0px;",
@@ -146,6 +147,7 @@ fn key_of(info: &CallbackInfo) -> Option<VirtualKeyCode> {
 
 /// The window's layout.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let app = data.clone();
@@ -174,8 +176,15 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         }
     };
     let root = column("flex-grow: 1; min-height: 0px;", vec![content]);
-    // An edited item is not lost to the close button: the guard asks "save it?".
-    let guarded = CloseGuard::create(root, "the item")
+    // An edited item is not lost to the close button: the guard asks "save it?" (its own
+    // question and buttons, in the window's language).
+    let guarded = CloseGuard::create(root, "")
+        .with_question(t("azkeys-close-question"), t("azkeys-close-text"))
+        .with_labels(
+            t("azkeys-save"),
+            t("azkeys-close-discard"),
+            t("kit-button-cancel"),
+        )
         .with_dirty_check(app.clone(), dirty_check as CloseGuardDirtyCheckCallbackType)
         .with_asking(s.asking_close)
         .with_on_event(
@@ -231,7 +240,7 @@ fn framed(card: Dom) -> Dom {
 
 fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     if !s.listed {
-        return ShellEmptyState::create("Looking for your vaults")
+        return ShellEmptyState::create(t("azkeys-unlock-looking"))
             .with_icon("hourglass_empty")
             .with_detail(
                 azul_appkit::data::local_path(&s.data_root, crate::store::VAULTS)
@@ -242,16 +251,16 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
             .with_id(ids::UNLOCK_SCREEN);
     }
     let Some(chosen) = s.chosen_vault() else {
-        return ShellEmptyState::create("No vault yet")
+        return ShellEmptyState::create(t("azkeys-unlock-none"))
             .with_icon("lock")
-            .with_detail("A vault keeps your passwords in one encrypted file in your data folder.")
-            .with_action_label("Create a vault")
+            .with_detail(t("azkeys-unlock-none-detail"))
+            .with_action_label(t("azkeys-create-vault-action"))
             .with_on_action(app.clone(), on_show_create as ButtonOnClickCallbackType)
             .dom()
             .with_id(ids::UNLOCK_SCREEN);
     };
-    let t = now();
-    let wait = s.attempts.wait(t);
+    let at = now();
+    let wait = s.attempts.wait(at);
     let mut children = vec![
         block(
             "font-size: 40px; text-align: center; padding-bottom: 4px;",
@@ -259,16 +268,19 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
         ),
         block(
             "font-size: 18px; font-weight: 600; text-align: center; padding-bottom: 12px;",
-            text(format!("Unlock \u{201c}{}\u{201d}", chosen.name())),
+            text(t_args(
+                "azkeys-unlock-title",
+                &[("name", Arg::from(chosen.name()))],
+            )),
         ),
     ];
     if s.vaults.len() > 1 {
         let names: Vec<&str> = s.vaults.iter().map(|v| v.name()).collect();
         children.push(form_row(
-            "Vault",
+            "azkeys-vault",
             DropDown::create(strs(&names))
                 .with_selected(s.unlock.chosen)
-                .with_accessibility_name("Vault")
+                .with_accessibility_name(t("azkeys-vault"))
                 .with_on_choice_change(
                     app.clone(),
                     on_choose_vault as DropDownOnChoiceChangeCallbackType,
@@ -278,11 +290,11 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
         ));
     }
     children.push(form_row(
-        "Password",
+        "azkeys-password",
         TextInput::create_password()
             .with_text(s.unlock.password.as_str())
-            .with_placeholder("Master password")
-            .with_accessibility_name("Master password")
+            .with_placeholder(t("azkeys-master-password"))
+            .with_accessibility_name(t("azkeys-master-password"))
             .with_on_text_input(
                 app.clone(),
                 on_unlock_text as TextInputOnTextInputCallbackType,
@@ -296,20 +308,20 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     ));
     let mut buttons = vec![];
     let mut unlock = Button::create(if wait > 0 {
-        format!("Wait {wait} s")
+        t_args("azkeys-wait-seconds", &[("seconds", Arg::from(wait))])
     } else {
-        "Unlock".to_string()
+        t("azkeys-unlock")
     })
     .with_button_type(ButtonType::Primary)
     .with_on_click(app.clone(), on_unlock as ButtonOnClickCallbackType);
     if wait > 0 || s.busy.is_some() {
-        unlock = unlock.with_disabled("Wait for the answer");
+        unlock = unlock.with_disabled(t("azkeys-wait-for-answer"));
     }
     buttons.push(unlock.dom().with_id(ids::UNLOCK_BUTTON));
     if let Some(mode) = s.device_unlock(chosen.id()) {
         let label = match mode {
-            crate::app::DeviceUnlock::Keyring => "Unlock from the keyring",
-            _ => "Use biometrics",
+            crate::app::DeviceUnlock::Keyring => "azkeys-unlock-keyring",
+            _ => "azkeys-use-biometrics",
         };
         buttons.push(icon_button(
             label,
@@ -321,7 +333,7 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     }
     children.push(flex_row("gap: 8px; padding: 8px 0px 4px 110px;", buttons));
     let message = if wait > 0 {
-        s.attempts.message(t)
+        s.attempts.message(at)
     } else {
         s.unlock.message.clone()
     };
@@ -333,9 +345,9 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     }
     if jobs::setting(s, "sample_vault").as_deref() == Some(chosen.id()) {
         children.push(
-            note(&format!(
-                "This is the sample vault: its master password is \u{201c}{}\u{201d}.",
-                crate::sample::SAMPLE_PASSWORD
+            note(&t_args(
+                "azkeys-sample-hint",
+                &[("password", Arg::from(crate::sample::SAMPLE_PASSWORD))],
             ))
             .with_id(ids::UNLOCK_HINT),
         );
@@ -343,7 +355,7 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
     children.push(flex_row(
         "padding-top: 16px;",
         vec![icon_button(
-            "New vault",
+            "azkeys-new-vault",
             "add",
             ids::UNLOCK_NEW,
             app,
@@ -392,20 +404,19 @@ extern "C" fn on_unlock_key(
 /// "Unlock": the picked vault, the typed password, on the vault thread.
 extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |s, info, app| {
-        let t = now();
-        if s.attempts.wait(t) > 0 || s.busy.is_some() {
+        if s.attempts.wait(now()) > 0 || s.busy.is_some() {
             return;
         }
         let Some(key) = s.chosen_vault().map(|v| v.key.clone()) else {
             return;
         };
         if s.unlock.password.is_empty() {
-            s.unlock.message = "Type the master password.".to_string();
+            s.unlock.message = t("azkeys-type-master-password");
             return;
         }
         let password = Zeroizing::new(s.unlock.password.as_str().to_string());
         s.unlock.message.clear();
-        s.busy = Some("Unlocking\u{2026}".to_string());
+        s.busy = Some(t("azkeys-unlocking"));
         jobs::spawn(info, app, &s.data_root, Work::Unlock { key, password });
     })
 }
@@ -435,8 +446,8 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
             };
             input
                 .with_text(value)
-                .with_placeholder(placeholder)
-                .with_accessibility_name(placeholder)
+                .with_placeholder(t(placeholder))
+                .with_accessibility_name(t(placeholder))
                 .with_on_text_input(
                     RefAny::new(CreateRef {
                         app: app.clone(),
@@ -450,17 +461,13 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
     let mut children = vec![
         block(
             "font-size: 18px; font-weight: 600; padding-bottom: 8px;",
-            text("A new vault"),
+            text(t("azkeys-create-title")),
         ),
-        note(
-            "One encrypted file in your data folder. Nobody - not even AzKeys - can open it \
-              without the master password: choose one you will remember, and keep it written \
-              down somewhere safe.",
-        ),
+        note("azkeys-create-note"),
         form_row(
-            "Name",
+            "azkeys-name",
             field(
-                "Personal",
+                "azkeys-create-name-placeholder",
                 s.create.name.as_str(),
                 false,
                 CreateField::Name,
@@ -468,9 +475,9 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
             ),
         ),
         form_row(
-            "Password",
+            "azkeys-password",
             field(
-                "Master password",
+                "azkeys-master-password",
                 s.create.password.as_str(),
                 true,
                 CreateField::Password,
@@ -479,9 +486,9 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
         ),
         form_row("", strength_bar(&s.create.password, ids::CREATE_STRENGTH)),
         form_row(
-            "Again",
+            "azkeys-again",
             field(
-                "The same password again",
+                "azkeys-same-password-again",
                 s.create.confirm.as_str(),
                 true,
                 CreateField::Confirm,
@@ -489,9 +496,19 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
             ),
         ),
     ];
-    let mut buttons = vec![primary("Create vault", ids::CREATE_BUTTON, app, on_create)];
+    let mut buttons = vec![primary(
+        "azkeys-create-vault",
+        ids::CREATE_BUTTON,
+        app,
+        on_create,
+    )];
     if !s.vaults.is_empty() {
-        buttons.push(button("Cancel", ids::CREATE_CANCEL, app, on_create_cancel));
+        buttons.push(button(
+            "kit-button-cancel",
+            ids::CREATE_CANCEL,
+            app,
+            on_create_cancel,
+        ));
     }
     children.push(flex_row("gap: 8px; padding: 8px 0px 4px 110px;", buttons));
     if !s.create.message.is_empty() {
@@ -500,10 +517,7 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
     if let Some(busy) = &s.busy {
         children.push(note(busy));
     }
-    children.push(note(
-        "The master password derives the key with Argon2id (64 MiB, 3 passes); the vault is \
-         sealed with XChaCha20-Poly1305.",
-    ));
+    children.push(note("azkeys-create-crypto-note"));
     column("", children)
 }
 
@@ -561,7 +575,7 @@ extern "C" fn on_create(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return;
         }
         s.create.message.clear();
-        s.busy = Some("Making the vault\u{2026}".to_string());
+        s.busy = Some(t("azkeys-making-vault"));
         let vault = Vault::new(&s.create.name, now());
         let password = Zeroizing::new(s.create.password.as_str().to_string());
         jobs::spawn(
@@ -592,7 +606,7 @@ fn vault_screen(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
         list_pane(session, app),
         crate::ui_item::reading_pane(s, session, app),
     )
-    .with_list_label("Items")
+    .with_list_label(t("azkeys-items"))
     .office_shell()
     .with_title_row(kit::title_row(&format!(
         "{} - {}",
@@ -607,33 +621,46 @@ fn vault_screen(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
 fn navigation(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
     let vault = &session.open.vault;
     let count = |scope: &Scope| vault.items.iter().filter(|i| scope.holds(i)).count();
-    let all = TreeViewNode::create(format!("All items ({})", vault.items.len()))
-        .with_icon("inventory_2")
-        .with_expanded(true)
-        .with_selected(session.scope == Scope::All)
-        .with_child(
-            TreeViewNode::create(format!("Favourites ({})", count(&Scope::Favorites)))
-                .with_icon("star")
-                .with_selected(session.scope == Scope::Favorites),
-        )
-        .with_child(
-            TreeViewNode::create(format!("One-time codes ({})", count(&Scope::OneTimeCodes)))
-                .with_icon("pin")
-                .with_selected(session.scope == Scope::OneTimeCodes),
-        );
+    let all = TreeViewNode::create(t_args(
+        "azkeys-nav-all",
+        &[("count", Arg::from(vault.items.len()))],
+    ))
+    .with_icon("inventory_2")
+    .with_expanded(true)
+    .with_selected(session.scope == Scope::All)
+    .with_child(
+        TreeViewNode::create(t_args(
+            "azkeys-nav-favourites",
+            &[("count", Arg::from(count(&Scope::Favorites)))],
+        ))
+        .with_icon("star")
+        .with_selected(session.scope == Scope::Favorites),
+    )
+    .with_child(
+        TreeViewNode::create(t_args(
+            "azkeys-nav-codes",
+            &[("count", Arg::from(count(&Scope::OneTimeCodes)))],
+        ))
+        .with_icon("pin")
+        .with_selected(session.scope == Scope::OneTimeCodes),
+    );
     let counts = vault.kind_counts();
-    let mut kinds = TreeViewNode::create("Categories")
+    let mut kinds = TreeViewNode::create(t("azkeys-categories"))
         .with_icon("category")
         .with_expanded(true);
     for kind in Kind::ALL {
         kinds = kinds.with_child(
-            TreeViewNode::create(format!("{} ({})", kind.plural(), counts[kind.index()]))
-                .with_icon(kind.icon())
-                .with_selected(session.scope == Scope::Kind(kind)),
+            TreeViewNode::create(format!(
+                "{} ({})",
+                crate::l10n::kinds(kind),
+                counts[kind.index()]
+            ))
+            .with_icon(kind.icon())
+            .with_selected(session.scope == Scope::Kind(kind)),
         );
     }
     let tag_list = vault.tags();
-    let mut tags = TreeViewNode::create("Tags")
+    let mut tags = TreeViewNode::create(t("azkeys-tags"))
         .with_icon("sell")
         .with_expanded(true);
     for (tag, n) in &tag_list {
@@ -644,19 +671,21 @@ fn navigation(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
         );
     }
     ShellNavigationPane::create()
-        .with_header(primary("New item", ids::NAV_NEW, app, on_new))
+        .with_header(primary("azkeys-new-item", ids::NAV_NEW, app, on_new))
         .with_group(
-            ShellNavigationGroup::create("Vault", all)
+            ShellNavigationGroup::create(t("azkeys-vault"), all)
                 .with_count(vault.items.len())
                 .with_open(s.nav_open[0]),
         )
-        .with_group(ShellNavigationGroup::create("Categories", kinds).with_open(s.nav_open[1]))
         .with_group(
-            ShellNavigationGroup::create("Tags", tags)
+            ShellNavigationGroup::create(t("azkeys-categories"), kinds).with_open(s.nav_open[1]),
+        )
+        .with_group(
+            ShellNavigationGroup::create(t("azkeys-tags"), tags)
                 .with_count(tag_list.len())
                 .with_open(s.nav_open[2]),
         )
-        .with_label("Vault, categories and tags")
+        .with_label(t("azkeys-nav-label"))
         .with_on_event(
             app.clone(),
             on_nav as ShellNavigationPaneOnEventCallbackType,
@@ -714,8 +743,8 @@ fn list_pane(session: &Session, app: &RefAny) -> Dom {
     let list = session.view();
     let search = TextInput::create_search()
         .with_text(session.query.as_str())
-        .with_placeholder("Search all items")
-        .with_accessibility_name("Search all items")
+        .with_placeholder(t("azkeys-search"))
+        .with_accessibility_name(t("azkeys-search"))
         .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
         .dom()
         .with_id(ids::LIST_SEARCH);
@@ -725,19 +754,22 @@ fn list_pane(session: &Session, app: &RefAny) -> Dom {
     )
     .with_id(ids::LIST_HEADING);
     let body = if session.open.vault.items.is_empty() {
-        ShellEmptyState::create("An empty vault")
+        ShellEmptyState::create(t("azkeys-empty-vault"))
             .with_icon("lock_open")
-            .with_detail("Add a login, or import a browser's or a password manager's export.")
-            .with_action_label("New item")
+            .with_detail(t("azkeys-empty-vault-detail"))
+            .with_action_label(t("azkeys-new-item"))
             .with_on_action(app.clone(), on_new as ButtonOnClickCallbackType)
             .dom()
     } else if list.is_empty() {
-        ShellEmptyState::create("Nothing here")
+        ShellEmptyState::create(t("azkeys-nothing-here"))
             .with_icon("search")
             .with_detail(if session.query.trim().is_empty() {
-                "No item is in this view.".to_string()
+                t("azkeys-nothing-in-view")
             } else {
-                format!("No item matches \u{201c}{}\u{201d}.", session.query.trim())
+                t_args(
+                    "azkeys-no-match",
+                    &[("query", Arg::from(session.query.trim()))],
+                )
             })
             .dom()
     } else {
@@ -874,26 +906,38 @@ fn toolbar(app: &RefAny) -> Dom {
     flex_row(
         "gap: 4px; padding: 4px 8px;",
         vec![
-            icon_button("New", "add", ids::TOOLBAR_NEW, app, on_new),
+            icon_button("azkeys-toolbar-new", "add", ids::TOOLBAR_NEW, app, on_new),
             icon_button(
-                "Generator",
+                "azkeys-toolbar-generator",
                 "password",
                 ids::TOOLBAR_GENERATOR,
                 app,
                 on_generator,
             ),
             icon_button(
-                "Audit",
+                "azkeys-toolbar-audit",
                 "health_and_safety",
                 ids::TOOLBAR_AUDIT,
                 app,
                 on_audit,
             ),
-            icon_button("Import", "file_upload", ids::TOOLBAR_IMPORT, app, on_import),
-            block("flex-grow: 1;", Dom::create_div()),
-            icon_button("Lock", "lock", ids::TOOLBAR_LOCK, app, on_lock),
             icon_button(
-                "Settings",
+                "azkeys-toolbar-import",
+                "file_upload",
+                ids::TOOLBAR_IMPORT,
+                app,
+                on_import,
+            ),
+            block("flex-grow: 1;", Dom::create_div()),
+            icon_button(
+                "azkeys-toolbar-lock",
+                "lock",
+                ids::TOOLBAR_LOCK,
+                app,
+                on_lock,
+            ),
+            icon_button(
+                "azkeys-toolbar-settings",
                 "settings",
                 ids::TOOLBAR_SETTINGS,
                 app,
@@ -904,26 +948,30 @@ fn toolbar(app: &RefAny) -> Dom {
 }
 
 fn status_bar(s: &KeysApp, session: &Session) -> Dom {
-    let t = now();
+    let at = now();
     let n = session.open.vault.items.len();
-    let mut segments = vec![StatusBarSegment::create(format!(
-        "{n} item{}",
-        if n == 1 { "" } else { "s" }
+    let mut segments = vec![StatusBarSegment::create(t_args(
+        "azkeys-status-items",
+        &[("count", Arg::from(n))],
     ))];
     if s.saving {
-        segments.push(StatusBarSegment::create("Saving\u{2026}"));
+        segments.push(StatusBarSegment::create(t("azkeys-saving")));
     }
-    segments.push(StatusBarSegment::create(match s.auto_lock.remaining(t) {
-        None => "Locks only by hand".to_string(),
-        Some(r) if r <= 60 => format!("Locks in {}", crate::lock::clock(r)),
-        Some(_) => format!(
-            "Locks after {} idle",
-            minutes_label(s.auto_lock.idle_minutes)
+    segments.push(StatusBarSegment::create(match s.auto_lock.remaining(at) {
+        None => t("azkeys-status-locks-by-hand"),
+        Some(r) if r <= 60 => t_args(
+            "azkeys-status-locks-in",
+            &[("time", Arg::from(crate::lock::clock(r)))],
+        ),
+        Some(_) => t_args(
+            "azkeys-status-locks-after",
+            &[("time", Arg::from(minutes_label(s.auto_lock.idle_minutes)))],
         ),
     }));
-    if let Some(r) = s.clipboard.remaining(t) {
-        segments.push(StatusBarSegment::create(format!(
-            "Clipboard clears in {r} s"
+    if let Some(r) = s.clipboard.remaining(at) {
+        segments.push(StatusBarSegment::create(t_args(
+            "azkeys-status-clipboard",
+            &[("seconds", Arg::from(r))],
         )));
     }
     if !s.notice.is_empty() {
@@ -1010,7 +1058,7 @@ pub fn read_import_file(s: &mut KeysApp, info: &mut CallbackInfo, app: &RefAny, 
     if !kit::spawn_outside_read(info, path, app.clone(), TAG_IMPORT, on_import_read) {
         if let Reading::Import(view) = &mut session.reading {
             view.reading = false;
-            view.result = Some(Err("This is not a file name AzKeys can read.".to_string()));
+            view.result = Some(Err(Text::key("azkeys-import-bad-name")));
         }
     }
 }
@@ -1037,9 +1085,11 @@ extern "C" fn on_import_read(mut app: RefAny, mut msg: RefAny, mut info: Callbac
                 let bytes = Zeroizing::new(bytes);
                 crate::import::import_file(&bytes, now())
             }
-            Some(Ok(None)) => Err("The file does not exist.".to_string()),
-            Some(Err(e)) => Err(format!("The file cannot be read: {e}")),
-            None => Err("The file was not read.".to_string()),
+            Some(Ok(None)) => Err(Text::key("azkeys-import-missing")),
+            Some(Err(e)) => Err(Phrase::new("azkeys-import-unreadable")
+                .arg("why", e.to_string())
+                .into()),
+            None => Err(Text::key("azkeys-import-not-read")),
         };
         match &result {
             Ok(imported) => println!(
@@ -1092,7 +1142,7 @@ extern "C" fn on_close_answer(
                         info.close_window();
                     }
                 }
-                Some(Err(problem)) => s.notice = problem,
+                Some(Err(problem)) => s.notice = t_text(&problem),
                 None => {}
             }
         }
@@ -1212,10 +1262,10 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
         .unwrap_or(1);
     let mut security = vec![
         kit::row(
-            "Lock after",
+            "azkeys-lock-after",
             DropDown::create(strs(&idle_refs))
                 .with_selected(idle_at)
-                .with_accessibility_name("Lock after")
+                .with_accessibility_name(t("azkeys-lock-after"))
                 .with_on_choice_change(
                     app.clone(),
                     on_idle_choice as DropDownOnChoiceChangeCallbackType,
@@ -1224,10 +1274,10 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
                 .with_id(ids::SET_IDLE),
         ),
         kit::row(
-            "Clear the clipboard",
+            "azkeys-clear-clipboard",
             DropDown::create(strs(&clear_refs))
                 .with_selected(clear_at)
-                .with_accessibility_name("Clear the clipboard after")
+                .with_accessibility_name(t("azkeys-clear-clipboard-after"))
                 .with_on_choice_change(
                     app.clone(),
                     on_clear_choice as DropDownOnChoiceChangeCallbackType,
@@ -1240,37 +1290,28 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
         Some(session) => {
             let on = s.device_unlock(&session.open.vault.id).is_some();
             security.push(kit::row(
-                "Device unlock",
+                "azkeys-device-unlock",
                 Switch::create(on)
-                    .with_accessibility_name(
-                        "Unlock this vault on this device without the password",
-                    )
+                    .with_accessibility_name(t("azkeys-device-unlock-switch"))
                     .with_on_toggle(app.clone(), on_device_unlock as SwitchOnToggleCallbackType)
                     .dom()
                     .with_id(ids::SET_DEVICE_UNLOCK),
             ));
-            security.push(kit::note(
-                "Keeps this vault's key in the system keyring, behind biometrics where the system \
-                 has them (Touch ID, Windows Hello, fprintd), so this device unlocks the vault \
-                 without the master password.",
-            ));
+            security.push(kit::note("azkeys-device-unlock-note"));
         }
-        None => security.push(kit::note(
-            "Unlock a vault to let this device unlock it with biometrics.",
-        )),
+        None => security.push(kit::note("azkeys-device-unlock-locked")),
     }
-    security.push(kit::note(
-        "AzKeys makes no network requests: no breach checks, no website icons. A copied secret is \
-         cleared from the clipboard when the countdown ends, even if something else was copied \
-         since (azul cannot read the clipboard outside a paste).",
-    ));
+    security.push(kit::note("azkeys-privacy-note"));
     let mut vault = Vec::new();
     match s.session.as_ref() {
         Some(session) => {
             let kdf = &session.open.envelope.kdf;
-            vault.push(kit::row("Vault", text(session.open.vault.name.as_str())));
             vault.push(kit::row(
-                "File",
+                "azkeys-vault",
+                text(session.open.vault.name.as_str()),
+            ));
+            vault.push(kit::row(
+                "azkeys-file",
                 text(
                     azul_appkit::data::local_path(&s.data_root, &session.open.key)
                         .display()
@@ -1278,29 +1319,31 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
                 ),
             ));
             vault.push(kit::row(
-                "Key derivation",
-                text(format!(
-                    "Argon2id, {} MiB, {} passes, {} lane(s); XChaCha20-Poly1305",
-                    kdf.memory_kib / 1024,
-                    kdf.iterations,
-                    kdf.parallelism
+                "azkeys-key-derivation",
+                text(t_args(
+                    "azkeys-kdf-value",
+                    &[
+                        ("mib", Arg::from(kdf.memory_kib / 1024)),
+                        ("passes", Arg::from(kdf.iterations)),
+                        ("lanes", Arg::from(kdf.parallelism)),
+                    ],
                 )),
             ));
             vault.push(kit::row(
-                "New password",
+                "azkeys-new-password",
                 change_field(
                     app,
-                    "New master password",
+                    "azkeys-new-master-password",
                     s.change.password.as_str(),
                     ChangeField::Password,
                     ids::SET_NEW_PASSWORD,
                 ),
             ));
             vault.push(kit::row(
-                "Again",
+                "azkeys-again",
                 change_field(
                     app,
-                    "The same password again",
+                    "azkeys-same-password-again",
                     s.change.confirm.as_str(),
                     ChangeField::Confirm,
                     ids::SET_NEW_CONFIRM,
@@ -1309,7 +1352,7 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
             vault.push(kit::row(
                 "",
                 button(
-                    "Change the master password",
+                    "azkeys-change-password",
                     ids::SET_CHANGE,
                     app,
                     on_change_password,
@@ -1318,29 +1361,20 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
             if !s.change.message.is_empty() {
                 vault.push(kit::note(&s.change.message).with_id(ids::SET_CHANGE_MESSAGE));
             }
-            vault.push(kit::note(
-                "The vault key stays the same: a device that unlocks the vault with biometrics \
-                 keeps doing so. The file before each save is kept in keys/backups/.",
-            ));
+            vault.push(kit::note("azkeys-change-note"));
         }
-        None => vault.push(kit::note(
-            "Unlock a vault to see its file and change its master password.",
-        )),
+        None => vault.push(kit::note("azkeys-change-locked")),
     }
-    vault.push(kit::note(
-        "Import: CSV exports of Chrome, Edge, Firefox, Safari, Bitwarden, 1Password, KeePassXC and \
-         LastPass, and Bitwarden's unencrypted JSON export (the toolbar's Import). OpenPGP keys \
-         are a later step.",
-    ));
+    vault.push(kit::note("azkeys-import-note"));
     vec![
         AppSection {
             category: 0,
-            title: "Security".to_string(),
+            title: t("azkeys-section-security"),
             content: column("", security),
         },
         AppSection {
             category: 1,
-            title: "Vault".to_string(),
+            title: t("azkeys-vault"),
             content: column("", vault),
         },
     ]
@@ -1406,8 +1440,8 @@ fn change_field(
 ) -> Dom {
     TextInput::create_password()
         .with_text(value)
-        .with_placeholder(placeholder)
-        .with_accessibility_name(placeholder)
+        .with_placeholder(t(placeholder))
+        .with_accessibility_name(t(placeholder))
         .with_on_text_input(
             RefAny::new(ChangeRef {
                 app: app.clone(),
@@ -1443,15 +1477,15 @@ extern "C" fn on_change_text(
 extern "C" fn on_change_password(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |s, info, app| {
         if s.saving {
-            s.change.message = "Wait for the save on the way, then try again.".to_string();
+            s.change.message = t("azkeys-wait-for-save");
             return;
         }
         if s.change.password.chars().count() < 8 {
-            s.change.message = "The master password needs 8 characters or more.".to_string();
+            s.change.message = t("azkeys-password-too-short");
             return;
         }
         if *s.change.password != *s.change.confirm {
-            s.change.message = "The two passwords differ.".to_string();
+            s.change.message = t("azkeys-passwords-differ");
             return;
         }
         let Some(session) = s.session.as_ref() else {
@@ -1465,7 +1499,7 @@ extern "C" fn on_change_password(mut data: RefAny, mut info: CallbackInfo) -> Up
             kdf: None,
         };
         s.saving = true;
-        s.change.message = "Changing the master password\u{2026}".to_string();
+        s.change.message = t("azkeys-changing-password");
         jobs::spawn(info, app, &s.data_root, work);
     })
 }

@@ -107,13 +107,13 @@ pub fn is_day(hour: u32) -> bool {
     (6..18).contains(&hour)
 }
 
-/// "Yesterday", "Today", "Tomorrow" for a day offset.
+/// "Yesterday", "Today", "Tomorrow" for a day offset: the kit's keys (said by the window).
 #[must_use]
 pub fn day_label(day_offset: i64) -> &'static str {
     match day_offset {
-        d if d < 0 => "Yesterday",
-        0 => "Today",
-        _ => "Tomorrow",
+        d if d < 0 => "kit-date-yesterday",
+        0 => "kit-date-today",
+        _ => "kit-date-tomorrow",
     }
 }
 
@@ -255,12 +255,12 @@ mod tests {
         let ny = City::of_zone("America/New_York");
         let r = row(&tokyo, &Berlin, utc(2026, 9, 15, 20, 0)).unwrap(); // Berlin 22:00
         assert_eq!((r.hour, r.day_offset), (5, 1));
-        assert_eq!(day_label(r.day_offset), "Tomorrow");
+        assert_eq!(day_label(r.day_offset), "kit-date-tomorrow");
         assert!(!r.daytime, "05:00 is night");
         let r = row(&ny, &Berlin, utc(2026, 9, 15, 23, 30)).unwrap(); // Berlin 01:30 the next day
         assert_eq!((r.hour, r.minute, r.day_offset), (19, 30, -1));
-        assert_eq!(day_label(r.day_offset), "Yesterday");
-        assert_eq!(day_label(0), "Today");
+        assert_eq!(day_label(r.day_offset), "kit-date-yesterday");
+        assert_eq!(day_label(0), "kit-date-today");
         assert!(row(&City::of_zone("Mars/Olympus_Mons"), &Berlin, utc(2026, 9, 15, 0, 0)).is_none());
     }
 

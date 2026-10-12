@@ -423,7 +423,8 @@ pub struct TextBody {
     pub font: Option<String>,
     #[serde(default)]
     pub valign: VAlign,
-    /// What an empty placeholder shows while editing ("Click to add title").
+    /// What an empty placeholder shows while editing: a key of AzShow's resources
+    /// (`azshow-prompt-title`, "Click to add title"; an older deck's words as they are).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub prompt: String,
 }
@@ -492,13 +493,14 @@ pub enum PlaceholderRole {
 }
 
 impl PlaceholderRole {
+    /// What the role's empty placeholder shows while editing (a key of AzShow's resources).
     #[must_use]
     pub const fn prompt(self) -> &'static str {
         match self {
-            Self::Title => "Click to add title",
-            Self::Subtitle => "Click to add subtitle",
-            Self::Body | Self::Body2 => "Click to add text",
-            Self::Heading | Self::Heading2 => "Click to add heading",
+            Self::Title => "azshow-prompt-title",
+            Self::Subtitle => "azshow-prompt-subtitle",
+            Self::Body | Self::Body2 => "azshow-prompt-text",
+            Self::Heading | Self::Heading2 => "azshow-prompt-heading",
         }
     }
 
@@ -773,28 +775,32 @@ impl Element {
         }
     }
 
-    /// A short name for the selection pane and the screen reader.
+    /// A short name for the selection pane and the screen reader, in the window's language.
     #[must_use]
     pub fn name(&self) -> String {
+        use azul_appkit::l10n::{t, t_args, Arg};
         match &self.kind {
             ElementKind::Text { body } => {
                 let text = body.text();
                 let first = text.lines().next().unwrap_or("").trim();
                 if first.is_empty() {
                     match self.placeholder {
-                        Some(role) => format!("{role:?} placeholder"),
-                        None => String::from("Text box"),
+                        Some(role) => t_args(
+                            "azshow-name-placeholder",
+                            &[("role", Arg::from(crate::l10n::word("role", &format!("{role:?}"))))],
+                        ),
+                        None => t("azshow-text-box"),
                     }
                 } else {
                     first.chars().take(40).collect()
                 }
             }
-            ElementKind::Shape { shape, .. } => shape.label().to_string(),
-            ElementKind::Image { .. } => String::from("Picture"),
-            ElementKind::Table { .. } => String::from("Table"),
-            ElementKind::Chart { .. } => String::from("Chart"),
-            ElementKind::Video { .. } => String::from("Video"),
-            ElementKind::Group { children } => format!("Group of {}", children.len()),
+            ElementKind::Shape { shape, .. } => crate::l10n::word("shape", shape.label()),
+            ElementKind::Image { .. } => t("azshow-picture"),
+            ElementKind::Table { .. } => t("azshow-table"),
+            ElementKind::Chart { .. } => t("azshow-name-chart"),
+            ElementKind::Video { .. } => t("azshow-video"),
+            ElementKind::Group { children } => t_args("azshow-name-group", &[("count", Arg::from(children.len()))]),
         }
     }
 }
@@ -1955,7 +1961,7 @@ mod tests {
         assert_eq!(text_of(slide, PlaceholderRole::Body), "");
         assert_eq!(
             slide.placeholder(PlaceholderRole::Title).and_then(Element::body).map(|b| b.prompt.clone()),
-            Some(String::from("Click to add title"))
+            Some(String::from("azshow-prompt-title"))
         );
     }
 

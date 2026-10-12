@@ -21,6 +21,7 @@ use azul_appkit::{
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
     history::UndoHistory,
+    l10n::{label, t, t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -50,12 +51,16 @@ const ABOUT: AboutInfo = AboutInfo {
 
 /// The keyboard shortcuts the settings page lists (`Mod` = Cmd / Ctrl).
 const SHORTCUTS: [Shortcut; 5] = [
-    Shortcut::new("Edit", "Mod+Z", "Undo"),
-    Shortcut::new("Edit", "Mod+Shift+Z", "Redo"),
-    Shortcut::new("File", "Mod+O", "Import a picture to paint over"),
-    Shortcut::new("File", "Mod+S", "Export PNG into the data folder"),
-    Shortcut::new("File", "Mod+Shift+S", "Export SVG into the data folder"),
+    Shortcut::new("azpaint-menu-edit", "Mod+Z", "azpaint-undo"),
+    Shortcut::new("azpaint-menu-edit", "Mod+Shift+Z", "azpaint-redo"),
+    Shortcut::new("azpaint-menu-file", "Mod+O", "azpaint-shortcut-import"),
+    Shortcut::new("azpaint-menu-file", "Mod+S", "azpaint-shortcut-export-png"),
+    Shortcut::new("azpaint-menu-file", "Mod+Shift+S", "azpaint-shortcut-export-svg"),
 ];
+
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 
 /// Every DOM id and marker AzPaint sets, defined ONCE with the app's prefix
 /// (`__azpaint_`, like the widgets' `__azul_`).
@@ -1022,6 +1027,7 @@ fn is_flora(theme: &str) -> bool {
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the theme makes a switch rebuild the window (the title row is
     // flora's own chrome under flora).
     let flora = is_flora(info.get_theme().as_str());
@@ -1038,16 +1044,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         })
         .unwrap_or((0, true, None, None, 0.0));
 
-    let mode_label = if metaballs { "Metaballs" } else { "Brush" };
+    let mode_label = t(if metaballs { "azpaint-effect-metaballs" } else { "azpaint-effect-brush" });
+    let strokes = t_args(
+        "azpaint-header",
+        &[("count", Arg::from(n_strokes)), ("effect", Arg::from(mode_label))],
+    );
     let title = match device_line {
-        Some(dev) => format!(
-            "AzPaint  ·  {} strokes  ·  Effect: {}  ·  {}",
-            n_strokes, mode_label, dev
-        ),
-        None => format!(
-            "AzPaint  ·  {} strokes  ·  Effect: {}",
-            n_strokes, mode_label
-        ),
+        Some(dev) => format!("{strokes}  \u{b7}  {dev}"),
+        None => strokes,
     };
     let mut header = Dom::create_div()
         .with_css(HEADER)
@@ -1075,9 +1079,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             ));
         }
         None => {
-            header.add_child(Dom::create_p_with_text(
-                "Pen: none in proximity (hover the stylus to see live values)",
-            ));
+            header.add_child(Dom::create_p_with_text(label("azpaint-no-pen")));
         }
     }
     header.add_child(
@@ -1153,11 +1155,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     );
 
     use azul::menu::{Menu, MenuItem, StringMenuItem};
-    let action = |label: &str, cb: CallbackType| {
-        MenuItem::string(StringMenuItem::create(label).with_callback(data.clone(), cb))
+    let action = |name: &str, cb: CallbackType| {
+        MenuItem::string(StringMenuItem::create(label(name)).with_callback(data.clone(), cb))
     };
-    let action_with_accel = |label: &str, cb: CallbackType, keys: &[azul::dom::VirtualKeyCode]| {
-        let mut item = StringMenuItem::create(label).with_callback(data.clone(), cb);
+    let action_with_accel = |name: &str, cb: CallbackType, keys: &[azul::dom::VirtualKeyCode]| {
+        let mut item = StringMenuItem::create(label(name)).with_callback(data.clone(), cb);
         item.accelerator =
             azul::option::OptionVirtualKeyCodeCombo::Some(azul::dom::VirtualKeyCodeCombo {
                 keys: keys.to_vec().into(),
@@ -1166,32 +1168,32 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     use azul::dom::VirtualKeyCode as K;
     let menu = Menu::create(vec![
-        MenuItem::string(StringMenuItem::create("File").with_children(vec![
-            action_with_accel("Import image…", on_import, &[K::LWin, K::O]),
-            action_with_accel("Export PNG", on_export, &[K::LWin, K::S]),
-            action_with_accel("Export SVG", on_export_svg, &[K::LWin, K::LShift, K::S]),
+        MenuItem::string(StringMenuItem::create(label("azpaint-menu-file")).with_children(vec![
+            action_with_accel("azpaint-import-image-menu", on_import, &[K::LWin, K::O]),
+            action_with_accel("azpaint-export-png", on_export, &[K::LWin, K::S]),
+            action_with_accel("azpaint-export-svg", on_export_svg, &[K::LWin, K::LShift, K::S]),
         ])),
-        MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
-            action_with_accel("Undo", on_undo, &[K::LWin, K::Z]),
-            action_with_accel("Redo", on_redo, &[K::LWin, K::LShift, K::Z]),
-            action("Clear", on_clear),
+        MenuItem::string(StringMenuItem::create(label("azpaint-menu-edit")).with_children(vec![
+            action_with_accel("azpaint-undo", on_undo, &[K::LWin, K::Z]),
+            action_with_accel("azpaint-redo", on_redo, &[K::LWin, K::LShift, K::Z]),
+            action("azpaint-clear", on_clear),
         ])),
-        MenuItem::string(StringMenuItem::create("View").with_children(vec![action(
-            "Toggle effect (Brush / Metaballs)",
+        MenuItem::string(StringMenuItem::create(label("azpaint-menu-view")).with_children(vec![action(
+            "azpaint-toggle-effect",
             on_toggle_mode,
         )])),
-        MenuItem::string(StringMenuItem::create("Help").with_children(vec![
-            action("Settings…", on_settings_open),
-            action("About AzPaint", on_about_open),
+        MenuItem::string(StringMenuItem::create(label("azpaint-menu-help")).with_children(vec![
+            action("azpaint-settings", on_settings_open),
+            action("azpaint-about", on_about_open),
         ])),
     ]);
 
     let ctx_menu = Menu::create(vec![
         MenuItem::string(
-            StringMenuItem::create("Metaballs mode").with_callback(data.clone(), on_set_metaballs),
+            StringMenuItem::create(label("azpaint-metaballs-mode")).with_callback(data.clone(), on_set_metaballs),
         ),
         MenuItem::string(
-            StringMenuItem::create("Normal paint mode").with_callback(data.clone(), on_set_brush),
+            StringMenuItem::create(label("azpaint-normal-mode")).with_callback(data.clone(), on_set_brush),
         ),
     ]);
     let canvas = canvas.with_context_menu(ctx_menu.clone());
@@ -1230,13 +1232,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 fn about_dialog(data: &RefAny) -> Dom {
     let about = AboutDialog::create(ABOUT.name, ABOUT.version)
         .with_icon("brush")
-        .with_description(ABOUT.summary)
-        .with_copyright("MIT license")
+        .with_description(azul_appkit::l10n::app_word(ABOUT.name, "about-summary", ABOUT.summary))
+        .with_copyright(label("azpaint-mit-license"))
         .with_credit("azul", "MIT")
         .with_on_event(data.clone(), on_about_event as StandardDialogOnEventCallbackType)
         .dom();
     Dialog::create(about)
-        .with_title("About AzPaint")
+        .with_title(label("azpaint-about"))
         .with_open(true)
         .with_modal(true)
         .with_close_button(true)
@@ -1629,7 +1631,7 @@ extern "C" fn on_set_brush(mut data: RefAny, _info: CallbackInfo) -> Update {
 
 extern "C" fn on_import(data: RefAny, _info: CallbackInfo) -> Update {
     let _request = FileDialog::open_file(
-        "Import image",
+        t("azpaint-import-image"),
         OptionString::None,
         OptionFileTypeList::None,
         data,
@@ -1785,6 +1787,15 @@ pub fn start() {
     let picture = app_args.files.first().cloned();
     let sample = app_args.sample;
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], app_args);
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     if screen == "settings" {
         kit::open_settings(&kit_ref, None);
     }
@@ -1804,7 +1815,6 @@ pub fn start() {
             Err(e) => eprintln!("[azpaint] {}: {e}", path.display()),
         }
     }
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (1024.0, 720.0), (480.0, 360.0), on_window_created);
     App::create(RefAny::new(state), config).run(window);
 }

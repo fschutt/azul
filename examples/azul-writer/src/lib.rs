@@ -23,6 +23,9 @@ mod backstage;
 pub mod commands;
 pub mod docx;
 pub mod ids;
+pub mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod pages;
 pub mod paginate;
@@ -74,6 +77,7 @@ pub const SPEC: AppSpec = AppSpec {
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzWriter",
     version: env!("CARGO_PKG_VERSION"),
+    // The About page says it by `azwriter-about-summary` (l10n::app_word).
     summary: "A document editor with A4 pages: headings, lists, tables, page breaks, Word import \
               and PDF export. Every document is a Markdown file in your data folder.",
     license: "MIT",
@@ -81,20 +85,20 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 pub const SHORTCUTS: [Shortcut; 14] = [
-    Shortcut::new("Document", "Mod+N", "New document"),
-    Shortcut::new("Document", "Mod+O", "Open a document"),
-    Shortcut::new("Document", "Mod+S", "Save"),
-    Shortcut::new("Document", "Mod+P", "Export as PDF"),
-    Shortcut::new("Editing", "Mod+Z", "Undo"),
-    Shortcut::new("Editing", "Mod+Shift+Z / Mod+Y", "Redo"),
-    Shortcut::new("Editing", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
-    Shortcut::new("Editing", "Mod+Shift+X", "Strikethrough"),
-    Shortcut::new("Editing", "Mod+E", "Inline code"),
-    Shortcut::new("Editing", "Mod+0 / 1 / 2 / 3", "Normal text / heading 1 - 3"),
-    Shortcut::new("Editing", "Mod+Shift+7 / 8 / 9", "Numbered / bulleted / check list"),
-    Shortcut::new("Editing", "Tab / Shift+Tab", "Indent / outdent a list item"),
-    Shortcut::new("Window", "Escape", "Leave File, close About"),
-    Shortcut::new("Window", "F6", "The next pane"),
+    Shortcut::new("azwriter-shortcut-document", "Mod+N", "azwriter-new-document"),
+    Shortcut::new("azwriter-shortcut-document", "Mod+O", "azwriter-open-document"),
+    Shortcut::new("azwriter-shortcut-document", "Mod+S", "azwriter-save"),
+    Shortcut::new("azwriter-shortcut-document", "Mod+P", "azwriter-export-pdf"),
+    Shortcut::new("azwriter-group-editing", "Mod+Z", "azwriter-undo"),
+    Shortcut::new("azwriter-group-editing", "Mod+Shift+Z / Mod+Y", "azwriter-redo"),
+    Shortcut::new("azwriter-group-editing", "Mod+B / Mod+I / Mod+U", "azwriter-shortcut-bold"),
+    Shortcut::new("azwriter-group-editing", "Mod+Shift+X", "azwriter-strikethrough"),
+    Shortcut::new("azwriter-group-editing", "Mod+E", "azwriter-shortcut-code"),
+    Shortcut::new("azwriter-group-editing", "Mod+0 / 1 / 2 / 3", "azwriter-shortcut-styles"),
+    Shortcut::new("azwriter-group-editing", "Mod+Shift+7 / 8 / 9", "azwriter-shortcut-lists"),
+    Shortcut::new("azwriter-group-editing", "Tab / Shift+Tab", "azwriter-shortcut-indent"),
+    Shortcut::new("azwriter-group-window", "Escape", "azwriter-shortcut-escape"),
+    Shortcut::new("azwriter-group-window", "F6", "azwriter-shortcut-next-pane"),
 ];
 
 // ==== Start ====
@@ -129,6 +133,15 @@ pub fn start() {
         let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
         root.unwrap_or_default()
     };
+    // appkit's words and AzWriter's before any is said; the language chosen (Settings,
+    // `--language`) says them from here.
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let mut st = AppState::new(kit_ref.clone(), data_root, args.sample);
     st.doc = Some(DocumentModel::untitled(model::new_document_id()));
     if let Some(doc) = args.files.first().and_then(|p| import_at_start(p)) {
@@ -147,7 +160,6 @@ pub fn start() {
         Some("settings") => kit::open_settings(&kit_ref, None),
         _ => {}
     }
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), on_window_created);
     App::create(RefAny::new(st), config).run(window);
 }
@@ -165,9 +177,17 @@ fn column(children: Vec<Dom>) -> Dom {
 
 /// The About box (open while `about_open`).
 fn about_modal(app: &RefAny, st: &AppState) -> Dom {
-    let about = AboutDialog::create(AzString::from(ABOUT.name), AzString::from(format!("Version {}", ABOUT.version)))
+    let version = azul_appkit::l10n::t_args(
+        "azwriter-version",
+        &[("version", azul_appkit::l10n::Arg::from(ABOUT.version))],
+    );
+    let about = AboutDialog::create(AzString::from(ABOUT.name), AzString::from(version))
         .with_icon(AzString::from("description"))
-        .with_description(AzString::from(ABOUT.summary))
+        .with_description(AzString::from(azul_appkit::l10n::app_word(
+            ABOUT.name,
+            "about-summary",
+            ABOUT.summary,
+        )))
         .with_copyright(AzString::from("Copyright 2026 the azul contributors"))
         .with_credit(AzString::from("azul"), AzString::from("MIT"))
         .with_credit(AzString::from("docx-parser"), AzString::from("MIT"))
@@ -175,13 +195,15 @@ fn about_modal(app: &RefAny, st: &AppState) -> Dom {
         .dom()
         .with_id(ids::ABOUT);
     Modal::create(about)
-        .with_title(AzString::from("About AzWriter"))
+        .with_title(azul_appkit::l10n::label("azwriter-about"))
         .with_open(st.about_open)
         .with_on_close(app.clone(), on_modal_close)
         .dom()
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The layout's language says the words (a switch of it too).
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode and the theme makes a switch of either rebuild the window.
     let _mode = info.get_mode();
     let _theme = info.get_theme();
@@ -291,7 +313,10 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                 st.docs = storage::entries_from(&files);
                 st.listed = true;
                 if let Some(e) = errors.first() {
-                    st.notice = format!("Some documents could not be read: {e}");
+                    st.notice = azul_appkit::l10n::t_args(
+                        "azwriter-some-unread",
+                        &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                    );
                 }
                 println!("AZWRITER_LISTED {}", st.docs.len());
             }
@@ -304,8 +329,13 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     let text = String::from_utf8_lossy(&bytes).into_owned();
                     commands::show_document(st, DocumentModel::from_markdown(id, &text));
                 }
-                Ok(None) => st.notice = "That document is gone.".to_string(),
-                Err(e) => st.notice = format!("The document could not be read: {e}"),
+                Ok(None) => st.notice = azul_appkit::l10n::t("azwriter-doc-gone"),
+                Err(e) => {
+                    st.notice = azul_appkit::l10n::t_args(
+                        "azwriter-doc-unread",
+                        &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                    );
+                }
             },
             FileOutcome::Put { key, result } => {
                 let save = storage::id_of_key(&key).map(str::to_string);
@@ -323,16 +353,29 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     (Some(id), Err(e)) => {
                         st.pending_saves.retain(|(i, _)| *i != id);
                         st.close_after_save = false;
-                        st.notice = format!("The document could not be saved: {e}");
+                        st.notice = azul_appkit::l10n::t_args(
+                            "azwriter-doc-unsaved",
+                            &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                        );
                     }
                     (None, Ok(())) => {
-                        st.notice = format!(
-                            "Exported to {}",
-                            azul_appkit::data::local_path(&st.data_root, &key).display()
+                        st.notice = azul_appkit::l10n::t_args(
+                            "azwriter-exported",
+                            &[(
+                                "path",
+                                azul_appkit::l10n::Arg::from(
+                                    azul_appkit::data::local_path(&st.data_root, &key).display().to_string(),
+                                ),
+                            )],
                         );
                         println!("AZWRITER_EXPORTED {key}");
                     }
-                    (None, Err(e)) => st.notice = format!("The export failed: {e}"),
+                    (None, Err(e)) => {
+                        st.notice = azul_appkit::l10n::t_args(
+                            "azwriter-export-failed",
+                            &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                        );
+                    }
                 }
             }
             FileOutcome::Deleted { key, result } => match result {
@@ -340,7 +383,12 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     "AZWRITER_DELETED {}",
                     storage::id_of_key(&key).unwrap_or_default()
                 ),
-                Err(e) => st.notice = format!("The document could not be deleted: {e}"),
+                Err(e) => {
+                    st.notice = azul_appkit::l10n::t_args(
+                        "azwriter-doc-undeleted",
+                        &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
+                    );
+                }
             },
         }
     }

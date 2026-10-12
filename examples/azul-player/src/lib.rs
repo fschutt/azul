@@ -82,6 +82,9 @@ pub mod dialog;
 pub mod gallery;
 pub mod history;
 pub mod ids;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod library;
 pub mod look;
 pub mod media;

@@ -22,6 +22,9 @@ pub mod feed;
 pub mod fetch;
 pub mod ids;
 pub mod jobs;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod library;
 pub mod links;
 pub mod opml;

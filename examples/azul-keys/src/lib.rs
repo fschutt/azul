@@ -26,6 +26,9 @@ pub mod generator;
 pub mod ids;
 pub mod import;
 pub mod jobs;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod lock;
 pub mod sample;
 pub mod session;
@@ -52,6 +55,15 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref).with_app_id("org.azul.AzKeys");
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     // The device unlock is an action (the vault's key goes into the keyring or leaves it), not
     // a choice: Cancel on the settings page leaves its `device_unlock.<vault>` values alone.
     kit::keep_on_cancel(&kit_ref, &crate::app::device_unlock_key(""));
@@ -101,7 +113,6 @@ pub fn start() {
         import_files: args.files.clone(),
         sample: args.sample,
     };
-    let config = kit::app_config(&kit_ref).with_app_id("org.azul.AzKeys");
     let window = kit::window_options(
         &kit_ref,
         ui::layout,

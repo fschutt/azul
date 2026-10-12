@@ -50,6 +50,9 @@
 
 pub mod args;
 pub mod ids;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod route;
 
@@ -83,6 +86,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::AppSpec,
     files::{FileJob, FileOutcome},
+    l10n::{label, t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -118,12 +122,12 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keys AzMaps answers (the kit adds Mod+, / F1 / Escape).
 pub const SHORTCUTS: [Shortcut; 6] = [
-    Shortcut::new("Map", "Left", "Pan west"),
-    Shortcut::new("Map", "Right", "Pan east"),
-    Shortcut::new("Map", "Up", "Pan north"),
-    Shortcut::new("Map", "Down", "Pan south"),
-    Shortcut::new("Map", "+", "Zoom in"),
-    Shortcut::new("Map", "-", "Zoom out"),
+    Shortcut::new("azmaps-shortcuts-map", "Left", "azmaps-pan-west"),
+    Shortcut::new("azmaps-shortcuts-map", "Right", "azmaps-pan-east"),
+    Shortcut::new("azmaps-shortcuts-map", "Up", "azmaps-pan-north"),
+    Shortcut::new("azmaps-shortcuts-map", "Down", "azmaps-pan-south"),
+    Shortcut::new("azmaps-shortcuts-map", "+", "azmaps-zoom-in"),
+    Shortcut::new("azmaps-shortcuts-map", "-", "azmaps-zoom-out"),
 ];
 
 /// The write-back tags of AzMaps' file jobs.
@@ -506,13 +510,13 @@ fn tool(app: &RefAny, icon: &str, name: &str, id: AzString, on_click: ButtonOnCl
         .with_on_click(app.clone(), on_click)
         .dom()
         .with_id(id)
-        .with_accessibility_name(name)
+        .with_accessibility_name(label(name))
 }
 
 /// The title area over the map: the window moves by it; the sidebar's
 /// button on the left, the settings on the right, no text.
 fn title_area(s: &MapState, app: &RefAny) -> Dom {
-    let toggle_name = if s.sidebar_open { "Hide sidebar" } else { "Show sidebar" };
+    let toggle_name = label(if s.sidebar_open { "azmaps-hide-sidebar" } else { "azmaps-show-sidebar" });
     Dom::create_div()
         .with_css(TITLE_AREA)
         .with_id(ids::TITLE)
@@ -531,7 +535,7 @@ fn title_area(s: &MapState, app: &RefAny) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(NO_DRAG)
-                .with_child(tool(app, "settings", "Settings", ids::SETTINGS, on_settings_open)),
+                .with_child(tool(app, "settings", "azmaps-settings", ids::SETTINGS, on_settings_open)),
         )
 }
 
@@ -565,8 +569,8 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
                 Dom::create_div().with_css(FIELD_GROW).with_child(
                     TextInput::create()
                         .with_text(text)
-                        .with_placeholder(placeholder)
-                        .with_accessibility_name(name)
+                        .with_placeholder(label(placeholder))
+                        .with_accessibility_name(label(name))
                         .with_on_text_input(
                             RefAny::new(FieldRef {
                                 app: app.clone(),
@@ -579,29 +583,29 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
                 ),
             )
     };
-    let from_placeholder = if s.last_fix.is_some() { "My Location" } else { "From" };
+    let from_placeholder = if s.last_fix.is_some() { "azmaps-my-location" } else { "azmaps-from" };
     let fields = Dom::create_div()
         .with_css(FIELDS)
         .with_child(field(
             FROM_MARK,
             &s.travel.from,
             from_placeholder,
-            "Start",
+            "azmaps-start",
             ids::TRAVEL_FROM,
             End::From,
         ))
         .with_child(field(
             TO_MARK,
             &s.travel.to,
-            "To",
-            "Destination",
+            "azmaps-to",
+            "azmaps-destination",
             ids::TRAVEL_TO,
             End::To,
         ));
     let ends = Dom::create_div().with_css(ROW).with_child(fields).with_child(tool(
         app,
         "swap_vert",
-        "Swap start and destination",
+        "azmaps-swap",
         ids::TRAVEL_SWAP,
         on_travel_swap,
     ));
@@ -621,7 +625,7 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
                 )
                 .dom()
                 .with_id(ids::travel_mode(mode.key()))
-                .with_accessibility_name(mode.label()),
+                .with_accessibility_name(label(mode.label())),
         );
     }
     if let (Some(a), Some(b)) = s.travel_ends() {
@@ -646,7 +650,7 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
     Dom::create_div()
         .with_css(TRAVEL_PANEL)
         .with_id(ids::TRAVEL)
-        .with_accessibility_name("Directions")
+        .with_accessibility_name(label("azmaps-directions"))
         .with_child(ends)
         .with_child(modes)
 }
@@ -666,7 +670,7 @@ fn recents(s: &MapState, app: &RefAny) -> Option<Dom> {
     let mut list = Dom::create_div()
         .with_css(RECENTS_LIST)
         .with_id(ids::RECENTS)
-        .with_accessibility_name("Recents");
+        .with_accessibility_name(label("azmaps-recents"));
     for (index, &(lat, lon)) in s.pins.iter().enumerate().rev() {
         list.add_child(
             Button::create(coords(lat, lon))
@@ -692,12 +696,12 @@ fn recents(s: &MapState, app: &RefAny) -> Option<Dom> {
                     .with_child(
                         Dom::create_div()
                             .with_css("flex-grow: 1;")
-                            .with_child(Dom::create_span_with_text("Recents")),
+                            .with_child(Dom::create_span_with_text(label("azmaps-recents"))),
                     )
                     .with_child(tool(
                         app,
                         "delete_sweep",
-                        "Clear recents",
+                        "azmaps-clear-recents",
                         ids::CLEAR_PINS,
                         on_clear_pins,
                     )),
@@ -711,7 +715,7 @@ fn sidebar(s: &MapState, app: &RefAny) -> Dom {
     let mut side = Dom::create_div()
         .with_css(SIDEBAR)
         .with_id(ids::SIDEBAR)
-        .with_accessibility_name("Sidebar")
+        .with_accessibility_name(label("azmaps-sidebar"))
         .with_child(travel_panel(s, app));
     if let Some(list) = recents(s, app) {
         side.add_child(list);
@@ -733,7 +737,7 @@ fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(CARD_TITLE)
-                .with_child(Dom::create_span_with_text("Dropped Pin")),
+                .with_child(Dom::create_span_with_text(label("azmaps-dropped-pin"))),
         )
         .with_child(
             Dom::create_div()
@@ -744,7 +748,7 @@ fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
             Dom::create_div()
                 .with_css(ROW)
                 .with_child(
-                    Button::with_type("Directions", ButtonType::Primary)
+                    Button::with_type(label("azmaps-directions"), ButtonType::Primary)
                         .with_icon("directions")
                         .with_on_click(pin(), on_place_directions as ButtonOnClickCallbackType)
                         .dom()
@@ -756,7 +760,7 @@ fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
                         .with_on_click(pin(), on_place_remove as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::indexed("place-remove", index))
-                        .with_accessibility_name("Remove"),
+                        .with_accessibility_name(label("azmaps-remove")),
                 ),
         )
 }
@@ -863,7 +867,7 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
                 area.add_child(
                     Dom::create_div()
                         .with_css(dot.as_str())
-                        .with_accessibility_name("You are here"),
+                        .with_accessibility_name(label("azmaps-you-are-here")),
                 );
             }
         }
@@ -885,9 +889,12 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
         area.add_child(
             Dom::create_div()
                 .with_css(COMPASS_BADGE)
-                .with_accessibility_name(format!(
-                    "Heading {} {heading:03.0}\u{b0}",
-                    cardinal(heading)
+                .with_accessibility_name(t_args(
+                    "azmaps-heading",
+                    &[
+                        ("direction", Arg::word(&format!("azmaps-direction-{}", cardinal(heading).to_ascii_lowercase()), cardinal(heading))),
+                        ("degrees", Arg::from(format!("{heading:03.0}"))),
+                    ],
                 ))
                 .with_child(
                     Dom::create_div()
@@ -903,9 +910,9 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
 /// The floating controls, bottom right: where am I, zoom.
 fn map_controls(s: &MapState, app: &RefAny) -> Dom {
     let (locate_icon, locate_name) = if s.locate_failed {
-        ("location_disabled", "Location unavailable")
+        ("location_disabled", label("azmaps-location-unavailable"))
     } else {
-        ("my_location", "Show my location")
+        ("my_location", label("azmaps-show-location"))
     };
     Dom::create_div()
         .with_css(CONTROLS)
@@ -923,8 +930,8 @@ fn map_controls(s: &MapState, app: &RefAny) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(CONTROL_GROUP)
-                .with_child(tool(app, "add", "Zoom in", ids::ZOOM_IN, on_zoom_in))
-                .with_child(tool(app, "remove", "Zoom out", ids::ZOOM_OUT, on_zoom_out)),
+                .with_child(tool(app, "add", "azmaps-zoom-in", ids::ZOOM_IN, on_zoom_in))
+                .with_child(tool(app, "remove", "azmaps-zoom-out", ids::ZOOM_OUT, on_zoom_out)),
         )
 }
 
@@ -954,6 +961,7 @@ fn screen(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window (the
     // tiles' style follows it).
     let _mode = info.get_mode();
@@ -1043,7 +1051,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                             }
                             Err(why) => {
                                 println!("AZMAPS_PINS_ERROR {why}");
-                                s.notice = format!("The pins file could not be read: {why}");
+                                s.notice = t_args("azmaps-pins-unreadable", &[("why", Arg::from(why.to_string()))]);
                             }
                         }
                     }
@@ -1051,7 +1059,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                     other => {
                         let why = other.error().unwrap_or_default();
                         println!("AZMAPS_PINS_ERROR {why}");
-                        s.notice = format!("The pins file could not be read: {why}");
+                        s.notice = t_args("azmaps-pins-unreadable", &[("why", Arg::from(why.to_string()))]);
                     }
                 }
             }
@@ -1065,7 +1073,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                 }
                 Some(why) => {
                     println!("AZMAPS_PINS_ERROR {why}");
-                    s.notice = format!("The pins could not be saved: {why}");
+                    s.notice = t_args("azmaps-pins-unsaved", &[("why", Arg::from(why.to_string()))]);
                 }
             }
             again = s.save_pending;
@@ -1506,6 +1514,15 @@ pub fn start() {
         std::env::set_var("AZ_MAP_STATS", "1");
     }
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.kit);
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let (data_root, pins_key, kept, sidebar_open) = {
         let mut k = kit_ref.clone();
         let read = match k.downcast_ref::<kit::Kit>() {
@@ -1571,7 +1588,7 @@ pub fn start() {
         route_asked: None,
         route_latest: Arc::new(AtomicU64::new(0)),
     };
-    let app = App::create(RefAny::new(state), kit::app_config(&kit_ref));
+    let app = App::create(RefAny::new(state), config);
     let window =
         kit::window_options(&kit_ref, layout, (1100.0, 720.0), (640.0, 420.0), on_window_created);
     app.run(window);

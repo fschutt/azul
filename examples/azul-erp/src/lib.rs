@@ -40,6 +40,10 @@ pub mod csv_io;
 pub mod depreciation;
 /// The DOM ids and classes (`__azerp_` prefix), each defined once.
 pub mod ids;
+/// AzERP's words in English and German.
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 /// The records (asset, category, location, maintenance entry, check-out)
 /// and their files.
 pub mod model;
@@ -61,7 +65,7 @@ pub mod views;
 use azul::prelude::*;
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::{AppArgs, AppSpec, LanguagePref},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -116,22 +120,31 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: store::APP_FOLDER,
 };
 
-/// The keyboard shortcuts the settings page lists.
+/// The keyboard shortcuts the settings page lists: the groups and what the keys do are keys of
+/// AzERP's words.
 pub const SHORTCUTS: [Shortcut; 6] = [
     Shortcut::new(
-        "Register",
+        "azerp-shortcuts-register",
         "Up  Down  Page Up  Page Down",
-        "Move through the assets",
+        "azerp-shortcut-move",
     ),
-    Shortcut::new("Register", "Enter  Double-click", "Open the asset"),
     Shortcut::new(
-        "Register",
-        "Click  Shift+Click",
-        "Sort by a column, add a second key",
+        "azerp-shortcuts-register",
+        "Enter  Double-click",
+        "azerp-shortcut-open",
     ),
-    Shortcut::new("Register", "Mod+F", "Filter the cursor's column"),
-    Shortcut::new("Form", "Escape", "Close the form without saving"),
-    Shortcut::new("Register", "Mod+C", "Copy the selected rows"),
+    Shortcut::new(
+        "azerp-shortcuts-register",
+        "Click  Shift+Click",
+        "azerp-shortcut-sort",
+    ),
+    Shortcut::new("azerp-shortcuts-register", "Mod+F", "azerp-shortcut-filter"),
+    Shortcut::new(
+        "azerp-shortcuts-form",
+        "Escape",
+        "azerp-shortcut-close-form",
+    ),
+    Shortcut::new("azerp-shortcuts-register", "Mod+C", "azerp-shortcut-copy"),
 ];
 
 /// The settings page's own categories (none: the kit's are enough).
@@ -157,6 +170,15 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let mut state = app::State::new(today());
     match args.screen.as_deref() {
         Some("settings") => kit::open_settings(&kit_ref, None),
@@ -183,7 +205,6 @@ pub fn start() {
             Err(e) => eprintln!("[AzERP] {e}"),
         }
     }
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(
         &kit_ref,
         ui::layout,

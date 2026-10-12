@@ -7,11 +7,13 @@ use azul::{
         ButtonOnClickCallbackType, CallbackInfo, RefAny, SegmentedOnChangeCallbackType, Update,
     },
     dom::Dom,
-    str::String as AzString,
     vec::StringVec,
     widgets::{Button, Segmented, SegmentedState},
 };
-use azul_appkit::ui::{self as kit, AppSection};
+use azul_appkit::{
+    l10n::{label, t, t_args, Arg},
+    ui::{self as kit, AppSection},
+};
 
 use crate::{
     app::{command, AppState, Command},
@@ -20,8 +22,9 @@ use crate::{
     settings::{FontChoice, PageLayout, Paper},
 };
 
+/// A segmented control's choices: keys said in the window's language.
 fn labels(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
+    StringVec::from_vec(items.iter().map(|s| label(s)).collect())
 }
 
 /// `- value +`: two buttons around the value.
@@ -58,16 +61,16 @@ pub fn section(app: &RefAny, st: &AppState) -> AppSection {
         .with_id(ids::READING_SETTINGS)
         .with_css("display: flex; flex-direction: column;")
         .with_child(kit::row(
-            "Text size",
+            "azreader-text-size",
             stepper(
                 app,
-                format!("{} px", s.font_px),
+                t_args("azreader-px", &[("n", Arg::from(s.font_px))]),
                 Command::FontSize(-1),
                 Command::FontSize(1),
             ),
         ))
         .with_child(kit::row(
-            "Line spacing",
+            "azreader-line-spacing",
             stepper(
                 app,
                 s.line_height(),
@@ -76,49 +79,46 @@ pub fn section(app: &RefAny, st: &AppState) -> AppSection {
             ),
         ))
         .with_child(kit::row(
-            "Margins",
+            "azreader-margins",
             stepper(
                 app,
-                format!("{} px", s.margin_px),
+                t_args("azreader-px", &[("n", Arg::from(s.margin_px))]),
                 Command::Margins(-8),
                 Command::Margins(8),
             ),
         ))
         .with_child(kit::row(
-            "Font",
+            "azreader-font",
             Segmented::create(labels(&fonts))
                 .with_selected_index(s.font.index())
                 .with_on_change(app.clone(), on_font as SegmentedOnChangeCallbackType)
                 .dom(),
         ))
         .with_child(kit::row(
-            "Paper",
+            "azreader-paper",
             Segmented::create(labels(&paper))
                 .with_selected_index(s.paper.index())
                 .with_on_change(app.clone(), on_paper as SegmentedOnChangeCallbackType)
                 .dom(),
         ))
         .with_child(kit::row(
-            "Pages",
+            "azreader-pages",
             Segmented::create(labels(&layouts))
                 .with_selected_index(s.layout.index())
                 .with_on_change(app.clone(), on_layout as SegmentedOnChangeCallbackType)
                 .dom(),
         ))
         .with_child(kit::row(
-            "Alignment",
-            Segmented::create(labels(&["Justified", "Left"]))
+            "azreader-alignment",
+            Segmented::create(labels(&["azreader-justified", "azreader-left"]))
                 .with_selected_index(usize::from(!s.justify))
                 .with_on_change(app.clone(), on_justify as SegmentedOnChangeCallbackType)
                 .dom(),
         ))
-        .with_child(kit::note(
-            "Auto paper follows the light or dark mode. Two pages show side by side when the \
-             window is wide enough (Auto) or always (Two pages).",
-        ));
+        .with_child(kit::note("azreader-settings-note"));
     AppSection {
         category: 0,
-        title: "Reading".to_string(),
+        title: t("azreader-category-reading"),
         content,
     }
 }

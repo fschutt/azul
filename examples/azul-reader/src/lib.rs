@@ -27,6 +27,9 @@ pub mod content;
 pub mod epub;
 pub mod ids;
 pub mod jobs;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod library;
 pub mod paginate;
 pub mod plainbook;
@@ -56,7 +59,8 @@ use azul::{
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::{AppArgs, AppSpec, LanguagePref},
+    l10n::{app_word, begin_layout, t, t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -89,19 +93,42 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: library::APP_FOLDER,
 };
 
+/// The keyboard shortcuts the settings page lists: the groups and what the keys do are keys of
+/// AzReader's words.
 pub const SHORTCUTS: [Shortcut; 9] = [
-    Shortcut::new("Reading", "Right / Down / PageDown / Space", "Next page"),
-    Shortcut::new("Reading", "Left / Up / PageUp", "Previous page"),
-    Shortcut::new("Reading", "Home", "The book's start"),
-    Shortcut::new("Reading", "Mod+D", "Bookmark this page"),
-    Shortcut::new("Reading", "Mod+T", "Contents"),
-    Shortcut::new("Reading", "Mod+B", "Bookmarks"),
-    Shortcut::new("Reading", "Mod+Plus / Mod+Minus", "Larger / smaller text"),
-    Shortcut::new("Library", "Mod+O", "Add a book"),
-    Shortcut::new("Library", "Mod+L", "The library"),
+    Shortcut::new(
+        "azreader-category-reading",
+        "Right / Down / PageDown / Space",
+        "azreader-shortcut-next-page",
+    ),
+    Shortcut::new(
+        "azreader-category-reading",
+        "Left / Up / PageUp",
+        "azreader-shortcut-previous-page",
+    ),
+    Shortcut::new(
+        "azreader-category-reading",
+        "Home",
+        "azreader-shortcut-start",
+    ),
+    Shortcut::new(
+        "azreader-category-reading",
+        "Mod+D",
+        "azreader-shortcut-bookmark",
+    ),
+    Shortcut::new("azreader-category-reading", "Mod+T", "azreader-contents"),
+    Shortcut::new("azreader-category-reading", "Mod+B", "azreader-bookmarks"),
+    Shortcut::new(
+        "azreader-category-reading",
+        "Mod+Plus / Mod+Minus",
+        "azreader-shortcut-text-size",
+    ),
+    Shortcut::new("azreader-library", "Mod+O", "azreader-add-a-book"),
+    Shortcut::new("azreader-library", "Mod+L", "azreader-shortcut-library"),
 ];
 
-/// The app's own settings category (first on the settings page).
+/// The app's own settings category (first on the settings page): an id, shown as
+/// `azreader-category-reading`.
 pub const SETTINGS_CATEGORY: &str = "Reading";
 
 // ==== Start ====
@@ -115,6 +142,15 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[SETTINGS_CATEGORY], args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let (data_root, settings) = {
         let mut k = kit_ref.clone();
         let found = k.downcast_ref::<kit::Kit>().map(|k| {
@@ -130,7 +166,6 @@ pub fn start() {
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, Some(SETTINGS_CATEGORY));
     }
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(
         &kit_ref,
         layout,
@@ -156,23 +191,33 @@ fn column(children: Vec<Dom>) -> Dom {
 fn about_modal(app: &RefAny, st: &AppState) -> Dom {
     let about = AboutDialog::create(
         AzString::from(ABOUT.name),
-        AzString::from(format!("Version {}", ABOUT.version)),
+        AzString::from(t_args(
+            "azreader-version",
+            &[("version", Arg::from(ABOUT.version))],
+        )),
     )
     .with_icon(AzString::from("auto_stories"))
-    .with_description(AzString::from(ABOUT.summary))
-    .with_copyright(AzString::from("Copyright 2026 the azul contributors"))
+    .with_description(AzString::from(app_word(
+        ABOUT.name,
+        "about-summary",
+        ABOUT.summary,
+    )))
+    .with_copyright(AzString::from(t("azreader-copyright")))
     .with_credit(AzString::from("azul"), AzString::from("MIT"))
+    .with_labels(t("azreader-about-credits"), t("kit-button-ok"))
     .with_on_event(app.clone(), on_about)
     .dom()
     .with_id(ids::ABOUT);
     Modal::create(about)
-        .with_title(AzString::from("About AzReader"))
+        .with_title(AzString::from(t("azreader-about-title")))
         .with_open(st.about_open)
         .with_on_close(app.clone(), on_modal_close)
         .dom()
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for every word this pass says.
+    begin_layout(&info);
     // Reading the mode and the theme makes a switch of either rebuild the window.
     let mode = info.get_mode();
     let theme = info.get_theme();

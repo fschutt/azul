@@ -35,7 +35,7 @@ def body(args, logs, out):
     binary = e2e.find_binary("AzPaint", args.bin, "AZPAINT_BIN")
     data = os.path.join(logs, "data")
     os.makedirs(data, exist_ok=True)
-    app = e2e.App("AzPaint", binary, ["--data-dir", data, "--size", "%dx640" % WINDOW_W],
+    app = e2e.App("AzPaint", binary, ["--data-dir", data, "--size", "%dx640" % WINDOW_W, "--language", "en"],
                   args.debug_port, logs, args.timeout)
 
     def shot(name):

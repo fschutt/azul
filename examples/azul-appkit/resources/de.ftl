@@ -89,6 +89,7 @@ kit-key-up = Nach oben
 kit-key-down = Nach unten
 kit-key-left = Nach links
 kit-key-right = Nach rechts
+kit-key-arrows = Pfeiltasten
 
 ## Numbers
 

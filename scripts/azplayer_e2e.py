@@ -441,7 +441,9 @@ def check_settings(app, out, folders):
     app.key("return")
     app.until("the clock turned off in the draft",
               lambda: option(app, "player.show_clock") == "false")
-    app.key("down")
+    # Past the language's three choices to save.
+    for _ in range(4):
+        app.key("down")
     app.until("save", lambda: focus(app) == "setting save")
     app.screenshot(os.path.join(out, "9b-settings-general.png"))
     written = app.count("AZPLAYER_SETTINGS_SAVED")
@@ -625,9 +627,11 @@ def body(args, logs, out):
         print("[%s] ffmpeg not found: the libraries stay empty, the empty states are checked"
               % TAG)
     env = {"AZ_SYNTHETIC_DEVICES": "audio_sink"}
+    # English words: the script reads what the window says.
     common = ["--data-dir", data_dir, "--size", "1100x700", "--theme", "flat", "--mode", "light",
-              "--music-dir", folders["music"], "--pictures-dir", folders["pictures"],
-              "--videos-dir", folders["videos"], "--tv-dir", folders["tv"]]
+              "--language", "en", "--music-dir", folders["music"],
+              "--pictures-dir", folders["pictures"], "--videos-dir", folders["videos"],
+              "--tv-dir", folders["tv"]]
 
     app = e2e.App(TAG, binary, common, args.debug_port, logs, args.timeout, extra_env=env)
     try:

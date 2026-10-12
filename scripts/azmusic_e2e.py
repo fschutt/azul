@@ -195,7 +195,7 @@ def body(args, logs, out):
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
     app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--size", "1280x800", "--theme", "flat",
-                                "--screen", "songs", "--sample"],
+                                "--screen", "songs", "--sample", "--language", "en"],
                   args.debug_port, logs, args.timeout,
                   extra_env={"AZ_SYNTHETIC_DEVICES": "audio_sink"})
     try:

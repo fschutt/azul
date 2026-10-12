@@ -24,8 +24,9 @@ use crate::{
     commands::on_command,
 };
 
+/// A key of the resources said, or words as they are (a document's title).
 fn s(text: &str) -> AzString {
-    AzString::from(text)
+    azul_appkit::l10n::label(text)
 }
 
 /// Every ribbon button runs a [`Command`] through [`on_command`] (azul-appkit's ribbon
@@ -40,14 +41,14 @@ impl RibbonCommand for Command {
     }
 }
 
-/// The paragraph styles of the gallery, in its order.
+/// The paragraph styles of the gallery (their names keys of the resources), in its order.
 pub const STYLES: [(&str, &str); 6] = [
-    ("Normal", "font-size: 13px;"),
-    ("Heading 1", "font-size: 17px; font-weight: bold;"),
-    ("Heading 2", "font-size: 15px; font-weight: bold;"),
-    ("Heading 3", "font-size: 14px; font-weight: bold;"),
-    ("Quote", "font-size: 13px; font-style: italic;"),
-    ("Code", "font-size: 12px; font-family: monospace;"),
+    ("azwriter-style-normal", "font-size: 13px;"),
+    ("azwriter-style-heading-1", "font-size: 17px; font-weight: bold;"),
+    ("azwriter-style-heading-2", "font-size: 15px; font-weight: bold;"),
+    ("azwriter-style-heading-3", "font-size: 14px; font-weight: bold;"),
+    ("azwriter-style-quote", "font-size: 13px; font-style: italic;"),
+    ("azwriter-style-code", "font-size: 12px; font-family: monospace;"),
 ];
 
 /// The block kind of gallery style `index` (`None` past the end).
@@ -139,50 +140,50 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
     let align = editor.map_or(RichAlign::Left, current_align);
 
     let font = group(
-        "Font",
+        "azwriter-group-font",
         vec![row(vec![
-            toggle(app, "format_bold", "Bold", Command::format(RichFormat::Bold), format_on(RichFormat::Bold)),
-            toggle(app, "format_italic", "Italic", Command::format(RichFormat::Italic), format_on(RichFormat::Italic)),
+            toggle(app, "format_bold", "azwriter-bold", Command::format(RichFormat::Bold), format_on(RichFormat::Bold)),
+            toggle(app, "format_italic", "azwriter-italic", Command::format(RichFormat::Italic), format_on(RichFormat::Italic)),
             toggle(
                 app,
                 "format_underlined",
-                "Underline",
+                "azwriter-underline",
                 Command::format(RichFormat::Underline),
                 format_on(RichFormat::Underline),
             ),
             toggle(
                 app,
                 "strikethrough_s",
-                "Strikethrough",
+                "azwriter-strikethrough",
                 Command::format(RichFormat::Strike),
                 format_on(RichFormat::Strike),
             ),
-            toggle(app, "code", "Code", Command::format(RichFormat::Code), format_on(RichFormat::Code)),
+            toggle(app, "code", "azwriter-style-code", Command::format(RichFormat::Code), format_on(RichFormat::Code)),
         ])],
     );
 
     let paragraph = group(
-        "Paragraph",
+        "azwriter-group-paragraph",
         vec![column(vec![
             row(vec![
                 toggle(
                     app,
                     "format_list_bulleted",
-                    "Bullets",
+                    "azwriter-bullets",
                     Command::kind(RichBlockKind::Bullet(0)),
                     kind_on(RichBlockKind::Bullet(0)),
                 ),
                 toggle(
                     app,
                     "format_list_numbered",
-                    "Numbering",
+                    "azwriter-numbering",
                     Command::kind(RichBlockKind::Numbered(0)),
                     kind_on(RichBlockKind::Numbered(0)),
                 ),
                 toggle(
                     app,
                     "checklist",
-                    "Checklist",
+                    "azwriter-checklist",
                     Command::kind(RichBlockKind::Check(RichCheck {
                         indent: 0,
                         checked: false,
@@ -192,27 +193,27 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
                         checked: false,
                     })),
                 ),
-                small(app, "format_indent_decrease", "Outdent", Command::Rich(RichTextCommand::Outdent)),
-                small(app, "format_indent_increase", "Indent", Command::Rich(RichTextCommand::Indent)),
+                small(app, "format_indent_decrease", "azwriter-outdent", Command::Rich(RichTextCommand::Outdent)),
+                small(app, "format_indent_increase", "azwriter-indent", Command::Rich(RichTextCommand::Indent)),
             ]),
             row(vec![
-                toggle(app, "format_align_left", "Left", Command::align(RichAlign::Left), align == RichAlign::Left),
+                toggle(app, "format_align_left", "azwriter-left", Command::align(RichAlign::Left), align == RichAlign::Left),
                 toggle(
                     app,
                     "format_align_center",
-                    "Center",
+                    "azwriter-center",
                     Command::align(RichAlign::Center),
                     align == RichAlign::Center,
                 ),
-                toggle(app, "format_align_right", "Right", Command::align(RichAlign::Right), align == RichAlign::Right),
+                toggle(app, "format_align_right", "azwriter-right", Command::align(RichAlign::Right), align == RichAlign::Right),
                 toggle(
                     app,
                     "format_align_justify",
-                    "Justify",
+                    "azwriter-justify",
                     Command::align(RichAlign::Justify),
                     align == RichAlign::Justify,
                 ),
-                toggle(app, "format_quote", "Quote", Command::Rich(RichTextCommand::ToggleQuote), quoted),
+                toggle(app, "format_quote", "azwriter-style-quote", Command::Rich(RichTextCommand::ToggleQuote), quoted),
             ]),
         ])],
     );
@@ -235,18 +236,18 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
             RefAny::new(GalleryRef { app: app.clone() }),
             on_style as RibbonGalleryOnSelectCallbackType,
         );
-    let styles = group("Styles", vec![RibbonItem::Gallery(gallery)]);
+    let styles = group("azwriter-group-styles", vec![RibbonItem::Gallery(gallery)]);
 
-    let mut undo = button(app, "undo", "Undo", Command::Rich(RichTextCommand::Undo));
+    let mut undo = button(app, "undo", "azwriter-undo", Command::Rich(RichTextCommand::Undo));
     if !editor.is_some_and(RichTextEditorState::can_undo) {
-        undo = undo.with_disabled(s("Nothing to undo"));
+        undo = undo.with_disabled(s("azwriter-nothing-to-undo"));
     }
-    let mut redo = button(app, "redo", "Redo", Command::Rich(RichTextCommand::Redo));
+    let mut redo = button(app, "redo", "azwriter-redo", Command::Rich(RichTextCommand::Redo));
     if !editor.is_some_and(RichTextEditorState::can_redo) {
-        redo = redo.with_disabled(s("Nothing to redo"));
+        redo = redo.with_disabled(s("azwriter-nothing-to-redo"));
     }
     let editing = group(
-        "Editing",
+        "azwriter-group-editing",
         vec![column(vec![RibbonItem::SmallButton(undo), RibbonItem::SmallButton(redo)])],
     );
 
@@ -259,19 +260,19 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
 
 fn insert_tab(app: &RefAny) -> RibbonTab {
     let tables = group(
-        "Tables",
+        "azwriter-group-tables",
         vec![large(
             app,
             "table_chart",
-            "Table",
+            "azwriter-table",
             Command::Rich(RichTextCommand::InsertTable(RichTableSize { rows: 3, columns: 3 })),
         )],
     );
     let pages = group(
-        "Pages",
+        "azwriter-group-pages",
         vec![
-            large(app, "insert_page_break", "Page Break", Command::Rich(RichTextCommand::InsertPageBreak)),
-            large(app, "horizontal_rule", "Line", Command::Rich(RichTextCommand::InsertRule)),
+            large(app, "insert_page_break", "azwriter-page-break", Command::Rich(RichTextCommand::InsertPageBreak)),
+            large(app, "horizontal_rule", "azwriter-line", Command::Rich(RichTextCommand::InsertRule)),
         ],
     );
     RibbonTab::create(s(TABS[1])).with_group(tables).with_group(pages)
@@ -279,31 +280,31 @@ fn insert_tab(app: &RefAny) -> RibbonTab {
 
 fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
     let views = group(
-        "Views",
+        "azwriter-group-views",
         vec![
             RibbonItem::LargeButton(
-                button(app, View::Print.icon(), "Print Layout", Command::View(View::Print))
+                button(app, View::Print.icon(), "azwriter-print-layout", Command::View(View::Print))
                     .with_toggled(st.view == View::Print),
             ),
             RibbonItem::LargeButton(
-                button(app, View::Web.icon(), "Web Layout", Command::View(View::Web))
+                button(app, View::Web.icon(), "azwriter-web-layout", Command::View(View::Web))
                     .with_toggled(st.view == View::Web),
             ),
         ],
     );
     let zoom = group(
-        "Zoom",
+        "azwriter-group-zoom",
         vec![column(vec![
-            small(app, "zoom_in", "Zoom In", Command::Zoom(10)),
-            small(app, "zoom_out", "Zoom Out", Command::Zoom(-10)),
+            small(app, "zoom_in", "azwriter-zoom-in", Command::Zoom(10)),
+            small(app, "zoom_out", "azwriter-zoom-out", Command::Zoom(-10)),
             small(app, "fit_screen", "100%", Command::Zoom(0)),
         ])],
     );
     let help = group(
-        "Window",
+        "azwriter-group-window",
         vec![
-            large(app, "settings", "Settings", Command::Settings),
-            large(app, "info", "About", Command::About),
+            large(app, "settings", "azwriter-settings", Command::Settings),
+            large(app, "info", "azwriter-page-about", Command::About),
         ],
     );
     RibbonTab::create(s(TABS[2])).with_group(views).with_group(zoom).with_group(help)

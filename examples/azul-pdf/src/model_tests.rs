@@ -84,6 +84,7 @@ fn zooming_in_and_out_steps_to_the_next_stop() {
 
 #[test]
 fn a_zoom_has_a_label() {
+    crate::l10n::in_english();
     assert_eq!(Zoom::FitWidth.label(), "Fit width");
     assert_eq!(Zoom::FitPage.label(), "Fit page");
     assert_eq!(Zoom::Percent(125).label(), "125 %");
@@ -160,6 +161,7 @@ fn jumping_to_a_page_scrolls_to_its_top_and_lands_on_it() {
 
 #[test]
 fn a_page_size_is_named_when_it_is_a_paper_size() {
+    crate::l10n::in_english();
     assert_eq!(size_label(A4), "A4 \u{b7} 210 \u{d7} 297 mm");
     let landscape = PageSize {
         width_pt: A4.height_pt,

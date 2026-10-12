@@ -218,7 +218,7 @@ fn text_block(deck: &Deck, element: &Element, body: &TextBody, opts: &RenderOpti
     if body.is_empty() && !editing {
         if opts.prompts && element.placeholder.is_some() && !body.prompt.is_empty() {
             return holder.with_child(
-                Dom::create_p_with_text(body.prompt.as_str())
+                Dom::create_p_with_text(azul_appkit::l10n::label(&body.prompt))
                     .with_css(format!("margin: 0px; color: {};", css_color(deck.theme.colors.text.with_alpha(110)))),
             );
         }

@@ -16,6 +16,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use serde::Deserialize;
 use serde_json::json;
 
+use azul_appkit::l10n::{Phrase, Text};
+
 use crate::crypto::{self, Identity, Invite, Plain, RoomKey};
 
 /// How long a request may go unanswered before it is given up (ms).
@@ -211,7 +213,7 @@ pub struct Changes {
     /// This device was let in (it knocked): it holds the link now.
     pub admitted: bool,
     /// Why the room stopped, or why a request failed (a notice).
-    pub problem: Option<String>,
+    pub problem: Option<Text>,
 }
 
 impl Changes {
@@ -937,19 +939,15 @@ impl ChatRoom {
         }
         let Some(status) = status else {
             self.pending_key = None;
-            self.failed(now_ms, &mut changes, "The meeting server does not answer.");
+            self.failed(now_ms, &mut changes, Text::key("azmeet-server-silent-short"));
             return changes;
         };
         match what {
             CallKind::Sync => match (status, serde_json::from_str::<SyncAnswer>(body)) {
                 (200, Ok(answer)) => self.apply_sync(me, answer, now_ms, &mut changes),
-                (200, Err(_)) => self.failed(
-                    now_ms,
-                    &mut changes,
-                    "The meeting server sent an answer AzMeet cannot read.",
-                ),
-                (404, _) => self.close(&mut changes, "This room has ended, or the link is wrong."),
-                _ => self.failed(now_ms, &mut changes, &refused(status, &error.error)),
+                (200, Err(_)) => self.failed(now_ms, &mut changes, Text::key("azmeet-answer-unreadable")),
+                (404, _) => self.close(&mut changes, Text::key("azmeet-room-ended")),
+                _ => self.failed(now_ms, &mut changes, refused(status, &error.error)),
             },
             CallKind::Join => self.joined(status, body, &error, now_ms, &mut changes),
             CallKind::PostKey(id) => {
@@ -978,7 +976,7 @@ impl ChatRoom {
                     if status == 403 {
                         self.state = Membership::Joining;
                     }
-                    self.failed(now_ms, &mut changes, &refused(status, &error.error));
+                    self.failed(now_ms, &mut changes, refused(status, &error.error));
                 }
             }
             CallKind::PostMessage(id) => match status {
@@ -999,21 +997,19 @@ impl ChatRoom {
                 413 => {
                     self.outbox.retain(|o| &o.id != id);
                     self.messages.retain(|m| &m.id != id);
-                    changes.problem = Some(String::from(
-                        "That message is too long for the meeting server.",
-                    ));
+                    changes.problem = Some(Text::key("azmeet-message-too-long"));
                     changes.shown = true;
                 }
                 403 => {
                     self.state = Membership::Joining;
-                    self.failed(now_ms, &mut changes, &refused(status, &error.error));
+                    self.failed(now_ms, &mut changes, refused(status, &error.error));
                 }
                 409 => {
                     // The key is not there: make another.
                     self.rotate = true;
-                    self.failed(now_ms, &mut changes, &refused(status, &error.error));
+                    self.failed(now_ms, &mut changes, refused(status, &error.error));
                 }
-                _ => self.failed(now_ms, &mut changes, &refused(status, &error.error)),
+                _ => self.failed(now_ms, &mut changes, refused(status, &error.error)),
             },
             CallKind::Admit(device) => {
                 self.admit_queue.retain(|d| d != device);
@@ -1040,7 +1036,7 @@ impl ChatRoom {
                         self.state = Membership::Left;
                         changes.shown = true;
                     } else {
-                        self.failed(now_ms, &mut changes, &refused(status, &error.error));
+                        self.failed(now_ms, &mut changes, refused(status, &error.error));
                     }
                 }
             }
@@ -1074,27 +1070,20 @@ impl ChatRoom {
                 self.last_sync = None;
                 changes.shown = true;
             }
-            (404, _) => self.close(changes, "This room has ended, or the link is wrong."),
-            (403, "bad_proof") => self.close(
-                changes,
-                "This link does not open this room: ask for the link again.",
-            ),
-            (409, "not_encrypted") => self.close(
-                changes,
-                "This room was made by an older AzMeet and is not end-to-end encrypted, so this \
-                 AzMeet does not join it.",
-            ),
-            (409, "room_full") => self.close(changes, "This room is full."),
+            (404, _) => self.close(changes, Text::key("azmeet-room-ended")),
+            (403, "bad_proof") => self.close(changes, Text::key("azmeet-link-wrong-room")),
+            (409, "not_encrypted") => self.close(changes, Text::key("azmeet-room-not-encrypted")),
+            (409, "room_full") => self.close(changes, Text::key("azmeet-room-full")),
             (401, "stale_request") | (409, "stale_record") => {
                 // The clock was corrected from the answer's time: again, with a newer record.
                 self.last_record_ts = self.last_record_ts.max(self.server_now(now_ms));
                 self.failures += 1;
                 self.retry_at = now_ms + 200 * u64::from(self.failures.min(10));
                 if self.failures > 5 {
-                    self.failed(now_ms, changes, &refused(status, &error.error));
+                    self.failed(now_ms, changes, refused(status, &error.error));
                 }
             }
-            _ => self.failed(now_ms, changes, &refused(status, &error.error)),
+            _ => self.failed(now_ms, changes, refused(status, &error.error)),
         }
     }
 
@@ -1102,18 +1091,21 @@ impl ChatRoom {
         self.clock_offset = server_now as i64 - now_ms as i64;
     }
 
-    fn failed(&mut self, now_ms: u64, changes: &mut Changes, why: &str) {
+    /// A request failed: again later; `why` for the window (a key of AzMeet's resources, or
+    /// words with their arguments).
+    fn failed(&mut self, now_ms: u64, changes: &mut Changes, why: impl Into<Text>) {
         self.failures = self.failures.saturating_add(1);
         let backoff = (500u64 << self.failures.min(6)).min(30_000);
         self.retry_at = now_ms + backoff;
-        changes.problem = Some(why.to_string());
+        changes.problem = Some(why.into());
         changes.shown = true;
     }
 
-    fn close(&mut self, changes: &mut Changes, why: &str) {
+    /// The room is closed to this device; `why` for the window.
+    fn close(&mut self, changes: &mut Changes, why: impl Into<Text>) {
         self.state = Membership::Closed;
         self.outbox.clear();
-        changes.problem = Some(why.to_string());
+        changes.problem = Some(why.into());
         changes.shown = true;
     }
 
@@ -1175,10 +1167,7 @@ impl ChatRoom {
     /// of the link).
     fn take_room(&mut self, room: &WireRoom, changes: &mut Changes) -> bool {
         if room.room != self.room {
-            self.close(
-                changes,
-                "The meeting server sent another room than this one.",
-            );
+            self.close(changes, Text::key("azmeet-another-room"));
             return false;
         }
         if !room.code.is_empty() {
@@ -1194,11 +1183,7 @@ impl ChatRoom {
             .as_deref()
             .and_then(azul_storage::time::parse_iso8601);
         let Some(key) = room.invite_key.as_deref().filter(|k| crypto::is_device(k)) else {
-            self.close(
-                changes,
-                "This room was made by an older AzMeet and is not end-to-end encrypted, so this \
-                 AzMeet does not use it.",
-            );
+            self.close(changes, Text::key("azmeet-room-old"));
             return false;
         };
         let mismatch = self
@@ -1206,10 +1191,7 @@ impl ChatRoom {
             .as_ref()
             .is_some_and(|invite| invite.invite_key() != key);
         if mismatch {
-            self.close(
-                changes,
-                "The meeting server sent a room that does not match this link.",
-            );
+            self.close(changes, Text::key("azmeet-room-mismatch"));
             return false;
         }
         self.invite_key = Some(key.to_string());
@@ -1525,13 +1507,14 @@ impl ChatRoom {
 }
 
 /// What to tell the user about a refused request.
-fn refused(status: u16, code: &str) -> String {
+fn refused(status: u16, code: &str) -> Text {
     match (status, code) {
-        (429, _) => {
-            String::from("Too many requests from this network; AzMeet tries again in a moment.")
-        }
-        (_, "") => format!("The meeting server answered {status}."),
-        (_, code) => format!("The meeting server answered {status} ({code})."),
+        (429, _) => Text::key("azmeet-too-many-requests"),
+        (_, "") => Phrase::new("azmeet-server-refused").arg("status", status.to_string()).into(),
+        (_, code) => Phrase::new("azmeet-server-refused-code")
+            .arg("status", status.to_string())
+            .arg("code", code)
+            .into(),
     }
 }
 
@@ -2539,12 +2522,12 @@ mod tests {
         let mut ada = device(1, "Ada", &id, Some(other));
         let read = settle(&mut ada, &mut w);
         assert_eq!(ada.room.state, Membership::Closed);
-        assert!(read.problem.unwrap().contains("does not match this link"));
+        assert_eq!(read.problem.unwrap().keys(), vec!["azmeet-room-mismatch"]);
         w.rooms.get_mut(&id).unwrap().invite_key = String::from("not a key");
         let mut ben = device(2, "Ben", &id, None);
         let read = settle(&mut ben, &mut w);
         assert_eq!(ben.room.state, Membership::Closed);
-        assert!(read.problem.unwrap().contains("not end-to-end encrypted"));
+        assert_eq!(read.problem.unwrap().keys(), vec!["azmeet-room-old"]);
         // An answer about another room than the one asked for is refused too.
         let mut cleo = device(3, "Cleo", &id, None);
         let mut changes = Changes::default();
@@ -2558,7 +2541,7 @@ mod tests {
         };
         assert!(!cleo.room.take_room(&elsewhere, &mut changes));
         assert_eq!(cleo.room.state, Membership::Closed);
-        assert!(changes.problem.unwrap().contains("another room"));
+        assert_eq!(changes.problem.unwrap().keys(), vec!["azmeet-another-room"]);
     }
 
     #[test]

@@ -57,7 +57,7 @@ def body(args, logs, out):
     binary = e2e.find_binary("AzClock", args.bin, "AZCLOCK_BIN")
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
-    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--sample", "--size", "720x560", "--screen", "alarms"],
+    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--sample", "--size", "720x560", "--screen", "alarms", "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         # 1. The sample, loaded and written as files.

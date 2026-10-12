@@ -18,7 +18,10 @@ use azul::{
     str::String as AzString,
     widgets::Segmented,
 };
-use azul_appkit::pieces::{block, button, column, flex_row, primary, strs, text};
+use azul_appkit::{
+    l10n::{t, t_args, tr, Arg},
+    pieces::{block, button, column, flex_row, primary, strs, text},
+};
 use azul_pim::dates::{date_group, DateGroup};
 use chrono::NaiveDate;
 
@@ -131,8 +134,8 @@ pub fn rows(
 }
 
 /// An article's date in the table, as Mail writes it: `Today 10:42`, `Yesterday 09:15`,
-/// `Monday 18:02` within the week, else `2026-09-12` (`today` and the date in the local time
-/// `offset_secs` east of UTC).
+/// `Monday 18:02` within the week (the day in the window's language), else `2026-09-12`
+/// (`today` and the date in the local time `offset_secs` east of UTC).
 #[must_use]
 pub fn list_date(date: i64, today: NaiveDate, offset_secs: i64) -> String {
     let Some(local) = chrono::DateTime::<chrono::Utc>::from_timestamp(date + offset_secs, 0)
@@ -143,7 +146,7 @@ pub fn list_date(date: i64, today: NaiveDate, offset_secs: i64) -> String {
     let group = date_group(local.date(), today);
     match group {
         DateGroup::Today | DateGroup::Yesterday | DateGroup::Weekday(_) => {
-            format!("{} {}", group.label(), local.format("%H:%M"))
+            format!("{} {}", t(&group.message_id()), local.format("%H:%M"))
         }
         _ => local.format("%Y-%m-%d").to_string(),
     }
@@ -159,28 +162,25 @@ pub(super) fn list_pane(s: &NewsApp, app: &RefAny) -> Dom {
     if !s.loaded {
         children.push(block(
             "padding: 16px; opacity: 0.7;",
-            text("Reading your feeds\u{2026}"),
+            text(tr("aznews-reading-feeds")),
         ));
     } else if s.library.feeds.is_empty() {
         children.push(
-            ShellEmptyState::create("No feeds yet")
+            ShellEmptyState::create(t("aznews-no-feeds"))
                 .with_icon("rss_feed")
-                .with_detail(
-                    "Add a feed by its address or a website's, or import an OPML file from \
-                     another reader.",
-                )
-                .with_action_label("Add feed")
+                .with_detail(t("aznews-no-feeds-detail"))
+                .with_action_label(t("aznews-add-feed"))
                 .with_on_action(app.clone(), on_add_open as ButtonOnClickCallbackType)
                 .dom(),
         );
     } else if list.is_empty() {
         children.push(
-            ShellEmptyState::create("Nothing here")
+            ShellEmptyState::create(t("aznews-nothing-here"))
                 .with_icon("search")
                 .with_detail(if s.query.trim().is_empty() {
-                    "No articles in this view.".to_string()
+                    t("aznews-no-articles-in-view")
                 } else {
-                    format!("No article matches \u{201c}{}\u{201d}.", s.query.trim())
+                    t_args("aznews-no-match", &[("query", Arg::from(s.query.trim()))])
                 })
                 .dom(),
         );
@@ -200,7 +200,7 @@ pub(super) fn list_pane(s: &NewsApp, app: &RefAny) -> Dom {
         children.push(
             Dom::create_virtual_view(RefAny::new(data), table_view)
                 .with_id(ids::ARTICLE_LIST)
-                .with_accessibility_name("Articles")
+                .with_accessibility_name(t("aznews-articles"))
                 .with_css(ROWS),
         );
     }
@@ -212,13 +212,16 @@ fn list_bar(s: &NewsApp, app: &RefAny, count: usize, unread: usize) -> Dom {
     let heading = block(
         HEADING,
         text(format!(
-            "{} \u{2014} {count} article{}, {unread} unread",
+            "{} \u{2014} {}",
             view_title(s),
-            if count == 1 { "" } else { "s" }
+            t_args(
+                "aznews-count-unread",
+                &[("count", Arg::from(count)), ("unread", Arg::from(unread))],
+            )
         )),
     )
     .with_id(ids::LIST_HEADING);
-    let filter = Segmented::create(strs(&["All", "Unread"]))
+    let filter = Segmented::create(strs(&["aznews-all", "aznews-unread"]))
         .with_selected_index(usize::from(s.unread_only))
         .with_on_change(app.clone(), on_filter as SegmentedOnChangeCallbackType)
         .dom()
@@ -232,10 +235,18 @@ fn list_bar(s: &NewsApp, app: &RefAny, count: usize, unread: usize) -> Dom {
                 vec![
                     block(
                         "flex-grow: 1;",
-                        text(format!("Mark the {count} articles here as read?")),
+                        text(t_args(
+                            "aznews-mark-all-ask",
+                            &[("count", Arg::from(count))],
+                        )),
                     ),
-                    primary("Mark as read", ids::MARK_ALL_YES, app, on_mark_all_yes),
-                    button("Cancel", ids::MARK_ALL_NO, app, on_mark_all_no),
+                    primary(
+                        "aznews-mark-as-read",
+                        ids::MARK_ALL_YES,
+                        app,
+                        on_mark_all_yes,
+                    ),
+                    button("kit-button-cancel", ids::MARK_ALL_NO, app, on_mark_all_no),
                 ],
             )
             .with_id(ids::MARK_ALL_CONFIRM),
@@ -250,7 +261,8 @@ struct SortRef {
     key: SortKey,
 }
 
-/// The column headers: a click sorts by the column, again turns it round.
+/// The column headers: a click sorts by the column, again turns it round. A header's `label`
+/// is a glyph or a key, its `name` (what a click does) a key.
 fn header(s: &NewsApp, app: &RefAny) -> Dom {
     let sort = s.settings.sort;
     let cell = |key: SortKey, id: AzString, label: &str, name: &str, width: &str| -> Dom {
@@ -262,8 +274,11 @@ fn header(s: &NewsApp, app: &RefAny) -> Dom {
                 "{HEAD_CELL} {width} {}",
                 if active { HEAD_ACTIVE } else { "" }
             ))
-            .with_accessibility_name(format!("Sort by {name}"))
-            .with_child(block(&format!("{CLIP} flex-grow: 1;"), text(label)));
+            .with_accessibility_name(t(name))
+            .with_child(block(
+                &format!("{CLIP} flex-grow: 1;"),
+                text(azul_appkit::l10n::label(label)),
+            ));
         if active && wide {
             out.add_child(
                 Dom::create_icon(if sort.descending {
@@ -290,25 +305,37 @@ fn header(s: &NewsApp, app: &RefAny) -> Dom {
             SortKey::Unread,
             ids::SORT_UNREAD,
             "\u{25cf}",
-            "unread",
+            "aznews-sort-unread",
             MARK_COL,
         ))
         .with_child(cell(
             SortKey::Starred,
             ids::SORT_STARRED,
             "\u{2605}",
-            "starred",
+            "aznews-sort-starred",
             MARK_COL,
         ))
-        .with_child(cell(SortKey::Title, ids::SORT_TITLE, "Title", "title", TITLE_COL))
+        .with_child(cell(
+            SortKey::Title,
+            ids::SORT_TITLE,
+            "aznews-col-title",
+            "aznews-sort-title",
+            TITLE_COL,
+        ))
         .with_child(cell(
             SortKey::Source,
             ids::SORT_SOURCE,
-            "Source",
-            "source",
+            "aznews-col-source",
+            "aznews-sort-source",
             SOURCE_COL,
         ))
-        .with_child(cell(SortKey::Date, ids::SORT_DATE, "Date", "date", DATE_COL))
+        .with_child(cell(
+            SortKey::Date,
+            ids::SORT_DATE,
+            "aznews-col-date",
+            "aznews-sort-date",
+            DATE_COL,
+        ))
 }
 
 /// A click on a column header: sorted by it (again: turned round), the order kept in the
@@ -383,7 +410,7 @@ extern "C" fn table_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
             TableRow::Day(group) => Dom::create_div()
                 .with_class(ids::DAY_HEADER_CLASS)
                 .with_css(DAY_ROW)
-                .with_child(text(group.label())),
+                .with_child(text(t(&group.message_id()))),
             TableRow::Article(r, index) => article_row(s, &table, r, index),
         });
     }
@@ -564,6 +591,7 @@ mod tests {
 
     #[test]
     fn the_date_column_reads_like_mails() {
+        crate::l10n::in_english();
         assert_eq!(list_date(NOW - 3_600, today(), 0), "Today 11:00");
         assert_eq!(list_date(NOW - DAY, today(), 0), "Yesterday 12:00");
         assert_eq!(

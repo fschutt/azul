@@ -740,6 +740,7 @@ fn undo_restores_the_pixels_and_redo_brings_the_stroke_back() {
 
 #[test]
 fn a_new_edit_after_an_undo_drops_the_redo_branch() {
+    crate::l10n::in_english();
     let mut e = white_engine(16, 16);
     e.apply(Op::NewLayer { name: "One".into() }).unwrap();
     e.apply(Op::NewLayer { name: "Two".into() }).unwrap();

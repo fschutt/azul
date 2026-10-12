@@ -17,7 +17,11 @@ use azul::{
     option::{OptionFileTypeList, OptionString},
     str::String as AzString,
 };
-use azul_appkit::{settings::AppSettings, ui as kit, FileJob};
+use azul_appkit::{
+    l10n::{t, t_args, Arg},
+    settings::AppSettings,
+    ui as kit, FileJob,
+};
 
 use crate::{
     app::{AppState, Command, CommandRef, OpenBook, Pane, Screen, Target},
@@ -81,7 +85,7 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
         }
         Command::AddBooks => {
             let _request = FileDialog::open_file(
-                "Add a book",
+                t("azreader-add-a-book"),
                 OptionString::None,
                 book_filter(),
                 handle.clone(),
@@ -191,7 +195,7 @@ fn book_filter() -> OptionFileTypeList {
             AzString::from("*.htm"),
         ]
         .into(),
-        document_descriptor: AzString::from("Books (EPUB, text, HTML)"),
+        document_descriptor: AzString::from(t("azreader-book-files")),
     })
 }
 
@@ -220,7 +224,10 @@ pub fn scan_library(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
 /// Adds `paths` to the library (each its own job).
 pub fn import_files(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, paths: Vec<PathBuf>) {
     for path in paths {
-        st.notice = format!("Adding {}...", path.display());
+        st.notice = t_args(
+            "azreader-adding",
+            &[("file", Arg::from(path.display().to_string()))],
+        );
         jobs::spawn(info, app, &st.data_root, Job::Import { path }, on_job_done);
     }
 }
@@ -240,7 +247,10 @@ pub fn open_book(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, id: &
         title: entry.info.title.clone(),
     };
     st.opening = Some(id.to_string());
-    st.notice = format!("Opening {}...", entry.info.title);
+    st.notice = t_args(
+        "azreader-opening",
+        &[("title", Arg::from(&entry.info.title))],
+    );
     jobs::spawn(info, app, &st.data_root, job, on_job_done);
 }
 
@@ -457,7 +467,7 @@ extern "C" fn on_state_saved(mut app: RefAny, mut msg: RefAny, _info: CallbackIn
         .find_map(azul_appkit::FileOutcome::error)
     {
         Some(e) => {
-            st.notice = format!("The reading position could not be saved: {e}");
+            st.notice = t_args("azreader-position-not-saved", &[("why", Arg::from(e))]);
             Update::RefreshDom
         }
         None => {
@@ -602,7 +612,7 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             }
             st.listed = true;
             if let Some(e) = errors.first() {
-                st.notice = format!("Some books could not be read: {e}");
+                st.notice = t_args("azreader-books-unreadable", &[("why", Arg::from(e))]);
             }
             println!("AZREADER_LISTED {}", st.entries.len());
             if st.sample && !st.sample_done && st.entries.is_empty() {
@@ -618,7 +628,7 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             Ok(entry) => {
                 let id = entry.info.id.clone();
                 println!("AZREADER_IMPORTED {id}");
-                st.notice = format!("Added {}", entry.info.title);
+                st.notice = t_args("azreader-added", &[("title", Arg::from(&entry.info.title))]);
                 if let Some(cover) = cover {
                     st.covers.insert(id.clone(), cover);
                 }
@@ -630,7 +640,7 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                     open_book(st, &mut info, &handle, &id);
                 }
             }
-            Err(e) => st.notice = format!("The book could not be added: {e}"),
+            Err(e) => st.notice = t_args("azreader-not-added", &[("why", Arg::from(e))]),
         },
         Done::Opened { id, result } => {
             if st.opening.as_deref() != Some(id.as_str()) {
@@ -667,16 +677,16 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                         Target::Fraction(position.fraction),
                     );
                 }
-                Err(e) => st.notice = format!("The book could not be opened: {e}"),
+                Err(e) => st.notice = t_args("azreader-not-opened", &[("why", Arg::from(e))]),
             }
         }
         Done::Deleted { id, result } => match result {
             Ok(()) => {
                 st.covers.remove(&id);
-                st.notice = "The book was removed.".to_string();
+                st.notice = t("azreader-removed");
             }
             Err(e) => {
-                st.notice = format!("The book could not be removed: {e}");
+                st.notice = t_args("azreader-not-removed", &[("why", Arg::from(e))]);
                 scan_library(st, &mut info, &handle);
             }
         },

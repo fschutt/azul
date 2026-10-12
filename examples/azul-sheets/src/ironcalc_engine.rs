@@ -26,9 +26,11 @@ use ironcalc::base::{
     BorderArea, Model, UserModel,
 };
 
+use azul_appkit::l10n::{Phrase, Text};
+
 use crate::engine::{
-    BorderPreset, CellAddr, CellArea, CellBorders, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat,
-    DefinedName, EngineError,
+    keyed_error, BorderPreset, CellAddr, CellArea, CellBorders, CellStyle, CellValue, CondLook, CondRule,
+    ConditionalFormat, DefinedName, EngineError,
     FillTo, HAlign, SheetEngine, SheetInfo, StylePatch, VAlign, LAST_COLUMN, LAST_ROW,
 };
 
@@ -75,9 +77,9 @@ impl IronCalcEngine {
     /// The model of an `.xlsx` file, evaluated.
     pub fn from_xlsx_bytes(bytes: &[u8], name: &str) -> Result<Self, EngineError> {
         let workbook = ironcalc::import::load_from_xlsx_bytes(bytes, name, LOCALE, TIMEZONE)
-            .map_err(|e| format!("Could not read the workbook: {e}"))?;
+            .map_err(|e| keyed_error("azsheets-read-workbook-failed", &e.to_string()))?;
         let model = Model::from_workbook(workbook, LANGUAGE)
-            .map_err(|e| format!("Could not open the workbook: {e}"))?;
+            .map_err(|e| keyed_error("azsheets-open-failed", &e.to_string()))?;
         let merges = merges_of(&model);
         let mut model = UserModel::from_model(model);
         // The import keeps the cached values; recalculate once so every
@@ -209,7 +211,7 @@ fn rule_input(rule: &CondRule, look: CondLook) -> CfRuleInput {
 
 /// What a stored rule says, in the words of [`CondRule::describe`] where it
 /// is one of ours.
-fn describe_rule(rule: &CfRule) -> String {
+fn describe_rule(rule: &CfRule) -> Text {
     match rule {
         CfRule::CellIs {
             operator,
@@ -226,7 +228,16 @@ fn describe_rule(rule: &CfRule) -> String {
                 }
                 _ => None,
             };
-            ours.map_or_else(|| format!("Cell value {operator:?} {formula}"), |r| r.describe())
+            ours.map_or_else(
+                || {
+                    Text::from(
+                        Phrase::new("azsheets-rule-cell-value")
+                            .arg("operator", format!("{operator:?}"))
+                            .arg("formula", formula.as_str()),
+                    )
+                },
+                |r| r.describe(),
+            )
         }
         CfRule::Text {
             operator: TextOperator::Contains,
@@ -236,8 +247,8 @@ fn describe_rule(rule: &CfRule) -> String {
         CfRule::DuplicateValues { .. } => CondRule::Duplicates.describe(),
         CfRule::AboveAverage { .. } => CondRule::AboveAverage.describe(),
         CfRule::BelowAverage { .. } => CondRule::BelowAverage.describe(),
-        CfRule::ColorScale { .. } => String::from("Color scale"),
-        _ => String::from("Rule"),
+        CfRule::ColorScale { .. } => Text::key("azsheets-rule-color-scale"),
+        _ => Text::key("azsheets-cond-rule"),
     }
 }
 
@@ -245,7 +256,7 @@ fn describe_rule(rule: &CfRule) -> String {
 fn export(model: &Model<'_>) -> Result<Vec<u8>, EngineError> {
     ironcalc::export::save_xlsx_to_writer(model, Cursor::new(Vec::new()))
         .map(Cursor::into_inner)
-        .map_err(|e| format!("Could not write the workbook: {e}"))
+        .map_err(|e| keyed_error("azsheets-write-workbook-failed", &e.to_string()))
 }
 
 /// `Some(s)` unless `s` is empty.
@@ -381,7 +392,7 @@ pub(crate) fn border_area_json(preset: BorderPreset, color: &str) -> serde_json:
 /// [`border_area_json`] as IronCalc's type.
 pub(crate) fn border_area(preset: BorderPreset, color: &str) -> Result<BorderArea, EngineError> {
     serde_json::from_value(border_area_json(preset, color))
-        .map_err(|e| format!("Could not build the border: {e}"))
+        .map_err(|e| keyed_error("azsheets-border-failed", &e.to_string()))
 }
 
 /// An IronCalc value as the engine's; an error value arrives as text, which
@@ -763,7 +774,7 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn merge(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let id = self.sheet_id(area.sheet).ok_or_else(|| String::from("There is no such sheet."))?;
+        let id = self.sheet_id(area.sheet).ok_or_else(|| keyed_error("azsheets-no-such-sheet", ""))?;
         if area.width * area.height <= 1 {
             return Ok(());
         }
@@ -774,7 +785,7 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn unmerge(&mut self, area: CellArea) -> Result<(), EngineError> {
-        let id = self.sheet_id(area.sheet).ok_or_else(|| String::from("There is no such sheet."))?;
+        let id = self.sheet_id(area.sheet).ok_or_else(|| keyed_error("azsheets-no-such-sheet", ""))?;
         if let Some(list) = self.merges.get_mut(&id) {
             list.retain(|m| !CellArea { sheet: area.sheet, ..*m }.overlaps(&area));
         }
@@ -798,7 +809,7 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn add_conditional_format(&mut self, area: CellArea, rule: &CondRule, look: CondLook) -> Result<(), EngineError> {
-        let range = ref_of_area(&area).ok_or_else(|| String::from("The range is outside the sheet."))?;
+        let range = ref_of_area(&area).ok_or_else(|| keyed_error("azsheets-range-outside", ""))?;
         self.model.add_conditional_formatting(area.sheet, &range, rule_input(rule, look))
     }
 
@@ -812,7 +823,7 @@ impl SheetEngine for IronCalcEngine {
         // The later ones first: a deletion moves the indices after it.
         doomed.sort_unstable_by(|a, b| b.cmp(a));
         for index in doomed {
-            let index = u32::try_from(index).map_err(|_| String::from("Too many rules."))?;
+            let index = u32::try_from(index).map_err(|_| keyed_error("azsheets-too-many-rules", ""))?;
             self.model.delete_conditional_formatting(area.sheet, index)?;
         }
         Ok(())
@@ -1137,7 +1148,9 @@ mod tests {
             .unwrap();
         let list = e.conditional_formats(0);
         assert_eq!(list.len(), 1);
-        assert_eq!((list[0].area, list[0].description.as_str()), (area, "Cell value > 5"));
+        crate::l10n::in_english();
+        let said = azul_appkit::l10n::t_text(&list[0].description);
+        assert_eq!((list[0].area, said.as_str()), (area, "Cell value > 5"));
         assert_eq!(e.cell_style(at(1, 1)).fill, None, "1 is not > 5");
         let six = e.cell_style(at(2, 1));
         assert_eq!(six.fill.as_deref().map(str::to_ascii_uppercase).as_deref(), Some("#FFC7CE"));

@@ -19,7 +19,10 @@ use azul::{
         TextInputState, TextInputValid,
     },
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{
+    l10n::{t, t_args, Arg},
+    ui as kit,
+};
 use chrono::Datelike;
 
 use super::{
@@ -87,23 +90,26 @@ pub fn overview(s: &Erp, asset: &Asset) -> Dom {
         }
     }
     rows.push(fact(
-        "Book value today",
+        &t("azerp-book-value-today"),
         &asset.value("book_value", &ctx).display(),
     ));
-    rows.push(fact("Status", &asset.status.label()));
+    rows.push(fact(&t("azerp-status"), &asset.status.said()));
     if !asset.custodian.is_empty() {
-        rows.push(fact("Custodian", &asset.custodian));
+        rows.push(fact(&t("azerp-custodian"), &asset.custodian));
     }
     if let Some(next) = reports::next_service(&s.state.book, asset) {
-        rows.push(fact("Next service", &crate::model::format_date(next)));
+        rows.push(fact(
+            &t("azerp-next-service"),
+            &crate::model::format_date(next),
+        ));
     }
     if let Some(result) = depreciation::disposal_result(asset) {
-        let word = if result >= 0 {
-            "Gain on disposal"
+        let word = t(if result >= 0 {
+            "azerp-gain-on-disposal"
         } else {
-            "Loss on disposal"
-        };
-        rows.push(fact(word, &money::format_amount(result.abs())));
+            "azerp-loss-on-disposal"
+        });
+        rows.push(fact(&word, &money::format_amount(result.abs())));
     }
     column(rows)
         .with_id(ids::OVERVIEW)
@@ -112,22 +118,42 @@ pub fn overview(s: &Erp, asset: &Asset) -> Dom {
 
 // ==== DepreciationSchedulePanel ====
 
-/// The schedule's columns.
+/// The schedule's columns: a field each, its title said in the window's language.
 fn schedule_columns() -> Vec<ColumnSpec> {
-    let col = |title: &str, kind: ColumnType, width: f32| ColumnSpec {
-        field: title.to_lowercase(),
-        title: title.to_string(),
+    let col = |field: &str, title: &str, kind: ColumnType, width: f32| ColumnSpec {
+        field: field.to_string(),
+        title: t(title),
         kind,
         width,
         sortable: false,
     };
     vec![
-        col("Year", ColumnType::Integer, 70.0),
-        col("Months", ColumnType::Integer, 70.0),
-        col("Opening value", ColumnType::Currency, 130.0),
-        col("Depreciation", ColumnType::Currency, 130.0),
-        col("Accumulated", ColumnType::Currency, 130.0),
-        col("Closing value", ColumnType::Currency, 130.0),
+        col("year", "azerp-col-year", ColumnType::Integer, 70.0),
+        col("months", "azerp-col-months", ColumnType::Integer, 70.0),
+        col(
+            "opening value",
+            "azerp-col-opening",
+            ColumnType::Currency,
+            130.0,
+        ),
+        col(
+            "depreciation",
+            "azerp-col-depreciation",
+            ColumnType::Currency,
+            130.0,
+        ),
+        col(
+            "accumulated",
+            "azerp-col-accumulated",
+            ColumnType::Currency,
+            130.0,
+        ),
+        col(
+            "closing value",
+            "azerp-col-closing",
+            ColumnType::Currency,
+            130.0,
+        ),
     ]
 }
 
@@ -137,8 +163,8 @@ pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
     let rows = depreciation::schedule(asset);
     if rows.is_empty() {
         return empty(
-            "Nothing to depreciate.",
-            "The residual value is the cost, or the asset was disposed of before its first month.",
+            &t("azerp-nothing-to-depreciate"),
+            &t("azerp-nothing-to-depreciate-detail"),
         );
     }
     let mut grid = Grid::default();
@@ -168,7 +194,7 @@ pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
     );
     let table = table::grid_table(
         ids::SCHEDULE_TABLE,
-        "Depreciation schedule",
+        &t("azerp-schedule"),
         &schedule_columns(),
         grid,
         s.inner_table.clone(),
@@ -190,10 +216,10 @@ pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
         (s.window.0 - 48.0).max(240.0),
         chart_height,
     )
-    .with_title("Book value at the end of each year")
-    .with_axis_titles("Year", "Book value")
+    .with_title(t("azerp-chart-year-end-value"))
+    .with_axis_titles(t("azerp-col-year"), t("azerp-book-value"))
     .with_categories(years)
-    .with_added_series(ChartSeries::create("Book value", points))
+    .with_added_series(ChartSeries::create(t("azerp-book-value"), points))
     .dom()
     .with_id(ids::SCHEDULE_CHART);
     column(vec![table, chart]).with_id(ids::SCHEDULE)
@@ -219,19 +245,28 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
     let header = page_header(s, app, view, &title, &Params::new());
     let book = &s.state.book;
     let today = s.state.today;
-    let t = reports::totals(book, today);
+    let totals = reports::totals(book, today);
     let figures = Dom::create_div()
         .with_id(ids::REPORT_TOTALS)
         .with_css("display: flex; flex-direction: row; flex-wrap: wrap;")
-        .with_child(card("Assets on the books", &t.count.to_string()))
-        .with_child(card("Cost", &money::format_amount(t.cost)))
-        .with_child(card("Book value", &money::format_amount(t.book_value)))
+        .with_child(card(&t("azerp-assets-on-books"), &totals.count.to_string()))
+        .with_child(card(&t("azerp-cost"), &money::format_amount(totals.cost)))
         .with_child(card(
-            &format!("Depreciation {}", today.year()),
-            &money::format_amount(t.depreciation_this_year),
+            &t("azerp-book-value"),
+            &money::format_amount(totals.book_value),
         ))
-        .with_child(card("Checked out", &t.checked_out.to_string()))
-        .with_child(card("Disposed of", &t.disposed.to_string()));
+        .with_child(card(
+            &t_args(
+                "azerp-depreciation-year",
+                &[("year", Arg::from(today.year()))],
+            ),
+            &money::format_amount(totals.depreciation_this_year),
+        ))
+        .with_child(card(
+            &t("azerp-checked-out"),
+            &totals.checked_out.to_string(),
+        ))
+        .with_child(card(&t("azerp-disposed"), &totals.disposed.to_string()));
 
     let width = ((s.window.0 - 64.0) / 2.0).max(240.0);
     let groups = reports::by_category(book, today);
@@ -245,9 +280,9 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
         .map(|(i, g)| ChartPoint::create(i as f64, g.book_value as f64 / 100.0))
         .collect();
     let by_category = Chart::create(ChartKind::Bar, width, 220.0)
-        .with_title("Book value by category")
+        .with_title(t("azerp-chart-by-category"))
         .with_categories(names)
-        .with_added_series(ChartSeries::create("Book value", values))
+        .with_added_series(ChartSeries::create(t("azerp-book-value"), values))
         .dom()
         .with_id(ids::REPORT_CATEGORIES);
     let years = reports::depreciation_by_year(book, today.year() - 1, today.year() + 4);
@@ -261,9 +296,9 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
         .map(|(i, (_, cents))| ChartPoint::create(i as f64, *cents as f64 / 100.0))
         .collect();
     let forecast = Chart::create(ChartKind::Bar, width, 220.0)
-        .with_title("Depreciation by year")
+        .with_title(t("azerp-chart-by-year"))
         .with_categories(year_names)
-        .with_added_series(ChartSeries::create("Depreciation", amounts))
+        .with_added_series(ChartSeries::create(t("azerp-col-depreciation"), amounts))
         .dom()
         .with_id(ids::REPORT_FORECAST);
     let charts = Dom::create_div()
@@ -271,29 +306,42 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
         .with_child(by_category)
         .with_child(forecast);
 
-    let mut due = vec![heading("Services due in the next 60 days")];
+    let mut due = vec![heading(&t_args(
+        "azerp-services-due",
+        &[("days", Arg::from(60_u32))],
+    ))];
     let services = reports::maintenance_due(book, today, 60);
     if services.is_empty() {
-        due.push(text("None."));
+        due.push(text(&t("azerp-none")));
     }
     for d in services {
-        let when = crate::model::format_date(d.due);
-        let late = if d.overdue { " (overdue)" } else { "" };
-        due.push(text(&format!("{} {} - {when}{late}", d.number, d.name)));
+        let service = [
+            ("number", Arg::from(&d.number)),
+            ("name", Arg::from(&d.name)),
+            ("when", Arg::from(crate::model::format_date(d.due))),
+        ];
+        let key = if d.overdue {
+            "azerp-service-overdue"
+        } else {
+            "azerp-service-due"
+        };
+        due.push(text(&t_args(key, &service)));
     }
-    let mut late = vec![heading("Overdue check-outs")];
+    let mut late = vec![heading(&t("azerp-overdue-checkouts"))];
     let overdue = reports::overdue_checkouts(book, today);
     if overdue.is_empty() {
-        late.push(text("None."));
+        late.push(text(&t("azerp-none")));
     }
     for o in overdue {
-        late.push(text(&format!(
-            "{} {} - {} - due {}, {} days late",
-            o.number,
-            o.name,
-            o.custodian,
-            crate::model::format_date(o.due),
-            o.days_late
+        late.push(text(&t_args(
+            "azerp-checkout-overdue",
+            &[
+                ("number", Arg::from(&o.number)),
+                ("name", Arg::from(&o.name)),
+                ("custodian", Arg::from(&o.custodian)),
+                ("due", Arg::from(crate::model::format_date(o.due))),
+                ("days", Arg::from(o.days_late)),
+            ],
         )));
     }
     let body = column(vec![
@@ -317,7 +365,16 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
     let step = s.state.run_step.min(steps.len().saturating_sub(1));
     let step_title = steps
         .get(step)
-        .map(|st| format!("Step {} of {}: {}", step + 1, steps.len(), st.title))
+        .map(|st| {
+            t_args(
+                "azerp-step",
+                &[
+                    ("step", Arg::from(step + 1)),
+                    ("steps", Arg::from(steps.len())),
+                    ("title", Arg::from(&st.title)),
+                ],
+            )
+        })
         .unwrap_or_default();
     let mut children = vec![
         text(&title)
@@ -332,11 +389,11 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
         children.push(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center;")
-                .with_child(text("Year").with_css("width: 80px;"))
+                .with_child(text(&t("azerp-col-year")).with_css("width: 80px;"))
                 .with_child(
                     TextInput::create()
                         .with_text(s.state.run_year.to_string())
-                        .with_accessibility_name("Year")
+                        .with_accessibility_name(t("azerp-col-year"))
                         .with_on_text_input(
                             app.clone(),
                             on_run_year as TextInputOnTextInputCallbackType,
@@ -345,7 +402,7 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
                         .with_id(ids::RUN_YEAR),
                 )
                 .with_child(
-                    Button::create("Next")
+                    Button::create(t("azerp-next"))
                         .with_button_type(ButtonType::Primary)
                         .with_on_click(app.clone(), on_run_next as ButtonOnClickCallbackType)
                         .dom()
@@ -358,7 +415,10 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
         let preview = s.state.run_preview(year);
         let total: i64 = preview.iter().map(|(_, _, _, amount)| amount).sum();
         if preview.is_empty() {
-            children.push(text(&format!("No asset is depreciated in {year}.")));
+            children.push(text(&t_args(
+                "azerp-nothing-depreciated",
+                &[("year", Arg::from(year))],
+            )));
         }
         for (_, number, name, amount) in &preview {
             children.push(fact(
@@ -367,17 +427,21 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
             ));
         }
         children.push(
-            fact(&format!("Total {year}"), &money::format_amount(total)).with_id(ids::RUN_TOTAL),
+            fact(
+                &t_args("azerp-total-year", &[("year", Arg::from(year))]),
+                &money::format_amount(total),
+            )
+            .with_id(ids::RUN_TOTAL),
         );
         let post_label = spec::actions(&view.actions, labels)
             .into_iter()
             .find(|a| a.kind == ActionKind::Submit)
-            .map_or_else(|| "Run and post".to_string(), |a| a.label);
+            .map_or_else(|| t("azerp-run-and-post"), |a| a.label);
         children.push(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; padding-top: 10px;")
                 .with_child(
-                    Button::create("Back")
+                    Button::create(t("azerp-back"))
                         .with_on_click(app.clone(), on_run_back as ButtonOnClickCallbackType)
                         .dom(),
                 )
@@ -454,38 +518,36 @@ pub fn import(s: &Erp, app: &RefAny, view: &View) -> Dom {
                 .with_css("font-size: 16px; font-weight: 600; flex-grow: 1;"),
         )
         .with_child(
-            Button::create("Choose a CSV file...")
+            Button::create(t("azerp-choose-csv"))
                 .with_icon("upload_file")
                 .with_on_click(app.clone(), on_import_choose as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::IMPORT_CHOOSE),
         )];
     let Some(draft) = &s.state.import else {
-        children.push(text(
-            "A CSV file from a spreadsheet or another asset register: a header row naming the columns, \
-             one asset per row (comma, semicolon or tab). A row whose asset number is in the register \
-             updates that asset.",
-        ));
+        children.push(text(&t("azerp-import-help")));
         return column(children)
             .with_id(ids::IMPORT)
             .with_css("padding: 12px 16px; overflow-y: auto;");
     };
     let p = &draft.preview;
     children.push(
-        text(&format!(
-            "{}: {} rows - {} new, {} changed, {} left out",
-            draft.name,
-            draft.table.rows.len(),
-            p.created,
-            p.updated,
-            p.problems.len()
+        text(&t_args(
+            "azerp-import-summary",
+            &[
+                ("file", Arg::from(&draft.name)),
+                ("rows", Arg::from(draft.table.rows.len())),
+                ("new", Arg::from(p.created)),
+                ("changed", Arg::from(p.updated)),
+                ("left", Arg::from(p.problems.len())),
+            ],
         ))
         .with_id(ids::IMPORT_SUMMARY)
         .with_css("padding-bottom: 8px;"),
     );
     let choices: Vec<AzString> = Field::CHOICES
         .iter()
-        .map(|f| AzString::from(f.label()))
+        .map(|f| AzString::from(f.said()))
         .collect();
     for (i, header) in draft.table.headers.iter().enumerate() {
         let selected = draft.mapping.get(i).map_or(0, |f| f.choice_index());
@@ -512,7 +574,7 @@ pub fn import(s: &Erp, app: &RefAny, view: &View) -> Dom {
         );
     }
     if !p.problems.is_empty() {
-        children.push(heading("Rows left out"));
+        children.push(heading(&t("azerp-rows-left-out")));
         for why in p.problems.iter().take(20) {
             children.push(text(why).with_css("font-size: 12px;"));
         }
@@ -521,11 +583,14 @@ pub fn import(s: &Erp, app: &RefAny, view: &View) -> Dom {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; padding-top: 10px;")
             .with_child(
-                Button::create(format!("Import {} assets", p.created + p.updated).as_str())
-                    .with_button_type(ButtonType::Primary)
-                    .with_on_click(app.clone(), on_import_commit as ButtonOnClickCallbackType)
-                    .dom()
-                    .with_id(ids::IMPORT_COMMIT),
+                Button::create(t_args(
+                    "azerp-import-assets",
+                    &[("count", Arg::from(p.created + p.updated))],
+                ))
+                .with_button_type(ButtonType::Primary)
+                .with_on_click(app.clone(), on_import_commit as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::IMPORT_COMMIT),
             ),
     );
     column(children)
@@ -539,7 +604,7 @@ extern "C" fn on_import_choose(mut data: RefAny, _info: CallbackInfo) -> Update 
         return Update::DoNothing;
     }
     let _request = FileDialog::open_file(
-        "Import assets from CSV",
+        t("azerp-import-dialog"),
         OptionString::None,
         OptionFileTypeList::None,
         app,
@@ -561,7 +626,10 @@ extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result:
     let app = data.clone();
     if !kit::spawn_outside_read(&mut info, &path, app, TAG_IMPORT, super::on_files) {
         if let Some(mut s) = data.downcast_mut::<Erp>() {
-            s.state.notice = format!("{} cannot be read.", path.display());
+            s.state.notice = t_args(
+                "azerp-cannot-read",
+                &[("path", Arg::from(path.display().to_string()))],
+            );
         }
     }
     Update::RefreshDom

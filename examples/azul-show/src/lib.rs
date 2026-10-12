@@ -29,6 +29,9 @@ pub mod editor;
 pub mod find;
 mod find_ui;
 pub mod ids;
+mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod render;
 mod ribbon;
@@ -62,7 +65,10 @@ use azul::{
     widgets::{CloseGuard, CloseGuardEvent, CloseGuardEventKind, ThumbnailStripLayout, Titlebar},
     window::WindowEventFilter,
 };
-use azul_appkit::{ui as kit, AboutInfo, Shortcut};
+use azul_appkit::{
+    l10n::{t, t_args, Arg},
+    ui as kit, AboutInfo, Shortcut,
+};
 use azul_storage::Drive;
 
 pub use crate::args::{Args, StartScreen};
@@ -73,8 +79,10 @@ use crate::{
     storage::{Job, Outcome},
 };
 
+/// A widget's text: a key said in the window's language, plain words (a deck's title) as they
+/// are. Every module of AzShow says its words through it.
 fn s(text: &str) -> AzString {
-    AzString::from(text)
+    azul_appkit::l10n::label(text)
 }
 
 /// The shell accent that goes with the deck's theme.
@@ -117,10 +125,10 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, monitors: &[(u32, 
     let status = views::status_bar(app, st, zoom);
     let ribbon = ribbon::ribbon(app, st, monitors);
     let Some(ed) = st.editor.as_ref() else {
-        let empty = ShellEmptyState::create(s("No presentation is open"))
+        let empty = ShellEmptyState::create(s("azshow-empty-title"))
             .with_icon(s("slideshow"))
-            .with_detail(s("Start one from a theme, or open the sample deck."))
-            .with_action_label(s("New Presentation"))
+            .with_detail(s("azshow-empty-detail"))
+            .with_action_label(s("azshow-new-presentation"))
             .with_on_action(
                 command(app, Command::OpenBackstage(BackstagePage::New)),
                 on_command as azul::callbacks::ButtonOnClickCallbackType,
@@ -177,6 +185,7 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, monitors: &[(u32, 
 
 /// The main window's layout.
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
     // Reading the mode and the theme makes a switch of either rebuild the window.
     let _mode = info.get_mode();
@@ -199,7 +208,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let (title, dirty) = st
         .editor
         .as_ref()
-        .map_or((String::from("Presentation"), false), |e| (e.deck.title.clone(), e.dirty));
+        .map_or((t("azshow-presentation"), false), |e| (e.deck.title.clone(), e.dirty));
     let content = CloseGuard::create(content, s(&title))
         .with_dirty(dirty)
         .with_asking(st.asking_close)
@@ -239,7 +248,8 @@ extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: Cl
 }
 
 /// The presenter window's layout.
-pub extern "C" fn presenter_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+pub extern "C" fn presenter_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<AppState>() else {
         return Dom::create_body();
@@ -247,7 +257,7 @@ pub extern "C" fn presenter_layout(mut data: RefAny, _info: LayoutCallbackInfo) 
     let st = &*guard;
     let column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(Titlebar::create(s("Presenter View - AzShow")).without_border_bottom().dom())
+        .with_child(Titlebar::create(s("azshow-presenter-title")).without_border_bottom().dom())
         .with_child(show::presenter(&app, st));
     Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
@@ -417,7 +427,7 @@ extern "C" fn on_storage_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             if let Some(ed) = st.editor.as_mut().filter(|e| e.deck.id == id) {
                 ed.dirty = false;
             }
-            st.message = format!("Saved show/{id}/deck.json");
+            st.message = t_args("azshow-saved", &[("path", Arg::from(format!("show/{id}/deck.json")))]);
             println!("AZSHOW_SAVED {id}");
             if st.close_after_save {
                 // "Save" in the close question: written, now the window goes.
@@ -428,14 +438,14 @@ extern "C" fn on_storage_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
         Outcome::Saved(Err(e)) => {
             // A failed save keeps the window (and the work) open.
             st.close_after_save = false;
-            st.message = format!("Not saved: {e}");
+            st.message = t_args("azshow-not-saved", &[("why", Arg::from(e.to_string()))]);
         }
         Outcome::Exported(Ok(key)) => {
             let shown = st.drive.local_path(&key).map_or_else(|| key.clone(), |p| p.display().to_string());
-            st.message = format!("Exported to {shown}");
+            st.message = t_args("azshow-exported-to", &[("path", Arg::from(shown))]);
             println!("AZSHOW_EXPORTED {key}");
         }
-        Outcome::Exported(Err(e)) => st.message = format!("Not exported: {e}"),
+        Outcome::Exported(Err(e)) => st.message = t_args("azshow-not-exported", &[("why", Arg::from(e.to_string()))]),
         Outcome::Loaded(Ok((deck, media))) => {
             st.media.clear();
             for (key, bytes) in media {
@@ -445,15 +455,15 @@ extern "C" fn on_storage_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             }
             let id = deck.id.clone();
             commands::open_deck(st, *deck);
-            st.message = String::from("Opened");
+            st.message = t("azshow-opened");
             println!("AZSHOW_OPENED {id}");
         }
-        Outcome::Loaded(Err(e)) => st.message = format!("Could not open the deck: {e}"),
+        Outcome::Loaded(Err(e)) => st.message = t_args("azshow-open-failed", &[("why", Arg::from(e.to_string()))]),
         Outcome::Listed(Ok(decks)) => {
             println!("AZSHOW_LISTED {}", decks.len());
             st.decks = decks;
         }
-        Outcome::Listed(Err(e)) => st.message = format!("Could not list the decks: {e}"),
+        Outcome::Listed(Err(e)) => st.message = t_args("azshow-list-failed", &[("why", Arg::from(e.to_string()))]),
         Outcome::MediaStored(Ok((key, bytes))) => match decode_image(&bytes) {
             Some(image) => {
                 let size = image.get_size();
@@ -462,9 +472,11 @@ extern "C" fn on_storage_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                     ed.insert_image(&key, size.width, size.height);
                 }
             }
-            None => st.message = String::from("The picture could not be read"),
+            None => st.message = t("azshow-picture-unreadable"),
         },
-        Outcome::MediaStored(Err(e)) => st.message = format!("The picture was not stored: {e}"),
+        Outcome::MediaStored(Err(e)) => {
+            st.message = t_args("azshow-picture-not-stored", &[("why", Arg::from(e.to_string()))]);
+        }
     }
     Update::RefreshDom
 }
@@ -581,22 +593,22 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// on macOS, Ctrl elsewhere). The window's and the canvas's handlers act;
 /// this table is what they do.
 pub const SHORTCUTS: [Shortcut; 16] = [
-    Shortcut::new("File", "Mod+S", "Save the deck"),
-    Shortcut::new("Slides", "Mod+M", "New slide"),
-    Shortcut::new("Slides", "Mod+D", "Duplicate the selection"),
-    Shortcut::new("Edit", "Mod+Z / Mod+Y", "Undo / redo"),
-    Shortcut::new("Edit", "Mod+C / Mod+X / Mod+V", "Copy / cut / paste the selection"),
-    Shortcut::new("Edit", "Mod+A", "Select every object on the slide"),
-    Shortcut::new("Edit", "Mod+G / Mod+Shift+G", "Group / ungroup"),
-    Shortcut::new("Edit", "Mod+F", "Find and replace"),
-    Shortcut::new("Text", "Mod+B / Mod+I / Mod+U", "Bold / italic / underline"),
-    Shortcut::new("Canvas", "Arrows", "Nudge the selection (Mod: finely)"),
-    Shortcut::new("Canvas", "Tab / Shift+Tab", "The next / previous object"),
-    Shortcut::new("Canvas", "Enter / F2", "Edit the object's text; Escape leaves it"),
-    Shortcut::new("Show", "F5 / Shift+F5", "Start from the first / the current slide"),
-    Shortcut::new("Show", "Space / Right / Left", "Next / previous step"),
-    Shortcut::new("Show", "B / W", "A black / white screen"),
-    Shortcut::new("Show", "Escape", "End the show"),
+    Shortcut::new("azshow-shortcuts-file", "Mod+S", "azshow-shortcut-save"),
+    Shortcut::new("azshow-shortcuts-slides", "Mod+M", "azshow-shortcut-new-slide"),
+    Shortcut::new("azshow-shortcuts-slides", "Mod+D", "azshow-shortcut-duplicate"),
+    Shortcut::new("azshow-shortcuts-edit", "Mod+Z / Mod+Y", "azshow-shortcut-undo"),
+    Shortcut::new("azshow-shortcuts-edit", "Mod+C / Mod+X / Mod+V", "azshow-shortcut-clipboard"),
+    Shortcut::new("azshow-shortcuts-edit", "Mod+A", "azshow-shortcut-select-all"),
+    Shortcut::new("azshow-shortcuts-edit", "Mod+G / Mod+Shift+G", "azshow-shortcut-group"),
+    Shortcut::new("azshow-shortcuts-edit", "Mod+F", "azshow-shortcut-find"),
+    Shortcut::new("azshow-shortcuts-text", "Mod+B / Mod+I / Mod+U", "azshow-shortcut-font"),
+    Shortcut::new("azshow-shortcuts-canvas", "Arrows", "azshow-shortcut-nudge"),
+    Shortcut::new("azshow-shortcuts-canvas", "Tab / Shift+Tab", "azshow-shortcut-next-object"),
+    Shortcut::new("azshow-shortcuts-canvas", "Enter / F2", "azshow-shortcut-edit-text"),
+    Shortcut::new("azshow-shortcuts-show", "F5 / Shift+F5", "azshow-shortcut-start"),
+    Shortcut::new("azshow-shortcuts-show", "Space / Right / Left", "azshow-shortcut-step"),
+    Shortcut::new("azshow-shortcuts-show", "B / W", "azshow-shortcut-blank"),
+    Shortcut::new("azshow-shortcuts-show", "Escape", "azshow-shortcut-end"),
 ];
 
 /// The data root the kit resolved (`--data-dir`, `AZLIN_DATA`, the user's
@@ -637,6 +649,15 @@ pub fn start(args: Args) {
     let kit_ref = kit::create_kit(args::SPEC, ABOUT, &SHORTCUTS, &[], args.kit.clone());
     // AzShow is always set in flora's red, whatever the other apps show.
     kit::pin_theme(&kit_ref, azul_appkit::Theme::FloraRed);
+    // The words first: from here on everything is said in the language chosen (Settings,
+    // `--language`; the system's otherwise) - a blank deck's title too.
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let root = kit_data_root(&kit_ref);
     let mut st = AppState::new(args.clone(), root.clone());
     st.kit = Some(kit_ref.clone());
@@ -656,7 +677,7 @@ pub fn start(args: Args) {
         // slide, the default theme), so there is always a deck to type into. It is written when
         // it is saved, not before - an untouched start leaves nothing in the data folder.
         let theme = themes::theme(st.new_theme, st.new_variant, st.new_fonts);
-        let deck = model::Deck::new(&commands::new_deck_id(), "Presentation", theme, st.new_size);
+        let deck = model::Deck::new(&commands::new_deck_id(), &t("azshow-presentation"), theme, st.new_size);
         commands::open_deck(&mut st, deck);
     }
     match args.screen {
@@ -676,7 +697,6 @@ pub fn start(args: Args) {
         StartScreen::Options => kit::open_settings(&kit_ref, None),
     }
     eprintln!("[azshow] data root {}", root.display());
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (800.0, 520.0), on_window_created);
     App::create(RefAny::new(st), config).run(window);
 }

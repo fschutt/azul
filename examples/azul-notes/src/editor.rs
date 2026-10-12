@@ -51,7 +51,7 @@ fn with_images(mut editor: RichTextEditor, s: &AppState, note: &Note, doc: &Rich
 pub fn editor_dom(s: &AppState, app: &RefAny, note: &Note, flora: bool) -> Dom {
     let editor = RichTextEditor::create(s.editor.clone())
         .with_id(ids::NOTE_BODY)
-        .with_accessibility_name("Note text")
+        .with_accessibility_name(azul_appkit::l10n::label("aznotes-note-text"))
         .with_font_size(s.settings.text_size.px_for(flora))
         .with_on_change(app.clone(), on_editor_change as RichTextEditorOnChangeCallbackType)
         .with_on_link(app.clone(), on_editor_link as RichTextEditorOnLinkCallbackType);
