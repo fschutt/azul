@@ -27,8 +27,10 @@
        window (a NOTE when the headless backend does not dispatch the close) and writes nothing;
    12. screenshots per step, and flora + dark;
    13. the next close asks again: Save writes the deck, then the window (and the app) closes;
-   14. AzShow again on the saved deck: text typed into a slide and not left yet is unsaved work
-       too - the close asks, Don't Save closes without writing.
+   14. AzShow again on the saved deck: speaker notes typed on the clean deck are unsaved work
+       (the notes field marks the deck without a rebuild) - the close asks, Cancel stays; text
+       typed into a slide, saved with Mod+S while it is still being edited, then typed on - the
+       close asks, Don't Save closes without writing the typing after the save.
 
 Usage (from the azul repository, after building libazul with the debug server and AzShow):
 
@@ -170,11 +172,12 @@ def element_count(deck):
 
 
 def unsaved_typing_is_asked_about(args, binary, logs, out, data_root, deck_id):
-    """AzShow on the saved deck, at the slide whose title was typed: more text typed into that
-    title and not left yet is unsaved work - a close asks about it, and Don't Save closes the
-    window without writing."""
-    on_disk = read_deck(data_root, deck_id)
-    slides = (on_disk or {}).get("slides") or []
+    """AzShow on the saved deck, at the slide whose title was typed: text typed into that title,
+    saved with Mod+S while it is still being edited, and typed on. The typing after the save marks
+    the deck without a rebuild, so a guard built at the save would let the close pass: the close
+    must ask, and Don't Save closes the window without writing that typing."""
+    saved = read_deck(data_root, deck_id)
+    slides = (saved or {}).get("slides") or []
     titled = [i for i, slide in enumerate(slides) if "Quarterly plan" in json.dumps(slide)]
     if not titled:
         raise k.Failure("the saved deck has no slide with the typed title")
@@ -185,12 +188,36 @@ def unsaved_typing_is_asked_about(args, binary, logs, out, data_root, deck_id):
         app.until("AzShow's window", lambda: app.has_line("AZSHOW_READY"))
         app.must("resize", width=WIDTH, height=HEIGHT)
         app.until("the deck", lambda: app.shows("Quarterly plan"))
+        # Notes typed on the clean deck: the notes field marks the deck dirty without a rebuild,
+        # so the window still carries the guard it was built with.
+        app.click(selector="#__azshow_notes")
+        app.must("text_input", text=" NOTE")
+        app.frame(3)
+        app.must("close")
+        if app.soon("the save question", lambda: "__azul-native-message-box" in app.classes()) is None:
+            raise k.Failure("a close right after typing notes did not ask (the app %s)"
+                            % ("exited" if app.process.poll() is not None else "stayed, no question"))
+        k.click_dialog_button(app, "Cancel")
+        app.until("the question gone", lambda: "__azul-native-message-box" not in app.classes())
+        if read_deck(data_root, deck_id) != saved:
+            raise k.Failure("Cancel wrote the deck")
+        app.log("notes typed on a clean deck are asked about; Cancel stays")
         box, scale = slide_box(app)
         app.must("double_click", x=box["x"] + (120 + 1680 / 2) * scale,
                  y=box["y"] + (60 + 160 / 2) * scale)
         app.frame(3)
         time.sleep(0.3)
         app.frame(2)
+        app.must("text_input", text=" SAVED")
+        app.frame(3)
+        # Saved while the text is still being edited: the window is built clean.
+        before = len(app.printed("AZSHOW_SAVED", r"\S+"))
+        app.key("s", primary=True)
+        app.until("the save", lambda: app.printed("AZSHOW_SAVED", r"\S+")[before:])
+        app.frame(3)
+        on_disk = read_deck(data_root, deck_id)
+        if "SAVED" not in json.dumps(on_disk):
+            raise k.Failure("Mod+S while typing did not save the typed text")
         app.must("text_input", text=" UNSAVED")
         app.frame(3)
         # Still in the text: no Escape, no command.
@@ -204,7 +231,7 @@ def unsaved_typing_is_asked_about(args, binary, logs, out, data_root, deck_id):
             raise k.Failure("the window did not close after Don't Save")
         if read_deck(data_root, deck_id) != on_disk:
             raise k.Failure("Don't Save wrote the deck")
-        app.log("typing not left yet is asked about; Don't Save closes without writing")
+        app.log("typing after a save is asked about; Don't Save closes without writing it")
     except k.Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (k.tail(app.out_path), k.tail(app.err_path)))
         raise
