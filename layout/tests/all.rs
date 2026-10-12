@@ -1043,3 +1043,5 @@ mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 mod an_accordion_frame_does_not_re_lay_out_the_page;
 #[path = "a_date_pickers_rows_are_one_cell_tall.rs"]
 mod a_date_pickers_rows_are_one_cell_tall;
+#[path = "a_button_focused_by_a_click_shows_no_focus_ring.rs"]
+mod a_button_focused_by_a_click_shows_no_focus_ring;
