@@ -46,7 +46,8 @@ use std::{path::PathBuf, sync::Arc};
 use azul::{
     app::App,
     callbacks::{
-        CallbackInfo, CloseGuardOnEventCallbackType, LayoutCallbackInfo, RefAny, TimerCallbackInfo,
+        CallbackInfo, CloseGuardDirtyCheckCallbackType, CloseGuardOnEventCallbackType, LayoutCallbackInfo,
+        RefAny, TimerCallbackInfo,
         TimerCallbackReturn, Update,
     },
     css::EventFilter,
@@ -62,7 +63,9 @@ use azul::{
     },
     time::{Duration, SystemTimeDiff},
     vec::U8VecRef,
-    widgets::{CloseGuard, CloseGuardEvent, CloseGuardEventKind, ThumbnailStripLayout, Titlebar},
+    widgets::{
+        CloseGuard, CloseGuardDocumentState, CloseGuardEvent, CloseGuardEventKind, ThumbnailStripLayout, Titlebar,
+    },
     window::WindowEventFilter,
 };
 use azul_appkit::{
@@ -204,13 +207,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     // "Save changes?" before the window closes with an unsaved deck: the
     // close request is held while the deck is dirty, the standard question
-    // shows, the answer comes to on_close_guard.
-    let (title, dirty) = st
-        .editor
-        .as_ref()
-        .map_or((t("azshow-presentation"), false), |e| (e.deck.title.clone(), e.dirty));
+    // shows, the answer comes to on_close_guard. Whether the deck is dirty is
+    // asked when the close arrives (deck_dirty_now): typing marks it without
+    // a rebuild, so the state this DOM was built with can be stale.
+    let title = st.editor.as_ref().map_or_else(|| t("azshow-presentation"), |e| e.deck.title.clone());
     let content = CloseGuard::create(content, s(&title))
-        .with_dirty(dirty)
+        .with_dirty_check(app.clone(), deck_dirty_now as CloseGuardDirtyCheckCallbackType)
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard as CloseGuardOnEventCallbackType)
         .dom();
@@ -218,6 +220,22 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // the full window height.
     ShellThemeScope::create(content).with_accent(accent_of(st)).body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_window_key)
+}
+
+/// The close guard asks this when a close request arrives: does the deck
+/// have unsaved work now? The text being typed is folded into the deck
+/// first, so typing not left yet counts.
+extern "C" fn deck_dirty_now(mut data: RefAny, mut info: CallbackInfo) -> CloseGuardDocumentState {
+    let Some(mut guard) = data.downcast_mut::<AppState>() else {
+        return CloseGuardDocumentState::Saved;
+    };
+    let st = &mut *guard;
+    commands::sync_editing(st, &mut info);
+    if st.editor.as_ref().is_some_and(|e| e.dirty) {
+        CloseGuardDocumentState::Unsaved
+    } else {
+        CloseGuardDocumentState::Saved
+    }
 }
 
 /// The close guard's answers: ask, save then close, close without saving,
@@ -236,11 +254,11 @@ extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: Cl
             return commands::apply(&handle, st, Command::Save, &mut info);
         }
         CloseGuardEventKind::Discard => {
-            // The guard closes the window itself.
+            // The guard closes the window itself, judged by the DOM rebuilt
+            // from this state: the deck closes without writing, so no text
+            // being typed is left to count as unsaved.
             st.asking_close = false;
-            if let Some(ed) = st.editor.as_mut() {
-                ed.dirty = false;
-            }
+            st.editor = None;
         }
         CloseGuardEventKind::Cancel => st.asking_close = false,
     }
