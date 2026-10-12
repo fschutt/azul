@@ -228,6 +228,10 @@ impl Default for E2eScriptHandle {
 /// - Atomic application of all changes
 /// - Easy debugging and logging of callback actions
 /// - Future extensibility for new change types
+/// How far below the pointer a tooltip shown at the pointer opens, in
+/// logical px: past a standard arrow cursor, as the platforms place theirs.
+const TOOLTIP_BELOW_POINTER: f32 = 20.0;
+
 #[derive(Debug, Clone)]
 pub enum CallbackChange {
     /// Start the remote-control HTTP debug server on the specified port.
@@ -3607,10 +3611,15 @@ impl CallbackInfo {
     /// # Arguments
     /// * `text` - The tooltip text to display
     pub fn show_tooltip(&mut self, text: AzString) {
+        // Below the pointer, as the platforms' own tooltips open: a tooltip
+        // window under the pointer takes it from the control it explains,
+        // which then hears MouseLeave, hides the tooltip and shows it again.
         let position = self
             .get_cursor_relative_to_viewport()
             .into_option()
-            .unwrap_or_else(LogicalPosition::zero);
+            .map_or_else(LogicalPosition::zero, |cursor| {
+                LogicalPosition::new(cursor.x, cursor.y + TOOLTIP_BELOW_POINTER)
+            });
         self.push_change(CallbackChange::ShowTooltip { text, position });
     }
 
