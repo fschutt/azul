@@ -688,4 +688,176 @@ mod tests {
             vec![EventFilter::Hover(HoverEventFilter::MouseUp)]
         );
     }
+
+    /// AzReview with `files` files of three pages each, the first open.
+    fn app(files: usize) -> AppState {
+        crate::l10n::in_english();
+        let lines = (0..code::LINES_PER_PAGE * 3)
+            .map(|i| format!("fn step_{i}() {{}}"))
+            .collect::<Vec<_>>();
+        let files = (0..files)
+            .map(|i| code::SourceFile {
+                path: std::path::PathBuf::from(format!("f{i}.rs")),
+                display: format!("f{i}.rs"),
+                lines: lines.clone(),
+            })
+            .collect();
+        AppState::create(
+            std::path::PathBuf::new(),
+            files,
+            RefAny::new(0u8),
+            std::path::PathBuf::new(),
+        )
+    }
+
+    /// `dom` and every box inside it, in tree order.
+    fn nodes(dom: &Dom) -> Vec<&Dom> {
+        let mut out = vec![dom];
+        for child in dom.children.as_slice() {
+            out.extend(nodes(child));
+        }
+        out
+    }
+
+    fn with_id<'a>(dom: &'a Dom, id: &azul::str::String) -> Option<&'a Dom> {
+        nodes(dom).into_iter().find(|n| n.root.has_id(id.clone()))
+    }
+
+    /// The texts inside `dom`.
+    fn texts(dom: &Dom) -> Vec<String> {
+        nodes(dom)
+            .into_iter()
+            .filter_map(|n| n.root.node_type.get_text().into_option())
+            .map(|t| t.as_str().to_string())
+            .collect()
+    }
+
+    /// Whether `dom`'s own CSS (the app's `with_css`) declares `what`, as the
+    /// property prints (`AppRegion(Exact(Drag))`).
+    fn declares(dom: &Dom, what: &str) -> bool {
+        dom.css
+            .as_slice()
+            .iter()
+            .flat_map(|css| css.rules.as_slice().iter())
+            .flat_map(|rule| rule.declarations.as_slice().iter())
+            .any(|d| format!("{d:?}").contains(what))
+    }
+
+    fn buttons(dom: &Dom) -> Vec<&Dom> {
+        nodes(dom)
+            .into_iter()
+            .filter(|n| matches!(n.root.node_type, NodeType::Button))
+            .collect()
+    }
+
+    /// No title bar: the title row moves the window (macOS's traffic lights
+    /// in it), and what sits in it stays pressable.
+    #[test]
+    fn the_title_row_moves_the_window_and_its_controls_stay_controls() {
+        let s = app(2);
+        let row = title_row(&s, &RefAny::new(0u8));
+        assert!(declares(&row, "AppRegion(Exact(Drag))"), "the row moves the window");
+        let controls = buttons(&row);
+        assert!(!controls.is_empty());
+        for control in controls {
+            assert!(
+                declares(control, "AppRegion(Exact(NoDrag))"),
+                "a control in the row is pressed, not dragged: {:?}",
+                texts(control)
+            );
+        }
+    }
+
+    #[test]
+    fn the_title_row_holds_the_sidebar_switch_and_the_five_meanings() {
+        let s = app(2);
+        let row = title_row(&s, &RefAny::new(0u8));
+        assert!(with_id(&row, &ids::SIDEBAR_TOGGLE).is_some(), "the files' switch");
+        let shown = texts(&row);
+        for digit in ["1", "2", "3", "4", "5"] {
+            assert!(shown.iter().any(|t| t == digit), "meaning {digit} in {shown:?}");
+        }
+        assert!(!shown.iter().any(|t| t == "AzReview"), "no title: {shown:?}");
+    }
+
+    #[test]
+    fn the_window_has_no_status_bar() {
+        let s = app(2);
+        let view = main_view(&s, &RefAny::new(0u8));
+        assert!(nodes(&view)
+            .iter()
+            .all(|n| !n.root.has_class(azul::str::String::from("__azul-native-statusbar"))));
+    }
+
+    #[test]
+    fn the_files_fly_out_over_the_pages_and_fold_away() {
+        let mut s = app(2);
+        s.sidebar_open = true;
+        let view = main_view(&s, &RefAny::new(0u8));
+        let flyout = with_id(&view, &ids::FLYOUT).expect("the files fly out");
+        assert!(declares(flyout, "Position(Exact(Absolute))"), "over the pages, not beside them");
+        assert!(texts(flyout).iter().any(|t| t == "f1.rs"), "it lists the files");
+
+        s.sidebar_open = false;
+        let view = main_view(&s, &RefAny::new(0u8));
+        assert!(with_id(&view, &ids::FLYOUT).is_none(), "folded away");
+    }
+
+    #[test]
+    fn picking_a_file_opens_it_and_folds_the_files_away() {
+        let mut s = app(2);
+        s.sidebar_open = true;
+        s.open_file(1);
+        assert_eq!(s.current, Some(1));
+        assert!(!s.sidebar_open, "the flyout gets out of the way of the pages");
+    }
+
+    /// An icon is enough for record, save and settings; the name is for the
+    /// screen reader and the tooltip.
+    #[test]
+    fn record_save_and_settings_are_icon_only_buttons() {
+        let s = app(1);
+        let rail = page_rail(&s, &RefAny::new(0u8));
+        for id in [&ids::RECORD, &ids::SAVE, &ids::SETTINGS] {
+            let button = with_id(&rail, id).unwrap_or_else(|| panic!("{} in the rail", id.as_str()));
+            assert!(matches!(button.root.node_type, NodeType::Button), "{}", id.as_str());
+            assert!(texts(button).is_empty(), "{} shows no words: {:?}", id.as_str(), texts(button));
+        }
+    }
+
+    /// A click on a control focuses the control; nothing around the pages is
+    /// a keyboard stop a click could fall back to (the shell's panes were,
+    /// and a click on the pages rang the document pane).
+    #[test]
+    fn every_control_of_the_window_is_a_button() {
+        let mut s = app(2);
+        s.sidebar_open = true;
+        let view = main_view(&s, &RefAny::new(0u8));
+        for n in nodes(&view) {
+            if n.root.callbacks.as_slice().is_empty() {
+                continue;
+            }
+            assert!(
+                matches!(n.root.node_type, NodeType::Button),
+                "{:?} answers the pointer but is no button: {:?}",
+                n.root.node_type,
+                texts(n)
+            );
+        }
+        assert!(nodes(&view)
+            .iter()
+            .all(|n| !matches!(n.root.node_type, NodeType::Main | NodeType::Nav)));
+    }
+
+    #[test]
+    fn a_failed_save_is_told_over_the_pages_until_dismissed() {
+        let mut s = app(1);
+        s.problem = Some("the disk is full".to_string());
+        let view = main_view(&s, &RefAny::new(0u8));
+        assert!(texts(&view).iter().any(|t| t.contains("the disk is full")));
+
+        s.problem = None;
+        let view = main_view(&s, &RefAny::new(0u8));
+        assert!(!texts(&view).iter().any(|t| t.contains("the disk is full")));
+    }
 }
