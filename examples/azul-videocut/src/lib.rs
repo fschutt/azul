@@ -1455,7 +1455,7 @@ fn program_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
     pane(
         &t_args(
             "azvideocut-program-of",
-            &[("name", Arg::from(&name)), ("active", Arg::from(active))],
+            &[("name", Arg::from(name)), ("active", Arg::from(active))],
         ),
         vec![
             Dom::create_div()

@@ -571,7 +571,7 @@ fn run_action(s: &mut Erp, kind: &ActionKind, params: &Params) {
                     s.state.ask_delete(&id);
                     println!("AZERP_ASK_DELETE {id}");
                 }
-                _ => s.state.notice = t_args("azerp-not-built", &[("name", Arg::from(&name))]),
+                _ => s.state.notice = t_args("azerp-not-built", &[("name", Arg::from(name))]),
             }
         }
         ActionKind::Submit => {
