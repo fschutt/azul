@@ -281,7 +281,6 @@ pub fn open_note(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, id
         .get(id)
         .map_or_else(azul::widgets::RichTextDoc::create, |n| n.doc.clone());
     state.editor = editor::state_for(&doc);
-    state.tag_draft.clear();
     if state.screen == Screen::History {
         state.screen = Screen::Notes;
         state.history = None;
@@ -312,8 +311,10 @@ pub fn new_note(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState) {
     let now = azul_storage::time::now_unix();
     let mut note = Note::new(&id, &notebook_for_new(state), now);
     match &state.query.scope {
+        // In a tag's list the new note starts with the tag in its text.
         Scope::Tag(tag) => {
-            note.add_tag(tag);
+            note.doc = azul::widgets::RichTextDoc::create_from_markdown(&format!("#{tag}\n"));
+            note.adopt_text();
         }
         Scope::Pinned => note.meta.pinned = true,
         Scope::Trash => state.query.scope = Scope::All,

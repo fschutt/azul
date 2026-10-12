@@ -104,6 +104,24 @@ pub fn pan_tiles(lon_deg: f64, lat_deg: f64, tile_count: f64, dx_tiles: f64, dy_
     (lon, lat.clamp(-85.0, 85.0))
 }
 
+/// A travel field: the start or the destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    From,
+    To,
+}
+
+impl End {
+    /// The word scripts read (`AZMAPS_SUGGEST from ...`).
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::From => "from",
+            Self::To => "to",
+        }
+    }
+}
+
 /// How the traveller goes (the travel panel's options).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TravelMode {
@@ -353,14 +371,20 @@ pub fn pan_step(drawn: &Marks, next: &Marks) -> PanStep {
 pub const DETOUR_FACTOR: f64 = 1.3;
 
 impl TravelMode {
-    /// A typical door-to-door speed, km/h: the estimate's divisor.
+    /// A typical door-to-door speed for a way of `km`, km/h: the estimate's divisor. A car
+    /// crosses a town at town speed and a country on the motorway; a long trip by public
+    /// transport is a train.
     #[must_use]
-    pub const fn speed_kmh(self) -> f64 {
+    pub fn speed_kmh(self, km: f64) -> f64 {
         match self {
-            Self::Car => 80.0,
+            Self::Car if km < 15.0 => 35.0,
+            Self::Car if km < 80.0 => 70.0,
+            Self::Car => 95.0,
             Self::Walk => 5.0,
             Self::Bike => 16.0,
-            Self::Transit => 40.0,
+            Self::Transit if km < 30.0 => 25.0,
+            Self::Transit if km < 150.0 => 60.0,
+            Self::Transit => 110.0,
         }
     }
 }
@@ -380,8 +404,47 @@ pub fn estimate_route(from: (f64, f64), to: (f64, f64), mode: TravelMode) -> Rou
     let km = distance_km(from, to) * DETOUR_FACTOR;
     RouteEstimate {
         km,
-        minutes: km / mode.speed_kmh() * 60.0,
+        minutes: km / mode.speed_kmh(km) * 60.0,
     }
+}
+
+/// Where `(lat, lon)` lies on the Web Mercator world at `zoom`, in pixels (256 per tile, as
+/// the map draws it): `x` east from the antimeridian, `y` south from the top edge.
+#[must_use]
+pub fn mercator_px(lat: f64, lon: f64, zoom: f32) -> (f64, f64) {
+    use std::f64::consts::PI;
+    let world = 256.0 * 2f64.powf(f64::from(zoom));
+    let lat_rad = lat.clamp(-85.0, 85.0).to_radians();
+    let x = (lon + 180.0) / 360.0 * world;
+    let y = (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / PI) / 2.0 * world;
+    (x, y)
+}
+
+/// The view that frames a route from `a` to `b` in a `size` window whose left `left_inset`
+/// pixels the sidebar covers: both ends in the free part, a margin from its edges.
+#[must_use]
+pub fn fit_view(a: (f64, f64), b: (f64, f64), size: (f32, f32), left_inset: f32) -> (f64, f64, f32) {
+    use std::f64::consts::PI;
+    /// Space kept between an end and the edge of the free part.
+    const MARGIN: f64 = 40.0;
+    /// The deepest zoom a route is framed at: one place shows its town, not a street.
+    const PLACE_ZOOM: f32 = 13.0;
+    let (w, h, inset) = (f64::from(size.0), f64::from(size.1), f64::from(left_inset));
+    let free_w = (w - inset - 2.0 * MARGIN).max(1.0);
+    let free_h = (h - 2.0 * MARGIN).max(1.0);
+    let (pa, pb) = (mercator_px(a.0, a.1, 0.0), mercator_px(b.0, b.1, 0.0));
+    let (dx, dy) = ((pa.0 - pb.0).abs(), (pa.1 - pb.1).abs());
+    let fit = (free_w / dx.max(1e-9)).min(free_h / dy.max(1e-9));
+    let zoom = (fit.log2() as f32).clamp(MIN_ZOOM, PLACE_ZOOM);
+    // The ends' midpoint goes to the middle of the free part: the window's centre lies half
+    // the sidebar to the left of it.
+    let scale = 2f64.powf(f64::from(zoom));
+    let world = 256.0 * scale;
+    let x = (pa.0 + pb.0) / 2.0 * scale - inset / 2.0;
+    let y = (pa.1 + pb.1) / 2.0 * scale;
+    let lon = (x / world * 360.0 - 180.0 + 540.0).rem_euclid(360.0) - 180.0;
+    let lat = (PI * (1.0 - 2.0 * y / world)).sinh().atan().to_degrees();
+    (lat.clamp(-85.0, 85.0), lon, zoom)
 }
 
 /// A travel time the way the panel shows it: `~ 25 min`, `~ 5 h 10 min`,
@@ -654,7 +717,7 @@ mod tests {
         let crow = distance_km(vienna, munich);
         let car = estimate_route(vienna, munich, TravelMode::Car);
         assert!((car.km - crow * DETOUR_FACTOR).abs() < 1e-9, "{car:?}");
-        assert!((car.minutes - car.km / TravelMode::Car.speed_kmh() * 60.0).abs() < 1e-9);
+        assert!((car.minutes - car.km / TravelMode::Car.speed_kmh(car.km) * 60.0).abs() < 1e-9);
         let walk = estimate_route(vienna, munich, TravelMode::Walk);
         assert!(walk.minutes > car.minutes * 10.0, "walking takes far longer: {walk:?} {car:?}");
         assert_eq!(estimate_route(vienna, vienna, TravelMode::Bike).minutes, 0.0);
@@ -673,6 +736,41 @@ mod tests {
             ),
             "AZMAPS_ROUTE walk 12.3 148 0.012"
         );
+    }
+
+    #[test]
+    fn a_car_route_from_frankfurt_to_berlin_is_estimated_at_motorway_speed() {
+        let frankfurt = (50.1109, 8.6821);
+        let berlin = (52.5200, 13.4050);
+        let car = estimate_route(frankfurt, berlin, TravelMode::Car);
+        assert!((500.0..600.0).contains(&car.km), "{car:?}");
+        assert!((300.0..360.0).contains(&car.minutes), "five to six hours, not {car:?}");
+        let offenbach = (50.0956, 8.7761);
+        let town = estimate_route(frankfurt, offenbach, TravelMode::Car);
+        let speed = town.km / (town.minutes / 60.0);
+        assert!(speed < 60.0, "a trip across town is not at motorway speed: {speed} km/h");
+    }
+
+    #[test]
+    fn a_planned_route_is_framed_in_the_part_of_the_window_the_sidebar_leaves_free() {
+        let frankfurt = (50.1109, 8.6821);
+        let berlin = (52.5200, 13.4050);
+        let (size, inset) = ((1100.0_f32, 720.0_f32), 310.0_f32);
+        let (lat, lon, zoom) = fit_view(frankfurt, berlin, size, inset);
+        assert!((5.0..=8.0).contains(&zoom), "zoom {zoom}");
+        let centre = mercator_px(lat, lon, zoom);
+        for (end_lat, end_lon) in [frankfurt, berlin] {
+            let p = mercator_px(end_lat, end_lon, zoom);
+            let x = p.0 - centre.0 + f64::from(size.0) / 2.0;
+            let y = p.1 - centre.1 + f64::from(size.1) / 2.0;
+            assert!(
+                x > f64::from(inset) + 20.0 && x < f64::from(size.0) - 20.0,
+                "x {x} at zoom {zoom}"
+            );
+            assert!(y > 20.0 && y < f64::from(size.1) - 20.0, "y {y} at zoom {zoom}");
+        }
+        let (_, _, same) = fit_view(berlin, berlin, size, inset);
+        assert!((10.0..=16.0).contains(&same), "one place shows its town, at zoom {same}");
     }
 
     #[test]

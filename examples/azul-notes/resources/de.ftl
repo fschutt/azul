@@ -2,7 +2,7 @@
 
 ## AzNotes
 
-aznotes-about-summary = Notizen als einfache Markdown-Dateien, mit Notizbüchern, Tags, Anheften, Suche, Versionsverlauf und einem Rich-Text-Editor.
+aznotes-about-summary = Notizen als einfache Markdown-Dateien, mit Ordnern, Tags, Anheften, Suche, Versionsverlauf und einem Rich-Text-Editor.
 aznotes-category-editor = Editor
 aznotes-category-storage = Speicher
 aznotes-notes = Notizen
@@ -45,10 +45,10 @@ aznotes-words = { $count ->
    *[other] { $count } Wörter
  }
 aznotes-checked = { $done } von { $total } erledigt
-aznotes-notebook-dot = ein Notizbuchname kann nicht mit einem Punkt beginnen
-aznotes-notebook-backslash = ein Notizbuchname kann keinen umgekehrten Schrägstrich und kein Steuerzeichen enthalten
+aznotes-notebook-dot = ein Ordnername kann nicht mit einem Punkt beginnen
+aznotes-notebook-backslash = ein Ordnername kann keinen umgekehrten Schrägstrich und kein Steuerzeichen enthalten
 aznotes-notebook-assets = „assets“ ist der Name des Bilderordners einer Notiz
-aznotes-notebook-no-name = das Notizbuch braucht einen Namen
+aznotes-notebook-no-name = der Ordner braucht einen Namen
 aznotes-text-small = Klein
 aznotes-text-medium = Mittel
 aznotes-text-large = Groß
@@ -59,22 +59,22 @@ aznotes-back-note = Zurück zur Notiz
 aznotes-restore-version = Diese Version wiederherstellen
 aznotes-title = Titel
 aznotes-add-tag = Tag hinzufügen
-aznotes-notebook-name = Name des Notizbuchs
+aznotes-notebook-name = Name des Ordners
 aznotes-open-note-move-run = Eine Notiz öffnen, verschieben, einen Befehl ausführen
-aznotes-new-notebook = Neues Notizbuch
+aznotes-new-notebook = Neuer Ordner
 aznotes-settings = Einstellungen
 aznotes-link-address = Linkadresse
 aznotes-loading-notes = Notizen werden geladen
 aznotes-no-note-open = Keine Notiz geöffnet
 aznotes-choose-note-list-start = Wähle eine Notiz in der Liste, oder beginne eine neue.
 aznotes-back-notes = Zurück zu den Notizen
-aznotes-notebooks = Notizbücher
+aznotes-notebooks = Ordner
 aznotes-tags = Tags
-aznotes-notebooks-tags = Notizbücher und Tags
+aznotes-notebooks-tags = Ordner und Tags
 aznotes-about-aznotes = Info zu AzNotes
 aznotes-library = Bibliothek
 aznotes-note-trash = Diese Notiz ist im Papierkorb.
-aznotes-name-path-notebook-inside = Ein Name, oder ein Pfad für ein Notizbuch in einem anderen (Arbeit/Ideen).
+aznotes-name-path-notebook-inside = Ein Name, oder ein Pfad für einen Ordner in einem anderen (Arbeit/Ideen).
 aznotes-loading-versions = Versionen werden geladen...
 aznotes-no-versions-yet-aznotes = Noch keine Versionen: AzNotes behält eine pro Speichern, höchstens alle paar Minuten, während du tippst.
 aznotes-changes-from-version-now = Änderungen von dieser Version bis jetzt
@@ -152,7 +152,7 @@ aznotes-markdown-shortcuts = Markdown-Kürzel
 aznotes-files = Dateien
 aznotes-notes-folder = Notizordner: { $folder }
 aznotes-every-note-file = Jede Notiz ist eine Markdown-Datei, notes/<Notizbuch>/<id>.md, mit ihrem Titel, ihren Tags, dem Anheften und den Daten in einem Front Matter; ihre Bilder liegen in notes/<Notizbuch>/<id>/assets/, ihre Versionen in notes/.history/<id>/, gelöschte Notizen in notes/.trash/. Bearbeite sie mit einem beliebigen Editor: AzNotes liest sie neu, wenn sein Fenster den Fokus bekommt.
-aznotes-about-counts = { $summary } { $notes } Notizen in { $notebooks } Notizbüchern, { $pinned } angeheftet, { $trash } im Papierkorb.
+aznotes-about-counts = { $summary } { $notes } Notizen in { $notebooks } Ordnern, { $pinned } angeheftet, { $trash } im Papierkorb.
 aznotes-history-of = Verlauf: { $title }
 aznotes-no-text = Kein Text
 aznotes-loading-version = Die Version wird geladen...

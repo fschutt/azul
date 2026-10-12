@@ -5,9 +5,11 @@
 //! with the pin as its row mark) shows the scope's notes under "Pinned" /
 //! date sections, searched as you type over title, text, tags and
 //! notebook, sorted by date modified / created / title; the editor pane
-//! holds the title field, the tag chips, the formatting toolbar and azul's
-//! shared rich-text editor (`editor.rs`) with Markdown shortcuts. Ctrl/Cmd+K opens
-//! the command palette (open a note, new note, move to a notebook, ...).
+//! holds the formatting toolbar and azul's shared rich-text editor
+//! (`editor.rs`) with Markdown shortcuts. As in Apple Notes the window has no
+//! title row and a note has no title or tag field: its first line is its
+//! title, the `#tags` in its text are its tags. Ctrl/Cmd+K opens the command
+//! palette (open a note, new note, move to a notebook, ...).
 //!
 //! Every note is a Markdown file with a small front matter,
 //! `notes/<notebook>/<uuid>.md`, its images next to it, a version per save
@@ -283,8 +285,6 @@ pub struct AppState {
     pub settings: Settings,
     /// The About box is open.
     pub about_open: bool,
-    /// The tag being typed in the tag field.
-    pub tag_draft: String,
     /// Notes with a save on the way.
     pub saving: BTreeSet<String>,
     /// When the last edit happened (the autosave waits for a pause).
@@ -320,7 +320,7 @@ impl AppState {
         let now = azul_storage::time::now_unix();
         if let Some(note) = self.open_note_mut() {
             note.touch(now);
-            note.refresh();
+            note.adopt_text();
         }
         self.last_edit = Some(Instant::now());
         self.status = Status::Editing;
@@ -391,7 +391,6 @@ pub fn start(args: Args) {
         history: None,
         settings,
         about_open: false,
-        tag_draft: String::new(),
         saving: BTreeSet::new(),
         last_edit: None,
         last_version: BTreeMap::new(),

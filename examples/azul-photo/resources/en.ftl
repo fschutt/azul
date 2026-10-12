@@ -188,6 +188,7 @@ azphoto-new-image = New image...
 azphoto-swap-colours-x = Swap colours (X)
 azphoto-show-hide = Show or hide
 azphoto-lock-unlock = Lock or unlock
+azphoto-lock = Lock:
 azphoto-open-close-group = Open or close the group
 azphoto-new-layer = New layer
 azphoto-new-group = New group

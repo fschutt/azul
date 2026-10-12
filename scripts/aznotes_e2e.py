@@ -2,9 +2,11 @@
 """AzNotes end to end over the debug server (headless).
 
     1. starts AzNotes on an empty, temporary data folder (--data-dir, azul-appkit's switch) and checks the empty state;
-    2. creates a note (the "New note" button), types its title, then its body WITH MARKDOWN
-       SHORTCUTS - "# " (heading), "- " (bullets), Enter on an empty item (out of the list),
-       "[ ] " (a check item) - adds a tag (the tag field, Enter) and pins it;
+    2. checks the window has no title row (Apple Notes: the panes reach the top edge) and the
+       editor no title or tag field; creates a note (the "New note" button) and types it: its
+       first line is its title, then the body WITH MARKDOWN SHORTCUTS - "# " (heading), "- "
+       (bullets), Enter on an empty item (out of the list), "[ ] " (a check item) - and an inline
+       "#errands" (its tag); the list names it by its first line; pins it;
     3. waits for the autosave and reads the note's FILE back from disk:
        notes/Notes/<id>.md with its front matter (title, tags, pinned) and Markdown body;
     4. searches the list ("bakery" finds the note, "bakeryzz" finds nothing);
@@ -269,26 +271,23 @@ def first_session(app, data, out):
     if not app.shows("No notes yet"):
         raise Failure("an empty folder shows no 'No notes yet' empty state")
     log("empty state shown")
-
-    # A new note, its title.
+    if "__azul-native-titlebar" in app.classes():
+        raise Failure("the window still draws a title row above its panes")
     app.click("#__aznotes_new-note")
     note_id = app.until("the new note", lambda: (app.printed("AZNOTES_NEW", r"[0-9a-f-]+") or [None])[-1])
     app.until("the new note to open", lambda: note_id in app.printed("AZNOTES_OPEN", r"[0-9a-f-]+"))
     log("new note %s" % note_id)
-    app.type_into("#__aznotes_note-title", "Shopping list")
-    # The title reads as a title: its field is a heading's height, taller than the tag field
-    # (the 11 px UI fields are 22 px; a 22 px title line is ~28 px plus the field's chrome).
-    title = app.value("get_node_layout", selector="#__aznotes_note-title").get("rect") or {}
-    tag = app.value("get_node_layout", selector="#__aznotes_tag-input").get("rect") or {}
-    if title.get("height", 0) < 28 or title.get("height", 0) <= tag.get("height", 0):
-        raise Failure("the title field is %s px tall (the tag field %s px): it does not read as a title"
-                      % (title.get("height"), tag.get("height")))
-    log("the title field is %.0f px tall" % title["height"])
+    for field in ("#__aznotes_note-title", "#__aznotes_tag-input"):
+        if app.has_id(field[1:]):
+            raise Failure("the editor still has a separate field %s: the first line is the title, "
+                          "#tags are written into the text" % field)
 
-    # The body, with Markdown shortcuts.
+    # The text: its first line is the title, then the body with Markdown shortcuts and a tag.
     app.must("focus_node", selector="#__aznotes_note-body")
     app.frame(2)
     app.click("#__aznotes_note-body-0")  # the caret into the note's first (empty) block (`<host id>-<index>`; every id carries the app's prefix `__aznotes_`)
+    app.type("Shopping list")
+    app.key("return")
     app.type("# ")
     app.type("Groceries")
     app.key("return")
@@ -300,11 +299,13 @@ def first_session(app, data, out):
     app.key("return")  # an empty item leaves the list
     app.type("[ ] ")
     app.type("call the bakery")
-
-    # A tag, the pin.
-    app.type_into("#__aznotes_tag-input", "errands")
     app.key("return")
-    app.until("the tag chip", lambda: app.shows("#errands"))
+    app.key("return")  # out of the checklist
+    app.type("for the weekend #errands")
+    app.until("the tag in the navigation", lambda: app.shows("#errands (1)"))
+    app.until("the list names the note by its first line", lambda: app.shows("Shopping list"))
+
+    # The pin.
     app.click("#__aznotes_pin-note")
     app.until("the note counted as pinned", lambda: app.shows("Pinned (1)"))
     log("typed, tagged, pinned")
@@ -317,8 +318,8 @@ def first_session(app, data, out):
     text = app.until("the note's file on disk", saved)
     expect_in(
         text,
-        ["title: Shopping list", "tags: [errands]", "pinned: true", "# Groceries", "- milk", "- eggs",
-         "- [ ] call the bakery"],
+        ["title: Shopping list", "tags: [errands]", "pinned: true", "\nShopping list\n", "# Groceries",
+         "- milk", "- eggs", "- [ ] call the bakery", "#errands"],
         "notes/Notes/%s.md" % note_id,
     )
     log("file on disk:\n%s" % text)

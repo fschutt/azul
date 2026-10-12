@@ -48,3 +48,5 @@ azmaps-mode-transit = Öffentliche Verkehrsmittel
 azmaps-duration-min = ~ { $min } Min.
 azmaps-duration-h = ~ { $h } Std.
 azmaps-duration-h-min = ~ { $h } Std. { $min } Min.
+azmaps-suggestions = Vorschläge
+azmaps-no-places = Kein Ort namens „{ $query }“ bekannt

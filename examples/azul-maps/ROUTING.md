@@ -8,9 +8,11 @@ Two constraints shape it:
   out the actual route itself, from the tiles near the route.
 
 What exists today: the travel panel has a start (empty means "where you are" once the location is
-known), a destination (`lat, lon`, a dropped pin's Directions button fills it in) and a mode (car,
-walk, bike, transit). The map shows the straight line between start and destination, and the panel
-shows its great-circle distance. `AZMAPS_TRAVEL <mode> <from> <to>` goes to stdout on every change.
+known), a destination and a mode (car, walk, bike, transit). An end is a place name picked from the
+typeahead's suggestions, `lat, lon`, or a dropped pin (its Directions button). The map shows the
+straight line between start and destination, the panel its great-circle distance and the route
+worker's estimate (step 1), and the map frames both ends. `AZMAPS_TRAVEL <mode> <from> <to>` goes to
+stdout on every change.
 
 The plan has five steps. The rest of this note works through them in order.
 
@@ -193,5 +195,7 @@ route has hundreds of segments, so it wants a polyline layer inside `MapWidget` 
   it pans and zooms with the tiles without an app DOM rebuild per frame. Today the app rebuilds its
   whole DOM on every viewport change, and pins and lines are placed with `px_at_latlon`, which
   ignores bearing and pitch.
-- **A geocoder** (place names into the fields) needs either a hosted search index (static too:
-  per-prefix JSON shards of OSM names) or the labels the tiles already carry. Out of scope here.
+- **A geocoder** (place names into the fields): the app ships a small gazetteer of the world's
+  capitals and larger cities (`resources/places.tsv`, `src/places.rs`), searched on the geocoder
+  worker (`src/geocode.rs`) once the typing rests. Streets and smaller places need a hosted search
+  index (static too: per-prefix JSON shards of OSM names) behind the same request and reply.

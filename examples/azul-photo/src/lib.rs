@@ -409,6 +409,20 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
+/// The page the window opens on for `--screen` (`screen`), with or without
+/// an image to open (`has_doc`). Like Photoshop with a new file, a launch
+/// without an image opens the editor on an empty untitled canvas; the start
+/// page (open, new, the saved documents) only when asked for or after the
+/// last document closed.
+#[must_use]
+pub fn first_screen(screen: Screen, has_doc: bool) -> AppScreen {
+    let _ = has_doc;
+    match screen {
+        Screen::Start => AppScreen::Start,
+        _ => AppScreen::Editor,
+    }
+}
+
 pub fn start() {
     let (app_args, args) = match Args::parse(std::env::args().skip(1)) {
         Ok(a) => a,
@@ -468,11 +482,7 @@ pub fn start() {
     });
     let mut s = PhotoState::new(doc, &name, &new_uuid());
     s.status = status;
-    let screen = match args.screen {
-        Screen::Start => AppScreen::Start,
-        Screen::Auto | Screen::Settings if !has_doc => AppScreen::Start,
-        _ => AppScreen::Editor,
-    };
+    let screen = first_screen(args.screen, has_doc);
     let sheet = match args.screen {
         Screen::Export => Some(Sheet::Export),
         Screen::NewImage => Some(Sheet::NewImage),
@@ -510,3 +520,21 @@ pub fn start() {
 
 #[cfg(test)]
 mod ids_tests;
+
+#[cfg(test)]
+mod start_tests {
+    use super::*;
+
+    #[test]
+    fn without_an_image_azphoto_opens_the_editor_on_an_empty_untitled_canvas() {
+        assert_eq!(first_screen(Screen::Auto, false), AppScreen::Editor);
+        assert_eq!(first_screen(Screen::Settings, false), AppScreen::Editor);
+        assert_eq!(first_screen(Screen::Auto, true), AppScreen::Editor);
+        assert_eq!(first_screen(Screen::Start, false), AppScreen::Start, "the start page on request");
+    }
+
+    #[test]
+    fn the_menu_shows_once_natively_on_macos_and_in_the_window_elsewhere() {
+        assert_eq!(ui::in_window_menu(), !cfg!(target_os = "macos"));
+    }
+}

@@ -25,6 +25,9 @@ names! {
     TRAVEL_SWAP = "travel-swap";
     /// The distance once both ends are places.
     TRAVEL_DISTANCE = "travel-distance";
+    /// The typeahead's suggestions under the travel fields (each row
+    /// `suggestion-<n>`, see [`indexed`]).
+    SUGGESTIONS = "suggestions";
     // ---- the recent places ----
     /// The list of recent places (the dropped pins, newest first).
     RECENTS = "recents";

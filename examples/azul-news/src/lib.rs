@@ -35,7 +35,7 @@ pub mod store;
 pub mod xmltree;
 
 /// The window, laid out like OS X Mail: the toolbar, the source list (a section per feed, its
-/// topics under it), the sortable article table over the reading pane; Add feed, OPML, the
+/// topics under it), the sortable article list and the reading pane beside it (three columns); Add feed, OPML, the
 /// sources page, settings.
 pub mod ui;
 

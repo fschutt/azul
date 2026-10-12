@@ -341,6 +341,14 @@ fn menu_items(app: &RefAny, entries: Vec<Entry>) -> Vec<MenuItem> {
         .collect()
 }
 
+/// Whether the window draws its own menu row: everywhere but on macOS, whose
+/// menu bar at the top of the screen holds the window's menu (`layout`
+/// hands it `native_menu`). Both at once showed every menu twice.
+#[must_use]
+pub const fn in_window_menu() -> bool {
+    !cfg!(target_os = "macos")
+}
+
 /// The whole menu bar (the native one on macOS).
 pub fn native_menu(app: &RefAny) -> Menu {
     Menu::create(
@@ -692,7 +700,22 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 .with_on_value_change(field(app, Field::LayerOpacity), commands::on_slider as SliderOnValueChangeCallbackType)
                 .dom()
                 .with_id(ids::LAYER_OPACITY)
-                .with_css("margin-bottom: 6px;"),
+                .with_css("margin-bottom: 4px;"),
+        );
+        // Photoshop's lock row: the locks act on the active layer, a row only
+        // shows that its layer is locked.
+        body.add_child(
+            row("align-items: center; margin-bottom: 6px;")
+                .with_child(text("azphoto-lock", &format!("font-size: 12px; color: {}; margin-right: 6px;", p.muted)))
+                .with_child(
+                    Button::create(AzString::from(""))
+                        .with_icon(AzString::from(if l.locked { "lock" } else { "lock_open" }))
+                        .with_toggled(l.locked)
+                        .with_on_click(cmd(app, Command::ToggleLock(l.id)), commands::on_command as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::LAYER_LOCK)
+                        .with_accessibility_assign(AccessibilityInfo::named(label("azphoto-lock-unlock"), AccessibilityRole::PushButton)),
+                ),
         );
     }
     let mut list = column(&format!("border: 1px solid {}; min-height: 60px;", p.line)).with_id(ids::LAYER_LIST);
@@ -702,7 +725,7 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         };
         let selected = Some(id) == active;
         let mut r = row(&format!(
-            "padding: 3px 4px 3px {}px; border-bottom: 1px solid {}; {}",
+            "align-items: center; min-height: 34px; padding: 2px 6px 2px {}px; border-bottom: 1px solid {}; {}",
             4 + depth * 14,
             p.line,
             if selected { selected_css(p) } else { String::new() }
@@ -715,12 +738,6 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
             if l.visible { "visibility" } else { "visibility_off" },
             "azphoto-show-hide",
             Command::ToggleVisible(id),
-        ))
-        .with_child(icon_button(
-            app,
-            if l.locked { "lock" } else { "lock_open" },
-            "azphoto-lock-unlock",
-            Command::ToggleLock(id),
         ));
         if matches!(l.content, LayerContent::Group(_)) {
             r.add_child(icon_button(
@@ -730,25 +747,39 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 Command::ToggleExpanded(id),
             ));
         }
-        r.add_child(Dom::create_icon(AzString::from(layer_icon(&l.content))).with_css("font-size: 16px; margin: 0px 6px;"));
+        // The layer's thumbnail box, its kind's mark inside.
+        r.add_child(
+            Dom::create_div()
+                .with_css(format!(
+                    "width: 28px; height: 28px; margin: 0px 8px 0px 4px; display: flex; align-items: center; \
+                     justify-content: center; background: {}; border: 1px solid {};",
+                    p.chrome, p.line
+                ))
+                .with_child(Dom::create_icon(AzString::from(layer_icon(&l.content))).with_css("font-size: 16px;")),
+        );
         r.add_child(text(&l.name, &format!("font-size: 13px; color: {}; flex-grow: 1;", p.text)));
         if l.opacity < 0.999 || l.blend != BlendMode::Normal {
             r.add_child(text(
                 &format!("{} {} %", crate::l10n::word("blend", l.blend.name()), (l.opacity * 100.0).round()),
-                &format!("font-size: 11px; color: {};", p.muted),
+                &format!("font-size: 11px; color: {}; margin-right: 4px;", p.muted),
             ));
+        }
+        if l.locked {
+            r.add_child(Dom::create_icon(AzString::from("lock")).with_css(format!("font-size: 14px; color: {};", p.muted)));
         }
         list.add_child(r);
     }
     body.add_child(list);
+    // Photoshop's bar under the list: the layer's tools, then new and delete
+    // at its right end. Moving a layer is a drag of its row (or Layer >
+    // Arrange).
     body.add_child(
-        row("margin-top: 4px; flex-wrap: wrap;")
-            .with_child(icon_button(app, "add", "azphoto-new-layer", Command::NewLayer).with_id(ids::LAYER_NEW))
+        row("align-items: center; margin-top: 4px;")
             .with_child(icon_button(app, "create_new_folder", "azphoto-new-group", Command::NewGroup).with_id(ids::LAYER_NEW_GROUP))
             .with_child(icon_button(app, "control_point_duplicate", "azphoto-duplicate-layer", Command::Duplicate).with_id(ids::LAYER_DUPLICATE))
             .with_child(icon_button(app, "merge_type", "azphoto-merge-down", Command::MergeDown).with_id(ids::LAYER_MERGE))
-            .with_child(icon_button(app, "arrow_upward", "azphoto-move-up", Command::LayerUp).with_id(ids::LAYER_UP))
-            .with_child(icon_button(app, "arrow_downward", "azphoto-move-down", Command::LayerDown).with_id(ids::LAYER_DOWN))
+            .with_child(Dom::create_div().with_css("flex-grow: 1;"))
+            .with_child(icon_button(app, "add", "azphoto-new-layer", Command::NewLayer).with_id(ids::LAYER_NEW))
             .with_child(icon_button(app, "delete", "azphoto-delete-layer", Command::Delete).with_id(ids::LAYER_DELETE)),
     );
     section("azphoto-layers", ids::PANEL_LAYERS, p, body)
@@ -839,12 +870,15 @@ fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
 fn panels(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
     column(&format!("background: {}; overflow-y: auto; min-height: 0px; flex-grow: 1;", p.panel))
         .with_id(ids::PANELS)
-        .with_child(navigator_panel(app, a, p))
+        // Photoshop's Essentials column, top to bottom: colour, the active
+        // layer's properties, adjustments, the layers; then history and the
+        // navigator.
         .with_child(color_panel(app, a, p))
-        .with_child(layers_panel(app, a, p))
         .with_child(properties_panel(app, a, p))
         .with_child(adjustments_panel(app, p))
+        .with_child(layers_panel(app, a, p))
         .with_child(history_panel(app, a, p))
+        .with_child(navigator_panel(app, a, p))
 }
 
 // ==== Canvas area, tab, status ====
@@ -1140,8 +1174,11 @@ fn title_row(a: &PhotoApp) -> Dom {
 }
 
 fn editor(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
-    CanvasShell::create(canvas_area(app, a, p))
-        .with_menu_bar(menu_row(app, p))
+    let mut shell = CanvasShell::create(canvas_area(app, a, p));
+    if in_window_menu() {
+        shell = shell.with_menu_bar(menu_row(app, p));
+    }
+    shell
         .with_tool_options(options_bar(app, a, p))
         .with_tool_palette(tools_column(app, a, p))
         .with_document_tabs(doc_tab(app, a, p))
@@ -1206,9 +1243,9 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;"),
         )
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app_ref.clone(), canvas::on_key);
-    if cfg!(target_os = "macos") {
-        body.with_menu_bar(native_menu(&app_ref))
-    } else {
+    if in_window_menu() {
         body
+    } else {
+        body.with_menu_bar(native_menu(&app_ref))
     }
 }
