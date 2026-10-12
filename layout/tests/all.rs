@@ -1043,3 +1043,5 @@ mod a_screen_reader_reaches_the_controls_of_an_open_popover;
 mod a_sliding_box_carries_its_positioned_children;
 #[path = "an_em_size_on_a_flex_item_follows_its_own_font_size.rs"]
 mod an_em_size_on_a_flex_item_follows_its_own_font_size;
+#[path = "an_icons_own_stylesheet_sizes_its_picture.rs"]
+mod an_icons_own_stylesheet_sizes_its_picture;
