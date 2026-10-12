@@ -208,8 +208,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // "Save changes?" before the window closes with an unsaved deck: the
     // close request is held while the deck is dirty, the standard question
     // shows, the answer comes to on_close_guard. Whether the deck is dirty is
-    // asked when the close arrives (deck_dirty_now): typing marks it without
-    // a rebuild, so the state this DOM was built with can be stale.
+    // asked when the close arrives (deck_dirty_now): typing in the speaker
+    // notes or a text box marks it without a rebuild, so the state this DOM
+    // was built with can be stale.
     let title = st.editor.as_ref().map_or_else(|| t("azshow-presentation"), |e| e.deck.title.clone());
     let content = CloseGuard::create(content, s(&title))
         .with_dirty_check(app.clone(), deck_dirty_now as CloseGuardDirtyCheckCallbackType)
