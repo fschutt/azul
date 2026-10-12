@@ -43,7 +43,7 @@ use azul::{
         TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType,
     },
     css::{DarkLightMode, PhysicalPositionI32, WindowPosition},
-    dom::{DomId, VirtualKeyCode},
+    dom::{DomId, DomNodeId, NodeId, VirtualKeyCode},
     file::FilePath,
     option::{OptionDarkLightMode, OptionLogicalSize},
     prelude::*,
@@ -428,6 +428,19 @@ pub fn title_row(title: &str) -> Dom {
 #[must_use]
 pub fn tabs_in_titlebar() -> TabsInTitlebar {
     TabsInTitlebar::platform()
+}
+
+/// Asks for a new frame of the image at `node` - its `RenderImageCallback` runs again before
+/// the next frame - without a new DOM or a relayout: what a canvas being drawn on needs on
+/// every pointer move (AzPaint's canvas, AzReview's ink).
+pub fn redraw_image(info: &mut CallbackInfo, node: DomNodeId) {
+    // `into_raw` is the 1-based encoding (0 = none); `NodeId` is 0-based. Handing it on as it
+    // is asks for the node AFTER the canvas, and the stroke is not drawn until something else
+    // repaints the window.
+    let raw = node.node.into_raw();
+    if raw != 0 {
+        info.update_image_callback(node.dom, NodeId { inner: raw - 1 });
+    }
 }
 
 /// Called from the app's window-created callback: the language of the app's words (the

@@ -1782,7 +1782,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-        let style_props = text_run_style(ctx, dom_id);
+        let style_props = text_run_style(ctx, tree, dom_id);
         debug_log!(ctx, "Found text in node {}: '{}'", node_index, text);
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
         let text_items = split_text_for_whitespace(ctx.styled_dom, dom_id, &text, &style_props);
@@ -1806,7 +1806,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
             let text = text_data.as_str().to_string();
-            let style_props = text_run_style(ctx, child_id);
+            let style_props = text_run_style(ctx, tree, child_id);
             debug_log!(
                 ctx,
                 "Found text in DOM child of node {}: '{}'",
@@ -1835,8 +1835,14 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 /// text its own (memoised) style. An inline box's style is a fresh `Arc`
 /// per text node, like the line layout's: the line tells inline boxes apart
 /// by `Arc` identity (`inline_offsets` in text3's `position_one_line`).
+///
+/// A parent the layout blockified (a `<span>` that is a flex item, a float,
+/// an absolutely positioned box) is no inline box although its `display`
+/// says `inline`: it is the block holding the text, its padding and border
+/// are its box's and count once, there.
 fn text_run_style<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
     text_id: NodeId,
 ) -> Arc<StyleProperties> {
     let viewport = azul_css::props::basic::PhysicalSize::new(
@@ -1848,6 +1854,7 @@ fn text_run_style<T: ParsedFontTrait>(
         .filter(|&parent| {
             get_display_property(ctx.styled_dom, Some(parent)).unwrap_or_default()
                 == LayoutDisplay::Inline
+                && !laid_out_as_block(tree, parent)
         });
     match inline_box {
         Some(parent) => Arc::new(get_style_properties(
@@ -1864,6 +1871,17 @@ fn text_run_style<T: ParsedFontTrait>(
             viewport,
         ),
     }
+}
+
+/// Whether the layout made `dom_id` a block-level box although its
+/// `display` is `inline` (CSS Display 3, 2.7: a flex or grid item, a float,
+/// an absolutely positioned box): its layout node holds the display it got.
+fn laid_out_as_block(tree: &LayoutTree, dom_id: NodeId) -> bool {
+    tree.dom_to_layout
+        .get(&dom_id)
+        .and_then(|nodes| nodes.first())
+        .and_then(|&node| tree.warm(node))
+        .is_some_and(|w| w.computed_style.display != LayoutDisplay::Inline)
 }
 
 /// Helper to process layout tree children for inline content collection.

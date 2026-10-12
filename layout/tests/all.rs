@@ -1063,3 +1063,7 @@ mod an_em_size_on_a_flex_item_follows_its_own_font_size;
 mod an_icons_own_stylesheet_sizes_its_picture;
 #[path = "a_reader_draws_its_pages_ahead_as_pictures.rs"]
 mod a_reader_draws_its_pages_ahead_as_pictures;
+#[path = "a_padded_span_in_a_flex_row_fits_its_text.rs"]
+mod a_padded_span_in_a_flex_row_fits_its_text;
+#[path = "a_press_on_an_image_over_text_selects_nothing.rs"]
+mod a_press_on_an_image_over_text_selects_nothing;

@@ -1442,13 +1442,7 @@ fn push_pressure_to_meter(info: &mut CallbackInfo) -> Option<f32> {
 /// Ask for a new frame of the canvas (its `RenderImageCallback`), no relayout.
 fn poke_canvas(info: &mut CallbackInfo) {
     if let Some(node) = info.get_node_id_by_marker(ids::CANVAS).into_option() {
-        // `into_raw` is the 1-based encoding (0 = none); `NodeId` is 0-based.
-        // Passing it as it was poked the node AFTER the canvas: the stroke
-        // was not drawn until something else re-rendered the window.
-        let raw = node.node.into_raw();
-        if raw != 0 {
-            info.update_image_callback(node.dom, azul::dom::NodeId { inner: raw - 1 });
-        }
+        kit::redraw_image(info, node);
     }
 }
 

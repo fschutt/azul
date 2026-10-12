@@ -1,10 +1,11 @@
 //! AzReview - ink-first code review: the files of a folder as paper pages,
 //! annotated with a pen (or the mouse), with voice clips.
 //!
-//! The window is the document shell: the files in the navigation pane, the
-//! toolbar, the page rail and the sheets in the document, the status bar
-//! under it; the app theme and the dark mode from `ShellThemeScope` (the
-//! pages stay paper). azul-appkit gives the switches (`AzReview [FOLDER]`,
+//! The window has no title bar: its top row moves it and holds the files'
+//! switch, the five meanings and the nib; the page rail (the page numbers,
+//! record, save, settings) and the sheets are under it, and the files fly out
+//! over the sheets. The app theme and the dark mode come from
+//! `ShellThemeScope` (the pages stay paper). azul-appkit gives the switches (`AzReview [FOLDER]`,
 //! `--theme`, `--mode`, `--size`, `--shot`, `--data-dir`), the settings page
 //! (Mod+,) and About. Every session is an archive in the data tree,
 //! `review/<file>.azreview.zip`, written on a Thread (one writer).
@@ -21,7 +22,7 @@ use azul_appkit::{
     args::{AppArgs, AppSpec},
     data::app_key,
     files::{FileJob, FileOutcome},
-    l10n::{t, t_args, Arg},
+    l10n::{t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -29,6 +30,8 @@ use azul_appkit::{
 pub mod code;
 pub mod ids;
 pub mod ink;
+#[cfg(test)]
+mod ink_tests;
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
@@ -72,6 +75,9 @@ pub struct AppState {
     pub current: Option<usize>,
     pub strokes: Vec<Stroke>,
     pub live: Option<Stroke>,
+    /// The revisions of each page's kept strokes: an ink layer draws its
+    /// frame anew when its page's changes (`ink::InkRevisions`).
+    pub ink: ink::InkRevisions,
     pub next_stroke_id: u64,
     pub active: Semantic,
     pub tool: Tool,
@@ -83,7 +89,12 @@ pub struct AppState {
     pub epoch: u64,
     pub idle_timer: TimerId,
     pub root: PathBuf,
-    pub status: String,
+    /// The files fly out over the pages (the title row's switch; a picked
+    /// file and Escape fold them away).
+    pub sidebar_open: bool,
+    /// What went wrong and is told over the pages until dismissed: a session
+    /// not written, an archive folder that would not open.
+    pub problem: Option<String>,
     pub last_pad_keys: u32,
     /// azul-appkit's kit and the data root the session archives go to.
     pub kit: RefAny,
@@ -94,6 +105,53 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// AzReview on the `files` of `root`, the first open and the files out
+    /// (they are what one picks from first); `kit` and `data_root` are
+    /// azul-appkit's.
+    #[must_use]
+    pub fn create(root: PathBuf, files: Vec<code::SourceFile>, kit: RefAny, data_root: PathBuf) -> Self {
+        Self {
+            current: if files.is_empty() { None } else { Some(0) },
+            files,
+            strokes: Vec::new(),
+            live: None,
+            ink: ink::InkRevisions::default(),
+            next_stroke_id: 1,
+            active: Semantic::Scope,
+            tool: Tool::Marker,
+            findings: Vec::new(),
+            recording: None,
+            clips: Vec::new(),
+            level_samples: 0,
+            visible_page: 0,
+            epoch: 0,
+            idle_timer: TimerId::unique(),
+            root,
+            sidebar_open: true,
+            problem: None,
+            last_pad_keys: 0,
+            kit,
+            data_root,
+            saving: false,
+            save_pending: false,
+        }
+    }
+
+    /// Opens file `index` (its pages start without ink) and folds the files
+    /// away, out of the pages' way.
+    pub fn open_file(&mut self, index: usize) {
+        if index >= self.files.len() {
+            return;
+        }
+        self.current = Some(index);
+        self.strokes.clear();
+        self.live = None;
+        self.ink.open();
+        self.visible_page = 0;
+        self.sidebar_open = false;
+        self.rederive();
+    }
+
     pub(crate) fn file(&self) -> Option<&code::SourceFile> {
         self.current.and_then(|i| self.files.get(i))
     }
@@ -179,37 +237,10 @@ pub fn run() {
             .unwrap_or_default()
     };
     let files = code::load_tree(&root, 400);
-    let status = if files.is_empty() {
-        t_args("azreview-no-files", &[("folder", Arg::from(root.display().to_string()))])
-    } else {
-        t_args("azreview-files-pick", &[("count", Arg::from(files.len()))])
-    };
     if let Some(first) = files.first() {
         println!("AZREVIEW_FILE {}", first.display);
     }
-    let state = AppState {
-        current: if files.is_empty() { None } else { Some(0) },
-        files,
-        strokes: Vec::new(),
-        live: None,
-        next_stroke_id: 1,
-        active: Semantic::Scope,
-        tool: Tool::Marker,
-        findings: Vec::new(),
-        recording: None,
-        clips: Vec::new(),
-        level_samples: 0,
-        visible_page: 0,
-        epoch: 0,
-        idle_timer: TimerId::unique(),
-        root,
-        status,
-        last_pad_keys: 0,
-        kit: kit_ref.clone(),
-        data_root,
-        saving: false,
-        save_pending: false,
-    };
+    let state = AppState::create(root, files, kit_ref.clone(), data_root);
     let app = App::create(RefAny::new(state), config);
     let window =
         kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
@@ -270,12 +301,12 @@ extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
             match (outcome.error(), outcome) {
                 (None, FileOutcome::Put { key, .. }) => {
                     println!("AZREVIEW_SAVED {key}");
-                    s.status = t_args("azreview-saved-to", &[("path", Arg::from(key.as_str()))]);
                 }
                 (None, _) => {}
                 (Some(why), _) => {
                     println!("AZREVIEW_SAVE_ERROR {why}");
-                    s.status = t_args("azreview-save-failed", &[("why", Arg::from(why.to_string()))]);
+                    s.problem =
+                        Some(t_args("azreview-save-failed", &[("why", Arg::from(why.to_string()))]));
                 }
             }
         }
@@ -315,6 +346,14 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(key) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
         return Update::DoNothing;
     };
+    if matches!(key, VirtualKeyCode::Escape) {
+        let folded = data.downcast_mut::<AppState>().is_some_and(|mut s| {
+            let was = s.sidebar_open;
+            s.sidebar_open = false;
+            was
+        });
+        return if folded { Update::RefreshDom } else { Update::DoNothing };
+    }
     if matches!(key, VirtualKeyCode::S) && info.get_key_modifiers().primary_down() {
         info.prevent_default();
         save_session(&data, &mut info);
@@ -328,18 +367,35 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     if let Some(mut s) = data.downcast_mut::<AppState>() {
         s.active = sem;
-        s.status = format!("{} - {}", crate::l10n::word("nib", s.tool.label()), crate::l10n::word("meaning", sem.label()));
     }
     Update::RefreshDom
 }
 
-/// The toolbar's Save button.
+/// The rail's Save button.
 pub extern "C" fn on_save_button(data: RefAny, mut info: CallbackInfo) -> Update {
     save_session(&data, &mut info);
     Update::RefreshDom
 }
 
-/// The toolbar's gear: azul-appkit's settings page.
+/// The title row's switch: the files fly out over the pages, or fold away.
+pub extern "C" fn on_toggle_sidebar(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.sidebar_open = !s.sidebar_open;
+    Update::RefreshDom
+}
+
+/// Dismiss on the bar that told what went wrong.
+pub extern "C" fn on_dismiss_problem(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.problem = None;
+    Update::RefreshDom
+}
+
+/// The rail's gear: azul-appkit's settings page.
 pub extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(kit_ref) = kit_of(&mut data) {
         kit::open_settings(&kit_ref, None);
@@ -371,9 +427,12 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
                 && p.y <= y1 + 6.0
         });
         if let Some(i) = hit {
-            s.strokes.remove(i);
+            let gone = s.strokes.remove(i);
+            s.ink.touch(page);
             s.rederive();
-            return Update::RefreshDom;
+            drop(s);
+            ui::redraw_ink(&mut info, ink::Layer::of(gone.semantic));
+            return Update::DoNothing;
         }
         return Update::DoNothing;
     }
@@ -398,6 +457,9 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     if let Some(clip) = s.recording.as_mut() {
         clip.stroke_ids.push(id);
     }
+    drop(s);
+    // The first dab shows at once; the stroke grows in the frame of its layer.
+    ui::redraw_ink(&mut info, ink::Layer::of(semantic));
     Update::DoNothing
 }
 
@@ -426,10 +488,11 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
             s.clips.push(clip);
         }
     }
-    s.status = format!("{} - {}", crate::l10n::word("nib", s.tool.label()), crate::l10n::word("meaning", s.active.label()));
     Update::RefreshDom
 }
 
+/// A pointer move while a stroke is drawn: its new point, and a new frame of
+/// its layer - no new DOM (a DOM per move made drawing unusably slow).
 pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -440,41 +503,54 @@ pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
     let Some((p, _)) = ui::sample(&mut info) else {
         return Update::DoNothing;
     };
-    if let Some(live) = s.live.as_mut() {
-        let far = live
-            .points
-            .last()
-            .is_none_or(|l| (l.x - p.x).abs() + (l.y - p.y).abs() > 0.35);
-        if far {
-            live.points.push(p);
-        }
+    let Some(live) = s.live.as_mut() else {
+        return Update::DoNothing;
+    };
+    let far = live
+        .points
+        .last()
+        .is_none_or(|l| (l.x - p.x).abs() + (l.y - p.y).abs() > 0.35);
+    if !far {
+        return Update::DoNothing;
     }
-    Update::RefreshDom
+    live.points.push(p);
+    let layer = ink::Layer::of(live.semantic);
+    drop(s);
+    ui::redraw_ink(&mut info, layer);
+    Update::DoNothing
 }
 
+/// The pen lifts: a stroke is kept (its page's frame drawn anew with it, no
+/// new DOM - nothing else in the window shows the strokes), a click cycles
+/// the nib.
 pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (is_click, timer_id) = {
+    let (is_click, timer_id, layer) = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
         let Some(done) = s.live.take() else {
             return Update::DoNothing;
         };
+        // Kept or dropped (a click cycles the nib), the page's frame no
+        // longer shows a stroke being drawn.
+        s.ink.touch(done.page);
+        let layer = ink::Layer::of(done.semantic);
         if done.points.len() < CLICK_POINT_LIMIT {
-            (true, s.idle_timer)
+            (true, s.idle_timer, layer)
         } else {
             s.strokes.push(done);
             s.rederive();
             println!("AZREVIEW_STROKES {}", s.strokes.len());
-            (false, s.idle_timer)
+            (false, s.idle_timer, layer)
         }
     };
+    ui::redraw_ink(&mut info, layer);
     if is_click {
         return on_cycle_tool(data, info);
     }
     save_session(&data, &mut info);
     arm_idle_timer(&mut info, data, timer_id);
-    Update::RefreshDom
+    Update::DoNothing
 }
 
 const ANNOTATION_IDLE_MS: u64 = 1_800;
@@ -508,7 +584,6 @@ pub extern "C" fn on_annotation_idle(
             s.clips.push(clip);
             s.level_samples = 0;
         }
-        s.status = t_args("azreview-sealed", &[("n", Arg::from(s.epoch.to_string()))]);
     }
     save_session(&data, &mut info.callback_info);
     TimerCallbackReturn {
@@ -534,13 +609,31 @@ pub extern "C" fn on_pad(mut data: RefAny, info: CallbackInfo) -> Update {
     let index = pressed.trailing_zeros() as usize;
     if let Some(&sem) = Semantic::ALL.get(index) {
         s.active = sem;
-        s.status = t_args(
-            "azreview-pad-key",
-            &[("index", Arg::from(index.to_string())), ("meaning", Arg::from(crate::l10n::word("meaning", sem.label())))],
-        );
         return Update::RefreshDom;
     }
     Update::DoNothing
+}
+
+/// The strip scrolled sideways (a wheel, a trackpad): the page that came
+/// into view lights its number, and the numbers' row keeps it in view.
+pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(x) = ui::strip_scroll_x(&info) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let Some(pages) = s.file().map(code::SourceFile::page_count) else {
+        return Update::DoNothing;
+    };
+    let page = ui::page_at(x, pages);
+    if page == s.visible_page {
+        return Update::DoNothing;
+    }
+    s.visible_page = page;
+    drop(s);
+    ui::reveal_pill(&mut info, page);
+    Update::RefreshDom
 }
 
 pub extern "C" fn on_jump_to_page(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -582,13 +675,15 @@ pub extern "C" fn on_menu_reveal(mut data: RefAny, _: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     // The sessions' folder in the data tree (it exists after the first save), opened by the
-    // apps' one opener; what went wrong (no folder yet) is said in the status line.
+    // apps' one opener; what went wrong (no folder yet) is told over the pages.
     let dir = s.data_root.join(ABOUT.app_folder);
-    s.status = match azul_appkit::files::open_external(&dir.to_string_lossy()) {
-        Ok(()) => t_args("azreview-archives-in", &[("folder", Arg::from(dir.display().to_string()))]),
-        Err(e) => e,
-    };
-    Update::RefreshDom
+    match azul_appkit::files::open_external(&dir.to_string_lossy()) {
+        Ok(()) => Update::DoNothing,
+        Err(e) => {
+            s.problem = Some(e);
+            Update::RefreshDom
+        }
+    }
 }
 
 pub extern "C" fn on_pick_semantic(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -608,23 +703,25 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
     let Some(index) = ui::index_of(&mut info) else {
         return Update::DoNothing;
     };
-    let switch = data
-        .downcast_ref::<AppState>()
-        .is_some_and(|s| index < s.files.len() && s.current != Some(index));
-    if !switch {
+    let Some(open) = data.downcast_ref::<AppState>().map(|s| s.current) else {
         return Update::DoNothing;
+    };
+    if open != Some(index) {
+        // The file being left is kept first (its archive is built now).
+        save_session(&data, &mut info);
     }
-    // The file being left is kept first (its archive is built now).
-    save_session(&data, &mut info);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    println!("AZREVIEW_FILE {}", s.files[index].display);
-    s.current = Some(index);
-    s.strokes.clear();
-    s.live = None;
-    s.rederive();
-    s.status = s.files[index].display.clone();
+    if open == Some(index) {
+        s.sidebar_open = false;
+        return Update::RefreshDom;
+    }
+    let Some(file) = s.files.get(index) else {
+        return Update::DoNothing;
+    };
+    println!("AZREVIEW_FILE {}", file.display);
+    s.open_file(index);
     Update::RefreshDom
 }
 
@@ -635,7 +732,6 @@ pub extern "C" fn on_toggle_record(mut data: RefAny, mut info: CallbackInfo) -> 
         };
         match s.recording.take() {
             Some(clip) => {
-                s.status = t_args("azreview-recording-stopped", &[("count", Arg::from(clip.samples.len()))]);
                 s.clips.push(clip);
                 s.level_samples = 0;
                 true
@@ -654,7 +750,6 @@ pub extern "C" fn on_toggle_record(mut data: RefAny, mut info: CallbackInfo) -> 
         sample_rate: 48_000,
         ..VoiceClip::default()
     });
-    s.status = t("azreview-recording");
     Update::RefreshDom
 }
 
