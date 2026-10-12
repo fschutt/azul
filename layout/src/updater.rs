@@ -3673,6 +3673,20 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_maintenance_window_is_any_time_and_a_rule_confines_unattended_work() {
+        assert!(within_maintenance_window("", 0));
+        assert!(within_maintenance_window("  ", 12_345));
+        #[cfg(feature = "telemetry")]
+        {
+            // 2026-01-01T00:00:00Z; the window opens daily at 02:00 UTC for two hours.
+            let midnight = 1_767_225_600;
+            let rule = "FREQ=DAILY;BYHOUR=2;DURATION=PT2H";
+            assert!(within_maintenance_window(rule, midnight + 2 * 3600 + 1800));
+            assert!(!within_maintenance_window(rule, midnight + 5 * 3600));
+        }
+    }
+
+    #[test]
     fn the_machines_cohort_is_a_bucket_from_0_to_99() {
         assert!(draw_rollout_bucket() < 100);
     }
