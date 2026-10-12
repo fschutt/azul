@@ -4986,8 +4986,10 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     // A row of the menu at rest: no face in a transparent rim (so the
     // hover's rim moves nothing); Office 2010's faces lit and pressed, the
     // field ring inside it on focus (the columns clip at their edges).
-    let row = |height: isize| {
-        let mut v = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(height)))];
+    // `size` is the row's height: exact for a one-line row, a minimum for a choice whose
+    // description may wrap.
+    let row = |size: CssProperty| {
+        let mut v = vec![C::simple(size)];
         v.extend(decl::border(1));
         v.extend(decl::border_colors(ColorU::TRANSPARENT).map(C::simple));
         v.extend(decl::radius(2));
@@ -5015,7 +5017,7 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     let mut commands = vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(240)))];
     commands.extend(decl::padding(4, 3, 4, 3));
 
-    let mut command = row(46);
+    let mut command = row(CssProperty::const_height(LayoutHeight::const_px(46)));
     command.extend(decl::padding(0, 8, 0, 6));
 
     let mut command_icon = vec![px(32)];
@@ -5045,7 +5047,7 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     title.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
     title.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
 
-    let mut open = row(24);
+    let mut open = row(CssProperty::const_height(LayoutHeight::const_px(24)));
     open.extend(decl::padding(0, 4, 0, 4));
 
     let mut number = vec![
@@ -5058,15 +5060,15 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     let mut place_label = vec![px(13)];
     place_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
 
-    let mut pin = row(24);
+    let mut pin = row(CssProperty::const_height(LayoutHeight::const_px(24)));
     pin.push(C::simple(CssProperty::const_width(LayoutWidth::const_px(24))));
     pin.extend(decl::margin(0, 0, 0, 2));
 
     let mut pin_icon = vec![px(14)];
     pin_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
 
-    let mut sub = row(50);
-    sub.extend(decl::padding(0, 8, 0, 6));
+    let mut sub = row(CssProperty::const_min_height(LayoutMinHeight::const_px(50)));
+    sub.extend(decl::padding(4, 8, 4, 6));
 
     let mut sub_icon = vec![px(24)];
     sub_icon.extend(decl::margin(0, 10, 0, 0));

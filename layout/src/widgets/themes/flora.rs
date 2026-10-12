@@ -8051,8 +8051,10 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     // hover's rim moves nothing); the hover face in a --fl-bd2 rim under the
     // pointer, the pressed face in --fl-bd3, the accent halo inside it on
     // focus (the columns clip at their edges).
-    let row = |height: isize| {
-        let mut v = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(height)))];
+    // `size` is the row's height: exact for a one-line row, a minimum for a choice whose
+    // description may wrap.
+    let row = |size: CssProperty| {
+        let mut v = vec![C::simple(size)];
         v.extend(decl::border(1));
         v.extend(decl::border_colors(ColorU::TRANSPARENT).map(C::simple));
         v.extend(decl::radius(3));
@@ -8082,7 +8084,7 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     commands.extend(decl::padding(6, 4, 6, 4));
     commands.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
 
-    let mut command = row(46);
+    let mut command = row(CssProperty::const_height(LayoutHeight::const_px(46)));
     command.extend(decl::padding(0, 8, 0, 6));
 
     let mut command_icon = vec![px(30)];
@@ -8114,7 +8116,7 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     title.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
     title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
-    let mut open = row(26);
+    let mut open = row(CssProperty::const_height(LayoutHeight::const_px(26)));
     open.extend(decl::padding(0, 4, 0, 4));
 
     let mut number = vec![
@@ -8127,15 +8129,15 @@ pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::Ribbo
     let mut place_label = vec![px(14), C::simple(CssProperty::const_font_family(SERIF_FAMILY))];
     place_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
 
-    let mut pin = row(26);
+    let mut pin = row(CssProperty::const_height(LayoutHeight::const_px(26)));
     pin.push(C::simple(CssProperty::const_width(LayoutWidth::const_px(26))));
     pin.extend(decl::margin(0, 0, 0, 2));
 
     let mut pin_icon = vec![px(14)];
     pin_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
 
-    let mut sub = row(52);
-    sub.extend(decl::padding(0, 8, 0, 6));
+    let mut sub = row(CssProperty::const_min_height(LayoutMinHeight::const_px(52)));
+    sub.extend(decl::padding(4, 8, 4, 6));
 
     let mut sub_icon = vec![px(24)];
     sub_icon.extend(decl::margin(0, 10, 0, 0));

@@ -647,8 +647,9 @@ use azul_css::props::{
         LayoutInsetBottom, LayoutLeft, LayoutMinWidth, LayoutOverflow, LayoutPosition, LayoutTop,
         LayoutWidth,
     },
-    property::StyleWhiteSpaceValue,
-    style::StyleWhiteSpace,
+    basic::StyleFontStyle,
+    property::{StyleTextTransformValue, StyleWhiteSpaceValue},
+    style::{StyleLineHeight, StyleTextAlign, StyleTextTransform, StyleWhiteSpace},
 };
 
 /// An unconditional declaration - `CssPropertyWithConditions::simple`, for
@@ -708,6 +709,30 @@ pub(crate) const fn nowrap() -> CssPropertyWithConditions {
     simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Nowrap,
     )))
+}
+
+/// The inherited text properties at their initial values, for the root of a popup hung on a
+/// control. CSS inheritance follows the DOM, not the window a popup shows in (a popover in
+/// Chrome inherits from its DOM parent the same way), so a menu hung on a flora button would
+/// set every row in the button's capitals, tracking and line height. The popup's skin sets
+/// its own size, face and ink on top.
+#[must_use]
+pub(crate) const fn own_type() -> [CssPropertyWithConditions; 7] {
+    [
+        simple(CssProperty::TextTransform(StyleTextTransformValue::Exact(
+            StyleTextTransform::None,
+        ))),
+        simple(CssProperty::const_letter_spacing(StyleLetterSpacing {
+            inner: PixelValue::const_px(0),
+        })),
+        simple(CssProperty::font_weight(StyleFontWeight::Normal)),
+        simple(CssProperty::font_style(StyleFontStyle::Normal)),
+        simple(CssProperty::const_line_height(StyleLineHeight::Normal)),
+        simple(CssProperty::const_text_align(StyleTextAlign::Start)),
+        simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+            StyleWhiteSpace::Normal,
+        ))),
+    ]
 }
 
 /// `width: <px>px`, fractional.

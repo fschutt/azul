@@ -76,7 +76,7 @@ use crate::{
         themes::{
             decl::{
                 display_flex, flex_direction, grow, no_shrink, nowrap, on_base, overflow_x_hidden,
-                simple,
+                own_type, simple,
             },
             OptionUiTheme, UiTheme,
         },
@@ -1150,9 +1150,12 @@ pub(crate) fn build(menu: RibbonFileMenu, look: &RibbonFileMenuLook) -> Dom {
     if let Some(marker) = look.marker {
         classes.push(Class(AzString::from_const_str(marker)));
     }
+    // The menu hangs on the File tab: its type is its own, not the tab's capitals.
+    let mut menu_base = MENU_BASE.to_vec();
+    menu_base.extend(own_type());
     let panel = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-        .with_css_props(part(MENU_BASE, &look.menu))
+        .with_css_props(part(menu_base.as_slice(), &look.menu))
         // A panel the user works in, not a list picked from: the popup
         // takes the keyboard and its first command the focus
         // (`transient::transient_takes_focus`).
