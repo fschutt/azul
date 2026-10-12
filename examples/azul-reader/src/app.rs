@@ -93,6 +93,14 @@ pub struct AppState {
     pub page: usize,
     /// Turns the wheel's and the trackpad's travel over the pages into page turns.
     pub wheel: position::WheelPager,
+    /// The direction of the last page turn (`true` = forward): the next view slides in from
+    /// below or from above and the view it replaces leaves the same way. `None` after a jump
+    /// (the contents, a bookmark, a chapter), which slides nothing.
+    pub turned: Option<bool>,
+    /// The pictures of the pages around the view, drawn ahead on a worker.
+    pub pictures: crate::pagecache::PageCache,
+    /// The window's DPI factor (from the last layout): the pictures are drawn at it.
+    pub dpi: f32,
     /// The clock the wheel pager reads (its start).
     pub started: std::time::Instant,
     /// A chapter being laid out: `(chapter, generation, where it opens)`.
@@ -149,6 +157,9 @@ impl AppState {
             chapter: None,
             page: 0,
             wheel: position::WheelPager::default(),
+            turned: None,
+            pictures: crate::pagecache::PageCache::default(),
+            dpi: 1.0,
             started: std::time::Instant::now(),
             pending: None,
             generation: 0,
@@ -219,6 +230,28 @@ impl AppState {
             (Some(open), Some(at)) => position::book_progress(&open.weights, at),
             _ => 0.0,
         }
+    }
+
+    /// What the pictures of the pages are drawn for ([`crate::pagecache::PageCache::key`]): the
+    /// book, the chapter and the layout on screen, the DPI and the paper. `None` without a
+    /// chapter of the open book laid out for the current settings and page size.
+    #[must_use]
+    pub fn pictures_key(&self) -> Option<String> {
+        let open = self.open.as_ref()?;
+        let chapter = self
+            .chapter
+            .as_ref()
+            .filter(|c| c.book_id == open.info.id && c.layout_key == self.layout_key())?;
+        let colors = self.settings.paper.colors(self.dark, self.flora);
+        Some(format!(
+            "{}/{}/{}/{}/{}/{}",
+            chapter.book_id,
+            chapter.chapter,
+            chapter.layout_key,
+            self.dpi,
+            colors.background,
+            colors.text
+        ))
     }
 
     /// The window's title.

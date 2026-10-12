@@ -237,6 +237,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         if st.fonts.is_none() {
             st.fonts = Some(FontCacheSnapshot::from_layout_info(&info));
         }
+        st.dpi = info.get_dpi_factor();
     }
     let Some(guard) = data.downcast_ref::<AppState>() else {
         return Dom::create_body();
@@ -337,6 +338,9 @@ extern "C" fn area_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     // `ensure_layout` asks only for what is missing or stale (a chapter waiting for the fonts,
     // one laid out for other settings or another page size, the first one).
     commands::ensure_layout(st, &mut info.callback_info, &app);
+    // The pages around the view, drawn ahead (the chapter's pictures are in the image cache by
+    // now: they were added a callback ago).
+    commands::ensure_pages_drawn(st, &mut info.callback_info, &app);
     TimerCallbackReturn::continue_unchanged()
 }
 

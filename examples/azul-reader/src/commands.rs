@@ -28,6 +28,7 @@ use crate::{
     app::{AppState, Command, CommandRef, OpenBook, Pane, Screen, Target},
     jobs::{self, Done, Job},
     library::{self, Bookmark},
+    pagecache::{self, DrawRequest, PageCache, PageRun},
     paginate::{self, ChapterReady, ChapterRequest},
     position::{self, Turn},
     settings::{ReadingSettings, FONT_MAX, FONT_MIN, LINE_MAX, LINE_MIN, MARGIN_MAX, MARGIN_MIN},
@@ -322,6 +323,8 @@ pub fn go_to(
     let Some(chapters) = st.open.as_ref().map(|o| o.book.spine.len()) else {
         return;
     };
+    // A jump: the view it lands on appears in place.
+    st.turned = None;
     let chapter = chapter.min(chapters.saturating_sub(1));
     let key = st.layout_key();
     let per_view = st.geometry().per_view;
@@ -427,7 +430,9 @@ fn turn_page(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, forward: 
     match position::turn(st.page, per_view, page_count, chapter, chapters, forward) {
         Turn::Page(page) => {
             st.page = page;
+            st.turned = Some(forward);
             moved(st, info, app);
+            ensure_pages_drawn(st, info, app);
         }
         Turn::NextChapter => go_to(st, info, app, chapter + 1, Target::Fraction(0.0)),
         Turn::PreviousChapterEnd => {
@@ -575,6 +580,100 @@ fn unregister_images(st: &mut AppState, info: &mut CallbackInfo, keep: &[String]
         } else {
             info.remove_image_from_cache(src.as_str());
         }
+    }
+}
+
+/// Draws the pages around the view ahead, on a Thread, one run at a time: the view and the next
+/// spread first, then the spread before ([`pagecache::next_run`]); the runs far from the view
+/// are let go. The pictures are for the layout on screen ([`AppState::pictures_key`]).
+pub fn ensure_pages_drawn(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+    if st.screen != Screen::Reader {
+        return;
+    }
+    let Some(key) = st.pictures_key() else {
+        return;
+    };
+    if st.pictures.key != key {
+        st.pictures = PageCache {
+            key: key.clone(),
+            ..PageCache::default()
+        };
+    }
+    let Some((page_count, xml)) = st
+        .chapter
+        .as_ref()
+        .map(|c| (c.pages.page_count(), c.content.xml.clone()))
+    else {
+        return;
+    };
+    let geometry = st.geometry();
+    let page = st.page;
+    st.pictures
+        .runs
+        .retain(|run| pagecache::keeps((run.first, run.count), page, geometry.per_view, page_count));
+    if st.pictures.drawing.is_some() || st.pictures.failed {
+        return;
+    }
+    let Some(fonts) = st.fonts.clone() else {
+        return;
+    };
+    let covered = st.pictures.covered();
+    let Some((first, count)) = pagecache::next_run(page, geometry.per_view, page_count, &covered)
+    else {
+        return;
+    };
+    let colors = st.settings.paper.colors(st.dark, st.flora);
+    let request = DrawRequest {
+        key,
+        first,
+        count,
+        chapter: xml,
+        settings: st.settings,
+        text_width: geometry.text_width,
+        text_height: geometry.text_height,
+        flora: st.flora,
+        paper: pagecache::hex_color(colors.background),
+        ink: colors.text.to_string(),
+        dpi: st.dpi,
+        fonts,
+        images: info.get_image_cache_clone(),
+    };
+    st.pictures.drawing = Some((first, count));
+    pagecache::spawn_draw(info, app, request, on_pages_drawn);
+}
+
+/// A run of pages is drawn: kept when it is for the layout on screen, and the next run is asked
+/// for; the view is built again when it shows one of its pages.
+pub extern "C" fn on_pages_drawn(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(drawn) = pagecache::take_drawn(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let st = &mut *guard;
+    // A run for another layout: the cache it was asked for is gone.
+    if st.pictures.key != drawn.key {
+        return Update::DoNothing;
+    }
+    st.pictures.drawing = None;
+    let Some(image) = drawn.image else {
+        st.pictures.failed = true;
+        return Update::DoNothing;
+    };
+    let per_view = st.geometry().per_view;
+    let shown = (drawn.first..drawn.first + drawn.count).any(|p| p >= st.page && p < st.page + per_view);
+    st.pictures.runs.push(PageRun {
+        first: drawn.first,
+        count: drawn.count,
+        image,
+    });
+    ensure_pages_drawn(st, &mut info, &handle);
+    if shown {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
     }
 }
 

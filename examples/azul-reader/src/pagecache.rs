@@ -88,6 +88,9 @@ pub struct PageCache {
     pub runs: Vec<PageRun>,
     /// The run being drawn on a worker (`(first, count)`), at most one at a time.
     pub drawing: Option<(usize, usize)>,
+    /// A run could not be drawn: no more are asked for under this key, the live column shows
+    /// the pages (without it a failing draw would be asked for again at every tick).
+    pub failed: bool,
 }
 
 impl PageCache {
