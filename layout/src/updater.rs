@@ -2259,6 +2259,28 @@ impl From<Result<PathBuf, String>> for UpdateStageResult {
     }
 }
 
+/// Whether unattended update work may run at `now_unix` under the maintenance
+/// window `rule` (the shared config's RRULE subset, in UTC; empty: any time).
+/// A manager staging other programs passes the window its own config names;
+/// [`within_shared_maintenance_window`] reads the running program's.
+#[must_use]
+pub fn within_maintenance_window(rule: &str, now_unix: u64) -> bool {
+    if rule.trim().is_empty() {
+        return true;
+    }
+    #[cfg(feature = "telemetry")]
+    {
+        crate::telemetry::sharedconfig::within_maintenance_window(rule, now_unix)
+    }
+    // The RRULE reader lives with the shared config; without it no window
+    // can be read, and an unreadable window fails open as it does there.
+    #[cfg(not(feature = "telemetry"))]
+    {
+        let _ = now_unix;
+        true
+    }
+}
+
 /// Draws a rollout cohort (0-99) the way [`UpdateState::rollout_bucket`]
 /// does, `AZ_UPDATE_BUCKET` included. The caller keeps it: a cohort is
 /// drawn once per machine and never again.
