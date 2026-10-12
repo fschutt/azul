@@ -1449,6 +1449,9 @@ fn flora_button_states(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWit
             if boxed {
                 v.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
             }
+            // Pressed, the note takes the quiet wash, as every command takes
+            // a pressed face (its fade walks there, over --fl-dur-fast).
+            v.extend(decl::active_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
         }
     }
     v
