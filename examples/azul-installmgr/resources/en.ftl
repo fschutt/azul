@@ -178,3 +178,14 @@ azinstallmgr-settings-window = Background updates
 azinstallmgr-settings-any-time = At any time
 azinstallmgr-settings-config = These settings are kept in { $path }.
 azinstallmgr-settings-saved = Saved. The apps follow it from their next check.
+
+## The wizard pages' own words
+azinstallmgr-destination-field = Destination folder
+azinstallmgr-browse = Browse...
+azinstallmgr-destination-dialog = Choose the folder for the Azlin apps
+azinstallmgr-space-required = Space required:
+azinstallmgr-space-available = Space available:
+azinstallmgr-destination-empty = Choose a folder to install into.
+azinstallmgr-destination-short = There is not enough free space on the drive.
+azinstallmgr-show-details = Show details
+azinstallmgr-hide-details = Hide details

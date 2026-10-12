@@ -174,6 +174,7 @@ fn components_page(rows: &[ComponentRow]) -> WizardComponentsPage {
         .collect();
     WizardComponentsPage::create(WizardComponentVec::from_vec(components))
         .with_intro(s(&t("azinstallmgr-components-intro")))
+        .with_total_label(s(&t("azinstallmgr-space-required")))
 }
 
 fn options_page() -> WizardOptionsPage {
@@ -259,6 +260,17 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
             let mut p =
                 WizardDestinationPage::create(s(&w.path), needed_bytes(&w.selected()))
                     .with_intro(s(&t("azinstallmgr-destination-intro")))
+                    .with_labels(
+                        s(&t("azinstallmgr-destination-field")),
+                        s(&t("azinstallmgr-browse")),
+                        s(&t("azinstallmgr-destination-dialog")),
+                        s(&t("azinstallmgr-space-required")),
+                        s(&t("azinstallmgr-space-available")),
+                    )
+                    .with_reasons(
+                        s(&t("azinstallmgr-destination-empty")),
+                        s(&t("azinstallmgr-destination-short")),
+                    )
                     .with_on_event(app.clone(), on_page);
             if let Some(free) = w.available {
                 p = p.with_available(free);
@@ -317,6 +329,10 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
                 .with_current_item(s(&progress.current))
                 .with_log(StringVec::from_vec(progress.log.iter().map(|l| s(l)).collect()))
                 .with_show_log(w.show_log)
+                .with_details_labels(
+                    s(&t("azinstallmgr-show-details")),
+                    s(&t("azinstallmgr-hide-details")),
+                )
                 .with_on_event(app.clone(), on_page);
             let reason = if progress.finished {
                 String::new()

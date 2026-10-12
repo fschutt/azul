@@ -178,3 +178,14 @@ azinstallmgr-settings-window = Updates im Hintergrund
 azinstallmgr-settings-any-time = Jederzeit
 azinstallmgr-settings-config = Diese Einstellungen stehen in { $path }.
 azinstallmgr-settings-saved = Gespeichert. Die Apps folgen ab ihrer nächsten Prüfung.
+
+## Die eigenen Wörter der Assistentenseiten
+azinstallmgr-destination-field = Zielordner
+azinstallmgr-browse = Durchsuchen …
+azinstallmgr-destination-dialog = Den Ordner für die Azlin-Apps wählen
+azinstallmgr-space-required = Benötigter Speicherplatz:
+azinstallmgr-space-available = Verfügbarer Speicherplatz:
+azinstallmgr-destination-empty = Wählen Sie einen Ordner für die Installation.
+azinstallmgr-destination-short = Auf dem Laufwerk ist nicht genug Platz frei.
+azinstallmgr-show-details = Details anzeigen
+azinstallmgr-hide-details = Details ausblenden
