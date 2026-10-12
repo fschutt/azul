@@ -176,6 +176,7 @@ mod routes;
 mod speaker;
 mod store;
 mod tiles;
+mod times;
 mod ui;
 mod video_wire;
 
@@ -1255,8 +1256,8 @@ fn times_text(starts: u64, ends: u64) -> String {
     let now = azul_storage::time::now_unix();
     format!(
         "{} · {}",
-        rooms::when_text(starts, ends, offset),
-        rooms::meeting_status(starts, ends, now)
+        times::when_text(starts, ends, offset),
+        times::meeting_status(starts, ends, now)
     )
 }
 
