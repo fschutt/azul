@@ -323,7 +323,7 @@ pub fn translate_displaylist_to_wr(
                         scale_px(bounds.0.size.height, dpi_scale),
                     ),
                 );
-                let style_border_radius = convert_border_radius_to_style(border_radius);
+                let style_border_radius = convert_border_radius_to_style(border_radius, dpi_scale);
                 let wr_border_radius = wr_translate_border_radius(
                     style_border_radius,
                     azul_core::geom::LogicalSize::new(
@@ -546,47 +546,48 @@ pub fn translate_displaylist_to_wr(
 
                 // If clip_to_container_border is enabled and container has border-radius,
                 // create a clip chain for the container's rounded corners
-                let clip_chain_id =
-                    if info.clip_to_container_border && !info.container_border_radius.is_zero() {
-                        let style_border_radius =
-                            convert_border_radius_to_style(&info.container_border_radius);
-                        let wr_border_radius = wr_translate_border_radius(
-                            style_border_radius,
-                            azul_core::geom::LogicalSize::new(
-                                scale_px(info.bounds.0.size.width, dpi_scale),
-                                scale_px(info.bounds.0.size.height, dpi_scale),
-                            ),
-                        );
+                let clip_chain_id = if info.clip_to_container_border
+                    && !info.container_border_radius.is_zero()
+                {
+                    let style_border_radius =
+                        convert_border_radius_to_style(&info.container_border_radius, dpi_scale);
+                    let wr_border_radius = wr_translate_border_radius(
+                        style_border_radius,
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(info.bounds.0.size.width, dpi_scale),
+                            scale_px(info.bounds.0.size.height, dpi_scale),
+                        ),
+                    );
 
-                        // Apply offset to scaled bounds for clip definition
-                        let raw_scaled_bounds = LogicalRect::new(
-                            azul_core::geom::LogicalPosition::new(
-                                scale_px(info.bounds.0.origin.x, dpi_scale),
-                                scale_px(info.bounds.0.origin.y, dpi_scale),
-                            ),
-                            azul_core::geom::LogicalSize::new(
-                                scale_px(info.bounds.0.size.width, dpi_scale),
-                                scale_px(info.bounds.0.size.height, dpi_scale),
-                            ),
-                        );
-                        let scaled_bounds = LogicalRect::new(
-                            azul_core::geom::LogicalPosition::new(
-                                raw_scaled_bounds.origin.x - current_offset.0,
-                                raw_scaled_bounds.origin.y - current_offset.1,
-                            ),
-                            raw_scaled_bounds.size,
-                        );
+                    // Apply offset to scaled bounds for clip definition
+                    let raw_scaled_bounds = LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            scale_px(info.bounds.0.origin.x, dpi_scale),
+                            scale_px(info.bounds.0.origin.y, dpi_scale),
+                        ),
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(info.bounds.0.size.width, dpi_scale),
+                            scale_px(info.bounds.0.size.height, dpi_scale),
+                        ),
+                    );
+                    let scaled_bounds = LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            raw_scaled_bounds.origin.x - current_offset.0,
+                            raw_scaled_bounds.origin.y - current_offset.1,
+                        ),
+                        raw_scaled_bounds.size,
+                    );
 
-                        define_border_radius_clip(
-                            &mut builder,
-                            scaled_bounds,
-                            wr_border_radius,
-                            spatial_id,
-                            base_clip_chain_id,
-                        )
-                    } else {
-                        base_clip_chain_id
-                    };
+                    define_border_radius_clip(
+                        &mut builder,
+                        scaled_bounds,
+                        wr_border_radius,
+                        spatial_id,
+                        base_clip_chain_id,
+                    )
+                } else {
+                    base_clip_chain_id
+                };
 
                 // Render track (background)
                 if info.track_color.a > 0 {
@@ -713,18 +714,8 @@ pub fn translate_displaylist_to_wr(
 
                     // Handle rounded thumb corners
                     if !info.thumb_border_radius.is_zero() {
-                        // Scale the border radius by DPI (border radius is in logical pixels)
-                        let scaled_border_radius = BorderRadius {
-                            top_left: scale_px(info.thumb_border_radius.top_left, dpi_scale),
-                            top_right: scale_px(info.thumb_border_radius.top_right, dpi_scale),
-                            bottom_left: scale_px(info.thumb_border_radius.bottom_left, dpi_scale),
-                            bottom_right: scale_px(
-                                info.thumb_border_radius.bottom_right,
-                                dpi_scale,
-                            ),
-                        };
                         let style_border_radius =
-                            convert_border_radius_to_style(&scaled_border_radius);
+                            convert_border_radius_to_style(&info.thumb_border_radius, dpi_scale);
                         let wr_border_radius = wr_translate_border_radius(
                             style_border_radius,
                             azul_core::geom::LogicalSize::new(
@@ -823,7 +814,8 @@ pub fn translate_displaylist_to_wr(
                 // Handle rounded corners if border_radius is non-zero
                 if !border_radius.is_zero() {
                     // Convert layout BorderRadius to StyleBorderRadius for translation
-                    let style_border_radius = convert_border_radius_to_style(border_radius);
+                    let style_border_radius =
+                        convert_border_radius_to_style(border_radius, dpi_scale);
 
                     let wr_border_radius = wr_translate_border_radius(
                         style_border_radius,
@@ -1287,7 +1279,8 @@ pub fn translate_displaylist_to_wr(
                     let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                     // Handle border_radius by creating a clip region (same as Rect)
-                    let style_border_radius = convert_border_radius_to_style(border_radius);
+                    let style_border_radius =
+                        convert_border_radius_to_style(border_radius, dpi_scale);
                     let wr_border_radius = wr_translate_border_radius(
                         style_border_radius,
                         azul_core::geom::LogicalSize::new(
@@ -2030,7 +2023,7 @@ pub fn translate_displaylist_to_wr(
                     dpi_scale,
                 );
 
-                let style_border_radius = convert_border_radius_to_style(border_radius);
+                let style_border_radius = convert_border_radius_to_style(border_radius, dpi_scale);
                 let wr_border_radius = wr_translate_border_radius(
                     style_border_radius,
                     azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
@@ -2395,14 +2388,15 @@ pub fn translate_displaylist_to_wr(
 
 // Helper Functions
 
-/// Convert DisplayList BorderRadius to StyleBorderRadius
+/// A display list `BorderRadius` (CSS px) as the device px radii of a
+/// WebRender clip, whose rect is in device px too.
 #[inline]
-fn convert_border_radius_to_style(br: &BorderRadius) -> StyleBorderRadius {
+fn convert_border_radius_to_style(br: &BorderRadius, dpi: f32) -> StyleBorderRadius {
     StyleBorderRadius {
-        top_left: PixelValue::px(br.top_left),
-        top_right: PixelValue::px(br.top_right),
-        bottom_left: PixelValue::px(br.bottom_left),
-        bottom_right: PixelValue::px(br.bottom_right),
+        top_left: PixelValue::px(scale_px(br.top_left, dpi)),
+        top_right: PixelValue::px(scale_px(br.top_right, dpi)),
+        bottom_left: PixelValue::px(scale_px(br.bottom_left, dpi)),
+        bottom_right: PixelValue::px(scale_px(br.bottom_right, dpi)),
     }
 }
 
@@ -2455,8 +2449,10 @@ fn rounded_box_clip(
         scale_px(bounds.0.size.width, dpi_scale),
         scale_px(bounds.0.size.height, dpi_scale),
     );
-    let wr_border_radius =
-        wr_translate_border_radius(convert_border_radius_to_style(border_radius), size);
+    let wr_border_radius = wr_translate_border_radius(
+        convert_border_radius_to_style(border_radius, dpi_scale),
+        size,
+    );
     if wr_border_radius.is_zero() {
         return parent;
     }
