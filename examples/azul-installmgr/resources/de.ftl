@@ -115,3 +115,47 @@ azinstallmgr-app-azterm = Ein Terminal.
 azinstallmgr-app-azmonitor = Was Ihr Computer gerade tut.
 azinstallmgr-app-azdashboard = Bestellungen und Zahlen in Tabellen und Diagrammen.
 azinstallmgr-app-azerp = Anlagen und Akten eines Unternehmens.
+
+## Die installierten Apps
+azinstallmgr-check = Nach Updates suchen
+azinstallmgr-update-all = { $count ->
+    [0] Alle aktualisieren
+   *[other] Alle aktualisieren ({ $count })
+}
+azinstallmgr-busy = Warten Sie, bis die laufende Arbeit erledigt ist.
+azinstallmgr-nothing-to-update = Es gibt nichts zu aktualisieren.
+azinstallmgr-cohort = Dieser Computer ist in Verteilungsgruppe { $cohort } von 100.
+azinstallmgr-no-apps = Es ist noch keine Azlin-App installiert. Starten Sie das Setup mit --screen wizard, um welche zu installieren.
+azinstallmgr-column-app = App
+azinstallmgr-column-installed = Installiert
+azinstallmgr-column-available = Verfügbar
+azinstallmgr-column-channel = Kanal
+azinstallmgr-column-size = Größe
+azinstallmgr-column-updated = Zuletzt aktualisiert
+azinstallmgr-column-actions = Aktionen
+azinstallmgr-status-checking = Wird geprüft …
+azinstallmgr-status-working = In Arbeit …
+azinstallmgr-status-up-to-date = Aktuell
+azinstallmgr-status-available = verfügbar
+azinstallmgr-status-staged = bereit zur Installation
+azinstallmgr-status-skipped = übersprungen
+azinstallmgr-status-failed = Prüfung fehlgeschlagen
+azinstallmgr-update = Aktualisieren
+azinstallmgr-revert-to = Zurück zu { $version }
+azinstallmgr-uninstall = Deinstallieren
+azinstallmgr-uninstall-title = { $app } deinstallieren?
+azinstallmgr-uninstall-text = Die App und ihre frühere Version werden von diesem Computer entfernt. Ihre Dokumente und Einstellungen bleiben, wo sie sind.
+azinstallmgr-owner-elsewhere = Nicht von AzInstallManager installiert
+azinstallmgr-owner-readonly = Für alle Benutzer dieses Computers installiert
+azinstallmgr-update-through = Über { $manager } aktualisieren
+azinstallmgr-copied-command = Kopiert: { $command }
+azinstallmgr-updated = { $app } ist jetzt { $version }.
+azinstallmgr-update-failed = { $app } wurde nicht aktualisiert: { $reason }
+azinstallmgr-reverted = { $app } ist zurück auf { $version }. Version { $skipped } wird ab jetzt übersprungen; eine neuere wird wieder angeboten.
+azinstallmgr-uninstalled = { $app } wurde deinstalliert.
+azinstallmgr-all-up-to-date = Alle Apps sind aktuell.
+azinstallmgr-updates-found = { $count ->
+    [one] Ein Update ist verfügbar.
+   *[other] { $count } Updates sind verfügbar.
+}
+azinstallmgr-check-failed = Eine Prüfung ist fehlgeschlagen: { $reason }

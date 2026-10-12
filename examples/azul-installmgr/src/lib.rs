@@ -18,6 +18,7 @@
 //! `AZINSTALLMGR_FINISHED show_apps=<bool>`, `AZINSTALLMGR_ROW <key> <installed> <available>
 //! <status>`, `AZINSTALLMGR_REQUESTED <key> <version or error>`.
 
+mod apps;
 mod jobs;
 mod l10n;
 pub mod model;
@@ -42,8 +43,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec, LanguagePref},
     azlin_config::{self, AzlinConfig, UpdatesSection},
-    l10n::t,
-    pieces,
+    l10n::{t, t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
     update::{self, AzulEngine},
@@ -88,6 +88,8 @@ pub const SHORTCUTS: [Shortcut; 3] = [
 
 /// How often the apps' "Update now" requests are looked for.
 const POLL_MS: u64 = 3_000;
+/// How long the periodic check waits after the last one, with auto-update on.
+const CHECK_EVERY_SECS: u64 = 6 * 3600;
 
 /// What the window shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +121,12 @@ pub(crate) struct Manager {
     pub(crate) about_open: bool,
     /// The wizard's "Exit Setup?" question is open.
     pub(crate) confirm_cancel: bool,
+    /// The app the "Uninstall ...?" question is about (open while `Some`).
+    pub(crate) confirm_uninstall: Option<&'static model::AppEntry>,
+    /// The running job checks: the rows say "Checking".
+    pub(crate) checking: bool,
+    /// When every app was last checked (the periodic check waits [`CHECK_EVERY_SECS`]).
+    pub(crate) last_check_unix: u64,
 }
 
 impl Manager {
@@ -168,21 +176,6 @@ fn places_for(config: PathBuf, updates: &UpdatesSection) -> Places {
 
 // ==== The window ====
 
-/// The installed apps, until the table is drawn.
-fn apps_screen(m: &Manager) -> Dom {
-    let rows: Vec<Dom> = m
-        .apps
-        .iter()
-        .map(|a| {
-            pieces::text(format!(
-                "{} {}",
-                a.entry.name, a.registration.version
-            ))
-        })
-        .collect();
-    pieces::column("padding: 16px; gap: 6px;", rows)
-}
-
 /// The About box and the wizard's exit question: modals the window always carries.
 fn modals(m: &Manager, app: &RefAny) -> Vec<Dom> {
     let question = MessageBox::create(
@@ -195,6 +188,20 @@ fn modals(m: &Manager, app: &RefAny) -> Vec<Dom> {
         1,
     )
     .with_on_event(app.clone(), on_confirm)
+    .dom();
+    let uninstall = MessageBox::create(
+        MessageBoxKind::Question,
+        AzString::from(t_args(
+            "azinstallmgr-uninstall-title",
+            &[("app", Arg::from(m.confirm_uninstall.map_or("", |e| e.name)))],
+        )),
+        AzString::from(t("azinstallmgr-uninstall-text")),
+    )
+    .with_buttons(
+        azul_appkit::l10n::labels(&["azinstallmgr-uninstall", "azinstallmgr-button-cancel"]),
+        1,
+    )
+    .with_on_event(app.clone(), on_confirm_uninstall)
     .dom();
     let about = AboutDialog::create(
         AzString::from(ABOUT.name),
@@ -210,6 +217,11 @@ fn modals(m: &Manager, app: &RefAny) -> Vec<Dom> {
         Modal::create(question)
             .with_title(AzString::from(t("azinstallmgr-wizard-title")))
             .with_open(m.confirm_cancel)
+            .with_on_close(app.clone(), on_modal_close)
+            .dom(),
+        Modal::create(uninstall)
+            .with_title(AzString::from(t("azinstallmgr-title")))
+            .with_open(m.confirm_uninstall.is_some())
             .with_on_close(app.clone(), on_modal_close)
             .dom(),
         Modal::create(about)
@@ -231,7 +243,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let m = &*guard;
     let (title, content) = match m.screen {
         Screen::Wizard => (t("azinstallmgr-wizard-title"), wizard::wizard(m, &app)),
-        Screen::Apps => (t("azinstallmgr-title"), apps_screen(m)),
+        Screen::Apps => (t("azinstallmgr-title"), apps::screen(m, &app)),
     };
     let shell = UtilityShell::create(content)
         .with_title_row(kit::title_row(&title))
@@ -272,6 +284,8 @@ pub(crate) extern "C" fn on_progress(
         Progress::Started { key } => {
             if m.screen == Screen::Wizard {
                 wizard::started(&mut m.wizard, &key);
+            } else {
+                apps::started(m, &key);
             }
         }
         Progress::Installed {
@@ -294,14 +308,12 @@ pub(crate) extern "C" fn on_progress(
                 Ok(r) => println!("AZINSTALLMGR_REQUESTED {key} {}", r.version),
                 Err(why) => println!("AZINSTALLMGR_REQUESTED {key} error: {why}"),
             }
-            if let Err(why) = result {
-                m.notice = why;
-            }
+            apps::updated(m, &key, result);
         }
-        Progress::Checked { .. }
-        | Progress::Updated { .. }
-        | Progress::Reverted { .. }
-        | Progress::Uninstalled { .. } => {}
+        Progress::Checked { key, status } => apps::checked(m, &key, status),
+        Progress::Updated { key, result } => apps::updated(m, &key, result),
+        Progress::Reverted { key, result } => apps::reverted(m, &key, result),
+        Progress::Uninstalled { key, result } => apps::uninstalled(m, &key, result),
         Progress::Finished { requests } => {
             if requests {
                 m.polling = false;
@@ -311,23 +323,48 @@ pub(crate) extern "C" fn on_progress(
             if m.screen == Screen::Wizard && m.wizard.step == model::Step::Installing {
                 wizard::finished(&mut m.wizard);
             }
+            if m.checking {
+                apps::check_finished(m);
+            }
         }
     }
     Update::RefreshDom
 }
 
-/// Every few seconds: the apps' "Update now" requests.
+/// Every few seconds: the apps' "Update now" requests; with auto-update on for any app, every
+/// app is checked (and what is found staged) once the last check is old enough.
 extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
     let app = data.clone();
-    let Some(mut m) = data.downcast_mut::<Manager>() else {
+    let Some(mut guard) = data.downcast_mut::<Manager>() else {
         return TimerCallbackReturn::terminate_unchanged();
     };
+    let m = &mut *guard;
     if !m.polling {
         m.polling = true;
         let fetching = m.fetching();
         jobs::spawn(&mut info.callback_info, &app, Job::Requests, fetching);
     }
+    let due = update::unix_now().saturating_sub(m.last_check_unix) >= CHECK_EVERY_SECS;
+    let wanted = m.apps.iter().any(|a| a.autoupdate && a.is_managed());
+    if m.screen == Screen::Apps && due && wanted && !m.busy {
+        apps::check_all(m, &mut info.callback_info, &app);
+        return TimerCallbackReturn::continue_and_refresh_dom();
+    }
     TimerCallbackReturn::continue_unchanged()
+}
+
+extern "C" fn on_confirm_uninstall(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let app = data.clone();
+    let Some(mut m) = data.downcast_mut::<Manager>() else {
+        return Update::DoNothing;
+    };
+    let yes = matches!((event.kind, event.index), (StandardDialogEventKind::Button, 0));
+    apps::uninstall_answered(&mut *m, &mut info, &app, yes);
+    Update::RefreshDom
 }
 
 extern "C" fn on_confirm(
@@ -369,6 +406,7 @@ extern "C" fn on_modal_close(mut data: RefAny, _info: CallbackInfo, _state: Moda
     };
     m.about_open = false;
     m.confirm_cancel = false;
+    m.confirm_uninstall = None;
     Update::RefreshDom
 }
 
@@ -379,14 +417,20 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         .get_current_keyboard_state()
         .current_virtual_keycode
         .into_option();
-    let Some(mut m) = data.downcast_mut::<Manager>() else {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<Manager>() else {
         return Update::DoNothing;
     };
+    let m = &mut *guard;
     match key {
         Some(VirtualKeyCode::F1) if !m.about_open => m.about_open = true,
-        Some(VirtualKeyCode::Escape) if m.about_open || m.confirm_cancel => {
+        Some(VirtualKeyCode::F5) if m.screen == Screen::Apps => apps::check_all(m, &mut info, &app),
+        Some(VirtualKeyCode::Escape)
+            if m.about_open || m.confirm_cancel || m.confirm_uninstall.is_some() =>
+        {
             m.about_open = false;
             m.confirm_cancel = false;
+            m.confirm_uninstall = None;
         }
         Some(VirtualKeyCode::Escape)
             if m.screen == Screen::Wizard && m.wizard.step != model::Step::Finish =>
@@ -494,6 +538,9 @@ pub fn start() {
         notice: String::new(),
         about_open: false,
         confirm_cancel: false,
+        confirm_uninstall: None,
+        checking: false,
+        last_check_unix: 0,
     };
     if screen == Screen::Wizard {
         println!("{}", model::step_line(&state.wizard.steps, state.wizard.step));
