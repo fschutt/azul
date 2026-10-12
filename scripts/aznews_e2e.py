@@ -9,7 +9,7 @@
        refreshes: 3 AZNEWS_REFRESHED lines, news/subscriptions.opml and news/feeds/<id>/
        {feed,items,state}.json on disk, the malformed feed read anyway; the source list has a
        section per feed, the RSS feed's topics (its <category>s) under it: a topic shows its 2
-       articles; the table sorts by the column header clicked (title, then date again);
+       articles; the list sorts by the column header clicked (title, then date again);
     3. an article opens from the table (a VirtualView: its rows are a DOM of their own) in the
        reading pane (its text is in the window), "Load pictures" fetches its picture on a
        Thread into the image cache (AZNEWS_PICTURE), the toolbar's Star writes state.json;
@@ -125,6 +125,20 @@ def library_run(args, logs, out, base, site):
         app.until("the article's text in the reader", lambda: app.shows("Article 3 is about local feeds."))
         if not app.has(app.sel("reader")):
             raise Failure("the reader's body is not laid out")
+        # Three columns: sources | articles | reader. The reader stands RIGHT of the article
+        # list, beside it from the same top, not under it (the T layout).
+        listed = app.rect(app.sel("article-list")[1:])
+        read = app.rect(app.sel("reader")[1:])
+        if not listed or not read:
+            raise Failure("no box for the article list (%s) or the reader (%s)" % (listed, read))
+        if read["x"] < listed["x"] + listed["width"] - 1 or read["y"] > listed["y"] + 120:
+            raise Failure("the reader is not a column right of the article list: list %s, reader %s"
+                          % (listed, read))
+        # The rows live in the list's VirtualView DOM.
+        row = app.rect(app.sel("article-0")[1:], every_dom=True)
+        if not row or row.get("height", 0) < 40:
+            raise Failure("an article row is one line (%s): the middle column shows its title, "
+                          "source, date and opening lines" % row)
         app.click(text="Load pictures")
         app.until("the picture", lambda: app.printed("AZNEWS_PICTURE", re.escape(base + "/img/red.png")))
         app.frame(2)
