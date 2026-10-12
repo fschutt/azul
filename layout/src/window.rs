@@ -25856,6 +25856,49 @@ impl LayoutWindow {
         }
     }
 
+    /// Move `node_id`'s box to `position` at once, and bring everything that
+    /// reads the offset along: the bars (the press router hit-tests them),
+    /// the accessibility bounds, and a `VirtualView` on the node.
+    ///
+    /// THE way an offset is applied from outside the physics integrator: the
+    /// `ScrollTo` change of every shell and of the e2e runner, and the
+    /// scrollbar's thumb, track and arrows. A `VirtualView` has no scroll
+    /// frame, so its item is re-pointed at the new offset here, and its
+    /// callback is queued when the offset left the rows it rendered. A path
+    /// that only wrote the offset moved the bar and left the content where it
+    /// was until some other path came by.
+    ///
+    /// `unclamped` keeps a rubber-band overshoot the physics computed.
+    /// Returns whether a `VirtualView` re-render was queued: the caller then
+    /// owes a display-list update, not only a scroll repaint.
+    pub fn apply_scroll_offset(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        position: LogicalPosition,
+        unclamped: bool,
+        now: Instant,
+    ) -> bool {
+        if unclamped {
+            self.scroll_manager
+                .set_scroll_position_unclamped(dom_id, node_id, position, now);
+        } else {
+            self.scroll_manager
+                .set_scroll_position(dom_id, node_id, position, now);
+        }
+        self.scroll_manager.calculate_scrollbar_states();
+        // The fast scroll path never re-lays out, so the delivered tree's
+        // bounds go stale: flag it for the throttled rebuild.
+        #[cfg(feature = "a11y")]
+        self.a11y_manager.mark_scroll_dirty();
+        let queued = self.check_and_queue_virtual_view_reinvoke(dom_id, node_id);
+        // Always, not only when nothing was queued: the queued re-render runs
+        // at the next frame's drain, and until then the item must place the
+        // rows it has at the current offset.
+        self.patch_virtual_view_content_offset(dom_id, node_id);
+        queued
+    }
+
     /// Process `VirtualView` updates requested by callbacks
     ///
     /// This method handles manual `VirtualView` re-rendering triggered by

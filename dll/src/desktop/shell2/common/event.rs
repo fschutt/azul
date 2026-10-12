@@ -6989,52 +6989,15 @@ pub trait PlatformWindow {
 
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     if let Some(lw) = self.get_layout_window_mut() {
-                        if *unclamped {
-                            // Physics timer provides pre-clamped rubber-band positions
-                            lw.scroll_manager.set_scroll_position_unclamped(
-                                *dom_id,
-                                internal_node_id,
-                                *position,
-                                now.clone(),
-                            );
-                        } else {
-                            lw.scroll_manager.scroll_to(
-                                *dom_id,
-                                internal_node_id,
-                                *position,
-                                std::time::Duration::from_millis(0).into(),
-                                azul_core::events::EasingFunction::Linear,
-                                now.clone(),
-                            );
-                        }
-
-                        // Recalculate scrollbar geometry so CPU-side hit testing
-                        // (the press router, `LayoutWindow::route_press`) has
-                        // up-to-date thumb positions.
-                        lw.scroll_manager.calculate_scrollbar_states();
-
-                        // The delivered a11y tree now has stale bounds and
-                        // scroll_x/y; the fast scroll path never re-lays out,
-                        // so flag it for a throttled full rebuild.
-                        #[cfg(feature = "a11y")]
-                        lw.a11y_manager.mark_scroll_dirty();
-
-                        // Check if this scroll node is a VirtualView that needs
-                        // re-invocation (e.g. user scrolled near edge for lazy loading).
-                        // If so, queue it for processing in the next render pass.
-                        needs_virtual_view_update =
-                            lw.check_and_queue_virtual_view_reinvoke(*dom_id, internal_node_id);
-
-                        // A VirtualView has no scroll frame — its scroll is
-                        // baked into the display-list item's `content_offset`,
-                        // and the lightweight path below rebuilds no display
-                        // list. Without this, scrolling a VirtualView moved the
-                        // scrollbar and left the page frozen underneath it.
-                        // Always, not only when no re-invoke was queued: the
-                        // queued re-materialization runs at the NEXT frame's
-                        // drain, and until then the item must place the
-                        // current window at the current offset.
-                        lw.patch_virtual_view_content_offset(*dom_id, internal_node_id);
+                        // The physics timer hands over rubber-band positions
+                        // it already clamped (`unclamped`).
+                        needs_virtual_view_update = lw.apply_scroll_offset(
+                            *dom_id,
+                            internal_node_id,
+                            *position,
+                            *unclamped,
+                            now,
+                        );
                     }
                 }
 

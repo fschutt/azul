@@ -2859,37 +2859,13 @@ impl Runner {
             } => {
                 let now = self.now();
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
-                    let lw = &mut self.layout_window;
-                    if *unclamped {
-                        lw.scroll_manager.set_scroll_position_unclamped(
-                            *dom_id,
-                            internal_node_id,
-                            *position,
-                            now,
-                        );
-                    } else {
-                        lw.scroll_manager.scroll_to(
-                            *dom_id,
-                            internal_node_id,
-                            *position,
-                            std::time::Duration::from_millis(0).into(),
-                            azul_core::events::EasingFunction::Linear,
-                            now,
-                        );
-                    }
-                    // Recalculate scrollbar geometry so CPU-side hit testing has
-                    // up-to-date thumb positions.
-                    lw.scroll_manager.calculate_scrollbar_states();
-
-                    // Mirror of the DLL arm: a VirtualView on this node decides
-                    // from the new offset whether it has to re-materialize (an
-                    // edge approach, a jump past its window) — queued for the
-                    // drain at the top of the next frame — and its host item
-                    // is re-pointed at the new offset either way, because a
-                    // VirtualView has no scroll frame to move it.
-                    let queued =
-                        lw.check_and_queue_virtual_view_reinvoke(*dom_id, internal_node_id);
-                    lw.patch_virtual_view_content_offset(*dom_id, internal_node_id);
+                    let queued = self.layout_window.apply_scroll_offset(
+                        *dom_id,
+                        internal_node_id,
+                        *position,
+                        *unclamped,
+                        now,
+                    );
                     if queued {
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }

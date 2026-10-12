@@ -128,14 +128,7 @@ impl LayoutWindow {
                     .map(|s| s.scrollbar_preferences.track_click)
                     .unwrap_or_default();
                 if let Some(delta) = track_click_delta(&self.scroll_manager, &hit, track_click) {
-                    scroll_axis_by(
-                        &mut self.scroll_manager,
-                        hit.dom_id,
-                        hit.node_id,
-                        hit.orientation,
-                        delta,
-                        now,
-                    );
+                    self.scroll_axis_by(hit.dom_id, hit.node_id, hit.orientation, delta, now);
                 }
             }
         }
@@ -209,7 +202,7 @@ impl LayoutWindow {
                 ScrollbarOrientation::Vertical => target - current.y,
                 ScrollbarOrientation::Horizontal => target - current.x,
             };
-            scroll_axis_by(&mut self.scroll_manager, dom_id, node_id, orientation, delta, now);
+            self.scroll_axis_by(dom_id, node_id, orientation, delta, now);
         }
         true
     }
@@ -396,26 +389,34 @@ fn thumb_drag_target(
     Some((initial + scroll_delta).clamp(0.0, max_scroll))
 }
 
-/// Move `node_id`'s box by `delta` along `orientation`, immediately, and
-/// re-derive the bars so the next hit test sees the thumb where it now is.
-///
-/// A frame-level change: no relayout and no display-list rebuild, the
-/// renderer picks the new offset up from the scroll manager.
-fn scroll_axis_by(
-    scroll: &mut ScrollManager,
-    dom_id: DomId,
-    node_id: NodeId,
-    orientation: ScrollbarOrientation,
-    delta: f32,
-    now: Instant,
-) {
-    let current = scroll.get_current_offset(dom_id, node_id).unwrap_or_default();
-    let target = match orientation {
-        ScrollbarOrientation::Vertical => LogicalPosition::new(current.x, current.y + delta),
-        ScrollbarOrientation::Horizontal => LogicalPosition::new(current.x + delta, current.y),
-    };
-    scroll.set_scroll_position(dom_id, node_id, target, now);
-    scroll.calculate_scrollbar_states();
+impl LayoutWindow {
+    /// Move `node_id`'s box by `delta` along `orientation`, immediately.
+    ///
+    /// Through [`LayoutWindow::apply_scroll_offset`], like a wheel step's
+    /// `ScrollTo`: the bars are re-derived so the next hit test sees the
+    /// thumb where it now is, and a `VirtualView` on the box moves its rows
+    /// in the same pointer move (it has no scroll frame the renderer could
+    /// move for it). No relayout: the renderer picks the offset up from the
+    /// scroll manager, and a queued `VirtualView` re-render is drained by
+    /// the next frame.
+    fn scroll_axis_by(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+        delta: f32,
+        now: Instant,
+    ) {
+        let current = self
+            .scroll_manager
+            .get_current_offset(dom_id, node_id)
+            .unwrap_or_default();
+        let target = match orientation {
+            ScrollbarOrientation::Vertical => LogicalPosition::new(current.x, current.y + delta),
+            ScrollbarOrientation::Horizontal => LogicalPosition::new(current.x + delta, current.y),
+        };
+        self.apply_scroll_offset(dom_id, node_id, target, false, now);
+    }
 }
 
 #[cfg(test)]
