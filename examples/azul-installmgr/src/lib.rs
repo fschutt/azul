@@ -21,6 +21,8 @@
 mod apps;
 mod jobs;
 mod l10n;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 mod settings;
 mod wizard;
