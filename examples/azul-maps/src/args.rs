@@ -49,7 +49,7 @@ pub fn usage() -> String {
          (tiles\n                             by state), AZ_MAP_RENDER (each render of the \
          tiles),\n                             AZ_MAP_TILE (each tile's fetch / decode / draw \
          ms),\n                             AZMAPS_LAYOUT (each window rebuild, us), \
-         AZMAPS_PAN\n                             (each step of a pan: map, shift or \
+         AZMAPS_PAN\n                             (each step of a pan: map, move or \
          rebuild, us).\n                             Also AZMAPS_STATS=1\n    --tiles <URL>            The tile server's URL template \
          ({z}/{x}/{y}) for this run; else\n                             AZMAPS_TILES, else \
          endpoints.tiles of the shared Azlin config,\n                             else \

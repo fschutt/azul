@@ -40,7 +40,7 @@
 //! <minutes> <compute_ms>` when its route comes back from the route worker,
 //! `AZMAPS_SIDEBAR open|closed`. With `--stats` (`args.rs`): `AZMAPS_LAYOUT
 //! <n> <us>` for every window rebuild (how long `layout` took), `AZMAPS_PAN
-//! map|shift|rebuild <us>` for every step of a pan (what it did with the marks
+//! map|move|rebuild <us>` for every step of a pan (what it did with the marks
 //! and how long that took), and the map widget's `AZ_MAP_TILES` /
 //! `AZ_MAP_RENDER` / `AZ_MAP_TILE` counters.
 //!
