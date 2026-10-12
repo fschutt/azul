@@ -811,6 +811,51 @@ def modal_window(app, known=()):
     return InWindow(app, app.until("the modal's window", other))
 
 
+DIALOG_BUTTONS = "__azul-native-standard-dialog-buttons"
+
+
+def click_dialog_button(app, label, window="azul-transient", closes=False):
+    """Clicks the button `label` of the standard dialog showing (the text "Save" is in the
+    document too, so a click by text could land in the page). The dialog is a Modal: a window
+    of its own (`window`). Its nodes are in the owner's hierarchy too, but a click there lands in
+    the owner, on whatever lies under them - the question stayed and nothing was saved.
+    `closes`: the answer closes the app's window (and the app): no frames are asked after it."""
+    answer = app.op("get_node_hierarchy", window_id=window)
+    nodes = [d for d in dicts(answer) if "index" in d and "parent" in d]
+    by_index = {d["index"]: d for d in nodes}
+
+    def in_buttons(node):
+        seen = 0
+        while node is not None and seen < 64:
+            if DIALOG_BUTTONS in (node.get("classes") or []):
+                return True
+            node = by_index.get(node.get("parent"))
+            seen += 1
+        return False
+
+    for node in nodes:
+        if (node.get("text") or "").strip() == label and in_buttons(node):
+            # A text node may have no box of its own: click its nearest ancestor that has one.
+            target = node
+            while target is not None and not target.get("rect"):
+                target = by_index.get(target.get("parent"))
+            app.must("click", node_id=(target or node)["index"], window_id=window)
+            if not closes:
+                app.frame(2)
+            return
+    raise Failure("no dialog button %r" % label)
+
+
+def exits(app, seconds=20.0):
+    """Whether the app's process ends within `seconds`: an answer that closes the app's only
+    window ends the app (the default termination behaviour), and `until` gives up on an app
+    that exited, so this waits on the process instead."""
+    end = time.time() + seconds
+    while app.process.poll() is None and time.time() < end:
+        time.sleep(0.25)
+    return app.process.poll() is not None
+
+
 def run(tag, body, argv=None, default_port=8781, binary_name=None, binary_env=None):
     """Parses the common switches, starts nothing itself: `body(args, logs, out)`
     does the work and returns True. Exit code 0 on success."""

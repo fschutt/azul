@@ -29,7 +29,6 @@ Run it through the capped runner (scripts/waves/tools/run_capped.sh) on a small 
 import glob
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import azlin_e2e as e  # noqa: E402
@@ -52,41 +51,6 @@ def doc_file(data, doc_id):
 
 def saved_count(app, doc_id):
     return len([v for v in app.printed("AZWRITER_SAVED", r"[0-9a-f-]+") if v == doc_id])
-
-
-DIALOG_BUTTONS = "__azul-native-standard-dialog-buttons"
-
-
-def click_dialog_button(app, label, window="azul-transient", closes=False):
-    """Clicks the button `label` of the standard dialog showing (the text "Save" is in the
-    document too, so a click by text could land in the page). The dialog is a Modal: a window
-    of its own (`window`). Its nodes are in the owner's hierarchy too, but a click there lands in
-    the owner, on whatever lies under them - the question stayed and nothing was saved.
-    `closes`: the answer closes the app's window (and the app): no frames are asked after it."""
-    answer = app.op("get_node_hierarchy", window_id=window)
-    nodes = [d for d in e.dicts(answer) if "index" in d and "parent" in d]
-    by_index = {d["index"]: d for d in nodes}
-
-    def in_buttons(node):
-        seen = 0
-        while node is not None and seen < 64:
-            if DIALOG_BUTTONS in (node.get("classes") or []):
-                return True
-            node = by_index.get(node.get("parent"))
-            seen += 1
-        return False
-
-    for node in nodes:
-        if (node.get("text") or "").strip() == label and in_buttons(node):
-            # A text node may have no box of its own: click its nearest ancestor that has one.
-            target = node
-            while target is not None and not target.get("rect"):
-                target = by_index.get(target.get("parent"))
-            app.must("click", node_id=(target or node)["index"], window_id=window)
-            if not closes:
-                app.frame(2)
-            return
-    raise e.Failure("no dialog button %r" % label)
 
 
 def save_and_wait(app, doc_id):
@@ -186,7 +150,7 @@ def first_session(app, data, out):
     app.frame(2)
     app.until("the save-changes question", lambda: app.shows("Save changes"))
     app.screenshot(os.path.join(out, "close-guard.png"))
-    click_dialog_button(app, "Cancel")
+    e.click_dialog_button(app, "Cancel")
     app.until("the question to go", lambda: not app.shows("Save changes"))
     app.frame(2)
     if not app.alive():
@@ -201,13 +165,10 @@ def first_session(app, data, out):
     app.op("close")
     app.frame(2)
     app.until("the save-changes question again", lambda: app.shows("Save changes"))
-    click_dialog_button(app, "Save", closes=True)
+    e.click_dialog_button(app, "Save", closes=True)
     # The save runs on a thread and its write-back closes the window - and the app: wait for
     # the exit (`until` gives up on an exited app), then read what it printed.
-    end = time.time() + 20
-    while app.process.poll() is None and time.time() < end:
-        time.sleep(0.25)
-    if app.process.poll() is None:
+    if not e.exits(app):
         raise e.Failure("the window did not close after Save")
     if saved_count(app, doc_id) <= before:
         raise e.Failure("the window closed without the save on close")
@@ -238,11 +199,8 @@ def second_session(app, data, doc_id, out):
     app.op("close")
     app.frame(2)
     app.until("the save-changes question", lambda: app.shows("Save changes"))
-    click_dialog_button(app, "Don't Save", closes=True)
-    end = time.time() + 20
-    while app.process.poll() is None and time.time() < end:
-        time.sleep(0.25)
-    if app.process.poll() is None:
+    e.click_dialog_button(app, "Don't Save", closes=True)
+    if not e.exits(app):
         asked = app.shows("Save changes")
         raise e.Failure("the window did not close after Don't Save (the question %s)"
                         % ("is back" if asked else "is gone"))

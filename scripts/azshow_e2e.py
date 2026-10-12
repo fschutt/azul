@@ -24,8 +24,11 @@
        every transition and build finish: each one prints AZSHOW_PLAYED with its frame count -
        at least 2, the show's small DOM rebuilds fast), Escape closes it;
    11. the close guard: a close request with unsaved work shows the question, Cancel keeps the
-       window (a NOTE when the headless backend does not dispatch the close);
-   12. screenshots per step, and flora + dark.
+       window (a NOTE when the headless backend does not dispatch the close) and writes nothing;
+   12. screenshots per step, and flora + dark;
+   13. the next close asks again: Save writes the deck, then the window (and the app) closes;
+   14. AzShow again on the saved deck: text typed into a slide and not left yet is unsaved work
+       too - the close asks, Don't Save closes without writing.
 
 Usage (from the azul repository, after building libazul with the debug server and AzShow):
 
@@ -148,6 +151,63 @@ def blank_start(args, binary, logs, out):
         if written:
             raise k.Failure("an untouched blank deck was written: %s" % written)
         app.log("a blank presentation %s, nothing written until it is saved" % deck_id)
+    finally:
+        app.stop()
+
+
+def read_deck(data_root, deck_id):
+    """The deck as its file has it (show/<id>/deck.json), None before the first save."""
+    try:
+        with open(os.path.join(data_root, "show", deck_id, "deck.json"), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def element_count(deck):
+    """How many elements the slides of `deck` hold."""
+    return sum(len(slide.get("elements") or []) for slide in (deck or {}).get("slides") or [])
+
+
+def unsaved_typing_is_asked_about(args, binary, logs, out, data_root, deck_id):
+    """AzShow on the saved deck, at the slide whose title was typed: more text typed into that
+    title and not left yet is unsaved work - a close asks about it, and Don't Save closes the
+    window without writing."""
+    on_disk = read_deck(data_root, deck_id)
+    slides = (on_disk or {}).get("slides") or []
+    titled = [i for i, slide in enumerate(slides) if "Quarterly plan" in json.dumps(slide)]
+    if not titled:
+        raise k.Failure("the saved deck has no slide with the typed title")
+    argv = [deck_id, "--slide", str(titled[0] + 1), "--data-dir", data_root,
+            "--size", "%dx%d" % (WIDTH, HEIGHT), "--no-presenter", "--language", "en"]
+    app = Show(TAG + "-typing", binary, argv, args.debug_port, logs, args.timeout)
+    try:
+        app.until("AzShow's window", lambda: app.has_line("AZSHOW_READY"))
+        app.must("resize", width=WIDTH, height=HEIGHT)
+        app.until("the deck", lambda: app.shows("Quarterly plan"))
+        box, scale = slide_box(app)
+        app.must("double_click", x=box["x"] + (120 + 1680 / 2) * scale,
+                 y=box["y"] + (60 + 160 / 2) * scale)
+        app.frame(3)
+        time.sleep(0.3)
+        app.frame(2)
+        app.must("text_input", text=" UNSAVED")
+        app.frame(3)
+        # Still in the text: no Escape, no command.
+        app.must("close")
+        if app.soon("the save question", lambda: "__azul-native-message-box" in app.classes()) is None:
+            raise k.Failure("a close right after typing did not ask (the app %s)"
+                            % ("exited" if app.process.poll() is not None else "stayed, no question"))
+        app.screenshot(os.path.join(out, "12-close-after-typing.png"))
+        k.click_dialog_button(app, "Don't Save", closes=True)
+        if not k.exits(app):
+            raise k.Failure("the window did not close after Don't Save")
+        if read_deck(data_root, deck_id) != on_disk:
+            raise k.Failure("Don't Save wrote the deck")
+        app.log("typing not left yet is asked about; Don't Save closes without writing")
+    except k.Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (k.tail(app.out_path), k.tail(app.err_path)))
+        raise
     finally:
         app.stop()
 
@@ -343,6 +403,7 @@ def body(args, logs, out):
         app.log("the show stepped: %s; played (kind, frames, ms): %s" % (steps, plays))
 
         # ---- the close guard (an unsaved change first) ----
+        saved_deck = read_deck(data_root, deck_id)
         app.click(text="INSERT")
         app.click(text="Rectangle")
         try:
@@ -351,8 +412,10 @@ def body(args, logs, out):
             app.until("the save question", lambda: "__azul-native-message-box" in app.classes())
             shot("10-close-question")
             # The question is a Modal: a window of its own.
-            app.click(text="Cancel", window="azul-transient")
+            k.click_dialog_button(app, "Cancel")
             app.until("the question gone", lambda: "__azul-native-message-box" not in app.classes())
+            if read_deck(data_root, deck_id) != saved_deck:
+                raise k.Failure("Cancel wrote the deck")
             app.log("a close with unsaved work asks; Cancel keeps the window")
         except k.Failure as e:
             if app.process.poll() is not None:
@@ -365,15 +428,28 @@ def body(args, logs, out):
         app.must("set_mode", mode="dark")
         app.frame(3)
         shot("11-flora-dark")
-        if not args.keep:
-            shutil.rmtree(data_root, ignore_errors=True)
-        print("[%s] PASS" % TAG, flush=True)
-        return True
+
+        # ---- the close guard's Save: the deck is written, then the window closes ----
+        shapes = element_count(saved_deck)
+        app.must("close")
+        app.frame(3)
+        app.until("the save question again", lambda: "__azul-native-message-box" in app.classes())
+        k.click_dialog_button(app, "Save", closes=True)
+        if not k.exits(app):
+            raise k.Failure("the window did not close after Save")
+        if element_count(read_deck(data_root, deck_id)) <= shapes:
+            raise k.Failure("Save in the close question did not write the new rectangle")
+        app.log("the close question's Save wrote the deck and closed")
     except k.Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (k.tail(app.out_path), k.tail(app.err_path)))
         raise
     finally:
         app.stop()
+    unsaved_typing_is_asked_about(args, binary, logs, out, data_root, deck_id)
+    if not args.keep:
+        shutil.rmtree(data_root, ignore_errors=True)
+    print("[%s] PASS" % TAG, flush=True)
+    return True
 
 
 if __name__ == "__main__":
