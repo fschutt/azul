@@ -29,6 +29,8 @@ use azul_appkit::{
 pub mod code;
 pub mod ids;
 pub mod ink;
+#[cfg(test)]
+mod ink_tests;
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
