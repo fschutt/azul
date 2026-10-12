@@ -3296,6 +3296,7 @@ mod rounded_corner_tests {
     //! WebRender works in device px, so at 2x a 6px corner is 12 device px,
     //! as the CPU renderer draws it.
 
+    use azul_css::props::basic::pixel::PixelValue;
     use azul_css::props::{
         basic::{color::ColorU, direction::Direction, length::PercentageValue},
         style::background::{
@@ -3370,6 +3371,86 @@ mod rounded_corner_tests {
                 dpi,
             );
             assert_eq!(got, vec![6.0 * dpi; 3], "dpi {dpi}");
+        }
+    }
+
+    /// A 1px hairline with 4px corners: WebRender is handed 2 device px
+    /// and 8 device px corners at 2x, as the CPU renderer strokes it.
+    #[test]
+    fn a_border_is_drawn_with_its_widths_and_corners_in_device_pixels() {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::style::{
+                border::{
+                    BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+                    LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
+                    StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+                    StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+                    StyleBorderTopStyle,
+                },
+                border_radius::StyleBorderRadius,
+            },
+        };
+        use azul_layout::solver3::display_list::{
+            StyleBorderColors, StyleBorderStyles, StyleBorderWidths,
+        };
+        use webrender::api::BorderDetails;
+
+        let ink = ColorU::new(120, 110, 90, 255);
+        let border = DisplayListItem::Border {
+            bounds: rect(20.0, 10.0, 18.0, 18.0).into(),
+            widths: StyleBorderWidths {
+                top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth::const_px(1))),
+                right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth::const_px(1))),
+                bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth::const_px(
+                    1,
+                ))),
+                left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth::const_px(1))),
+            },
+            colors: StyleBorderColors {
+                top: Some(CssPropertyValue::Exact(StyleBorderTopColor { inner: ink })),
+                right: Some(CssPropertyValue::Exact(StyleBorderRightColor {
+                    inner: ink,
+                })),
+                bottom: Some(CssPropertyValue::Exact(StyleBorderBottomColor {
+                    inner: ink,
+                })),
+                left: Some(CssPropertyValue::Exact(StyleBorderLeftColor { inner: ink })),
+            },
+            styles: StyleBorderStyles {
+                top: Some(CssPropertyValue::Exact(StyleBorderTopStyle {
+                    inner: BorderStyle::Solid,
+                })),
+                right: Some(CssPropertyValue::Exact(StyleBorderRightStyle {
+                    inner: BorderStyle::Solid,
+                })),
+                bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                })),
+                left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle {
+                    inner: BorderStyle::Solid,
+                })),
+            },
+            border_radius: StyleBorderRadius {
+                top_left: PixelValue::px(4.0),
+                top_right: PixelValue::px(4.0),
+                bottom_left: PixelValue::px(4.0),
+                bottom_right: PixelValue::px(4.0),
+            },
+        };
+        for dpi in [1.0, 2.0] {
+            let list = built(vec![border.clone()], dpi);
+            let mut got = Vec::new();
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                if let DisplayItem::Border(b) = item.item() {
+                    let BorderDetails::Normal(normal) = &b.details else {
+                        panic!("a solid border is a normal border");
+                    };
+                    got.push((b.widths.top, b.widths.left, normal.radius.top_left.width));
+                }
+            }
+            assert_eq!(got, vec![(dpi, dpi, 4.0 * dpi)], "dpi {dpi}");
         }
     }
 }
