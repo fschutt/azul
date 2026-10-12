@@ -1045,3 +1045,5 @@ mod a_sliding_box_carries_its_positioned_children;
 mod an_em_size_on_a_flex_item_follows_its_own_font_size;
 #[path = "an_icons_own_stylesheet_sizes_its_picture.rs"]
 mod an_icons_own_stylesheet_sizes_its_picture;
+#[path = "a_reader_draws_its_pages_ahead_as_pictures.rs"]
+mod a_reader_draws_its_pages_ahead_as_pictures;
