@@ -487,6 +487,13 @@ fn view_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                     Toggle::DetailsPane,
                     settings.details_pane,
                 )),
+                small(toggle_button(
+                    app,
+                    "call_to_action",
+                    "azdrive-ribbon-status-bar",
+                    Toggle::StatusBar,
+                    settings.status_bar,
+                )),
             ],
         ))
         .with_group(group(

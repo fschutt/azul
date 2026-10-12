@@ -50,6 +50,8 @@ pub(crate) enum Toggle {
     NavigationPane,
     PreviewPane,
     DetailsPane,
+    /// Finder's path bar and status line at the foot of the content.
+    StatusBar,
     ItemCheckboxes,
     Extensions,
     HiddenItems,
@@ -3197,6 +3199,7 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
                 settings.preview_pane = false;
             }
         }
+        Toggle::StatusBar => settings.status_bar = !settings.status_bar,
         Toggle::ItemCheckboxes => settings.item_checkboxes = !settings.item_checkboxes,
         Toggle::Extensions => settings.show_extensions = !settings.show_extensions,
         Toggle::HiddenItems => settings.show_hidden = !settings.show_hidden,

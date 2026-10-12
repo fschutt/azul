@@ -173,8 +173,9 @@ pub(crate) fn uses_icon_grid(s: &DriveState) -> bool {
         && !s.visible_entries().is_empty()
 }
 
-/// The content pane: the page, the leaf on it (the InfoBar, the view, "Load more", the path bar
-/// and the status line); `size` is what the view has (the icon grid draws exactly that).
+/// The content pane: the leaf filling it (the InfoBar, the view, "Load more", and with View >
+/// Status bar the path bar and the status line); `size` is what the view has (the icon grid draws
+/// exactly that).
 pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     let mut area = Dom::create_div().with_id(ids::LEAF).with_css(look::LEAF);
     if let Some(message) = &s.message {
@@ -238,8 +239,10 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         background,
         on_background_drop,
     ));
-    area.add_child(ui_panes::path_bar(s, app));
-    area.add_child(ui_panes::status_line(s, app));
+    if s.settings.status_bar {
+        area.add_child(ui_panes::path_bar(s, app));
+        area.add_child(ui_panes::status_line(s, app));
+    }
     Dom::create_div()
         .with_id(ids::CONTENT)
         .with_css(look::PAGE)
