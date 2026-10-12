@@ -20714,9 +20714,10 @@ impl LayoutWindow {
         solver3::getters::is_text_selectable(styled_dom, node_id, node_state)
     }
 
-    /// Whether `(dom_id, node_id)` names a node the accessibility tree holds
-    /// now: one the window has, renders and exposes
-    /// (`managers::a11y::rendered_nodes`, `is_exposed_to_accessibility`).
+    /// Whether `(dom_id, node_id)` names a node an assistive technology can
+    /// act on now: one the window has and exposes, and that is rendered,
+    /// either by this window (`managers::a11y::rendered_nodes`) or by a popup
+    /// it has open ([`Self::is_rendered_by_open_popup`]).
     #[cfg(feature = "a11y")]
     #[must_use]
     pub fn is_live_a11y_target(&self, dom_id: DomId, node_id: NodeId) -> bool {
@@ -20727,10 +20728,67 @@ impl LayoutWindow {
             return false;
         };
         crate::managers::a11y::is_exposed_to_accessibility(node_data)
-            && crate::managers::a11y::rendered_nodes(lr)
+            && (crate::managers::a11y::rendered_nodes(lr)
                 .get(node_id.index())
                 .copied()
                 .unwrap_or(false)
+                || (dom_id == DomId::ROOT_ID && self.is_rendered_by_open_popup(node_id)))
+    }
+
+    /// Whether `node` of the root DOM is content of a popup (or torn-off
+    /// window) this window has open. This window gives that subtree
+    /// `display: none`, but the popup's window lays it out and renders it,
+    /// and its callbacks are this DOM's, so a press addressed here must
+    /// reach it, as a browser's popover content stays pressable.
+    ///
+    /// An element with `display: none` between the node and the popup hides
+    /// it there too. A `<transient-window>` nested inside the popup is opened
+    /// by the popup's own window, so only its `open` attribute tells whether
+    /// it shows.
+    #[cfg(feature = "a11y")]
+    fn is_rendered_by_open_popup(&self, node: NodeId) -> bool {
+        use azul_css::props::layout::display::LayoutDisplay;
+
+        use crate::solver3::getters::{get_display_property, MultiValue};
+
+        let Some(root) = self.layout_results.get(&DomId::ROOT_ID) else {
+            return false;
+        };
+        let nodes = root.styled_dom.node_data.as_container();
+        let hierarchy = root.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node);
+        while let Some(n) = current {
+            match nodes.get(n).map(azul_core::dom::NodeData::get_node_type) {
+                Some(NodeType::TransientWindow(cfg)) => {
+                    let owned = self
+                        .transient_windows
+                        .open_windows()
+                        .iter()
+                        .find(|w| w.source_node == n);
+                    // An inline-docked window is laid out here, so
+                    // `rendered_nodes` already answered for its content.
+                    if let Some(window) = owned {
+                        return !window.is_inline();
+                    }
+                    if !cfg.open {
+                        return false;
+                    }
+                }
+                Some(_) => {
+                    if matches!(
+                        get_display_property(&root.styled_dom, Some(n)),
+                        MultiValue::Exact(LayoutDisplay::None)
+                    ) {
+                        return false;
+                    }
+                }
+                None => return false,
+            }
+            current = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        false
     }
 
     /// Process an accessibility action from an assistive technology.
