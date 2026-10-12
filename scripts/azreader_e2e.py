@@ -46,6 +46,28 @@ def state_of(data, book_id):
         return {}
 
 
+def page_drawn(app):
+    """Whether the first page on screen shows its picture (drawn ahead on a worker) instead of
+    the live reading column."""
+    nodes = app.hierarchy()
+    by_index = {n["index"]: n for n in nodes}
+    for node in nodes:
+        if node.get("type") != "img":
+            continue
+        cur = node.get("parent")
+        while cur is not None:
+            parent = by_index.get(cur, {})
+            if parent.get("id") == PAGE0:
+                return True
+            cur = parent.get("parent")
+    return False
+
+
+def page_shows(app, text):
+    """The first page shows `text`: in the live column, or (drawn ahead) as its picture."""
+    return app.shows(text) or page_drawn(app)
+
+
 def pages_of(app, chapter):
     """The page counts printed for `chapter` so far."""
     out = []
@@ -72,8 +94,10 @@ def first_session(app, data, out):
     app.until("the first page", lambda: app.has_id(PAGE0))
     if not app.shows("Chapter I. Down the Rabbit-Hole"):
         raise e.Failure("the running head does not name the first chapter")
-    if not app.shows("Alice was beginning to get very tired"):
+    if not page_shows(app, "Alice was beginning to get very tired"):
         raise e.Failure("the first page does not show the chapter's first paragraph")
+    # The pages around the view are drawn ahead, off the UI thread: the page becomes a picture.
+    app.until("the first page drawn ahead", lambda: page_drawn(app))
     # No title row: the ribbon's tabs are the window's title bar (AzDrive's, AzWriter's).
     if app.nodes_with_class("__azul-native-titlebar"):
         raise e.Failure("the reader draws a title row over its ribbon; the tabs are the title bar")
@@ -90,13 +114,21 @@ def first_session(app, data, out):
     app.until("the bookmark in state.json", lambda: len(state_of(data, book_id).get("bookmarks", [])) == 1)
     app.log("page turned and bookmarked (%s)" % app.printed("AZREADER_PAGE", r"\d+ \d+")[-1])
 
+    # The wheel turns the page back (a notch up, the classic direction): the area is not a scroll
+    # box, the reader turns its pages by the wheel's travel.
+    before_wheel = len(app.printed("AZREADER_PAGE", r"\d+ \d+"))
+    app.must("wheel", x=640, y=400, delta_x=0, delta_y=120)
+    app.frame(2)
+    app.until("the wheel's page turn", lambda: len(app.printed("AZREADER_PAGE", r"\d+ \d+")) > before_wheel)
+    app.log("the wheel turned the page (%s)" % app.printed("AZREADER_PAGE", r"\d+ \d+")[-1])
+
     # The contents: chapter II from its entry.
     app.key("t", primary=True)
     app.until("the contents", lambda: app.has_id("__azreader_toc"))
     app.click("#__azreader_toc-2")
     app.until("chapter II's pages", lambda: pages_of(app, 1))
     app.frame(3)
-    app.until("chapter II on the page", lambda: app.shows("Curiouser and curiouser"))
+    app.until("chapter II on the page", lambda: page_shows(app, "Curiouser and curiouser"))
     app.log("the contents went to chapter II")
 
     # Larger text: laid out again.
@@ -140,7 +172,7 @@ def second_session(app, book_id, out):
     app.until("the book to open", lambda: [v for v in app.printed("AZREADER_OPENED", r"[0-9a-f-]+ \d+") if v.startswith(book_id)])
     app.until("chapter II again", lambda: pages_of(app, 1))
     app.frame(3)
-    app.until("chapter II on the page", lambda: app.shows("Curiouser and curiouser"))
+    app.until("chapter II on the page", lambda: page_shows(app, "Curiouser and curiouser"))
     app.settle()
     app.screenshot(os.path.join(out, "restart.png"))
     app.log("the restart opens the book where the reader left it")
