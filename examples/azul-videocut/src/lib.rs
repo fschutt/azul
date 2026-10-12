@@ -32,6 +32,8 @@
 pub mod args;
 pub mod decode;
 pub mod export;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod render;
 pub mod sample;
