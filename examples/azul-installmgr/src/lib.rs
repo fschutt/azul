@@ -525,11 +525,27 @@ pub fn start() {
     }
     let mut updates = shared.updates;
     let places = places_for(config_path, &updates);
-    let (cohort, problem) = model::cohort(&AzulEngine, &places.config, &updates);
+    let (cohort, problem) = update::machine_cohort(&AzulEngine, &places.config, &updates);
     if let Some(problem) = problem {
         eprintln!("[installmgr] {problem}");
     }
     updates.cohort = Some(cohort);
+    // The apps find the manager by its registration (their "Update now" starts it).
+    if let Ok(binary) = std::env::current_exe() {
+        let registered = update::register(
+            &places.app(update::MANAGER_KEY),
+            &update::Starting {
+                name: SPEC.name,
+                key: update::MANAGER_KEY,
+                version: ABOUT.version,
+                binary: &binary,
+                now_unix: update::unix_now(),
+            },
+        );
+        if let Err(e) = registered {
+            eprintln!("[installmgr] {e}");
+        }
+    }
     let apps = model::installed(&AzulEngine, &places, &updates);
     let any_app = apps.iter().any(|a| !a.entry.is_runtime());
     let screen = match args.screen.as_deref() {

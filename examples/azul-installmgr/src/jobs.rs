@@ -294,10 +294,10 @@ fn install(
     }
 }
 
-/// The apps' "Update now": for each request whose app has quit, the staged version it said
-/// yes to is checked once more and installed, and the app starts again when it asked. A
-/// request of an app still running waits for the next poll; one whose version is no longer
-/// staged is answered with why.
+/// The apps' "Update now": for each request whose app has quit, the version it said yes to is
+/// installed - the staged file checked once more, or (auto-update off: nothing was staged) the
+/// release fetched now - and the app starts again when it asked. A request of an app still
+/// running waits for the next poll.
 fn requests(engine: &dyn UpdateEngine, fetching: &Fetching, send: &mut dyn FnMut(Progress)) {
     for (key, request) in model::pending_requests(&fetching.places.azlin_dir) {
         if model::process_alive(request.pid) {
@@ -316,10 +316,14 @@ fn requests(engine: &dyn UpdateEngine, fetching: &Fetching, send: &mut dyn FnMut
             Some(staged) => {
                 model::update_to(engine, fetching, entry, &staged.release, channel, unix_now())
             }
-            None => Err(format!(
-                "{} {} is no longer waiting to be installed; check for updates again",
-                entry.name, request.version
-            )),
+            None => model::installed(engine, &fetching.places, &fetching.updates)
+                .into_iter()
+                .find(|a| a.entry.key == key && a.is_managed())
+                .ok_or_else(|| format!("{} was not installed by AzInstallManager", entry.name))
+                .and_then(|a| model::release_now(engine, fetching, &a, unix_now()))
+                .and_then(|release| {
+                    model::update_to(engine, fetching, entry, &release, channel, unix_now())
+                }),
         };
         if let (Ok(registration), true) = (&result, request.relaunch) {
             if let Err(why) = model::launch(Path::new(&registration.binary)) {

@@ -22,13 +22,20 @@
 //! in the tests. [`background_round`] is one app's check-and-stage, the same in the app and in
 //! the manager.
 //!
-//! No azul types outside [`AzulEngine`]: tested without a window.
+//! Inside an app, `app` (feature `azul`) is the kit: the registration at the start, the periodic
+//! check, the banner over the window and its "Update now".
+//!
+//! No azul types outside [`AzulEngine`] and `app`: tested without a window.
 
 use std::path::{Path, PathBuf};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::azlin_config::{Channel, UpdatesSection};
+use crate::azlin_config::{AzlinConfig, Channel, UpdatesSection};
+
+/// The update kit inside an app: registration, the periodic check, the banner, "Update now".
+#[cfg(feature = "azul")]
+pub mod app;
 
 /// The folder of the registry folders, in the shared config's folder.
 pub const APPS_DIR: &str = "apps";
@@ -40,6 +47,9 @@ pub const STAGED_FILE: &str = "staged.json";
 pub const REQUEST_FILE: &str = "request.json";
 /// The release an installed version came from, beside its binary (`current/`, `prev/`).
 pub const RELEASE_FILE: &str = "release.json";
+/// The registry key of AzInstallManager itself: an app finds the manager's program by its
+/// registration to hand it an "Update now".
+pub const MANAGER_KEY: &str = "installmgr";
 
 /// The folders of one app.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -404,6 +414,29 @@ pub trait UpdateEngine: Send + Sync {
     /// Whether unattended work may run at `now_unix` under the maintenance window `rule`
     /// (empty: any time).
     fn within_window(&self, rule: &str, now_unix: u64) -> bool;
+}
+
+/// The machine's rollout cohort: the config's, else drawn once now and kept in the config at
+/// `config` (whoever runs first, the manager or an app, draws it; every later run reads it).
+/// With why the drawn one could not be kept (it is used for this run anyway).
+pub fn machine_cohort(
+    engine: &dyn UpdateEngine,
+    config: &Path,
+    updates: &UpdatesSection,
+) -> (u8, Option<String>) {
+    if let Some(cohort) = updates.cohort {
+        return (cohort, None);
+    }
+    let drawn = engine.draw_cohort().min(99);
+    let kept = AzlinConfig::edit(config, |c| {
+        if c.updates.cohort.is_none() {
+            c.updates.cohort = Some(drawn);
+        }
+    });
+    match kept {
+        Ok(c) => (c.updates.cohort.unwrap_or(drawn), None),
+        Err(e) => (drawn, Some(format!("{}: {e}", config.display()))),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +888,20 @@ mod tests {
         assert!(!r.paths.staged().exists(), "nothing refused is kept for the banner");
         let up_to_date = FakeEngine::answering(Check::UpToDate);
         assert_eq!(background_round(&up_to_date, &r, 1), RoundOutcome::UpToDate);
+    }
+
+    #[test]
+    fn the_cohort_is_drawn_once_and_kept_in_the_config() {
+        let dir = TempDir::new("update-cohort");
+        let config = dir.path().join("config.json");
+        let engine = FakeEngine::default();
+        let (drawn, problem) = machine_cohort(&engine, &config, &UpdatesSection::default());
+        assert_eq!((drawn, problem), (42, None));
+        let (c, _) = AzlinConfig::load(&config);
+        assert_eq!(c.updates.cohort, Some(42));
+        let mut kept = c.updates.clone();
+        kept.cohort = Some(7);
+        assert_eq!(machine_cohort(&engine, &config, &kept).0, 7, "a kept cohort is never drawn again");
     }
 
     #[test]

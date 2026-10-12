@@ -1180,24 +1180,6 @@ pub fn release_now(
     }
 }
 
-/// The machine's rollout cohort: the config's, else drawn once now and kept there; with why
-/// the drawn one could not be kept (it is used for this run anyway).
-pub fn cohort(engine: &dyn UpdateEngine, config: &Path, updates: &UpdatesSection) -> (u8, Option<String>) {
-    if let Some(cohort) = updates.cohort {
-        return (cohort, None);
-    }
-    let drawn = engine.draw_cohort().min(99);
-    let kept = AzlinConfig::edit(config, |c| {
-        if c.updates.cohort.is_none() {
-            c.updates.cohort = Some(drawn);
-        }
-    });
-    match kept {
-        Ok(c) => (c.updates.cohort.unwrap_or(drawn), None),
-        Err(e) => (drawn, Some(format!("{}: {e}", config.display()))),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // The apps' "Update now"
 // ---------------------------------------------------------------------------
@@ -1762,18 +1744,6 @@ mod model_tests {
         assert_eq!((round.audience, round.cohort), (Audience::Gated, 50));
         assert_eq!(round.manifest_url, "http://example.org/azwriter/stable.json");
         assert_eq!(row_line(&apps[0]), "AZINSTALLMGR_ROW azwriter 1.1.0 - unchecked");
-    }
-
-    #[test]
-    fn the_cohort_is_drawn_once_and_kept_in_the_config() {
-        let dir = TempDir::new("installmgr-cohort");
-        let config = dir.path().join("config.json");
-        let (drawn, problem) = cohort(&FakeEngine::default(), &config, &UpdatesSection::default());
-        assert_eq!((drawn, problem), (37, None));
-        let (c, _) = AzlinConfig::load(&config);
-        assert_eq!(c.updates.cohort, Some(37));
-        let (kept, _) = cohort(&FakeEngine::default(), &config, &c.updates);
-        assert_eq!(kept, 37);
     }
 
     #[test]
