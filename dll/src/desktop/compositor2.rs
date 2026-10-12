@@ -89,22 +89,6 @@ fn resolve_rect(
     )
 }
 
-/// Convert a [`WindowLogicalRect`]'s origin to a WebRender `LayoutPoint`
-/// (frame-relative physical pixels), combining DPI scaling and offset subtraction.
-///
-/// Used for Push* items that only need an origin point (e.g., stacking contexts).
-#[inline]
-fn resolve_point(
-    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
-    dpi: f32,
-    offset: (f32, f32),
-) -> LayoutPoint {
-    LayoutPoint::new(
-        bounds.0.origin.x * dpi - offset.0,
-        bounds.0.origin.y * dpi - offset.1,
-    )
-}
-
 /// Scale a single f32 value from logical to physical pixels
 #[inline]
 fn scale_px(val: f32, dpi: f32) -> f32 {
@@ -545,8 +529,7 @@ pub fn translate_displaylist_to_wr(
                     );
                     // Use zero origin: children use absolute coordinates already.
                     // Using the scrollbar's position would double-offset children
-                    // since WebRender offsets stacking context children by origin
-                    // when the context has filters (opacity).
+                    // since WebRender offsets stacking context children by origin.
                     builder.push_simple_stacking_context_with_filters(
                         LayoutPoint::zero(),
                         spatial_id,
@@ -1417,19 +1400,14 @@ pub fn translate_displaylist_to_wr(
                     dpi_scale
                 );
 
-                // Push a simple stacking context at the bounds origin
-                // (offset-corrected so it's relative to the current scroll frame)
+                // WebRender moves everything inside a stacking context by its
+                // origin, and the items inside are already in window
+                // coordinates: opened at the box's position, the box would be
+                // drawn that far off a second time. So the context opens at
+                // zero, like the opacity and filter groups below.
                 let current_spatial_id = current_spatial!();
-                let current_offset = current_offset!();
-                let scaled_origin = resolve_point(bounds, dpi_scale, current_offset);
-                log_debug!(
-                    LogCategory::DisplayList,
-                    "[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<",
-                    scaled_origin.x,
-                    scaled_origin.y
-                );
                 builder.push_simple_stacking_context(
-                    scaled_origin,
+                    LayoutPoint::zero(),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
