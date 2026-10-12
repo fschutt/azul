@@ -4048,3 +4048,71 @@ fn an_escape_at_the_owner_reaches_its_modal_dialogs_child_window_at_once() {
         "then the dialog closed its window"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A modal dialog is a dialog window of its own over an inert parent
+// ---------------------------------------------------------------------------
+
+/// `showModal()` opens the dialog the way every desktop shows a modal dialog:
+/// a window of its own with the system's title bar (the dialog's title) and
+/// close box, sized to the dialog and centred over its parent, kept above the
+/// parent but not above every other program. Not a window covering the parent
+/// with a dimmed backdrop, which reads as an overlay inside the app's window
+/// (the user's report).
+#[test]
+fn a_modal_dialog_opens_in_a_titled_window_of_its_own_centred_over_its_parent() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, false);
+    let (_popup, popup_opts) = show_probe_dialog(&mut parent);
+    let ws = &popup_opts.window_state;
+    assert_eq!(
+        ws.flags.window_type,
+        WindowType::Dialog,
+        "a dialog window, not a menu popup"
+    );
+    assert_ne!(
+        ws.flags.decorations,
+        azul_core::window::WindowDecorations::None,
+        "the system's title bar and close box"
+    );
+    assert_eq!(ws.title.as_str(), "Delete file", "titled by the dialog");
+    assert!(
+        !ws.flags.is_always_on_top,
+        "above its parent only, not above every program"
+    );
+    let size = ws.size.dimensions;
+    assert!(
+        size.width < 800.0 && size.height < 600.0,
+        "sized to the dialog, not covering the parent: {size:?}"
+    );
+    let azul_core::window::WindowPosition::RelativeToParentWindow(origin) = ws.position else {
+        panic!("placed relative to its parent: {:?}", ws.position);
+    };
+    let centre = (
+        origin.x as f32 + size.width / 2.0,
+        origin.y as f32 + size.height / 2.0,
+    );
+    assert!(
+        (centre.0 - 400.0).abs() <= 1.0 && (centre.1 - 300.0).abs() <= 1.0,
+        "centred over the 800x600 parent: origin {origin:?}, size {size:?}"
+    );
+}
+
+/// While a modal dialog is open its parent is inert (HTML: the rest of the
+/// document is): a click on a control of the parent's reaches nothing - here
+/// it does not focus the parent's focusable box.
+#[test]
+fn a_press_in_the_parent_of_a_modal_dialog_reaches_nothing_there() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, false);
+    let stop = node_with_class(&parent, "dialog-stop");
+    let at = rect_of_class(&parent, "dialog-stop");
+    let (_popup, _) = show_probe_dialog(&mut parent);
+    click_at(
+        &mut parent,
+        LogicalPosition::new(at.origin.x + 4.0, at.origin.y + 4.0),
+    );
+    assert_ne!(
+        focused(&parent),
+        Some(stop),
+        "the click beside the modal dialog focused a control of its parent"
+    );
+}
