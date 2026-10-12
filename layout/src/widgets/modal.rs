@@ -521,6 +521,31 @@ mod tests {
         assert_eq!(s, Modal::default());
     }
 
+    /// The modal's window - its root is the backdrop, the whole window - is
+    /// named by the title for the window list and assistive technology, not
+    /// by a `title` attribute: as in Chrome, a title is a hover tooltip, and
+    /// over the backdrop it popped up ("Info zu AzShow" in AzShow's About).
+    #[test]
+    fn the_modal_window_is_named_without_a_hover_tooltip() {
+        let dom = Modal::create(Dom::create_p_with_text("body"))
+            .with_title("Example dialog".into())
+            .with_open(true)
+            .dom();
+        let window = &dom.children.as_ref()[0];
+        assert!(
+            window.root.get_attribute("title").is_none(),
+            "a title attribute on the backdrop is a tooltip over the whole window"
+        );
+        assert_eq!(
+            window
+                .root
+                .get_attribute("aria-label")
+                .map(|s| s.as_str().to_string()),
+            Some("Example dialog".to_string()),
+            "the window keeps its name"
+        );
+    }
+
     /// The modal is a modal dialog: a window over the whole parent whose
     /// root is the backdrop, the panel named by the title, with the modal's
     /// historical classes on its parts.
