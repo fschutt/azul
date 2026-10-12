@@ -2883,40 +2883,12 @@ impl Runner {
                 virtual_rect,
             } => {
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
-                    let lw = &mut self.layout_window;
-                    let (kept_scroll, kept_virtual) = lw
-                        .virtual_view_manager
-                        .get_declared_sizes(*dom_id, internal_node_id);
-                    let kept_origin = lw
-                        .virtual_view_manager
-                        .materialized_window_origin(*dom_id, internal_node_id);
-                    let new_mat: Option<LogicalRect> = (*materialized).into();
-                    let new_virt: Option<LogicalRect> = (*virtual_rect).into();
-                    // `None` = keep. The streaming case sets only
-                    // `virtual_rect`, so the materialized window (and every
-                    // pixel on screen) is untouched while the bar re-scales.
-                    let eff_virtual = new_virt.map(|r| r.size).or(kept_virtual);
-                    let eff_scroll = new_mat.map(|r| r.size).or(kept_scroll).or(eff_virtual);
-                    let eff_origin = new_mat
-                        .map(|r| r.origin)
-                        .or(kept_origin)
-                        .unwrap_or_else(LogicalPosition::zero);
-                    if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
-                        let _ = lw.virtual_view_manager.update_virtual_view_info(
-                            *dom_id,
-                            internal_node_id,
-                            eff_origin,
-                            s,
-                            v,
-                        );
-                        lw.scroll_manager.update_virtual_scroll_bounds(
-                            *dom_id,
-                            internal_node_id,
-                            v,
-                            Some(eff_origin),
-                        );
-                        lw.scroll_manager.calculate_scrollbar_states();
-                    }
+                    self.layout_window.apply_virtual_view_geometry(
+                        *dom_id,
+                        internal_node_id,
+                        (*materialized).into(),
+                        (*virtual_rect).into(),
+                    );
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }

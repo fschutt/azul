@@ -25927,6 +25927,44 @@ impl LayoutWindow {
         queued
     }
 
+    /// Reconfigure a `VirtualView`'s geometry without invoking its callback
+    /// (`CallbackChange::SetVirtualViewGeometry`): `Some` sets the
+    /// materialized window or the virtual document, `None` keeps it.
+    ///
+    /// These are the two stores an invoke writes (`VirtualViewManager` and
+    /// `ScrollManager`), minus the child relayout. A background pagination
+    /// pass that only corrects the document's extent re-scales the bar and
+    /// moves nothing; content placement reads the materialized window and the
+    /// live scroll offset, never the extent.
+    pub fn apply_virtual_view_geometry(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        materialized: Option<LogicalRect>,
+        virtual_rect: Option<LogicalRect>,
+    ) {
+        let (kept_scroll, kept_virtual) = self
+            .virtual_view_manager
+            .get_declared_sizes(dom_id, node_id);
+        let kept_origin = self
+            .virtual_view_manager
+            .materialized_window_origin(dom_id, node_id);
+        let eff_virtual = virtual_rect.map(|r| r.size).or(kept_virtual);
+        let eff_scroll = materialized.map(|r| r.size).or(kept_scroll).or(eff_virtual);
+        let eff_origin = materialized
+            .map(|r| r.origin)
+            .or(kept_origin)
+            .unwrap_or_else(LogicalPosition::zero);
+        if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
+            let _ = self
+                .virtual_view_manager
+                .update_virtual_view_info(dom_id, node_id, eff_origin, s, v);
+            self.scroll_manager
+                .update_virtual_scroll_bounds(dom_id, node_id, v, Some(eff_origin));
+            self.scroll_manager.calculate_scrollbar_states();
+        }
+    }
+
     /// Process `VirtualView` updates requested by callbacks
     ///
     /// This method handles manual `VirtualView` re-rendering triggered by

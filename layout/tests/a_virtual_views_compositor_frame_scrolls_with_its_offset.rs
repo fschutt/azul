@@ -72,3 +72,36 @@ fn a_virtual_views_frame_offset_follows_the_scroll_to_the_pixel() {
          {at_thirteen:?}"
     );
 }
+
+#[test]
+fn a_new_materialized_origin_moves_the_rows_on_the_cpu_as_on_the_gpu() {
+    let mut lw = window();
+    let (node, child) = host(&lw);
+    let before = item_content_offset(&lw, child);
+    // `SetVirtualViewGeometry` with a window that starts 40 px further down:
+    // the same rows, re-placed without invoking the callback.
+    let mut moved = lw
+        .virtual_view_manager
+        .materialized_window_origin(DomId::ROOT_ID, node)
+        .unwrap_or_default();
+    moved.y += 40.0;
+    let size = lw
+        .virtual_view_manager
+        .get_declared_sizes(DomId::ROOT_ID, node)
+        .0
+        .expect("harness: the view declared its window");
+    lw.apply_virtual_view_geometry(
+        DomId::ROOT_ID,
+        node,
+        Some(azul_core::geom::LogicalRect::new(moved, size)),
+        None,
+    );
+    let gpu = frame_offset_of(&lw, child).expect("the view's frame is scrolled");
+    let cpu = item_content_offset(&lw, child);
+    assert_eq!(
+        cpu,
+        LogicalPosition::new(-gpu.x, -gpu.y),
+        "the GPU frame moved the rows to {gpu:?}: the CPU raster, which reads the item, must draw \
+         them there too (it showed them at {before:?} until the next scroll)"
+    );
+}

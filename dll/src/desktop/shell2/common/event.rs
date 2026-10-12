@@ -7023,42 +7023,16 @@ pub trait PlatformWindow {
                 //
                 // The streaming case this exists for — a background
                 // exact-pagination pass correcting the document extent — sets
-                // `virtual_rect` only. Content placement reads the
-                // materialized window and the live scroll offset, never the
-                // virtual extent, so the scrollbar re-scales and not one
-                // pixel moves.
+                // `virtual_rect` only: the scrollbar re-scales and not one
+                // pixel moves (`LayoutWindow::apply_virtual_view_geometry`).
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     if let Some(lw) = self.get_layout_window_mut() {
-                        let (kept_scroll, kept_virtual) = lw
-                            .virtual_view_manager
-                            .get_declared_sizes(*dom_id, internal_node_id);
-                        let kept_origin = lw
-                            .virtual_view_manager
-                            .materialized_window_origin(*dom_id, internal_node_id);
-                        let new_mat: Option<azul_core::geom::LogicalRect> = (*materialized).into();
-                        let new_virt: Option<azul_core::geom::LogicalRect> = (*virtual_rect).into();
-                        let eff_virtual = new_virt.map(|r| r.size).or(kept_virtual);
-                        let eff_scroll = new_mat.map(|r| r.size).or(kept_scroll).or(eff_virtual);
-                        let eff_origin = new_mat
-                            .map(|r| r.origin)
-                            .or(kept_origin)
-                            .unwrap_or_else(LogicalPosition::zero);
-                        if let (Some(s), Some(v)) = (eff_scroll, eff_virtual) {
-                            let _ = lw.virtual_view_manager.update_virtual_view_info(
-                                *dom_id,
-                                internal_node_id,
-                                eff_origin,
-                                s,
-                                v,
-                            );
-                            lw.scroll_manager.update_virtual_scroll_bounds(
-                                *dom_id,
-                                internal_node_id,
-                                v,
-                                Some(eff_origin),
-                            );
-                            lw.scroll_manager.calculate_scrollbar_states();
-                        }
+                        lw.apply_virtual_view_geometry(
+                            *dom_id,
+                            internal_node_id,
+                            (*materialized).into(),
+                            (*virtual_rect).into(),
+                        );
                     }
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
