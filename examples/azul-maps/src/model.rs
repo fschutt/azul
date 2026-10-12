@@ -332,9 +332,42 @@ pub fn pan_step(
     translation: Option<(f32, f32)>,
     size: (f32, f32),
 ) -> PanStep {
-    let _ = (translation, size);
+    // How far apart two places may be and still be the same pixel: the build
+    // writes positions to a tenth of a pixel.
+    const SAME_PX: f32 = 0.5;
     if drawn.is_empty() && now.is_empty() {
-        PanStep::MapOnly
+        return PanStep::MapOnly;
+    }
+    let Some((dx, dy)) = translation else {
+        return PanStep::Rebuild;
+    };
+    let moved = |p: (f32, f32)| (p.0 + dx, p.1 + dy);
+    let same = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() <= SAME_PX && (a.1 - b.1).abs() <= SAME_PX;
+    // A mark that shows now must be one the build drew, moved with the map.
+    // A drawn mark that does not show any more moves out with the map.
+    let drew = |built: Option<(f32, f32)>, shows: Option<(f32, f32)>| {
+        shows.is_none_or(|n| built.is_some_and(|p| same(moved(p), n)))
+    };
+    let points = drew(drawn.from, now.from) && drew(drawn.to, now.to) && drew(drawn.here, now.here);
+    let pins = now.pins.iter().all(|&(index, n)| {
+        drawn
+            .pins
+            .iter()
+            .any(|&(drawn_index, p)| drawn_index == index && same(moved(p), n))
+    });
+    // The drawn line, moved, must cover the part of the line that shows: its
+    // ends lie a window past the view, so a long pan runs out of it.
+    let (w, h) = size;
+    let shown = drawn
+        .route
+        .and_then(|(a, b)| clip_segment(moved(a), moved(b), w, h));
+    let route = match (shown, now.route) {
+        (None, None) => true,
+        (Some((p, q)), Some((np, nq))) => same(p, np) && same(q, nq),
+        _ => false,
+    };
+    if points && pins && route {
+        PanStep::Shift(dx, dy)
     } else {
         PanStep::Rebuild
     }
