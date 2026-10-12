@@ -1015,7 +1015,16 @@ mod tests {
         s.sidebar_open = true;
         let view = main_view(&s, &RefAny::new(0u8));
         for n in nodes(&view) {
-            if n.root.callbacks.as_slice().is_empty() {
+            // What answers a press (the strip only listens to its scroll).
+            let pressed = n.root.callbacks.as_slice().iter().any(|c| {
+                matches!(
+                    c.event,
+                    EventFilter::Hover(
+                        HoverEventFilter::Click | HoverEventFilter::MouseUp | HoverEventFilter::MouseDown
+                    )
+                )
+            });
+            if !pressed {
                 continue;
             }
             assert!(
