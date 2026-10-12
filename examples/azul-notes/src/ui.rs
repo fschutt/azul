@@ -9,14 +9,14 @@ use std::path::PathBuf;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CallbackInfo, ChipOnRemoveCallbackType, LayoutCallbackInfo,
+        ButtonOnClickCallbackType, CallbackInfo, LayoutCallbackInfo,
         SummaryListOnEventCallbackType, RefAny, SegmentedOnChangeCallbackType,
         ShellCommandPaletteOnQueryCallbackType, ShellCommandPaletteOnRunCallbackType,
         ShellNavigationPaneOnEventCallbackType, ShellOnPaneResizeCallbackType,
-        StandardDialogOnEventCallbackType, TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
+        StandardDialogOnEventCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, ToolbarOnEventCallbackType, Update,
     },
-    css::{ColorU, DarkLightMode, EventFilter},
+    css::{DarkLightMode, EventFilter},
     dom::{Dom, VirtualKeyCode},
     option::OptionDarkLightMode,
     shells::{
@@ -27,11 +27,11 @@ use azul::{
     str::String as AzString,
     vec::{SummaryRowVec, StringVec},
     widgets::{
-        AboutDialog, Button, ButtonType, Chip, ChipState, SummaryList, SummaryListEvent,
+        AboutDialog, Button, ButtonType, SummaryList, SummaryListEvent,
         SummaryListEventKind, SummaryListMark, SummaryRow, OnTextInputReturn, RichBlockKind,
         RichCheck, RichFormat, RichTextCommand, Segmented, SegmentedState, StatusBar,
         StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInput, TextInputState,
-        TextInputValid, Titlebar, Toolbar, ToolbarEvent, ToolbarItem, TreeViewNode, Modal,
+        TextInputValid, Toolbar, ToolbarEvent, ToolbarItem, TreeViewNode, Modal,
         ModalState, StandardDialogEvent,
     },
     window::WindowEventFilter,
@@ -54,6 +54,18 @@ use crate::{
 };
 
 /// Keys of the resources (or words as they are), said.
+/// The top strip of a pane: the window has no title row (Apple Notes), so
+/// the strips along its top edge are where it is moved from.
+const TOP_STRIP: &str =
+    "display: flex; flex-direction: row; align-items: center; min-height: 40px; -azul-app-region: drag;";
+/// Room for the traffic lights at the folder list's top left (macOS only).
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHTS_INSET: &str = "padding: 0px 8px 0px 76px;";
+#[cfg(not(target_os = "macos"))]
+const TRAFFIC_LIGHTS_INSET: &str = "padding: 0px 8px;";
+/// A control in a top strip keeps its clicks.
+const NO_DRAG: &str = "-azul-app-region: no-drag;";
+
 fn strs(items: &[&str]) -> StringVec {
     azul_appkit::l10n::labels(items)
 }
@@ -97,7 +109,6 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(about_modal(s, &app));
     let column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(title_row(look))
         .with_child(area);
     // No font here: the theme scope sets the hand every text inherits (the
     // system's UI font under flat, flora's Garamond under flora).
@@ -128,24 +139,6 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app,
             on_dropped_file,
         )
-}
-
-/// The window's title row, drawn by azul (macOS draws only the traffic
-/// lights): the chrome's colour, no line of its own. Under flora the
-/// Titlebar's own flora look (the window chrome band, Garamond).
-fn title_row(look: &Look) -> Dom {
-    if look.flora {
-        return Titlebar::create("AzNotes").without_border_bottom().dom();
-    }
-    let (r, g, b) = look.chrome_rgb;
-    let mut bar = Titlebar::create("AzNotes")
-        .with_background(ColorU::rgb(r, g, b))
-        .without_border_bottom();
-    if look.dark {
-        let (r, g, b) = look.text_rgb;
-        bar.title_color = ColorU::rgb(r, g, b);
-    }
-    bar.dom()
 }
 
 /// The notes: the PIM shell, or a placeholder while loading.
@@ -372,16 +365,19 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .with_selected(selected),
         );
     }
+    // The folder list's top strip: the traffic lights at its left end on
+    // macOS (the window has no title row), the window moves by it, Apple
+    // Notes' buttons at its right end.
     let header = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center;")
+        .with_css(format!("{TOP_STRIP} {TRAFFIC_LIGHTS_INSET} justify-content: flex-end;"))
         .with_child(
-            Button::create(label("aznotes-new-note"))
+            Button::create("")
                 .with_icon("note_add")
-                .with_button_type(ButtonType::Primary)
                 .with_on_click(app.clone(), on_new_note as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::NEW_NOTE)
-                .with_css("margin-right: 6px;"),
+                .with_accessibility_name(label("aznotes-new-note"))
+                .with_css(format!("margin-right: 4px; {NO_DRAG}")),
         )
         .with_child(
             Button::create("")
@@ -389,7 +385,8 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .with_on_click(app.clone(), on_new_notebook as ButtonOnClickCallbackType)
                 .dom()
                 .with_id(ids::NEW_NOTEBOOK)
-                .with_accessibility_name(label("aznotes-new-notebook")),
+                .with_accessibility_name(label("aznotes-new-notebook"))
+                .with_css(NO_DRAG),
         )
         .with_child(
             Button::create("")
@@ -398,7 +395,7 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .dom()
                 .with_id(ids::OPEN_SETTINGS)
                 .with_accessibility_name(label("aznotes-settings"))
-                .with_css("margin-left: 4px;"),
+                .with_css(format!("margin-left: 4px; {NO_DRAG}")),
         );
     ShellNavigationPane::create()
         .with_header(header)
@@ -529,17 +526,10 @@ fn list_rows(s: &AppState) -> Vec<ListRow> {
         .rows(&s.query, azul_storage::time::now_unix(), AppState::utc_offset())
 }
 
-/// The second line of a row: the notebook and the tags.
+/// A row's last line: the note's folder (its tags are in its text, so in
+/// its preview).
 fn row_detail(note: &model::Note) -> String {
-    let mut out = note.home_notebook().replace('/', " \u{203a} ");
-    for tag in &note.meta.tags {
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push('#');
-        out.push_str(tag);
-    }
-    out
+    note.home_notebook().replace('/', " \u{203a} ")
 }
 
 /// A row's glyph: what kind of note it is at a glance.
@@ -916,12 +906,6 @@ extern "C" fn on_tool_event(mut data: RefAny, mut info: CallbackInfo, event: Too
     update
 }
 
-/// The payload of a tag chip.
-struct TagRef {
-    app: RefAny,
-    tag: String,
-}
-
 /// The header's buttons: `(id, icon, name, action)`.
 fn header_button(app: &RefAny, id: AzString, icon: &str, name: &str, primary: bool, action: ButtonOnClickCallbackType) -> Dom {
     let mut button = Button::create("").with_icon(icon).with_on_click(app.clone(), action);
@@ -932,11 +916,13 @@ fn header_button(app: &RefAny, id: AzString, icon: &str, name: &str, primary: bo
         .dom()
         .with_id(id)
         .with_accessibility_name(label(name))
-        .with_css("margin-left: 4px;")
+        .with_css(format!("margin-left: 4px; {NO_DRAG}"))
 }
 
-/// The editor pane: the note's header (where it is, when it was edited, the
-/// note's buttons), its title, its tags, the toolbar and the text.
+/// The editor pane, Apple Notes': the note's header (where it is, when it
+/// was edited, the note's buttons; the window moves by it), the toolbar and
+/// the text, whose first line is the note's title and whose `#tags` are its
+/// tags (`Note::adopt_text`).
 fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     let Some(note) = s.open_note() else {
         return ShellEmptyState::create(label("aznotes-no-note-open"))
@@ -987,7 +973,7 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     );
     pane.add_child(
         Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: center; padding: 10px 24px 0px 24px; flex-shrink: 0;")
+            .with_css(format!("{TOP_STRIP} padding: 0px 16px 0px 24px; flex-shrink: 0;"))
             .with_child(text_line(&meta, &format!("flex-grow: 1; font-size: 12px; color: {};", look.muted)).with_id(ids::NOTE_META))
             .with_child(header_button(
                 app,
@@ -1010,59 +996,6 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             .with_child(header_button(app, ids::TRASH_NOTE, "delete", "aznotes-move-to-trash", false, on_trash as ButtonOnClickCallbackType)),
     );
 
-    // The title.
-    pane.add_child(
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: row; padding: 6px 24px 0px 24px; flex-shrink: 0;")
-            .with_child(
-                TextInput::create()
-                    .with_text(note.meta.title.as_str())
-                    .with_placeholder(label("aznotes-title"))
-                    .with_accessibility_name(label("aznotes-title"))
-                    .with_on_text_input(app.clone(), on_title_input as TextInputOnTextInputCallbackType)
-                    .with_on_virtual_key_down(app.clone(), on_title_key as TextInputOnVirtualKeyDownCallbackType)
-                    .dom()
-                    .with_id(ids::NOTE_TITLE)
-                    // The title reads as a title: a heading's size and weight
-                    // on the field, which its value line inherits (as an
-                    // <input>'s font does).
-                    .with_css("flex-grow: 1; font-size: 22px; font-weight: bold;"),
-            ),
-    );
-
-    // The tags: a chip each, then the field that adds one.
-    let mut tags = Dom::create_div()
-        .with_id(ids::NOTE_TAGS)
-        .with_css("display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 6px 24px; flex-shrink: 0;");
-    for tag in &note.meta.tags {
-        tags.add_child(
-            Chip::create(format!("#{tag}"))
-                .with_removable(true)
-                .with_on_remove(
-                    RefAny::new(TagRef {
-                        app: app.clone(),
-                        tag: tag.clone(),
-                    }),
-                    on_tag_remove as ChipOnRemoveCallbackType,
-                )
-                .dom()
-                .with_css("margin-right: 4px;"),
-        );
-    }
-    tags.add_child(
-        TextInput::create()
-            .with_text(s.tag_draft.as_str())
-            .with_placeholder(label("aznotes-add-tag"))
-            .with_accessibility_name(label("aznotes-add-tag"))
-            .with_on_text_input(app.clone(), on_tag_input as TextInputOnTextInputCallbackType)
-            .with_on_virtual_key_down(app.clone(), on_tag_key as TextInputOnVirtualKeyDownCallbackType)
-            .with_on_focus_lost(app.clone(), on_tag_blur as TextInputOnFocusLostCallbackType)
-            .dom()
-            .with_id(ids::TAG_INPUT)
-            .with_css("width: 140px;"),
-    );
-    pane.add_child(tags);
-
     pane.add_child(toolbar(s, app, look));
 
     // The text, scrolling.
@@ -1080,100 +1013,6 @@ fn text_return(update: Update) -> OnTextInputReturn {
         update,
         valid: TextInputValid::Yes,
     }
-}
-
-extern "C" fn on_title_input(mut data: RefAny, mut info: CallbackInfo, field: TextInputState) -> OnTextInputReturn {
-    let title = field.get_text().as_str().to_string();
-    with_state(&mut data, &mut info, |s, _, _| {
-        if let Some(note) = s.open_note_mut() {
-            note.meta.title = title;
-        }
-        s.edited();
-        Update::DoNothing
-    });
-    text_return(Update::DoNothing)
-}
-
-/// Enter in the title goes on in the text.
-extern "C" fn on_title_key(_data: RefAny, mut info: CallbackInfo, _field: TextInputState) -> OnTextInputReturn {
-    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
-    if matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)) {
-        editor::focus_editor(&mut info);
-    }
-    text_return(Update::DoNothing)
-}
-
-/// Adds the tag being typed to the open note and clears the field (the
-/// field's typing is acknowledged, so the empty field the app renders
-/// wins over it). Returns whether a tag was added.
-fn commit_tag(s: &mut AppState, info: &mut CallbackInfo) -> bool {
-    let draft = s.tag_draft.trim().trim_matches(',').to_string();
-    s.tag_draft.clear();
-    // The editor's typing first: the acknowledgment covers every editor.
-    let _ = editor::sync(s, info);
-    info.mark_text_revision_synced(info.get_document_text_revision());
-    if draft.is_empty() {
-        return false;
-    }
-    let added = s.open_note_mut().is_some_and(|n| n.add_tag(&draft));
-    if added {
-        s.edited();
-    }
-    added
-}
-
-extern "C" fn on_tag_input(mut data: RefAny, mut info: CallbackInfo, field: TextInputState) -> OnTextInputReturn {
-    let text = field.get_text().as_str().to_string();
-    let update = with_state(&mut data, &mut info, |s, info, _| {
-        // A comma ends a tag, as Enter does.
-        if text.ends_with(',') {
-            s.tag_draft = text.trim_end_matches(',').to_string();
-            commit_tag(s, info);
-            return Update::RefreshDom;
-        }
-        s.tag_draft = text;
-        Update::DoNothing
-    });
-    text_return(update)
-}
-
-extern "C" fn on_tag_key(mut data: RefAny, mut info: CallbackInfo, _field: TextInputState) -> OnTextInputReturn {
-    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
-    if !matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)) {
-        return text_return(Update::DoNothing);
-    }
-    let update = with_state(&mut data, &mut info, |s, info, _| {
-        commit_tag(s, info);
-        Update::RefreshDom
-    });
-    text_return(update)
-}
-
-extern "C" fn on_tag_blur(mut data: RefAny, mut info: CallbackInfo, _field: TextInputState) -> Update {
-    with_state(&mut data, &mut info, |s, info, _| {
-        if s.tag_draft.trim().is_empty() {
-            return Update::DoNothing;
-        }
-        commit_tag(s, info);
-        Update::RefreshDom
-    })
-}
-
-extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _chip: ChipState) -> Update {
-    let (mut app, tag) = match data.downcast_ref::<TagRef>() {
-        Some(t) => (t.app.clone(), t.tag.clone()),
-        None => return Update::DoNothing,
-    };
-    let Some(mut guard) = app.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    let s = &mut *guard;
-    let _ = editor::sync(s, &mut info);
-    let removed = s.open_note_mut().is_some_and(|n| n.remove_tag(&tag));
-    if removed {
-        s.edited();
-    }
-    crate::refresh_if(removed)
 }
 
 extern "C" fn on_pin(mut data: RefAny, mut info: CallbackInfo) -> Update {

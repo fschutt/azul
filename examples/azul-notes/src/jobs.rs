@@ -281,7 +281,6 @@ pub fn open_note(info: &mut CallbackInfo, app: &RefAny, state: &mut AppState, id
         .get(id)
         .map_or_else(azul::widgets::RichTextDoc::create, |n| n.doc.clone());
     state.editor = editor::state_for(&doc);
-    state.tag_draft.clear();
     if state.screen == Screen::History {
         state.screen = Screen::Notes;
         state.history = None;

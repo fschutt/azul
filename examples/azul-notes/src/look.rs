@@ -40,8 +40,8 @@ pub struct Look {
     pub error: &'static str,
     /// A sheet's corner radius (flora: nothing rounder than 5px).
     pub sheet_radius: &'static str,
-    /// The title row's background, as RGB (the Titlebar takes a ColorU);
-    /// flat only.
+    /// The chrome's colour as RGB, for a widget that takes a ColorU; flat
+    /// only. Unused: the window has no title row.
     pub chrome_rgb: (u8, u8, u8),
     pub text_rgb: (u8, u8, u8),
 }
