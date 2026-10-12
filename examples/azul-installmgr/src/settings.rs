@@ -5,6 +5,7 @@
 //! every check.
 
 use azul::{
+    callbacks::{SegmentedOnChangeCallbackType, SwitchOnToggleCallbackType},
     prelude::*,
     str::String as AzString,
     widgets::{Button, Segmented, SegmentedState, Switch, SwitchState},
@@ -49,7 +50,7 @@ fn channel_index(channel: Channel) -> usize {
 fn channel_control(app: &RefAny, key: Option<&'static str>, channel: Channel, id: String) -> Dom {
     Segmented::create(labels(&["azinstallmgr-channel-stable", "azinstallmgr-channel-beta"]))
         .with_selected_index(channel_index(channel))
-        .with_on_change(target(app, key), on_channel)
+        .with_on_change(target(app, key), on_channel as SegmentedOnChangeCallbackType)
         .dom()
         .with_id(s(&id))
 }
@@ -57,7 +58,7 @@ fn channel_control(app: &RefAny, key: Option<&'static str>, channel: Channel, id
 fn autoupdate_control(app: &RefAny, key: Option<&'static str>, on: bool, id: String) -> Dom {
     Switch::create(on)
         .with_accessibility_name(s(&t("azinstallmgr-autoupdate")))
-        .with_on_toggle(target(app, key), on_autoupdate)
+        .with_on_toggle(target(app, key), on_autoupdate as SwitchOnToggleCallbackType)
         .dom()
         .with_id(s(&id))
 }
