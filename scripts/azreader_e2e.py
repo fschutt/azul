@@ -74,6 +74,9 @@ def first_session(app, data, out):
         raise e.Failure("the running head does not name the first chapter")
     if not app.shows("Alice was beginning to get very tired"):
         raise e.Failure("the first page does not show the chapter's first paragraph")
+    # No title row: the ribbon's tabs are the window's title bar (AzDrive's, AzWriter's).
+    if app.nodes_with_class("__azul-native-titlebar"):
+        raise e.Failure("the reader draws a title row over its ribbon; the tabs are the title bar")
     app.settle()
     app.screenshot(os.path.join(out, "first-page.png"))
     app.log("chapter I laid out on %d page(s)" % pages_of(app, 0)[-1])
@@ -118,6 +121,8 @@ def first_session(app, data, out):
     app.until("the library", lambda: app.has_id("__azreader_book-0"))
     if not app.shows("Alice's Adventures in Wonderland (sample)"):
         raise e.Failure("the library's tile does not show the book's title")
+    if app.nodes_with_class("__azul-native-titlebar"):
+        raise e.Failure("the library draws a title row over its ribbon; the tabs are the title bar")
     app.settle()
     app.screenshot(os.path.join(out, "library.png"))
     app.until("the position in state.json", lambda: state_of(data, book_id).get("position", {}).get("chapter") == 1)
