@@ -233,7 +233,27 @@ impl MacOSWindow {
         let location = unsafe { event.locationInWindow() };
         let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
+        self.release_button(position, button, Some(event))
+    }
 
+    /// Release `button` where the pointer is now, as the OS's release would have: for a release
+    /// a native menu's tracking loop took, so the window never heard it
+    /// (`buttons_released_meanwhile`). There is no event, so no pen state to feed.
+    pub fn release_button_taken_by_menu(&mut self, button: MouseButton) -> EventProcessResult {
+        let location = self.window.mouseLocationOutsideOfEventStream();
+        let window_height = self.common.current_window_state().size.dimensions.height;
+        let position = macos_to_azul_coords(location, window_height);
+        self.release_button(position, button, None)
+    }
+
+    /// The release pass of `button` at `position`; `event` is the OS's release, when there was
+    /// one.
+    fn release_button(
+        &mut self,
+        position: LogicalPosition,
+        button: MouseButton,
+        event: Option<&NSEvent>,
+    ) -> EventProcessResult {
         // End scrollbar drag if active (before state changes).
         //
         // The release must CLEAR what the press latched: `handle_mouse_down`
@@ -267,7 +287,9 @@ impl MacOSWindow {
         self.update_hit_test(position);
 
         // Feed Wacom/pen state on tablet events (pen tip lifted = not in contact).
-        self.feed_tablet_pen(event, position, false);
+        if let Some(event) = event {
+            self.feed_tablet_pen(event, position, false);
+        }
 
         // Resolve a right-click context menu, but do NOT present it here: a
         // native menu spins a synchronous nested tracking runloop, and we are

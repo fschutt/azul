@@ -2400,8 +2400,16 @@ pub fn buttons_released_meanwhile(
     mouse_state: &azul_core::window::MouseState,
     pressed: u64,
 ) -> Vec<azul_core::events::MouseButton> {
-    let _ = (mouse_state, pressed);
-    Vec::new()
+    use azul_core::events::MouseButton;
+    [
+        (mouse_state.left_down, 0b001, MouseButton::Left),
+        (mouse_state.right_down, 0b010, MouseButton::Right),
+        (mouse_state.middle_down, 0b100, MouseButton::Middle),
+    ]
+    .into_iter()
+    .filter(|(down, bit, _)| *down && pressed & bit == 0)
+    .map(|(_, _, button)| button)
+    .collect()
 }
 
 #[cfg(test)]

@@ -459,6 +459,31 @@ mod view_handlers {
         }
     }
 
+    /// A native menu returned. Its tracking loop took every mouse event while it was up, so a
+    /// button the window saw go down but not up (a dropdown opens its menu on the press that
+    /// focuses it) is released now, through the window's own release pass - or the window
+    /// keeps it down and the next move drags a text selection.
+    pub(super) fn release_buttons_after_menu(window_ptr: Option<*mut std::ffi::c_void>) {
+        let Some(window_ptr) = window_ptr else {
+            return;
+        };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let held = macos_window.common.current_window_state().mouse_state;
+            let pressed = NSEvent::pressedMouseButtons() as u64;
+            let released =
+                crate::desktop::shell2::common::event::buttons_released_meanwhile(&held, pressed);
+            if released.is_empty() {
+                return;
+            }
+            for button in released {
+                let result = macos_window.release_button_taken_by_menu(button);
+                route_result(macos_window, result);
+            }
+            macos_window.sync_window_state();
+        }
+    }
+
     pub(super) fn right_mouse_up(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         if let Some(window_ptr) = window_ptr {
             // The `&mut MacOSWindow` lives in this block ONLY. A native context
@@ -483,6 +508,7 @@ mod view_handlers {
                 unsafe {
                     (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                 }
+                release_buttons_after_menu(Some(window_ptr));
             }
         }
     }
@@ -1546,6 +1572,7 @@ define_class!(
                         (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                     }
                 }
+                view_handlers::release_buttons_after_menu(window_ptr);
             }
         }
 
@@ -2537,6 +2564,7 @@ define_class!(
                         (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                     }
                 }
+                view_handlers::release_buttons_after_menu(window_ptr);
             }
         }
 
