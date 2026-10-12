@@ -1,9 +1,10 @@
-//! The article table - Mail's message list: a bar with the view's name and All / Unread, the
-//! column headers (the unread dot, the star, Title, Source, Date; a click sorts by the column,
-//! a second click turns it round; the sorted column is tinted and carries its arrow), and the
-//! rows: one line each, alternating, the selected row in the selection colour, the unread ones
-//! with Mail's blue dot and a bold title. Sorted by date, the rows sit under Outlook's date
-//! groups (azul-pim's `DateGroup`: Today, Yesterday, Monday, Last Week ...).
+//! The article list, the middle of the window's three columns: a bar with the view's name and
+//! All / Unread, the column headers (the unread dot, the star, Title, Source, Date; a click
+//! sorts by the column, a second click turns it round; the sorted column is tinted and carries
+//! its arrow), and a card per article: the unread dot over the star, the title (bold while
+//! unread), the source and the date, the article's opening lines; the selected card in the
+//! selection colour. Sorted by date, the cards sit under Outlook's date groups (azul-pim's
+//! `DateGroup`: Today, Yesterday, Monday, Last Week ...).
 //!
 //! The rows are a VirtualView ([`table_view`]): only the rows in view (and a screen either
 //! side) are built, however many articles the view has. Every row is [`ROW_PX`] high, a day's
@@ -34,8 +35,9 @@ use crate::{
     library::{ArticleRef, Library, Sort, SortKey},
 };
 
-/// A row's height (px): every row of the table, a day's header too.
-pub const ROW_PX: f32 = 20.0;
+/// A row's height (px): every row of the list, a day's header too. An article's card holds
+/// three lines.
+pub const ROW_PX: f32 = 58.0;
 
 /// The bar over the table: the view's name and its counts, All / Unread.
 const LIST_BAR: &str = "padding: 4px 8px; gap: 8px; flex-shrink: 0; \
@@ -62,23 +64,28 @@ const HEAD_ACTIVE: &str = "background: linear-gradient(to bottom, #cfe1f7, #a9c6
 /// The narrow columns (the unread dot, the star): centred.
 const MARK_COL: &str = "width: 20px; flex-shrink: 0; justify-content: center; padding: 0px;";
 const TITLE_COL: &str = "flex-grow: 1; flex-basis: 0px; min-width: 0px;";
-const SOURCE_COL: &str = "width: 170px; flex-shrink: 0;";
-const DATE_COL: &str = "width: 128px; flex-shrink: 0;";
+/// The headers of the source and the date: as wide as their words (the column is narrow, the
+/// cards carry both under the title).
+const SOURCE_COL: &str = "flex-shrink: 0; padding-right: 8px;";
+const DATE_COL: &str = "flex-shrink: 0; padding-right: 8px;";
 /// The rows' box: the table's ground under the last row too.
 const ROWS: &str = "flex-grow: 1; min-height: 0px; width: 100%; \
                     background: system:control-background;";
-const ROW: &str = "display: flex; flex-direction: row; align-items: center; height: 20px; \
-                   flex-shrink: 0; font-size: 12px; cursor: default;";
+const ROW: &str = "display: flex; flex-direction: row; height: 58px; box-sizing: border-box; \
+                   padding: 6px 10px 6px 0px; flex-shrink: 0; font-size: 12px; cursor: default; \
+                   border-bottom: 1px solid system:separator;";
+/// A card's marks, the unread dot over the star.
+const CARD_MARKS: &str = "display: flex; flex-direction: column; align-items: center; \
+                          width: 20px; flex-shrink: 0; padding-top: 2px; gap: 4px;";
+/// A card's three lines.
+const CARD_TEXT: &str = "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; \
+                         gap: 1px;";
+const CARD_TITLE: &str = "font-size: 13px;";
+const CARD_LINE: &str = "font-size: 11px; color: system:secondary-text;";
 const ROW_EVEN: &str = "background: system:control-background;";
-const ROW_ODD: &str = "background: #edf3fe; \
-                       @media (prefers-color-scheme: dark) { background: #2b2f36; } \
-                   @theme(flora) { background: #E9E7E2; @media (prefers-color-scheme: dark) { background: #232323; } }";
 const ROW_SELECTED: &str = "background: system:selection-background; \
                             color: system:selection-text;";
-const CELL: &str = "display: flex; flex-direction: row; align-items: center; height: 20px; \
-                    box-sizing: border-box; padding: 0px 4px 0px 6px; overflow: hidden; \
-                    white-space: nowrap;";
-/// A cell's text: one line, cut with an ellipsis.
+/// A line of text: one line, cut with an ellipsis.
 const CLIP: &str = "overflow: hidden; white-space: nowrap; text-overflow: ellipsis; \
                     min-width: 0px;";
 /// Mail's unread dot.
@@ -87,8 +94,8 @@ const DOT: &str = "font-size: 9px; color: #3478d8; \
                    @theme(flora) { color: #2F4A85; @media (prefers-color-scheme: dark) { color: #7A93C6; } }";
 const STAR: &str = "font-size: 11px; color: #d99a00; \
                    @theme(flora) { color: #6E6349; @media (prefers-color-scheme: dark) { color: #C4B58E; } }";
-const DAY_ROW: &str = "display: flex; flex-direction: row; align-items: center; height: 20px; \
-                       box-sizing: border-box; flex-shrink: 0; padding-left: 8px; \
+const DAY_ROW: &str = "display: flex; flex-direction: row; align-items: flex-end; height: 58px; \
+                       box-sizing: border-box; flex-shrink: 0; padding: 0px 0px 6px 8px; \
                        font-size: 11px; font-weight: 700; \
                        color: system:secondary-text; background: system:control-background; \
                        border-bottom: 1px solid system:separator;";
@@ -429,7 +436,8 @@ struct RowRef {
     item: String,
 }
 
-/// One article's row: the unread dot, the star, its title, its feed, its date.
+/// One article's card: the unread dot over the star; its title, its feed and date, its
+/// opening lines.
 fn article_row(s: &NewsApp, table: &TableData, r: ArticleRef, index: usize) -> Dom {
     let lib = &s.library;
     let (Some(feed), Some(item)) = (lib.feeds.get(r.feed), lib.article(r)) else {
@@ -439,23 +447,19 @@ fn article_row(s: &NewsApp, table: &TableData, r: ArticleRef, index: usize) -> D
     let selected = table.selected == Some(r);
     let unread = !lib.is_read(r);
     let title = title_of(item);
-    let stripe = if selected {
-        ROW_SELECTED
-    } else if index % 2 == 1 {
-        ROW_ODD
-    } else {
-        ROW_EVEN
-    };
+    let stripe = if selected { ROW_SELECTED } else { ROW_EVEN };
     let mark = |glyph: &str, css: &str| {
         Dom::create_div()
-            .with_css(format!("{CELL} {MARK_COL} {}", if selected { "" } else { css }))
+            .with_css(if selected { "" } else { css })
             .with_child(text(glyph))
     };
-    let column_cell = |content: String, width: &str, extra: &str| {
-        Dom::create_div()
-            .with_css(format!("{CELL} {width}"))
-            .with_child(block(&format!("{CLIP} {extra}"), text(content)))
-    };
+    let line = |content: String, extra: &str| block(&format!("{CLIP} {extra}"), text(content));
+    let source_and_date = format!(
+        "{} \u{b7} {}",
+        feed.name(),
+        list_date(item.date(), table.today, table.offset)
+    );
+    let secondary = if selected { "font-size: 11px;" } else { CARD_LINE };
     let reference = || RowRef {
         app: table.app.clone(),
         feed: feed.sub.id.clone(),
@@ -466,19 +470,22 @@ fn article_row(s: &NewsApp, table: &TableData, r: ArticleRef, index: usize) -> D
         .with_class(ids::ARTICLE_ROW_CLASS)
         .with_css(format!("{ROW} {stripe}"))
         .with_accessibility_name(title.as_str())
-        .with_child(mark(if unread { "\u{25cf}" } else { "" }, DOT))
-        .with_child(mark(if lib.is_starred(r) { "\u{2605}" } else { "" }, STAR))
-        .with_child(column_cell(
-            title,
-            TITLE_COL,
-            if unread { "font-weight: 700;" } else { "" },
-        ))
-        .with_child(column_cell(feed.name().to_string(), SOURCE_COL, ""))
-        .with_child(column_cell(
-            list_date(item.date(), table.today, table.offset),
-            DATE_COL,
-            "",
-        ))
+        .with_child(
+            Dom::create_div()
+                .with_css(CARD_MARKS)
+                .with_child(mark(if unread { "\u{25cf}" } else { "" }, DOT))
+                .with_child(mark(if lib.is_starred(r) { "\u{2605}" } else { "" }, STAR)),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css(CARD_TEXT)
+                .with_child(line(
+                    title,
+                    &format!("{CARD_TITLE} {}", if unread { "font-weight: 700;" } else { "" }),
+                ))
+                .with_child(line(source_and_date, secondary))
+                .with_child(line(item.excerpt.clone(), secondary)),
+        )
         // The release, as AzPdf's thumbnails in their VirtualView (a press and its release
         // land on the row's DOM, the VirtualView's own).
         .with_callback(

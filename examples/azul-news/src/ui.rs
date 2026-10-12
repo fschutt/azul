@@ -8,11 +8,12 @@
 //!   grouped by topic (the feed's own categories: a forum's subforums, a blog's categories;
 //!   [`crate::library::Library::topics`]), unread counts as pills; the activity area (fetching,
 //!   n of m feeds, the last word) and the +, activity and actions buttons at the bottom;
-//! - the ARTICLE TABLE ([`table`]): dense rows under sortable column headers (read state, star,
-//!   title, source, date; a click sorts, again turns it round), alternating, the selected row in
-//!   the selection colour, Outlook's date groups (azul-pim's `DateGroup`) while it is sorted by
-//!   date; a VirtualView, so only the rows in view are built;
-//! - under it, on a splitter, the READING PANE: azul's `ReadingPane` with the article read
+//! - the ARTICLE LIST ([`table`]), the middle of three columns: a card per article (the unread
+//!   dot and the star, the title, the source and the date, its opening lines) under sortable
+//!   column headers (read state, star, title, source, date; a click sorts, again turns it
+//!   round), the selected card in the selection colour, Outlook's date groups (azul-pim's
+//!   `DateGroup`) while it is sorted by date; a VirtualView, so only the rows in view are built;
+//! - right of it, on a splitter, the READING PANE: azul's `ReadingPane` with the article read
 //!   through azul's HTML5-like parser in the reader stylesheet ([`crate::reader::article`]), its
 //!   pictures fetched on a Thread and put into the image cache ([`crate::jobs::spawn_pictures`]);
 //! - the forms take the right side while they are open: Add feed, the OPML import preview, a
@@ -547,7 +548,7 @@ impl NewsApp {
             closing: false,
             refresh_timer: None,
             nav_ratio: 0.2,
-            split_ratio: 0.4,
+            split_ratio: 0.38,
         }
     }
 
@@ -798,7 +799,7 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
     block("flex-grow: 1; min-height: 0px; overflow-y: auto;", pane)
 }
 
-/// The reading pane under the table: the open article, or the empty state.
+/// The reading pane, the right column: the open article, or the empty state.
 fn reading_view(s: &NewsApp, app: &RefAny) -> Dom {
     let content = match s.selected_ref() {
         Some(r) => article_view(s, app, r),
@@ -1151,11 +1152,13 @@ fn refresh_failed(meta: &FeedMeta) -> String {
     t_args("aznews-refresh-failed", &[("why", Arg::from(why))])
 }
 
-/// The right side: the table over the reading pane (on a splitter), or the open form.
+/// The right side: the article list and the reading pane beside it (on a splitter), or the open
+/// form.
 fn main_pane(s: &NewsApp, app: &RefAny) -> Dom {
     match &s.reading {
+        // Three columns with the source list: the articles, then the reader beside them.
         Reading::Article => SplitPane::create(
-            SplitDirection::Vertical,
+            SplitDirection::Horizontal,
             table::list_pane(s, app),
             reading_view(s, app),
         )
@@ -1399,7 +1402,8 @@ extern "C" fn on_pane_resize(
     Update::DoNothing
 }
 
-/// The splitter between the table and the reading pane was dragged: kept for the next rebuild.
+/// The splitter between the article list and the reading pane was dragged: kept for the next
+/// rebuild.
 extern "C" fn on_split_resize(
     mut data: RefAny,
     _info: CallbackInfo,
