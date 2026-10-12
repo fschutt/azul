@@ -574,7 +574,8 @@ pub fn start() {
         confirm_cancel: false,
         confirm_uninstall: None,
         checking: false,
-        last_check_unix: 0,
+        // An app's "Update now" first: the periodic check waits its turn.
+        last_check_unix: if apply.is_some() { update::unix_now() } else { 0 },
     };
     if screen == Screen::Wizard {
         println!("{}", model::step_line(&state.wizard.steps, state.wizard.step));
