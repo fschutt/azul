@@ -159,3 +159,22 @@ azinstallmgr-updates-found = { $count ->
    *[other] { $count } Updates sind verfügbar.
 }
 azinstallmgr-check-failed = Eine Prüfung ist fehlgeschlagen: { $reason }
+
+## Die Update-Einstellungen
+azinstallmgr-settings = Update-Einstellungen
+azinstallmgr-back-to-apps = Zurück zu den Apps
+azinstallmgr-settings-every-app = Alle Apps
+azinstallmgr-settings-each-app = Jede App
+azinstallmgr-settings-channel = Kanal
+azinstallmgr-settings-this-computer = Dieser Computer
+azinstallmgr-settings-folder = Installationsordner
+azinstallmgr-settings-source = Update-Quelle
+azinstallmgr-settings-no-source = Keine eingerichtet: Tragen Sie updates.manifest_url in die Konfigurationsdatei unten ein.
+azinstallmgr-settings-signatures = Signaturprüfung
+azinstallmgr-settings-signed = Jede Version muss mit dem eingerichteten Hauptschlüssel signiert sein.
+azinstallmgr-settings-digest-only = Es ist kein Hauptschlüssel eingerichtet: Nur die Prüfsumme eines Downloads wird geprüft.
+azinstallmgr-settings-group = Verteilungsgruppe
+azinstallmgr-settings-window = Updates im Hintergrund
+azinstallmgr-settings-any-time = Jederzeit
+azinstallmgr-settings-config = Diese Einstellungen stehen in { $path }.
+azinstallmgr-settings-saved = Gespeichert. Die Apps folgen ab ihrer nächsten Prüfung.

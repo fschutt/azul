@@ -159,3 +159,22 @@ azinstallmgr-updates-found = { $count ->
    *[other] { $count } updates are available.
 }
 azinstallmgr-check-failed = A check failed: { $reason }
+
+## The update settings
+azinstallmgr-settings = Update settings
+azinstallmgr-back-to-apps = Back to the apps
+azinstallmgr-settings-every-app = Every app
+azinstallmgr-settings-each-app = Each app
+azinstallmgr-settings-channel = Channel
+azinstallmgr-settings-this-computer = This computer
+azinstallmgr-settings-folder = Install folder
+azinstallmgr-settings-source = Update source
+azinstallmgr-settings-no-source = None configured: set updates.manifest_url in the config file below.
+azinstallmgr-settings-signatures = Signature check
+azinstallmgr-settings-signed = Every release must be signed by the configured root key.
+azinstallmgr-settings-digest-only = No root key is configured: only the checksum of a download is checked.
+azinstallmgr-settings-group = Rollout group
+azinstallmgr-settings-window = Background updates
+azinstallmgr-settings-any-time = At any time
+azinstallmgr-settings-config = These settings are kept in { $path }.
+azinstallmgr-settings-saved = Saved. The apps follow it from their next check.

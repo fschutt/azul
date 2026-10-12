@@ -256,6 +256,11 @@ pub(crate) fn screen(m: &Manager, app: &RefAny) -> Dom {
         vec![
             check.dom().with_id(s("installmgr-check")),
             update_all.dom().with_id(s("installmgr-update-all")),
+            Button::create(s(&t("azinstallmgr-settings")))
+                .with_icon(s("settings"))
+                .with_on_click(app.clone(), on_settings)
+                .dom()
+                .with_id(s("installmgr-settings-open")),
             pieces::block("flex-grow: 1;", Dom::create_div()),
             small(t_args(
                 "azinstallmgr-cohort",
@@ -310,6 +315,14 @@ extern "C" fn on_check(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     check_all(&mut *m, &mut info, &app);
+    Update::RefreshDom
+}
+
+extern "C" fn on_settings(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut m) = data.downcast_mut::<Manager>() else {
+        return Update::DoNothing;
+    };
+    crate::settings::open(&mut m);
     Update::RefreshDom
 }
 

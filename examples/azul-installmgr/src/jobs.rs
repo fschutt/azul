@@ -39,13 +39,72 @@ pub(crate) enum Job {
     /// The apps' waiting "Update now": install the version each said yes to once its process
     /// is gone, then start it again.
     Requests,
+    /// A change of the update policy, into the config.
+    Config(ConfigChange),
+}
+
+/// Which kind of job finished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum JobKind {
+    /// Install, check, update, revert, uninstall: the buttons waited for it.
+    Work,
+    /// The poll of the apps' requests: it runs beside the others.
+    Requests,
+    /// Reading the apps, writing a setting: quick, beside the others.
+    Background,
 }
 
 impl Job {
-    /// Whether the job is the quiet poll of the apps' requests (it runs beside the others and
-    /// does not hold the buttons).
-    pub(crate) fn is_requests(&self) -> bool {
-        matches!(self, Job::Requests)
+    fn kind(&self) -> JobKind {
+        match self {
+            Job::Requests => JobKind::Requests,
+            Job::Load | Job::Config(_) => JobKind::Background,
+            _ => JobKind::Work,
+        }
+    }
+}
+
+/// A change of the update policy: for every app (`None`) or one app (its key).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConfigChange {
+    Autoupdate(Option<&'static str>, bool),
+    Channel(Option<&'static str>, Channel),
+}
+
+impl ConfigChange {
+    /// The change in a line, for scripts.
+    pub(crate) fn describe(&self) -> String {
+        match self {
+            ConfigChange::Autoupdate(key, on) => format!("autoupdate {} {on}", key.unwrap_or("*")),
+            ConfigChange::Channel(key, channel) => {
+                format!("channel {} {}", key.unwrap_or("*"), channel.name())
+            }
+        }
+    }
+
+    /// Makes the change in `updates`. A change for every app is every app's: the apps whose own
+    /// choice differs take it too.
+    fn apply(self, updates: &mut azul_appkit::azlin_config::UpdatesSection) {
+        match self {
+            ConfigChange::Autoupdate(None, on) => {
+                updates.set_autoupdate(None, on);
+                for a in &model::APPS {
+                    if updates.policy_for(a.key).autoupdate != on {
+                        updates.set_autoupdate(Some(a.key), on);
+                    }
+                }
+            }
+            ConfigChange::Autoupdate(Some(key), on) => updates.set_autoupdate(Some(key), on),
+            ConfigChange::Channel(None, channel) => {
+                updates.set_channel(None, channel);
+                for a in &model::APPS {
+                    if updates.policy_for(a.key).channel != channel {
+                        updates.set_channel(Some(a.key), channel);
+                    }
+                }
+            }
+            ConfigChange::Channel(Some(key), channel) => updates.set_channel(Some(key), channel),
+        }
     }
 }
 
@@ -62,6 +121,10 @@ pub(crate) enum Progress {
     },
     Checked { key: String, status: Status },
     Loaded { apps: Vec<Installed> },
+    /// The policy as the config says it after a change, or why it could not be written.
+    Configured {
+        result: Result<azul_appkit::azlin_config::UpdatesSection, String>,
+    },
     Updated {
         key: String,
         result: Result<Registration, String>,
@@ -80,8 +143,8 @@ pub(crate) enum Progress {
         key: String,
         result: Result<Registration, String>,
     },
-    /// The job is done; `requests`: it was the poll of the apps' requests.
-    Finished { requests: bool },
+    /// The job is done.
+    Finished { kind: JobKind },
 }
 
 /// What the worker thread gets.
@@ -113,7 +176,7 @@ extern "C" fn worker(mut init: RefAny, mut sender: ThreadSender, _receiver: Thre
     else {
         return;
     };
-    let requests = job.is_requests();
+    let kind = job.kind();
     let mut send = |progress: Progress| {
         let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
             crate::on_progress,
@@ -121,7 +184,7 @@ extern "C" fn worker(mut init: RefAny, mut sender: ThreadSender, _receiver: Thre
         )));
     };
     run(&AzulEngine, job, &fetching, &mut send);
-    send(Progress::Finished { requests });
+    send(Progress::Finished { kind });
 }
 
 /// Runs `job` with `engine`, telling `send` every step. Blocking.
@@ -188,6 +251,12 @@ pub(crate) fn run(
             send(Progress::Uninstalled { key, result });
         }
         Job::Requests => requests(engine, fetching, send),
+        Job::Config(change) => {
+            let result = AzlinConfig::edit(&fetching.places.config, |c| change.apply(&mut c.updates))
+                .map(|c| c.updates)
+                .map_err(|e| format!("{}: {e}", fetching.places.config.display()));
+            send(Progress::Configured { result });
+        }
     }
 }
 

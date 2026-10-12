@@ -22,6 +22,7 @@ mod apps;
 mod jobs;
 mod l10n;
 pub mod model;
+mod settings;
 mod wizard;
 
 use std::path::PathBuf;
@@ -50,13 +51,13 @@ use azul_appkit::{
 };
 
 use crate::{
-    jobs::{Job, Progress},
+    jobs::{Job, JobKind, Progress},
     model::{Fetching, Installed, Os, Places},
 };
 
 /// The names `--screen` takes: `auto` (the wizard until an app is installed, then the apps),
-/// the wizard, the installed apps.
-pub const SCREENS: [&str; 3] = ["auto", "wizard", "apps"];
+/// the wizard, the installed apps, the update settings.
+pub const SCREENS: [&str; 4] = ["auto", "wizard", "apps", "settings"];
 
 /// What azul-appkit's switches know about AzInstallManager.
 pub const SPEC: AppSpec = AppSpec {
@@ -96,6 +97,18 @@ const CHECK_EVERY_SECS: u64 = 6 * 3600;
 pub(crate) enum Screen {
     Wizard,
     Apps,
+    Settings,
+}
+
+impl Screen {
+    /// The name scripts know the screen by.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Screen::Wizard => "wizard",
+            Screen::Apps => "apps",
+            Screen::Settings => "settings",
+        }
+    }
 }
 
 /// Everything the window shows.
@@ -244,6 +257,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let (title, content) = match m.screen {
         Screen::Wizard => (t("azinstallmgr-wizard-title"), wizard::wizard(m, &app)),
         Screen::Apps => (t("azinstallmgr-title"), apps::screen(m, &app)),
+        Screen::Settings => (t("azinstallmgr-settings"), settings::screen(m, &app)),
     };
     let shell = UtilityShell::create(content)
         .with_title_row(kit::title_row(&title))
@@ -311,13 +325,18 @@ pub(crate) extern "C" fn on_progress(
             apps::updated(m, &key, result);
         }
         Progress::Checked { key, status } => apps::checked(m, &key, status),
+        Progress::Configured { result } => settings::configured(m, result),
         Progress::Updated { key, result } => apps::updated(m, &key, result),
         Progress::Reverted { key, result } => apps::reverted(m, &key, result),
         Progress::Uninstalled { key, result } => apps::uninstalled(m, &key, result),
-        Progress::Finished { requests } => {
-            if requests {
-                m.polling = false;
-                return Update::DoNothing;
+        Progress::Finished { kind } => {
+            match kind {
+                JobKind::Requests => {
+                    m.polling = false;
+                    return Update::DoNothing;
+                }
+                JobKind::Background => return Update::DoNothing,
+                JobKind::Work => {}
             }
             m.busy = false;
             if m.screen == Screen::Wizard && m.wizard.step == model::Step::Installing {
@@ -432,6 +451,10 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             m.confirm_cancel = false;
             m.confirm_uninstall = None;
         }
+        Some(VirtualKeyCode::Escape) if m.screen == Screen::Settings => {
+            m.screen = Screen::Apps;
+            println!("AZINSTALLMGR_SCREEN apps");
+        }
         Some(VirtualKeyCode::Escape)
             if m.screen == Screen::Wizard && m.wizard.step != model::Step::Finish =>
         {
@@ -456,13 +479,7 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     let timer = Timer::create(app, on_tick, info.get_system_time_fn())
         .with_interval(Duration::System(SystemTimeDiff::from_millis(POLL_MS)));
     info.add_timer(TimerId::unique(), timer);
-    println!(
-        "AZINSTALLMGR_SCREEN {}",
-        match screen {
-            Screen::Wizard => "wizard",
-            Screen::Apps => "apps",
-        }
-    );
+    println!("AZINSTALLMGR_SCREEN {}", screen.name());
     Update::DoNothing
 }
 
@@ -518,6 +535,7 @@ pub fn start() {
     let screen = match args.screen.as_deref() {
         Some("wizard") => Screen::Wizard,
         Some("apps") => Screen::Apps,
+        Some("settings") => Screen::Settings,
         _ if any_app || apply.is_some() => Screen::Apps,
         _ => Screen::Wizard,
     };
