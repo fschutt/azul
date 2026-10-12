@@ -302,6 +302,23 @@ impl ShellPane {
     pub fn is_rail(&self) -> bool {
         self.width > 0.0
     }
+
+    /// The pane as the shell lays it out: a pane holding a collapsed navigation pane is a rail
+    /// of the strip's width, whatever share or width the app gave it. The collapse is the
+    /// navigation pane's own state (its strip button), and a slot that kept its share would
+    /// stay blank beside the strip - a flex item sized by its share keeps it in Chrome too.
+    fn fitted(mut self) -> Self {
+        let collapsed = self.content.root.get_ids_and_classes().as_ref().iter().any(|c| {
+            matches!(c, IdOrClass::Class(name) if name.as_str() == super::navigation_pane::COLLAPSED_CLASS)
+        });
+        if collapsed {
+            #[allow(clippy::cast_precision_loss)] // a small width in px
+            {
+                self.width = super::navigation_pane::COLLAPSED_WIDTH_PX as f32;
+            }
+        }
+        self
+    }
 }
 
 /// The Office-like window frame: title row, ribbon or backstage, the panes,
@@ -822,6 +839,7 @@ fn row_children(
     let mut run: Vec<ShellPane> = Vec::new();
     let mut run_start = 0;
     for (i, pane) in panes.into_iter().enumerate() {
+        let pane = pane.fitted();
         if pane.is_rail() {
             if !run.is_empty() {
                 out.push(splits_box(core::mem::take(&mut run), run_start, on_pane_resize, inner, look));

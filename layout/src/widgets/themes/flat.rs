@@ -5275,7 +5275,9 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
     let mut nav_footer = decl::padding(4, 4, 4, 4).to_vec();
     nav_footer.push(px(CssProperty::const_justify_content(LayoutJustifyContent::End)));
 
-    let mut nav_strip = vec![px(CssProperty::const_width(LayoutWidth::const_px(40)))];
+    let mut nav_strip = vec![px(CssProperty::const_width(LayoutWidth::const_px(
+        crate::widgets::shells::navigation_pane::COLLAPSED_WIDTH_PX,
+    )))];
     nav_strip.extend(strip());
     nav_strip.extend(hairline_right());
 
