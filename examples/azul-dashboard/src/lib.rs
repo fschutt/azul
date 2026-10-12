@@ -37,6 +37,8 @@ pub mod data;
 pub mod chart;
 /// The DOM ids and classes (`__azdash_` prefix), each defined once.
 pub mod ids;
+#[cfg(test)]
+mod l10n_tests;
 /// The orders table: azul's DataTable over the data set (the table half).
 pub mod table;
 
