@@ -74,6 +74,9 @@ pub struct AppState {
     pub current: Option<usize>,
     pub strokes: Vec<Stroke>,
     pub live: Option<Stroke>,
+    /// The revisions of each page's kept strokes: an ink layer draws its
+    /// frame anew when its page's changes (`ink::InkRevisions`).
+    pub ink: ink::InkRevisions,
     pub next_stroke_id: u64,
     pub active: Semantic,
     pub tool: Tool,
@@ -194,6 +197,7 @@ pub fn run() {
         files,
         strokes: Vec::new(),
         live: None,
+        ink: ink::InkRevisions::default(),
         next_stroke_id: 1,
         active: Semantic::Scope,
         tool: Tool::Marker,
@@ -373,8 +377,11 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
                 && p.y <= y1 + 6.0
         });
         if let Some(i) = hit {
-            s.strokes.remove(i);
+            let gone = s.strokes.remove(i);
+            s.ink.touch(page);
             s.rederive();
+            drop(s);
+            ui::redraw_ink(&mut info, ink::Layer::of(gone.semantic));
             return Update::RefreshDom;
         }
         return Update::DoNothing;
@@ -400,6 +407,9 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     if let Some(clip) = s.recording.as_mut() {
         clip.stroke_ids.push(id);
     }
+    drop(s);
+    // The first dab shows at once; the stroke grows in the frame of its layer.
+    ui::redraw_ink(&mut info, ink::Layer::of(semantic));
     Update::DoNothing
 }
 
@@ -432,6 +442,8 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
     Update::RefreshDom
 }
 
+/// A pointer move while a stroke is drawn: its new point, and a new frame of
+/// its layer - no new DOM (a DOM per move made drawing unusably slow).
 pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
@@ -442,16 +454,21 @@ pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
     let Some((p, _)) = ui::sample(&mut info) else {
         return Update::DoNothing;
     };
-    if let Some(live) = s.live.as_mut() {
-        let far = live
-            .points
-            .last()
-            .is_none_or(|l| (l.x - p.x).abs() + (l.y - p.y).abs() > 0.35);
-        if far {
-            live.points.push(p);
-        }
+    let Some(live) = s.live.as_mut() else {
+        return Update::DoNothing;
+    };
+    let far = live
+        .points
+        .last()
+        .is_none_or(|l| (l.x - p.x).abs() + (l.y - p.y).abs() > 0.35);
+    if !far {
+        return Update::DoNothing;
     }
-    Update::RefreshDom
+    live.points.push(p);
+    let layer = ink::Layer::of(live.semantic);
+    drop(s);
+    ui::redraw_ink(&mut info, layer);
+    Update::DoNothing
 }
 
 pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -462,6 +479,9 @@ pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let Some(done) = s.live.take() else {
             return Update::DoNothing;
         };
+        // Kept or dropped (a click cycles the nib), the page's frame no
+        // longer shows a stroke being drawn.
+        s.ink.touch(done.page);
         if done.points.len() < CLICK_POINT_LIMIT {
             (true, s.idle_timer)
         } else {
@@ -625,6 +645,7 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
     s.current = Some(index);
     s.strokes.clear();
     s.live = None;
+    s.ink.open();
     s.rederive();
     s.status = s.files[index].display.clone();
     Update::RefreshDom

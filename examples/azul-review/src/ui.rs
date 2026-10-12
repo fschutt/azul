@@ -1,16 +1,21 @@
 use azul::{
-    callbacks::{ButtonOnClickCallbackType, RenderImageCallbackInfo},
+    callbacks::ButtonOnClickCallbackType,
     dom::{AccessibilityInfo, RenderImageCallback},
-    image::{ImageRef, RawImage, RawImageFormat},
+    image::ImageRef,
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
     shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
-    vec::{MenuItemVec, U8VecRef},
+    vec::MenuItemVec,
     widgets::{Button, StatusBar, StatusBarSegment},
 };
 use azul_appkit::{l10n::label, ui as kit};
 
-use crate::{code, ids, ink, model::Semantic, AppState};
+use crate::{
+    code, ids,
+    ink::{self, InkCanvas, Layer},
+    model::Semantic,
+    AppState,
+};
 
 /// A column that takes the rest of its parent.
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
@@ -36,10 +41,28 @@ fn page_stride() -> f32 {
     PAGE_W + PAGE_GAP
 }
 
+/// The page of the ink layer under the pointer (its dataset is its canvas).
 pub fn page_of(info: &mut CallbackInfo) -> Option<usize> {
     info.get_dataset(info.get_hit_node())
         .into_option()
-        .and_then(|mut d| d.downcast_ref::<PageTag>().map(|t| t.page))
+        .and_then(|mut d| d.downcast_ref::<InkCanvas>().map(|c| c.page))
+}
+
+/// Asks for a new frame of the page's `layer` under the pointer, no new DOM:
+/// the pen layer is the node the pointer handlers sit on, the marker layer
+/// the first child of the same sheet.
+pub fn redraw_ink(info: &mut CallbackInfo, layer: Layer) {
+    let pen = info.get_hit_node();
+    let node = match layer {
+        Layer::Pen => Some(pen),
+        Layer::Marker => info
+            .get_parent(pen)
+            .into_option()
+            .and_then(|sheet| info.get_first_child(sheet).into_option()),
+    };
+    if let Some(node) = node {
+        kit::redraw_image(info, node);
+    }
 }
 
 pub fn sample(info: &mut CallbackInfo) -> Option<(crate::model::InkPoint, bool)> {
@@ -71,11 +94,6 @@ fn named(name: &str) -> AccessibilityInfo {
         accessibility_name: OptionString::Some(label(name)),
         ..AccessibilityInfo::default()
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PageTag {
-    pub page: usize,
 }
 
 pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
@@ -474,7 +492,7 @@ extern "C" fn sheets_virtual_view(
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
         for page in first..first + count {
-            row.add_child(page_sheet(&s, &cb_app, file, page));
+            row.add_child(page_sheet(&cb_app, file, page));
         }
         (row, first, count, total, leftmost)
     };
@@ -496,7 +514,7 @@ extern "C" fn sheets_virtual_view(
     )
 }
 
-fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize) -> Dom {
+fn page_sheet(data: &RefAny, file: &code::SourceFile, page: usize) -> Dom {
     let (first_line, lines) = file.page(page);
     let mut sheet = Dom::create_div().with_css(
         format!(
@@ -511,6 +529,9 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         .as_str(),
     );
 
+    // The marker's ink first: positioned boxes paint in tree order, so the
+    // code (positioned too) is drawn over it, and the pen's ink over both.
+    sheet.add_child(ink_layer(data, page, Layer::Marker));
     sheet.add_child(
         Dom::create_div().with_css(
             format!(
@@ -526,7 +547,8 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
 
     let mut col = Dom::create_div().with_css(
         format!(
-            "display: flex; flex-direction: column; width: {}px; overflow: hidden;",
+            "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
+             hidden;",
             (PAGE_W - MARGIN_GUTTER_W - PAGE_PAD) as isize,
         )
         .as_str(),
@@ -535,14 +557,7 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         col.add_child(code_row(first_line + i, line.as_str()));
     }
     sheet.add_child(col);
-
-    let page_strokes: Vec<_> = s.strokes.iter().filter(|st| st.page == page).collect();
-    let has_live = s.live.as_ref().is_some_and(|l| l.page == page);
-    let cache = RefAny::new(InkLayer {
-        strokes: page_strokes.into_iter().cloned().collect(),
-        live: if has_live { s.live.clone() } else { None },
-    });
-    sheet.add_child(ink_layer(data, cache, page));
+    sheet.add_child(ink_layer(data, page, Layer::Pen));
     sheet
 }
 
@@ -566,14 +581,17 @@ fn code_row(number: usize, line: &str) -> Dom {
     row
 }
 
-/// The ink over page `page`: `cache` (an [`InkLayer`]) drawn by
-/// [`render_ink`], the pointer handlers of the app (`data`).
-fn ink_layer(data: &RefAny, cache: RefAny, page: usize) -> Dom {
-    Dom::create_image(ImageRef::callback(
-        RenderImageCallback::create(render_ink).to_core(),
-        cache,
+/// The `layer` of page `page`'s ink: an [`InkCanvas`] drawn by
+/// [`ink::render_ink`], its frame kept over a DOM rebuild. The pen layer, on
+/// top, takes the pointer for the app (`data`).
+fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
+    let canvas = RefAny::new(InkCanvas::create(data.clone(), page, layer));
+    let dom = Dom::create_image(ImageRef::callback(
+        RenderImageCallback::create(ink::render_ink).to_core(),
+        canvas.clone(),
     ))
-    .with_dataset(OptionRefAny::Some(RefAny::new(PageTag { page })))
+    .with_dataset(OptionRefAny::Some(canvas))
+    .with_merge_callback(ink::merge_ink)
     .with_css(
         format!(
             "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
@@ -581,8 +599,11 @@ fn ink_layer(data: &RefAny, cache: RefAny, page: usize) -> Dom {
             page_h() as isize,
         )
         .as_str(),
-    )
-    .with_callback(
+    );
+    if layer == Layer::Marker {
+        return dom;
+    }
+    dom.with_callback(
         EventFilter::Hover(HoverEventFilter::MouseDown),
         data.clone(),
         crate::on_ink_down,
@@ -604,40 +625,6 @@ fn ink_layer(data: &RefAny, cache: RefAny, page: usize) -> Dom {
         data.clone(),
         crate::on_cycle_tool_back,
     )
-}
-
-struct InkLayer {
-    strokes: Vec<crate::model::Stroke>,
-    live: Option<crate::model::Stroke>,
-}
-
-extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> ImageRef {
-    let size = info.get_bounds().get_logical_size();
-    let (w, h) = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
-    let Some(layer) = data.downcast_ref::<InkLayer>() else {
-        return ImageRef::null_image(
-            w as usize,
-            h as usize,
-            RawImageFormat::RGBA8,
-            U8VecRef::from(&[][..]),
-        );
-    };
-    let mut all: Vec<&crate::model::Stroke> = layer.strokes.iter().collect();
-    if let Some(l) = layer.live.as_ref() {
-        all.push(l);
-    }
-    let buf = ink::rasterize_page(&all, w, h);
-    let img = RawImage::create_rgba8(w, h, buf, false);
-    ImageRef::create_rawimage(img)
-        .into_option()
-        .unwrap_or_else(|| {
-            ImageRef::null_image(
-                w as usize,
-                h as usize,
-                RawImageFormat::RGBA8,
-                U8VecRef::from(&[][..]),
-            )
-        })
 }
 
 fn status_bar(s: &AppState) -> Dom {
@@ -687,7 +674,7 @@ mod tests {
     /// points of a stroke between press and release come from `mousemove`.
     #[test]
     fn the_ink_layer_takes_the_points_of_a_stroke_from_every_pointer_move() {
-        let layer = ink_layer(&RefAny::new(0u8), RefAny::new(0u8), 0);
+        let layer = ink_layer(&RefAny::new(0u8), 0, Layer::Pen);
         assert_eq!(
             events_of(&layer, crate::on_ink_move),
             vec![EventFilter::Hover(HoverEventFilter::MouseMove)]
