@@ -8030,6 +8030,15 @@ mod autotest_generated {
     /// Every query API therefore hits its "nothing there" path - which is
     /// exactly the path adversarial tests need to exercise.
     fn with_info<R>(hit: DomNodeId, f: impl FnOnce(&mut CallbackInfo) -> R) -> R {
+        with_info_at_cursor(hit, OptionLogicalPosition::None, f)
+    }
+
+    /// [`with_info`] with the pointer at `cursor` in the viewport.
+    fn with_info_at_cursor<R>(
+        hit: DomNodeId,
+        cursor: OptionLogicalPosition,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> R {
         let layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         let renderer_resources = RendererResources::default();
@@ -8064,7 +8073,7 @@ mod autotest_generated {
             &changes,
             hit,
             OptionLogicalPosition::None,
-            OptionLogicalPosition::None,
+            cursor,
         );
 
         f(&mut info)
@@ -9463,6 +9472,30 @@ mod autotest_generated {
             );
             assert!(
                 matches!(&changes[2], CallbackChange::ShowTooltip { text, .. } if text.as_str().len() == 100_000)
+            );
+        });
+    }
+
+    /// A tooltip shown at the pointer opens BELOW it, as the platforms' own
+    /// tooltips do. Opened under the pointer, the tooltip window took the
+    /// pointer from the control it explains: the control heard MouseLeave,
+    /// hid the tooltip, heard MouseEnter again and showed it - the flicker on
+    /// AzDrive's disabled "Move to".
+    #[test]
+    fn a_tooltip_at_the_pointer_opens_below_it() {
+        let cursor = LogicalPosition::new(120.0, 80.0);
+        with_info_at_cursor(node_none(), OptionLogicalPosition::Some(cursor), |info| {
+            info.show_tooltip(AzString::from("Select a file to move it"));
+            let changes = info.take_changes();
+            let Some(CallbackChange::ShowTooltip { position, .. }) = changes.first() else {
+                panic!("show_tooltip records a ShowTooltip, {changes:?}");
+            };
+            assert_eq!(position.x, cursor.x, "the tooltip starts where the pointer is");
+            assert!(
+                position.y >= cursor.y + 16.0,
+                "the tooltip opens at y {} under a pointer at y {}: it covers the pointer",
+                position.y,
+                cursor.y
             );
         });
     }
