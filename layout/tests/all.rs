@@ -1073,3 +1073,5 @@ mod no_caret_is_painted_over_selected_text;
 mod a_press_beside_text_selects_from_the_nearest_character;
 #[path = "text_selection_follows_the_pointer_in_both_directions.rs"]
 mod text_selection_follows_the_pointer_in_both_directions;
+#[path = "a_column_of_cards_keeps_each_card_as_tall_as_its_content.rs"]
+mod a_column_of_cards_keeps_each_card_as_tall_as_its_content;
