@@ -117,7 +117,7 @@ fn a_widget_focused_by_a_click_shows_no_focus_ring() {
         assert_no_part_rings_on_a_click(
             &name("the office shell's panes"),
             OfficeShell::create()
-                .with_pane(ShellPane::create("doc".into(), Dom::create_text("Text")))
+                .with_pane(ShellPane::create("doc".into(), Dom::create_div()))
                 .with_theme(theme)
                 .dom(),
         );
