@@ -1598,6 +1598,66 @@ mod tests {
         }
     }
 
+    /// A popup or dialog window starts in its parent's mode, on that mode's
+    /// background. Seeded from the desktop's mode instead, a dialog opened
+    /// from a dark window on a light desktop showed a white window until its
+    /// first frame was drawn (the save guard's "Save changes?" flashed white).
+    #[test]
+    fn a_dialog_opened_from_a_dark_window_starts_on_the_dark_background() {
+        use azul_core::window::{DarkLightMode, OptionDarkLightMode};
+        let mut parent = FullWindowState::default();
+        parent.mode = DarkLightMode::Dark;
+        let light_desktop = azul_css::system::SystemStyle {
+            mode: azul_css::system::DarkLightMode::Light,
+            ..Default::default()
+        };
+        let w = open_window(0);
+        let (mut opts, _mailbox) =
+            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false);
+        as_dialog_window(&mut opts.window_state, "Save changes?");
+        assert_eq!(opts.mode, OptionDarkLightMode::Some(DarkLightMode::Dark));
+        super::super::resolve_initial_background_color(&mut opts, &light_desktop);
+        let dark = super::super::mode_background(
+            DarkLightMode::Dark,
+            &light_desktop,
+            azul_css::props::basic::OptionColorU::None,
+            azul_css::props::basic::OptionColorU::None,
+        );
+        assert_eq!(
+            opts.window_state.background_color.into_option(),
+            Some(dark),
+            "the window is cleared to the dark background before its first frame"
+        );
+    }
+
+    /// A dialog window is titled by its dialog (the `<transient-window>`
+    /// node's `title` or `aria-label`), else by the window that opened it -
+    /// the app's own title - and never by a made-up word ("Panel", "Popup").
+    #[test]
+    fn a_dialog_window_is_titled_by_its_dialog_or_else_by_its_parent_window() {
+        use azul_core::{dom::AttributeType, styled_dom::StyledDom};
+        let window = |label: Option<&str>| {
+            let mut node = Dom::create_node(azul_core::dom::NodeType::TransientWindow(
+                azul_core::transient::TransientWindowConfig::opened(),
+            ));
+            if let Some(l) = label {
+                node = node.with_attribute(AttributeType::AriaLabel(l.into()));
+            }
+            StyledDom::create_from_dom(Dom::create_body().with_child(node))
+        };
+        let titled = window(Some("Save changes"));
+        assert_eq!(
+            transient_window_title(&titled, NodeId::new(1), "AzNotes"),
+            "Save changes"
+        );
+        let untitled = window(None);
+        assert_eq!(
+            transient_window_title(&untitled, NodeId::new(1), "AzNotes"),
+            "AzNotes",
+            "an untitled dialog takes its parent window's title"
+        );
+    }
+
     /// The popup window is a Menu-type, borderless, always-on-top child of
     /// the parent, exactly the engine's size, anchored below the swatch.
     #[test]
