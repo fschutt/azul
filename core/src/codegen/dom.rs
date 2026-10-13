@@ -1479,6 +1479,7 @@ fn group_matches(
                 CssPathPseudoSelector::Hover
                 | CssPathPseudoSelector::Active
                 | CssPathPseudoSelector::Focus
+                | CssPathPseudoSelector::FocusVisible
                 | CssPathPseudoSelector::SeatFocus,
             ) => {}
 
@@ -1577,6 +1578,7 @@ fn css_blocks_to_inline_string(blocks: &[CssBlock]) -> String {
             Some(CssPathPseudoSelector::Hover) => Some(":hover"),
             Some(CssPathPseudoSelector::Active) => Some(":active"),
             Some(CssPathPseudoSelector::Focus) => Some(":focus"),
+            Some(CssPathPseudoSelector::FocusVisible) => Some(":focus-visible"),
             Some(CssPathPseudoSelector::SeatFocus) => Some(":seat-focus"),
             _ => None,
         };

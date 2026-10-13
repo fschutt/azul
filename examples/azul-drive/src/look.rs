@@ -125,9 +125,9 @@ pub(crate) const ROW_SELECTED: &str = themed!(
 /// The ring of the row the keyboard is on (after the selection, so it shows on it too).
 pub(crate) const ROW_FOCUS: &str = themed!(
     "",
-    ":focus { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
-    ":focus { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
-    ":focus { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
+    ":focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
+    ":focus-visible { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
+    ":focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
     "",
 );
 
@@ -247,11 +247,11 @@ pub(crate) const SMALL_BUTTON: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; justify-content: center; \
      width: 30px; height: 24px; font-size: 15px; cursor: pointer;",
     "border-right: 1px solid #D3D9E0; color: #3D5574; :hover { background: #DDE4EC; } \
-     :focus { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
+     :focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
     "border-right: 1px solid #4D4D4D; color: #DADADA; :hover { background: #474747; } \
-     :focus { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
+     :focus-visible { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
     "border-right: 1px solid #D8D5CE; color: #56544C; :hover { background: #E3E0D9; } \
-     :focus { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
+     :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
     "border-right: 1px solid #383838; color: #BEBEBE; :hover { background: #3A3A3A; }",
 );
 

@@ -2358,6 +2358,9 @@ pub enum CssPathPseudoSelector {
     /// editable. A pseudo-ELEMENT: it styles painted glyphs, not a node, so
     /// it never matches the element itself.
     Placeholder,
+    /// `:focus-visible` - the element has focus and its focus should be
+    /// seen: reached with the keyboard, not by a click. Focus rings go here.
+    FocusVisible,
 }
 
 /// Selector for the `:nth-child()` CSS pseudo-class.
@@ -2393,8 +2396,8 @@ impl fmt::Display for CssNthChildSelector {
 impl fmt::Display for CssPathPseudoSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CssPathPseudoSelector::{
-            Active, Backdrop, DragOver, Dragging, First, Focus, Hover, Lang, Last, NthChild,
-            Placeholder, Root, SeatFocus,
+            Active, Backdrop, DragOver, Dragging, First, Focus, FocusVisible, Hover, Lang, Last,
+            NthChild, Placeholder, Root, SeatFocus,
         };
         match &self {
             First => write!(f, "first"),
@@ -2403,6 +2406,7 @@ impl fmt::Display for CssPathPseudoSelector {
             Hover => write!(f, "hover"),
             Active => write!(f, "active"),
             Focus => write!(f, "focus"),
+            FocusVisible => write!(f, "focus-visible"),
             SeatFocus => write!(f, "seat-focus"),
             Lang(lang) => write!(f, "lang({})", lang.as_str()),
             Backdrop => write!(f, "backdrop"),
@@ -2428,6 +2432,7 @@ impl CssPathPseudoSelector {
             Self::Hover => Some(PseudoStateType::Hover),
             Self::Active => Some(PseudoStateType::Active),
             Self::Focus => Some(PseudoStateType::Focus),
+            Self::FocusVisible => Some(PseudoStateType::FocusVisible),
             Self::SeatFocus => Some(PseudoStateType::SeatFocus),
             Self::Backdrop => Some(PseudoStateType::Backdrop),
             Self::Dragging => Some(PseudoStateType::Dragging),
@@ -4379,6 +4384,7 @@ mod autotest_generated {
             (CssPathPseudoSelector::Hover, "hover".to_string()),
             (CssPathPseudoSelector::Active, "active".to_string()),
             (CssPathPseudoSelector::Focus, "focus".to_string()),
+            (CssPathPseudoSelector::FocusVisible, "focus-visible".to_string()),
             (CssPathPseudoSelector::SeatFocus, "seat-focus".to_string()),
             (
                 CssPathPseudoSelector::Lang("de-DE".to_string().into()),

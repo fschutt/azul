@@ -1662,7 +1662,8 @@ impl CssPropertyCache {
         use azul_css::{
             css::{
                 CssPathPseudoSelector::{
-                    Active, Backdrop, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus,
+                    Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, Hover, Placeholder,
+                    SeatFocus,
                 },
                 CssDeclaration, CssPathSelector, CssRuleBlock,
             },
@@ -1913,6 +1914,9 @@ impl CssPropertyCache {
                 let has_seat_focus = specific_rules
                     .iter()
                     .any(|r| crate::style::rule_ends_with(&r.path, Some(SeatFocus)));
+                let has_focus_visible = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(FocusVisible)));
                 let has_dragging = specific_rules
                     .iter()
                     .any(|r| crate::style::rule_ends_with(&r.path, Some(Dragging)));
@@ -1993,6 +1997,11 @@ impl CssPropertyCache {
                 collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
                 collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
                 collect_and_assign!(Some(SeatFocus), PseudoStateType::SeatFocus, has_seat_focus);
+                collect_and_assign!(
+                    Some(FocusVisible),
+                    PseudoStateType::FocusVisible,
+                    has_focus_visible
+                );
                 collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
                 collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
                 collect_and_assign!(
