@@ -1071,3 +1071,5 @@ mod a_press_on_an_image_over_text_selects_nothing;
 mod a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect;
 #[path = "a_leather_background_is_lit_leather_over_its_whole_box.rs"]
 mod a_leather_background_is_lit_leather_over_its_whole_box;
+#[path = "a_stylesheet_focus_visible_rule_rings_only_a_keyboard_focus.rs"]
+mod a_stylesheet_focus_visible_rule_rings_only_a_keyboard_focus;
