@@ -208,6 +208,35 @@ impl Menu {
         collect_leaf_callbacks(self.items.as_ref(), &mut leaves);
         leaves
     }
+
+    /// This menu's callbacks bound to the commands a native bar built from a
+    /// menu of the same structure already has: `ids` holds each leaf's
+    /// native id in [`Self::leaf_callbacks`] order, `None` for a leaf the bar
+    /// gave no command (Win32 numbers only the leaves with a callback).
+    ///
+    /// `None` when the bar cannot take them in place and must be built
+    /// again: another number of leaves, or a leaf that gained a callback but
+    /// has no command to run it. Compare [`Self::get_structure_hash`] first:
+    /// equal leaves can still carry other labels.
+    #[must_use]
+    pub fn rebind_leaf_callbacks<K: Copy>(
+        &self,
+        ids: &[Option<K>],
+    ) -> Option<Vec<(K, CoreMenuCallback)>> {
+        let leaves = self.leaf_callbacks();
+        if leaves.len() != ids.len() {
+            return None;
+        }
+        let mut bound = Vec::with_capacity(leaves.len());
+        for (id, callback) in ids.iter().zip(leaves) {
+            match (id, callback) {
+                (Some(id), Some(cb)) => bound.push((*id, cb.clone())),
+                (None, Some(_)) => return None,
+                (_, None) => {}
+            }
+        }
+        Some(bound)
+    }
 }
 
 /// [`Menu::get_structure_hash`] over `items` and their children.

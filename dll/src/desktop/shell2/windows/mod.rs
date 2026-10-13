@@ -3506,6 +3506,7 @@ impl Win32Window {
             &mut hmenu,
             menu.items.as_ref(),
             &mut callbacks,
+            &mut Vec::new(),
             &self.win32,
         );
 
@@ -7722,6 +7723,7 @@ impl Win32Window {
             &mut hmenu,
             menu.items.as_ref(),
             &mut callbacks,
+            &mut Vec::new(),
             &self.win32,
         );
 
