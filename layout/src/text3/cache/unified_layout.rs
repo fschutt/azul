@@ -284,6 +284,18 @@ impl UnifiedLayout {
         })
     }
 
+    /// The caret a selection drag that started at `anchor` reaches with the
+    /// pointer at `point` (this layout's own space, as for
+    /// [`Self::hittest_cursor`]).
+    #[must_use]
+    pub fn hittest_selection_focus(
+        &self,
+        _anchor: &TextCursor,
+        point: LogicalPosition,
+    ) -> Option<TextCursor> {
+        self.hittest_cursor(point)
+    }
+
     /// Given a logical selection range, returns a vector of visual rectangles
     /// that cover the selected text, in the layout's coordinate space.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)

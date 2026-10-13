@@ -1067,3 +1067,9 @@ mod a_reader_draws_its_pages_ahead_as_pictures;
 mod a_padded_span_in_a_flex_row_fits_its_text;
 #[path = "a_press_on_an_image_over_text_selects_nothing.rs"]
 mod a_press_on_an_image_over_text_selects_nothing;
+#[path = "no_caret_is_painted_over_selected_text.rs"]
+mod no_caret_is_painted_over_selected_text;
+#[path = "a_press_beside_text_selects_from_the_nearest_character.rs"]
+mod a_press_beside_text_selects_from_the_nearest_character;
+#[path = "text_selection_follows_the_pointer_in_both_directions.rs"]
+mod text_selection_follows_the_pointer_in_both_directions;
