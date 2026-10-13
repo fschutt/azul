@@ -257,11 +257,53 @@ pub(crate) fn themed_border_right_color(
     )
 }
 
-/// The focus ring: all four border colours on `:focus`, each with its dark
-/// twin right after it. Only visible on a node with a border (see the
-/// module note) - pair it with [`ring_slot`] or the part's own border.
+/// The focus ring: all four border colours on `:focus-visible`, each with
+/// its dark twin right after it. Only visible on a node with a border (see
+/// the module note) - pair it with [`ring_slot`] or the part's own border.
+///
+/// Every ring in the themes is rung on `:focus-visible`, never `:focus`: a
+/// click focuses a control without a ring, the keyboard rings it, as in a
+/// browser.
 #[must_use]
 pub(crate) const fn focus_ring(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 8] {
+    type C = CssPropertyWithConditions;
+    [
+        C::on_focus_visible(CssProperty::const_border_top_color(StyleBorderTopColor {
+            inner: light,
+        })),
+        C::dark_on_focus_visible(CssProperty::const_border_top_color(StyleBorderTopColor {
+            inner: dark,
+        })),
+        C::on_focus_visible(CssProperty::const_border_right_color(StyleBorderRightColor {
+            inner: light,
+        })),
+        C::dark_on_focus_visible(CssProperty::const_border_right_color(StyleBorderRightColor {
+            inner: dark,
+        })),
+        C::on_focus_visible(CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+            inner: light,
+        })),
+        C::dark_on_focus_visible(CssProperty::const_border_bottom_color(
+            StyleBorderBottomColor { inner: dark },
+        )),
+        C::on_focus_visible(CssProperty::const_border_left_color(StyleBorderLeftColor {
+            inner: light,
+        })),
+        C::dark_on_focus_visible(CssProperty::const_border_left_color(StyleBorderLeftColor {
+            inner: dark,
+        })),
+    ]
+}
+
+/// [`focus_ring`] for a field that takes typed text (a text input, a text
+/// area, a combo box's field): rung on `:focus`, so a field a click focused
+/// shows where the typing goes. Browsers do the same - `:focus-visible`
+/// matches every element that takes keyboard input, however it was focused.
+#[must_use]
+pub(crate) const fn text_field_focus_ring(
+    light: ColorU,
+    dark: ColorU,
+) -> [CssPropertyWithConditions; 8] {
     type C = CssPropertyWithConditions;
     [
         C::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor { inner: light })),
@@ -380,7 +422,7 @@ pub(crate) const fn hover_ink(light: ColorU, dark: ColorU) -> [CssPropertyWithCo
 /// an accordion header inside its rounded panel, a menu item in its bar.
 #[must_use]
 pub(crate) fn focus_halo_inset(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
-    CssPropertyWithConditions::themed_on_focus(
+    CssPropertyWithConditions::themed_on_focus_visible(
         shadow(0, 0, 2, light, true),
         shadow(0, 0, 2, dark, true),
     )
@@ -530,13 +572,13 @@ pub(crate) fn themed_shadow(
     )
 }
 
-/// The focus ring for a node WITHOUT a border: a 2px halo on `:focus` (a
-/// spread shadow, so it follows the corner radius and moves nothing), with
-/// its dark twin. The keyboard-only `outline: 2px solid var(--focus-color)`
+/// The focus ring for a node WITHOUT a border: a 2px halo on
+/// `:focus-visible` (a spread shadow, so it follows the corner radius and
+/// moves nothing), with its dark twin. The keyboard-only `outline: 2px solid var(--focus-color)`
 /// of flora.css, in the one shape azul can draw it.
 #[must_use]
 pub(crate) fn focus_halo(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
-    CssPropertyWithConditions::themed_on_focus(
+    CssPropertyWithConditions::themed_on_focus_visible(
         shadow(0, 0, 2, light, false),
         shadow(0, 0, 2, dark, false),
     )
@@ -950,28 +992,29 @@ pub(crate) fn focus_halo_inset_stacked(
     dark: ColorU,
 ) -> [CssPropertyWithConditions; 2] {
     [
-        CssPropertyWithConditions::on_focus(CssProperty::box_shadow_left(box_shadow(
+        CssPropertyWithConditions::on_focus_visible(CssProperty::box_shadow_left(box_shadow(
             0, 0, 2, light, true,
         ))),
-        CssPropertyWithConditions::dark_on_focus(CssProperty::box_shadow_left(box_shadow(
-            0, 0, 2, dark, true,
-        ))),
+        CssPropertyWithConditions::dark_on_focus_visible(CssProperty::box_shadow_left(
+            box_shadow(0, 0, 2, dark, true),
+        )),
     ]
 }
 
 /// [`focus_halo`] in the LEFT shadow slot: the focus ring of a bare glyph
 /// button (a "x" with no box of its own to ring and no border to colour),
-/// a 2px halo just outside its box on `:focus`, declared for the state only.
+/// a 2px halo just outside its box on `:focus-visible`, declared for the
+/// state only.
 /// In its own slot it ADDS to a resting shadow instead of replacing it.
 #[must_use]
 pub(crate) fn focus_halo_stacked(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
     [
-        CssPropertyWithConditions::on_focus(CssProperty::box_shadow_left(box_shadow(
+        CssPropertyWithConditions::on_focus_visible(CssProperty::box_shadow_left(box_shadow(
             0, 0, 2, light, false,
         ))),
-        CssPropertyWithConditions::dark_on_focus(CssProperty::box_shadow_left(box_shadow(
-            0, 0, 2, dark, false,
-        ))),
+        CssPropertyWithConditions::dark_on_focus_visible(CssProperty::box_shadow_left(
+            box_shadow(0, 0, 2, dark, false),
+        )),
     ]
 }
 

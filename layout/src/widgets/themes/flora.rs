@@ -1753,13 +1753,27 @@ pub(crate) fn field_skin() -> Vec<CssPropertyWithConditions> {
 
 /// A flora field's states: the rule darkening under the pointer; focused,
 /// the accent edge, the lifted paper and the double ring a pixel off it.
-/// Push after [`field_skin`] (and after any dark resting value).
+/// Push after [`field_skin`] (and after any dark resting value). A field
+/// that takes typed text shows its accent edge however it was focused
+/// (`decl::text_field_focus_ring`); [`picker_field_states`] rings only a
+/// keyboard focus.
 #[must_use]
 pub(crate) fn field_states() -> Vec<CssPropertyWithConditions> {
+    field_states_with(&super::decl::text_field_focus_ring(LIGHT_ACC, DARK_GLOW))
+}
+
+/// [`field_states`] for a field that only opens a choice (a drop-down): its
+/// accent edge on `:focus-visible`, as a button's ring.
+#[must_use]
+pub(crate) fn picker_field_states() -> Vec<CssPropertyWithConditions> {
+    field_states_with(&super::decl::focus_ring(LIGHT_ACC, DARK_GLOW))
+}
+
+fn field_states_with(edge: &[CssPropertyWithConditions]) -> Vec<CssPropertyWithConditions> {
     use super::decl;
     let mut v = Vec::with_capacity(20);
     v.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
-    v.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+    v.extend(edge.iter().cloned());
     v.extend(CssPropertyWithConditions::themed_on_focus(
         decl::fill(LIGHT_HT),
         decl::fill(DARK_FLD2),
@@ -2937,7 +2951,7 @@ pub(crate) fn flora_dropdown_wrapper_style() -> Vec<CssPropertyWithConditions> {
     v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)));
     v.extend(super::decl::padding(3, 6, 3, 8));
     v.extend(field_skin());
-    v.extend(field_states());
+    v.extend(picker_field_states());
     v
 }
 
@@ -5954,7 +5968,7 @@ pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
         NUMBER_INPUT_WELL_DARK,
     ));
     // States last: a resting dark twin matches in every state.
-    field.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+    field.extend(decl::text_field_focus_ring(LIGHT_ACC, DARK_GLOW));
 
     let mut arrow = c::COMBOBOX_ARROW_STYLE.to_vec();
     arrow.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));

@@ -2006,7 +2006,12 @@ mod theme_tests {
         let mut light = None;
         let mut dark = None;
         for d in declarations(node) {
-            if d.pseudo_state_conditions() != [state] {
+            // Keyboard focus raises `:focus` and `:focus-visible` together: a
+            // probe of the focused state sees the rings declared for either.
+            let conds = d.pseudo_state_conditions();
+            let focus_ring = state == PseudoStateType::Focus
+                && conds == [PseudoStateType::FocusVisible];
+            if conds != [state] && !focus_ring {
                 continue;
             }
             let Some(v) = pick(&d.property) else {

@@ -3436,8 +3436,9 @@ pub(crate) fn split_pane_skin(
     use crate::widgets::split_pane as s;
 
     let mut divider = s::divider_style(direction).into_library_owned_vec();
-    // States last: the resting dark twin matches in every state.
-    divider.extend(CssPropertyWithConditions::themed_on_focus(
+    // States last: the resting dark twin matches in every state. Grabbing
+    // the divider focuses it; only a keyboard focus lights it.
+    divider.extend(CssPropertyWithConditions::themed_on_focus_visible(
         decl::fill(FIELD_RING),
         decl::fill(DARK_ACC),
     ));
