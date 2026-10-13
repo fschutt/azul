@@ -1145,6 +1145,11 @@ pub struct GLViewIvars {
     /// Set to true by setMarkedText / insertText to prevent handle_key_down
     /// from double-processing the same key event during IME composition.
     ime_key_handled: Cell<bool>,
+    /// The window's background material is not `Opaque`: the view answers
+    /// `isOpaque` with no, so AppKit composites the alpha the frame left
+    /// (NSOpenGLView itself always says yes). Set with the GL surface's
+    /// opacity, by `MacOSWindow::set_gl_surface_see_through`.
+    transparent: Cell<bool>,
 }
 
 define_class!(
@@ -1221,6 +1226,11 @@ define_class!(
             // not just when the OS decides to send a reshape event.
 
             self.ivars().needs_reshape.set(false);
+        }
+
+        #[unsafe(method(isOpaque))]
+        fn is_opaque(&self) -> bool {
+            !self.ivars().transparent.get()
         }
 
         // Event Handling
@@ -1638,6 +1648,7 @@ define_class!(
                 mtm,
                 window_ptr: RefCell::new(None),
                 ime_key_handled: Cell::new(false),
+                transparent: Cell::new(false),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame, pixelFormat: pixel_format]
@@ -2978,6 +2989,11 @@ impl GLView {
     /// Get the back-pointer to the owning MacOSWindow
     fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
         *self.ivars().window_ptr.borrow()
+    }
+
+    /// Whether the view composites the frame's alpha (see the ivar).
+    pub fn set_transparent(&self, transparent: bool) {
+        self.ivars().transparent.set(transparent);
     }
 }
 
@@ -7780,8 +7796,9 @@ impl MacOSWindow {
     }
 
     /// Let the desktop show through the GL surface where the frame's alpha
-    /// is below one (`NSOpenGLCPSurfaceOpacity` 0 and a non-opaque layer),
-    /// or make it opaque again. A no-op without a GL context.
+    /// is below one (`NSOpenGLCPSurfaceOpacity` 0, a non-opaque layer and a
+    /// view that says it is not opaque), or make it opaque again. A no-op
+    /// without a GL context.
     fn set_gl_surface_see_through(&self, see_through: bool) {
         const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
         let opacity: i32 = i32::from(!see_through);
@@ -7795,6 +7812,9 @@ impl MacOSWindow {
             }
         }
         if let Some(ref gl_view) = self.gl_view {
+            // AppKit sets a layer-backed view's layer from `isOpaque` again
+            // when it updates the layer, so the view has to answer too.
+            gl_view.set_transparent(see_through);
             unsafe {
                 let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
                 if let Some(layer) = (*view_ptr).layer() {
