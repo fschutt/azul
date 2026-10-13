@@ -654,4 +654,22 @@ mod field_accessor_tests {
         let get = line("function TextInputState_methods:get_text(");
         assert!(get.contains("AzTextInputState_getText"), "the api method wins:\n{}", get);
     }
+
+    /// LuaJIT allows 65 536 constants per function. The registries of every
+    /// C declaration and every by-reference route hold ~30 000 strings; in
+    /// the main chunk, next to the wrapper layer's, they overflowed it and
+    /// `require('azul')` failed with "main function has more than 65536
+    /// constants". Each is built in a function of its own.
+    #[test]
+    fn the_big_registries_are_built_in_functions_of_their_own() {
+        for name in ["__az_cb_typedefs", "__az_fn_decls", "__az_fn_meta"] {
+            let def = line(&format!("local {} = ", name));
+            assert!(
+                def.ends_with("(function() return {"),
+                "{} is built in the main chunk: {}",
+                name,
+                def
+            );
+        }
+    }
 }

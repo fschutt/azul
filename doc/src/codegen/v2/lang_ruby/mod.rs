@@ -272,6 +272,28 @@ mod field_accessor_tests {
         assert!(azul_rb().contains("'AzString' => :az_string_delete,"));
     }
 
+    /// Ruby 3.4 reserves `_1` .. `_9` for numbered block parameters, so
+    /// `def _1` is a syntax error that stops the whole file from loading. A
+    /// tuple struct's fields are named so; their accessors are not.
+    #[test]
+    fn no_accessor_is_named_like_a_numbered_block_parameter() {
+        let numbered: Vec<&str> = azul_rb()
+            .lines()
+            .map(str::trim_start)
+            .filter(|l| {
+                let Some(name) = l.strip_prefix("def ") else {
+                    return false;
+                };
+                let b = name.as_bytes();
+                b.len() >= 2
+                    && b[0] == b'_'
+                    && (b'1'..=b'9').contains(&b[1])
+                    && b.get(2).is_none_or(|c| matches!(c, b'=' | b'(' | b' '))
+            })
+            .collect();
+        assert!(numbered.is_empty(), "{:?}", numbered);
+    }
+
     #[test]
     fn a_wrapper_moved_into_a_call_goes_through_own() {
         let run = method(class_body("App"), "run");
