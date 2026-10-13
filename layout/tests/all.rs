@@ -1069,3 +1069,5 @@ mod a_padded_span_in_a_flex_row_fits_its_text;
 mod a_press_on_an_image_over_text_selects_nothing;
 #[path = "a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect.rs"]
 mod a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect;
+#[path = "a_leather_background_is_lit_leather_over_its_whole_box.rs"]
+mod a_leather_background_is_lit_leather_over_its_whole_box;
