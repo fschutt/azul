@@ -11,6 +11,9 @@
 //! - each texel's tangent-space normal (GL convention) tilts the surface; a BEVEL `--azul-bevel` px
 //!   wide (default 3) follows the rect's rounded corners (its `border-radius`) and tilts the edge
 //!   outward - raised - or, with `--azul-inset: 1`, inward - a well, a pressed button;
+//! - `--azul-material-tint: <colour>` recolours the albedo and keeps each texel's brightness
+//!   relative to the tile's mean, so white or black leather keeps the brown leather's grain, and
+//!   a gold tint turns the aluminium (a metal, which reflects its albedo) into gold;
 //! - the light is the window's ([`MaterialLight`], `CallbackInfo::set_material_light`): Lambert
 //!   diffuse normalised so a flat texel shows exactly its albedo, a GGX highlight with Schlick
 //!   fresnel, an ambient share with a sky-to-ground tilt, a fresnel rim (the environment
@@ -424,6 +427,9 @@ pub struct MaterialParams {
     /// The rect's corner radii, logical px: top-left, top-right,
     /// bottom-right, bottom-left (a background layer's `border-radius`).
     pub radii: [f32; 4],
+    /// The colour the albedo is recoloured to, linear RGB, or `None` for
+    /// the tile's own colours (`--azul-material-tint`).
+    pub tint: Option<[f32; 3]>,
 }
 
 impl MaterialParams {
@@ -434,12 +440,14 @@ impl MaterialParams {
         scale: 1.0,
         relief: 1.0,
         radii: [0.0; 4],
+        tint: None,
     };
 
     /// The defaults, overridden by whichever of `--azul-bevel` (a length),
     /// `--azul-inset` (`1` / `true` / `inset` / `on`, or `0` / `false` /
     /// `raised` / `off`), `--azul-material-scale` and `--azul-relief` (numbers)
-    /// `get` (the node's custom properties, names without the dashes) has.
+    /// and `--azul-material-tint` (a CSS colour) `get` (the node's custom
+    /// properties, names without the dashes) has.
     pub fn from_custom_properties(get: impl Fn(&str) -> Option<String>, radii: [f32; 4]) -> Self {
         let mut p = Self {
             radii,
@@ -458,6 +466,11 @@ impl MaterialParams {
         }
         if let Some(v) = get("azul-relief").as_deref().and_then(parse_length) {
             p.relief = v.max(0.0);
+        }
+        if let Some(c) = get("azul-material-tint")
+            .and_then(|v| azul_css::props::basic::color::parse_css_color(v.trim()).ok())
+        {
+            p.tint = Some([c.r, c.g, c.b].map(|v| srgb_to_linear(f32::from(v) / 255.0)));
         }
         p
     }
@@ -483,6 +496,49 @@ fn parse_flag(value: &str) -> Option<bool> {
         "0" | "false" | "no" | "off" | "raised" | "none" => Some(false),
         _ => None,
     }
+}
+
+// -- The tint ----------------------------------------------------------------------------------
+
+/// A tint ready for the shader: its colour and the tile's mean luma, which
+/// a texel's luma is measured against.
+#[derive(Debug, Clone, Copy)]
+struct Tint {
+    color: [f32; 3],
+    inv_mean_luma: f32,
+}
+
+impl Tint {
+    fn new(color: [f32; 3], tile: &Tile) -> Self {
+        let n = tile.albedo.len().max(1) as f32;
+        let mean = tile.albedo.iter().map(|a| luma(*a)).sum::<f32>() / n;
+        Self {
+            color,
+            inv_mean_luma: if mean > 1e-6 { 1.0 / mean } else { 0.0 },
+        }
+    }
+
+    /// `albedo` in the tint's colour, as bright against the tint as the
+    /// texel is against the tile's mean: the grain stays, the colour goes.
+    fn apply(&self, albedo: [f32; 3]) -> [f32; 3] {
+        let k = luma(albedo) * self.inv_mean_luma;
+        self.color.map(|c| (c * k).clamp(0.0, 1.0))
+    }
+}
+
+/// Relative luminance of a linear RGB colour.
+fn luma(c: [f32; 3]) -> f32 {
+    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+
+/// `albedo`, tinted when there is a tint.
+fn albedo_of(albedo: [f32; 3], tint: Option<&Tint>) -> [f32; 3] {
+    tint.map_or(albedo, |t| t.apply(albedo))
+}
+
+/// A tint as cache-key bits; `u32::MAX` three times for none.
+fn tint_bits(tint: Option<[f32; 3]>) -> [u32; 3] {
+    tint.map_or([u32::MAX; 3], |t| t.map(f32::to_bits))
 }
 
 // -- The light, prepared -----------------------------------------------------------------------
@@ -746,13 +802,14 @@ struct Preshade {
 }
 
 impl Preshade {
-    fn new(tile: &Tile, surface: &Surface, relief: f32, light: &Light) -> Self {
+    fn new(tile: &Tile, surface: &Surface, relief: f32, light: &Light, tint: Option<&Tint>) -> Self {
         let n = tile.side * tile.side;
         let mut ambient = Vec::with_capacity(n);
         let mut direct = Vec::with_capacity(n);
         for i in 0..n {
             let normal = surface_normal(tile.normal[i], relief, [0.0, 0.0]);
-            let (a, d) = shade(tile.albedo[i], tile.rough[i], tile.ao[i], normal, surface, light);
+            let albedo = albedo_of(tile.albedo[i], tint);
+            let (a, d) = shade(albedo, tile.rough[i], tile.ao[i], normal, surface, light);
             ambient.push(a);
             direct.push(d);
         }
@@ -874,6 +931,7 @@ struct Job<'a> {
     origin: [f32; 2],
     /// Logical px per device px.
     inv_dpi: f32,
+    tint: Option<Tint>,
     table: &'a [u8],
 }
 
@@ -924,7 +982,8 @@ impl Job<'_> {
                         let t = self.tile.sample(u, v);
                         let slope = bevel_slope(d, self.bevel) * if self.inset { -1.0 } else { 1.0 };
                         let n = surface_normal(t.normal, self.relief, [slope * gx, slope * gy]);
-                        shade(t.albedo, t.rough, t.ao, n, &self.surface, self.light)
+                        let albedo = albedo_of(t.albedo, self.tint.as_ref());
+                        shade(albedo, t.rough, t.ao, n, &self.surface, self.light)
                     } else if unit {
                         self.preshade.at(x, y)
                     } else {
@@ -1032,9 +1091,12 @@ fn render(
     let dpi = if dpi.is_finite() && dpi > 0.0 { dpi } else { 1.0 };
     let prepared = Light::new(light);
     let relief = surface.relief * params.relief.max(0.0);
+    let tint = params.tint.map(|c| Tint::new(c, tile));
     let preshade = match material {
-        Some(material) => preshade_for(material, tile, &surface, relief, &prepared, light),
-        None => Arc::new(Preshade::new(tile, &surface, relief, &prepared)),
+        Some(material) => {
+            preshade_for(material, tile, &surface, relief, &prepared, light, params.tint)
+        }
+        None => Arc::new(Preshade::new(tile, &surface, relief, &prepared, tint.as_ref())),
     };
     let texel = (params.scale.max(0.01) * dpi).max(0.05);
     let job = Job {
@@ -1051,6 +1113,7 @@ fn render(
         radii: params.radii.map(|r| r.max(0.0) * dpi),
         origin,
         inv_dpi: 1.0 / dpi,
+        tint,
         table: srgb_table(),
     };
     Some(RawImage {
@@ -1068,8 +1131,9 @@ fn render(
 /// Preshades kept (a few lights x materials x reliefs).
 const PRESHADES_KEPT: usize = 12;
 
-/// A built-in tile's preshade for this light and relief, from the cache
-/// (the light's direction, colour and shares; the rays do not enter it).
+/// A built-in tile's preshade for this light, relief and tint, from the
+/// cache (the light's direction, colour and shares; the rays do not enter
+/// it).
 fn preshade_for(
     material: Material,
     tile: &Tile,
@@ -1077,8 +1141,9 @@ fn preshade_for(
     relief: f32,
     prepared: &Light,
     light: &MaterialLight,
+    tint: Option<[f32; 3]>,
 ) -> Arc<Preshade> {
-    type Key = [u32; 7];
+    type Key = [u32; 10];
     static PRESHADES: Mutex<Vec<(Key, Arc<Preshade>)>> = Mutex::new(Vec::new());
     let c = light.color;
     let key: Key = [
@@ -1089,6 +1154,9 @@ fn preshade_for(
         light.intensity.to_bits(),
         light.ambient.to_bits(),
         relief.to_bits(),
+        tint_bits(tint)[0],
+        tint_bits(tint)[1],
+        tint_bits(tint)[2],
     ];
     if let Ok(mut cache) = PRESHADES.lock() {
         if let Some(i) = cache.iter().position(|(k, _)| *k == key) {
@@ -1098,7 +1166,8 @@ fn preshade_for(
             return found;
         }
     }
-    let made = Arc::new(Preshade::new(tile, surface, relief, prepared));
+    let tint = tint.map(|c| Tint::new(c, tile));
+    let made = Arc::new(Preshade::new(tile, surface, relief, prepared, tint.as_ref()));
     if let Ok(mut cache) = PRESHADES.lock() {
         cache.push((key, made.clone()));
         while cache.len() > PRESHADES_KEPT {
@@ -1114,7 +1183,7 @@ const RENDERS_BYTES: usize = 64 * 1024 * 1024;
 const RENDERS_KEPT: usize = 96;
 
 /// Everything a render depends on, as bit patterns.
-type RenderKey = [u32; 24];
+type RenderKey = [u32; 27];
 
 fn render_key(
     material: Material,
@@ -1158,6 +1227,9 @@ fn render_key(
         light.rays.phase.to_bits(),
         origin[0].to_bits(),
         origin[1].to_bits(),
+        tint_bits(params.tint)[0],
+        tint_bits(params.tint)[1],
+        tint_bits(params.tint)[2],
     ]
 }
 
