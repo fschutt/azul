@@ -208,7 +208,7 @@ text3-suite-wip = []
 # atomic when not recording, and every real build (build-dll, telemetry)
 # wants them anyway - the only observability piece that stays opt-in is the
 # HTTP debug server (`e2e-server-http`), which opens a listening socket.
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons", "probe"]
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons", "probe", "materials"]
 
 # Fine-grained timing + RSS instrumentation. Enables `probe::Probe::span`
 # guards across the layout pipeline. Off by default — consumer crates
@@ -414,8 +414,9 @@ icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 # in CSS - a 128 x 128 micro tile of each CC0 PBR set (albedo, normal,
 # roughness; ~27 KB for the three, brotli) and a CPU shader that lights it for
 # the rect it fills (bevel, fresnel, the window's light and god rays). See
-# `texture::materials` and assets/textures/README.md. Off by default; the
-# decompressor is the one `text_layout` / `icons` already pull in.
+# `texture::materials` and assets/textures/README.md. On by default: the
+# flora tab strips are cut from leather and aluminium. The decompressor is the
+# one `text_layout` / `icons` already pull in.
 materials = ["std", "dep:brotli-decompressor"]
 
 # ─── E2E / debug-server op-dispatch (ported verbatim from the DLL) ───
