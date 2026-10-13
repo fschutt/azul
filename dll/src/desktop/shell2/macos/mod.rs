@@ -2012,6 +2012,30 @@ mod gl_surface_tests {
     fn a_modal_dialogs_window_shows_the_app_through_its_backdrop_on_the_gpu() {
         assert!(gl_surface_see_through(Material::Transparent));
     }
+
+    /// AppKit asks a view `isOpaque` when it composites the window, and
+    /// draws nothing under a view that says yes. NSOpenGLView says yes, so
+    /// the GL view has to answer for itself, from the window's material, as
+    /// the CPU view does: otherwise a dialog's half-transparent backdrop is
+    /// laid over black instead of over the app beneath.
+    #[test]
+    fn the_gl_view_answers_whether_it_is_opaque_as_the_cpu_view_does() {
+        use objc2::{sel, ClassType};
+
+        for (name, class) in [
+            ("GLView", super::GLView::class()),
+            ("CPUView", super::CPUView::class()),
+        ] {
+            // The class's own methods, not inherited ones: NSView answers
+            // `isOpaque` for every view.
+            let declared: Vec<_> = class
+                .instance_methods()
+                .iter()
+                .map(|method| method.name())
+                .collect();
+            assert!(declared.contains(&sel!(isOpaque)), "{name} does not answer isOpaque");
+        }
+    }
 }
 
 #[cfg(test)]
