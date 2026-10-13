@@ -1075,3 +1075,5 @@ mod a_leather_background_is_lit_leather_over_its_whole_box;
 mod a_stylesheet_focus_visible_rule_rings_only_a_keyboard_focus;
 #[path = "a_widget_focused_by_a_click_shows_no_focus_ring.rs"]
 mod a_widget_focused_by_a_click_shows_no_focus_ring;
+#[path = "a_pressed_app_button_sinks_its_curves_with_its_face.rs"]
+mod a_pressed_app_button_sinks_its_curves_with_its_face;
