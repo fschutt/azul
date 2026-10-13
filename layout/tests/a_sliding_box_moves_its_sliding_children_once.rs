@@ -15,8 +15,9 @@
 //!
 //! A node's published offset is its own minus the one of the sliding frame
 //! it is painted inside: a child that moves with its parent is published
-//! still. A positioned child is painted by its stacking context, outside an
-//! in-flow parent's frame: it keeps its own offset.
+//! still. A box is a stacking context while it slides, as a transformed box
+//! is in Chrome (CSS Transforms 1 §2), so its positioned children are painted
+//! inside its frame too.
 
 use azul_core::{
     animation::{AnimKey, FlipTransform, InterpolationMode},
@@ -107,13 +108,13 @@ fn a_child_of_a_stacking_context_moves_with_it() {
 }
 
 #[test]
-fn a_positioned_child_of_an_in_flow_parent_keeps_its_own_slide() {
+fn a_positioned_child_of_a_sliding_in_flow_parent_slides_inside_its_frame() {
     let lw = sliding("", "position: absolute; top: 0px; left: 0px;");
     assert_eq!(published(&lw, OUTER), (0.0, -40.0));
     assert_eq!(
         published(&lw, INNER),
-        (0.0, -40.0),
-        "a positioned box is painted by its stacking context, outside the in-flow parent's \
-         frame: nothing else moves it"
+        (0.0, 0.0),
+        "the sliding parent is a stacking context while it slides: the positioned child is \
+         painted inside its frame, which moves it by the parent's 40 px already"
     );
 }
