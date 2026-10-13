@@ -106,3 +106,30 @@ fn a_leather_background_is_lit_leather_over_its_whole_box() {
     );
     assert!(grain > 2.0, "the tile's grain shows, not a flat fill (luma spread {grain})");
 }
+
+/// The luma of a mean colour.
+fn luma(mean: [f32; 4]) -> f32 {
+    0.2126 * mean[0] + 0.7152 * mean[1] + 0.0722 * mean[2]
+}
+
+#[test]
+fn a_tinted_leather_keeps_its_grain_in_the_tint_colour() {
+    let white = lay_out(
+        "width: 160px; height: 48px; --azul-material-tint: #f4f0e8; background: builtin(leather);",
+    );
+    let items = image_items(&white);
+    assert_eq!(items.len(), 1);
+    let (mean, grain) = mean_and_grain(&rgba_pixels(&items[0].1));
+    assert!(luma(mean) > 170.0, "white leather is light, got {mean:?}");
+    assert!(mean[0] >= mean[2], "and as warm as its tint, got {mean:?}");
+    assert!(grain > 2.0, "with the leather's grain in it (luma spread {grain})");
+
+    let dark = lay_out(
+        "width: 160px; height: 48px; --azul-material-tint: #3a322c; background: builtin(leather);",
+    );
+    let items = image_items(&dark);
+    assert_eq!(items.len(), 1);
+    let (mean, grain) = mean_and_grain(&rgba_pixels(&items[0].1));
+    assert!(luma(mean) < 90.0, "dark leather is dark, got {mean:?}");
+    assert!(grain > 1.0, "and grained too (luma spread {grain})");
+}
