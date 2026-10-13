@@ -474,6 +474,12 @@ pub enum CallbackChange {
     /// display list resubmission. Used by timer callbacks that need
     /// to update OpenGL textures every frame.
     UpdateAllImageCallbacks,
+    /// Light the window's built-in materials (`builtin(leather)`, ...) with
+    /// this light from the next frame on - see
+    /// [`CallbackInfo::set_material_light`].
+    SetMaterialLight {
+        light: crate::texture::MaterialLight,
+    },
     /// Trigger re-rendering of a `VirtualView` with a new DOM
     /// This forces the `VirtualView` to call its callback and update the display list
     UpdateVirtualView {
@@ -2412,6 +2418,25 @@ impl CallbackInfo {
     /// monitor).
     pub fn update_all_image_callbacks(&mut self) {
         self.push_change(CallbackChange::UpdateAllImageCallbacks);
+    }
+
+    /// Light this window's built-in materials - `background: builtin(leather)`,
+    /// `builtin(bluejeans)`, `builtin(aluminium)` (cargo feature `materials`)
+    /// - with `light`, from the next frame on (applied after the callback
+    /// returns). One light per window, so every bevel and highlight agrees
+    /// where it comes from; a timer that moves `light.rays.phase` sweeps a
+    /// band of light across them. Every material surface renders again for
+    /// a new light (identical surfaces share one render); setting the light
+    /// the window already has does nothing.
+    pub fn set_material_light(&mut self, light: crate::texture::MaterialLight) {
+        self.push_change(CallbackChange::SetMaterialLight { light });
+    }
+
+    /// The light this window's materials are lit by (a `set_material_light`
+    /// in the same callback is not visible here yet).
+    #[must_use]
+    pub fn get_material_light(&self) -> crate::texture::MaterialLight {
+        self.get_layout_window().material_light
     }
 
     /// Trigger re-rendering of a `VirtualView` (applied after callback returns)
@@ -7927,6 +7952,96 @@ impl RenderImageCallbackInfo {
     #[must_use]
     pub fn get_gl_context(&self) -> OptionGlContextPtr {
         self.internal_get_gl_context().clone()
+    }
+
+    /// Hand the callback what the engine knows about its rect beyond the
+    /// size ([`RenderImageCallbackExtras`]), through the info's ABI extension
+    /// pointer - the `repr(C)` layout does not change.
+    ///
+    /// # Safety
+    ///
+    /// `extras` must stay valid for as long as this info (or a copy of it)
+    /// is used: the invocation sites pass a local that outlives the call.
+    pub const unsafe fn set_extras(&mut self, extras: *const RenderImageCallbackExtras) {
+        self._abi_mut = extras.cast_mut().cast::<core::ffi::c_void>();
+    }
+
+    /// What the engine knows about the rect beyond its size - its corner
+    /// radii, where it sits in the window, the window's material light, the
+    /// node's custom properties. `None` for a callback invoked outside a
+    /// live window's frame preparation.
+    #[must_use]
+    pub const fn get_extras(&self) -> Option<&RenderImageCallbackExtras> {
+        // SAFETY: only `set_extras` makes the pointer non-null, with a
+        // pointer valid for the whole invocation (its contract).
+        unsafe {
+            self._abi_mut
+                .cast_const()
+                .cast::<RenderImageCallbackExtras>()
+                .as_ref()
+        }
+    }
+
+    /// The value of the custom property `--name` (pass it without the
+    /// dashes) on the node the frame is for, in the node's current state:
+    /// `--azul-bevel: 4px` on the element reads back `4px`. `None` when it
+    /// is not set or the engine gave no node (a callback invoked elsewhere).
+    #[must_use]
+    pub fn get_custom_property(&self, name: AzString) -> OptionString {
+        self.get_extras()
+            .and_then(|extras| extras.custom_property(name.as_str()))
+            .map(AzString::from)
+            .into()
+    }
+
+    /// The window's light for the built-in materials
+    /// ([`crate::texture::MaterialLight`]); the default light when the engine
+    /// gave none.
+    #[must_use]
+    pub fn get_material_light(&self) -> crate::texture::MaterialLight {
+        self.get_extras()
+            .map_or_else(crate::texture::MaterialLight::default, |extras| {
+                extras.material_light
+            })
+    }
+}
+
+/// What the engine tells a render-image callback beyond the size of its
+/// rect ([`RenderImageCallbackInfo::get_extras`]). The engine fills it in
+/// for a frame it prepares itself: a callback image used as a BACKGROUND
+/// layer (`background: url(id)` / `builtin(<name>)` naming one) - its
+/// corner radii are the layer's - and an image node (radii zero).
+#[derive(Debug, Clone, Copy)]
+pub struct RenderImageCallbackExtras {
+    /// The corner radii of the rect the frame fills, logical px: top-left,
+    /// top-right, bottom-right, bottom-left.
+    pub border_radii: [f32; 4],
+    /// Where the rect's top-left corner sits in the window, logical px.
+    pub origin: LogicalPosition,
+    /// The window's light for the built-in materials.
+    pub material_light: crate::texture::MaterialLight,
+    /// The node's custom properties in its current state; null for none.
+    pub custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
+}
+
+impl RenderImageCallbackExtras {
+    /// No radii, the window's origin, the default light, no properties.
+    #[must_use]
+    pub const fn new(material_light: crate::texture::MaterialLight) -> Self {
+        Self {
+            border_radii: [0.0; 4],
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            material_light,
+            custom_properties: core::ptr::null(),
+        }
+    }
+
+    /// The value of `--name` (without the dashes) on the node, if any.
+    #[must_use]
+    pub fn custom_property(&self, name: &str) -> Option<&str> {
+        // SAFETY: the engine points this at the node's map for the duration
+        // of the invocation (`LayoutWindow`'s invocation sites), or null.
+        unsafe { self.custom_properties.as_ref() }.and_then(|map| map.get(name))
     }
 }
 

@@ -410,6 +410,14 @@ auth_session = ["std", "dep:sha2"]
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 
+# 2.5D MATERIALS: `builtin(leather)`, `builtin(bluejeans)`, `builtin(aluminium)`
+# in CSS - a 128 x 128 micro tile of each CC0 PBR set (albedo, normal,
+# roughness; ~27 KB for the three, brotli) and a CPU shader that lights it for
+# the rect it fills (bevel, fresnel, the window's light and god rays). See
+# `texture::materials` and assets/textures/README.md. Off by default; the
+# decompressor is the one `text_layout` / `icons` already pull in.
+materials = ["std", "dep:brotli-decompressor"]
+
 # ─── E2E / debug-server op-dispatch (ported verbatim from the DLL) ───
 # The ~12k-line `src/e2e/full.rs` op-dispatch (process_debug_event, the
 # DebugEvent enum, the E2e* JSON types + scenario runner). Deliberately NOT in

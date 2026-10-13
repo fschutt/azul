@@ -936,6 +936,13 @@ _internal_deps = [
 # NOTE: std feature only affects azul-core/layout when they are enabled via build-dll or link-static
 # For link-dynamic, std has no effect since those crates aren't included
 std = ["azul-core?/std", "azul-layout?/std"]
+
+# The 2.5D materials (`builtin(leather)`, `builtin(bluejeans)`,
+# `builtin(aluminium)`; azul-layout's `materials`): ~27 KB of micro tiles and
+# a CPU shader. Not in `build-dll` by default - build the dylib with
+# `--features build-dll,materials`. Without it the names are transparent and
+# `CallbackInfo::set_material_light` only records the light.
+materials = ["azul-layout?/materials"]
 logging = ["log"]
 
 # OTLP telemetry + crash capture (see layout/src/telemetry). NOT default:
