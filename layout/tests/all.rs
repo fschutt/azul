@@ -1067,3 +1067,5 @@ mod a_reader_draws_its_pages_ahead_as_pictures;
 mod a_padded_span_in_a_flex_row_fits_its_text;
 #[path = "a_press_on_an_image_over_text_selects_nothing.rs"]
 mod a_press_on_an_image_over_text_selects_nothing;
+#[path = "a_marker_stands_where_the_ground_shows_its_place.rs"]
+mod a_marker_stands_where_the_ground_shows_its_place;

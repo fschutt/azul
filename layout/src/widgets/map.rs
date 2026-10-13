@@ -43,6 +43,14 @@ use azul_css::{
 };
 use azul_css::system::DarkLightMode;
 
+#[path = "map_overlay.rs"]
+mod overlay;
+pub use overlay::{
+    MapLatLonVec, MapLatLonVecDestructor, MapLatLonVecDestructorType, MapLatLonVecSlice,
+    MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,
+    MapOverlayVecSlice, MapPolygon, MapPolyline, OptionMapLatLon, OptionMapOverlay, OverlayCache,
+};
+
 // ────────── POD types (api.json + codegen surface) ─────────────────────
 
 /// Identity of one tile in a tiled-map XYZ scheme. Matches Leaflet /
@@ -437,6 +445,14 @@ pub struct MapWidget {
     /// its tile fetches run on (a shared connection pool, a thread pool, an
     /// in-flight limit). FFI-exposed; re-set on each fresh build.
     pub on_mount: OptionMapMount,
+    /// The lines, areas and markers drawn on the map, in order (see
+    /// [`MapOverlay`]). The map's own view draws them, so a pan or a zoom
+    /// moves them without a rebuild of the app's DOM.
+    pub overlays: MapOverlayVec,
+    /// Optional hook fired when the user taps a marker, with the marker's
+    /// `id`. A tap on a marker drops no pin. FFI-exposed; re-set on each
+    /// fresh build.
+    pub on_marker_tap: OptionMapMarkerTap,
 }
 
 /// The runtime-installed tile fetcher every map picks up when it mounts.
@@ -468,6 +484,8 @@ impl MapWidget {
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
             on_mount: OptionMapMount::None,
+            overlays: MapOverlayVec::from_const_slice(&[]),
+            on_marker_tap: OptionMapMarkerTap::None,
         }
     }
 
@@ -552,6 +570,47 @@ impl MapWidget {
         callback: C,
     ) -> Self {
         self.set_on_pin_tap(data, callback);
+        self
+    }
+
+    /// Draw `overlays` on the map (lines, areas, markers), replacing the
+    /// ones set before.
+    pub fn set_overlays(&mut self, overlays: MapOverlayVec) {
+        self.overlays = overlays;
+    }
+
+    /// Builder form of [`set_overlays`](Self::set_overlays).
+    #[must_use]
+    pub fn with_overlays(mut self, overlays: MapOverlayVec) -> Self {
+        self.set_overlays(overlays);
+        self
+    }
+
+    /// Draw `overlay` on the map, over the ones added before.
+    pub fn add_overlay(&mut self, overlay: MapOverlay) {
+        let mut all = core::mem::replace(&mut self.overlays, MapOverlayVec::from_const_slice(&[]))
+            .into_library_owned_vec();
+        all.push(overlay);
+        self.overlays = MapOverlayVec::from_vec(all);
+    }
+
+    /// Set a hook fired when the user taps a marker, with the marker's `id`.
+    pub fn set_on_marker_tap<C: Into<MapMarkerTapCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_marker_tap = Some(MapMarkerTap {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_marker_tap`](Self::set_on_marker_tap).
+    #[must_use]
+    pub fn with_on_marker_tap<C: Into<MapMarkerTapCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_marker_tap(data, callback);
         self
     }
 
@@ -647,6 +706,8 @@ impl MapWidget {
         cache.on_mount = self.on_mount;
         cache.on_viewport_changed = self.on_viewport_changed;
         cache.on_pin_tap = self.on_pin_tap;
+        cache.on_marker_tap = self.on_marker_tap;
+        cache.set_overlays(self.overlays);
         cache.view_marker = view_marker.clone();
         let dataset = RefAny::new(cache);
         let virtual_view_data = dataset.clone();
@@ -889,6 +950,19 @@ pub struct MapTileCache {
     /// merge adopts the newest): a tile that arrives or a pan re-renders THIS
     /// map's view, not every view in the window.
     pub view_marker: AzString,
+    /// The lines, areas and markers the render draws, as the newest build
+    /// declared them (the merge adopts them). Changed only through
+    /// [`MapTileCache::set_overlays`], which keeps `overlay_cache` in step.
+    pub overlays: MapOverlayVec,
+    /// The parts of the lines and areas the render cut into tiles, kept
+    /// between renders so a pan cuts nothing.
+    pub overlay_cache: OverlayCache,
+    /// The user's `on_marker_tap` hook, copied from the builder so a
+    /// marker's release can fire it. Carried across relayout.
+    pub on_marker_tap: OptionMapMarkerTap,
+    /// The marker under the press in flight, by id; `None` between presses
+    /// and for a press on the open map. Its release is the marker's tap.
+    pub pressed_marker: Option<u64>,
 }
 
 impl MapTileCache {
@@ -914,7 +988,17 @@ impl MapTileCache {
             wanted: None,
             drawn: BTreeMap::new(),
             view_marker: AzString::from_const_str(""),
+            overlays: MapOverlayVec::from_const_slice(&[]),
+            overlay_cache: OverlayCache::new(),
+            on_marker_tap: OptionMapMarkerTap::None,
+            pressed_marker: None,
         }
+    }
+
+    /// Draw `overlays` from the next render on.
+    pub fn set_overlays(&mut self, overlays: MapOverlayVec) {
+        self.overlay_cache.adopt(overlays.as_slice());
+        self.overlays = overlays;
     }
 
     /// File `drawn` - what the worker made of the tile - under `key`. The SVG
@@ -1519,6 +1603,50 @@ fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon)
         OptionMapPinTap::Some(h) => h.callback.invoke(h.refany.clone(), *info, coord),
         OptionMapPinTap::None => Update::DoNothing,
     }
+}
+
+// --- User hook: on_marker_tap (backreference DI, FFI-exposed) ---
+
+/// User hook fired when the user taps a marker (see [`MapMarker`]), with the
+/// marker's `id`.
+pub type MapMarkerTapCallbackType = extern "C" fn(RefAny, CallbackInfo, u64) -> Update;
+impl_widget_callback!(
+    MapMarkerTap,
+    OptionMapMarkerTap,
+    MapMarkerTapCallback,
+    MapMarkerTapCallbackType
+);
+azul_core::impl_managed_callback! {
+    wrapper:        MapMarkerTapCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: MAP_MARKER_TAP_INVOKER,
+    invoker_ty:     AzMapMarkerTapCallbackInvoker,
+    thunk_fn:       az_map_marker_tap_callback_thunk,
+    setter_fn:      AzApp_setMapMarkerTapCallbackInvoker,
+    from_handle_fn: AzMapMarkerTapCallback_createFromHostHandle,
+    from_handle_byref_fn: AzMapMarkerTapCallback_createFromHostHandleByref,
+    extra_args:     [ id: u64 ],
+}
+
+/// What a marker's handlers act on: the map's cache and the marker's id.
+#[derive(Debug, Clone)]
+struct MarkerHandle {
+    /// The map's `MapTileCache` dataset.
+    cache: RefAny,
+    /// The marker's `MapMarker::id`.
+    id: u64,
+}
+
+/// A press on a marker.
+extern "C" fn map_marker_on_press(_data: RefAny, _info: CallbackInfo) -> Update {
+    Update::DoNothing
+}
+
+/// A release on a marker.
+extern "C" fn map_marker_on_release(_data: RefAny, _info: CallbackInfo) -> Update {
+    Update::DoNothing
 }
 
 // --- User hook: on_mount (backreference DI, FFI-exposed) ---
@@ -4568,7 +4696,7 @@ mod autotest_generated {
         assert!((a - b).abs() <= eps, "expected {a} ≈ {b} (within {eps})");
     }
 
-    fn layer_zoom(min_zoom: u8, max_zoom: u8) -> MapTileLayer {
+    pub(super) fn layer_zoom(min_zoom: u8, max_zoom: u8) -> MapTileLayer {
         MapTileLayer {
             url_template: AzString::from("https://tiles.invalid/{z}/{x}/{y}.pbf"),
             min_zoom,
@@ -4579,7 +4707,7 @@ mod autotest_generated {
         }
     }
 
-    fn view(lat: f64, lon: f64, zoom: f32) -> MapViewport {
+    pub(super) fn view(lat: f64, lon: f64, zoom: f32) -> MapViewport {
         MapViewport {
             centre_lat_deg: lat,
             centre_lon_deg: lon,
@@ -4589,7 +4717,7 @@ mod autotest_generated {
         }
     }
 
-    fn cache_at(lat: f64, lon: f64, zoom: f32) -> MapTileCache {
+    pub(super) fn cache_at(lat: f64, lon: f64, zoom: f32) -> MapTileCache {
         MapTileCache::new(layer_zoom(0, 19), view(lat, lon, zoom))
     }
 
@@ -4633,7 +4761,7 @@ mod autotest_generated {
     /// Runs `f` against a real `CallbackInfo` over an empty `LayoutWindow`,
     /// with `cursor` reported as the cursor position relative to the hit node.
     /// Returns `f`'s value plus every `CallbackChange` the callback recorded.
-    fn with_callback_info_at<R>(
+    pub(super) fn with_callback_info_at<R>(
         cursor: OptionLogicalPosition,
         f: impl FnOnce(CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
@@ -4696,12 +4824,12 @@ mod autotest_generated {
         with_callback_info_at(OptionLogicalPosition::None, f)
     }
 
-    fn cursor_at(x: f32, y: f32) -> OptionLogicalPosition {
+    pub(super) fn cursor_at(x: f32, y: f32) -> OptionLogicalPosition {
         OptionLogicalPosition::Some(LogicalPosition::new(x, y))
     }
 
     /// Runs `f` against a `VirtualViewCallbackInfo` reporting `w x h` bounds.
-    fn with_virtual_view_info<R>(
+    pub(super) fn with_virtual_view_info<R>(
         w: f32,
         h: f32,
         f: impl FnOnce(VirtualViewCallbackInfo) -> R,
@@ -7586,5 +7714,370 @@ mod autotest_generated {
             m2,
             "the kept cache re-renders the view that is in the tree now"
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::cast_possible_truncation)]
+mod overlay_tests {
+    use azul_core::{
+        a11y::AccessibilityRole,
+        dom::SvgNodeData,
+        geom::{LogicalPosition, LogicalSize},
+    };
+
+    use azul_core::svg::SvgPathElement;
+    use azul_css::props::basic::color::ColorU;
+
+    use super::{autotest_generated::*, overlay::MapCamera, *};
+    use crate::callbacks::CallbackChange;
+
+    fn place(lat: f64, lon: f64) -> MapLatLon {
+        MapLatLon {
+            lat_deg: lat,
+            lon_deg: lon,
+        }
+    }
+
+    fn line(points: &[(f64, f64)]) -> MapLatLonVec {
+        MapLatLonVec::from_vec(points.iter().map(|&(lat, lon)| place(lat, lon)).collect())
+    }
+
+    fn turned(lat: f64, lon: f64, zoom: f32, bearing: f32, pitch: f32) -> MapViewport {
+        MapViewport {
+            bearing_deg: bearing,
+            pitch_deg: pitch,
+            ..view(lat, lon, zoom)
+        }
+    }
+
+    fn near(a: (f64, f64), b: (f64, f64), eps: f64) -> bool {
+        (a.0 - b.0).abs() <= eps && (a.1 - b.1).abs() <= eps
+    }
+
+    /// The first node of `dom` (itself included) that `pred` accepts.
+    fn find<'a>(dom: &'a Dom, pred: &dyn Fn(&Dom) -> bool) -> Option<&'a Dom> {
+        if pred(dom) {
+            return Some(dom);
+        }
+        dom.children.as_slice().iter().find_map(|c| find(c, pred))
+    }
+
+    fn named(name: &'static str) -> impl Fn(&Dom) -> bool {
+        move |d: &Dom| {
+            d.root
+                .get_accessibility_info()
+                .and_then(|a| a.accessibility_name.as_ref())
+                .is_some_and(|n| n.as_str() == name)
+        }
+    }
+
+    fn is_grid(d: &Dom) -> bool {
+        d.root
+            .get_accessibility_info()
+            .is_some_and(|a| a.role == AccessibilityRole::Graphic)
+    }
+
+    fn has_path(d: &Dom) -> bool {
+        matches!(d.root.get_svg_data(), Some(SvgNodeData::Path(_)))
+    }
+
+    #[derive(Default)]
+    struct Taps {
+        markers: Vec<u64>,
+        pins: Vec<MapLatLon>,
+    }
+
+    extern "C" fn record_marker(mut data: RefAny, _: CallbackInfo, id: u64) -> Update {
+        if let Some(mut taps) = data.downcast_mut::<Taps>() {
+            taps.markers.push(id);
+        }
+        Update::RefreshDom
+    }
+
+    extern "C" fn record_pin_tap(mut data: RefAny, _: CallbackInfo, coord: MapLatLon) -> Update {
+        if let Some(mut taps) = data.downcast_mut::<Taps>() {
+            taps.pins.push(coord);
+        }
+        Update::RefreshDom
+    }
+
+    #[test]
+    fn a_camera_that_turns_the_map_clockwise_shows_north_on_the_right() {
+        let camera = MapCamera::of(&turned(0.0, 0.0, 4.0, 90.0, 0.0), 800.0, 600.0)
+            .expect("a turned map has a camera");
+        let north_of_centre = camera.project((400.0, 200.0)).expect("in view");
+        assert!(
+            near(north_of_centre, (500.0, 300.0), 0.05),
+            "100 px north of the centre shows 100 px right of it: {north_of_centre:?}"
+        );
+        assert!(
+            MapCamera::of(&view(0.0, 0.0, 4.0), 800.0, 600.0).is_none(),
+            "the flat map needs no camera"
+        );
+    }
+
+    #[test]
+    fn a_point_unprojected_from_the_screen_is_the_grid_point_drawn_there() {
+        let camera = MapCamera::of(&turned(0.0, 0.0, 4.0, 30.0, 45.0), 800.0, 600.0)
+            .expect("a tilted map has a camera");
+        for p in [(400.0, 300.0), (120.0, 80.0), (700.0, 550.0), (40.0, 590.0)] {
+            let screen = camera.project(p).expect("in front of the eye");
+            let back = camera.unproject(screen).expect("below the horizon");
+            assert!(near(back, p, 1e-3), "{p:?} -> {screen:?} -> {back:?}");
+        }
+        let far = camera.project((400.0, 0.0)).expect("in view");
+        let close = camera.project((400.0, 600.0)).expect("in view");
+        assert!(
+            (300.0 - far.1).abs() < (close.1 - 300.0).abs(),
+            "the tilt leans the top away: it shows smaller ({far:?} vs {close:?})"
+        );
+    }
+
+    #[test]
+    fn a_tap_on_a_turned_map_lands_on_the_place_under_the_finger() {
+        let viewport = turned(48.0, 11.0, 12.0, 90.0, 0.0);
+        let container = LogicalSize::new(800.0, 600.0);
+        let right_of_centre =
+            MapWidget::latlon_at_px(viewport, LogicalPosition::new(500.0, 300.0), container);
+        assert!(
+            (right_of_centre.lon_deg - 11.0).abs() < 1e-6,
+            "the screen's right is the ground's north: same longitude, {right_of_centre:?}"
+        );
+        assert!(
+            right_of_centre.lat_deg > 48.0 + 1e-3,
+            "...and further north: {right_of_centre:?}"
+        );
+        let back = MapWidget::px_at_latlon(viewport, right_of_centre, container);
+        assert!(
+            near((f64::from(back.x), f64::from(back.y)), (500.0, 300.0), 0.05),
+            "and the place is drawn where it was tapped: {back:?}"
+        );
+    }
+
+    #[test]
+    fn a_place_far_from_the_centre_is_projected_onto_the_tile_grid() {
+        // Frankfurt in the middle, Berlin 2.4 degrees further north at zoom 6:
+        // the tiles put Berlin where the Mercator projection does, so must a pin.
+        let viewport = view(50.1109, 8.6821, 6.0);
+        let container = LogicalSize::new(800.0, 600.0);
+        let berlin = place(52.52, 13.405);
+        let n = 64.0;
+        let expected = (
+            400.0 + (lon_to_tile_x(berlin.lon_deg, n) - lon_to_tile_x(8.6821, n)) * 256.0,
+            300.0 + (lat_to_tile_y(berlin.lat_deg, n) - lat_to_tile_y(50.1109, n)) * 256.0,
+        );
+        let p = MapWidget::px_at_latlon(viewport, berlin, container);
+        assert!(
+            near((f64::from(p.x), f64::from(p.y)), expected, 0.5),
+            "Berlin is drawn at {p:?}, the tiles show it at {expected:?}"
+        );
+    }
+
+    #[test]
+    fn a_polyline_is_cut_into_the_tiles_it_crosses() {
+        // A line across four tiles of zoom 4, west to east at the equator.
+        let mut cache = cache_at(0.0, 0.0, 4.0);
+        cache.set_overlays(MapOverlayVec::from_vec(vec![MapOverlay::Polyline(
+            MapPolyline::create(line(&[(1.0, -40.0), (1.0, 40.0)])),
+        )]));
+        let overlays = cache.overlays.clone();
+        let shapes = &mut cache.overlay_cache;
+        // Zoom 4 has 16 columns of 22.5 degrees: 40 W is in column 6, 40 E in
+        // column 9. One degree north of the equator is in row 7.
+        for x in [6_u32, 7, 8, 9] {
+            let shape = shapes.tile_shape(overlays.as_slice(), 0, 4, x, 7);
+            let stroke = shape.stroke.expect("the line crosses this tile");
+            assert!(shape.fill.is_none(), "a line has no inside");
+            for ring in stroke.rings.as_slice() {
+                for item in ring.items.as_slice() {
+                    let SvgPathElement::Line(l) = item else {
+                        panic!("a line is straight segments");
+                    };
+                    for p in [l.start, l.end] {
+                        assert!(
+                            (-8.0..=264.0).contains(&p.x) && (-8.0..=264.0).contains(&p.y),
+                            "a part is cut to its tile (and the stroke's margin): {p:?}"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            shapes.tile_shape(overlays.as_slice(), 0, 4, 2, 7).stroke.is_none(),
+            "a tile west of the line shows nothing of it"
+        );
+        assert!(
+            shapes.tile_shape(overlays.as_slice(), 0, 4, 7, 3).stroke.is_none(),
+            "a tile north of the line shows nothing of it"
+        );
+    }
+
+    #[test]
+    fn a_tiles_part_of_a_line_is_the_same_wherever_the_map_looks() {
+        let overlays = MapOverlayVec::from_vec(vec![MapOverlay::Polyline(MapPolyline::create(
+            line(&[(52.52, 13.40), (52.50, 13.45), (52.48, 13.38)]),
+        ))]);
+        // The tile of the line's first point.
+        let tile = (12_u8, lon_to_tile_x(13.40, 4096.0) as u32, lat_to_tile_y(52.52, 4096.0) as u32);
+        let part_seen_from = |lat: f64, lon: f64| {
+            let mut cache = cache_at(lat, lon, 12.3);
+            cache.set_overlays(overlays.clone());
+            let all = cache.overlays.clone();
+            cache
+                .overlay_cache
+                .tile_shape(all.as_slice(), 0, tile.0, tile.1, tile.2)
+                .stroke
+                .expect("the line crosses the tile")
+        };
+        assert_eq!(
+            part_seen_from(52.50, 13.42),
+            part_seen_from(52.55, 13.30),
+            "a pan moves the tile's box, not the part inside it"
+        );
+    }
+
+    #[test]
+    fn a_polygon_is_filled_on_every_tile_it_covers() {
+        let mut cache = cache_at(0.0, 0.0, 4.0);
+        cache.set_overlays(MapOverlayVec::from_vec(vec![MapOverlay::Polygon(
+            MapPolygon::create(line(&[(30.0, -50.0), (30.0, 50.0), (-30.0, 50.0), (-30.0, -50.0)])),
+        )]));
+        let overlays = cache.overlays.clone();
+        let inside = cache.overlay_cache.tile_shape(overlays.as_slice(), 0, 4, 8, 7);
+        let fill = inside.fill.expect("a tile inside the area is filled");
+        assert_eq!(fill.rings.as_slice().len(), 1, "one ring: the tile's square");
+        assert!(
+            inside.stroke.is_none(),
+            "the outline does not pass through a tile in the middle"
+        );
+        let edge = cache.overlay_cache.tile_shape(overlays.as_slice(), 0, 4, 5, 7);
+        assert!(edge.fill.is_some() && edge.stroke.is_some(), "the west edge's tile");
+        let outside = cache.overlay_cache.tile_shape(overlays.as_slice(), 0, 4, 1, 7);
+        assert_eq!(outside, overlay::TileShape::default(), "a tile outside");
+    }
+
+    #[test]
+    fn the_map_view_draws_lines_on_the_ground_and_markers_upright_over_it() {
+        let mut cache = cache_at(52.5163, 13.3777, 14.0);
+        cache.viewport.bearing_deg = 25.0;
+        cache.viewport.pitch_deg = 30.0;
+        cache.set_overlays(MapOverlayVec::from_vec(vec![
+            MapOverlay::Polyline(MapPolyline::create(line(&[
+                (52.5163, 13.3700),
+                (52.5163, 13.3850),
+            ]))),
+            MapOverlay::Marker(
+                MapMarker::dot(7, place(52.5163, 13.3777), ColorU::RED)
+                    .with_name(AzString::from_const_str("Brandenburg Gate")),
+            ),
+        ]));
+        let dataset = RefAny::new(cache);
+        let ret = with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
+        let OptionDom::Some(root) = &ret.dom else {
+            panic!("a finite box renders");
+        };
+        let grid = find(root, &is_grid).expect("the tile grid");
+        assert!(
+            find(grid, &has_path).is_some(),
+            "the line is drawn inside the tile grid, which carries the camera"
+        );
+        assert!(
+            find(root, &named("Brandenburg Gate")).is_some(),
+            "the marker is drawn"
+        );
+        assert!(
+            find(grid, &named("Brandenburg Gate")).is_none(),
+            "...outside the grid: the camera's tilt does not lay it flat"
+        );
+    }
+
+    #[test]
+    fn a_tap_on_a_marker_reports_the_marker_and_drops_no_pin() {
+        let mut taps = RefAny::new(Taps::default());
+        let mut cache = cache_at(0.0, 0.0, 4.0);
+        cache.on_marker_tap = OptionMapMarkerTap::Some(MapMarkerTap {
+            refany: taps.clone(),
+            callback: (record_marker as MapMarkerTapCallbackType).into(),
+        });
+        cache.on_pin_tap = OptionMapPinTap::Some(MapPinTap {
+            refany: taps.clone(),
+            callback: (record_pin_tap as MapPinTapCallbackType).into(),
+        });
+        let dataset = RefAny::new(cache);
+        let marker = RefAny::new(MarkerHandle {
+            cache: dataset.clone(),
+            id: 7,
+        });
+        // The press reaches the marker first and the map's view after it
+        // (unless the marker stops it); so does the release.
+        let (_, pressed) = with_callback_info_at(cursor_at(100.0, 100.0), |info| {
+            map_marker_on_press(marker.clone(), info)
+        });
+        let _ = with_callback_info_at(cursor_at(100.0, 100.0), |info| {
+            map_on_pointer_down(dataset.clone(), info)
+        });
+        let (released, _) = with_callback_info_at(cursor_at(101.0, 100.0), |info| {
+            map_marker_on_release(marker.clone(), info)
+        });
+        let _ = with_callback_info_at(cursor_at(101.0, 100.0), |info| {
+            map_on_pointer_up(dataset.clone(), info)
+        });
+        assert!(
+            pressed.iter().any(|c| matches!(c, CallbackChange::StopPropagation)),
+            "a press on a marker does not start a drag of the map"
+        );
+        assert_eq!(released, Update::RefreshDom, "the hook's answer is the release's");
+        let taps = taps.downcast_ref::<Taps>().expect("taps");
+        assert_eq!(taps.markers, vec![7], "the marker's tap");
+        assert!(taps.pins.is_empty(), "a tap on a marker drops no pin");
+    }
+
+    #[test]
+    fn a_drag_to_the_right_on_a_map_turned_clockwise_moves_it_south() {
+        // Turned 90 degrees clockwise, the ground's north points to the
+        // screen's right: dragging the ground right drags it north, so the
+        // map's centre moves to a place further south.
+        let mut dataset = RefAny::new(MapTileCache::new(
+            layer_zoom(0, 19),
+            turned(48.0, 11.0, 12.0, 90.0, 0.0),
+        ));
+        let _ = with_callback_info_at(cursor_at(300.0, 200.0), |info| {
+            map_on_pointer_down(dataset.clone(), info)
+        });
+        let _ = with_callback_info_at(cursor_at(400.0, 200.0), |info| {
+            map_on_pointer_move(dataset.clone(), info)
+        });
+        let after = dataset.downcast_ref::<MapTileCache>().expect("cache").viewport;
+        assert!(
+            (after.centre_lon_deg - 11.0).abs() < 1e-6,
+            "an east-west line on the screen is north-south on the ground: {after:?}"
+        );
+        let world = 256.0 * 4096.0;
+        let moved_px = (lat_to_tile_y(after.centre_lat_deg, 1.0) - lat_to_tile_y(48.0, 1.0)) * world;
+        assert!(
+            (moved_px - 100.0).abs() < 0.5,
+            "the centre moved 100 px south on the ground: {moved_px}"
+        );
+    }
+
+    #[test]
+    fn the_merge_adopts_the_newest_builds_overlays_and_marker_hook() {
+        let taps = RefAny::new(Taps::default());
+        let old = RefAny::new(cache_at(0.0, 0.0, 4.0));
+        let mut fresh = cache_at(0.0, 0.0, 4.0);
+        fresh.set_overlays(MapOverlayVec::from_vec(vec![MapOverlay::Polyline(
+            MapPolyline::create(line(&[(1.0, 1.0), (2.0, 2.0)])),
+        )]));
+        fresh.on_marker_tap = OptionMapMarkerTap::Some(MapMarkerTap {
+            refany: taps,
+            callback: (record_marker as MapMarkerTapCallbackType).into(),
+        });
+        let mut kept = merge_map_tile_cache(RefAny::new(fresh), old);
+        let kept = kept.downcast_ref::<MapTileCache>().expect("cache");
+        assert_eq!(kept.overlays.as_slice().len(), 1, "the newest build's line");
+        assert!(kept.on_marker_tap.is_some(), "the newest build's hook");
     }
 }
