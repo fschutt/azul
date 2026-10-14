@@ -4,3 +4,5 @@
 //! Monaco) is in `tests/monaco.rs`.
 
 mod format;
+mod manifest;
+mod offline;
