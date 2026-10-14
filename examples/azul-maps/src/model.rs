@@ -366,6 +366,72 @@ pub fn pan_step(drawn: &Marks, next: &Marks) -> PanStep {
     }
 }
 
+/// The marker ids of the travel line's ends and of where you are. A pin's
+/// marker id is its index in the pins file's order, far below these.
+pub const FROM_MARKER: u64 = u64::MAX - 2;
+pub const TO_MARKER: u64 = u64::MAX - 1;
+pub const HERE_MARKER: u64 = u64::MAX;
+
+/// The pin a marker id names; `None` for the travel line's ends and for
+/// where you are.
+#[must_use]
+pub fn pin_of_marker(id: u64) -> Option<usize> {
+    let _ = id;
+    None
+}
+
+/// The travel line on the map: the road route once the route worker found
+/// one, else the straight line between the ends.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TravelLine {
+    /// The line's places in order, `(lat, lon)`, from the start to the
+    /// destination.
+    pub points: Vec<(f64, f64)>,
+    /// Whether it follows the roads (else it is the straight preview).
+    pub road: bool,
+}
+
+/// A pin on the map.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PinMark {
+    /// The pin's index in the pins file's order: its marker id.
+    pub index: usize,
+    /// Its place, `(lat, lon)`.
+    pub at: (f64, f64),
+    /// Whether its card is open above it.
+    pub open: bool,
+}
+
+/// What AzMaps puts on the map, in places, not pixels: the map widget draws
+/// it and moves it with every pan, pinch, turn and tilt, so nothing here
+/// depends on where the map looks.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Overlays {
+    pub line: Option<TravelLine>,
+    /// The start's dot.
+    pub from: Option<(f64, f64)>,
+    /// The destination's dot.
+    pub to: Option<(f64, f64)>,
+    /// Where you are, while the location is shown and known.
+    pub here: Option<(f64, f64)>,
+    pub pins: Vec<PinMark>,
+}
+
+/// What the map shows of the pins (the one `selected` with its card open),
+/// the travel panel's ends with their line - the `road` route between them
+/// when there is one - and where you are.
+#[must_use]
+pub fn plan_overlays(
+    pins: &[(f64, f64)],
+    selected: Option<usize>,
+    travel: Option<((f64, f64), (f64, f64))>,
+    road: Option<&[(f64, f64)]>,
+    here: Option<(f64, f64)>,
+) -> Overlays {
+    let _ = (pins, selected, travel, road, here);
+    Overlays::default()
+}
+
 /// How much longer a way by road or path is than the crow flies: ROUTING.md's
 /// first step, the straight-line estimate.
 pub const DETOUR_FACTOR: f64 = 1.3;
@@ -707,6 +773,43 @@ mod tests {
             "planning 500 steps took {:?}: a step must cost microseconds",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn the_map_shows_the_straight_line_until_the_road_route_arrives() {
+        let (a, b) = ((48.2082, 16.3738), (48.1372, 11.5756));
+        let straight = plan_overlays(&[], None, Some((a, b)), None, None);
+        assert_eq!(
+            straight.line,
+            Some(TravelLine {
+                points: vec![a, b],
+                road: false
+            })
+        );
+        assert_eq!((straight.from, straight.to), (Some(a), Some(b)));
+        let road = [(48.2, 16.3), (48.0, 14.0), (48.14, 11.58)];
+        let routed = plan_overlays(&[], None, Some((a, b)), Some(&road), None);
+        let line = routed.line.expect("the travel line");
+        assert!(line.road, "the road route replaces the preview");
+        assert_eq!(line.points.first(), Some(&a), "it starts at the start's dot");
+        assert_eq!(line.points.last(), Some(&b), "and ends at the destination's");
+        assert_eq!(&line.points[1..4], &road[..], "along the roads between them");
+        assert_eq!(plan_overlays(&[], None, None, Some(&road), None).line, None, "no ends, no line");
+    }
+
+    #[test]
+    fn every_pin_is_a_marker_known_by_its_index_and_the_selected_one_shows_its_card() {
+        let pins = [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)];
+        let plan = plan_overlays(&pins, Some(1), None, None, Some((7.0, 8.0)));
+        assert_eq!(plan.pins.len(), 3);
+        for (i, pin) in plan.pins.iter().enumerate() {
+            assert_eq!((pin.index, pin.at, pin.open), (i, pins[i], i == 1));
+            assert_eq!(pin_of_marker(pin.index as u64), Some(i));
+        }
+        assert_eq!(plan.here, Some((7.0, 8.0)));
+        for other in [FROM_MARKER, TO_MARKER, HERE_MARKER] {
+            assert_eq!(pin_of_marker(other), None, "not a pin");
+        }
     }
 
     #[test]
