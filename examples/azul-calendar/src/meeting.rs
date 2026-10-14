@@ -29,11 +29,11 @@ pub const AZMEET_BIN_VAR: &str = "AZMEET_BIN";
 /// The name of the AzMeet program (without the platform's suffix).
 pub const AZMEET_PROGRAM: &str = "AzMeet";
 
-/// The meeting server when nothing names one, the same default as AzMeet's: Azlin's connection
-/// server, or the one a build names with `AZMEET_DEFAULT_WORKER` (empty means none).
+/// The meeting server built in at build time (`AZMEET_DEFAULT_WORKER`), the same default as
+/// AzMeet's; empty means none.
 pub const BUILT_IN_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
     Some(url) => url,
-    None => meet_rooms::DEFAULT_SERVER,
+    None => "",
 };
 
 /// The meeting server: `flag` (`--worker`, this run only), else the one in the settings file's

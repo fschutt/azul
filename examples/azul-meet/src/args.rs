@@ -52,9 +52,6 @@ pub enum Takes {
     OneOf(&'static [&'static str]),
     /// An http(s) address, or one of the words (`--relay off`), shown as this in the help.
     Url(&'static str, &'static [&'static str]),
-    /// A connection server's address (`rooms::normalize_server`: http, https or Azlin's
-    /// iroh://), shown as this in the help.
-    Server(&'static str),
 }
 
 /// One of AzMeet's switches: the command-line form of an `AZMEET_*` environment variable.
@@ -75,8 +72,8 @@ pub const SWITCHES: &[Switch] = &[
     Switch {
         flag: "--worker",
         var: "AZMEET_WORKER",
-        takes: Takes::Server("<URL>"),
-        help: "the connection server (else the one saved in the settings, else Azlin's)",
+        takes: Takes::Url("<URL>", &[]),
+        help: "the meetings service, over the one saved in the settings",
     },
     Switch {
         flag: "--join",
@@ -129,8 +126,8 @@ pub const SWITCHES: &[Switch] = &[
     Switch {
         flag: "--relay",
         var: "AZMEET_RELAY",
-        takes: Takes::Url("<URL>", &["off", "default"]),
-        help: "the iroh relays (else the Azlin config's; else off for a local meeting server)",
+        takes: Takes::Url("<URL>", &["off", "default", "azlin"]),
+        help: "the iroh relays (else the settings', else the Azlin config's; else off for a local meeting server)",
     },
     Switch {
         flag: "--relay-only",
@@ -251,12 +248,12 @@ impl Args {
 }
 
 impl Takes {
-    /// What `--help` shows after the flag (`<off|default|URL>`); empty when nothing.
+    /// What `--help` shows after the flag (`<off|default|azlin|URL>`); empty when nothing.
     #[must_use]
     pub fn shown(&self) -> String {
         match self {
             Takes::Nothing(_) => String::new(),
-            Takes::Text(what) | Takes::Number(what) | Takes::Server(what) => (*what).to_string(),
+            Takes::Text(what) | Takes::Number(what) => (*what).to_string(),
             Takes::OneOf(words) => format!("<{}>", words.join("|")),
             Takes::Url(what, words) if words.is_empty() => (*what).to_string(),
             Takes::Url(what, words) => format!(
@@ -286,10 +283,6 @@ impl Switch {
                 .find(|w| w.eq_ignore_ascii_case(v))
                 .map(|w| (*w).to_string())
                 .ok_or_else(|| format!("{flag}: expected {}, got {value:?}", words.join("|"))),
-            Takes::Server(what) => match crate::rooms::normalize_server(v) {
-                Some(_) => Ok(v.to_string()),
-                None => Err(format!("{flag}: expected {what}, got {value:?}")),
-            },
             Takes::Url(_, words) => {
                 if let Some(word) = words.iter().find(|w| w.eq_ignore_ascii_case(v)) {
                     return Ok((*word).to_string());

@@ -40,6 +40,8 @@ use crate::{chatroom::RoomMessage, roomlist::RoomIndex};
 pub const APP_FOLDER: &str = "meet";
 /// The settings values AzMeet keeps besides the theme and the mode.
 pub const SERVER: &str = "server";
+/// The iroh relay picked in the settings: `default`, `azlin` or a relay's address.
+pub const RELAY: &str = "relay";
 pub const NAME: &str = "name";
 pub const QUALITY: &str = "quality";
 pub const MICROPHONE: &str = "microphone";
@@ -62,6 +64,9 @@ pub const CAMERA_NAMES: [&str; 3] = ["front", "back", "external"];
 pub struct Prefs {
     /// The meeting server that answered last.
     pub server: Option<String>,
+    /// The iroh relay picked in Settings > Meetings (`rooms::relay_setting`); `None` leaves it
+    /// to the shared config. Read at start and when the meetings service changes (`relay_for`).
+    pub relay: Option<String>,
     /// The name others see, as typed in the waiting room or the settings.
     pub name: Option<String>,
     /// The video quality: an index into [`QUALITY_NAMES`].
@@ -86,6 +91,7 @@ impl Default for Prefs {
     fn default() -> Self {
         Prefs {
             server: None,
+            relay: None,
             name: None,
             quality: 0,
             microphone: None,
@@ -120,6 +126,7 @@ impl Prefs {
         let defaults = Prefs::default();
         Prefs {
             server: text(SERVER),
+            relay: text(RELAY),
             name: text(NAME),
             quality: index_of(settings.get(QUALITY), &QUALITY_NAMES),
             microphone: text(MICROPHONE),
@@ -131,10 +138,11 @@ impl Prefs {
         }
     }
 
-    /// Writes these into `settings` (a missing server, name or device is removed).
+    /// Writes these into `settings` (a missing server, relay, name or device is removed).
     pub fn write(&self, settings: &mut AppSettings) {
         for (key, value) in [
             (SERVER, &self.server),
+            (RELAY, &self.relay),
             (NAME, &self.name),
             (MICROPHONE, &self.microphone),
             (SPEAKER, &self.speaker),

@@ -64,7 +64,7 @@ azmeet-schedule = Planen
 azmeet-join-with = Mit einem Link oder Code beitreten
 azmeet-join = Beitreten
 azmeet-schedule-label = Besprechung planen (deine Uhrzeit, Minuten)
-azmeet-meeting-server = Verbindungsserver
+azmeet-meeting-server = Besprechungsdienst
 azmeet-loading-key = Der Schlüssel dieses Geräts wird geladen...
 azmeet-your-rooms = Deine Räume
 azmeet-none-yet = Noch keine.
@@ -166,10 +166,10 @@ azmeet-meeting-not-encrypted = Diese Besprechung wurde von einem älteren AzMeet
 azmeet-secret-damaged = Das Geheimnis dieses Links ist beschädigt: Frag noch einmal nach dem Link.
 azmeet-room-mismatch = Der Besprechungsserver hat einen Raum gesendet, der nicht zu diesem Link passt.
 azmeet-answer-unreadable = Der Besprechungsserver hat eine Antwort gesendet, die AzMeet nicht lesen kann.
-azmeet-not-server-address = Das ist keine Adresse eines Verbindungsservers: Sie beginnt mit iroh://, https:// oder http://.
+azmeet-not-server-address = Das ist keine Adresse eines Besprechungsdienstes: Sie beginnt mit https:// oder http://.
 azmeet-asking-server = { $server } wird gefragt ...
 azmeet-server-answers = Der Besprechungsserver antwortet.
-azmeet-no-server = Kein Verbindungsserver festgelegt: Gib seine Adresse unter Einstellungen > Besprechungen ein und drücke die Eingabetaste, oder starte AzMeet mit --worker <url>.
+azmeet-no-server = Kein Besprechungsdienst festgelegt: Gib seine Adresse unter Einstellungen > Besprechungen ein und drücke die Eingabetaste, oder starte AzMeet mit --worker <url>.
 azmeet-left-room = Du hast den Raum verlassen.
 azmeet-key-not-loaded = Der Schlüssel dieses Geräts ist noch nicht geladen: einen Moment, bitte.
 azmeet-no-random = Die Zufallsquelle des Systems ist ausgefallen: Es kann kein Raum erstellt werden.
@@ -179,7 +179,7 @@ azmeet-not-a-link = Das ist kein Besprechungslink. Füge einen azlin://meet/...-
 azmeet-looking-up = Die Besprechung wird gesucht...
 azmeet-schedule-bad-start = Gib den Beginn als 2026-10-09 14:00 ein (deine Uhrzeit).
 azmeet-schedule-bad-length = Gib die Dauer der Besprechung in Minuten ein (1 bis 10080).
-azmeet-preview-cannot-join = Dieser Warteraum ist eine Vorschau: Unter { $server } antwortet kein Verbindungsserver. Starte einen (den Dev-Server des Meet-Workers) oder wähle unter Einstellungen > Besprechungen einen anderen, um Leute zu treffen.
+azmeet-preview-cannot-join = Dieser Warteraum ist eine Vorschau: Unter { $server } antwortet kein Besprechungsdienst. Starte einen (den Dev-Server des Meet-Workers) oder wähle unter Einstellungen > Besprechungen einen anderen, um Leute zu treffen.
 azmeet-asked-to-join = Beitritt angefragt: Jemand in der Besprechung lässt dich ein. Vergleiche deinen Sicherheitscode mit ihrem.
 azmeet-preview-no-server = Eine Vorschau des Warteraums: Kein Besprechungsserver ist festgelegt.
 azmeet-preview-silent-server = Eine Vorschau des Warteraums: Unter { $server } antwortet kein Besprechungsserver.
@@ -202,8 +202,8 @@ azmeet-members-only-call = Nur ein Mitglied des Raums tritt seinem Anruf bei.
 azmeet-left-meeting = Du hast die Besprechung verlassen.
 azmeet-not-http = keine http(s)-Adresse
 azmeet-server-saved = in den Einstellungen gespeichert
-azmeet-server-built-in = eingebaut
-azmeet-server-silent = Der Verbindungsserver unter { $server } ({ $from }) antwortet nicht ({ $why }). AzMeet fragt alle { $seconds } Sekunden erneut; „Erneut versuchen“ fragt sofort, oder gib einen anderen ein und drücke die Eingabetaste.
+azmeet-server-built-in = eingebaut (AZMEET_DEFAULT_WORKER)
+azmeet-server-silent = Der Besprechungsdienst unter { $server } ({ $from }) antwortet nicht ({ $why }). AzMeet fragt alle { $seconds } Sekunden erneut; „Erneut versuchen“ fragt sofort, oder gib einen anderen ein und drücke die Eingabetaste.
 azmeet-no-network = Keine Netzwerkverbindung, daher ist niemand erreichbar: { $why }
 
 ## AzMeet: rooms, identity, times
@@ -236,12 +236,12 @@ azmeet-shortcut-mic = Das Mikrofon stumm- oder lautschalten
 azmeet-shortcut-camera = Die Kamera starten oder beenden
 azmeet-room-old = Dieser Raum wurde von einem älteren AzMeet erstellt und ist nicht Ende-zu-Ende-verschlüsselt, daher nutzt dieses AzMeet ihn nicht.
 
-## Der Verbindungsserver auf dem Startbildschirm und in den Einstellungen
+## Der Besprechungsdienst und das Relay, auf dem Startbildschirm und in den Einstellungen
 
-azmeet-lobby-no-server = Kein Verbindungsserver ist festgelegt.
-azmeet-lobby-server-silent = Der Verbindungsserver antwortet nicht.
+azmeet-lobby-no-server = Kein Besprechungsdienst ist festgelegt.
+azmeet-lobby-server-silent = Der Besprechungsdienst antwortet nicht.
 azmeet-connection-settings = Verbindungseinstellungen
-azmeet-server-locked = Der Verbindungsserver lässt sich außerhalb einer Besprechung oder eines Raums ändern.
+azmeet-server-locked = Besprechungsdienst und Relay lassen sich außerhalb einer Besprechung oder eines Raums ändern.
 
 ## Der Tontest (der Warteraum, Einstellungen > Audio und Video)
 
@@ -255,3 +255,14 @@ azmeet-test-mic-playing = Wird abgespielt...
 azmeet-test-mic-done = So hören dich die anderen.
 azmeet-test-mic-quiet = Das Mikrofon lieferte nur Stille: Prüfe, ob es angeschlossen und nicht stummgeschaltet ist und ob AzMeet es verwenden darf.
 azmeet-test-mic-none = Vom Mikrofon kam kein Ton: Prüfe, ob es angeschlossen ist und ob AzMeet es verwenden darf.
+
+## Das iroh-Relay (Einstellungen > Besprechungen)
+
+azmeet-relay = iroh-Relay
+azmeet-relay-default = Standard (die öffentlichen Relays von n0)
+azmeet-relay-azlin = Azlin (connect.azlin.io)
+azmeet-relay-custom = Eigenes
+azmeet-relay-none = Keines (nur direkte Verbindungen)
+azmeet-relay-off = Diesmal kein Relay (--relay off, oder ein Besprechungsdienst auf diesem Computer): Die Teilnehmer verbinden sich direkt.
+azmeet-relay-not-address = Das ist keine Adresse eines Relays: Sie beginnt mit https:// oder http://.
+azmeet-relay-note = Das Relay trägt eine Verbindung nur, wenn zwei Teilnehmer einander nicht direkt erreichen. Es leitet verschlüsselte Pakete weiter, die es nicht lesen kann. Eine Firma kann ein eigenes betreiben und seine Adresse unter „Eigenes“ eintragen.

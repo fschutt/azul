@@ -245,16 +245,80 @@ pub enum Relay {
     Custom(String),
 }
 
-/// The relay setting from `AZMEET_RELAY` ("off", "default" or a relay URL). Unset, a meeting
-/// server on this machine means a local test, so no relays; any other means the public relays,
-/// since the participants are on different networks.
+/// Azlin's own iroh relay: the "Azlin" choice of the relay setting (the word `azlin`).
+pub const AZLIN_RELAY: &str = "https://connect.azlin.io";
+
+/// The relay setting ("off", "default", "azlin" or a relay URL: `--relay`, the settings, the
+/// shared config). Unset, a meeting server on this machine means a local test, so no relays; any
+/// other means the public relays, since the participants are on different networks.
 pub fn relay_choice(setting: Option<&str>, worker_host: &str) -> Relay {
     match setting.map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) if s.eq_ignore_ascii_case("off") || s == "0" => Relay::Off,
         Some(s) if s.eq_ignore_ascii_case("default") || s == "1" => Relay::Default,
+        Some(s) if s.eq_ignore_ascii_case("azlin") => Relay::Custom(AZLIN_RELAY.to_string()),
         Some(url) => Relay::Custom(url.to_string()),
         None if is_loopback_host(worker_host) => Relay::Off,
         None => Relay::Default,
+    }
+}
+
+/// The relay setting that counts: `--relay` (`flag`, this run only), else the one picked in the
+/// settings (`saved`), else the shared config's (`shared`: `AZMEET_RELAY`, `endpoints.relay`).
+/// Blank counts as unset.
+pub fn relay_setting_of<'a>(
+    flag: Option<&'a str>,
+    saved: Option<&'a str>,
+    shared: Option<&'a str>,
+) -> Option<&'a str> {
+    [flag, saved, shared]
+        .into_iter()
+        .flatten()
+        .find(|value| !value.trim().is_empty())
+}
+
+/// What the settings offer for the relay, in their order ([`RelayChoice::ALL`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelayChoice {
+    /// n0's public relays.
+    Default,
+    /// Azlin's own ([`AZLIN_RELAY`]).
+    Azlin,
+    /// A company's own relay, by its address.
+    Custom,
+}
+
+impl RelayChoice {
+    pub const ALL: [RelayChoice; 3] = [RelayChoice::Default, RelayChoice::Azlin, RelayChoice::Custom];
+
+    /// The choice `relay` is; `None` for no relay (`--relay off`, or a meetings service on this
+    /// computer), which the settings do not offer.
+    #[must_use]
+    pub fn of(relay: &Relay) -> Option<RelayChoice> {
+        match relay {
+            Relay::Off => None,
+            Relay::Default => Some(RelayChoice::Default),
+            Relay::Custom(url) if url.trim_end_matches('/').eq_ignore_ascii_case(AZLIN_RELAY) => {
+                Some(RelayChoice::Azlin)
+            }
+            Relay::Custom(_) => Some(RelayChoice::Custom),
+        }
+    }
+
+    /// Its place in [`RelayChoice::ALL`].
+    #[must_use]
+    pub fn index(self) -> usize {
+        RelayChoice::ALL.iter().position(|c| *c == self).unwrap_or(0)
+    }
+}
+
+/// The value the settings file keeps for `choice`: a word, or for [`RelayChoice::Custom`] the
+/// relay's address as typed in `custom` (`None` while that is no address).
+#[must_use]
+pub fn relay_setting(choice: RelayChoice, custom: &str) -> Option<String> {
+    match choice {
+        RelayChoice::Default => Some(String::from("default")),
+        RelayChoice::Azlin => Some(String::from("azlin")),
+        RelayChoice::Custom => normalize_server(custom),
     }
 }
 
@@ -276,15 +340,11 @@ pub fn transport_label(relay: &Relay, relay_only: bool) -> String {
     }
 }
 
-/// What the connection server field shows while it is empty: an example, never an address
-/// AzMeet would use by itself.
+/// What the meetings service field shows while it is empty: an example, never an address AzMeet
+/// would use by itself.
 pub const SERVER_PLACEHOLDER: &str = "https://meet.example.com";
-/// Azlin's connection server, the one AzMeet uses when nothing else names one.
-pub const DEFAULT_SERVER: &str = "iroh://connect.azlin.io";
-/// The scheme of an Azlin connection server's address. Its meeting API is served over HTTPS at
-/// the same host, port and path ([`api_base`]); the scheme says that the peers meet over iroh
-/// through the public relays, and keeps the address apart from a self-hosted meet Worker's.
-const IROH_SCHEME: &str = "iroh://";
+/// What the custom relay field shows while it is empty.
+pub const RELAY_PLACEHOLDER: &str = "https://relay.example.com";
 /// The longest meeting server address taken.
 const MAX_SERVER_CHARS: usize = 2048;
 
@@ -298,16 +358,15 @@ pub enum ServerSource {
     /// `AZMEET_WORKER`, or what the shared Azlin config names (AzMeet passes its resolved
     /// address as the `env` layer: the variable, the config file, the profile).
     Environment,
-    /// Built in: `PRODUCTION_WORKER`, Azlin's [`DEFAULT_SERVER`] unless the build names another
-    /// (`AZMEET_DEFAULT_WORKER`).
+    /// Built in: `PRODUCTION_WORKER` (`AZMEET_DEFAULT_WORKER` at build time).
     BuiltIn,
-    /// None anywhere (a build that names an empty one): the settings ask for one.
+    /// None anywhere: the settings ask for one. AzMeet never guesses an address.
     Unset,
 }
 
 /// A meeting server address as typed: trimmed, without trailing slashes. `None` unless it is an
-/// http, https or iroh address with a host, printable ASCII without spaces, a query or a fragment,
-/// and at most 2048 characters.
+/// http or https address with a host, printable ASCII without spaces, a query or a fragment, and at
+/// most 2048 characters. A custom relay's address follows the same rules.
 pub fn normalize_server(input: &str) -> Option<String> {
     let s = input.trim().trim_end_matches('/');
     if s.is_empty() || s.len() > MAX_SERVER_CHARS || !s.bytes().all(|b| b.is_ascii_graphic()) {
@@ -317,22 +376,12 @@ pub fn normalize_server(input: &str) -> Option<String> {
         return None;
     }
     let rest = strip_prefix_ignore_case(s, "https://")
-        .or_else(|| strip_prefix_ignore_case(s, "http://"))
-        .or_else(|| strip_prefix_ignore_case(s, IROH_SCHEME))?;
+        .or_else(|| strip_prefix_ignore_case(s, "http://"))?;
     let host = rest.split('/').next().unwrap_or("");
     if host.is_empty() || host.starts_with(':') {
         return None;
     }
     Some(s.to_string())
-}
-
-/// Where the meeting API of the server at `server` (a [`normalize_server`] address) answers:
-/// `https://` at the same host for an iroh address, the address itself otherwise.
-pub fn api_base(server: &str) -> String {
-    match strip_prefix_ignore_case(server, IROH_SCHEME) {
-        Some(rest) => format!("https://{rest}"),
-        None => server.to_string(),
-    }
 }
 
 /// The meeting server the settings' field shows at start, and where it came from: the one

@@ -488,7 +488,8 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
 }
 
 /// A relay setting: `off` (also `0`), `default` (n0's public relays; also
-/// `1`) or a relay's address - AzMeet's values for `AZMEET_RELAY`.
+/// `1`), `azlin` (Azlin's own relay) or a relay's address - AzMeet's values
+/// for `AZMEET_RELAY`.
 ///
 /// # Errors
 ///
@@ -501,30 +502,14 @@ pub fn normalize_relay(input: &str) -> Result<String, String> {
     if s.eq_ignore_ascii_case("default") || s == "1" {
         return Ok(String::from("default"));
     }
+    if s.eq_ignore_ascii_case("azlin") {
+        return Ok(String::from("azlin"));
+    }
     normalize_url(s)
 }
 
-/// A meeting server's address: a service address ([`normalize_url`]), or an Azlin connection
-/// server's `iroh://` address, whose meeting API AzMeet reaches over https at the same host.
-///
-/// # Errors
-///
-/// Why the text is no meeting server address.
-pub fn normalize_meet(input: &str) -> Result<String, String> {
-    const IROH: &str = "iroh://";
-    let s = input.trim();
-    match s.get(..IROH.len()) {
-        Some(scheme) if scheme.eq_ignore_ascii_case(IROH) => {
-            // The same rules as an https address with this host and path.
-            normalize_url(&format!("https://{}", &s[IROH.len()..]))
-                .map(|_| s.trim_end_matches('/').to_string())
-        }
-        _ => normalize_url(s),
-    }
-}
-
 /// The value of `endpoint` as typed, checked ([`normalize_url`], for the relay
-/// [`normalize_relay`], for the meeting server [`normalize_meet`]).
+/// [`normalize_relay`]).
 ///
 /// # Errors
 ///
@@ -532,7 +517,6 @@ pub fn normalize_meet(input: &str) -> Result<String, String> {
 pub fn normalize_endpoint(endpoint: Endpoint, input: &str) -> Result<String, String> {
     match endpoint {
         Endpoint::Relay => normalize_relay(input),
-        Endpoint::Meet => normalize_meet(input),
         _ => normalize_url(input),
     }
 }

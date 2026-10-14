@@ -2,7 +2,7 @@
 //! the S10 `CallShell` of azul's app shells) and the settings (azul-appkit's settings page).
 //!
 //! - **Start screen** (`lobby`): "New meeting", "New chat room", "Schedule", joining with a link
-//!   or a code, and "Your rooms" with their unread counts. The connection server is not shown
+//!   or a code, and "Your rooms" with their unread counts. The meetings service is not shown
 //!   here: only a line when it cannot be used, with "Connection settings" (its field is in
 //!   Settings > Meetings). Nothing is captured here: no camera, no microphone.
 //! - **Room view** (`room_view`), a room outside a call: its encrypted chat, its times and link,
@@ -189,10 +189,10 @@ pub(crate) enum PanelView {
 #[derive(Debug, Clone)]
 pub(crate) struct LobbyView {
     pub opening: bool,
-    /// The connection server answered its last check. The start screen says only when it did
+    /// The meetings service answered its last check. The start screen says only when it did
     /// not; its address and status are in Settings > Meetings.
     pub server_ok: bool,
-    /// No connection server is set at all.
+    /// No meetings service is set at all.
     pub server_unset: bool,
     pub join_text: String,
     /// The "Schedule" form: the start (local time) and the minutes.
@@ -241,17 +241,27 @@ pub(crate) struct SettingsView {
     /// A meeting is joined with the microphone off, with the camera off.
     pub join_muted: bool,
     pub join_camera_off: bool,
-    /// The connection server in use, or "none set": shown while it cannot be changed.
+    /// The meetings service in use, or "none set": shown while it cannot be changed.
     pub server: String,
-    /// The connection server field as typed, what its last check said, whether it answered,
+    /// The meetings service field as typed, what its last check said, whether it answered,
     /// whether none is set.
     pub server_text: String,
     pub server_status: String,
     pub server_ok: bool,
     pub server_unset: bool,
-    /// The field may be changed: outside a meeting, the waiting room and a room view (a new
-    /// server binds the iroh endpoint anew, which would cut every peer off).
+    /// The meetings service and the relay may be changed: outside a meeting, the waiting room
+    /// and a room view (a new relay binds the iroh endpoint anew, which would cut every peer off).
     pub server_editable: bool,
+    /// The relay picked: an index into `rooms::RelayChoice::ALL` ("Custom" also while its
+    /// address is still being typed).
+    pub relay_choice: usize,
+    /// No relay is used this run (`--relay off`, or a meetings service on this computer).
+    pub relay_off: bool,
+    /// The custom relay field as typed, and why what was typed is no relay address.
+    pub relay_text: String,
+    pub relay_status: String,
+    /// The relay in use in words, shown while it cannot be changed.
+    pub relay_shown: String,
     pub name: String,
     /// "Video: H.264 (VideoToolbox)".
     pub codec: String,
@@ -400,6 +410,11 @@ pub(crate) struct Actions {
     pub test_mic: ButtonOnClickCallbackType,
     /// The start screen's "Connection settings": Settings > Meetings.
     pub connection_settings: ButtonOnClickCallbackType,
+    /// Settings > Meetings: the relay's choice, and the custom relay's field.
+    pub relay_choice: DropDownOnChoiceChangeCallbackType,
+    pub relay_text: TextInputOnTextInputCallbackType,
+    pub relay_key: TextInputOnVirtualKeyDownCallbackType,
+    pub relay_blur: TextInputOnFocusLostCallbackType,
 }
 
 // ==== Styles: structure and the few colours of their own (video tiles are dark in both modes) ====
@@ -1412,7 +1427,7 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
 const PROBLEM_LINE: &str = "font-size: 12px; color: system:accent; @theme(flora) { color: \
                             #7E4A42; @media (prefers-color-scheme: dark) { color: #B3837A; } }";
 
-/// What the start screen says about the connection server: nothing while it answers, else one
+/// What the start screen says about the meetings service: nothing while it answers, else one
 /// short line. The address, its check and Retry are in Settings > Meetings.
 pub(crate) fn server_problem(lobby: &LobbyView) -> Option<String> {
     if lobby.server_unset {
@@ -1820,6 +1835,8 @@ fn settings_sections(view: &CallView, data: &RefAny, actions: &Actions) -> Vec<A
             check(s.join_camera_off, ids::JOIN_CAMERA_OFF, data, actions.join_camera_off),
         ))
         .with_child(kit::row("azmeet-meeting-server", connection_server(s, data, actions)))
+        .with_child(kit::row("azmeet-relay", relay_row(s, data, actions)))
+        .with_child(kit::note("azmeet-relay-note"))
         .with_child(kit::row(
             "azmeet-device-safety-code",
             text(&s.identity, "font-size: 13px;"),
@@ -1844,7 +1861,7 @@ fn settings_sections(view: &CallView, data: &RefAny, actions: &Actions) -> Vec<A
         .collect()
 }
 
-/// The connection server: its field with Retry while it does not answer, and what its last
+/// The meetings service: its field with Retry while it does not answer, and what its last
 /// check said. Only its address while it cannot be changed (in a meeting or a room view).
 fn connection_server(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
     if !s.server_editable {
@@ -1881,6 +1898,57 @@ fn connection_server(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom 
         .with_css("display: flex; flex-direction: column; min-width: 0px;")
         .with_child(row)
         .with_child(text(&s.server_status, &status))
+}
+
+/// The relay choices as the settings list them, in `rooms::RelayChoice::ALL` order.
+pub(crate) fn relay_labels() -> Vec<String> {
+    use crate::rooms::RelayChoice;
+    RelayChoice::ALL
+        .iter()
+        .map(|choice| {
+            t(match choice {
+                RelayChoice::Default => "azmeet-relay-default",
+                RelayChoice::Azlin => "azmeet-relay-azlin",
+                RelayChoice::Custom => "azmeet-relay-custom",
+            })
+        })
+        .collect()
+}
+
+/// The relay: n0's, Azlin's or a company's own, with the company relay's field under the
+/// choice. Only the relay in use while it cannot be changed.
+fn relay_row(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
+    let column = Dom::create_div().with_css("display: flex; flex-direction: column; min-width: 0px;");
+    if !s.server_editable {
+        return column.with_child(text(&s.relay_shown, "font-size: 13px;"));
+    }
+    let mut column = column.with_child(choice(
+        &relay_labels(),
+        s.relay_choice,
+        "azmeet-relay",
+        data,
+        actions.relay_choice,
+    ));
+    if s.relay_choice == crate::rooms::RelayChoice::Custom.index() {
+        column = column.with_child(
+            TextInput::create()
+                .with_text(s.relay_text.as_str())
+                .with_placeholder(crate::rooms::RELAY_PLACEHOLDER)
+                .with_on_text_input(data.clone(), actions.relay_text)
+                .with_on_virtual_key_down(data.clone(), actions.relay_key)
+                .with_on_focus_lost(data.clone(), actions.relay_blur)
+                .dom()
+                .with_css("margin-top: 4px; min-width: 0px;")
+                .with_id(ids::RELAY_FIELD),
+        );
+    }
+    if s.relay_off {
+        column = column.with_child(text(&t("azmeet-relay-off"), &format!("margin-top: 4px; {SECONDARY}")));
+    }
+    if !s.relay_status.is_empty() {
+        column = column.with_child(text(&s.relay_status, &format!("margin-top: 4px; {PROBLEM_LINE}")));
+    }
+    column
 }
 
 /// A drop-down of `choices` with `selected` chosen.
