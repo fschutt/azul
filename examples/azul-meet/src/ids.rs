@@ -82,6 +82,9 @@ pub const NAME: AzString = AzString::from_const_str("__azmeet_name");
 pub const JOIN_NOW: AzString = AzString::from_const_str("__azmeet_join_now");
 /// Back to the start screen without joining.
 pub const WAITING_BACK: AzString = AzString::from_const_str("__azmeet_waiting_back");
+/// A meeting made here: the line saying no meetings service answers, and its "Retry".
+pub const LOCAL_MEETING: AzString = AzString::from_const_str("__azmeet_local_meeting");
+pub const SERVICE_RETRY: AzString = AzString::from_const_str("__azmeet_service_retry");
 
 // ==== AzMeet's settings sections (on azul-appkit's settings page) ====
 

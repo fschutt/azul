@@ -223,6 +223,9 @@ pub(crate) struct WaitingView {
     /// Joined with only the code: `Some(false)` "Ask to join", `Some(true)` asked, waiting to be
     /// let in; `None` with the link.
     pub knock: Option<bool>,
+    /// The meeting was made here because no meetings service answered: the waiting room says
+    /// so and offers "Retry".
+    pub local: bool,
 }
 
 /// What the settings sections and the device pickers show.
@@ -377,6 +380,8 @@ pub(crate) struct Actions {
     /// The waiting room's "Join now" / "Start meeting", and its Back.
     pub join_now: ButtonOnClickCallbackType,
     pub waiting_back: ButtonOnClickCallbackType,
+    /// A meeting made here: ask the meetings service again.
+    pub preview_retry: ButtonOnClickCallbackType,
     pub mic_choice: DropDownOnChoiceChangeCallbackType,
     pub speaker_choice: DropDownOnChoiceChangeCallbackType,
     pub camera_choice: DropDownOnChoiceChangeCallbackType,
@@ -466,11 +471,9 @@ const ROW: &str = "display: flex; flex-direction: row; align-items: center; min-
 /// A field that fills its row from a zero basis, so its width never follows what is typed.
 const ROW_FIELD: &str = "flex-grow: 1; flex-shrink: 1; flex-basis: 0px; min-width: 0px; \
                          margin-right: 6px;";
-/// The start screen's body: its card in the middle, scrolling in a small window.
-const CENTERED: &str = "display: flex; flex-direction: column; align-items: center; flex-grow: 1; \
-                        min-height: 0px; overflow-y: auto; padding: 32px 16px;";
-/// The start screen's card.
-const CARD: &str = "display: flex; flex-direction: column; width: 100%; max-width: 440px;";
+/// The start screen's card, beside the device preview (under it in a narrow window).
+const CARD: &str = "display: flex; flex-direction: column; flex-grow: 0; flex-shrink: 1; \
+                    flex-basis: 380px; min-width: 280px; max-width: 440px; margin: 0px 12px;";
 /// The waiting room's body: the preview and the join column side by side, one over the other in
 /// a narrow window.
 const WAITING_BODY: &str = "display: flex; flex-direction: row; flex-wrap: wrap; justify-content: \
@@ -1313,8 +1316,8 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
 // ==== The start screen ====
 
 /// The start screen: "New meeting", "New chat room", "Schedule", joining with a link or a code,
-/// the meeting server (and whether it answers, with Retry when it does not), and "Your rooms".
-/// Nothing is captured here: the devices open in the waiting room.
+/// the meeting server (and whether it answers, with Retry when it does not), and "Your rooms",
+/// beside this side's camera and microphone ([`device_preview`]), live from the start.
 fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let mut card = Dom::create_div()
         .with_css(CARD)
@@ -1419,7 +1422,12 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     Dom::create_div()
         .with_css(PAGE)
         .with_child(header(view, data, actions))
-        .with_child(Dom::create_div().with_css(CENTERED).with_child(card))
+        .with_child(
+            Dom::create_div()
+                .with_css(WAITING_BODY)
+                .with_child(device_preview(view, data, actions))
+                .with_child(card),
+        )
 }
 
 /// A line that says something is wrong: flat's accent; flora's clay stone (its colour for a
@@ -1494,9 +1502,10 @@ pub(crate) fn waiting_button_label(created: bool, knock: Option<bool>) -> String
     }
 }
 
-/// The waiting room: this side's picture large over the microphone and camera switches and the
-/// level meter; beside it the meeting, the name, the devices and "Join now" / "Start meeting".
-fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+/// This side's devices as the start screen and the waiting room show them, as Meet shows them
+/// before a meeting: the live camera picture (or the initials while it is off), the mic and
+/// camera switches, the microphone's level and the sound check.
+fn device_preview(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let me = TileView {
         kind: TileKind::Camera,
         me: true,
@@ -1531,6 +1540,13 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             .with_css("padding: 8px 24px 0px 24px;")
             .with_child(sound_check(view, data, actions)),
     );
+    preview
+}
+
+/// The waiting room: this side's picture large over the microphone and camera switches and the
+/// level meter; beside it the meeting, the name, the devices and "Join now" / "Start meeting".
+fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let preview = device_preview(view, data, actions);
     let created = view.waiting.as_ref().is_some_and(|w| w.created);
     let knock = view.waiting.as_ref().and_then(|w| w.knock);
     let mut column = Dom::create_div().with_css(JOIN_COLUMN).with_child(text(
@@ -1557,6 +1573,20 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             &t("azmeet-joined-with-code"),
             "font-size: 12px; color: system:secondary-text; margin-bottom: 10px;",
         ));
+    }
+    if view.waiting.as_ref().is_some_and(|w| w.local) {
+        column = column
+            .with_child(
+                text(&t("azmeet-local-meeting"), "font-size: 12px; color: system:secondary-text; margin-bottom: 6px;")
+                    .with_id(ids::LOCAL_MEETING),
+            )
+            .with_child(
+                Button::create(label("azmeet-retry"))
+                    .with_on_click(data.clone(), actions.preview_retry)
+                    .dom()
+                    .with_id(ids::SERVICE_RETRY)
+                    .with_css(WIDE),
+            );
     }
     let join = Button::with_type(AzString::from(waiting_button_label(created, knock)), ButtonType::Primary);
     let join = if knock == Some(true) {
