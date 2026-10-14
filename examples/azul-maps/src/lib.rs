@@ -67,6 +67,7 @@ pub mod journeys;
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
+pub mod location;
 pub mod model;
 pub mod navigate;
 pub mod places;

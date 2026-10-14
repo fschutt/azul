@@ -85,3 +85,7 @@ azmaps-voice-arrived = Sie haben Ihr Ziel erreicht.
 azmaps-voice-in-m = In { $n } Metern: { $instruction }
 azmaps-voice-in-km = In { $n } Kilometern: { $instruction }
 azmaps-voice-rerouting = Die Route wird neu berechnet.
+
+## Positionsquelle
+
+azmaps-gps-no-fix = Keine Position
