@@ -90,6 +90,8 @@ mod coregraphics;
 mod corevideo;
 mod events;
 mod gl;
+#[cfg(test)]
+pub(crate) mod headless_gpu;
 pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;
