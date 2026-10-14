@@ -1092,7 +1092,14 @@ pub struct MapTileCache {
     /// mount: queued first at every look the map shows, never forgotten,
     /// never evicted (entry, drawing or bytes).
     pub pinned: alloc::collections::BTreeSet<MapTileId>,
+    /// When each `Failed` entry failed ([`map_clock`] seconds): a wanted tile
+    /// is queued again [`RETRY_FAILED_SECS`] later ([`Self::want_tiles_at`]).
+    pub failed_at: BTreeMap<TileStyleKey, f64>,
 }
+
+/// How long a tile whose fetch failed waits before the view asks for it
+/// again, in seconds.
+pub const RETRY_FAILED_SECS: f64 = 15.0;
 
 impl MapTileCache {
     #[must_use]
@@ -1129,6 +1136,7 @@ impl MapTileCache {
             arrived: BTreeMap::new(),
             stand_ins: alloc::collections::BTreeSet::new(),
             pinned: alloc::collections::BTreeSet::new(),
+            failed_at: BTreeMap::new(),
         }
     }
 
@@ -1167,6 +1175,7 @@ impl MapTileCache {
         if self.drawn.insert(key, drawn).is_none() {
             self.arrived.insert(key, map_clock());
         }
+        self.failed_at.remove(&key);
     }
 
     /// What `tile`'s box shows at `look` and clock time `now`, bottom first.
@@ -1253,10 +1262,26 @@ impl MapTileCache {
     /// Queue `wanted`'s tiles for `look` and remember the range as what the
     /// view needs now.
     pub fn want_tiles(&mut self, wanted: WantedTiles, look: MapLook) {
+        self.want_tiles_at(wanted, look, map_clock());
+    }
+
+    /// [`Self::want_tiles`] at clock time `now`. A wanted tile whose fetch
+    /// failed at least [`RETRY_FAILED_SECS`] ago is queued again: the
+    /// network may be back (a first start offline), and a failure that young
+    /// is not retried, so a dead server is not asked on every render.
+    pub fn want_tiles_at(&mut self, wanted: WantedTiles, look: MapLook, now: f64) {
         for tile in wanted.tiles() {
-            self.tiles
-                .entry(TileStyleKey { tile, look })
-                .or_insert(TileEntry::Pending);
+            let key = TileStyleKey { tile, look };
+            let entry = self.tiles.entry(key).or_insert(TileEntry::Pending);
+            if matches!(entry, TileEntry::Failed { .. })
+                && self
+                    .failed_at
+                    .get(&key)
+                    .is_none_or(|at| now - at >= RETRY_FAILED_SECS)
+            {
+                *entry = TileEntry::Pending;
+                self.failed_at.remove(&key);
+            }
         }
         self.wanted = Some(wanted);
     }
@@ -1337,6 +1362,7 @@ impl MapTileCache {
         self.tiles.insert(key, TileEntry::Ready { svg });
         self.drawn.remove(&key);
         self.arrived.insert(key, map_clock());
+        self.failed_at.remove(&key);
     }
 
     /// Mark a tile's fetch as failed so the grid doesn't re-spawn it
@@ -1344,6 +1370,7 @@ impl MapTileCache {
     pub fn mark_tile_failed(&mut self, key: TileStyleKey, error: AzString) {
         self.tiles.insert(key, TileEntry::Failed { error });
         self.drawn.remove(&key);
+        self.failed_at.insert(key, map_clock());
     }
 
     /// The drawing to show for `tile`, preferring `want`: an exact hit, else
