@@ -1212,6 +1212,40 @@ mod address_bar_tests {
             .with_on_event(RefAny::new(log.clone()), record as AddressBarOnEventCallbackType)
     }
 
+    /// The resting top-left corner radius `node` declares.
+    fn corner(node: &Dom) -> Option<f32> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, conds)| conds.as_ref().is_empty())
+            .filter_map(|(p, _)| match p {
+                CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| r.inner.number.get()),
+                _ => None,
+            })
+            .last()
+    }
+
+    /// The node of `dom` carrying `class`.
+    fn with_class<'a>(dom: &'a Dom, class: &str) -> Option<&'a Dom> {
+        if has_class(dom, class) {
+            return Some(dom);
+        }
+        dom.children.as_ref().iter().find_map(|c| with_class(c, class))
+    }
+
+    /// Flora's search box has the address field's corners: both 4px.
+    #[test]
+    fn flora_s_search_box_has_the_crumbs_field_s_4px_corners() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = bar(&log).with_theme(UiTheme::Flora).dom();
+        let field = with_class(&dom, "__azul-native-address-bar-box").expect("the crumbs field");
+        assert_eq!(corner(field), Some(4.0), "the crumbs field");
+        let search = with_class(&dom, "__azul-native-address-bar-search").expect("the search box");
+        let row = &search.children.as_ref()[0];
+        let input = &row.children.as_ref()[0];
+        assert_eq!(corner(input), Some(4.0), "the search field's own frame");
+    }
+
     /// A trail too long for a 520 px bar.
     const LONG: [&str; 8] = [
         "This PC", "Home", "Documents", "Projects", "azul", "layout", "src", "widgets",
