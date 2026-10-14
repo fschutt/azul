@@ -6586,7 +6586,7 @@ fn enter_room(
 /// meeting: they open with the join defaults (muted or the camera off when the settings say
 /// so), whether or not a meetings service answers.
 fn open_devices_at_start(s: &mut MeetState) {
-    let _ = s;
+    apply_join_defaults(s);
 }
 
 fn apply_join_defaults(s: &mut MeetState) {
