@@ -33,15 +33,65 @@ pub(crate) struct Pie {
 /// work running has come (a pass, or the transfers when nothing syncs).
 #[must_use]
 pub(crate) fn sync_pie(status: Option<&str>, progress: Option<f32>) -> Pie {
-    let _ = (status, progress);
-    todo!()
+    let full = |tone| Pie {
+        fraction: 1.0,
+        tone,
+        breathing: false,
+    };
+    let busy = |progress: Option<f32>| Pie {
+        fraction: progress.unwrap_or(0.0).clamp(0.0, 1.0),
+        tone: PieTone::Accent,
+        breathing: true,
+    };
+    let Some(status) = status else {
+        // Nothing in view syncs: the transfers while they run, else an empty disc.
+        return match progress {
+            Some(_) => busy(progress),
+            None => Pie {
+                fraction: 0.0,
+                tone: PieTone::Accent,
+                breathing: false,
+            },
+        };
+    };
+    match status {
+        "azdrive-sync-status-syncing" | "azdrive-sync-status-syncing-files" => busy(progress),
+        "azdrive-sync-status-up-to-date" => full(PieTone::Good),
+        "azdrive-sync-status-never" => Pie {
+            fraction: 0.0,
+            tone: PieTone::Accent,
+            breathing: false,
+        },
+        "azdrive-sync-status-paused"
+        | "azdrive-sync-status-metered"
+        | "azdrive-sync-status-payment-due"
+        | "azdrive-sync-status-read-only"
+        | "azdrive-sync-status-newer-format" => full(PieTone::Warn),
+        // A conflict, an error, a burst or a mass delete waiting for an answer.
+        _ => full(PieTone::Bad),
+    }
 }
 
 /// The space pie of a drive using `used` of `total` bytes (`total` 0: unknown, an empty disc).
 #[must_use]
 pub(crate) fn space_pie(used: u64, total: u64) -> Pie {
-    let _ = (used, total);
-    todo!()
+    let fraction = if total == 0 {
+        0.0
+    } else {
+        (used as f64 / total as f64).clamp(0.0, 1.0) as f32
+    };
+    let tone = if fraction > 0.97 {
+        PieTone::Bad
+    } else if fraction > 0.85 {
+        PieTone::Warn
+    } else {
+        PieTone::Accent
+    };
+    Pie {
+        fraction,
+        tone,
+        breathing: false,
+    }
 }
 
 #[cfg(test)]
