@@ -1220,6 +1220,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
         reconciled_dom: _,
+        host_lays_out: _,
         // One rect per NodeResized subscriber (a handful of widgets), not
         // the document.
         resize_watch: _,
@@ -1698,6 +1699,13 @@ pub struct LayoutWindow {
     /// without one is reconciled by the funnel itself
     /// (`layout_and_generate_display_list_impl`).
     pub reconciled_dom: Option<DomId>,
+    /// Set while a host that acts on the returned tiers applies a callback's
+    /// content changes ([`Self::apply_content_change_for_host`]): a CSS or
+    /// style write then only writes, and the one relayout (or display-list
+    /// rebuild) the tier asks the host for covers every write of the
+    /// callback. Unset - a test, an embedder reading the layout right after
+    /// a write - each write leaves the layout consistent at once.
+    pub host_lays_out: bool,
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
@@ -2478,6 +2486,7 @@ impl LayoutWindow {
         Self {
             pending_css_dirty: None,
             reconciled_dom: None,
+            host_lays_out: false,
             e2e_mount: E2eMountOverride::default(),
             #[cfg(feature = "e2e-server")]
             e2e_scratch: std::sync::Mutex::new(crate::e2e::E2eScratch::default()),
@@ -8960,6 +8969,22 @@ impl LayoutWindow {
         [focus_h.finish(), sel_h.finish(), scroll_h.finish()]
     }
 
+    /// [`Self::apply_content_change`] for a host that lays the window out (or
+    /// rebuilds its display list) on the tier the change returns, once after
+    /// all of a callback's changes, as the desktop shells do: a CSS or style
+    /// write then lays nothing out itself (`host_lays_out`). Without this a
+    /// callback's every layout-property write laid the whole window out at
+    /// once, and the host laid it out again for the tier.
+    pub fn apply_content_change_for_host(
+        &mut self,
+        change: crate::overlay::ContentChange,
+    ) -> crate::overlay::ContentChangeResult {
+        self.host_lays_out = true;
+        let result = self.apply_content_change(change);
+        self.host_lays_out = false;
+        result
+    }
+
     /// THE single entry for content mutations: validates, writes the overlay
     /// arm, journals, patches display lists (paint tier) or invalidates layout
     /// (relayout tier), and returns what the frame loop must do. NO OTHER PATH
@@ -9219,9 +9244,13 @@ impl LayoutWindow {
         let needs_relayout = changed
             .iter()
             .any(|key| key.is_none_or(|ty| ty.can_trigger_relayout()));
+        // A host that lays out on the tier (`host_lays_out`) does it once for
+        // all of a callback's changes.
         if needs_relayout && dom_id == DomId::ROOT_ID {
-            self.relayout_root_dom_in_place();
-        } else {
+            if !self.host_lays_out {
+                self.relayout_root_dom_in_place();
+            }
+        } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
             self.regenerate_display_list_for_dom(dom_id);
         }
         ContentChangeResult {
@@ -9459,15 +9488,20 @@ impl LayoutWindow {
                 // Relayout here rather than relying on the caller acting on
                 // the returned tier: this is the single content chokepoint,
                 // and it must leave `layout_results` consistent with the CSS
-                // it just wrote for EVERY consumer (host shells, the E2E
-                // runner, tests). Hosts that also relayout on the tier are
-                // idempotent. Child DOMs (iframe / VirtualView) keep the
+                // it just wrote for EVERY consumer (tests, embedders). A host
+                // that lays out on the tier (`host_lays_out`: the shells) does
+                // it once for all of a callback's writes, which are in the
+                // inline style and the cascade where its reconcile finds
+                // them. Child DOMs (iframe / VirtualView) keep the
                 // display-list-only path — re-running the root layout would
                 // discard them.
-                self.relayout_root_dom_in_place();
-            } else {
+                if !self.host_lays_out {
+                    self.relayout_root_dom_in_place();
+                }
+            } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
                 // The full-write path rebuilds the DL inline (its historical
-                // contract). The override channel deliberately does NOT —
+                // contract); a host rebuilds the root's list once, on the
+                // tier. The override channel deliberately does NOT —
                 // it is the per-frame animation path, and the returned tier
                 // already schedules the rebuild once per frame.
                 self.regenerate_display_list_for_dom(dom_id);
@@ -27062,6 +27096,8 @@ impl LayoutWindow {
             // the very next layout pass and never survives a second remap.
             pending_css_dirty: _,
             reconciled_dom: _,
+            // A bool about the current change batch, no NodeId.
+            host_lays_out: _,
             // One timestamp; carries no NodeId.
             last_anim_tick: _,
             // The culled set follows its tracks (remapped below, beside them).

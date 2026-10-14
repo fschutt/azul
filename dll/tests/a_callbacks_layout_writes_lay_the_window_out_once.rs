@@ -5,8 +5,11 @@
 //! through the content chokepoint. It laid the whole window out at once for
 //! every write, and then returned the tier on which the shell lays the window
 //! out again: a seek bar moved by two writes four times a second laid the
-//! window out three times per move. In the shell the writes only write; the
-//! one relayout the tier asks for lays them all out.
+//! window out three times per move. Where the shell acts on the callbacks'
+//! result (the user-event dispatch, the timers and threads:
+//! `defer_content_layout`) the writes only write, and the one relayout the
+//! result asks for lays them all out. Elsewhere (a lifecycle callback after a
+//! rebuild, whose result nothing acts on) a write still lays out at once.
 
 use std::{cell::RefCell, sync::Arc};
 
@@ -106,9 +109,13 @@ fn a_callbacks_layout_writes_lay_the_window_out_once() {
         .frame_report
         .reset_counters();
 
+    // The changes of one callback, applied as the user-event dispatch and
+    // the timers apply them.
+    window.common.defer_content_layout = true;
     let tier = window
         .apply_user_change(&width_write(fill, 40.0))
         .max(window.apply_user_change(&width_write(thumb, 30.0)));
+    window.common.defer_content_layout = false;
 
     assert_eq!(
         tier,
@@ -149,4 +156,28 @@ fn a_callbacks_layout_writes_lay_the_window_out_once() {
     };
     assert_eq!(width_of(fill), Some(40.0), "the fill has its new width");
     assert_eq!(width_of(thumb), Some(30.0), "the thumb has its new width");
+}
+
+#[test]
+fn a_layout_write_whose_result_nothing_acts_on_lays_out_at_once() {
+    let mut window = make_window();
+    window.regenerate_layout().expect("the page lays out");
+    let fill = node_with_class(&window, "fill");
+    let _ = window.apply_user_change(&width_write(fill, 40.0));
+    let lw = window
+        .common
+        .layout_window
+        .as_ref()
+        .expect("a layout window");
+    let width = lw
+        .get_node_layout_rect(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(fill)),
+        })
+        .map(|r| r.size.width);
+    assert_eq!(
+        width,
+        Some(40.0),
+        "the write is laid out before anything acts on its tier"
+    );
 }
