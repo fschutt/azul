@@ -161,6 +161,14 @@ pub const CONTENT_HASH_METADATA: &str = "BLAKE3";
 /// every file.
 pub const SMALL_FILE_BYTES: u64 = 512 * 1024;
 
+/// The keys one batch delete request takes at most: S3's DeleteObjects limit.
+pub const DELETE_BATCH: usize = 1000;
+
+/// Files a batch moves at once: large uploads ([`Drive::put_from_many`]) and copies on the
+/// service ([`Drive::move_many`]). Enough to fill a link, few enough that a weak computer and
+/// the service's per-client limits keep up (a large upload has its own parts in flight too).
+pub const PARALLEL_FILES: usize = 4;
+
 /// The name of a [`Drive::metadata`] row that holds the key, in the bucket below the drive, of
 /// the object the file's bytes are in: an encrypted drive's AZL1 object, or the pack a small
 /// file shares with others. A device that keeps a file's ciphertext keeps that object.
@@ -323,6 +331,67 @@ impl<'a> BatchPut<'a> {
         self.condition = Some(condition);
         self
     }
+}
+
+/// One delete of a batch ([`Drive::delete_many`]).
+#[derive(Debug, Clone, Copy)]
+pub struct BatchDelete<'a> {
+    /// The file's key.
+    pub key: &'a str,
+    /// Deleted only while the file is still the version with this entity tag (an edit made
+    /// elsewhere beats a delete); `None`: whatever is there.
+    pub version: Option<&'a str>,
+}
+
+impl<'a> BatchDelete<'a> {
+    /// `key`, whatever version is there.
+    #[must_use]
+    pub fn new(key: &'a str) -> BatchDelete<'a> {
+        BatchDelete { key, version: None }
+    }
+
+    /// Only while the file is the version `etag` (as [`ObjectInfo::etag`] shows it).
+    #[must_use]
+    pub fn of_version(mut self, etag: &'a str) -> BatchDelete<'a> {
+        self.version = Some(etag);
+        self
+    }
+}
+
+/// One move of a batch ([`Drive::move_many`]).
+#[derive(Debug, Clone, Copy)]
+pub struct BatchMove<'a> {
+    /// The file's key now.
+    pub from: &'a str,
+    /// Its new key: nothing may be there.
+    pub to: &'a str,
+    /// Moved only while the file is still the version with this entity tag; `None`: whatever is
+    /// there.
+    pub version: Option<&'a str>,
+}
+
+impl<'a> BatchMove<'a> {
+    /// `from` to `to`, whatever version is at `from`.
+    #[must_use]
+    pub fn new(from: &'a str, to: &'a str) -> BatchMove<'a> {
+        BatchMove {
+            from,
+            to,
+            version: None,
+        }
+    }
+
+    /// Only while `from` is the version `etag`.
+    #[must_use]
+    pub fn of_version(mut self, etag: &'a str) -> BatchMove<'a> {
+        self.version = Some(etag);
+        self
+    }
+}
+
+/// Whether the entity tag a drive shows (`have`) is `want` (either may carry its quotes).
+pub(crate) fn same_etag(have: Option<&str>, want: &str) -> bool {
+    have.is_some_and(|have| have.trim().trim_matches('"') == want.trim().trim_matches('"'))
 }
 
 /// What must hold for a conditional write ([`Drive::put_if`]).
@@ -616,6 +685,41 @@ pub trait Drive: Send + Sync {
             })
             .collect()
     }
+
+    /// Deletes several files: one result per item, in order. A file that is gone is deleted;
+    /// one that is no longer the version an item names is [`DriveError::Conflict`] and stays.
+    /// By default one delete after the other (a version checked with a HEAD first); a bucket
+    /// sends [`DELETE_BATCH`] keys a request (DeleteObjects), an encrypted drive changes its
+    /// index once for all of them.
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        items
+            .iter()
+            .map(|item| {
+                if let Some(version) = item.version {
+                    match self.head(item.key) {
+                        Ok(info) if same_etag(info.etag.as_deref(), version) => {}
+                        Ok(_) => {
+                            return Err(DriveError::Conflict {
+                                key: item.key.to_string(),
+                            })
+                        }
+                        Err(DriveError::NotFound { .. }) => return Ok(()),
+                        Err(e) => return Err(e),
+                    }
+                }
+                self.delete(item.key)
+            })
+            .collect()
+    }
+
+    /// Moves several files: one result per item, in order. A move never lands on something
+    /// that is there (an error naming the target), and one whose file is gone is
+    /// [`DriveError::NotFound`]. By default each file is copied ([`Drive::copy`]: a bucket
+    /// copies on the service, [`PARALLEL_FILES`] at once) and the copied ones are deleted in one
+    /// [`Drive::delete_many`]; an encrypted drive changes its index once and moves no object.
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        ops::move_by_copy(self, items, true)
+    }
 }
 
 /// A drive behind a pointer is that drive: a `Box`, an `Arc` or a reference forwards
@@ -691,6 +795,12 @@ macro_rules! forward_drive {
                 items: &[BatchPut<'_>],
             ) -> Vec<Result<Option<String>, DriveError>> {
                 (**self).put_many(items)
+            }
+            fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+                (**self).delete_many(items)
+            }
+            fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+                (**self).move_many(items)
             }
         }
     )*};

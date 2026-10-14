@@ -51,8 +51,8 @@ use crate::{
     ops::check_folder,
     time::now_unix,
     packing::{PackOptions, PackState, PackedAt},
-    BatchPut, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
-    DEFAULT_PAGE_SIZE,
+    BatchDelete, BatchMove, BatchPut, ByteRange, Drive, DriveError, ListPage, ListRequest,
+    ObjectInfo, Precondition, DEFAULT_PAGE_SIZE,
 };
 
 /// The object a file version's bytes are in.
@@ -448,6 +448,18 @@ impl Drive for AutoEncrypted {
     fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
         match self.resolved() {
             Ok(drive) => drive.put_many(items),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        match self.resolved() {
+            Ok(drive) => drive.delete_many(items),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        match self.resolved() {
+            Ok(drive) => drive.move_many(items),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
@@ -1009,9 +1021,9 @@ impl<D: Drive> EncryptedDrive<D> {
         for id in &released {
             self.forget_pack(id);
         }
-        for id in released {
-            let _ = self.inner.delete(&id.bucket_key());
-        }
+        let keys: Vec<String> = released.iter().map(ObjectId::bucket_key).collect();
+        let items: Vec<BatchDelete<'_>> = keys.iter().map(|key| BatchDelete::new(key)).collect();
+        let _ = self.inner.delete_many(&items);
     }
 
     /// Writes `path` from `bytes` when `expect` holds of its index entry; what the listing now
@@ -1275,6 +1287,177 @@ impl<D: Drive> EncryptedDrive<D> {
             key: key.to_string(),
             reason: "something has this name already",
         }
+    }
+
+    /// [`Drive::delete_many`]: every path removed in ONE index change. A path that names
+    /// another version than its item says is a conflict and drops out (the rest is applied
+    /// again); a path that is gone is deleted already.
+    fn delete_batch(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
+        let mut live: Vec<(usize, Expect)> = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            if let Err(e) = check_path_key(item.key) {
+                results[i] = Some(Err(e));
+                continue;
+            }
+            let Some(version) = item.version else {
+                live.push((i, Expect::Any));
+                continue;
+            };
+            let conflict = || DriveError::Conflict {
+                key: item.key.to_string(),
+            };
+            let Some(id) = ObjectId::from_hex(version.trim_matches('"')) else {
+                results[i] = Some(Err(conflict()));
+                continue;
+            };
+            match self.index.get(item.key) {
+                Ok(None) => results[i] = Some(Ok(())),
+                Ok(Some(entry)) if entry.object_id() == Some(id) => {
+                    live.push((i, Expect::Object(id)));
+                }
+                Ok(Some(_)) => results[i] = Some(Err(conflict())),
+                Err(e) => results[i] = Some(Err(e)),
+            }
+        }
+        loop {
+            let changes: Vec<IndexChange> = live
+                .iter()
+                .map(|(i, expect)| IndexChange::Remove {
+                    path: items[*i].key.to_string(),
+                    expect: expect.clone(),
+                })
+                .collect();
+            if changes.is_empty() {
+                break;
+            }
+            match self.index.apply(changes) {
+                Ok(released) => {
+                    for (i, _) in &live {
+                        results[*i] = Some(Ok(()));
+                    }
+                    self.release(released);
+                    break;
+                }
+                Err(DriveError::Conflict { key }) => {
+                    match live.iter().position(|(i, _)| items[*i].key == key) {
+                        Some(at) => {
+                            let (i, _) = live.remove(at);
+                            results[i] = Some(Err(DriveError::Conflict { key }));
+                        }
+                        None => {
+                            for (i, _) in &live {
+                                results[*i] = Some(Err(DriveError::Conflict { key: key.clone() }));
+                            }
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    for (i, _) in &live {
+                        results[*i] = Some(Err(e.clone()));
+                    }
+                    break;
+                }
+            }
+        }
+        results
+            .into_iter()
+            .map(|result| result.unwrap_or(Ok(())))
+            .collect()
+    }
+
+    /// [`Drive::move_many`]: every move in ONE index change (the entry leaves `from` and names
+    /// the same object at `to`). A target that is there, a source that is gone or no longer the
+    /// version its item says drops out; the rest is applied again.
+    fn move_batch(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
+        // (item, the entry it moves, what its source must still be)
+        let mut live: Vec<(usize, IndexEntry, Expect)> = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            if let Some(folder) = [item.from, item.to].into_iter().find(|k| k.ends_with('/')) {
+                results[i] = Some(Err(DriveError::InvalidKey {
+                    key: folder.to_string(),
+                    reason: "a folder moves with rename",
+                }));
+                continue;
+            }
+            let entry = check_path_key(item.from)
+                .and_then(|()| check_path_key(item.to))
+                .and_then(|()| self.entry(item.from));
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    results[i] = Some(Err(e));
+                    continue;
+                }
+            };
+            let expect = Self::expect_of(&entry);
+            let stale = item.version.is_some_and(|version| {
+                entry.object_id().map(|id| id.to_hex()).as_deref()
+                    != Some(version.trim_matches('"'))
+            });
+            if stale {
+                results[i] = Some(Err(DriveError::Conflict {
+                    key: item.from.to_string(),
+                }));
+                continue;
+            }
+            live.push((i, entry, expect));
+        }
+        loop {
+            let mut changes = Vec::with_capacity(live.len() * 2);
+            for (i, entry, expect) in &live {
+                changes.push(IndexChange::Remove {
+                    path: items[*i].from.to_string(),
+                    expect: expect.clone(),
+                });
+                changes.push(IndexChange::Put {
+                    path: items[*i].to.to_string(),
+                    entry: entry.clone(),
+                    expect: Expect::Absent,
+                });
+            }
+            if changes.is_empty() {
+                break;
+            }
+            match self.index.apply(changes) {
+                Ok(released) => {
+                    for (i, _, _) in &live {
+                        results[*i] = Some(Ok(()));
+                    }
+                    self.release(released);
+                    break;
+                }
+                Err(DriveError::Conflict { key }) => {
+                    let at = live
+                        .iter()
+                        .position(|(i, _, _)| items[*i].from == key || items[*i].to == key);
+                    let Some(at) = at else {
+                        for (i, _, _) in &live {
+                            results[*i] = Some(Err(DriveError::Conflict { key: key.clone() }));
+                        }
+                        break;
+                    };
+                    let (i, _, _) = live.remove(at);
+                    results[i] = Some(Err(if items[i].to == key {
+                        Self::taken(&key)
+                    } else {
+                        DriveError::Conflict { key }
+                    }));
+                }
+                Err(e) => {
+                    for (i, _, _) in &live {
+                        results[*i] = Some(Err(e.clone()));
+                    }
+                    break;
+                }
+            }
+        }
+        results
+            .into_iter()
+            .map(|result| result.unwrap_or(Ok(())))
+            .collect()
     }
 
     /// Moves every entry under the folder `from` to the folder `to`, in one index change.
@@ -1558,6 +1741,17 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
     /// ([`crate::packing`]); every other file one at a time.
     fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
         self.write_many(items)
+    }
+
+    /// One index change for every file; the objects nothing names any more then leave the
+    /// bucket in batches (packed files only leave the index: their packs wait for the repack).
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        self.delete_batch(items)
+    }
+
+    /// One index change for every move: no object is copied, written or deleted.
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        self.move_batch(items)
     }
 
     /// [`EncryptedDrive::put_if`]'s condition on a streamed body: encrypted as it is read, named

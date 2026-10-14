@@ -2,8 +2,18 @@
 //! everything under a prefix, ask whether a key or a folder is there, rename
 //! a file or a folder by copying, delete a folder by listing it. The [`Drive`]
 //! trait's default methods are these; a folder on disk does them natively.
+//! Many files go in batches: copies several at once, deletes in one
+//! [`Drive::delete_many`] (a bucket's DeleteObjects).
 
-use crate::{Drive, DriveError, ListPage, ListRequest, ObjectInfo, DEFAULT_PAGE_SIZE};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex, PoisonError,
+};
+
+use crate::{
+    same_etag, BatchDelete, BatchMove, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
+    DEFAULT_PAGE_SIZE, PARALLEL_FILES,
+};
 
 /// Every object under `prefix`, at any depth, across all pages, in key order.
 /// Folder markers (keys ending in `/`) are objects too.
@@ -121,20 +131,27 @@ pub fn rename_by_copy<D: Drive + ?Sized>(
                 key: from.to_string(),
             });
         }
-        for object in &objects {
-            let rest = &object.key[from.len()..];
-            let target = format!("{to}{rest}");
-            if object.key.ends_with('/') {
-                // A folder marker: an empty object of its own.
-                drive.put(&target, &[])?;
-            } else {
-                drive.copy(&object.key, &target)?;
-            }
+        let targets: Vec<String> = objects
+            .iter()
+            .map(|object| format!("{to}{}", &object.key[from.len()..]))
+            .collect();
+        let moves: Vec<BatchMove<'_>> = objects
+            .iter()
+            .zip(&targets)
+            .map(|(object, target)| BatchMove::new(&object.key, target))
+            .collect();
+        // The target folder is empty (checked above): no target needs a look of its own. A
+        // folder moves whole or not at all: the sources go only when every copy landed.
+        if let Some(e) = copy_each(drive, &moves, false).into_iter().find_map(Result::err) {
+            return Err(e);
         }
-        for object in &objects {
-            drive.delete(&object.key)?;
-        }
-        return Ok(());
+        let deletes: Vec<BatchDelete<'_>> =
+            objects.iter().map(|object| BatchDelete::new(&object.key)).collect();
+        return drive
+            .delete_many(&deletes)
+            .into_iter()
+            .find_map(Result::err)
+            .map_or(Ok(()), Err);
     }
     if exists(drive, to)? {
         return Err(taken(to));
@@ -144,12 +161,101 @@ pub fn rename_by_copy<D: Drive + ?Sized>(
 }
 
 /// [`Drive::delete_folder`] for a drive without one of its own: every object
-/// under `prefix` (its marker too) deleted.
+/// under `prefix` (its marker too) deleted, in one [`Drive::delete_many`].
 pub fn delete_by_listing<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<(), DriveError> {
     check_folder(prefix)?;
-    for object in list_all(drive, prefix)? {
-        drive.delete(&object.key)?;
-    }
+    let mut keys: Vec<String> = list_all(drive, prefix)?
+        .into_iter()
+        .map(|object| object.key)
+        .collect();
     // A marker a listing did not show (some services list it, some do not).
-    drive.delete(prefix)
+    if !keys.iter().any(|key| key == prefix) {
+        keys.push(prefix.to_string());
+    }
+    let items: Vec<BatchDelete<'_>> = keys.iter().map(|key| BatchDelete::new(key)).collect();
+    drive
+        .delete_many(&items)
+        .into_iter()
+        .find_map(Result::err)
+        .map_or(Ok(()), Err)
+}
+
+/// [`Drive::move_many`] by copying: every move checked and copied on its own, [`PARALLEL_FILES`]
+/// at once (a bucket copies on the service, nothing passes through here), then every source
+/// that landed deleted in one [`Drive::delete_many`]. `check_targets`: whether each target is
+/// looked at first (a move never overwrites); a folder move checked its target folder already.
+pub fn move_by_copy<D: Drive + ?Sized>(
+    drive: &D,
+    items: &[BatchMove<'_>],
+    check_targets: bool,
+) -> Vec<Result<(), DriveError>> {
+    let mut results = copy_each(drive, items, check_targets);
+    let landed: Vec<usize> = (0..items.len()).filter(|&i| results[i].is_ok()).collect();
+    let deletes: Vec<BatchDelete<'_>> = landed
+        .iter()
+        .map(|&i| BatchDelete::new(items[i].from))
+        .collect();
+    for (&i, deleted) in landed.iter().zip(drive.delete_many(&deletes)) {
+        if let Err(e) = deleted {
+            results[i] = Err(e);
+        }
+    }
+    results
+}
+
+/// The copies of `items`, [`PARALLEL_FILES`] at once: one result per item, in order.
+fn copy_each<D: Drive + ?Sized>(
+    drive: &D,
+    items: &[BatchMove<'_>],
+    check_targets: bool,
+) -> Vec<Result<(), DriveError>> {
+    let copied: Mutex<Vec<Option<Result<(), DriveError>>>> = Mutex::new(vec![None; items.len()]);
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..PARALLEL_FILES.min(items.len()) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                let Some(item) = items.get(i) else {
+                    break;
+                };
+                let result = copy_for_move(drive, item, check_targets);
+                copied.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(result);
+            });
+        }
+    });
+    copied
+        .into_inner()
+        .unwrap_or_else(PoisonError::into_inner)
+        .into_iter()
+        .map(|result| {
+            result.unwrap_or_else(|| Err(DriveError::Protocol(String::from("not copied"))))
+        })
+        .collect()
+}
+
+/// One move's copy: its target free (when asked), its source there and (when the move names
+/// one) still that version, then copied - a folder marker is an empty object of its own.
+fn copy_for_move<D: Drive + ?Sized>(
+    drive: &D,
+    item: &BatchMove<'_>,
+    check_target: bool,
+) -> Result<(), DriveError> {
+    if check_target && exists(drive, item.to)? {
+        return Err(taken(item.to));
+    }
+    if check_target || item.version.is_some() {
+        let info = drive.head(item.from)?;
+        if let Some(version) = item.version {
+            if !same_etag(info.etag.as_deref(), version) {
+                return Err(DriveError::Conflict {
+                    key: item.from.to_string(),
+                });
+            }
+        }
+    }
+    if item.from.ends_with('/') {
+        drive.put(item.to, &[])
+    } else {
+        drive.copy(item.from, item.to)
+    }
 }

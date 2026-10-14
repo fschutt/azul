@@ -29,8 +29,8 @@ use std::{
 use azul_storage::{
     config::{keyring_key, DriveEntry},
     time::now_unix,
-    BucketSpace, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
-    S3Drive, ServiceError, Transport,
+    BatchDelete, BatchMove, BucketSpace, ByteRange, Drive, DriveError, ListPage, ListRequest,
+    ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
 };
 
 use crate::{
@@ -382,6 +382,35 @@ impl AzlinDrive {
         self.with_bucket(S3Drive::space)
     }
 
+    /// Runs the batch `call` on the bucket; the items the bucket refused for their credentials
+    /// (they expired half way) run once more with fresh ones. A batch always answers per item,
+    /// so even a bucket that cannot be reached answers every item with that.
+    fn batch_with_bucket<T, I: Copy>(
+        &self,
+        items: &[I],
+        call: impl Fn(&S3Drive, &[I]) -> Vec<Result<T, DriveError>>,
+    ) -> Vec<Result<T, DriveError>> {
+        let (bucket, key) = match self.bucket() {
+            Ok(found) => found,
+            Err(e) => return items.iter().map(|_| Err(e.clone())).collect(),
+        };
+        let mut results = call(&bucket, items);
+        let refused: Vec<usize> = (0..results.len())
+            .filter(|&i| matches!(&results[i], Err(e) if refused_credentials(e)))
+            .collect();
+        if refused.is_empty() {
+            return results;
+        }
+        let Ok(bucket) = self.after_refusal(&key) else {
+            return results;
+        };
+        let again: Vec<I> = refused.iter().map(|&i| items[i]).collect();
+        for (&i, result) in refused.iter().zip(call(&bucket, &again)) {
+            results[i] = result;
+        }
+        results
+    }
+
     /// Runs `call` on the bucket; when the bucket refuses the credentials, refreshes them and
     /// runs it once more.
     fn with_bucket<T>(
@@ -435,6 +464,12 @@ impl Drive for AzlinDrive {
     }
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         self.with_bucket(|b| b.delete(key))
+    }
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        self.batch_with_bucket(items, |b, items| b.delete_many(items))
+    }
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        self.batch_with_bucket(items, |b, items| b.move_many(items))
     }
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         self.with_bucket(|b| b.head(key))

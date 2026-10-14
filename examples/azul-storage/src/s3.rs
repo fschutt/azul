@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     sigv4::{self, SigningParams, EMPTY_SHA256},
     time::{amz_date, now_unix, parse_http_date},
-    xml, ByteRange, Drive, DriveError, HttpCall, HttpReply, ListPage, ListRequest, Method,
-    ObjectInfo, Precondition, Transport,
+    same_etag, xml, BatchDelete, ByteRange, Drive, DriveError, HttpCall, HttpReply, ListPage,
+    ListRequest, Method, ObjectInfo, Precondition, ServiceError, Transport, DELETE_BATCH,
 };
 
 /// S3's longest key, in bytes.
@@ -275,6 +275,15 @@ fn content_type_for(key: &str) -> &'static str {
 }
 
 /// Text for an XML element: `&`, `<` and `>` escaped (an ETag's quotes may stay).
+/// The `Content-MD5` of `body`: base64 of its MD5 digest. S3 asks for it on DeleteObjects (a
+/// body that names what to delete must arrive whole).
+pub(crate) fn content_md5(body: &[u8]) -> String {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use md5::{Digest, Md5};
+    let digest = Md5::digest(body);
+    STANDARD.encode(&digest[..])
+}
+
 fn xml_escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -893,6 +902,65 @@ impl S3Drive {
         failure(reply, key)
     }
 
+    /// DeleteObjects: `keys` (at most [`DELETE_BATCH`]) deleted in one request, in quiet mode
+    /// (the answer names only the keys that were not deleted). One result per key, in order; a
+    /// key that was not there counts as deleted. A service without the call (405, 501) gets one
+    /// DELETE per key instead.
+    pub fn delete_objects(&self, keys: &[&str]) -> Vec<Result<(), DriveError>> {
+        if keys.is_empty() {
+            return Vec::new();
+        }
+        let mut body = String::from("<Delete><Quiet>true</Quiet>");
+        for key in keys {
+            body.push_str("<Object><Key>");
+            body.push_str(&xml_escape(key));
+            body.push_str("</Key></Object>");
+        }
+        body.push_str("</Delete>");
+        let md5 = content_md5(body.as_bytes());
+        let reply = match self.send_raw(
+            Method::Post,
+            None,
+            vec![(String::from("delete"), String::new())],
+            vec![(String::from("content-md5"), md5)],
+            body.into_bytes(),
+            "application/xml",
+        ) {
+            Ok(reply) => reply,
+            Err(e) => return keys.iter().map(|_| Err(e.clone())).collect(),
+        };
+        if matches!(reply.status, 405 | 501) {
+            return keys.iter().map(|key| self.delete(key)).collect();
+        }
+        if !reply.is_success() {
+            let e = failure(&reply, None);
+            return keys.iter().map(|_| Err(e.clone())).collect();
+        }
+        let text = String::from_utf8_lossy(&reply.body);
+        let errors = if text.trim().is_empty() {
+            Vec::new()
+        } else {
+            match xml::parse_delete_errors(&text) {
+                Ok(errors) => errors,
+                Err(e) => return keys.iter().map(|_| Err(e.clone())).collect(),
+            }
+        };
+        keys.iter()
+            .map(|key| match errors.iter().find(|(named, _, _)| named == key) {
+                Some((_, code, message)) if code != "NoSuchKey" => {
+                    Err(DriveError::Service(ServiceError {
+                        status: reply.status,
+                        code: code.clone(),
+                        message: message.clone(),
+                        resource: Some((*key).to_string()),
+                        ..ServiceError::default()
+                    }))
+                }
+                _ => Ok(()),
+            })
+            .collect()
+    }
+
     /// PutObject of `bytes`: the new version's ETag, when the service sent one.
     pub(crate) fn put_object(
         &self,
@@ -1237,6 +1305,49 @@ impl Drive for S3Drive {
             DriveError::NotFound { .. } => Ok(()),
             other => Err(other),
         }
+    }
+
+    /// The versions an item names checked with a HEAD each (an edit made elsewhere beats a
+    /// delete), then [`DELETE_BATCH`] keys a request ([`S3Drive::delete_objects`]).
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
+        let mut go: Vec<usize> = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            if let Err(e) = check_s3_key(item.key) {
+                results[i] = Some(Err(e));
+                continue;
+            }
+            if let Some(version) = item.version {
+                match self.head(item.key) {
+                    Ok(info) if same_etag(info.etag.as_deref(), version) => {}
+                    Ok(_) => {
+                        results[i] = Some(Err(DriveError::Conflict {
+                            key: item.key.to_string(),
+                        }));
+                        continue;
+                    }
+                    Err(DriveError::NotFound { .. }) => {
+                        results[i] = Some(Ok(()));
+                        continue;
+                    }
+                    Err(e) => {
+                        results[i] = Some(Err(e));
+                        continue;
+                    }
+                }
+            }
+            go.push(i);
+        }
+        for chunk in go.chunks(DELETE_BATCH) {
+            let keys: Vec<&str> = chunk.iter().map(|&i| items[i].key).collect();
+            for (&i, result) in chunk.iter().zip(self.delete_objects(&keys)) {
+                results[i] = Some(result);
+            }
+        }
+        results
+            .into_iter()
+            .map(|result| result.unwrap_or(Ok(())))
+            .collect()
     }
 
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {

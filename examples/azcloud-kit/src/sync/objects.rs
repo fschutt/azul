@@ -16,7 +16,8 @@ use std::{
 };
 
 use azul_storage::{
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
+    BatchDelete, BatchMove, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
+    Precondition,
 };
 
 use crate::state::write_atomic;
@@ -164,6 +165,22 @@ impl Drive for ObjectCache {
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         self.evict(key)?;
         self.inner.delete(key)
+    }
+
+    /// The copies here dropped, then one batch for the bucket (its DeleteObjects).
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        for item in items {
+            let _ = self.evict(item.key);
+        }
+        self.inner.delete_many(items)
+    }
+
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        for item in items {
+            let _ = self.evict(item.from);
+            let _ = self.evict(item.to);
+        }
+        self.inner.move_many(items)
     }
 
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
