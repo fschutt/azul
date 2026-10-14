@@ -1976,6 +1976,25 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
     ) -> LayoutOutput {
         let node_idx: usize = node_id.into();
 
+        // The block axis has ONE intrinsic size, as in Chrome: a box is as
+        // tall as its content laid out at its width, whether the question is
+        // asked at min-content or at max-content height. taffy asks a
+        // column's items for their min-content height to find how far they
+        // may shrink, and a wrapping column answered with every item in a
+        // column of its own: a page of cards in a scroller was squeezed to
+        // that height instead of scrolling, and every card with it.
+        let inputs = if inputs.available_space.height == AvailableSpace::MinContent {
+            LayoutInput {
+                available_space: Size {
+                    width: inputs.available_space.width,
+                    height: AvailableSpace::MaxContent,
+                },
+                ..inputs
+            }
+        } else {
+            inputs
+        };
+
         // DEBUG: Log the style being used for this child
         if self.ctx.debug_messages.is_some() {
             let style = self.get_taffy_style(node_idx);
