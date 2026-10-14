@@ -1108,16 +1108,18 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         "font-size: 26px; font-weight: bold; color: system:text; margin-top: 0px; \
          margin-bottom: 4px;",
     );
-    let subtitle = Dom::create_p_with_text(
-        format!(
-            "Every built-in widget (callbacks fired so far: {})",
-            s.interactions
+    // The count moves in place on a callback that changes nothing else the
+    // page shows: its text carries a marker.
+    let subtitle = Dom::create_p()
+        .with_css(
+            "font-size: 13px; color: system:secondary-text; margin-top: 0px; margin-bottom: 20px;",
         )
-        .as_str(),
-    )
-    .with_css(
-        "font-size: 13px; color: system:secondary-text; margin-top: 0px; margin-bottom: 20px;",
-    );
+        .with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(counter_words(s.interactions))
+                .with_marker(azul::option::OptionString::Some(azul::str::String::from(
+                    COUNTER_MARKER,
+                ))),
+        );
 
     // The window is `NoTitle`: azul's own Titlebar draws the title row
     // (drag region, double-click, the traffic lights' room), as in every
@@ -1183,8 +1185,39 @@ fn bump(data: &mut RefAny) -> Update {
     keep(data, |_| {})
 }
 
-extern "C" fn on_button(mut data: RefAny, _: CallbackInfo) -> Update {
-    bump(&mut data)
+/// The marker on the subtitle's text: the count of the callbacks fired.
+const COUNTER_MARKER: &str = "callbacks-fired";
+
+/// The subtitle's words at `count` callbacks.
+fn counter_words(count: usize) -> String {
+    format!("Every built-in widget (callbacks fired so far: {count})")
+}
+
+/// A callback that changed nothing the page shows but the count: the count
+/// goes up in its text, in place - the page is not rebuilt for it. Without
+/// the marked text (another window's page) it is rebuilt as before.
+fn count_only(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let count = match data.downcast_mut::<Showcase>() {
+        Some(mut s) => {
+            s.interactions += 1;
+            s.interactions
+        }
+        None => return Update::DoNothing,
+    };
+    match info
+        .get_node_id_by_marker(azul::str::String::from(COUNTER_MARKER))
+        .into_option()
+    {
+        Some(node) => {
+            info.change_node_text(node, azul::str::String::from(counter_words(count)));
+            Update::DoNothing
+        }
+        None => Update::RefreshDom,
+    }
+}
+
+extern "C" fn on_button(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    count_only(&mut data, &mut info)
 }
 extern "C" fn on_checkbox(mut data: RefAny, _: CallbackInfo, state: CheckBoxState) -> Update {
     match data.downcast_mut::<Showcase>() {
@@ -1280,10 +1313,10 @@ extern "C" fn on_textarea_input(
 }
 extern "C" fn on_textarea_focus_lost(
     mut data: RefAny,
-    _: CallbackInfo,
+    mut info: CallbackInfo,
     _: TextAreaState,
 ) -> Update {
-    bump(&mut data)
+    count_only(&mut data, &mut info)
 }
 extern "C" fn on_combobox(mut data: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
     if let Some(mut s) = data.downcast_mut::<Showcase>() {
@@ -1291,11 +1324,11 @@ extern "C" fn on_combobox(mut data: RefAny, _: CallbackInfo, state: ComboBoxStat
     }
     bump(&mut data)
 }
-extern "C" fn on_chip_remove(mut data: RefAny, _: CallbackInfo, _: ChipState) -> Update {
-    bump(&mut data)
+extern "C" fn on_chip_remove(mut data: RefAny, mut info: CallbackInfo, _: ChipState) -> Update {
+    count_only(&mut data, &mut info)
 }
-extern "C" fn on_alert_dismiss(mut data: RefAny, _: CallbackInfo, _: AlertState) -> Update {
-    bump(&mut data)
+extern "C" fn on_alert_dismiss(mut data: RefAny, mut info: CallbackInfo, _: AlertState) -> Update {
+    count_only(&mut data, &mut info)
 }
 /// The modal dialog's content: a message and two buttons that close it
 /// with a return value (HTML `dialog.close(value)`).
@@ -1354,8 +1387,8 @@ extern "C" fn on_accordion(mut data: RefAny, _: CallbackInfo, index: usize) -> U
     }
     bump(&mut data)
 }
-extern "C" fn on_breadcrumb(mut data: RefAny, _: CallbackInfo, _: BreadcrumbState) -> Update {
-    bump(&mut data)
+extern "C" fn on_breadcrumb(mut data: RefAny, mut info: CallbackInfo, _: BreadcrumbState) -> Update {
+    count_only(&mut data, &mut info)
 }
 extern "C" fn on_pagination(mut data: RefAny, _: CallbackInfo, state: PaginationState) -> Update {
     if let Some(mut s) = data.downcast_mut::<Showcase>() {
@@ -1369,8 +1402,8 @@ extern "C" fn on_stepper(mut data: RefAny, _: CallbackInfo, state: StepperState)
     }
     bump(&mut data)
 }
-extern "C" fn on_popover_close(mut data: RefAny, _: CallbackInfo, _: DialogState) -> Update {
-    bump(&mut data)
+extern "C" fn on_popover_close(mut data: RefAny, mut info: CallbackInfo, _: DialogState) -> Update {
+    count_only(&mut data, &mut info)
 }
 extern "C" fn on_splitpane(mut data: RefAny, _: CallbackInfo, state: SplitPaneState) -> Update {
     if let Some(mut s) = data.downcast_mut::<Showcase>() {
