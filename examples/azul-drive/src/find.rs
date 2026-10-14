@@ -1279,8 +1279,17 @@ impl SearchScope {
     /// drive, so every drive is searched there.
     #[must_use]
     pub fn root(self, place: &Place) -> SearchRoot {
-        let _ = place;
-        todo!()
+        match (self, place) {
+            (SearchScope::Folder, Place::Folder { drive, prefix }) => SearchRoot::Folder {
+                drive: drive.clone(),
+                prefix: prefix.clone(),
+            },
+            (SearchScope::Drive, Place::Folder { drive, .. }) => SearchRoot::Folder {
+                drive: drive.clone(),
+                prefix: String::new(),
+            },
+            _ => SearchRoot::AllDrives,
+        }
     }
 }
 
@@ -1290,8 +1299,14 @@ pub const RECENT_SEARCHES: usize = 6;
 /// Remembers `query` as the newest recent search: none shorter than two characters, the same
 /// text (in any case) only once, [`RECENT_SEARCHES`] at most.
 pub fn remember_search(recent: &mut Vec<String>, query: &str) {
-    let _ = (recent, query);
-    todo!()
+    let query = query.trim();
+    if query.chars().count() < 2 {
+        return;
+    }
+    let folded = query.to_lowercase();
+    recent.retain(|old| old.to_lowercase() != folded);
+    recent.insert(0, query.to_string());
+    recent.truncate(RECENT_SEARCHES);
 }
 
 /// A search kept in AzDrive's settings (Save search): its name, the search box's text, the

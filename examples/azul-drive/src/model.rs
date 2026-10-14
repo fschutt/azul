@@ -824,6 +824,9 @@ pub struct Settings {
     pub recovery: crate::recovery_health::RecoverySettings,
     /// What the search box searches: the open folder, its drive (the default) or every drive.
     pub search_scope: crate::find::SearchScope,
+    /// The searches run last, newest first (`find::remember_search`): the empty search view's
+    /// chips.
+    pub recent_searches: Vec<String>,
     /// The rows' heights of the folder view and the navigation pane.
     pub density: Density,
 }
@@ -854,6 +857,7 @@ impl Default for Settings {
             synced: Vec::new(),
             recovery: crate::recovery_health::RecoverySettings::default(),
             search_scope: crate::find::SearchScope::Drive,
+            recent_searches: Vec::new(),
             density: Density::Normal,
         }
     }
