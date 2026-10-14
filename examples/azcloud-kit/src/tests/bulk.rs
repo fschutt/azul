@@ -706,8 +706,13 @@ mod encrypted {
         }
     }
 
+    /// The files (not the folders: a drive index keeps an emptied folder) under `prefix`.
     fn on_drive(drive: &dyn Drive, prefix: &str) -> usize {
-        list_all(drive, &format!("Docs/{prefix}")).unwrap().len()
+        list_all(drive, &format!("Docs/{prefix}"))
+            .unwrap()
+            .iter()
+            .filter(|object| !object.key.ends_with('/'))
+            .count()
     }
 
     #[test]
