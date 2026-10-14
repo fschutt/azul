@@ -904,63 +904,70 @@ impl DenseText {
         self.last_cluster_cursor().unwrap_or(cursor)
     }
 
-    /// (d6d) Point -> cursor hit test — the SAME weighted-distance scan
-    /// as the sparse `hittest_cursor` (vertical distance x2 + horizontal
-    /// outside-distance; closest cluster wins; affinity by midpoint).
-    /// Cluster geometry from the dense arrays: x/width from
-    /// `ClusterCompact` (base advance == bounds().width), y/height from the
-    /// line record + the run's resolved line height. Also the
+    /// (d6d) Point -> cursor hit test by the SAME rule as the sparse
+    /// [`UnifiedLayout::hittest_cursor`]: the line whose band holds the
+    /// point (else the nearest band), on it the cluster under the point (else
+    /// the nearest), and the caret on that cluster's edge nearest the point,
+    /// read in the run's direction. Cluster geometry from the dense arrays:
+    /// x/width from `ClusterCompact` (base advance == bounds().width), the
+    /// band from the run's own y and resolved line height. Also the
     /// click-to-position primitive.
+    ///
+    /// [`UnifiedLayout::hittest_cursor`]: crate::text3::cache::UnifiedLayout::hittest_cursor
     #[must_use]
     pub fn hittest_cursor(&self, point: Point) -> Option<azul_core::selection::TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
         if self.clusters.is_empty() {
             return None;
         }
-        let mut best: Option<(f32, u32, &DenseRun, f32)> = None; // (dist, ci, run, x)
-        let mut line_iter = self.lines.iter().peekable();
-        for (ci, run) in self
-            .runs
-            .iter()
-            .flat_map(|r| (r.clusters.start..r.clusters.end).map(move |i| (i, r)))
-        {
-            let c = &self.clusters[ci as usize];
-            while let Some(l) = line_iter.peek() {
-                if ci >= l.clusters.1 {
-                    line_iter.next();
-                } else {
-                    break;
+        // Every line's band: the union of its clusters' boxes.
+        let mut bands: Vec<Option<(f32, f32)>> = vec![None; self.lines.len()];
+        let mut line = 0usize;
+        for run in &self.runs {
+            for ci in run.clusters.start..run.clusters.end {
+                while line < self.lines.len() && ci >= self.lines[line].clusters.1 {
+                    line += 1;
                 }
-            }
-            let (top_y, line_h) = line_iter.peek().map_or((0.0, 0.0), |l| (l.top_y, l.height));
-            let m = &run.font_metrics;
-            let h = if m.units_per_em == 0 {
-                line_h
-            } else {
-                run.style
-                    .line_height
-                    .resolve_with_metrics(run.style.font_size_px, m)
-            };
-            let center_y = top_y + h / 2.0;
-            let vertical = (point.y - center_y).abs();
-            let horizontal = if point.x < c.x {
-                c.x - point.x
-            } else if point.x > c.x + c.advance {
-                point.x - (c.x + c.advance)
-            } else {
-                0.0
-            };
-            let dist = vertical.mul_add(2.0, horizontal);
-            if best.is_none_or(|(d, ..)| dist < d) {
-                best = Some((dist, ci, run, c.x));
+                let Some(slot) = bands.get_mut(line) else {
+                    break;
+                };
+                let h = if run.font_metrics.units_per_em == 0 {
+                    self.lines[line].height
+                } else {
+                    run.style
+                        .line_height
+                        .resolve_with_metrics(run.style.font_size_px, &run.font_metrics)
+                };
+                let (top, bottom) = (run.y, run.y + h);
+                *slot = Some(slot.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
             }
         }
-        let (_, ci, run, x) = best?;
+        let line = crate::text3::cache::nearest_band(
+            bands
+                .iter()
+                .enumerate()
+                .filter_map(|(ordinal, band)| band.map(|b| (ordinal, b))),
+            point.y,
+        )?;
+        let (first, end) = self.lines[line].clusters;
+
+        let mut best: Option<(f32, u32, &DenseRun)> = None;
+        for run in &self.runs {
+            for ci in run.clusters.start.max(first)..run.clusters.end.min(end) {
+                let c = &self.clusters[ci as usize];
+                let distance = crate::text3::cache::distance_outside(point.x, c.x, c.advance);
+                if best.is_none_or(|(d, ..)| distance < d) {
+                    best = Some((distance, ci, run));
+                }
+            }
+        }
+        let (_, ci, run) = best?;
         let c = &self.clusters[ci as usize];
-        let affinity = if point.x < x + c.advance / 2.0 {
-            CursorAffinity::Leading
-        } else {
+        let on_left_half = point.x < c.x + c.advance / 2.0;
+        let affinity = if on_left_half == run.direction.is_rtl() {
             CursorAffinity::Trailing
+        } else {
+            CursorAffinity::Leading
         };
         Some(TextCursor {
             cluster_id: GraphemeClusterId {

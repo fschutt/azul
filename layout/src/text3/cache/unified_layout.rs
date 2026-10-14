@@ -205,95 +205,150 @@ impl UnifiedLayout {
     /// untyped for the text-layout unit tests, which construct layouts
     /// directly and have no boxes, padding or scrolling to speak of.
     ///
-    /// This is the unified hit-testing implementation.
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    /// The line comes first: the one whose band holds the point, else the
+    /// nearest one, as in a browser. A point beside a short line is on that
+    /// line, however close the next line's text comes. On the line, the
+    /// grapheme under the point (or the nearest one) gives the caret on its
+    /// edge nearest the point. Which edge is the grapheme's start depends on
+    /// its direction: the left one in left-to-right text, the right one in
+    /// right-to-left text. So the caret is drawn where the click was.
+    ///
+    /// [`text3::dense::DenseText::hittest_cursor`] answers the same question
+    /// on the dense arrays, by the same rule.
+    ///
+    /// [`text3::dense::DenseText::hittest_cursor`]: crate::text3::dense::DenseText::hittest_cursor
     #[must_use]
     pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
-        if self.items.is_empty() {
-            return None;
-        }
-
-        // Find the closest cluster vertically and horizontally
-        let mut closest_item_idx = 0;
-        let mut closest_distance = f32::MAX;
-
-        for (idx, item) in self.items.iter().enumerate() {
-            // Only consider cluster items for cursor placement
-            if !matches!(item.item, ShapedItem::Cluster(_)) {
-                continue;
-            }
-
-            let item_bounds = item.item.bounds();
-            let item_center_y = item.position.y + item_bounds.height / 2.0;
-
-            // Distance from click position to item center
-            let vertical_distance = (point.y - item_center_y).abs();
-
-            // For horizontal distance, check if we're within the cluster bounds
-            let horizontal_distance = if point.x < item.position.x {
-                item.position.x - point.x
-            } else if point.x > item.position.x + item_bounds.width {
-                point.x - (item.position.x + item_bounds.width)
-            } else {
-                0.0 // Inside the cluster horizontally
-            };
-
-            // Combined distance (prioritize vertical proximity)
-            let distance = vertical_distance * 2.0 + horizontal_distance;
-
-            if distance < closest_distance {
-                closest_distance = distance;
-                closest_item_idx = idx;
-            }
-        }
-
-        // Get the closest cluster
-        let closest_item = &self.items[closest_item_idx];
-        let cluster = match &closest_item.item {
-            ShapedItem::Cluster(c) => c,
-            // Objects are treated as a single cluster for selection
-            ShapedItem::Object { source, .. } | ShapedItem::CombinedBlock { source, .. } => {
-                return Some(TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: source.run_index,
-                        start_byte_in_run: source.item_index,
-                    },
-                    affinity: if point.x
-                        < closest_item.position.x + (closest_item.item.bounds().width / 2.0)
-                    {
-                        CursorAffinity::Leading
-                    } else {
-                        CursorAffinity::Trailing
-                    },
-                });
-            }
-            _ => return None,
-        };
-
-        // Determine affinity based on which half of the cluster was clicked
-        let cluster_mid_x = closest_item.position.x + cluster.advance / 2.0;
-        let affinity = if point.x < cluster_mid_x {
-            CursorAffinity::Leading
-        } else {
+        let (index, cluster) = self.cluster_under(point)?;
+        let item = &self.items[index];
+        let on_left_half = point.x < item.position.x + cluster.advance / 2.0;
+        let affinity = if on_left_half == cluster.direction.is_rtl() {
             CursorAffinity::Trailing
+        } else {
+            CursorAffinity::Leading
         };
-
         Some(TextCursor {
             cluster_id: cluster.source_cluster_id,
             affinity,
         })
     }
 
+    /// The positioned cluster a point resolves to: on the line whose band
+    /// holds the point (the nearest band when none does), the cluster under
+    /// the point or else the nearest one on that line. A line's band is the
+    /// union of its clusters' boxes.
+    fn cluster_under(&self, point: LogicalPosition) -> Option<(usize, &ShapedCluster)> {
+        let mut bands: std::collections::BTreeMap<usize, (f32, f32)> =
+            std::collections::BTreeMap::new();
+        for item in &self.items {
+            if !matches!(item.item, ShapedItem::Cluster(_)) {
+                continue;
+            }
+            let top = item.position.y;
+            let bottom = top + item.item.bounds().height;
+            bands
+                .entry(item.line_index)
+                .and_modify(|band| {
+                    band.0 = band.0.min(top);
+                    band.1 = band.1.max(bottom);
+                })
+                .or_insert((top, bottom));
+        }
+        let line = nearest_band(bands.iter().map(|(line, band)| (*line, *band)), point.y)?;
+
+        let mut best: Option<(f32, usize, &ShapedCluster)> = None;
+        for (index, item) in self.items.iter().enumerate() {
+            let ShapedItem::Cluster(cluster) = &item.item else {
+                continue;
+            };
+            if item.line_index != line {
+                continue;
+            }
+            let distance =
+                distance_outside(point.x, item.position.x, item.item.bounds().width);
+            if best.is_none_or(|(d, ..)| distance < d) {
+                best = Some((distance, index, cluster));
+            }
+        }
+        best.map(|(_, index, cluster)| (index, cluster))
+    }
+
     /// The caret a selection drag that started at `anchor` reaches with the
     /// pointer at `point` (this layout's own space, as for
     /// [`Self::hittest_cursor`]).
+    ///
+    /// Where a run of one direction meets a run of the other, one edge on
+    /// screen is two places in the text: the end of "abc" and the end of the
+    /// Arabic word drawn right after it stand at the same x. The hit test
+    /// names the place in the grapheme under the pointer; a drag takes the
+    /// place in the run whose direction is the anchor's instead, as Chrome
+    /// does, so the highlight ends at the pointer. The other place would
+    /// select the whole reversed run beyond it.
     #[must_use]
     pub fn hittest_selection_focus(
         &self,
-        _anchor: &TextCursor,
+        anchor: &TextCursor,
         point: LogicalPosition,
     ) -> Option<TextCursor> {
-        self.hittest_cursor(point)
+        let hit = self.hittest_cursor(point)?;
+        let anchor_direction = self
+            .items
+            .iter()
+            .find_map(|item| match &item.item {
+                ShapedItem::Cluster(c) if c.source_cluster_id == anchor.cluster_id => {
+                    Some(c.direction)
+                }
+                _ => None,
+            });
+        let Some(anchor_direction) = anchor_direction else {
+            return Some(hit);
+        };
+        let Some((item, cluster)) = self.items.iter().find_map(|item| match &item.item {
+            ShapedItem::Cluster(c) if c.source_cluster_id == hit.cluster_id => Some((item, c)),
+            _ => None,
+        }) else {
+            return Some(hit);
+        };
+        if cluster.direction == anchor_direction {
+            return Some(hit);
+        }
+        // The caret's edge on screen, and the grapheme drawn on its other side.
+        let on_right_edge = (hit.affinity == CursorAffinity::Trailing) != cluster.direction.is_rtl();
+        let edge_x = if on_right_edge {
+            item.position.x + cluster.advance
+        } else {
+            item.position.x
+        };
+        let neighbour = self.items.iter().find_map(|other| match &other.item {
+            ShapedItem::Cluster(c)
+                if other.line_index == item.line_index
+                    && c.source_cluster_id != cluster.source_cluster_id
+                    && c.direction == anchor_direction =>
+            {
+                let touching_x = if on_right_edge {
+                    other.position.x
+                } else {
+                    other.position.x + c.advance
+                };
+                ((touching_x - edge_x).abs() < 0.5).then_some(c)
+            }
+            _ => None,
+        });
+        let Some(neighbour) = neighbour else {
+            return Some(hit);
+        };
+        // The neighbour touches the edge with its left side when the caret
+        // stands on the hit grapheme's right side; a left side is the start
+        // of left-to-right text and the end of right-to-left text.
+        let affinity = if on_right_edge == neighbour.direction.is_rtl() {
+            CursorAffinity::Trailing
+        } else {
+            CursorAffinity::Leading
+        };
+        Some(TextCursor {
+            cluster_id: neighbour.source_cluster_id,
+            affinity,
+        })
     }
 
     /// Given a logical selection range, returns a vector of visual rectangles
@@ -1453,6 +1508,41 @@ pub enum IncrementalRelayoutResult {
     },
     /// Cannot do incremental — fall back to full relayout.
     FullRelayout,
+}
+
+/// The line a point at height `y` is on: the one whose band `(top, bottom)`
+/// holds `y`, else the one nearest to it. Where bands overlap (a tall glyph
+/// reaching into the next line), the line whose middle is nearer wins; a tie
+/// goes to the earlier line. `None` without lines.
+///
+/// One rule for the sparse and the dense hit test, so both put a click on
+/// the same line.
+pub(crate) fn nearest_band(
+    bands: impl IntoIterator<Item = (usize, (f32, f32))>,
+    y: f32,
+) -> Option<usize> {
+    let mut best: Option<(f32, f32, usize)> = None;
+    for (line, (top, bottom)) in bands {
+        let outside = distance_outside(y, top, bottom - top);
+        let off_middle = (y - (top + bottom) / 2.0).abs();
+        let better = best.is_none_or(|(d, m, _)| outside < d || (outside <= d && off_middle < m));
+        if better {
+            best = Some((outside, off_middle, line));
+        }
+    }
+    best.map(|(_, _, line)| line)
+}
+
+/// How far `v` lies outside the span from `start` to `start + length`: zero
+/// inside it.
+pub(crate) fn distance_outside(v: f32, start: f32, length: f32) -> f32 {
+    if v < start {
+        start - v
+    } else if v > start + length {
+        v - (start + length)
+    } else {
+        0.0
+    }
 }
 
 /// Extract line break boundaries from a positioned items list.

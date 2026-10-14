@@ -25183,7 +25183,7 @@ impl LayoutWindow {
         // materialized layout, with the blank-line caret built in - dragging
         // BACK onto a blank line inside the anchor block is the same question
         // as arriving on one.
-        let focus = self.text_target(block)?.hittest(local_pos)?;
+        let focus = self.text_target(block)?.hittest_focus(&anchor, local_pos)?;
 
         // Compared as ids, `Trailing` on a grapheme and `Leading` on the next
         // made a range of nothing out of a drag that moved nowhere.

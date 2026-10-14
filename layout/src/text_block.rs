@@ -253,6 +253,21 @@ impl TextTarget {
             .or_else(|| self.blank_line_caret())
     }
 
+    /// The caret a selection drag from `anchor` reaches at `point`: as
+    /// [`Self::hittest`], but at the edge between two runs of opposite
+    /// direction it takes the place in the anchor's run
+    /// ([`UnifiedLayout::hittest_selection_focus`]).
+    #[must_use]
+    pub fn hittest_focus(
+        &self,
+        anchor: &TextCursor,
+        point: ScrolledContentPoint,
+    ) -> Option<TextCursor> {
+        self.layout
+            .hittest_selection_focus(anchor, point.get())
+            .or_else(|| self.blank_line_caret())
+    }
+
     /// The caret at column `x` - in the block's own (scrolled content)
     /// space - on the block's first line, or with `last_line` on its last:
     /// where Down off the last line of the block above lands, and Up off the
