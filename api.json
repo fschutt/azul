@@ -200722,10 +200722,10 @@
                             }
                         ],
                         "functions": {
-                            "is_near": {
+                            "near_verdict": {
                                 "doc": [
-                                    "`Some(true)` near, `Some(false)` far, `None` for a distance - which",
-                                    "only the app can turn into a verdict, against its own threshold."
+                                    "The sensor's own near/far verdict: `Some(true)` near, `Some(false)` far, `None` for a",
+                                    "measured distance, which only the app can judge against its own threshold."
                                 ],
                                 "fn_args": [
                                     {
@@ -200735,7 +200735,7 @@
                                 "returns": {
                                     "type": "OptionBool"
                                 },
-                                "fn_body": "object.is_near().into()"
+                                "fn_body": "object.near_verdict().into()"
                             }
                         },
                         "repr": "C, u8"
