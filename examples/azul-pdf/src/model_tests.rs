@@ -378,6 +378,68 @@ fn at_a_fixed_zoom_a_window_resize_scales_no_page() {
     assert_eq!(art.factor, 1.0);
 }
 
+#[test]
+fn a_window_drag_shows_each_page_as_its_picture() {
+    assert_eq!(
+        page_face(true, Some("dom"), Some("picture")),
+        PageFace::Picture("picture"),
+        "a drag step lays no page's text out again"
+    );
+}
+
+#[test]
+fn a_settled_view_shows_each_pages_dom() {
+    assert_eq!(
+        page_face(false, Some("dom"), Some("picture")),
+        PageFace::Dom("dom")
+    );
+}
+
+#[test]
+fn a_drag_before_a_pages_picture_is_made_shows_its_dom() {
+    assert_eq!(
+        page_face::<&str, &str>(true, Some("dom"), None),
+        PageFace::Dom("dom")
+    );
+    assert_eq!(page_face::<&str, &str>(true, None, None), PageFace::Blank);
+}
+
+#[test]
+fn every_step_of_a_drag_wants_the_pictures_it_has() {
+    // The pictures are drawn at the settled scale, which a drag does not
+    // move: once they are made, no step of the drag draws a page again.
+    let t0 = Instant::now();
+    let mut view = settled_view(t0);
+    let scale_of = |view: &ViewSize| {
+        let (w, h) = view.settled();
+        Zoom::FitWidth.scale(w, h, &[LETTER])
+    };
+    let mut pictures = PageCache::new(4);
+    pictures.insert(0, picture_width(LETTER, scale_of(&view)), ());
+    for step in 1..=12_u64 {
+        view.see(
+            (1200.0 - step as f32 * 24.0, 800.0),
+            at(t0, 1000 + step * 16),
+        );
+        let width = picture_width(LETTER, scale_of(&view));
+        assert!(
+            plan_renders(&[0], width, |p| pictures.has(p, width), &[], 1).is_empty(),
+            "step {step} draws the page again"
+        );
+    }
+}
+
+#[test]
+fn a_page_picture_is_drawn_one_px_per_css_px_at_the_settled_scale() {
+    let settled = Zoom::FitWidth.scale(1200.0, 800.0, &[LETTER]);
+    let width = picture_width(LETTER, settled);
+    assert_eq!(width, render_width(LETTER.css(settled).0, 1.0));
+    assert!(
+        width as f32 >= LETTER.css(settled).0,
+        "never narrower than the page"
+    );
+}
+
 // ==== search ====
 
 fn pages() -> Vec<String> {
