@@ -1093,3 +1093,5 @@ mod a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout;
 mod a_marker_stands_where_the_ground_shows_its_place;
 #[path = "a_closing_window_hands_its_app_threads_to_a_window_that_stays_open.rs"]
 mod a_closing_window_hands_its_app_threads_to_a_window_that_stays_open;
+#[path = "a_picture_scaled_down_by_max_width_and_max_height_keeps_its_proportions.rs"]
+mod a_picture_scaled_down_by_max_width_and_max_height_keeps_its_proportions;
