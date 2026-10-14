@@ -33,7 +33,11 @@
 //! `-` zoom (not while a travel field is being typed in). The tiles come from
 //! `--tiles <url template>`, else `AZMAPS_TILES`, else the shared Azlin
 //! config's `endpoints.tiles` (a local tile server for an offline run), else
-//! the map widget's own (OpenFreeMap's public planet tiles).
+//! the map widget's own (OpenFreeMap's public planet tiles). Downloaded tiles
+//! are kept in the data folder (`maps/tiles/`) as long as the tile server says
+//! they are fresh, so a restart shows them without a download; the world at
+//! zoom 0 and 1 ships in the binary (`assets/seed/`), so the map shows the
+//! world before any download and offline.
 //!
 //! stdout, for scripts (`scripts/azmaps_e2e.py`): `AZMAPS_VIEW <lat> <lon>
 //! <zoom>` on every viewport change, `AZMAPS_PINS <n>` when the pins change,
