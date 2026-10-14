@@ -4650,19 +4650,22 @@ mod autotest_generated {
     }
 
     #[test]
-    fn from_layout_width_ignores_the_font_sizes_for_non_calc_values() {
-        // em_size/rem_size are only wired into the calc() context; the Px path uses
-        // the hard-coded 16px fallback. Passing NaN font sizes must therefore not
-        // corrupt a plain `width: 2em`.
+    fn from_layout_width_resolves_em_and_rem_against_the_nodes_font_sizes() {
+        // Chrome resolves `em` against the element's own font size and `rem`
+        // against the root's, not against a 16px default.
         let storage = empty_calc_storage();
         assert_eq!(
-            from_layout_width(
-                LayoutWidth::Px(PixelValue::em(2.0)),
-                &storage,
-                f32::NAN,
-                f32::INFINITY
-            ),
-            Dimension::length(32.0)
+            from_layout_width(LayoutWidth::Px(PixelValue::em(2.0)), &storage, 11.0, 20.0),
+            Dimension::length(22.0)
+        );
+        assert_eq!(
+            from_layout_width(LayoutWidth::Px(PixelValue::rem(2.0)), &storage, 11.0, 20.0),
+            Dimension::length(40.0)
+        );
+        assert_eq!(
+            from_layout_width(LayoutWidth::Px(PixelValue::px(30.0)), &storage, 11.0, 20.0),
+            Dimension::length(30.0),
+            "a px width does not depend on the font"
         );
     }
 
