@@ -47,7 +47,6 @@ azpdf-matches =
 azpdf-no-matches-for = No matches for “{ $query }”
 azpdf-close-search = Close the search
 azpdf-and-more = … and { $count } more
-azpdf-page-of = Page { $page } of { $count }
 azpdf-landscape = landscape
 
 ## Shortcuts

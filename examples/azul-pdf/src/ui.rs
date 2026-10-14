@@ -32,7 +32,7 @@ use azul::{
     },
 };
 use azul_appkit::{
-    l10n::{begin_layout, t, t_args, Arg},
+    l10n::{begin_layout, labels, t, t_args, Arg},
     ui as kit,
 };
 
@@ -278,7 +278,7 @@ fn toolbar_items(s: &AppState, data: &RefAny) -> Vec<ToolbarItem> {
 
     let has_form = s.doc.as_ref().is_some_and(|d| !d.fields.is_empty());
     let mut items = vec![
-        ToolbarItem::create_button(ids::OPEN, t("azpdf-open"), "folder_open").with_show_label(true),
+        ToolbarItem::create_button(ids::OPEN, t("azpdf-open"), "folder_open"),
         ToolbarItem::create_separator(),
         prev,
         ToolbarItem::create_custom(ids::PAGE_FIELD, t("azpdf-page"), page_field, 56.0),
@@ -302,8 +302,7 @@ fn toolbar_items(s: &AppState, data: &RefAny) -> Vec<ToolbarItem> {
         // After Open: the document's own command.
         items.insert(
             1,
-            ToolbarItem::create_button(ids::EXPORT_FILLED, t("azpdf-export-filled"), "download")
-                .with_show_label(true),
+            ToolbarItem::create_button(ids::EXPORT_FILLED, t("azpdf-export-filled"), "download"),
         );
     }
     items
@@ -716,7 +715,7 @@ fn navigation(s: &AppState, data: &RefAny) -> Dom {
         Dom::create_div()
             .with_css("padding: 6px 8px; flex-shrink: 0;")
             .with_child(
-                Segmented::create(strs(&["azpdf-pages", "azpdf-outline"]))
+                Segmented::create(labels(&["azpdf-pages", "azpdf-outline"]))
                     .with_selected_index(usize::from(s.nav == Nav::Outline))
                     .with_on_change(
                         data.clone(),
@@ -971,8 +970,9 @@ fn status_bar(s: &AppState) -> Dom {
     StatusBar::create(segments).dom()
 }
 
-/// The status line's figures about the document, each with its icon (empty for none): the
-/// page of `count`, the page's `size`, the `zoom` at `percent`.
+/// The status line's figures about the document, each beside its icon (empty for none): the
+/// page of `count`, the page's `size`, the `zoom` at `percent`. Figures, not sentences: the
+/// icons say what they are, and the toolbar beside them names the same things in words.
 fn status_figures(
     page: usize,
     count: usize,
@@ -980,23 +980,15 @@ fn status_figures(
     zoom: Zoom,
     percent: u32,
 ) -> Vec<(&'static str, String)> {
-    let mut figures = vec![(
-        "",
-        t_args(
-            "azpdf-page-of",
-            &[("page", Arg::from(page + 1)), ("count", Arg::from(count))],
-        ),
-    )];
+    let mut figures = vec![("description", format!("{} / {count}", page + 1))];
     if let Some(size) = size {
-        figures.push(("", size_label(size)));
+        figures.push(("straighten", size_label(size)));
     }
-    figures.push((
-        "",
-        match zoom {
-            Zoom::Percent(_) => format!("{percent} %"),
-            other => format!("{} ({percent} %)", other.label()),
-        },
-    ));
+    let zoom_icon = match zoom {
+        Zoom::Percent(_) => "zoom_in",
+        Zoom::FitWidth | Zoom::FitPage => "fit_screen",
+    };
+    figures.push((zoom_icon, format!("{percent} %")));
     figures
 }
 
