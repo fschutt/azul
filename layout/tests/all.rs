@@ -1101,3 +1101,5 @@ mod opentype_features_reach_the_shaper;
 mod small_capitals_are_synthesized_like_chrome;
 #[path = "a_tracked_label_centres_once_its_last_tracking_is_given_back.rs"]
 mod a_tracked_label_centres_once_its_last_tracking_is_given_back;
+#[path = "line_clamp_ends_its_last_line_with_an_ellipsis.rs"]
+mod line_clamp_ends_its_last_line_with_an_ellipsis;
