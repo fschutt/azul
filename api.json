@@ -25090,6 +25090,26 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "MapMarkerTapCallbackType": {
+                        "external": "azul_layout::widgets::map::MapMarkerTapCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "u64"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -38175,6 +38195,38 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "MapMarkerTapCallback": {
+                        "external": "azul_layout::widgets::map::MapMarkerTapCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "MapMarkerTapCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -53258,6 +53310,24 @@
                                 "Icon": {}
                             }
                         ],
+                        "functions": {
+                            "to_color_token": {
+                                "doc": [
+                                    "This system colour as a colour token: a reserved, fully transparent ColorU that the",
+                                    "engine resolves to the current theme's colour wherever it reads a computed colour (a",
+                                    "border, a background, a map line). A reader that never resolves it paints nothing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ColorU"
+                                },
+                                "fn_body": "object.to_color_token()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "SafeAreaInsets": {
@@ -60553,6 +60623,12 @@
                                 },
                                 "on_mount": {
                                     "type": "OptionMapMount"
+                                },
+                                "overlays": {
+                                    "type": "MapOverlayVec"
+                                },
+                                "on_marker_tap": {
+                                    "type": "OptionMapMarkerTap"
                                 }
                             }
                         ],
@@ -60679,51 +60755,6 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_viewport_changed(data, callback)"
-                            },
-                            "latlon_at_px": {
-                                "doc": [
-                                    "Project a screen pixel `px` (relative to the map node's top-left, in a",
-                                    "node of size `container`) to a lat/lon on the map at `viewport`. Small-",
-                                    "angle Mercator (accurate at city zooms). Inverse of",
-                                    "[`px_at_latlon`](Self::px_at_latlon). Exposed so apps don't reimplement",
-                                    "the projection (e.g. to drop a pin where the user tapped)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "viewport": "MapViewport"
-                                    },
-                                    {
-                                        "px": "LogicalPosition"
-                                    },
-                                    {
-                                        "container": "LogicalSize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MapLatLon"
-                                },
-                                "fn_body": "azul_layout::widgets::map::MapWidget::latlon_at_px(viewport, px, container)"
-                            },
-                            "px_at_latlon": {
-                                "doc": [
-                                    "Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in",
-                                    "container pixels at `viewport`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "viewport": "MapViewport"
-                                    },
-                                    {
-                                        "coord": "MapLatLon"
-                                    },
-                                    {
-                                        "container": "LogicalSize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "LogicalPosition"
-                                },
-                                "fn_body": "azul_layout::widgets::map::MapWidget::px_at_latlon(viewport, coord, container)"
                             },
                             "set_on_pin_tap": {
                                 "doc": [
@@ -60861,6 +60892,139 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_mount(data, callback)"
+                            },
+                            "set_overlays": {
+                                "doc": [
+                                    "Draw `overlays` on the map (lines, areas, markers), replacing the",
+                                    "ones set before."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "overlays": "MapOverlayVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_overlays(overlays)"
+                            },
+                            "with_overlays": {
+                                "doc": [
+                                    "Builder form of [`set_overlays`](Self::set_overlays)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "overlays": "MapOverlayVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_overlays(overlays)"
+                            },
+                            "add_overlay": {
+                                "doc": [
+                                    "Draw `overlay` on the map, over the ones added before."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "overlay": "MapOverlay"
+                                    }
+                                ],
+                                "fn_body": "object.add_overlay(overlay)"
+                            },
+                            "set_on_marker_tap": {
+                                "doc": [
+                                    "Set a hook fired when the user taps a marker, with the marker's `id`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "MapMarkerTapCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_marker_tap(data, callback)"
+                            },
+                            "with_on_marker_tap": {
+                                "doc": [
+                                    "Builder form of [`set_on_marker_tap`](Self::set_on_marker_tap)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "MapMarkerTapCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_on_marker_tap(data, callback)"
+                            },
+                            "latlon_at_px": {
+                                "doc": [
+                                    "Project a screen pixel `px` (relative to the map node's top-left, in a",
+                                    "node of size `container`) to a lat/lon on the map at `viewport`: back",
+                                    "through the camera's turn and tilt onto the ground, then the exact",
+                                    "Web-Mercator inverse. Inverse of [`px_at_latlon`](Self::px_at_latlon).",
+                                    "Exposed so apps don't reimplement the projection (e.g. to drop a pin",
+                                    "where the user tapped). A pixel above a tilted map's horizon reads as",
+                                    "the flat map's."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "viewport": "MapViewport"
+                                    },
+                                    {
+                                        "px": "LogicalPosition"
+                                    },
+                                    {
+                                        "container": "LogicalSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapLatLon"
+                                },
+                                "fn_body": "azul_layout::widgets::map::MapWidget::latlon_at_px(viewport, px, container)"
+                            },
+                            "px_at_latlon": {
+                                "doc": [
+                                    "Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in",
+                                    "container pixels at `viewport` - on the tile grid by the exact",
+                                    "Web-Mercator projection (the nearest of its copies around the world),",
+                                    "then through the camera's turn and tilt. A place behind the eye of a",
+                                    "tilted map reads as the flat map's pixel."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "viewport": "MapViewport"
+                                    },
+                                    {
+                                        "coord": "MapLatLon"
+                                    },
+                                    {
+                                        "container": "LogicalSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalPosition"
+                                },
+                                "fn_body": "azul_layout::widgets::map::MapWidget::px_at_latlon(viewport, coord, container)"
                             }
                         },
                         "repr": "C"
@@ -111211,6 +111375,419 @@
                                 "None": {},
                                 "Left": {},
                                 "Right": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapMarker": {
+                        "external": "azul_layout::widgets::map_overlay::MapMarker",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "u64"
+                                },
+                                "position": {
+                                    "type": "MapLatLon"
+                                },
+                                "icon": {
+                                    "type": "Dom"
+                                },
+                                "anchor_x": {
+                                    "type": "f32"
+                                },
+                                "anchor_y": {
+                                    "type": "f32"
+                                },
+                                "name": {
+                                    "type": "String"
+                                },
+                                "popup": {
+                                    "type": "OptionDom"
+                                },
+                                "popup_open": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A marker `id` showing `icon` on `position`, the icon's top-left corner",
+                                    "on the place (see [`Self::with_anchor`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "id": "u64"
+                                    },
+                                    {
+                                        "position": "MapLatLon"
+                                    },
+                                    {
+                                        "icon": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::map_overlay::MapMarker::create(id, position, icon)"
+                            },
+                            "create_dot": {
+                                "doc": [
+                                    "A round dot of `color` with a white rim, centred on `position`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "id": "u64"
+                                    },
+                                    {
+                                        "position": "MapLatLon"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::map_overlay::MapMarker::create_dot(id, position, color)"
+                            }
+                        },
+                        "functions": {
+                            "with_anchor": {
+                                "doc": [
+                                    "The icon's point `(x, y)` (px from its top-left) stands on the place."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "x": "f32"
+                                    },
+                                    {
+                                        "y": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapMarker"
+                                },
+                                "fn_body": "object.with_anchor(x, y)"
+                            },
+                            "with_name": {
+                                "doc": [
+                                    "What a screen reader calls the marker."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapMarker"
+                                },
+                                "fn_body": "object.with_name(name)"
+                            },
+                            "with_popup": {
+                                "doc": [
+                                    "A card above the icon, shown while `open`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "popup": "Dom"
+                                    },
+                                    {
+                                        "open": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapMarker"
+                                },
+                                "fn_body": "object.with_popup(popup, open)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MapMarkerTap": {
+                        "external": "azul_layout::widgets::map::MapMarkerTap",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "MapMarkerTapCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapOverlay": {
+                        "external": "azul_layout::widgets::map_overlay::MapOverlay",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Polyline": {
+                                    "type": "MapPolyline"
+                                },
+                                "Polygon": {
+                                    "type": "MapPolygon"
+                                },
+                                "Marker": {
+                                    "type": "MapMarker"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "MapPolygon": {
+                        "external": "azul_layout::widgets::map_overlay::MapPolygon",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "points": {
+                                    "type": "MapLatLonVec"
+                                },
+                                "fill": {
+                                    "type": "ColorU"
+                                },
+                                "stroke": {
+                                    "type": "ColorU"
+                                },
+                                "stroke_width": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A light blue area with a blue outline."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "points": "MapLatLonVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::map_overlay::MapPolygon::create(points)"
+                            }
+                        },
+                        "functions": {
+                            "with_fill": {
+                                "doc": [
+                                    "The inside in `fill`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "fill": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapPolygon"
+                                },
+                                "fn_body": "object.with_fill(fill)"
+                            },
+                            "with_stroke": {
+                                "doc": [
+                                    "The outline `width` px wide in `color`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    },
+                                    {
+                                        "width": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapPolygon"
+                                },
+                                "fn_body": "object.with_stroke(color, width)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MapPolyline": {
+                        "external": "azul_layout::widgets::map_overlay::MapPolyline",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "points": {
+                                    "type": "MapLatLonVec"
+                                },
+                                "color": {
+                                    "type": "ColorU"
+                                },
+                                "width": {
+                                    "type": "f32"
+                                },
+                                "casing_color": {
+                                    "type": "ColorU"
+                                },
+                                "casing_width": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A blue line, 5 px wide, through `points`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "points": "MapLatLonVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::map_overlay::MapPolyline::create(points)"
+                            }
+                        },
+                        "functions": {
+                            "with_color": {
+                                "doc": [
+                                    "The line in `color`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapPolyline"
+                                },
+                                "fn_body": "object.with_color(color)"
+                            },
+                            "with_width": {
+                                "doc": [
+                                    "The line `width` px wide."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "width": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapPolyline"
+                                },
+                                "fn_body": "object.with_width(width)"
+                            },
+                            "with_casing": {
+                                "doc": [
+                                    "An outline under the line, `width` px wide in all, in `color`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    },
+                                    {
+                                        "width": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapPolyline"
+                                },
+                                "fn_body": "object.with_casing(color, width)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MapLatLonVecSlice": {
+                        "external": "azul_layout::widgets::map::MapLatLonVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MapLatLon",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapOverlayVecSlice": {
+                        "external": "azul_layout::widgets::map_overlay::MapOverlayVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MapOverlay",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"
@@ -171107,6 +171684,432 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "MapLatLonVec": {
+                        "external": "azul_layout::widgets::map_overlay::MapLatLonVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MapLatLon",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "MapLatLonVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `MapLatLonVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "MapLatLonVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `MapLatLonVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapLatLonVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "map_lat_lon_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "map_lat_lon_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "map_lat_lon_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `MapLatLonVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "MapLatLon"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapLatLonVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `MapLatLonVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const MapLatLon"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapLatLonVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMapLatLon"
+                                },
+                                "fn_body": "map_lat_lon_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `MapLatLonVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapLatLonVecSlice"
+                                },
+                                "fn_body": "map_lat_lon_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapLatLonVecSlice"
+                                },
+                                "fn_body": "map_lat_lon_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MapLatLonVecDestructor": {
+                        "external": "azul_layout::widgets::map_overlay::MapLatLonVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "MapLatLonVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "MapLatLonVecDestructorType": {
+                        "external": "azul_layout::widgets::map_overlay::MapLatLonVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "MapLatLonVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "MapOverlayVec": {
+                        "external": "azul_layout::widgets::map_overlay::MapOverlayVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MapOverlay",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "MapOverlayVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `MapOverlayVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "MapOverlayVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `MapOverlayVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapOverlayVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "map_overlay_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "map_overlay_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "map_overlay_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `MapOverlayVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "MapOverlay"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapOverlayVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `MapOverlayVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const MapOverlay"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapOverlayVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMapOverlay"
+                                },
+                                "fn_body": "map_overlay_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `MapOverlayVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapOverlayVecSlice"
+                                },
+                                "fn_body": "map_overlay_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapOverlayVecSlice"
+                                },
+                                "fn_body": "map_overlay_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MapOverlayVecDestructor": {
+                        "external": "azul_layout::widgets::map_overlay::MapOverlayVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "MapOverlayVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "MapOverlayVecDestructorType": {
+                        "external": "azul_layout::widgets::map_overlay::MapOverlayVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "MapOverlayVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -181916,6 +182919,85 @@
                                 "None": {},
                                 "Some": {
                                     "type": "AuthSessionResult"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionMapMarkerTap": {
+                        "external": "azul_layout::widgets::map::OptionMapMarkerTap",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "MapMarkerTap"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionMapLatLon": {
+                        "external": "azul_layout::widgets::map::OptionMapLatLon",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "MapLatLon",
+                                    "doc": [
+                                        "Some value of type MapLatLon"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionMapOverlay": {
+                        "external": "azul_layout::widgets::map_overlay::OptionMapOverlay",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "MapOverlay",
+                                    "doc": [
+                                        "Some value of type MapOverlay"
+                                    ]
                                 }
                             }
                         ],
