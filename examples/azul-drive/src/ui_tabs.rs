@@ -62,6 +62,7 @@ fn show_tab(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, tab: TabS
         crate::start_find(info, app, s);
     }
     s.scroll_when_listed = (tab.scroll > 0.0).then_some(tab.scroll);
+    s.print_selection();
     print_tabs(s);
 }
 

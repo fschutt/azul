@@ -4,16 +4,20 @@
 Walks Explorer's main flows through azul's debug server and asserts on the node tree, the
 node layout, AzDrive's stdout markers and the files on disk:
 
-     1. This PC: the drive tiles; Windows 8's chrome - the ribbon (no title row: its tab strip is
-        the title bar; at This PC the Computer and View tabs, Computer's drive commands), the
-        window title (the path), the address row (round Back / Forward, Recent, Up, the
-        breadcrumb box with its location icon, crumbs and chevrons, Refresh in the box);
-        Finder's body - the source list's FAVORITES (Quick access, the sample's Documents /
-        Pictures / Music), LOCATIONS (This PC, Home, Azlin), CLOUD ("Add drive..."), This PC's
-        row selected; the content filling its pane, no status bar until View > Status bar
-        shows the path bar and the status line at its foot;
-     1b. the source list: a click on Documents goes there (its row selected, the path bar's
-        trail), Down walks to Pictures, Enter opens it, Left climbs to FAVORITES' title, Left
+     1. This PC: the drive tiles; the chrome - the ribbon (no title row: its tab strip is the
+        title bar; at This PC the Computer and View tabs; the tab content closed at rest,
+        Computer's drive commands once it shows), the window title (the path), the address row
+        (round Back / Forward, Recent, Up, the breadcrumb box with its location icon, crumbs and
+        chevrons, Refresh); Finder's body - the source list's FAVORITES (Quick access, the
+        sample's Documents / Pictures / Music), LOCATIONS (This PC, Home, Azlin), CLOUD ("Add
+        drive..."), This PC's row selected; the content filling its pane; no status bar (no
+        path bar, no status line, no Status bar switch, no Transfers block): the two pies
+        (15 x 25) at the right of the navigation pane's foot, + and the gear on its left;
+     1c. the tab area's hover reveal: the pointer leaving closes the content, a hover over a
+        tab opens it, a double click locks it open;
+     1d. the sync pie's popover (a window of its own): nothing syncs, the drive's space; Escape;
+     1b. the source list: a click on Documents goes there (its row selected, the address
+        row's crumb), Down walks to Pictures, Enter opens it, Left climbs to FAVORITES' title, Left
         closes the section, Right opens it again; F6 lands on the pane, Down enters the list at
         the selected row, Tab leaves it for the + button;
      2. open the Home drive (double-click its tile): the ribbon shows Home, Share, View;
@@ -28,9 +32,10 @@ node layout, AzDrive's stdout markers and the files on disk:
      9. Home > Copy / Paste into the new folder, again: the conflict dialog, "Keep both files";
     10. Delete: into the trash folder (on disk), Ctrl+Z brings it back;
     11. Backspace (up), Alt+Left (back), Alt+Right (forward);
-    12. the panes (View tab): Preview pane (a text and an image preview), a thumbnail in the
-        list and in Large icons, Navigation pane off / on, the Details pane in the preview pane's place (they share
-        the right side) and off, Alt+P: the preview pane again;
+    12. the panes: the preview pane from the start (the design's default), View > Preview pane
+        off and on (a text and an image preview), a thumbnail in the list and in Large icons,
+        Navigation pane off / on, the Details pane in the preview pane's place (they share the
+        right side) and off, Alt+P: the preview pane again;
     13. Properties (Alt+Enter) in the in-window sheet, OK;
     14. View > Options: the backstage with the Options (its own title row), Escape;
     15. flora + dark: a screenshot;
@@ -41,26 +46,34 @@ node layout, AzDrive's stdout markers and the files on disk:
         Home crumb goes there, its chevron drops Home's folders (Documents goes back), a click on
         the box's empty part turns it into the typed path - which has the keyboard - and Escape
         turns it back;
-    19. the File menu: a popup under the File tab (Open new window, Open terminal here, Delete
-        history, Help, Close; Frequent places), Delete history > Recent places runs in the
-        window (the menu closes), a frequent place's pin pins it, Escape closes the menu;
+    19. the File menu: a popup under the File tab (New tab, Open new window, Open terminal
+        here, Delete history, Keyboard shortcuts, Options, About, Close; Frequent places),
+        Delete history > Recent places runs in the window (the menu closes), a frequent place's
+        pin pins it, Escape closes the menu;
     20. F5 counts a folder's items again (Counted: 17 files, 6 written meanwhile, 23); a
         folder of 3,000 files opens at once: the listing streams in, the virtual view holds a
         few screens of rows (never the folder), the rows in view get their sizes (the stat of
         the rows in view), End reveals the last file;
-    21. the search box searches the open folder and every folder below it (azul-search): Ctrl+F
-        and "needle" find a file three folders down (its row with its folder, the Search tab,
-        the status line's count; a click selects it by its key), the Search tab's File contents
-        searches again with the files' contents, Escape in the box closes the search (the
-        folder's rows are back), "zebra-quartz" finds the file whose third line holds it (the
-        Match column shows the line), Escape again;
+    21. the search view (the design's behaviour B, azul-search): "needle" searches the open
+        folder's drive (the scope This drive) with the files' contents (on by default) and finds
+        a file three folders down - under its folder's header from the drive's root, the term
+        marked in its name, the bar's chips and its "1 item found", the Search tab; a click
+        selects it by its key -, the bar's File contents off and on searches again, Escape
+        clears the box (the view shows "needle" as a recent search), Escape again closes the
+        view (the folder's rows are back), "zebra-quartz" finds the file whose line holds it
+        (two lines of it, the terms marked), "othr" finds nothing and suggests "other";
     22. the Search tab's "Index this drive" (azul-search-index, in the run's --cache-dir): a
         word only a Word document holds finds nothing by the walk (a zip is binary to it); with
-        the Home drive indexed (AZDRIVE_INDEXED, the status line's "Indexed:") the same search
+        the Home drive indexed (AZDRIVE_INDEXED, the search bar's "Indexed:") the same search
         finds the document, its line from its text; turned off, the index's folder is gone;
     23. the Search tab's saved searches: Save search keeps the open search ("zebra-quartz" in
         Find, File contents on); from Home, Saved searches runs it again - Find opens, the
         search finds plan.md again -, and "Forget this saved search" drops it;
+    23b. location tabs: Ctrl+T opens one on Documents (nothing selected, a note), the second
+        goes to Pictures in Large icons; Ctrl+Tab back to Documents with its selection and
+        Details, Ctrl+2 to the second; its search comes back with it; Ctrl+Shift+A the overview
+        (its rows, their Ctrl digits, New tab), Escape; Ctrl+W closes the tab showing, the last
+        tab stays;
     24. a cloud drive's index (AzDrive restarted with an S3 drive of the mock stack in its drives
         file, its key in the run's keyring file): a word only a file's text holds finds nothing
         by name; "Index files in the cloud" and "Index this drive" download each file within
@@ -71,8 +84,8 @@ node layout, AzDrive's stdout markers and the files on disk:
     25. the folder sync, in an AzDrive of its own whose drives file has one S3 drive on the mock
         stack's S3 (scripts/azlin_mock_stack.py; its keys in the headless keyring file, the poll
         every 2 s - $AZDRIVE_SYNC_POLL): Share > Sync with a folder pairs it with AzDrive/<name>
-        in Home (the pairing sheet, AZDRIVE_SYNC_PAIRED; the folder opens, "Up to date" on the
-        status line); a file written on disk goes up with the next poll (the drive's index names
+        in Home (the pairing sheet, AZDRIVE_SYNC_PAIRED; the folder opens, "Up to date" in the
+        sync pie's popover); a file written on disk goes up with the next poll (the drive's index names
         its BLAKE3); a version another device commits (its blob and the index one generation
         on, written into the mock S3's folder - scripts/azlin_blake3.py) comes down; paused,
         both change it, resumed: the question (D52, "Someone changed this file"), Keep both -
@@ -186,6 +199,10 @@ FILE_MENU = "__azul-native-ribbon-file-menu"
 FILE_MENU_PIN = FILE_MENU + "-pin"
 FILE_MENU_PINNED = FILE_MENU + "-pinned"
 TITLEBAR = "__azul-native-titlebar"
+# The ribbon's tab buttons and its tab content (layout/src/widgets/ribbon.rs): at rest the
+# content is closed (height 0); a hover over a tab opens it, a double click locks it open.
+RIBBON_TAB = "__azul-native-ribbon-tab"
+RIBBON_CONTENT = "__azul-native-ribbon-content"
 
 
 class Drive(e2e.App):
@@ -261,9 +278,28 @@ class Drive(e2e.App):
 
     def tab(self, name):
         """Clicks the ribbon's tab `name` (Home, Share, View, Computer) and waits for the app to
-        take it."""
+        take it - and for its content to show: the pointer stays on the tab, which opens it; if
+        it does not open by itself, a double click on the tab locks it open."""
         self.after("the %s tab" % name, "AZDRIVE_RIBBON_TAB", re.escape(name),
                    lambda: self.ribbon(name))
+        self.content_open(name)
+
+    def content_shows(self):
+        """Whether the ribbon's tab content is open (laid out with a height)."""
+        return self.has("." + RIBBON_CONTENT)
+
+    def content_open(self, name):
+        """The tab content of tab `name` shows: open already, open after the hover delay, or
+        locked open by a double click on the tab."""
+        end = time.time() + 1.0
+        while time.time() < end:
+            if self.content_shows():
+                return
+            self.frame(1)
+            time.sleep(0.05)
+        node = self.until("the %s tab" % name, lambda: self.ribbon_node(name))
+        self.press("double_click", 0, node, "the %s tab" % name)
+        self.until("the %s tab's content locked open" % name, self.content_shows)
 
     def screenshot(self, path):
         """Waits for the animations first (the details pane slides its rows in)."""
@@ -302,9 +338,10 @@ def item_labels(app):
         for n in nodes:
             classes = n.get("classes") or []
             if C("name") in classes or GRID_LABEL in classes:
-                texts = [n.get("text")] + [by_index.get(c, {}).get("text")
-                                           for c in n.get("children") or []]
-                name = next((t for t in texts if t), None)
+                # A search's result marks the terms in its name: the name is its spans' texts.
+                own = n.get("text")
+                parts = [by_index.get(c, {}).get("text") for c in n.get("children") or []]
+                name = own or "".join(t for t in parts if t)
                 if name:
                     found.append((dom, n["index"], name))
     return found
@@ -428,6 +465,29 @@ def focus_search_box(app):
     app.until("the search box has the keyboard", lambda: "text-input" in focused_selector(app))
 
 
+def sync_words(app):
+    """What the sync popover says: a click on the sync pie opens it (a window of its own over the
+    navigation pane's foot), Escape closes it."""
+    before = len(app.window_ids())
+    app.click(selector="#" + I("sync-pie"))
+    pop = e2e.modal_window(app)
+    pop.until("the sync popover", lambda: pop.has("#" + I("sync-popover")))
+    words = " ".join(t for t in pop.texts() if t)
+    pop.key("escape")
+    app.until("the sync popover closed", lambda: len(app.window_ids()) <= before)
+    return words
+
+
+def close_search_view(app):
+    """Escape in the search box clears its text (the view stays), Escape again closes the view;
+    the folder's own rows show again."""
+    focus_search_box(app)
+    app.after("Escape clears the search", "AZDRIVE_SEARCH_CLEARED", r".*",
+              lambda: app.key("escape"))
+    app.after("Escape closes the search view", "AZDRIVE_SEARCH_CLOSED", r".*",
+              lambda: app.key("escape"))
+
+
 def bar_texts(app, cls):
     """The texts inside the address bar's nodes of class `cls`, in document order."""
     return app.texts_within("." + cls)
@@ -507,6 +567,12 @@ def run(args, logs):
             app.until("the ribbon's %s tab" % tab, lambda: app.ribbon_node(tab) is not None)
         if app.ribbon_node("Home") is not None or app.ribbon_node("Share") is not None:
             raise Failure("This PC shows Home / Share: Windows 8 shows Computer and View there")
+        # The design's tab area: at rest the tab content is closed - the window is the title
+        # bar, the golden line, the address row and the panes.
+        app.settle(limit=2.0)
+        if app.content_shows():
+            raise Failure("the tab content shows at rest (it opens on a hover)")
+        app.tab("Computer")
         for tool in ("Add drive", "Add folder as drive", "Remove drive", "Properties",
                      "Refresh"):
             app.until("Computer's %s" % tool, lambda: app.ribbon_node(tool) is not None)
@@ -514,8 +580,8 @@ def run(args, logs):
             raise Failure("a title row shows over the ribbon (its tabs are the title bar)")
         app.until("the window title is the path",
                   lambda: app.printed("AZDRIVE_TITLE", re.escape("This PC - AzDrive")))
-        # Explorer's address row: Back, Forward, Recent, Up; the breadcrumb box with its icon,
-        # the crumb This PC and its chevron, Refresh at its end.
+        # The address row: Back, Forward, Recent, Up; the breadcrumb box with its icon, the crumb
+        # This PC and its chevron; Refresh between the box and the search box.
         app.until("the address row's arrows", lambda: len(app.nodes_with_class(BAR_NAV)) >= 4)
         app.until("the breadcrumb box", lambda: app.nodes_with_class(BAR_BOX))
         app.until("the location icon", lambda: app.nodes_with_class(BAR_ICON))
@@ -523,7 +589,18 @@ def run(args, logs):
         if not app.nodes_with_class(BAR_CHEVRON):
             raise Failure("the crumb has no chevron")
         if not app.nodes_with_class(BAR_REFRESH):
-            raise Failure("no Refresh in the breadcrumb box")
+            raise Failure("no Refresh in the address row")
+        # Refresh is a round button of its own between the breadcrumb box and the search box.
+        def node_rect(node):
+            r = (app.value("get_node_layout", node_id=node) or {}).get("rect") or {}
+            return {k: float(r.get(k, 0)) for k in ("x", "y", "width", "height")}
+        crumb_box = node_rect(app.nodes_with_class(BAR_BOX)[0])
+        refresh = node_rect(app.nodes_with_class(BAR_REFRESH)[0])
+        search_box = node_rect(app.nodes_with_class(BAR + "-search")[0])
+        if not (crumb_box["x"] + crumb_box["width"] <= refresh["x"] + 0.5
+                and refresh["x"] + refresh["width"] <= search_box["x"] + 0.5):
+            raise Failure("Refresh is not between the breadcrumb box and the search box: box %s, "
+                          "refresh %s, search %s" % (crumb_box, refresh, search_box))
         app.until("the navigation pane", lambda: app.has("#" + I("nav-pane")))
         # Finder's source list (src/ui_sidebar.rs): the section titles, the places that are
         # always there, the sample's standard folders in Home (FAVORITES), the drives.
@@ -536,8 +613,7 @@ def run(args, logs):
             raise Failure("This PC's row in the source list is not the selected one")
         if app.has("#" + I("side-eject-home")):
             raise Failure("the Home drive has an eject button (it can never be removed)")
-        # The content fills its pane edge to edge, no page around it, and no status bar at its
-        # foot: Finder's path bar and status line are View > Status bar, off by default.
+        # The content fills its pane edge to edge, no page around it.
         app.until("the leaf", lambda: app.has("#" + I("leaf")))
         app.until("This PC's groups", lambda: app.shows("Devices and drives"))
         if not app.has("#shell-tree") or not app.has("#shell-content"):
@@ -545,19 +621,72 @@ def run(args, logs):
         pane, leaf = rect_of(app, "#shell-content"), rect_of(app, "#" + I("leaf"))
         if any(abs(pane[k] - leaf[k]) > 1.0 for k in ("x", "y", "width", "height")):
             raise Failure("the content does not fill its pane: pane %s, content %s" % (pane, leaf))
+        # No status bar: no path bar or status line at the content's foot, no switch for one
+        # in the View tab, no Transfers block in the navigation pane. The sync and the space
+        # are the two pies at the right of the navigation pane's foot, beside + and the gear.
         if app.has("#" + I("path-bar")) or app.has("#" + I("status-line")):
-            raise Failure("a status bar shows at the foot of the content (it is off by default)")
+            raise Failure("a status bar shows at the foot of the content (there is none)")
+        if app.has("#" + I("side-activity")):
+            raise Failure("the navigation pane shows a Transfers block (the pies replace it)")
         app.tab("View")
-        app.ribbon("Status bar")
-        app.until("the path bar", lambda: app.has("#" + I("path-bar")))
-        app.until("the status line", lambda: app.has("#" + I("status-line")))
-        app.until("the status line's count of the drives",
-                  lambda: any("drives" in t for t in app.texts_within("#" + I("status-line"))))
+        if app.ribbon_node("Status bar") is not None:
+            raise Failure("the View tab has a Status bar switch (there is no status bar)")
+        for pie in ("sync-pie", "space-pie"):
+            app.until("the %s" % pie, lambda: app.has("#" + I(pie)))
+            box = rect_of(app, "#" + I(pie))
+            if abs(box["width"] - 15.0) > 1.0 or abs(box["height"] - 25.0) > 1.0:
+                raise Failure("the %s's hit area is %s, not 15 x 25" % (pie, box))
+        add, gear, sync = (rect_of(app, "#" + I(n)) for n in ("side-add", "side-actions",
+                                                              "sync-pie"))
+        if not (add["x"] < gear["x"] < sync["x"]):
+            raise Failure("the foot is not + and the gear on the left, the pies on the right")
         app.tab("Computer")
         app.screenshot(os.path.join(out, "01-this-pc.png"))
-        log("1. This PC: drive tiles, the ribbon (Computer, View; no title row), the window "
-            "title, the address row (arrows, breadcrumb box, Refresh), the source list, the "
-            "content filling its pane, View > Status bar: the path bar and the status line")
+        log("1. This PC: drive tiles, the ribbon (Computer, View; no title row; the tab content "
+            "closed at rest), the window title, the address row (arrows, breadcrumb box, "
+            "Refresh), the source list, the content filling its pane, no status bar, the pies "
+            "in the navigation pane's foot")
+
+        # 1c. The tab area's hover reveal: the pointer leaving the tab area closes the content
+        # after the leave delay; on a tab it opens again after the hover delay; a double click
+        # locks it open, and a double click on the locked tab closes it again.
+        leaf = rect_of(app, "#" + I("leaf"))
+        app.must("mouse_move", x=leaf["x"] + leaf["width"] / 2.0, y=leaf["y"] + leaf["height"] / 2.0)
+        time.sleep(0.6)
+        app.frame(4)
+        app.until("the content closed after the pointer left", lambda: not app.content_shows())
+        tab_node = app.until("the Computer tab", lambda: app.ribbon_node("Computer"))
+        tab_box = app.value("get_node_layout", node_id=tab_node)["rect"]
+        app.must("mouse_move", x=tab_box["x"] + tab_box["width"] / 2.0,
+                 y=tab_box["y"] + tab_box["height"] / 2.0)
+        time.sleep(0.3)
+        app.frame(4)
+        app.until("the content open on the hover", app.content_shows)
+        app.screenshot(os.path.join(out, "01c-hover-open.png"))
+        app.press("double_click", 0, tab_node, "the Computer tab")
+        app.must("mouse_move", x=leaf["x"] + leaf["width"] / 2.0, y=leaf["y"] + leaf["height"] / 2.0)
+        time.sleep(0.6)
+        app.frame(4)
+        if not app.content_shows():
+            raise Failure("a double click did not lock the tab content open")
+        log("1c. the tab content closed when the pointer left, opened on a hover over a tab, "
+            "and a double click locked it open")
+
+        # 1d. The pies' popover: a click on the sync pie opens it above the pie (a window of
+        # its own) with the sync's state and the drive's space; Escape closes it.
+        windows_before = len(app.window_ids())
+        app.click(selector="#" + I("sync-pie"))
+        pop = e2e.modal_window(app)
+        pop.until("the sync popover", lambda: pop.has("#" + I("sync-popover")))
+        pop.until("its words: nothing syncs here",
+                  lambda: any("Nothing syncs here" in t for t in pop.texts()))
+        pop.until("the drive's space", lambda: any(" used of " in t for t in pop.texts()))
+        popover_box, pie_box = pop.box("#" + I("sync-popover")), rect_of(app, "#" + I("sync-pie"))
+        log("the sync popover at %s, the pie at %s" % (popover_box, pie_box))
+        pop.key("escape")
+        app.until("the popover closed", lambda: len(app.window_ids()) <= windows_before)
+        log("1d. the sync pie opened its popover (nothing syncs, the drive's space); Escape "
+            "closed it")
 
         # 1b. The source list: a click goes, the arrows walk the rows, Enter opens one, Left
         # climbs and closes, Right opens; F6 lands on the pane, Down enters the list at the
@@ -566,8 +695,8 @@ def run(args, logs):
                   lambda: app.click(selector="#" + I("side-fav-documents")))
         app.until("Documents' row selected",
                   lambda: C("side-selected") in classes_of(app, I("side-fav-documents")))
-        app.until("the path bar's trail to Documents",
-                  lambda: "Documents" in app.texts_within("#" + I("path-bar")))
+        app.until("the address row's crumb of Documents",
+                  lambda: "Documents" in bar_texts(app, BAR_CRUMB))
         app.until("the keyboard on Documents' row",
                   lambda: focused_id(app) == I("side-fav-documents"))
         app.key("down")
@@ -780,11 +909,16 @@ def run(args, logs):
 
         # 12. The panes (View tab): the preview pane and the details pane share the window's right
         # side (Explorer's rule), so the preview pane's switch takes the details pane away.
-        app.tab("View")
-        app.after("the preview pane", "AZDRIVE_PANES", r"true true false",
-                  lambda: app.ribbon("Preview pane"))
+        # The preview pane shows from the start (the design's default), the details pane not.
         app.until("the preview pane laid out", lambda: app.has("#shell-preview"))
         app.until("no details pane beside it", lambda: not app.has("#shell-details"))
+        app.tab("View")
+        app.after("the preview pane off", "AZDRIVE_PANES", r"true false false",
+                  lambda: app.ribbon("Preview pane"))
+        app.until("no preview pane", lambda: not app.has("#shell-preview"))
+        app.after("the preview pane on again", "AZDRIVE_PANES", r"true true false",
+                  lambda: app.ribbon("Preview pane"))
+        app.until("the preview pane laid out again", lambda: app.has("#shell-preview"))
         app.after("a text preview", "AZDRIVE_PREVIEW", r"text Documents/notes\.txt",
                   lambda: select_item(app, "notes.txt"))
         app.until("the text in the preview", lambda: app.has("#" + I("preview-text")))
@@ -954,7 +1088,8 @@ def run(args, logs):
         app.ribbon("File")
         menu = app.until("the File menu", lambda: app.popup()
                          if len(app.window_ids()) > windows_before else None)
-        for text in ("Open new window", "Open terminal here", "Delete history", "Help", "Close",
+        for text in ("New tab", "Open new window", "Open terminal here", "Delete history",
+                     "Keyboard shortcuts", "Options", "About AzDrive", "Close",
                      "Frequent places"):
             app.until('"%s" in the File menu' % text,
                       lambda: any(norm(n.get("text")) == text for n in app.hierarchy(menu)))
@@ -979,8 +1114,9 @@ def run(args, logs):
                   lambda: (app.must("click", node_id=pins[0], window_id=menu), app.frame()))
         app.key("escape")
         app.until("the File menu closed by Escape", lambda: len(app.window_ids()) <= windows_before)
-        log("19. the File menu: its commands and Frequent places, Delete history > Recent places "
-            "ran in the window, a pin pinned the place, Escape closed it")
+        log("19. the File menu: its commands (New tab first, Keyboard shortcuts, Options, About) "
+            "and Frequent places, Delete history > Recent places ran in the window, a pin pinned "
+            "the place, Escape closed it")
 
         # 20. A folder of 3,000 files opens at once: the listing streams in, the virtual view
         # holds a few screens of rows, the rows in view get their sizes, End reveals the last.
@@ -1000,8 +1136,6 @@ def run(args, logs):
         if built >= 600:
             raise Failure("the virtual view built %d rows of 3,000 (a few screens are enough)"
                           % built)
-        app.until("the status line counts them",
-                  lambda: any("3,000 items" in t for t in app.texts_within("#" + I("status-line"))))
         app.until("the sizes of the rows in view (their stat)",
                   lambda: "5 B" in texts_in_view(app))
         app.after("the first file", "AZDRIVE_SELECTED", r"1 Big/file-00000\.txt",
@@ -1010,51 +1144,85 @@ def run(args, logs):
                   lambda: app.key("end"))
         app.until("the last file revealed", lambda: "file-02999.txt" in item_names(app))
         log("20. F5 counted Counted again (23 items); a folder of 3,000 files: %d rows built, "
-            "the status line counted 3,000, the rows in view got their sizes, End revealed "
-            "the last" % built)
+            "all 3,000 listed, the rows in view got their sizes, End revealed the last" % built)
 
-        # 21. The search box searches the open folder and every folder below it.
+        # 21. The search view (the design's behaviour B): the search box searches the open
+        # folder's drive from its root (the scope "This drive"), names and - File contents is on
+        # by default - the files' text; the results are grouped by their folder under a header
+        # from the drive's root, each with its name and two lines of its text, the terms marked;
+        # the bar counts them. Escape clears the box (the view stays on the recent searches),
+        # Escape again closes the view.
         app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
         app.after("Find", "AZDRIVE_LISTED", r"home Find/ \d+", lambda: open_item(app, "Find"))
         app.until("Find's rows", lambda: "plan.md" in item_names(app))
 
         def status():
-            return " ".join(app.texts_within("#" + I("status-line")))
+            return " ".join(app.texts_within("#" + I("find-status")))
 
         focus_search_box(app)
-        app.after("the name search", "AZDRIVE_SEARCHED", r"1 names needle",
+        app.after("the search", "AZDRIVE_SEARCHED", r"1 contents needle",
                   lambda: (app.must("text_input", text="needle"), app.frame(2)))
+        app.until("the search's bar", lambda: app.has("#" + I("find-bar")))
+        for chip in ("This folder", "This drive", "All drives", "Kind", "Date modified", "Size",
+                     "File contents", "Save search"):
+            app.until("the bar's %s" % chip,
+                      lambda: chip in [norm(t) for t in app.texts_within("#" + I("find-bar"))])
         app.until("the file three folders down",
                   lambda: "needle-report.txt" in item_names(app))
         if "plan.md" in item_names(app):
             raise Failure("the search's results still show the folder's own rows")
-        app.until("its folder", lambda: "Find/deep/er" in texts_in_view(app))
-        app.until("the status line's count", lambda: "1 item found" in status())
+        app.until("its folder's header from the drive's root",
+                  lambda: "Home \u203a Find \u203a deep \u203a er" in texts_in_view(app))
+        app.until("the term marked in its name", lambda: "needle" in texts_in_view(app)
+                  and "-report.txt" in texts_in_view(app))
+        app.until("the bar's count", lambda: "1 item found" in status())
         app.until("the Search tab", lambda: app.ribbon_node("Search") is not None)
         app.screenshot(os.path.join(out, "21-search-names.png"))
         app.after("a result selected by its key", "AZDRIVE_SELECTED",
                   r"1 Find/deep/er/needle-report\.txt",
                   lambda: select_item(app, "needle-report.txt"))
-        app.tab("Search")
-        app.after("File contents: the search again", "AZDRIVE_SEARCHED", r"1 contents needle",
-                  lambda: app.ribbon("File contents"))
+        app.after("File contents off: names only", "AZDRIVE_SEARCHED", r"1 names needle",
+                  lambda: app.click_within("#" + I("find-bar"), "File contents"))
+        app.after("File contents on again", "AZDRIVE_SEARCHED", r"1 contents needle",
+                  lambda: app.click_within("#" + I("find-bar"), "File contents"))
         focus_search_box(app)
-        app.after("Escape in the box closes the search", "AZDRIVE_SEARCH_CLOSED", r".*",
+        app.after("Escape in the box clears it", "AZDRIVE_SEARCH_CLEARED", r".*",
+                  lambda: app.key("escape"))
+        app.until("the recent searches", lambda: app.has("#" + I("find-start")))
+        app.until("\"needle\" among them",
+                  lambda: "needle" in [norm(t) for t in app.texts_within("#" + I("find-start"))])
+        app.after("Escape again closes the search view", "AZDRIVE_SEARCH_CLOSED", r".*",
                   lambda: app.key("escape"))
         app.until("the folder's rows back", lambda: "plan.md" in item_names(app))
+        focus_search_box(app)
         app.after("the contents search", "AZDRIVE_SEARCHED", r"1 contents zebra-quartz",
                   lambda: (app.must("text_input", text="zebra-quartz"), app.frame(2)))
         app.until("the file whose line holds it", lambda: "plan.md" in item_names(app))
-        app.until("the Match column: the line, its number",
-                  lambda: "zebra-quartz" in texts_in_view(app) and "3:" in texts_in_view(app))
+        app.until("its line, the terms marked",
+                  lambda: "zebra" in texts_in_view(app) and "quartz" in texts_in_view(app)
+                  and any("line" in t for t in texts_in_view(app)))
         if "other.txt" in item_names(app):
             raise Failure("a file without the text is a result")
         app.screenshot(os.path.join(out, "21-search-contents.png"))
-        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        close_search_view(app)
         app.until("Find's rows again", lambda: "other.txt" in item_names(app))
-        log("21. the search box: \"needle\" found Find/deep/er/needle-report.txt (its folder, "
-            "the Search tab, \"1 item found\", selected by its key); File contents searched "
-            "again; Escape closed it; \"zebra-quartz\" found plan.md by its third line; Escape")
+        # Nothing found: a spelling the window knows within two edits, the other scopes.
+        focus_search_box(app)
+        app.after("a misspelt name", "AZDRIVE_SEARCHED", r"0 contents othr",
+                  lambda: (app.must("text_input", text="othr"), app.frame(2)))
+        app.until("the suggestions", lambda: app.has("#" + I("find-suggestions")))
+        app.until("did you mean \"other\"",
+                  lambda: any("other" in t for t in app.texts_within("#" + I("find-suggestions"))))
+        app.after("the suggestion searched", "AZDRIVE_SEARCHED", r"\d+ contents other",
+                  lambda: app.click_within("#" + I("find-suggestions"),
+                                           "Did you mean \u201cother\u201d?"))
+        app.until("other.txt found", lambda: "other.txt" in item_names(app))
+        close_search_view(app)
+        log("21. the search view: \"needle\" found Find/deep/er/needle-report.txt under its "
+            "folder's header, the term marked, \"1 item found\", the bar's chips; File "
+            "contents off and on; Escape cleared the box (\"needle\" a recent search), Escape "
+            "closed the view; \"zebra-quartz\" found plan.md with its line marked; \"othr\" "
+            "suggested \"other\"")
 
         # 22. "Index this drive": the Home drive's full-text index reads what the walk cannot.
         focus_search_box(app)
@@ -1065,9 +1233,9 @@ def run(args, logs):
         app.tab("Search")
         app.after("Index this drive", "AZDRIVE_INDEXED", r"home \d+ \d+ \d+",
                   lambda: app.ribbon("Index this drive"))
-        app.until("the status line names the index", lambda: "Indexed:" in status())
+        app.until("the search's bar names the index", lambda: "Indexed:" in status())
         focus_search_box(app)
-        app.after("Escape closes the search", "AZDRIVE_SEARCH_CLOSED", r".*",
+        app.after("Escape clears the box", "AZDRIVE_SEARCH_CLEARED", r".*",
                   lambda: app.key("escape"))
         app.after("the same word, the index asked first", "AZDRIVE_SEARCHED",
                   r"1 contents narwhal",
@@ -1082,10 +1250,9 @@ def run(args, logs):
         if os.path.isdir(index_dir) and os.listdir(index_dir):
             raise Failure("the index's folder stays after Index this drive was turned off: %s"
                           % os.listdir(index_dir))
-        focus_search_box(app)
-        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        close_search_view(app)
         log("22. Index this drive: \"narwhal\" (in Find/Minutes.docx only) found nothing by the "
-            "walk; the Home drive indexed (\"Indexed:\" on the status line), the same search "
+            "walk; the Home drive indexed (\"Indexed:\" in the search's bar), the same search "
             "found the Word document with its line; turned off, the index's folder went")
 
         # 23. Saved searches: Save search keeps the open search, Saved searches runs it again.
@@ -1107,8 +1274,7 @@ def run(args, logs):
         app.tab("Search")
         app.after("Save search", "AZDRIVE_SEARCH_SAVED", r"zebra-quartz",
                   lambda: app.ribbon("Save search"))
-        focus_search_box(app)
-        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        close_search_view(app)
         # The keys go back to the listing (Escape leaves the search box focused, where
         # Backspace edits the text): a row selected, then Backspace goes up.
         app.after("up to Home", "AZDRIVE_PLACE", r"home /",
@@ -1122,15 +1288,79 @@ def run(args, logs):
                                       "AZDRIVE_SAVED_SEARCH_RUN", r"zebra-quartz",
                                       "the saved search run again"))
         app.until("back in Find: its result", lambda: "plan.md" in item_names(app))
-        app.until("its folder: Find", lambda: "Find" in texts_in_view(app))
+        app.until("its folder: Find", lambda: any("Find" in t for t in texts_in_view(app)))
         app.screenshot(os.path.join(out, "23-saved-search.png"))
         app.tab("Search")
         ribbon_menu("Saved searches", "Forget this saved search",
                     "AZDRIVE_SAVED_SEARCH_FORGOTTEN", r"zebra-quartz", "Forget")
-        focus_search_box(app)
-        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        close_search_view(app)
         log("23. saved searches: \"zebra-quartz\" (Find, File contents) saved; from Home, Saved "
             "searches ran it again (Find, plan.md); Forget dropped it")
+
+        # 23b. Location tabs: Ctrl+T opens one on the folder in view (Finder's habit), after the
+        # tab showing; each keeps its own place, selection, layout and search; Ctrl+Tab and
+        # Ctrl+2 switch, Ctrl+Shift+A shows the overview (Escape closes it), Ctrl+W closes the
+        # tab showing, and the last tab stays. The tab keys are the Control key on every
+        # platform.
+        def overview_texts():
+            texts = app.texts(every_dom=True)
+            popup = app.popup()
+            if popup:
+                texts += list(e2e.strings(app.op("get_node_hierarchy", window_id=popup)))
+            return [norm(t) for t in texts if t]
+
+        app.after("Documents", "AZDRIVE_PLACE", r"home Documents/",
+                  lambda: app.click(selector="#" + I("side-fav-documents")))
+        app.until("Documents' rows", lambda: "notes.txt" in item_names(app))
+        app.after("notes.txt selected in the first tab", "AZDRIVE_SELECTED",
+                  r"1 Documents/notes\.txt", lambda: select_item(app, "notes.txt"))
+        app.after("Ctrl+T: a second tab, showing", "AZDRIVE_TABS", r"2 1",
+                  lambda: app.key("t", ctrl=True))
+        app.until("it opened on Documents", lambda: app.last("AZDRIVE_PLACE") == "home Documents/")
+        app.until("the note says where", lambda: app.shows("New tab: Documents"))
+        app.until("nothing selected in it", lambda: app.last("AZDRIVE_SELECTED") == "0 -")
+        app.after("Pictures in the second tab", "AZDRIVE_PLACE", r"home Pictures/",
+                  lambda: app.click(selector="#" + I("side-fav-pictures")))
+        app.after("Large icons in the second tab", "AZDRIVE_LAYOUT", r"large_icons",
+                  lambda: app.key("2", primary=True, shift=True))
+        app.after("Ctrl+Tab: the first tab again", "AZDRIVE_TABS", r"2 0",
+                  lambda: app.key("tab", ctrl=True))
+        app.until("its place", lambda: app.last("AZDRIVE_PLACE") == "home Documents/")
+        app.until("its layout", lambda: app.last("AZDRIVE_LAYOUT") == "details")
+        app.until("its selection", lambda: app.last("AZDRIVE_SELECTED") == "1 Documents/notes.txt")
+        app.after("Ctrl+2: the second tab", "AZDRIVE_TABS", r"2 1",
+                  lambda: app.key("2", ctrl=True))
+        app.until("its place", lambda: app.last("AZDRIVE_PLACE") == "home Pictures/")
+        app.until("its layout", lambda: app.last("AZDRIVE_LAYOUT") == "large_icons")
+        # A search in the second tab comes back with it.
+        focus_search_box(app)
+        app.after("a search in the second tab", "AZDRIVE_SEARCHED", r"\d+ \w+ gradient",
+                  lambda: (app.must("text_input", text="gradient"), app.frame(2)))
+        app.after("Ctrl+Tab: the first tab, no search", "AZDRIVE_TABS", r"2 0",
+                  lambda: app.key("tab", ctrl=True))
+        app.until("the first tab's own rows", lambda: "notes.txt" in item_names(app))
+        app.after("Ctrl+Shift+Tab: the second tab, its search run again", "AZDRIVE_SEARCHING",
+                  r"gradient", lambda: app.key("tab", ctrl=True, shift=True))
+        app.until("its result", lambda: "gradient.png" in item_names(app))
+        app.after("Ctrl+Shift+A: the tab overview", "AZDRIVE_TAB_OVERVIEW", r"open",
+                  lambda: app.key("a", ctrl=True, shift=True))
+        app.until("the overview's rows", lambda: "Documents" in overview_texts()
+                  and "Search: gradient" in overview_texts() and "New tab" in overview_texts())
+        app.until("the Ctrl digits", lambda: "\u23032" in overview_texts())
+        app.screenshot(os.path.join(out, "23b-tab-overview.png"))
+        app.after("Escape closes the overview", "AZDRIVE_TAB_OVERVIEW", r"closed",
+                  lambda: app.key("escape"))
+        app.after("Ctrl+W closes the second tab", "AZDRIVE_TABS", r"1 0",
+                  lambda: app.key("w", ctrl=True))
+        app.until("the first tab shows", lambda: app.last("AZDRIVE_PLACE") == "home Documents/")
+        app.key("w", ctrl=True)
+        app.until("the last tab stays", lambda: app.shows("This is the only tab."))
+        if app.last("AZDRIVE_TABS") != "1 0":
+            raise Failure("Ctrl+W closed the last tab: %s" % app.last("AZDRIVE_TABS"))
+        log("23b. location tabs: Ctrl+T on Documents (empty selection, a note), Pictures and "
+            "Large icons in the second, Ctrl+Tab back to Documents with notes.txt selected in "
+            "Details, Ctrl+2, the second tab's search run again, Ctrl+Shift+A the overview, "
+            "Ctrl+W closed the second, the last tab stayed")
 
         # 24. A cloud drive's index: the mock stack's S3 bucket as a drive of AzDrive (restarted
         # with it in the drives file and its key in the run's keyring file).
@@ -1191,7 +1421,7 @@ def run(args, logs):
         if kept:
             raise Failure("a downloaded file stayed on disk: %r" % kept)
         focus_search_box(app)
-        app.after("Escape closes the search", "AZDRIVE_SEARCH_CLOSED", r".*",
+        app.after("Escape clears the box", "AZDRIVE_SEARCH_CLEARED", r".*",
                   lambda: app.key("escape"))
         app.after("the same word, from the drive's index", "AZDRIVE_SEARCHED",
                   r"1 contents ledger",
@@ -1205,8 +1435,7 @@ def run(args, logs):
                   lambda: app.ribbon("Index this drive"))
         app.after("Index files in the cloud off", "AZDRIVE_INDEX_CLOUD_FILES", r"false",
                   lambda: app.ribbon("Index files in the cloud"))
-        focus_search_box(app)
-        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        close_search_view(app)
         log("24. a cloud drive (the mock S3): \"ledger\" found nothing by name; Index files in "
             "the cloud + Index this drive downloaded each file once (nothing kept), and the same "
             "search found Notes/minutes.txt from the index; both turned off again")
@@ -1461,9 +1690,7 @@ def sync_step(args, logs, binary, out):
     view = os.path.join(base, "data", "drive", "view.json")
     os.makedirs(os.path.dirname(view), exist_ok=True)
     with open(view, "w", encoding="utf-8") as f:
-        # The status bar on: the sync's state is read from its status line.
-        json.dump({"status_bar": True,
-                   "synced": [{"drive_id": paid_id, "prefix": "",
+        json.dump({"synced": [{"drive_id": paid_id, "prefix": "",
                                "folder": os.path.join(home, "AzDrive", PAID_NAME)}]}, f)
     switches = [
         "--screen", "this-pc", "--theme", "flat", "--mode", "light",
@@ -1488,7 +1715,8 @@ def sync_step(args, logs, binary, out):
     status_key = "AZDRIVE_SYNC_STATUS"
 
     def status():
-        return " ".join(app.texts_within("#" + I("status-line")))
+        # No status bar: the sync's words are its pie's popover's.
+        return sync_words(app)
 
     try:
         app.until("This PC", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
@@ -1515,7 +1743,7 @@ def sync_step(args, logs, binary, out):
                                                          re.escape(SYNC_DRIVE) + r" .*"))
         app.until("Up to date", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) +
                                                     r" azdrive-sync-status-up-to-date"))
-        app.until("the status line says it", lambda: "Up to date" in status())
+        app.until("the sync popover says it", lambda: "Up to date" in status())
         app.until("the unpaid drive is read-only by its token server's word", lambda: app.printed(
             status_key, re.escape(paid_id) + r" azdrive-sync-status-payment-due"))
         log("25a. paired: %s, the first pass, \"Up to date\" on the status line; the unpaid "
@@ -1855,7 +2083,7 @@ def sync_step(args, logs, binary, out):
             r"Cellular connected=true metered=true constrained=false hotspot=false"))
         app.until("Paused (metered network)", lambda: last_status(app, SYNC_DRIVE)
                   == "azdrive-sync-status-metered")
-        app.until("the status line says it", lambda: "Paused (metered network)" in status())
+        app.until("the sync popover says it", lambda: "Paused (metered network)" in status())
         app.until("the drive's row has its glyph", lambda: app.has(
             "#__azdrive_side_sync_" + SYNC_DRIVE))
         app.screenshot(os.path.join(out, "25-sync-metered.png"))
@@ -1921,7 +2149,7 @@ def sync_step(args, logs, binary, out):
             "AZDRIVE_NETWORK",
             r"WiFi connected=true metered=false constrained=false hotspot=false"))
         app.until("synced on a free network", lambda: settled(last_status(app, SYNC_DRIVE)))
-        app.until("the status line says it", lambda: "metered" not in status())
+        app.until("the sync popover says it", lambda: "metered" not in status())
         log("25m. a Low Data Mode Wi-Fi paused the big files too; on a free Wi-Fi the drive is "
             "up to date")
 

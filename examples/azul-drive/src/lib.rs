@@ -2759,9 +2759,10 @@ pub(crate) extern "C" fn on_job_done(
             let Some(find) = s.find.as_mut().filter(|f| f.serial == serial) else {
                 return Update::DoNothing; // an older search, or none open any more
             };
-            find.merge(batch);
+            // How many files were read counts in the ranking (BM25's corpus): before the merge.
             find.phase = phase;
             find.searched = searched;
+            find.merge(batch);
             let mut removed = false;
             if let Some(end) = end {
                 // A cloud drive's results of its last listing that the fresh one has not got.
