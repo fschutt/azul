@@ -81,14 +81,51 @@ impl Maneuver {
     /// The arrow of Valhalla's maneuver type `kind` (its API's numbering).
     #[must_use]
     pub const fn of_type(kind: u64) -> Self {
-        let _ = kind;
-        Self::Straight
+        match kind {
+            1..=3 => Self::Start,
+            4..=6 => Self::Destination,
+            9 => Self::SlightRight,
+            10 => Self::Right,
+            11 => Self::SharpRight,
+            12 => Self::UTurnRight,
+            13 => Self::UTurnLeft,
+            14 => Self::SharpLeft,
+            15 => Self::Left,
+            16 => Self::SlightLeft,
+            18 | 20 => Self::RampRight,
+            19 | 21 => Self::RampLeft,
+            23 => Self::ForkRight,
+            24 => Self::ForkLeft,
+            25 | 37 | 38 => Self::Merge,
+            26 | 27 => Self::Roundabout,
+            28 | 29 => Self::Ferry,
+            _ => Self::Straight,
+        }
     }
 
     /// The Material icon that shows it.
     #[must_use]
     pub const fn icon(self) -> &'static str {
-        "straight"
+        match self {
+            Self::Start => "trip_origin",
+            Self::Destination => "flag",
+            Self::Straight => "straight",
+            Self::SlightRight => "turn_slight_right",
+            Self::Right => "turn_right",
+            Self::SharpRight => "turn_sharp_right",
+            Self::UTurnRight => "u_turn_right",
+            Self::UTurnLeft => "u_turn_left",
+            Self::SharpLeft => "turn_sharp_left",
+            Self::Left => "turn_left",
+            Self::SlightLeft => "turn_slight_left",
+            Self::RampRight => "ramp_right",
+            Self::RampLeft => "ramp_left",
+            Self::ForkRight => "fork_right",
+            Self::ForkLeft => "fork_left",
+            Self::Merge => "merge",
+            Self::Roundabout => "roundabout_right",
+            Self::Ferry => "directions_boat",
+        }
     }
 }
 
@@ -108,8 +145,11 @@ pub enum OnlineError {
 /// Valhalla's costing for a travel mode.
 #[must_use]
 pub const fn costing(mode: Mode) -> &'static str {
-    let _ = mode;
-    "auto"
+    match mode {
+        Mode::Car => "auto",
+        Mode::Bike => "bicycle",
+        Mode::Walk => "pedestrian",
+    }
 }
 
 /// The JSON a route request sends: the places `(lat, lon)` in order, the
@@ -117,13 +157,20 @@ pub const fn costing(mode: Mode) -> &'static str {
 /// (`de`, `en`, ...). Nothing else.
 #[must_use]
 pub fn request_body(places: &[(f64, f64)], mode: Mode, language: &str) -> String {
-    let _ = (places, mode, language);
-    String::new()
+    let locations: Vec<Value> = places
+        .iter()
+        .map(|&(lat, lon)| json!({ "lat": lat, "lon": lon }))
+        .collect();
+    json!({
+        "locations": locations,
+        "costing": costing(mode),
+        "directions_options": { "units": "kilometers", "language": language_tag(language) },
+    })
+    .to_string()
 }
 
 /// Valhalla's name of a language: `de` -> `de-DE`, `en` -> `en-US`; a tag
 /// with a region already is kept.
-#[allow(dead_code)]
 fn language_tag(language: &str) -> String {
     let language = language.trim();
     if language.contains('-') {
@@ -141,8 +188,35 @@ fn language_tag(language: &str) -> String {
 /// pair.
 #[must_use]
 pub fn decode_polyline6(encoded: &str) -> Vec<(f64, f64)> {
-    let _ = encoded;
-    Vec::new()
+    let bytes = encoded.as_bytes();
+    let mut points = Vec::new();
+    let (mut at, mut lat, mut lon) = (0usize, 0i64, 0i64);
+    let next = |at: &mut usize| -> Option<i64> {
+        let (mut shift, mut value) = (0u32, 0i64);
+        loop {
+            let byte = i64::from(*bytes.get(*at)?) - 63;
+            *at += 1;
+            value |= (byte & 0x1f) << shift;
+            shift += 5;
+            if byte < 0x20 {
+                break;
+            }
+            if shift > 60 {
+                return None;
+            }
+        }
+        Some(if value & 1 == 1 { !(value >> 1) } else { value >> 1 })
+    };
+    while at < bytes.len() {
+        let (Some(dlat), Some(dlon)) = (next(&mut at), next(&mut at)) else {
+            break;
+        };
+        lat += dlat;
+        lon += dlon;
+        #[allow(clippy::cast_precision_loss)] // six decimals of a degree fit an f64
+        points.push((lat as f64 / 1e6, lon as f64 / 1e6));
+    }
+    points
 }
 
 /// The route in a Valhalla `/route` answer: every leg's shape joined, the
@@ -153,8 +227,51 @@ pub fn decode_polyline6(encoded: &str) -> Vec<(f64, f64)> {
 ///
 /// The answer's own error (`error_code`), or an answer that is no route.
 pub fn parse_route(json: &str) -> Result<OnlineRoute, OnlineError> {
-    let _ = json;
-    Err(OnlineError::Server(String::new()))
+    let doc: Value =
+        serde_json::from_str(json).map_err(|e| OnlineError::Server(format!("json: {e}")))?;
+    if doc.get("error_code").is_some() {
+        return Err(error_of(&doc));
+    }
+    let trip = doc
+        .get("trip")
+        .ok_or_else(|| OnlineError::Server("no trip in the answer".to_string()))?;
+    let number = |v: &Value, key: &str| v.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+    let summary = trip.get("summary").unwrap_or(&Value::Null);
+    let mut route = OnlineRoute {
+        distance_m: number(summary, "length") * 1000.0,
+        duration_s: number(summary, "time"),
+        points: Vec::new(),
+        steps: Vec::new(),
+    };
+    for leg in trip.get("legs").and_then(Value::as_array).into_iter().flatten() {
+        // A leg's shape starts where the last one ended: the shared point
+        // is kept once.
+        let shape = decode_polyline6(leg.get("shape").and_then(Value::as_str).unwrap_or(""));
+        let offset = route.points.len().saturating_sub(usize::from(!route.points.is_empty()));
+        let skip = usize::from(!route.points.is_empty());
+        route.points.extend(shape.iter().skip(skip));
+        for m in leg.get("maneuvers").and_then(Value::as_array).into_iter().flatten() {
+            let index = |key: &str| {
+                usize::try_from(m.get(key).and_then(Value::as_u64).unwrap_or(0)).unwrap_or(0)
+            };
+            let last = route.points.len().saturating_sub(1);
+            route.steps.push(Step {
+                instruction: m
+                    .get("instruction")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                distance_m: number(m, "length") * 1000.0,
+                kind: Maneuver::of_type(m.get("type").and_then(Value::as_u64).unwrap_or(0)),
+                first_point: (offset + index("begin_shape_index")).min(last),
+                last_point: (offset + index("end_shape_index")).min(last),
+            });
+        }
+    }
+    if route.points.len() < 2 {
+        return Err(OnlineError::Server("the route has no shape".to_string()));
+    }
+    Ok(route)
 }
 
 /// What an answer that is not a route says: Valhalla's `error_code` 442
@@ -162,11 +279,15 @@ pub fn parse_route(json: &str) -> Result<OnlineRoute, OnlineError> {
 /// [`OnlineError::Busy`]; anything else is the server's.
 #[must_use]
 pub fn parse_error(status: u16, body: &str) -> OnlineError {
-    let _ = (status, body);
-    OnlineError::Server(String::new())
+    if status == 429 {
+        return OnlineError::Busy;
+    }
+    match serde_json::from_str::<Value>(body) {
+        Ok(doc) if doc.get("error_code").is_some() => error_of(&doc),
+        _ => OnlineError::Server(format!("HTTP {status}")),
+    }
 }
 
-#[allow(dead_code)]
 fn error_of(doc: &Value) -> OnlineError {
     let code = doc.get("error_code").and_then(Value::as_u64).unwrap_or(0);
     let text = doc
@@ -232,11 +353,55 @@ impl Valhalla {
         language: &str,
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<Option<OnlineRoute>, OnlineError> {
-        let _ = (places, mode, language, stop, &self.agent, &self.last_sent, Self::MAX_ANSWER);
-        Err(OnlineError::Offline(String::new()))
+        let body = request_body(places, mode, language);
+        if let Some(known) = self.remembered(&body) {
+            return Ok(Some(known));
+        }
+        loop {
+            if stop() {
+                return Ok(None);
+            }
+            let wait = self
+                .last_sent
+                .lock()
+                .ok()
+                .and_then(|last| *last)
+                .map_or(std::time::Duration::ZERO, |at| MIN_GAP.saturating_sub(at.elapsed()));
+            if wait.is_zero() {
+                break;
+            }
+            std::thread::sleep(wait.min(std::time::Duration::from_millis(50)));
+        }
+        if let Ok(mut last) = self.last_sent.lock() {
+            *last = Some(std::time::Instant::now());
+        }
+        let response = self
+            .agent
+            .post(&self.url)
+            .header("User-Agent", self.user_agent.as_str())
+            .header("Content-Type", "application/json")
+            .send(body.as_str())
+            .map_err(|e| OnlineError::Offline(e.to_string()))?;
+        let status = response.status().as_u16();
+        let text = response
+            .into_body()
+            .into_with_config()
+            .limit(Self::MAX_ANSWER)
+            .read_to_string()
+            .map_err(|e| OnlineError::Offline(e.to_string()))?;
+        if status != 200 {
+            return Err(parse_error(status, &text));
+        }
+        let route = parse_route(&text)?;
+        if let Ok(mut answered) = self.answered.lock() {
+            if answered.len() >= Self::REMEMBERED {
+                answered.pop_front();
+            }
+            answered.push_back((body, route.clone()));
+        }
+        Ok(Some(route))
     }
 
-    #[allow(dead_code)]
     fn remembered(&self, body: &str) -> Option<OnlineRoute> {
         let answered = self.answered.lock().ok()?;
         answered
