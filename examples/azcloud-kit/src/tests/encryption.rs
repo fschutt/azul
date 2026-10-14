@@ -4,7 +4,7 @@
 
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 use serde_json::Value;
@@ -14,7 +14,7 @@ use azul_storage::{
     encrypted::{IndexProvider, MemoryIndex, NameIndex},
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
-    Drive, DriveError, Method, Transport,
+    Drive, DriveError, HttpCall, HttpReply, Method, Transport,
 };
 
 use super::{bundle, fake_s3::FakeS3, header, json, Fake, Shared, TOKEN};
@@ -209,6 +209,82 @@ fn a_device_tells_its_encryption_and_unlocks_from_its_own_wrap() {
     assert!(a.unlock_key(&keys).unwrap().is_some());
     assert!(a.holds_drive_key(&keys).unwrap());
     assert!(a.unlock_key(&MemoryKeyring::new()).unwrap().is_none());
+}
+
+/// The token server and the bucket with the network's DNS down: the sign-up lists node `n1` at
+/// 127.0.0.1, and a host name only resolves once the transport was told its addresses.
+struct WithoutDns {
+    s3: Arc<FakeS3>,
+    /// The hosts the transport was told addresses for, in order.
+    told: Mutex<Vec<String>>,
+}
+
+impl Transport for WithoutDns {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        if call.url.starts_with(TOKEN) {
+            let nodes = r#""nodes": [{"name": "n1", "url": "http://n1.nodes.test:19001",
+                                      "ready": true, "addresses": ["127.0.0.1"]}]"#;
+            return Ok(json(
+                201,
+                &bundle("AKID1", "2099-01-01T00:00:00Z", "dt_f.0.a").replace(r#""nodes": []"#, nodes),
+            ));
+        }
+        let rest = call.url.split_once("://").map_or("", |(_, r)| r);
+        let authority = rest.split('/').next().unwrap_or("");
+        let host = authority.rsplit_once(':').map_or(authority, |(h, _)| h);
+        let known = host.parse::<std::net::IpAddr>().is_ok()
+            || self.told.lock().unwrap().iter().any(|h| h == host);
+        if !known {
+            return Err(format!("DNS resolution failed for {}", call.url));
+        }
+        Ok(self.s3.answer(call))
+    }
+
+    fn fallback_addresses(&self, host: &str, _addresses: &[String]) -> bool {
+        self.told.lock().unwrap().push(host.to_string());
+        true
+    }
+}
+
+struct SharedWithoutDns(Arc<WithoutDns>);
+
+impl Transport for SharedWithoutDns {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        self.0.send(call)
+    }
+
+    fn fallback_addresses(&self, host: &str, addresses: &[String]) -> bool {
+        self.0.fallback_addresses(host, addresses)
+    }
+}
+
+#[test]
+fn with_dns_down_the_key_listing_reaches_the_bucket_at_the_nodes_addresses() {
+    let without_dns = Arc::new(WithoutDns {
+        s3: FakeS3::new(),
+        told: Mutex::new(Vec::new()),
+    });
+    let shared = without_dns.clone();
+    let transports: TransportFactory =
+        Arc::new(move || Box::new(SharedWithoutDns(shared.clone())) as Box<dyn Transport>);
+    let dir = TempDir::new("azcloud-enc-no-dns");
+    let a = signed_up(&transports, &dir)
+        .with_s3_endpoint(Some("http://blk.dns-test.invalid:19000"));
+    let keys = MemoryKeyring::new();
+    assert_eq!(
+        a.encryption_status(&keys).unwrap(),
+        (false, false),
+        "the listing of the key files goes to the block host at the nodes' addresses"
+    );
+    assert!(
+        without_dns
+            .told
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|h| h == "blk.dns-test.invalid"),
+        "the block host was given the nodes' addresses before it was asked"
+    );
 }
 
 #[test]
