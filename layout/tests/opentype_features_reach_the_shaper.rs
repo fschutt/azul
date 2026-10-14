@@ -125,3 +125,18 @@ fn font_feature_settings_ss01_draws_the_long_s_before_a_letter() {
     let word_end = glyphs("font-feature-settings: \"ss01\";", "as");
     assert_eq!(word_end[1].0, round_s, "ss01 keeps the round s at the end of a word");
 }
+
+/// Chrome does not join letters that are tracked apart (CSS Text 3 s8.2: a
+/// non-zero letter-spacing should not apply optional ligatures): "fi" at
+/// `letter-spacing: 1px` is the f and the i, 16.27px wide in Calmet UI 20px
+/// (the unligated pair, 14.27px, and two trackings). Settings that ask for
+/// `liga` still get it.
+#[test]
+fn a_tracked_word_is_not_ligated_unless_the_settings_ask_for_it() {
+    assert_eq!(glyphs("letter-spacing: 1px;", "fi").len(), 2, "tracked: f and i");
+    assert_eq!(
+        glyphs("letter-spacing: 1px; font-feature-settings: \"liga\";", "fi").len(),
+        1,
+        "\"liga\" asked for: one ligature"
+    );
+}
