@@ -8272,4 +8272,33 @@ mod overlay_tests {
         assert_eq!(kept.overlays.as_slice().len(), 1, "the newest build's line");
         assert!(kept.on_marker_tap.is_some(), "the newest build's hook");
     }
+
+    #[test]
+    fn a_line_in_a_system_colour_is_stroked_with_it_and_not_left_out() {
+        use azul_css::props::{basic::color::SystemColorRef, property::CssProperty};
+        // A system colour travels as a token whose own alpha is 0; the theme
+        // the map is drawn in resolves it when the stroke is painted.
+        let accent = SystemColorRef::Accent.to_color_token();
+        let mut cache = cache_at(52.5163, 13.3777, 14.0);
+        cache.set_overlays(MapOverlayVec::from_vec(vec![MapOverlay::Polyline(
+            MapPolyline::create(line(&[(52.5163, 13.3700), (52.5163, 13.3850)])).with_color(accent),
+        )]));
+        let dataset = RefAny::new(cache);
+        let ret = with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
+        let OptionDom::Some(root) = &ret.dom else {
+            panic!("a finite box renders");
+        };
+        let stroke = find(root, &has_path).expect("a line in the accent is drawn");
+        let color = stroke
+            .root
+            .style
+            .iter_inline_properties()
+            .find_map(|(p, _)| match p {
+                CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            });
+        assert_eq!(color, Some(accent), "its stroke is the accent's token");
+    }
 }

@@ -1045,6 +1045,19 @@ fn pin_icon(index: usize, (lat, lon): (f64, f64)) -> Dom {
         .with_accessibility_name(coords(lat, lon))
 }
 
+/// The travel line through `points`: the road route (`road`) with an outline
+/// under it, else the straight preview.
+fn travel_polyline(points: MapLatLonVec, road: bool) -> MapPolyline {
+    if road {
+        MapPolyline::create(points)
+            .with_color(ROUTE_COLOR)
+            .with_width(5.0)
+            .with_casing(ROUTE_CASING, 8.0)
+    } else {
+        MapPolyline::create(points).with_color(PREVIEW_COLOR).with_width(4.0)
+    }
+}
+
 /// What AzMaps puts on the map ([`plan_overlays`]) as the map widget's
 /// overlays: the travel line (the road route, or the straight preview until
 /// it arrives), its ends, the pins - the selected one with its card above it -
@@ -1063,15 +1076,7 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
     let mut out = Vec::new();
     if let Some(line) = plan.line {
         let points = MapLatLonVec::from_vec(line.points.iter().copied().map(at).collect());
-        let polyline = if line.road {
-            MapPolyline::create(points)
-                .with_color(ROUTE_COLOR)
-                .with_width(5.0)
-                .with_casing(ROUTE_CASING, 8.0)
-        } else {
-            MapPolyline::create(points).with_color(PREVIEW_COLOR).with_width(4.0)
-        };
-        out.push(MapOverlay::Polyline(polyline));
+        out.push(MapOverlay::Polyline(travel_polyline(points, line.road)));
     }
     let end = |id: u64, place: (f64, f64), css: &'static str, name: &str| {
         MapOverlay::Marker(
@@ -2018,6 +2023,28 @@ pub fn start() {
     let window =
         kit::window_options(&kit_ref, layout, (1100.0, 720.0), (640.0, 420.0), on_window_created);
     app.run(window);
+}
+
+#[cfg(test)]
+mod travel_line_tests {
+    use azul::css::SystemColorRef;
+
+    use super::*;
+
+    fn two_places() -> MapLatLonVec {
+        MapLatLonVec::from_vec(vec![at((48.2082, 16.3738)), at((48.1372, 11.5756))])
+    }
+
+    #[test]
+    fn the_road_route_and_its_preview_are_drawn_in_the_themes_accent() {
+        let accent = SystemColorRef::Accent.to_color_token();
+        let road = travel_polyline(two_places(), true);
+        let preview = travel_polyline(two_places(), false);
+        assert_eq!(road.color, accent, "the road route follows the theme");
+        assert_eq!(preview.color, accent, "so does the straight preview");
+        assert!(road.casing_width > road.width, "the road route has an outline under it");
+        assert!(preview.width < road.width, "the preview is the thinner line");
+    }
 }
 
 #[cfg(test)]
