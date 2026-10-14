@@ -2559,9 +2559,11 @@ fn run_linux_windows(
                         "[Linux] Window {} closed, unregistering",
                         wid
                     );
-                    // Unregister and drop the window
+                    // Unregister and drop the window; the app's threads go on in
+                    // a window that stays open, not stopped with this one.
                     if let Some(win_ptr) = registry::unregister_window(*wid) {
                         unsafe {
+                            super::linux::hand_over_threads(&mut *win_ptr);
                             drop(Box::from_raw(win_ptr));
                         }
                     }

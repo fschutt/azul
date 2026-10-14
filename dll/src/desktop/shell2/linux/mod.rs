@@ -91,6 +91,43 @@ pub enum LinuxEvent {
     Wayland(wayland::WaylandEvent),
 }
 
+/// Hands the app threads of `closing` (already out of the registry) to the first registered
+/// window that may take them (`common::thread_handover`).
+///
+/// # Safety
+///
+/// Every pointer in the registry is a live window, and `closing` is not one of them.
+pub(crate) unsafe fn hand_over_threads(closing: &mut LinuxWindow) {
+    use super::common::{event::PlatformWindow, thread_handover};
+
+    fn hand_to<H: PlatformWindow>(closing: &mut LinuxWindow, heir: &mut H) -> bool {
+        match closing {
+            LinuxWindow::X11(w) => thread_handover::hand_over_threads(w, heir),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(w) => thread_handover::hand_over_threads(w, heir),
+        }
+    }
+
+    for wid in registry::get_all_window_ids() {
+        let Some(heir) = (unsafe { registry::get_window(wid) }) else {
+            continue;
+        };
+        if core::ptr::eq(heir.cast_const(), &*closing as *const LinuxWindow) {
+            continue;
+        }
+        // SAFETY: a registered pointer is a live window, and not `closing`.
+        let heir = unsafe { &mut *heir };
+        let handed = match heir {
+            LinuxWindow::X11(h) => hand_to(closing, h),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(h) => hand_to(closing, h),
+        };
+        if handed {
+            return;
+        }
+    }
+}
+
 // Lifecycle methods (formerly on PlatformWindow V1 trait)
 impl LinuxWindow {
     pub fn poll_event(&mut self) -> Option<LinuxEvent> {

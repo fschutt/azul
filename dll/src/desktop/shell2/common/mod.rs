@@ -37,6 +37,8 @@ pub mod log_gate;
 /// asks, the run loop exits with everything else stopped.
 pub mod process_exit;
 pub mod seats;
+/// A closing window hands the app's background threads to a window that stays open.
+pub mod thread_handover;
 pub mod transient;
 /// `<webview>`: the backend trait every platform's native web view
 /// implements, the headless one, and the pump that runs them.
