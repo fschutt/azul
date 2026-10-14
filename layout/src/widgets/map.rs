@@ -44,6 +44,8 @@ use azul_css::{
 use azul_css::system::DarkLightMode;
 
 pub mod overlay;
+#[cfg(test)]
+mod label_placement_tests;
 pub use overlay::{
     MapLatLonVec, MapLatLonVecDestructor, MapLatLonVecDestructorType, MapLatLonVecSlice,
     MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,
