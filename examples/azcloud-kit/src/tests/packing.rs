@@ -18,7 +18,7 @@ use azul_storage::{
     packing::{PackOptions, RETIRED_GRACE_SECS},
     testing::TempDir,
     time::now_unix,
-    BatchPut, Drive,
+    BatchPut, Drive, ListRequest,
 };
 
 use super::{fake_s3::FakeS3, sync_named::s3_drive};
@@ -234,6 +234,8 @@ fn five_thousand_small_files_sync_read_back_half_deleted_repacked_and_all_verifi
         let (key, bytes) = file(i);
         assert_eq!(laptop.get(&format!("{PREFIX}{key}")).unwrap(), bytes, "{key}");
     }
+    // The phone asks the drive's index again now (it would within its poll time anyway).
+    phone.list(&ListRequest::recursive(PREFIX).refreshed()).unwrap();
     let after = b.sync(&phone);
     assert_eq!(after.deleted_here, FILES / 2, "{}", after.summary());
     assert_eq!(after.files_down, 0, "a repack changes no file: {}", after.summary());
