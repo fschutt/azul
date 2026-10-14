@@ -346,6 +346,8 @@ pub const ABOUT: AzString = AzString::from_const_str("__azdrive_about");
 
 /// The preview pane and what it shows.
 pub const PREVIEW_PANE: AzString = AzString::from_const_str("__azdrive_preview_pane");
+/// Under the preview: the item's name, kind, what it is, Open and Copy link.
+pub const PREVIEW_INFO: AzString = AzString::from_const_str("__azdrive_preview_info");
 pub const PREVIEW_TEXT: AzString = AzString::from_const_str("__azdrive_preview_text");
 pub const PREVIEW_IMAGE: AzString = AzString::from_const_str("__azdrive_preview_image");
 pub const PREVIEW_AUDIO: AzString = AzString::from_const_str("__azdrive_preview_audio");

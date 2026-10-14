@@ -358,10 +358,88 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
             }
         }
     };
-    Dom::create_div()
+    let mut pane = Dom::create_div()
         .with_id(ids::PREVIEW_PANE)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(body)
+        .with_child(
+            Dom::create_div()
+                .with_css(look::PREVIEW_STAGE)
+                .with_child(body),
+        );
+    if let Some(info) = preview_info(s, app) {
+        pane.add_child(info);
+    }
+    pane
+}
+
+/// Under the preview: the item's name and kind, what it is (Type, Size, Modified, Location,
+/// and where something syncs its state), and at the foot Open and Copy link.
+fn preview_info(s: &DriveState, app: &RefAny) -> Option<Dom> {
+    let entry = s.single_selected()?;
+    let kind = crate::model::cell_text(entry, browse::Column::Type, s.settings.show_extensions);
+    let row = |key: &str, value: String| {
+        Dom::create_div()
+            .with_css(look::PREVIEW_ROW)
+            .with_child(
+                Dom::create_div()
+                    .with_css(look::PREVIEW_ROW_KEY)
+                    .with_child(Dom::create_span_with_text(label(key))),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css(look::PREVIEW_ROW_VALUE)
+                    .with_child(Dom::create_span_with_text(AzString::from(value))),
+            )
+    };
+    let drive_name = s.drive_name(&s.place);
+    let location = browse::path_text(
+        &Place::folder(
+            &s.current_drive_id().unwrap_or_default(),
+            &crate::fileops::parent_of(&entry.key),
+        ),
+        Some(&drive_name),
+    );
+    let mut list = Dom::create_div()
+        .with_id(ids::PREVIEW_INFO)
+        .with_css(look::PREVIEW_INFO)
+        .with_child(
+            Dom::create_div()
+                .with_css(look::PREVIEW_NAME)
+                .with_child(Dom::create_span_with_text(AzString::from(
+                    entry.display_name(s.settings.show_extensions),
+                ))),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css(look::PREVIEW_KIND)
+                .with_child(Dom::create_span_with_text(AzString::from(kind.as_str()))),
+        )
+        .with_child(row("azdrive-column-type", kind.clone()))
+        .with_child(row("azdrive-column-size", ui_view::size_text(s, entry)))
+        .with_child(row(
+            "azdrive-column-modified",
+            browse::format_modified(entry.modified, &chrono::Local),
+        ))
+        .with_child(row("azdrive-meta-location", location));
+    if let Some((_, words, _)) = crate::sync_view::badge(s, entry) {
+        list.add_child(row("azdrive-find-column-status", words));
+    }
+    let button = |text: &str, action: Action| {
+        Button::create(label(text))
+            .with_on_click(
+                actions::action_ref(app, action),
+                actions::on_action as ButtonOnClickCallbackType,
+            )
+            .dom()
+            .with_css("margin-left: 6px;")
+    };
+    list.add_child(
+        Dom::create_div()
+            .with_css(look::PREVIEW_ACTIONS)
+            .with_child(button("azdrive-ribbon-open", Action::Open))
+            .with_child(button("azdrive-ribbon-copy-link", Action::Share)),
+    );
+    Some(list)
 }
 
 // ==== The details pane ====

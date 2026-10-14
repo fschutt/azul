@@ -586,6 +586,55 @@ pub(crate) const SNIPPET_KIND: &str = themed!(
     "color: #8C8C8C;",
 );
 
+// ==== The preview pane ====
+
+/// The preview's stage: the picture, the page, the text - on a soft gradient over the leaf.
+pub(crate) const PREVIEW_STAGE: &str = themed!(
+    "display: flex; flex-direction: column; flex-grow: 1; min-height: 120px; overflow: hidden;",
+    "border-bottom: 1px solid #E2E6EB;",
+    "border-bottom: 1px solid #333333;",
+    "background: linear-gradient(to bottom, #EFEDE7, #FBFAF6); border-bottom: 1px solid #E0DDD7;",
+    "background: linear-gradient(to bottom, #242424, #1D1D1D); border-bottom: 1px solid #2E2E2E;",
+);
+
+/// The item's facts under the preview.
+pub(crate) const PREVIEW_INFO: &str =
+    "display: flex; flex-direction: column; flex-shrink: 0; padding: 12px 14px;";
+
+/// The item's name: 17 px, semibold.
+pub(crate) const PREVIEW_NAME: &str =
+    "font-size: 17px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; \
+     white-space: nowrap;";
+
+/// The item's kind under its name.
+pub(crate) const PREVIEW_KIND: &str = themed!(
+    "font-size: 12.5px; margin-bottom: 10px;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// A fact: its name on the left, its value.
+pub(crate) const PREVIEW_ROW: &str =
+    "display: flex; flex-direction: row; padding: 2px 0px; font-size: 12.5px;";
+
+pub(crate) const PREVIEW_ROW_KEY: &str = themed!(
+    "width: 84px; flex-shrink: 0;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76;",
+    "color: #8C8C8C;",
+);
+
+pub(crate) const PREVIEW_ROW_VALUE: &str =
+    "flex-grow: 1; min-width: 0px; overflow: hidden; text-overflow: ellipsis; \
+     white-space: nowrap; font-variant-numeric: tabular-nums;";
+
+/// Open and Copy link at the foot.
+pub(crate) const PREVIEW_ACTIONS: &str =
+    "display: flex; flex-direction: row; justify-content: flex-end; margin-top: 12px;";
+
 // ==== Over the window: Quick Look, the command palette ====
 
 /// The grey scrim over the window, what lies on it centred.
