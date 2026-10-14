@@ -6,15 +6,16 @@ authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
     AzMaps' road routing without azul types (examples/azul-maps/ROUTING.md):
-    the tiles of a trip's corridor at zoom 8 / 11 / 14, routable tiles read
-    and written, the road graph per travel mode, A*, and the tile generator
-    that cuts an OpenStreetMap extract into those tiles.
+    the static routing tiles (Valhalla's road graph as gzipped protobuf at
+    zoom 8 / 11 / 14) with their manifest, cache and offline areas, an
+    edge-based A* that reads the tiles as the search reaches them, and the
+    generator that cuts an OpenStreetMap extract into the same tiles.
 """
 publish = false
 
 [dependencies]
-# Both already in the tree: the tiles are JSON (no hand-rolled JSON), gzipped,
-# and an OSM extract's blocks are zlib streams.
+# Both already in the tree: the tiles are gzipped (the protobuf reader is our
+# own, wire.rs), the manifest is JSON, and an OSM extract's blocks are zlib.
 serde_json = "1"
 flate2 = "1"
 # The download of the tiles (feature `http`): exactly the ureq and rustls azul-layout's `http`
