@@ -221,3 +221,26 @@ fn the_render_shows_the_parent_in_every_tile_box_whose_own_tile_is_missing() {
         );
     }
 }
+
+#[test]
+fn a_view_with_nothing_fading_leaves_the_fade_clock_alone() {
+    // A render that moved the fade clock to its own time would keep the fade
+    // timer drawing the view sixty times a second, forever.
+    let mut cache = cache_at(0.0, 0.0, 3.0);
+    let look = cache.current_look();
+    let image = an_image();
+    for t in map_visible_tiles(
+        &view(0.0, 0.0, 3.0),
+        LogicalSize::new(512.0, 512.0),
+        &layer_zoom(0, 19),
+    ) {
+        settled(&mut cache, t, look, &image);
+    }
+    let dataset = azul_core::refany::RefAny::new(cache);
+    for _ in 0..2 {
+        let _ = with_virtual_view_info(512.0, 512.0, |info| map_widget_render(dataset.clone(), info));
+    }
+    let mut dataset = dataset;
+    let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
+    assert_eq!(cache.fade_until, 0.0, "nothing faded: nothing to draw again");
+}
