@@ -11027,3 +11027,56 @@ mod font_feature_settings_tests {
         }
     }
 }
+
+/// `font-variant-caps` (CSS Fonts 4 s6.6): `normal | small-caps |
+/// all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps`,
+/// inherited. AzDrive's capitals (tab buttons, group titles, caps headers)
+/// are `all-small-caps` in the design.
+#[cfg(test)]
+mod font_variant_caps_tests {
+    use super::*;
+
+    fn property_type() -> CssPropertyType {
+        CssPropertyType::from_str("font-variant-caps", &CssKeyMap::get())
+            .expect("font-variant-caps is a CSS property")
+    }
+
+    #[test]
+    fn font_variant_caps_is_an_inherited_property() {
+        let ty = property_type();
+        assert_eq!(ty.to_str(), "font-variant-caps");
+        assert!(ty.is_inheritable(), "font-variant-caps is inherited");
+    }
+
+    #[test]
+    fn font_variant_caps_parses_every_keyword_and_prints_it_back() {
+        let ty = property_type();
+        for keyword in [
+            "normal",
+            "small-caps",
+            "all-small-caps",
+            "petite-caps",
+            "all-petite-caps",
+            "unicase",
+            "titling-caps",
+        ] {
+            let prop = parse_css_property(ty, keyword)
+                .unwrap_or_else(|e| panic!("`{keyword}` must parse: {e:?}"));
+            assert_eq!(prop.get_type(), ty, "`{keyword}`");
+            assert_eq!(prop.value(), keyword);
+        }
+        let prop = parse_css_property(ty, "  All-Small-Caps ").expect("case-insensitive");
+        assert_eq!(prop.value(), "all-small-caps");
+    }
+
+    #[test]
+    fn font_variant_caps_rejects_anything_else() {
+        let ty = property_type();
+        for bad in ["small", "small-caps all-small-caps", "smcp", ""] {
+            assert!(
+                parse_css_property(ty, bad).is_err(),
+                "`{bad}` is not a font-variant-caps value"
+            );
+        }
+    }
+}
