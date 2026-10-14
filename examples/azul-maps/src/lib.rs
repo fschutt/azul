@@ -63,6 +63,7 @@ pub mod args;
 pub mod geocode;
 pub mod ids;
 pub mod import;
+pub mod journeys;
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;

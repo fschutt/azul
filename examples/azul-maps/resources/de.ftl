@@ -63,3 +63,9 @@ azmaps-route-steps = Abbiegehinweise
 azmaps-routing-credit = Routing: Valhalla, FOSSGIS / © OpenStreetMap-Mitwirkende
 azmaps-suggestions = Vorschläge
 azmaps-no-places = Kein Ort namens „{ $query }“ bekannt
+
+## Öffentlicher Verkehr
+
+azmaps-transit-now = Jetzt losfahren
+azmaps-transit-depart = Abfahrt um
+azmaps-transit-arrive = Ankunft bis
