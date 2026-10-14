@@ -39,8 +39,8 @@ use azul_appkit::{
 use crate::{
     ids,
     model::{
-        file_title, size_label, Field, FieldKind, FieldWidget, PageArt, Strip, Zoom, PAGE_GAP,
-        VIEW_PAD,
+        file_title, page_face, size_label, Field, FieldKind, FieldWidget, PageArt, PageFace, Strip,
+        Zoom, PAGE_GAP, VIEW_PAD,
     },
     AppState, Nav,
 };
@@ -418,12 +418,14 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     let (top, bottom) = slice(&strip, first, end);
     let materialized = rect(0.0, top, view_w, bottom - top);
     let whole = rect(0.0, 0.0, view_w, strip.height);
+    let resizing = s.view.is_resizing();
     let key = (
         first,
         end,
         view_w.to_bits(),
         scale.to_bits(),
         layout_scale.to_bits(),
+        resizing,
     );
     if !s.pages_built.must_build(key, asked_afresh(&info)) {
         return VirtualViewReturn::keep_current(materialized, whole);
@@ -435,6 +437,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         )
         .as_str(),
     );
+    let mut pictures_shown = false;
     for page in first..end {
         let (w, h) = strip.sizes[page];
         let x = ((view_w - w) / 2.0).max(VIEW_PAD);
@@ -444,7 +447,17 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
             .and_then(|d| d.sizes.get(page))
             .map(|size| PageArt::new(*size, scale, layout_scale));
         let dom = s.pages.get(page, crate::PAGE_DOM).zip(art);
-        let mut frame = page_frame(page, x, strip.tops[page] - top, w, h, dom);
+        // While the window is resized the page shows its picture: the DOM
+        // built here is styled and laid out again at every step of a drag.
+        let picture = if resizing {
+            let width = s.picture_width_of(page);
+            s.pictures.get(page, width)
+        } else {
+            None
+        };
+        let face = page_face(resizing, dom, picture);
+        pictures_shown |= matches!(face, PageFace::Picture(_));
+        let mut frame = page_frame(page, x, strip.tops[page] - top, w, h, face);
         // The form's inputs over the page, at the page's scale.
         if let Some(doc) = s.doc.as_ref() {
             let px_per_pt = doc.sizes.get(page).map_or(0.0, |p| w / p.width_pt.max(1.0));
@@ -465,6 +478,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         }
         root.add_child(frame);
     }
+    s.pictures_shown = pictures_shown;
     VirtualViewReturn::with_dom(root, materialized, whole)
 }
 
@@ -478,10 +492,18 @@ fn asked_afresh(info: &VirtualViewCallbackInfo) -> bool {
     )
 }
 
-/// One page at (`x`, `y`) of the slice, `w` x `h` CSS px: its DOM (an
-/// `<svg>`, its viewBox maps the page onto its box) laid out at the art's
-/// size and scaled onto the frame by the art's factor.
-fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<(Dom, PageArt)>) -> Dom {
+/// One page at (`x`, `y`) of the slice, `w` x `h` CSS px, showing `face`:
+/// its DOM (an `<svg>`, its viewBox maps the page onto its box) laid out at
+/// the art's size and scaled onto the frame by the art's factor; its picture
+/// filling the frame; or a blank page with its number.
+fn page_frame(
+    page: usize,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    face: PageFace<(Dom, PageArt), ImageRef>,
+) -> Dom {
     let mut frame = Dom::create_div()
         .with_id(ids::numbered(ids::PAGE_PREFIX, page + 1))
         .with_accessibility_name(t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str())
@@ -494,8 +516,8 @@ fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<(Dom, Pag
             )
             .as_str(),
         );
-    match dom {
-        Some((dom, art)) => {
+    match face {
+        PageFace::Dom((dom, art)) => {
             let (aw, ah) = art.size;
             // A transform is drawn, not laid out: the text keeps its layout.
             // Settled, the art has no transform at all.
@@ -516,7 +538,14 @@ fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<(Dom, Pag
                     )),
             );
         }
-        None => frame.add_child(
+        // The picture is a picture of the page: the text in it is the
+        // page's, already read out by the frame's name.
+        PageFace::Picture(picture) => frame.add_child(
+            Dom::create_image(picture)
+                .with_id(ids::numbered(ids::PICTURE_PREFIX, page + 1))
+                .with_css("display: block; width: 100%; height: 100%;"),
+        ),
+        PageFace::Blank => frame.add_child(
             Dom::create_div()
                 .with_css(
                     "display: flex; align-items: center; justify-content: center; width: 100%; \

@@ -34,6 +34,9 @@ pub enum Kind {
     Page,
     /// The page in the thumbnail rail: a picture `width` px wide.
     Thumb,
+    /// The page in the page view as a picture `width` px wide, at the scale
+    /// its DOM is laid out at: what a window drag shows instead of the DOM.
+    Picture,
 }
 
 /// A parsed document, as the UI keeps it.
@@ -138,7 +141,7 @@ pub enum Outcome {
         page: usize,
         dom: Option<Dom>,
     },
-    /// A thumbnail drawn (`None`: it could not be drawn).
+    /// A thumbnail or a page's picture drawn (`None`: it could not be drawn).
     Rendered {
         generation: u64,
         kind: Kind,
@@ -222,7 +225,7 @@ pub extern "C" fn job_thread(
                         page,
                         dom: page_dom(&pdf, page),
                     },
-                    Kind::Thumb => Outcome::Rendered {
+                    Kind::Thumb | Kind::Picture => Outcome::Rendered {
                         generation,
                         kind,
                         page,

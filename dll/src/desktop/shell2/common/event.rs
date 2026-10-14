@@ -3059,6 +3059,14 @@ pub struct CommonWindowState {
     /// layout and no display-list rebuild. Backends whose repaint otherwise
     /// re-runs layout (headless) consume it to paint only.
     pub content_repaint_pending: bool,
+    /// Set while this shell applies the changes of callbacks whose result it
+    /// acts on afterwards (the user-event dispatch, the timers and threads):
+    /// a CSS or style write then lays nothing out itself, and the one
+    /// relayout (or display-list rebuild) the result asks for covers every
+    /// write (`LayoutWindow::apply_content_change_for_host`). Elsewhere (a
+    /// lifecycle callback after a rebuild, whose result is not acted on)
+    /// each write lays the window out at once.
+    pub defer_content_layout: bool,
     /// Whether the accessibility tree needs to be rebuilt and sent to the OS.
     /// Set on focus change, DOM rebuild, text edit — NOT on every mouse move.
     pub a11y_dirty: bool,
@@ -3437,6 +3445,7 @@ impl CommonWindowState {
             display_list_initialized: false,
             display_list_dirty: false,
             content_repaint_pending: false,
+            defer_content_layout: false,
             a11y_dirty: true,
             app_order: azul_layout::managers::app_target::WindowActivationOrder::for_new_window(),
             desktop_theme,
@@ -6820,20 +6829,19 @@ pub trait PlatformWindow {
                 // write that changed nothing — and produced no damage, so
                 // nothing could ever observe the waste. (Unless the user typed
                 // there: then the DOM agrees and the screen does not.)
+                //
+                // NO cache reset: the relayout's reconcile fingerprints each
+                // node's CONTENT, so the changed text misses its cached
+                // shaping and only its paragraph is shaped again; the warm
+                // layout and the display list survive, and the list is
+                // patched where the text changed (the E2E runner's arm does
+                // the same). A reset here would lay the whole window out cold
+                // for every label update - a clock, a video's time four times
+                // a second.
                 if let Some(lw) = self.get_layout_window_mut() {
                     if !lw.set_node_text(dom_id, internal_node_id, text) {
                         return ProcessEventResult::DoNothing;
                     }
-                    // The incremental layout cache keys its shaped-text runs on
-                    // the DOM pointer, which a text mutation does not change — so
-                    // the next relayout happily reused the OLD glyph runs and the
-                    // screen kept showing the previous text (damage was reported,
-                    // yet not one pixel differed). Drop the incremental cache so
-                    // the text is re-shaped…
-                    lw.layout_cache.reset_incremental();
-                    // …and rebuild the display list, which otherwise still carries
-                    // the old glyph run (same reasoning as ChangeNodeImage below).
-                    lw.regenerate_display_list_for_dom(dom_id);
                 }
                 ProcessEventResult::ShouldIncrementalRelayout
             }
@@ -7018,15 +7026,23 @@ pub trait PlatformWindow {
             } => {
                 // The content chokepoint (one impl for this host AND the e2e
                 // runner): inline-vec sync + retained-cascade restyle + DL
-                // rebuild + the shared paint-vs-relayout tier.
+                // rebuild + the shared paint-vs-relayout tier. In a dispatch
+                // whose result this shell acts on (`defer_content_layout`)
+                // the write lays nothing out itself: the one relayout (or
+                // display-list rebuild) run on the result covers all writes.
+                let for_host = self.get_common_mut().defer_content_layout;
                 let tier = self.get_layout_window_mut().map(|lw| {
-                    lw.apply_content_change(azul_layout::overlay::ContentChange::NodeCss {
+                    let change = azul_layout::overlay::ContentChange::NodeCss {
                         dom_id: *dom_id,
                         node_id: *node_id,
                         props: properties.as_ref().to_vec(),
                         override_only: false,
-                    })
-                    .tier
+                    };
+                    if for_host {
+                        lw.apply_content_change_for_host(change).tier
+                    } else {
+                        lw.apply_content_change(change).tier
+                    }
                 });
                 self.content_change_result(tier)
             }
@@ -7057,14 +7073,21 @@ pub trait PlatformWindow {
             } => {
                 // The content chokepoint again (one impl for this host AND the
                 // e2e runner): the node's inline style replaced, re-cascaded,
-                // the DL rebuilt, the shared paint-vs-relayout tier.
+                // the DL rebuilt, the shared paint-vs-relayout tier - laid out
+                // once on the result where this shell acts on it
+                // (`defer_content_layout`).
+                let for_host = self.get_common_mut().defer_content_layout;
                 let tier = self.get_layout_window_mut().map(|lw| {
-                    lw.apply_content_change(azul_layout::overlay::ContentChange::NodeStyle {
+                    let change = azul_layout::overlay::ContentChange::NodeStyle {
                         dom_id: *dom_id,
                         node_id: *node_id,
                         style: style.clone(),
-                    })
-                    .tier
+                    };
+                    if for_host {
+                        lw.apply_content_change_for_host(change).tier
+                    } else {
+                        lw.apply_content_change(change).tier
+                    }
                 });
                 self.content_change_result(tier)
             }
@@ -12553,8 +12576,12 @@ pub trait PlatformWindow {
         // Dispatch user events using W3C Capture→Target→Bubble propagation
         // dispatch_events_propagated applies all CallbackChanges internally
         // via apply_user_change(), and returns the merged Update level.
+        // The result is acted on below: the callbacks' CSS writes are laid
+        // out once, by the relayout it asks for (`defer_content_layout`).
+        let deferring = core::mem::replace(&mut self.get_common_mut().defer_content_layout, true);
         let (changes_result, callback_update, prevent_default, scroll_prevented) =
             self.dispatch_events_propagated(&pre_filter.user_events);
+        self.get_common_mut().defer_content_layout = deferring;
         result = result.max(changes_result);
 
         // AZ_FOCUS_TRACE, KEY ROUTING: which window a key reached (a popup or
@@ -14015,6 +14042,10 @@ pub trait PlatformWindow {
             "process_timers_and_threads",
         );
 
+        // The results below are acted on at the end of this function: the
+        // callbacks' CSS writes are laid out once, by the relayout they ask
+        // for (`defer_content_layout`).
+        let deferring = core::mem::replace(&mut self.get_common_mut().defer_content_layout, true);
         let (timer_changes_result, timer_results) = self.invoke_expired_timers();
         let mut max_changes_result = timer_changes_result;
         let mut needs_redraw = timer_changes_result != ProcessEventResult::DoNothing;
@@ -14083,6 +14114,7 @@ pub trait PlatformWindow {
             max_changes_result = max_changes_result.max(text_result);
             needs_redraw = true;
         }
+        self.get_common_mut().defer_content_layout = deferring;
 
         // Also sync window state after all changes
         self.sync_window_state();

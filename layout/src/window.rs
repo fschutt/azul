@@ -1220,6 +1220,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
         reconciled_dom: _,
+        host_lays_out: _,
         // One rect per NodeResized subscriber (a handful of widgets), not
         // the document.
         resize_watch: _,
@@ -1698,6 +1699,13 @@ pub struct LayoutWindow {
     /// without one is reconciled by the funnel itself
     /// (`layout_and_generate_display_list_impl`).
     pub reconciled_dom: Option<DomId>,
+    /// Set while a host that acts on the returned tiers applies a callback's
+    /// content changes ([`Self::apply_content_change_for_host`]): a CSS or
+    /// style write then only writes, and the one relayout (or display-list
+    /// rebuild) the tier asks the host for covers every write of the
+    /// callback. Unset - a test, an embedder reading the layout right after
+    /// a write - each write leaves the layout consistent at once.
+    pub host_lays_out: bool,
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
@@ -2478,6 +2486,7 @@ impl LayoutWindow {
         Self {
             pending_css_dirty: None,
             reconciled_dom: None,
+            host_lays_out: false,
             e2e_mount: E2eMountOverride::default(),
             #[cfg(feature = "e2e-server")]
             e2e_scratch: std::sync::Mutex::new(crate::e2e::E2eScratch::default()),
@@ -8960,6 +8969,22 @@ impl LayoutWindow {
         [focus_h.finish(), sel_h.finish(), scroll_h.finish()]
     }
 
+    /// [`Self::apply_content_change`] for a host that lays the window out (or
+    /// rebuilds its display list) on the tier the change returns, once after
+    /// all of a callback's changes, as the desktop shells do: a CSS or style
+    /// write then lays nothing out itself (`host_lays_out`). Without this a
+    /// callback's every layout-property write laid the whole window out at
+    /// once, and the host laid it out again for the tier.
+    pub fn apply_content_change_for_host(
+        &mut self,
+        change: crate::overlay::ContentChange,
+    ) -> crate::overlay::ContentChangeResult {
+        self.host_lays_out = true;
+        let result = self.apply_content_change(change);
+        self.host_lays_out = false;
+        result
+    }
+
     /// THE single entry for content mutations: validates, writes the overlay
     /// arm, journals, patches display lists (paint tier) or invalidates layout
     /// (relayout tier), and returns what the frame loop must do. NO OTHER PATH
@@ -9219,9 +9244,13 @@ impl LayoutWindow {
         let needs_relayout = changed
             .iter()
             .any(|key| key.is_none_or(|ty| ty.can_trigger_relayout()));
+        // A host that lays out on the tier (`host_lays_out`) does it once for
+        // all of a callback's changes.
         if needs_relayout && dom_id == DomId::ROOT_ID {
-            self.relayout_root_dom_in_place();
-        } else {
+            if !self.host_lays_out {
+                self.relayout_root_dom_in_place();
+            }
+        } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
             self.regenerate_display_list_for_dom(dom_id);
         }
         ContentChangeResult {
@@ -9459,15 +9488,20 @@ impl LayoutWindow {
                 // Relayout here rather than relying on the caller acting on
                 // the returned tier: this is the single content chokepoint,
                 // and it must leave `layout_results` consistent with the CSS
-                // it just wrote for EVERY consumer (host shells, the E2E
-                // runner, tests). Hosts that also relayout on the tier are
-                // idempotent. Child DOMs (iframe / VirtualView) keep the
+                // it just wrote for EVERY consumer (tests, embedders). A host
+                // that lays out on the tier (`host_lays_out`: the shells) does
+                // it once for all of a callback's writes, which are in the
+                // inline style and the cascade where its reconcile finds
+                // them. Child DOMs (iframe / VirtualView) keep the
                 // display-list-only path — re-running the root layout would
                 // discard them.
-                self.relayout_root_dom_in_place();
-            } else {
+                if !self.host_lays_out {
+                    self.relayout_root_dom_in_place();
+                }
+            } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
                 // The full-write path rebuilds the DL inline (its historical
-                // contract). The override channel deliberately does NOT —
+                // contract); a host rebuilds the root's list once, on the
+                // tier. The override channel deliberately does NOT —
                 // it is the per-frame animation path, and the returned tier
                 // already schedules the rebuild once per frame.
                 self.regenerate_display_list_for_dom(dom_id);
@@ -14923,6 +14957,7 @@ impl LayoutWindow {
             Vec::new();
         let mut move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode> =
             BTreeMap::new();
+        let mut compared = 0usize;
         if let Some(old_result) = self.layout_results.get(&dom_id) {
             let old_cache = &old_result.styled_dom.css_property_cache.ptr;
             let new_cache = &styled_dom.css_property_cache.ptr;
@@ -14988,6 +15023,7 @@ impl LayoutWindow {
                 if unchanged.get(m.new_node_id.index()).copied().unwrap_or(false) {
                     continue;
                 }
+                compared += 1;
 
                 let mut worst = azul_css::props::property::RelayoutScope::None;
                 let mut changed_any = false;
@@ -15293,6 +15329,7 @@ impl LayoutWindow {
             old_node_data,
             animate_moves: true,
             move_modes,
+            compared,
         }
     }
 
@@ -15531,10 +15568,26 @@ impl LayoutWindow {
                 .map(|(node, tr)| (*node, tr.sample()))
                 .collect();
             if !fresh.is_empty() && self.layout_results.contains_key(&dom_id) {
+                // A track whose node had both keys before this pass is drawn
+                // by the list the pass built: published by an earlier rebuild,
+                // it has not ticked since (nobody drives a spinner that cannot
+                // be seen). Only a track that gets its keys now needs the list
+                // built again.
+                let gets_keys_now = {
+                    let cache = self.gpu_state_manager.caches.get(&DomId::ROOT_ID);
+                    fresh.iter().any(|(node, _)| {
+                        !cache.is_some_and(|c| {
+                            c.anim_transform_keys.contains_key(node)
+                                && c.anim_opacity_keys.contains_key(node)
+                        })
+                    })
+                };
                 for (node, sample) in fresh {
                     self.publish_live_sample(node, sample);
                 }
-                self.regenerate_display_list_for_dom(dom_id);
+                if gets_keys_now {
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
             }
         }
     }
@@ -22846,6 +22899,10 @@ impl LayoutWindow {
         if unchanged && typed_over.is_none() {
             return false;
         }
+        // The next pass must reconcile to find the new text: a latch a tween
+        // tick armed (`LayoutCache::overrides_only_hint`) would hand it the
+        // retained tree, and its stamp cannot see a text change.
+        self.layout_cache.overrides_only_hint = None;
         if !unchanged {
             if let Some(lr) = self.layout_results.get_mut(&dom_id) {
                 let mut nodes = lr.styled_dom.node_data.as_container_mut();
@@ -27055,6 +27112,8 @@ impl LayoutWindow {
             // the very next layout pass and never survives a second remap.
             pending_css_dirty: _,
             reconciled_dom: _,
+            // A bool about the current change batch, no NodeId.
+            host_lays_out: _,
             // One timestamp; carries no NodeId.
             last_anim_tick: _,
             // The culled set follows its tracks (remapped below, beside them).
@@ -31315,6 +31374,12 @@ pub struct PendingReconciliation {
     /// and exits are (user, 2026-10-07): a node not in here is laid out at
     /// its new place, it does not slide there.
     pub move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode>,
+    /// How many matched nodes had their properties compared type by type.
+    /// A node whose cascade inputs are what they were is skipped
+    /// (`unchanged_cascades`), so on a rebuild that changed one widget this
+    /// is that widget's nodes; the whole page here means every click pays
+    /// for a full property diff. Read by tests.
+    pub compared: usize,
 }
 
 /// `LayoutRect` (integer origin, what the layout query returns) → `LogicalRect`
@@ -31538,12 +31603,31 @@ fn unchanged_cascades(
             && on.style == nn.style
             && old_cache.css_props.get_slice(oi) == new_cache.css_props.get_slice(ni)
             && old_cache.cascaded_props.get_slice(oi) == new_cache.cascaded_props.get_slice(ni)
-            && old_cache.user_overridden_properties.get(oi)
-                == new_cache.user_overridden_properties.get(ni)
+            && overrides_of(old_cache, oi) == overrides_of(new_cache, ni)
             && old_cache.resolved_inline.get(&oi) == new_cache.resolved_inline.get(&ni);
         unchanged[ni] = same;
     }
     unchanged
+}
+
+/// A node's runtime overrides (`set_css_property`, a transition's frame).
+///
+/// The table is built lazily: a fresh tree has none, and the first runtime
+/// write sizes it to the whole tree with empty lists. A node without an entry
+/// has no overrides, exactly like one with an empty list, so the two must
+/// compare equal - or every node of every rebuild after a window's first
+/// runtime write counts as restyled (`unchanged_cascades`).
+fn overrides_of(
+    cache: &azul_core::prop_cache::CssPropertyCache,
+    index: usize,
+) -> &[(
+    azul_css::props::property::CssPropertyType,
+    azul_css::props::property::CssProperty,
+)] {
+    cache
+        .user_overridden_properties
+        .get(index)
+        .map_or(&[][..], Vec::as_slice)
 }
 
 /// The motion `animation: move <duration> [timing]` asks a node's moves for

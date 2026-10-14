@@ -9,7 +9,7 @@
 //! out no more on a page twice as long, never reconciles the unchanged DOM,
 //! and fits a time budget in a release build.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use azul_core::dom::Dom;
 use azul_layout::{probe::Probe, window::LayoutWindow};
@@ -22,10 +22,11 @@ use crate::{
 };
 use azul_layout::widgets::accordion::{Accordion, AccordionSection, AccordionSectionVec};
 
-/// The wall-clock budget of one mid-tween frame on the long page, release
-/// builds only. The frame lays out the section's ancestors and patches the
-/// display list; a frame that lays out the page again takes several times
-/// this.
+/// The budget of one mid-tween frame on the long page, in the CPU time of
+/// the thread that runs it (`thread_cpu_clock`: the suite's other tests and
+/// the machine's other work do not count), release builds only. The frame
+/// lays out the section's ancestors and patches the display list; a frame
+/// that lays out the page again takes several times this.
 const FRAME_BUDGET: Duration = Duration::from_millis(8);
 
 /// AzWidgets' shape: a scrolling column holding a closed one-section
@@ -63,7 +64,7 @@ fn step(lw: &mut LayoutWindow) {
 
 /// What a frame in the middle of the opening tween cost on a page of
 /// `cards` cards: the probe's counts, the full reconciles it ran, and its
-/// wall-clock time.
+/// CPU time.
 fn mid_tween_frame_cost(cards: usize) -> (FrameCost, usize, Duration) {
     let mut lw = window(accordion_page(cards));
     let header = node_with_class(&lw, "__azul-native-accordion-header");
@@ -79,7 +80,7 @@ fn mid_tween_frame_cost(cards: usize) -> (FrameCost, usize, Duration) {
 
     Probe::set_recording(true);
     let _ = Probe::drain();
-    let started = Instant::now();
+    let started = crate::thread_cpu_clock::CpuInstant::now();
     step(&mut lw);
     let took = started.elapsed();
     let events = Probe::drain();
@@ -165,7 +166,8 @@ fn an_accordion_frame_fits_its_time_budget() {
         return;
     }
     let _serialised = crate::probe_lock();
-    // The best of three: a frame is measured, not the machine's other work.
+    // The best of three, in CPU time: a frame is measured, not the machine's
+    // other work.
     let took = (0..3)
         .map(|_| mid_tween_frame_cost(80).2)
         .min()

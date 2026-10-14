@@ -572,6 +572,46 @@ impl PageArt {
     }
 }
 
+/// What a page's frame in the page view shows.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PageFace<D, P> {
+    /// The page's DOM, laid out at the settled scale: real, selectable text.
+    Dom(D),
+    /// The page's picture at the settled scale, drawn onto the frame. The
+    /// page view builds its DOM again at every step of a window drag, and a
+    /// page's DOM in it is styled and laid out with it - a whole page of
+    /// text per step - while a picture is one box to scale.
+    Picture(P),
+    /// Neither is made yet: a blank page with its number.
+    Blank,
+}
+
+/// What a page's frame shows: while the window is resized (`resizing`) its
+/// picture once one is made, else its DOM; its picture while its DOM is not
+/// made yet.
+#[must_use]
+pub fn page_face<D, P>(resizing: bool, dom: Option<D>, picture: Option<P>) -> PageFace<D, P> {
+    match (dom, picture) {
+        (_, Some(picture)) if resizing => PageFace::Picture(picture),
+        (Some(dom), _) => PageFace::Dom(dom),
+        (None, Some(picture)) => PageFace::Picture(picture),
+        (None, None) => PageFace::Blank,
+    }
+}
+
+/// The widest a page's picture is drawn, px: a picture is RGBA, so a page
+/// 1600 px wide is ~13 MB. A drag at a higher zoom shows it scaled up.
+pub const MAX_PICTURE_WIDTH: u32 = 1600;
+
+/// The width `page` is drawn at for the page view's picture of it: its width
+/// at the settled scale, at one physical px per CSS px, at most
+/// [`MAX_PICTURE_WIDTH`]. A drag shows the picture for a moment; at a 2x
+/// display's density it would take four times the memory.
+#[must_use]
+pub fn picture_width(page: PageSize, settled_scale: f32) -> u32 {
+    render_width(page.css(settled_scale).0, 1.0).min(MAX_PICTURE_WIDTH)
+}
+
 // ==== Search ====
 
 /// One match: its page and the text around it on one line.

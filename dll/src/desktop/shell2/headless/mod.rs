@@ -2837,12 +2837,24 @@ impl HeadlessWindow {
             // `repaint_only` rebuilds a dirty list first. The display-list
             // diff damages exactly the changed items.
             (self.repaint_only(), "content repaint")
-        } else {
-            // Pure repaint (request_repaint, a paint-only change): render from
-            // the existing DOM. relayout_only() re-lays-out the EXISTING
-            // StyledDom and renders — it never re-invokes the user's layout(),
+        } else if self
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.pending_css_dirty.is_some())
+        {
+            // A restyle staged its CSS dirt for a layout pass (a GPU-only
+            // restyle reports a plain repaint): re-lay-out the EXISTING
+            // StyledDom and render - it never re-invokes the user's layout(),
             // so runtime patches survive.
             (self.relayout_only(), "repaint")
+        } else {
+            // Pure repaint (a pointer move that changed nothing, a GPU-value
+            // frame of a transform tween, request_repaint): paint the layout
+            // as it stands, as the desktop frame paths do (macOS: a light
+            // transaction of scroll offsets and GPU values). A relayout here
+            // laid the whole window out for every pointer event.
+            (self.paint_laid_out(), "repaint")
         };
         if let Err(e) = res {
             log_error!(
@@ -13321,6 +13333,26 @@ mod tests {
         let report = frame_report(&window);
         assert_eq!(report.layout_passes, 0, "a video frame re-ran layout");
         assert_eq!(report.dl_rebuilds, 0, "a video frame rebuilt the display list");
+        assert_eq!(report.frames_since_reset, 1, "and one frame was painted");
+    }
+
+    /// A frame owed for nothing but a repaint - a pointer move that changed
+    /// nothing, a GPU-value frame of a transform tween, an app's
+    /// `request_repaint` - paints the layout as it stands, as the desktop
+    /// frame paths do (macOS: a light transaction, scroll offsets and GPU
+    /// values only). Laying the window out for it made every pointer event
+    /// in a headless window a whole-window relayout: ~17 ms each on
+    /// AzWidgets, two or three per click.
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_repaint_with_nothing_changed_runs_no_layout() {
+        use azul_core::events::ProcessEventResult;
+
+        let mut window = settled_tile_window(video_tiles_layout);
+        window.service_frame(ProcessEventResult::ShouldReRenderCurrentWindow);
+        let report = frame_report(&window);
+        assert_eq!(report.layout_passes, 0, "a repaint re-ran layout");
+        assert_eq!(report.dl_rebuilds, 0, "a repaint rebuilt the display list");
         assert_eq!(report.frames_since_reset, 1, "and one frame was painted");
     }
 
