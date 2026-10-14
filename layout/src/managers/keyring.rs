@@ -251,6 +251,28 @@ mod tests {
         );
         assert!(drain_keyring_results().is_empty());
     }
+
+    /// A window takes only the answers to the ops it sent out: with two windows open, the other
+    /// one's pass leaves them in the channel for the window whose callback waits for them.
+    #[test]
+    fn a_window_takes_at_most_as_many_keyring_results_as_it_has_ops_in_flight() {
+        let _guard = autotest_generated::lock_channels();
+        drop(drain_keyring_results());
+
+        push_keyring_result(KeyringResult::NotFound);
+        push_keyring_result(KeyringResult::Stored);
+        assert!(
+            drain_keyring_results_up_to(0).is_empty(),
+            "a window that asked nothing takes nothing"
+        );
+        assert_eq!(
+            drain_keyring_results_up_to(1),
+            alloc::vec![KeyringResult::NotFound],
+            "the oldest answer first"
+        );
+        assert_eq!(drain_keyring_results_up_to(5), alloc::vec![KeyringResult::Stored]);
+        assert!(drain_keyring_results().is_empty());
+    }
 }
 
 #[cfg(test)]
