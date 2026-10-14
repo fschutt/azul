@@ -72,7 +72,7 @@ const fn material_index(material: Material) -> usize {
 
 /// A decoded tile: what the shader reads per texel, row by row. It wraps.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Tile {
+pub struct MaterialTile {
     /// The tile's side, texels.
     pub side: usize,
     /// The albedo as the tile stores it: sRGB, 0..1 (the ambient occlusion
@@ -98,8 +98,8 @@ pub struct Tile {
 /// The decoded tile of `material`: decoded once per process, `None` if it
 /// does not decode (the material then draws nothing).
 #[must_use]
-pub fn tile(material: Material) -> Option<Arc<Tile>> {
-    static TILES: [OnceLock<Option<Arc<Tile>>>; 3] =
+pub fn tile(material: Material) -> Option<Arc<MaterialTile>> {
+    static TILES: [OnceLock<Option<Arc<MaterialTile>>>; 3] =
         [OnceLock::new(), OnceLock::new(), OnceLock::new()];
     TILES[material_index(material)]
         .get_or_init(|| decode_tile(packed_tile(material)).map(Arc::new))
@@ -108,7 +108,7 @@ pub fn tile(material: Material) -> Option<Arc<Tile>> {
 
 /// A tile's packed bytes (brotli over [`parse_tile`]'s format) decoded.
 #[must_use]
-pub fn decode_tile(packed: &[u8]) -> Option<Tile> {
+pub fn decode_tile(packed: &[u8]) -> Option<MaterialTile> {
     let mut raw = Vec::new();
     brotli_decompressor::BrotliDecompress(&mut &packed[..], &mut raw).ok()?;
     parse_tile(&raw)
@@ -183,7 +183,7 @@ struct Plane {
 /// the roughness `a + b * Y`; 18 makes the normal the gradient of Y times
 /// its value. The macro map's symbols are `lo + q / 255 * (hi - lo)`.
 #[must_use]
-pub fn parse_tile(raw: &[u8]) -> Option<Tile> {
+pub fn parse_tile(raw: &[u8]) -> Option<MaterialTile> {
     let mut r = Reader { bytes: raw, at: 0 };
     if r.take(4)? != b"AZM1" {
         return None;
@@ -287,7 +287,7 @@ pub fn parse_tile(raw: &[u8]) -> Option<Tile> {
     }
     let ao = core::mem::take(&mut channels[CH_AO]);
     let rough = core::mem::take(&mut channels[CH_ROUGH]);
-    Some(Tile {
+    Some(MaterialTile {
         side,
         albedo_srgb,
         albedo,
@@ -509,7 +509,7 @@ struct Tint {
 }
 
 impl Tint {
-    fn new(color: [f32; 3], tile: &Tile) -> Self {
+    fn new(color: [f32; 3], tile: &MaterialTile) -> Self {
         let n = tile.albedo.len().max(1) as f32;
         let mean = tile.albedo.iter().map(|a| luma(*a)).sum::<f32>() / n;
         Self {
@@ -755,7 +755,7 @@ struct TexelSample {
     ao: f32,
 }
 
-impl Tile {
+impl MaterialTile {
     fn sample(&self, u: f32, v: f32) -> TexelSample {
         let (idx, w) = bilinear_taps(u, v, self.side);
         let mut s = TexelSample {
@@ -802,7 +802,7 @@ struct Preshade {
 }
 
 impl Preshade {
-    fn new(tile: &Tile, surface: &Surface, relief: f32, light: &Light, tint: Option<&Tint>) -> Self {
+    fn new(tile: &MaterialTile, surface: &Surface, relief: f32, light: &Light, tint: Option<&Tint>) -> Self {
         let n = tile.side * tile.side;
         let mut ambient = Vec::with_capacity(n);
         let mut direct = Vec::with_capacity(n);
@@ -913,7 +913,7 @@ const PARALLEL_PIXELS: usize = 256 * 1024;
 
 /// What one render reads, shared by its row bands.
 struct Job<'a> {
-    tile: &'a Tile,
+    tile: &'a MaterialTile,
     preshade: &'a Preshade,
     surface: Surface,
     light: &'a Light,
@@ -1060,7 +1060,7 @@ pub fn render_material_pixels(
 /// [`render_material_pixels`] for any tile and surface (not cached).
 #[must_use]
 pub fn render_tile(
-    tile: &Tile,
+    tile: &MaterialTile,
     surface: Surface,
     width: u32,
     height: u32,
@@ -1075,7 +1075,7 @@ pub fn render_tile(
 /// The renderer behind both: `material` is the tile's when it is a built-in
 /// one (its preshade is then cached).
 fn render(
-    tile: &Tile,
+    tile: &MaterialTile,
     surface: Surface,
     material: Option<Material>,
     [width, height]: [u32; 2],
@@ -1136,7 +1136,7 @@ const PRESHADES_KEPT: usize = 12;
 /// it).
 fn preshade_for(
     material: Material,
-    tile: &Tile,
+    tile: &MaterialTile,
     surface: &Surface,
     relief: f32,
     prepared: &Light,
@@ -1430,10 +1430,10 @@ mod tests {
     }
 
     /// A tile of one flat texel colour.
-    fn flat_tile(albedo_linear: f32, rough: f32) -> Tile {
+    fn flat_tile(albedo_linear: f32, rough: f32) -> MaterialTile {
         let n = 4;
         let srgb = linear_to_srgb(albedo_linear);
-        Tile {
+        MaterialTile {
             side: n,
             albedo_srgb: vec![[srgb; 3]; n * n],
             albedo: vec![[albedo_linear; 3]; n * n],
