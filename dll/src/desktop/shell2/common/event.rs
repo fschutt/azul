@@ -16448,6 +16448,47 @@ mod tests {
             "the modal pump and the thread poll cannot share a Win32 timer id"
         );
     }
+
+    /// A new macOS window is ordered in by its constructor, before its views
+    /// can reach it (the window is moved out of the constructor, and only
+    /// then do the views get their back-pointer). A `drawRect` in between
+    /// renders nothing: the CPU view blits its blank fill and the GL view
+    /// shows an empty surface, a white flash every time a popup or dialog
+    /// opens. So the constructor orders it in fully transparent, and each
+    /// view's `drawRect` reveals it once it could draw a frame.
+    #[test]
+    fn a_new_macos_window_stays_invisible_until_its_first_frame_is_drawn() {
+        let ctor = MACOS_MOD_RS
+            .find("    fn new_with_options_internal(")
+            .expect("the macOS window constructor");
+        let ctor_end = ctor
+            + MACOS_MOD_RS[ctor..]
+                .find("\n    }\n")
+                .expect("the constructor's closing brace");
+        let ctor_body = &MACOS_MOD_RS[ctor..ctor_end];
+        let first_order_in = ctor_body
+            .find("OrderFront(")
+            .or_else(|| ctor_body.find(".orderFront("))
+            .expect("the constructor orders a visible window in");
+        let hidden = ctor_body
+            .find("setAlphaValue(0.0)")
+            .expect("the constructor orders the window in fully transparent");
+        assert!(hidden < first_order_in, "made transparent before it is ordered in");
+
+        let mut draw_rects = 0;
+        let mut rest = MACOS_MOD_RS;
+        while let Some(start) = rest.find("fn draw_rect(") {
+            let body = &rest[start..];
+            let end = body.find("\n        }\n").expect("drawRect's closing brace");
+            assert!(
+                body[..end].contains("reveal_after_first_frame()"),
+                "a view's drawRect does not reveal the window it drew"
+            );
+            draw_rects += 1;
+            rest = &body[end..];
+        }
+        assert_eq!(draw_rects, 2, "the GL view and the CPU view");
+    }
 }
 
 #[cfg(test)]

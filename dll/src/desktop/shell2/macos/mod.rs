@@ -1883,6 +1883,27 @@ pub struct CPUViewIvars {
     transparent: Cell<bool>,
 }
 
+/// The RGBA a CPU view's framebuffer is filled with when its size changes,
+/// before a frame is rendered into it. It reaches the screen when a
+/// `drawRect` blits before that render.
+fn blank_frame_pixel(_transparent: bool) -> [u8; 4] {
+    [255, 255, 255, 255]
+}
+
+#[cfg(test)]
+mod blank_frame_tests {
+    use super::blank_frame_pixel;
+
+    /// A see-through window (a popup with rounded corners) shows what lies
+    /// behind it until its first frame is in: a white fill would flash a
+    /// white box where the popup opens.
+    #[test]
+    fn a_see_through_windows_blank_frame_is_clear_not_white() {
+        assert_eq!(blank_frame_pixel(true), [0, 0, 0, 0]);
+        assert_eq!(blank_frame_pixel(false), [255, 255, 255, 255]);
+    }
+}
+
 /// The framebuffer rows + columns a `drawRect` must copy into the cached
 /// bitmap, in TOP-DOWN pixel coordinates: `(x0, x1, y0, y1)`, half-open.
 ///
@@ -2163,9 +2184,9 @@ define_class!(
                 ivars.height.set(height);
                 let mut fb = ivars.framebuffer.borrow_mut();
                 fb.resize(width * height * 4, 255);
-                // Fill with white (opaque) so the window isn't transparent
+                let blank = blank_frame_pixel(ivars.transparent.get());
                 for chunk in fb.chunks_exact_mut(4) {
-                    chunk[0] = 255; chunk[1] = 255; chunk[2] = 255; chunk[3] = 255;
+                    chunk.copy_from_slice(&blank);
                 }
                 // The retained frame is GONE - a partial present against this
                 // buffer would leave everything outside its rects white. Force
@@ -10334,6 +10355,31 @@ mod objc_class_registration_tests {
                     "{name} does not declare {selector:?}"
                 );
             }
+        }
+    }
+
+    /// AppKit draws nothing beneath a view that says it is opaque. A window
+    /// whose frame has see-through pixels (a popup's rounded corners) needs
+    /// its render view to say it is not, or those pixels show black instead
+    /// of what lies behind. `NSOpenGLView` answers "opaque" unless told
+    /// otherwise, so each view declares `isOpaque` itself.
+    #[test]
+    fn both_render_views_say_for_themselves_whether_they_are_opaque() {
+        use objc2::{sel, ClassType};
+
+        for (name, class) in [
+            ("GLView", super::GLView::class()),
+            ("CPUView", super::CPUView::class()),
+        ] {
+            let declared: Vec<_> = class
+                .instance_methods()
+                .iter()
+                .map(|method| method.name())
+                .collect();
+            assert!(
+                declared.contains(&sel!(isOpaque)),
+                "{name} inherits isOpaque instead of answering it"
+            );
         }
     }
 
