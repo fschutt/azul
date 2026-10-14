@@ -637,32 +637,46 @@ impl MapWidget {
     }
 
     /// Project a screen pixel `px` (relative to the map node's top-left, in a
-    /// node of size `container`) to a lat/lon on the map at `viewport`. Small-
-    /// angle Mercator (accurate at city zooms). Inverse of
-    /// [`px_at_latlon`](Self::px_at_latlon). Exposed so apps don't reimplement
-    /// the projection (e.g. to drop a pin where the user tapped).
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    /// node of size `container`) to a lat/lon on the map at `viewport`: back
+    /// through the camera's turn and tilt onto the ground, then the exact
+    /// Web-Mercator inverse. Inverse of [`px_at_latlon`](Self::px_at_latlon).
+    /// Exposed so apps don't reimplement the projection (e.g. to drop a pin
+    /// where the user tapped). A pixel above a tilted map's horizon reads as
+    /// the flat map's.
     #[must_use]
     pub fn latlon_at_px(
         viewport: MapViewport,
         px: azul_core::geom::LogicalPosition,
         container: azul_core::geom::LogicalSize,
     ) -> MapLatLon {
+        let screen = (f64::from(px.x), f64::from(px.y));
+        let grid = overlay::MapCamera::of(&viewport, container.width, container.height)
+            .and_then(|camera| camera.unproject(screen))
+            .unwrap_or(screen);
         let world = 256.0_f64 * 2.0_f64.powf(f64::from(viewport.zoom));
-        let dx = f64::from(px.x - container.width * 0.5);
-        let dy = f64::from(px.y - container.height * 0.5);
-        let lon = (viewport.centre_lon_deg + dx * 360.0 / world).clamp(-180.0, 180.0);
-        let cos_lat = viewport.centre_lat_deg.to_radians().cos();
-        let lat = (viewport.centre_lat_deg - dy * 360.0 / world * cos_lat).clamp(-85.0, 85.0);
+        let u = lon_to_tile_x(viewport.centre_lon_deg, 1.0)
+            + (grid.0 - f64::from(container.width) * 0.5) / world;
+        let v = lat_to_tile_y(viewport.centre_lat_deg, 1.0)
+            + (grid.1 - f64::from(container.height) * 0.5) / world;
+        let lon = tile_x_to_lon(u, 1.0);
+        // Wrapped onto the world when it is a number; an infinity (a world of
+        // no size) saturates, NaN stays NaN.
+        let lon = if lon.is_finite() {
+            wrap_lon(lon)
+        } else {
+            lon.clamp(-180.0, 180.0)
+        };
         MapLatLon {
-            lat_deg: lat,
+            lat_deg: tile_y_to_lat(v, 1.0).clamp(-85.0, 85.0),
             lon_deg: lon,
         }
     }
 
     /// Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in
-    /// container pixels at `viewport`.
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    /// container pixels at `viewport` - on the tile grid by the exact
+    /// Web-Mercator projection (the nearest of its copies around the world),
+    /// then through the camera's turn and tilt. A place behind the eye of a
+    /// tilted map reads as the flat map's pixel.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[must_use]
     pub fn px_at_latlon(
@@ -670,13 +684,11 @@ impl MapWidget {
         coord: MapLatLon,
         container: azul_core::geom::LogicalSize,
     ) -> azul_core::geom::LogicalPosition {
-        let world = 256.0_f64 * 2.0_f64.powf(f64::from(viewport.zoom));
-        let cos_lat = viewport.centre_lat_deg.to_radians().cos();
-        let px = f64::from(container.width) * 0.5
-            + (coord.lon_deg - viewport.centre_lon_deg) * world / 360.0;
-        let py = f64::from(container.height) * 0.5
-            - (coord.lat_deg - viewport.centre_lat_deg) * world / (360.0 * cos_lat);
-        azul_core::geom::LogicalPosition::new(px as f32, py as f32)
+        let grid = grid_point(&viewport, coord, container.width, container.height);
+        let (x, y) = overlay::MapCamera::of(&viewport, container.width, container.height)
+            .and_then(|camera| camera.project(grid))
+            .unwrap_or(grid);
+        azul_core::geom::LogicalPosition::new(x as f32, y as f32)
     }
 
     /// Construct the rendered `Dom`. The returned `Dom` is a single
@@ -961,8 +973,12 @@ pub struct MapTileCache {
     /// marker's release can fire it. Carried across relayout.
     pub on_marker_tap: OptionMapMarkerTap,
     /// The marker under the press in flight, by id; `None` between presses
-    /// and for a press on the open map. Its release is the marker's tap.
+    /// and for a press on the open map. Its release is the marker's tap, and
+    /// while it is set the map's own press, drag and tap leave the press alone.
     pub pressed_marker: Option<u64>,
+    /// The view's size (width, height) at the last render, px: the camera a
+    /// drag is unprojected through when the event reports no node size.
+    pub view_size: (f32, f32),
 }
 
 impl MapTileCache {
@@ -992,6 +1008,7 @@ impl MapTileCache {
             overlay_cache: OverlayCache::new(),
             on_marker_tap: OptionMapMarkerTap::None,
             pressed_marker: None,
+            view_size: (0.0, 0.0),
         }
     }
 
@@ -1478,9 +1495,9 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
     // `with_viewport()` receives the app state, which the on_viewport_changed
     // hook keeps in sync with internal pans/zooms.
     {
-        let new_g = new_data.downcast_ref::<MapTileCache>();
+        let new_g = new_data.downcast_mut::<MapTileCache>();
         let old_guard = old_data.downcast_mut::<MapTileCache>();
-        if let (Some(new_g), Some(mut old_g)) = (new_g, old_guard) {
+        if let (Some(mut new_g), Some(mut old_g)) = (new_g, old_guard) {
             old_g.viewport = new_g.viewport;
             // Adopt the app's layer verbatim. There is nothing to invalidate: if
             // the app switched cartography, the next render simply looks up a
@@ -1499,6 +1516,17 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
             // The reconciled VirtualView node carries the NEW build's marker,
             // so the surviving cache must look its view up by that one.
             old_g.view_marker = new_g.view_marker.clone();
+            // The overlays are the app's to say on every build. Taken, not
+            // copied (the build's cache is dropped after the merge), and
+            // adopted through `set_overlays`, which keeps the parts of the
+            // lines that did not change: a rebuild that re-declares the same
+            // route cuts nothing.
+            old_g.on_marker_tap = new_g.on_marker_tap.clone();
+            let overlays = core::mem::replace(
+                &mut new_g.overlays,
+                MapOverlayVec::from_const_slice(&[]),
+            );
+            old_g.set_overlays(overlays);
         }
     }
     old_data
@@ -1639,13 +1667,53 @@ struct MarkerHandle {
     id: u64,
 }
 
-/// A press on a marker.
-extern "C" fn map_marker_on_press(_data: RefAny, _info: CallbackInfo) -> Update {
+/// A press on a marker: the marker takes it. It is remembered as the press
+/// in flight and goes no further, so the map under the marker starts no drag
+/// and its release drops no pin.
+extern "C" fn map_marker_on_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut cache, id)) = data
+        .downcast_ref::<MarkerHandle>()
+        .map(|handle| (handle.cache.clone(), handle.id))
+    else {
+        return Update::DoNothing;
+    };
+    if let Some(mut cache) = cache.downcast_mut::<MapTileCache>() {
+        cache.pressed_marker = Some(id);
+        cache.drag_anchor = None;
+        cache.press_origin = None;
+    }
+    info.stop_propagation();
     Update::DoNothing
 }
 
-/// A release on a marker.
-extern "C" fn map_marker_on_release(_data: RefAny, _info: CallbackInfo) -> Update {
+/// A release on a marker: the tap of the marker the press was on fires the
+/// map's `on_marker_tap` hook with its id, and the hook's answer is the
+/// release's. The press stays remembered until the map's own release clears
+/// it, so that release drops no pin either.
+extern "C" fn map_marker_on_release(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((mut cache, id)) = data
+        .downcast_ref::<MarkerHandle>()
+        .map(|handle| (handle.cache.clone(), handle.id))
+    else {
+        return Update::DoNothing;
+    };
+    let hook = match cache.downcast_ref::<MapTileCache>() {
+        Some(c) if c.pressed_marker == Some(id) => c.on_marker_tap.clone(),
+        _ => return Update::DoNothing,
+    };
+    // The cache is released while the hook runs: it is app code and may reach
+    // back into this map.
+    match hook {
+        OptionMapMarkerTap::Some(hook) => hook.callback.invoke(hook.refany, info, id),
+        OptionMapMarkerTap::None => Update::DoNothing,
+    }
+}
+
+/// A press or a release on a marker's popup is the card's (its buttons have
+/// had it by now): it goes no further, so it neither drags the map nor drops
+/// a pin.
+extern "C" fn map_popup_keeps_its_press(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
     Update::DoNothing
 }
 
@@ -1798,6 +1866,11 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
         None => return Update::DoNothing,
     };
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        // A press a marker took is the marker's: it starts no drag and no tap
+        // of the map (should it reach here at all).
+        if cache.pressed_marker.is_some() {
+            return Update::DoNothing;
+        }
         cache.drag_anchor = Some(pos);
         cache.press_origin = Some(pos);
     }
@@ -1888,11 +1961,30 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         return Update::DoNothing; // no active drag
     };
 
-    let dx_px = f64::from(pos.x - anchor.x);
-    let dy_px = f64::from(pos.y - anchor.y);
-    if dx_px.abs() < 0.5 && dy_px.abs() < 0.5 {
+    if (pos.x - anchor.x).abs() < 0.5 && (pos.y - anchor.y).abs() < 0.5 {
         return Update::DoNothing;
     }
+    // The ground under the finger follows it: both points go back through
+    // the camera onto the grid, and the centre moves by the grid's delta. On
+    // the flat map that is the screen's delta; on a turned or tilted one a
+    // drag to the right moves the ground the way the screen shows it. A point
+    // above the horizon has no ground, and the step is skipped.
+    let size = info
+        .get_hit_node_rect()
+        .map(|r| (r.size.width, r.size.height))
+        .filter(|(w, h)| *w > 0.0 && *h > 0.0)
+        .unwrap_or(cache_guard.view_size);
+    let screen = |p: azul_core::geom::LogicalPosition| (f64::from(p.x), f64::from(p.y));
+    let (dx_px, dy_px) = match overlay::MapCamera::of(&cache_guard.viewport, size.0, size.1) {
+        None => (f64::from(pos.x - anchor.x), f64::from(pos.y - anchor.y)),
+        Some(camera) => match (camera.unproject(screen(anchor)), camera.unproject(screen(pos))) {
+            (Some(from), Some(to)) => (to.0 - from.0, to.1 - from.1),
+            _ => {
+                cache_guard.drag_anchor = Some(pos);
+                return Update::DoNothing;
+            }
+        },
+    };
 
     let (new_lon, new_lat) = pan_viewport(
         cache_guard.viewport.centre_lat_deg,
@@ -1986,7 +2078,11 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
     let (press, viewport, hook) = data.downcast_mut::<MapTileCache>().map_or_else(
         || (None, MapViewport::default(), OptionMapPinTap::None),
         |mut cache| {
-            let out = (cache.press_origin, cache.viewport, cache.on_pin_tap.clone());
+            // The release of a press a marker took: the marker's own release
+            // handler fired its hook, so this is no tap of the map.
+            let marker_press = cache.pressed_marker.take().is_some();
+            let press = if marker_press { None } else { cache.press_origin };
+            let out = (press, cache.viewport, cache.on_pin_tap.clone());
             cache.drag_anchor = None;
             cache.pinch_anchor = None;
             cache.press_origin = None;
@@ -2162,16 +2258,26 @@ pub fn camera_transform_css(
     width_px: f32,
     height_px: f32,
 ) -> Option<String> {
+    let (distance, pitch, bearing) = camera_angles(viewport, width_px, height_px)?;
+    Some(format!(
+        "transform: perspective({distance:.0}px) rotateX({pitch:.2}deg) rotate({bearing:.2}deg); \
+         transform-origin: 50% 50%;"
+    ))
+}
+
+/// The camera's distance (px), pitch and bearing (degrees) for a view, rounded
+/// the way the grid's CSS writes them; `None` for the flat view. The CSS and
+/// the overlays' camera (`MapCamera`) both read these, so a marker is placed
+/// with exactly the transform the tiles are drawn with.
+fn camera_angles(viewport: &MapViewport, width_px: f32, height_px: f32) -> Option<(f32, f32, f32)> {
     let pitch = clamp_pitch(viewport.pitch_deg);
     let bearing = normalize_bearing(viewport.bearing_deg);
     if pitch.abs() < 0.01 && bearing.abs() < 0.01 {
         return None;
     }
-    let distance = (width_px.max(height_px) * 1.5).max(100.0);
-    Some(format!(
-        "transform: perspective({distance:.0}px) rotateX({pitch:.2}deg) rotate({bearing:.2}deg); \
-         transform-origin: 50% 50%;"
-    ))
+    let distance = (width_px.max(height_px) * 1.5).max(100.0).round();
+    let hundredths = |v: f32| (v * 100.0).round() / 100.0;
+    Some((distance, hundredths(pitch), hundredths(bearing)))
 }
 
 /// How much MORE of the flat plane a tilted / rotated camera can see than
@@ -2207,9 +2313,6 @@ fn lat_to_tile_y(lat_deg: f64, tile_count: f64) -> f64 {
 }
 
 /// Fractional tile-x → longitude (deg). Inverse of [`lon_to_tile_x`].
-/// Verified against the forward direction in the tests below; the
-/// upcoming tap-to-pin handler reuses it to turn a tap into a lat/lon.
-#[allow(dead_code)]
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma;
                                    // keep explicit a*b+c
 fn tile_x_to_lon(x: f64, tile_count: f64) -> f64 {
@@ -2217,10 +2320,24 @@ fn tile_x_to_lon(x: f64, tile_count: f64) -> f64 {
 }
 
 /// Fractional tile-y → latitude (deg). Inverse of [`lat_to_tile_y`].
-#[allow(dead_code)]
 fn tile_y_to_lat(y: f64, tile_count: f64) -> f64 {
     let n = core::f64::consts::PI * (1.0 - 2.0 * y / tile_count);
     n.sinh().atan().to_degrees()
+}
+
+/// Where `coord` lies on the flat tile grid of a `width` x `height` view at
+/// `viewport`, in the grid's px (the view's centre is the viewport's centre).
+/// Of the place's copies around the world, the one nearest the centre.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+fn grid_point(viewport: &MapViewport, coord: MapLatLon, width: f32, height: f32) -> (f64, f64) {
+    let world = 256.0_f64 * 2.0_f64.powf(f64::from(viewport.zoom));
+    let mut du = lon_to_tile_x(coord.lon_deg, 1.0) - lon_to_tile_x(viewport.centre_lon_deg, 1.0);
+    du -= du.round();
+    let dv = lat_to_tile_y(coord.lat_deg, 1.0) - lat_to_tile_y(viewport.centre_lat_deg, 1.0);
+    (
+        f64::from(width) * 0.5 + du * world,
+        f64::from(height) * 0.5 + dv * world,
+    )
 }
 
 /// Apply a drag of `(dx_px, dy_px)` screen pixels to a viewport centre,
@@ -3438,6 +3555,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             c.cascade_scheme = Some(MapColorScheme::from_window_theme(info.window_mode));
             let look = c.current_look();
             c.set_active_look(look);
+            c.view_size = (width_px, height_px);
             (c.layer.clone(), c.viewport, look)
         }
         None => {
@@ -3582,14 +3700,20 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // Pan / zoom handlers live HERE, on the VirtualView content — NOT on the
     // outer widget div. The VirtualView renders as a separate DomId painted on
     // top of the outer div, so pointer events hit-test to these tiles and never
-    // bubble to the outer div's handlers (which is why mouse-drag panning did
-    // nothing). `data` is the shared cache the handlers mutate; the in-place
-    // re-render they trigger re-reads it.
+    // bubble to the outer div's handlers. They sit on the view's root, which
+    // the camera does not transform: a pointer reads in screen px there, and
+    // the handlers take it through the camera themselves. Everything in the
+    // view bubbles to them - the tiles in the grid, and the markers over it
+    // unless a marker keeps its press. `data` is the shared cache the
+    // handlers mutate; the in-place re-render they trigger re-reads it.
+    let mut view_root = Dom::create_div().with_css(
+        "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;",
+    );
     {
         use azul_core::dom::{EventFilter, HoverEventFilter};
 
         use crate::callbacks::{Callback, CallbackType};
-        grid = grid
+        view_root = view_root
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseDown),
                 data.clone(),
@@ -3680,6 +3804,8 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     let mut label_candidates: Vec<(f32, f32, &TileLabel)> = Vec::new();
     let mut label_keys: Vec<(u8, i32, i32, usize)> = Vec::new();
     let mut tile_nodes = 0usize;
+    // Every tile box as placed: the lines and areas are drawn over them.
+    let mut tile_boxes: Vec<overlay::TileBox> = Vec::new();
 
     for x in x_min..=x_max {
         for y in y_min..=y_max {
@@ -3742,6 +3868,15 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                 .with_css(style.as_str())
                 .with_key(("azul-map-tile", z_int, x, y));
             tile_nodes += 1;
+            tile_boxes.push(overlay::TileBox {
+                raw_x: x,
+                x: id.x,
+                y: id.y,
+                left: screen_x,
+                top: screen_y,
+                width: size_w,
+                height: size_h,
+            });
 
             // A drawn tile is its image (the worker's, shared - not drawn
             // again); everything else shows a state glyph + tile id so the
@@ -3782,6 +3917,39 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         }
     }
 
+    // The lines and areas lie on the ground: over the tiles, under the
+    // labels, inside the grid so the camera turns and tilts them with it.
+    // Their parts per tile come from the overlay cache, cut once per zoom.
+    // A marker's handlers reach the map through this handle on its cache.
+    let marker_cache = data.clone();
+    let markers: Vec<Dom> = match data.downcast_mut::<MapTileCache>() {
+        Some(mut guard) => {
+            let cache = &mut *guard;
+            let overlays = cache.overlays.as_slice();
+            for node in overlay::ground_nodes(
+                &mut cache.overlay_cache,
+                overlays,
+                z_int,
+                &tile_boxes,
+                tile_px,
+            ) {
+                grid = grid.with_child(node);
+            }
+            // The markers stand on their places' screen points: the grid
+            // point of the place, through the camera.
+            let camera = overlay::MapCamera::of(&viewport, width_px, height_px);
+            let place = |coord: MapLatLon| {
+                let p = grid_point(&viewport, coord, width_px, height_px);
+                match &camera {
+                    Some(camera) => camera.project(p),
+                    None => Some(p),
+                }
+            };
+            overlay::marker_nodes(overlays, &place, width_px, height_px, &marker_cache)
+        }
+        None => Vec::new(),
+    };
+
     // The labels, over every tile (a tile painted later would cover the
     // part of a label that crosses into it). A turned or tilted camera shows
     // more of the grid than its box: keep the labels it may reveal.
@@ -3814,8 +3982,21 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         );
     }
 
+    // The view: the grid (under the camera), then the markers over it in a
+    // pane the camera leaves alone, so they stand upright.
+    view_root = view_root.with_child(grid);
+    if !markers.is_empty() {
+        let mut pane = Dom::create_div().with_css(
+            "position: absolute; left: 0; top: 0; width: 100%; height: 100%;",
+        );
+        for marker in markers {
+            pane = pane.with_child(marker);
+        }
+        view_root = view_root.with_child(pane);
+    }
+
     VirtualViewReturn {
-        dom: OptionDom::Some(grid),
+        dom: OptionDom::Some(view_root),
         materialized: azul_core::geom::LogicalRect::new(
             azul_core::geom::LogicalPosition::zero(),
             bounds_logical,
@@ -4854,9 +5035,16 @@ mod autotest_generated {
         f(info)
     }
 
+    /// How many nodes the tile grid holds (the view's first child; the
+    /// markers' pane follows it).
     fn rendered_child_count(ret: &VirtualViewReturn) -> Option<usize> {
         match &ret.dom {
-            OptionDom::Some(d) => Some(d.children.as_slice().len()),
+            OptionDom::Some(view) => Some(
+                view.children
+                    .as_slice()
+                    .first()
+                    .map_or(0, |grid| grid.children.as_slice().len()),
+            ),
             OptionDom::None => None,
         }
     }
@@ -7428,7 +7616,11 @@ mod autotest_generated {
 
     fn the_grid(ret: &VirtualViewReturn) -> &Dom {
         match &ret.dom {
-            OptionDom::Some(grid) => grid,
+            OptionDom::Some(view) => view
+                .children
+                .as_slice()
+                .first()
+                .expect("the view holds the tile grid"),
             OptionDom::None => panic!("a finite box must render the tile grid"),
         }
     }

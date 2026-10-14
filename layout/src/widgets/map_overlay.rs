@@ -292,8 +292,44 @@ pub(crate) struct MapCamera {
 impl MapCamera {
     /// The camera of a `width` x `height` view at `viewport`; `None` for the
     /// flat, unturned view, whose grid IS the screen.
-    pub(crate) fn of(_viewport: &super::MapViewport, _width: f32, _height: f32) -> Option<Self> {
-        None
+    ///
+    /// It is built by the engine's own transform code from the same numbers
+    /// the grid's CSS carries ([`super::camera_angles`]), so a marker placed
+    /// through it stands exactly where the renderer draws its place.
+    pub(crate) fn of(viewport: &super::MapViewport, width: f32, height: f32) -> Option<Self> {
+        use azul_core::transform::{ComputedTransform3D, RotationMode};
+        use azul_css::props::{
+            basic::{AngleValue, PixelValue},
+            style::{StyleTransform, StyleTransformOrigin},
+        };
+        let (distance, pitch, bearing) = super::camera_angles(viewport, width, height)?;
+        let transform = ComputedTransform3D::from_style_transform_vec(
+            &[
+                StyleTransform::Perspective(PixelValue::px(distance)),
+                StyleTransform::RotateX(AngleValue::deg(pitch)),
+                StyleTransform::Rotate(AngleValue::deg(bearing)),
+            ],
+            &StyleTransformOrigin {
+                x: PixelValue::const_percent(50),
+                y: PixelValue::const_percent(50),
+            },
+            width,
+            height,
+            RotationMode::ForWebRender,
+        );
+        let forward = transform.plane_homography().map(f64::from);
+        let mut inverse = invert(&forward)?;
+        // A homography is only defined up to a factor, and the inverse can
+        // come out with the factor negative: then every point in front of the
+        // eye would read as behind it. The view's centre is always in front
+        // (the transform turns about it), so its sign decides.
+        let (cx, cy) = (f64::from(width) * 0.5, f64::from(height) * 0.5);
+        if cx * inverse[2] + cy * inverse[5] + inverse[8] < 0.0 {
+            for v in &mut inverse {
+                *v = -*v;
+            }
+        }
+        Some(Self { forward, inverse })
     }
 
     /// Where grid point `p` shows on the screen; `None` behind the eye.
@@ -316,6 +352,31 @@ fn apply(m: &[f64; 9], (x, y): (f64, f64)) -> Option<(f64, f64)> {
     Some(((x * m[0] + y * m[3] + m[6]) / w, (x * m[1] + y * m[4] + m[7]) / w))
 }
 
+/// The inverse of a row-major 3x3 matrix; `None` when it has none.
+#[allow(clippy::many_single_char_names)] // the matrix entries, as a textbook names them
+fn invert(m: &[f64; 9]) -> Option<[f64; 9]> {
+    let [a, b, c, d, e, f, g, h, i] = *m;
+    let c00 = e * i - f * h;
+    let c01 = -(d * i - f * g);
+    let c02 = d * h - e * g;
+    let det = a * c00 + b * c01 + c * c02;
+    if !det.is_finite() || det.abs() < 1e-12 {
+        return None;
+    }
+    let k = 1.0 / det;
+    Some([
+        c00 * k,
+        -(b * i - c * h) * k,
+        (b * f - c * e) * k,
+        c01 * k,
+        (a * i - c * g) * k,
+        -(a * f - c * d) * k,
+        c02 * k,
+        -(a * h - b * g) * k,
+        (a * e - b * d) * k,
+    ])
+}
+
 /// What one tile shows of one line or area, in the tile's units (0 to 256 on
 /// both axes at the tile's zoom level).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -328,36 +389,587 @@ pub(crate) struct TileShape {
     pub(crate) stroke: Option<Arc<SvgMultiPolygon>>,
 }
 
+/// A line's or an area's points on the world at one zoom level, in px of
+/// that level (256 per tile), ready to be cut into tiles.
+#[derive(Debug)]
+struct Projected {
+    /// The points in order. Longitudes are unwrapped: a line that crosses
+    /// the antimeridian keeps going past the world's edge instead of
+    /// jumping back across the whole map.
+    points: Vec<(f64, f64)>,
+    /// The smallest x and y of `points`, widened by `margin`.
+    min: (f64, f64),
+    /// The largest x and y of `points`, widened by `margin`.
+    max: (f64, f64),
+    /// How far past a tile's edge its part of the stroke reaches.
+    margin: f64,
+    /// An area: its outline closes back to the first point and it has an
+    /// inside to fill.
+    area: bool,
+}
+
+/// Parts kept before the cache starts over: a few screens of tiles for a
+/// handful of lines, small next to the tiles' own drawings.
+const MAX_PARTS: usize = 4096;
+
 /// What the map keeps of its lines and areas between renders: each one's
 /// parts per tile, at the zoom level last drawn. Lives in the map's cache,
 /// in step with its overlays ([`OverlayCache::adopt`]).
 #[derive(Debug, Default)]
 pub struct OverlayCache {
-    /// A fingerprint of each overlay (its points and widths), by index.
+    /// A fingerprint of each overlay's shape (its points and widths), by
+    /// index: an overlay whose fingerprint changed is cut again, one that
+    /// kept it reuses its parts across rebuilds of the app's DOM.
     keys: Vec<u64>,
+    /// The zoom level `projected` and `parts` belong to. A new level starts
+    /// both over: a tile of another level is another cut.
+    zoom: Option<u8>,
+    /// Each line's or area's points at `zoom`, by overlay index.
+    projected: BTreeMap<usize, Arc<Projected>>,
+    /// The parts cut so far at `zoom`, by overlay index and tile (column
+    /// wrapped into the world, row). A pan finds its tiles here.
+    parts: BTreeMap<(usize, u32, u32), TileShape>,
 }
 
 impl OverlayCache {
     /// Nothing cut yet.
     #[must_use]
     pub const fn new() -> Self {
-        Self { keys: Vec::new() }
+        Self {
+            keys: Vec::new(),
+            zoom: None,
+            projected: BTreeMap::new(),
+            parts: BTreeMap::new(),
+        }
     }
 
     /// Takes the map's new overlays: forgets the parts of lines and areas
-    /// that changed or left.
-    pub(crate) fn adopt(&mut self, _overlays: &[MapOverlay]) {}
+    /// that changed or left, keeps the rest.
+    pub(crate) fn adopt(&mut self, overlays: &[MapOverlay]) {
+        let keys: Vec<u64> = overlays.iter().map(fingerprint).collect();
+        let stale = |index: usize| self.keys.get(index) != keys.get(index);
+        let stale_indices: Vec<usize> = (0..self.keys.len().max(keys.len()))
+            .filter(|i| stale(*i))
+            .collect();
+        for index in stale_indices {
+            self.projected.remove(&index);
+            self.parts.retain(|(i, _, _), _| *i != index);
+        }
+        self.keys = keys;
+    }
 
     /// What tile `(z, x, y)` (`x` wrapped into the world) shows of overlay
     /// `index` of `overlays` - the map's, as last adopted.
     pub(crate) fn tile_shape(
         &mut self,
-        _overlays: &[MapOverlay],
-        _index: usize,
-        _z: u8,
-        _x: u32,
-        _y: u32,
+        overlays: &[MapOverlay],
+        index: usize,
+        z: u8,
+        x: u32,
+        y: u32,
     ) -> TileShape {
-        TileShape::default()
+        if self.zoom != Some(z) {
+            self.zoom = Some(z);
+            self.projected.clear();
+            self.parts.clear();
+        }
+        if let Some(shape) = self.parts.get(&(index, x, y)) {
+            return shape.clone();
+        }
+        let Some(projected) = self.projected_of(overlays, index, z) else {
+            return TileShape::default();
+        };
+        let shape = cut(&projected, z, x, y);
+        if self.parts.len() >= MAX_PARTS {
+            self.parts.clear();
+        }
+        self.parts.insert((index, x, y), shape.clone());
+        shape
     }
+
+    /// Overlay `index`'s points at zoom `z`, projected once per level.
+    fn projected_of(
+        &mut self,
+        overlays: &[MapOverlay],
+        index: usize,
+        z: u8,
+    ) -> Option<Arc<Projected>> {
+        if let Some(p) = self.projected.get(&index) {
+            return Some(Arc::clone(p));
+        }
+        let projected = Arc::new(project_overlay(overlays.get(index)?, z)?);
+        self.projected.insert(index, Arc::clone(&projected));
+        Some(projected)
+    }
+}
+
+/// A hash of what decides an overlay's cut: its kind, points and stroke
+/// widths. Colours are not in it, they are the nodes' CSS.
+fn fingerprint(overlay: &MapOverlay) -> u64 {
+    // FNV-1a: tiny, stable, and needs no hasher from std.
+    fn mix(h: u64, v: u64) -> u64 {
+        let mut h = h;
+        for byte in v.to_le_bytes() {
+            h ^= u64::from(byte);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        h
+    }
+    let with_points = |h: u64, points: &MapLatLonVec| {
+        points.as_slice().iter().fold(h, |h, p| {
+            mix(mix(h, p.lat_deg.to_bits()), p.lon_deg.to_bits())
+        })
+    };
+    let h = 0xcbf2_9ce4_8422_2325;
+    match overlay {
+        MapOverlay::Polyline(line) => with_points(
+            mix(
+                mix(mix(h, 1), u64::from(line.width.to_bits())),
+                u64::from(line.casing_width.to_bits()),
+            ),
+            &line.points,
+        ),
+        MapOverlay::Polygon(area) => with_points(
+            mix(mix(h, 2), u64::from(area.stroke_width.to_bits())),
+            &area.points,
+        ),
+        MapOverlay::Marker(marker) => mix(mix(h, 3), marker.id),
+    }
+}
+
+/// The points of a line or an area at zoom `z`; `None` for a marker and for
+/// a shape with too few points to draw.
+fn project_overlay(overlay: &MapOverlay, z: u8) -> Option<Projected> {
+    let (points, widest, area) = match overlay {
+        MapOverlay::Polyline(line) if line.points.as_slice().len() >= 2 => {
+            (line.points.as_slice(), line.width.max(line.casing_width), false)
+        }
+        MapOverlay::Polygon(area) if area.points.as_slice().len() >= 3 => {
+            (area.points.as_slice(), area.stroke_width, true)
+        }
+        _ => return None,
+    };
+    let world = 256.0 * f64::from(1u32 << u32::from(z.min(30)));
+    let mut out: Vec<(f64, f64)> = Vec::with_capacity(points.len());
+    for p in points {
+        if !p.lat_deg.is_finite() || !p.lon_deg.is_finite() {
+            continue;
+        }
+        let lat = p.lat_deg.clamp(-85.051_128, 85.051_128);
+        let mut x = super::lon_to_tile_x(p.lon_deg, 1.0) * world;
+        let y = super::lat_to_tile_y(lat, 1.0) * world;
+        if let Some(&(prev_x, _)) = out.last() {
+            // Of the point's copies around the world, the one nearest the
+            // previous point: the short way across the antimeridian.
+            x -= ((x - prev_x) / world).round() * world;
+        }
+        out.push((x, y));
+    }
+    if out.len() < if area { 3 } else { 2 } {
+        return None;
+    }
+    // Half the widest stroke at the largest it can be in tile units (a tile
+    // is drawn 256 to 512 px wide, so a unit is at most a px), and a px for
+    // the edge's anti-aliasing.
+    let margin = f64::from(widest.max(0.0)) * 0.5 + 1.0;
+    let (mut min, mut max) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
+    for &(x, y) in &out {
+        min = (min.0.min(x), min.1.min(y));
+        max = (max.0.max(x), max.1.max(y));
+    }
+    Some(Projected {
+        points: out,
+        min: (min.0 - margin, min.1 - margin),
+        max: (max.0 + margin, max.1 + margin),
+        margin,
+        area,
+    })
+}
+
+/// Cuts `shape` to tile `(z, x, y)`: the parts of each copy of it around the
+/// world that fall on the tile, moved into the tile's units.
+#[allow(clippy::cast_possible_truncation)] // tile units are small: 0 to 256 and a margin
+fn cut(shape: &Projected, z: u8, x: u32, y: u32) -> TileShape {
+    let world = 256.0 * f64::from(1u32 << u32::from(z.min(30)));
+    let (left, top) = (f64::from(x) * 256.0, f64::from(y) * 256.0);
+    let mut fill_rings: Vec<SvgPath> = Vec::new();
+    let mut stroke_rings: Vec<SvgPath> = Vec::new();
+    // An unwrapped line can reach one world past either edge.
+    for copy in [-1.0, 0.0, 1.0] {
+        let (x0, y0) = (left + copy * world, top);
+        let (x1, y1) = (x0 + 256.0, y0 + 256.0);
+        // `min` and `max` already hold the margin.
+        if shape.max.0 < x0 || shape.min.0 > x1 || shape.max.1 < y0 || shape.min.1 > y1 {
+            continue;
+        }
+        let m = shape.margin;
+        let local = |(px, py): (f64, f64)| SvgPoint {
+            x: (px - x0) as f32,
+            y: (py - y0) as f32,
+        };
+        if shape.area {
+            let ring = clip_polygon(&shape.points, [x0, y0, x1, y1]);
+            if ring.len() >= 3 {
+                fill_rings.push(closed_path(ring.into_iter().map(local).collect()));
+            }
+        }
+        let mut outline: Vec<(f64, f64)> = shape.points.clone();
+        if shape.area {
+            outline.push(shape.points[0]);
+        }
+        for run in clip_polyline(&outline, [x0 - m, y0 - m, x1 + m, y1 + m]) {
+            stroke_rings.push(open_path(run.into_iter().map(local).collect()));
+        }
+    }
+    let multi = |rings: Vec<SvgPath>| {
+        (!rings.is_empty())
+            .then(|| Arc::new(SvgMultiPolygon::create(SvgPathVec::from_vec(rings))))
+    };
+    TileShape {
+        fill: multi(fill_rings),
+        stroke: multi(stroke_rings),
+    }
+}
+
+/// `points` joined by straight segments.
+fn open_path(points: Vec<SvgPoint>) -> SvgPath {
+    let items: Vec<SvgPathElement> = points
+        .windows(2)
+        .map(|w| SvgPathElement::Line(SvgLine { start: w[0], end: w[1] }))
+        .collect();
+    SvgPath::create(SvgPathElementVec::from_vec(items))
+}
+
+/// `points` joined by straight segments and back to the first.
+fn closed_path(mut points: Vec<SvgPoint>) -> SvgPath {
+    if let Some(&first) = points.first() {
+        points.push(first);
+    }
+    open_path(points)
+}
+
+/// The parts of the line through `points` inside `rect` (`[x0, y0, x1, y1]`),
+/// each a run of connected points: a line that leaves the rect and comes
+/// back is two runs.
+fn clip_polyline(points: &[(f64, f64)], rect: [f64; 4]) -> Vec<Vec<(f64, f64)>> {
+    let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut open = false;
+    for pair in points.windows(2) {
+        match clip_segment(pair[0], pair[1], rect) {
+            Some((a, b, starts_inside, ends_inside)) => {
+                if !(open && starts_inside) {
+                    runs.push(alloc::vec![a]);
+                }
+                if let Some(run) = runs.last_mut() {
+                    run.push(b);
+                }
+                open = ends_inside;
+            }
+            None => open = false,
+        }
+    }
+    runs
+}
+
+/// The part of segment `a`-`b` inside `rect` (Liang-Barsky), with whether
+/// it starts at `a` and ends at `b` (they are inside); `None` when it misses.
+fn clip_segment(
+    a: (f64, f64),
+    b: (f64, f64),
+    rect: [f64; 4],
+) -> Option<((f64, f64), (f64, f64), bool, bool)> {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
+    for (p, q) in [
+        (-dx, a.0 - rect[0]),
+        (dx, rect[2] - a.0),
+        (-dy, a.1 - rect[1]),
+        (dy, rect[3] - a.1),
+    ] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return None;
+            }
+        } else {
+            let t = q / p;
+            if p < 0.0 {
+                t0 = t0.max(t);
+            } else {
+                t1 = t1.min(t);
+            }
+        }
+    }
+    if t0 > t1 {
+        return None;
+    }
+    let at = |t: f64| (a.0 + dx * t, a.1 + dy * t);
+    Some((at(t0), at(t1), t0 <= 0.0, t1 >= 1.0))
+}
+
+/// The polygon `points` cut to `rect` (Sutherland-Hodgman). The rect is
+/// convex, so the result is one ring; it can be empty.
+fn clip_polygon(points: &[(f64, f64)], rect: [f64; 4]) -> Vec<(f64, f64)> {
+    let mut ring: Vec<(f64, f64)> = points.to_vec();
+    // Each edge of the rect: is a point inside it, and where a segment
+    // crosses it.
+    for edge in 0..4 {
+        if ring.is_empty() {
+            break;
+        }
+        let inside = |p: (f64, f64)| match edge {
+            0 => p.0 >= rect[0],
+            1 => p.0 <= rect[2],
+            2 => p.1 >= rect[1],
+            _ => p.1 <= rect[3],
+        };
+        let cross = |a: (f64, f64), b: (f64, f64)| {
+            let t = match edge {
+                0 => (rect[0] - a.0) / (b.0 - a.0),
+                1 => (rect[2] - a.0) / (b.0 - a.0),
+                2 => (rect[1] - a.1) / (b.1 - a.1),
+                _ => (rect[3] - a.1) / (b.1 - a.1),
+            };
+            (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+        };
+        let input = core::mem::take(&mut ring);
+        for (i, &current) in input.iter().enumerate() {
+            let previous = input[(i + input.len() - 1) % input.len()];
+            match (inside(previous), inside(current)) {
+                (true, true) => ring.push(current),
+                (true, false) => ring.push(cross(previous, current)),
+                (false, true) => {
+                    ring.push(cross(previous, current));
+                    ring.push(current);
+                }
+                (false, false) => {}
+            }
+        }
+    }
+    ring
+}
+
+/// One tile's box in the map's grid, as the render placed it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TileBox {
+    /// The column as drawn, not wrapped (at zoom 0 and 1 one tile can show
+    /// twice): part of the parts' node keys.
+    pub(crate) raw_x: i32,
+    /// The column wrapped into the world: the tile the parts are cut for.
+    pub(crate) x: u32,
+    /// The row.
+    pub(crate) y: u32,
+    /// The box's left edge in the grid, px.
+    pub(crate) left: i32,
+    /// The box's top edge in the grid, px.
+    pub(crate) top: i32,
+    /// The box's width, px.
+    pub(crate) width: i32,
+    /// The box's height, px.
+    pub(crate) height: i32,
+}
+
+/// The grid's nodes for the lines and areas: per overlay, one node over each
+/// tile box it touches, holding that tile's part of it in the tile's units
+/// (the node's `viewBox`). A pan moves the boxes and leaves every part's
+/// geometry as it was, so the renderer's stroke masks are reused.
+pub(crate) fn ground_nodes(
+    cache: &mut OverlayCache,
+    overlays: &[MapOverlay],
+    z: u8,
+    boxes: &[TileBox],
+    tile_px: f32,
+) -> Vec<Dom> {
+    use azul_core::dom::SvgNodeData;
+    // Strokes are as wide on the screen at every zoom: in tile units they
+    // shrink as the tile is drawn bigger.
+    let units_per_px = 256.0 / tile_px.max(1.0);
+    let layer = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px;";
+    let stroke_node = |shape: &Arc<SvgMultiPolygon>, color: ColorU, width_px: f32| {
+        let css = alloc::format!(
+            "{layer} border: {:.3}px solid {};",
+            width_px * units_per_px,
+            css_color(color)
+        );
+        Dom::create_div()
+            .with_css(css.as_str())
+            .with_svg_data(SvgNodeData::Path((**shape).clone()))
+    };
+    let mut out = Vec::new();
+    for (index, overlay) in overlays.iter().enumerate() {
+        if matches!(overlay, MapOverlay::Marker(_)) {
+            continue;
+        }
+        for b in boxes {
+            let shape = cache.tile_shape(overlays, index, z, b.x, b.y);
+            let mut layers: Vec<Dom> = Vec::new();
+            match overlay {
+                MapOverlay::Polyline(line) => {
+                    let Some(stroke) = &shape.stroke else {
+                        continue;
+                    };
+                    if line.casing_width > line.width && line.casing_color.a > 0 {
+                        layers.push(stroke_node(stroke, line.casing_color, line.casing_width));
+                    }
+                    if line.width > 0.0 && line.color.a > 0 {
+                        layers.push(stroke_node(stroke, line.color, line.width));
+                    }
+                }
+                MapOverlay::Polygon(area) => {
+                    if let Some(fill) = shape.fill.as_ref().filter(|_| area.fill.a > 0) {
+                        let css = alloc::format!("{layer} background: {};", css_color(area.fill));
+                        layers.push(
+                            Dom::create_div()
+                                .with_css(css.as_str())
+                                .with_svg_data(SvgNodeData::Path((**fill).clone())),
+                        );
+                    }
+                    if let Some(stroke) = &shape.stroke {
+                        if area.stroke_width > 0.0 && area.stroke.a > 0 {
+                            layers.push(stroke_node(stroke, area.stroke, area.stroke_width));
+                        }
+                    }
+                }
+                MapOverlay::Marker(_) => {}
+            }
+            if layers.is_empty() {
+                continue;
+            }
+            // The box clips its parts: a neighbour's stroke never paints
+            // over this tile's.
+            let css = alloc::format!(
+                "position: absolute; left: {}px; top: {}px; width: {}px; height: {}px; \
+                 overflow: hidden;",
+                b.left, b.top, b.width, b.height
+            );
+            let mut node = Dom::create_div()
+                .with_css(css.as_str())
+                .with_svg_data(SvgNodeData::ViewBox {
+                    min_x: 0.0,
+                    min_y: 0.0,
+                    width: 256.0,
+                    height: 256.0,
+                })
+                .with_key(("azul-map-ground", index, z, b.raw_x, b.y));
+            for part in layers {
+                node = node.with_child(part);
+            }
+            out.push(node);
+        }
+    }
+    out
+}
+
+/// The markers' nodes, over the grid and upright: each icon's anchor on the
+/// screen point `place` gives its position (the camera's projection of the
+/// place's grid point), with its popup centred above it. A marker behind the
+/// eye or far outside the `width` x `height` view is left out.
+pub(crate) fn marker_nodes(
+    overlays: &[MapOverlay],
+    place: &dyn Fn(super::MapLatLon) -> Option<(f64, f64)>,
+    width: f32,
+    height: f32,
+    cache: &azul_core::refany::RefAny,
+) -> Vec<Dom> {
+    use azul_core::dom::{EventFilter, HoverEventFilter};
+
+    use crate::callbacks::Callback;
+    // How far outside the view a marker is still drawn: its icon may reach in.
+    const SLACK: f64 = 256.0;
+    let (w, h) = (f64::from(width), f64::from(height));
+    let mut out = Vec::new();
+    for overlay in overlays {
+        let MapOverlay::Marker(marker) = overlay else {
+            continue;
+        };
+        let Some((sx, sy)) = place(marker.position) else {
+            continue;
+        };
+        if !(sx > -SLACK && sx < w + SLACK && sy > -SLACK && sy < h + SLACK) {
+            continue;
+        }
+        let left = sx - f64::from(marker.anchor_x);
+        let top = sy - f64::from(marker.anchor_y);
+        let handle = azul_core::refany::RefAny::new(super::MarkerHandle {
+            cache: cache.clone(),
+            id: marker.id,
+        });
+        let css = alloc::format!("position: absolute; left: {left:.1}px; top: {top:.1}px;");
+        let mut node = Dom::create_div()
+            .with_css(css.as_str())
+            .with_key(("azul-map-marker", marker.id))
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseDown),
+                handle.clone(),
+                Callback::from_ptr(super::map_marker_on_press),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchStart),
+                handle.clone(),
+                Callback::from_ptr(super::map_marker_on_press),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                handle.clone(),
+                Callback::from_ptr(super::map_marker_on_release),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchEnd),
+                handle,
+                Callback::from_ptr(super::map_marker_on_release),
+            )
+            .with_child(marker.icon.clone());
+        if !marker.name.as_str().is_empty() {
+            node = node.with_accessibility_info(azul_core::a11y::AccessibilityInfo::named(
+                marker.name.clone(),
+                azul_core::a11y::AccessibilityRole::PushButton,
+            ));
+        }
+        out.push(node);
+        if let (OptionDom::Some(popup), true) = (&marker.popup, marker.popup_open) {
+            out.push(popup_node(popup, sx, top, h, marker.id, cache));
+        }
+    }
+    out
+}
+
+/// The widest popup card the map centres above a marker, px.
+const POPUP_MAX_WIDTH: f64 = 320.0;
+
+/// A marker's popup: a box `POPUP_MAX_WIDTH` wide centred on `x`, its bottom
+/// 6 px above `icon_top` (in a view `view_height` tall), the card centred in
+/// it. A press on it is the card's, not the map's: it neither drags the map
+/// nor drops a pin.
+fn popup_node(
+    popup: &Dom,
+    x: f64,
+    icon_top: f64,
+    view_height: f64,
+    id: u64,
+    cache: &azul_core::refany::RefAny,
+) -> Dom {
+    use azul_core::dom::{EventFilter, HoverEventFilter};
+
+    use crate::callbacks::Callback;
+    let css = alloc::format!(
+        "position: absolute; left: {:.1}px; width: {POPUP_MAX_WIDTH:.0}px; bottom: {:.1}px; \
+         display: flex; flex-direction: column; align-items: center;",
+        x - POPUP_MAX_WIDTH * 0.5,
+        view_height - icon_top + 6.0
+    );
+    let mut node = Dom::create_div()
+        .with_css(css.as_str())
+        .with_key(("azul-map-popup", id));
+    for filter in [
+        HoverEventFilter::MouseDown,
+        HoverEventFilter::MouseUp,
+        HoverEventFilter::TouchStart,
+        HoverEventFilter::TouchEnd,
+    ] {
+        node = node.with_callback(
+            EventFilter::Hover(filter),
+            cache.clone(),
+            Callback::from_ptr(super::map_popup_keeps_its_press),
+        );
+    }
+    node.with_child(popup.clone())
 }
