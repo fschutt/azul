@@ -371,6 +371,12 @@ pub mod stepper;
 pub mod switch;
 /// Tab container widgets
 pub mod tabs;
+/// Pie marker widget.
+///
+/// How far something has got (a sync, a drive's fullness) as an 11px disc
+/// with a wedge, coloured by what the number means, breathing while busy,
+/// in a 15 x 25 hit area that is a button; see `pie_marker.rs`.
+pub mod pie_marker;
 /// How a tab strip shows its content.
 ///
 /// `TabClickBehaviour` (hover reveal with a double-click lock, open on a
