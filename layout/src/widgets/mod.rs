@@ -1846,6 +1846,51 @@ mod label_convention {
         ];
         // The app shells, each with placeholder content (`shells::fixtures`).
         all.extend(super::shells::fixtures::every_shell());
+        // The tab buttons and their revealing ribbon, the pies and the tab
+        // overview with its button.
+        all.push((
+            "tabs (buttons, revealing)",
+            TabHeader::create(labels(&["One", "Two"]))
+                .with_style(super::tabs::TabStyle::Pills)
+                .with_reveal(super::tab_reveal::TabReveal::create(
+                    super::tab_reveal::TabClickBehaviour::HoverRevealDoubleClickLock,
+                ))
+                .dom(),
+        ));
+        all.push((
+            "ribbon (buttons on leather, revealing)",
+            super::ribbon::Ribbon::new(super::ribbon::RibbonTabVec::from_vec(vec![
+                super::ribbon::RibbonTab::new(AzString::from("Home")),
+                super::ribbon::RibbonTab::new(AzString::from("View")),
+            ]))
+            .with_tab_style(super::tabs::TabStyle::Pills)
+            .with_reveal(super::tab_reveal::TabReveal::create(
+                super::tab_reveal::TabClickBehaviour::HoverRevealDoubleClickLock,
+            ))
+            .with_strip_end(super::tab_overview::TabOverviewButton::create(3).dom())
+            .dom_desktop(),
+        ));
+        all.push((
+            "pie_marker",
+            super::pie_marker::PieMarker::create(0.4, super::pie_marker::PieTone::Busy)
+                .with_label(AzString::from("Syncing"))
+                .dom(),
+        ));
+        all.push((
+            "tab_overview",
+            super::tab_overview::TabOverview::create(
+                super::tab_overview::TabOverviewItemVec::from_vec(vec![
+                    super::tab_overview::TabOverviewItem::create(
+                        AzString::from("folder"),
+                        AzString::from("Documents"),
+                        AzString::from("Home / Documents"),
+                        AzString::from("\u{2303}1"),
+                    ),
+                ]),
+                0,
+            )
+            .dom(),
+        ));
         // The spreadsheet grid, with a block of numbers as its data.
         all.push(("cell_grid", super::cell_grid::fixtures::small().dom()));
         // The rich-text editor with its toolbar and a block of every kind.
@@ -2000,6 +2045,45 @@ mod label_convention {
         assert!(bad[0].contains("tab_index"), "{}", bad[0]);
     }
 }
+#[cfg(test)]
+mod no_italic {
+    //! No widget sets its words in italic: the UI's words are upright, its
+    //! placeholders and snippets too. Italic is for document content, which
+    //! the app sets (a rich text's emphasis, a map's water names).
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{basic::font::StyleFontStyle, property::CssProperty};
+
+    /// The paths of the nodes under `dom` that declare an italic or oblique
+    /// face, in any state.
+    fn italic_nodes(dom: &Dom, path: &str, out: &mut Vec<String>) {
+        let italic = dom.root.style.iter_inline_properties().any(|(p, _)| {
+            matches!(
+                p,
+                CssProperty::FontStyle(v)
+                    if matches!(v.get_property(), Some(StyleFontStyle::Italic | StyleFontStyle::Oblique))
+            )
+        });
+        if italic {
+            out.push(path.to_string());
+        }
+        for (i, child) in dom.children.as_ref().iter().enumerate() {
+            italic_nodes(child, &alloc::format!("{path}/{i}"), out);
+        }
+    }
+
+    #[test]
+    fn no_widget_sets_its_words_in_italic() {
+        let mut found = Vec::new();
+        for (name, dom) in super::label_convention::every_widget_dom() {
+            let mut nodes = Vec::new();
+            italic_nodes(&dom, name, &mut nodes);
+            found.extend(nodes);
+        }
+        assert!(found.is_empty(), "italic in widget styles: {found:?}");
+    }
+}
+
 #[cfg(test)]
 mod theme_pairs {
     //! Workspace-level guard for invariant I8 of the theme-chain analysis
