@@ -75,6 +75,12 @@ pub fn parse_index(text: &str) -> BTreeMap<TileId, u64> {
         .collect()
 }
 
+/// Writes the hosting's tile list (what [`parse_index`] reads).
+#[must_use]
+pub fn write_index(index: &BTreeMap<TileId, u64>) -> String {
+    index.iter().map(|(tile, bytes)| format!("{} {bytes}\n", tile.path())).collect()
+}
+
 /// `14/8530/5973` back to its tile.
 fn parse_tile_path(path: &str) -> Option<TileId> {
     let mut parts = path.split('/');

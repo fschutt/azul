@@ -26,12 +26,18 @@ pub mod valhalla {
     pub const TRUCK: u16 = 8;
     pub const ALL: u16 = 4095;
 
-    /// Edge uses the router treats specially.
+    /// Edge uses: the ones the router treats specially, and the ones the
+    /// generator gives OpenStreetMap's paths.
     pub const USE_RAMP: u8 = 1;
     pub const USE_TRACK: u8 = 3;
     pub const USE_LIVING_STREET: u8 = 10;
     pub const USE_SERVICE_ROAD: u8 = 11;
+    pub const USE_CYCLEWAY: u8 = 20;
+    pub const USE_FOOTWAY: u8 = 25;
     pub const USE_STEPS: u8 = 26;
+    pub const USE_PATH: u8 = 27;
+    pub const USE_PEDESTRIAN: u8 = 28;
+    pub const USE_BRIDLEWAY: u8 = 29;
     pub const USE_FERRY: u8 = 41;
     pub const USE_RAIL_FERRY: u8 = 42;
     pub const USE_CONSTRUCTION: u8 = 43;

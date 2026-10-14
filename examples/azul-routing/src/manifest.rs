@@ -20,6 +20,16 @@ pub const FORMAT: &str = "azul-routing-tiles";
 /// builds write, and what a folder without a manifest holds.
 pub const DEFAULT_TILES: &str = "tiles/{z}/{x}/{y}.pbf";
 
+/// The attribution OpenStreetMap's licence asks for next to every route
+/// (a route is a Produced Work under the ODbL) ...
+pub const OSM_ATTRIBUTION: &str = "© OpenStreetMap contributors";
+/// ... and the page it links to.
+pub const OSM_COPYRIGHT_URL: &str = "https://www.openstreetmap.org/copyright";
+/// The licence of every tile set built from OpenStreetMap ...
+pub const ODBL: &str = "ODbL-1.0";
+/// ... and its text.
+pub const ODBL_URL: &str = "https://opendatacommons.org/licenses/odbl/1-0/";
+
 /// One source extract the tiles were built from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Region {
