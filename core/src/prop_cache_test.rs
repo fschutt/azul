@@ -2234,3 +2234,85 @@ mod declared_lookup_tests {
         assert!(!declares(5), "the bare div declares none");
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod scoped_rule_index_tests {
+    use crate::{
+        dom::{Dom, NodeId},
+        style::MATCH_ATTEMPTS,
+        styled_dom::{StyledDom, StyledNodeState},
+    };
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{
+            layout::spacing::LayoutMarginTop,
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    /// Ten rules and one `:hover` rule, the sheet every card carries (each
+    /// widget instance hangs its own sheet on its root with `with_css`).
+    const CARD_SHEET: &str = ".t0 { margin-top: 1px; } .t1 { margin-top: 2px; } \
+        .t2 { margin-top: 3px; } .t3 { margin-top: 4px; } .t4 { margin-top: 5px; } \
+        .t5 { margin-top: 6px; } .t6 { margin-top: 7px; } .t7 { margin-top: 8px; } \
+        .t8 { margin-top: 9px; } .t9 { margin-top: 10px; } .title:hover { opacity: 0.5; }";
+
+    /// A body of 200 cards, each a box holding a title and a line of text.
+    fn page() -> Dom {
+        let mut body = Dom::create_body();
+        for _ in 0..200 {
+            body = body.with_child(
+                Dom::create_div()
+                    .with_css(CARD_SHEET)
+                    .with_child(Dom::create_div().with_class("title".into()))
+                    .with_child(Dom::create_div().with_class("t3".into())),
+            );
+        }
+        body
+    }
+
+    /// A card's rules can only match inside the card: trying every node of
+    /// the page against the rules of every card made a restyle cost nodes x
+    /// rules (AzWidgets: 3500 nodes x thousands of widget rules, ~90 ms per
+    /// rebuild). Each node is tried against the eleven rules around it, each
+    /// rule only in the pass for the state it ends in.
+    #[test]
+    fn a_restyle_tries_each_node_only_against_the_rules_scoped_around_it() {
+        MATCH_ATTEMPTS.with(|c| c.set(0));
+        let styled = StyledDom::create_from_dom(page());
+        let attempts = MATCH_ATTEMPTS.with(core::cell::Cell::get);
+        let nodes = styled.node_data.as_ref().len() as u64;
+        assert!(
+            attempts <= nodes * 11,
+            "{attempts} selector matches for {nodes} nodes: every node was tried against \
+             every card's rules"
+        );
+
+        // And the cascade answers what it answered: each card's text has its
+        // margin, each title its hover opacity, and no card rule reached the
+        // body, which no card scope covers.
+        let cache = styled.get_css_property_cache();
+        let data = styled.node_data.as_container();
+        let rest = StyledNodeState::new();
+        let margin = CssProperty::const_margin_top(LayoutMarginTop::const_px(4));
+        for card in 0..200 {
+            let title = NodeId::new(1 + card * 3 + 1);
+            let text = NodeId::new(1 + card * 3 + 2);
+            assert_eq!(
+                cache.get_property(&data[text], &text, &rest, &CssPropertyType::MarginTop),
+                Some(&margin),
+                "card {card}'s text has its margin"
+            );
+            assert!(
+                cache.css_props.get_slice(title.index()).iter().any(|p| {
+                    p.prop_type == CssPropertyType::Opacity && p.state == PseudoStateType::Hover
+                }),
+                "card {card}'s title has its hover opacity"
+            );
+        }
+        assert!(
+            cache.css_props.get_slice(0).is_empty(),
+            "no card rule reaches the body"
+        );
+    }
+}

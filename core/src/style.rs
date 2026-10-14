@@ -55,6 +55,14 @@ impl CascadeInfoVec {
     }
 }
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How often [`matches_html_element`] ran on this thread. A restyle's cost
+    /// is this count, so tests read it to see which rules a node is tried
+    /// against.
+    pub(crate) static MATCH_ATTEMPTS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by
 /// that element)
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
@@ -69,6 +77,9 @@ pub fn matches_html_element(
     expected_path_ending: Option<CssPathPseudoSelector>,
 ) -> bool {
     use self::CssGroupSplitReason::{AdjacentSibling, Children, DirectChildren, GeneralSibling};
+
+    #[cfg(all(test, feature = "std"))]
+    MATCH_ATTEMPTS.with(|c| c.set(c.get() + 1));
 
     if css_path.selectors.is_empty() {
         return false;
