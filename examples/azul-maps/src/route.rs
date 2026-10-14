@@ -60,6 +60,15 @@ pub fn online_source(url: &str) -> Online {
     Arc::new(Valhalla::new(url.trim(), user_agent()))
 }
 
+/// The routing server at `url`, its routes kept in the session's cache of answers (on disk,
+/// so a route answers again offline); with `offline` nothing is sent.
+#[must_use]
+pub fn online_source_cached(url: &str, cache: Arc<azul_routing::cache::ResponseCache>, offline: bool) -> Online {
+    let server = Valhalla::with_cache(url.trim(), user_agent(), cache);
+    server.fetcher().set_offline(offline);
+    Arc::new(server)
+}
+
 /// Where a route comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteSource {
@@ -263,6 +272,8 @@ pub struct RouteReply {
     pub source: RouteSource,
     /// The routing server's turn-by-turn steps; empty for any other source.
     pub steps: Vec<Step>,
+    /// The route is a kept one, the routing server out of reach: shown marked offline.
+    pub offline: bool,
     /// The road route's places, `(lat, lon)`, from where the start meets the roads to where the
     /// destination does; empty for any other kind.
     pub road: Vec<(f64, f64)>,
@@ -398,6 +409,7 @@ pub fn work_out(
         kind: RouteKind::Estimate,
         source: RouteSource::Estimate,
         steps: Vec::new(),
+        offline: false,
         road: Vec::new(),
         tiles: 0,
         attempts: 0,
@@ -432,8 +444,9 @@ pub fn work_out(
         }
         (RouteSource::Online, _, Some(online), Some(road)) => {
             reply.source = RouteSource::Online;
-            match online.route(&[asked.from, asked.to], road, &asked.language, stop) {
-                Ok(Some(found)) => {
+            match online.route_with_origin(&[asked.from, asked.to], road, &asked.language, stop) {
+                Ok(Some((found, origin))) => {
+                    reply.offline = origin == azul_routing::fetch::Origin::Offline;
                     reply.route = RouteEstimate {
                         km: found.distance_m / 1000.0,
                         minutes: found.duration_s / 60.0,

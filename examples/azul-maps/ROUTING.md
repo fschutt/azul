@@ -137,6 +137,17 @@ all in their own tiles, it says that instead. Every fetched tile stays cached:
 
 ## 5. Refinements: public transport (bahn.de and friends)
 
+What is built: azul-routing's `transit` has the `TransitProvider` trait and Transitous behind it
+(MOTIS `/api/v6/plan`, `/api/v1/geocode`, `/api/v1/reverse-geocode`). The travel panel's transit
+mode lists its journeys (legs, lines, platforms, live delays and platform changes where the
+feeds have them, earlier / later pages, leave now / depart at / arrive by) and draws the picked
+one leg by leg; the place search finds stations and addresses with it. Transitous' usage policy
+asks for open-source, non-commercial, light use, a User-Agent with a contact URL, a visible
+link to its sources page (the panel's credit has one), and contact on its Matrix channel
+before an app uses its routing heavily - a step for the maintainers before a release. The DB
+API Marketplace provider below is not built (a later provider behind the same trait); the
+unofficial bahn.de endpoints will not be.
+
 Once the road route works, the transit mode (and "alternatives" for the other modes) asks timetable
 providers. These are online APIs, not tiles. Only the two places and the time are sent: no account,
 no user id, no personal data. The User-Agent names the app and its version, nothing else.
@@ -206,3 +217,21 @@ route has hundreds of segments, so it wants a polyline layer inside `MapWidget` 
   capitals and larger cities (`resources/places.tsv`, `src/places.rs`), searched on the geocoder
   worker (`src/geocode.rs`) once the typing rests. Streets and smaller places need a hosted search
   index (static too: per-prefix JSON shards of OSM names) behind the same request and reply.
+
+## 7. Caching, offline, navigation
+
+Every online answer goes through azul-routing's `fetch`: one cache in memory and in the data
+folder (`maps/cache/`, 128 MB, least recently used first), keyed by the question with places
+rounded to about 10 m and times in five-minute buckets, so a repeated or nearby question is
+answered without the network; a stale answer is revalidated where the service gave an `ETag` or
+`Last-Modified`; requests to one service are spaced and pause after failures. Without a network
+(or with `--offline`) the kept answers still answer, marked offline. Road routes stay fresh for a
+week, journeys for five minutes, places and addresses for thirty days. The routing tiles have
+their own cache (`maps/routing/`); their URLs carry the build, so they are never revalidated.
+
+Navigation (`navigate.rs`, azul-routing's `navigation`) follows the road route from the position
+fixes: snapped to the route, heading and speed smoothed, the next maneuver counted down and said
+(500 / 200 m in town, 2 km / 500 m on fast roads), a new route asked for after four seconds more
+than 40 m (or the fix's uncertainty) off it - at once, then at least 10 s apart, doubling after
+failures - and arrival. The position is the platform's, gpsd's, an NMEA receiver's or a replay's
+(`gnss`); `--simulate-route` drives a simulated car with one wrong turn.

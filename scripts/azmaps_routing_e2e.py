@@ -121,8 +121,9 @@ class Tiles:
 def road(app, mode):
     """The road route lines for `mode` as (km, minutes, points, tiles, attempts)."""
     out = []
-    for value in app.printed("AZMAPS_ROAD", r"%s \d+\.\d \d+ \d+ \d+ \d+" % mode):
-        _, km, minutes, points, tiles, attempts = value.split()
+    # `<mode> <km> <min> <points> <tiles> <attempts> <source> <steps>`.
+    for value in app.printed("AZMAPS_ROAD", r"%s \d+\.\d \d+ \d+ \d+ \d+ \w+ \d+" % mode):
+        _, km, minutes, points, tiles, attempts = value.split()[:6]
         out.append((float(km), float(minutes), int(points), int(tiles), int(attempts)))
     return out
 
@@ -154,7 +155,7 @@ def body(args, logs, out):
     def start(name, template):
         app = e2e.App(name, binary,
                       ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--stats",
-                       "--language", "en", "--routing", template],
+                       "--language", "en", "--routing", template, "--transit", "off"],
                       args.debug_port, logs, args.timeout)
         app.until("AzMaps' window", lambda: app.has_id(MAP))
         app.expect_line("AZMAPS_ROUTING", template, "the routing tiles named")

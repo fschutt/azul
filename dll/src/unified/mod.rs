@@ -24,6 +24,8 @@ pub mod power;
 /// The device-state readings (power, battery, network) beside the motion sensors: api.json's `sensor`
 /// module.
 pub mod sensors;
+/// The system's speech (said aloud, heard): api.json's `speech` module.
+pub mod speech;
 pub mod sqlite;
 pub mod video_codec;
 pub mod webtransport;

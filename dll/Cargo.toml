@@ -517,6 +517,11 @@ windows = { version = "0.62", optional = true, features = [
     # connection profile, its cost (metered, data limit, roaming, Data Saver) and
     # NetworkStatusChanged. A feature of the windows crate already here, no new crate.
     "Networking_Connectivity",
+    # Speech (extra/speech/windows.rs): SAPI's ISpVoice says, WinRT's SpeechRecognizer (with the
+    # Language it is made for) hears. Features of the windows crate already here, no new crate.
+    "Win32_Media_Speech",
+    "Media_SpeechRecognition",
+    "Globalization",
 ] }
 # Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
 # `::windows_core::` paths (windows/dnd.rs) resolve to 0.62, not the 0.54

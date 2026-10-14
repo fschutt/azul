@@ -20,22 +20,38 @@
 //! The `routing-tiles` binary cuts an OpenStreetMap extract into the same
 //! tiles where no Valhalla build exists ([`generate`], [`build`], [`pbf`]).
 //! Where no tiles are at hand, [`online`] asks a Valhalla server for the route.
+//!
+//! Every online answer goes through [`fetch`]: the [`cache`] in memory and on disk answers a
+//! repeated question without the network (and a stale answer when the network is gone, marked
+//! offline), and [`polite`] keeps the requests to one service apart and pauses after failures.
+//! [`transit`] plans public transport journeys (Transitous by default) and finds places by name.
+//! [`navigation`] guides a car along a route from position fixes; [`simulate`] drives one;
+//! [`gnss`] reads the fixes of an external receiver (gpsd, NMEA, a replay file).
 
 pub mod build;
+pub mod cache;
 pub mod corridor;
+pub mod fetch;
 pub mod format;
 pub mod generate;
+pub mod gnss;
 pub mod graph;
 pub mod manifest;
 pub mod mode;
+pub mod navigation;
 pub mod offline;
 pub mod online;
 pub mod pbf;
+pub mod polite;
 pub mod router;
+pub mod simulate;
 pub mod source;
 pub mod tile;
+pub mod transit;
 pub mod wire;
 
+#[cfg(test)]
+mod test_server;
 #[cfg(test)]
 mod tests;
 

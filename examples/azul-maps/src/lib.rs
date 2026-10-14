@@ -52,6 +52,20 @@
 //! map <us>` for every step of a pan (how long AzMaps took for it), and the map widget's `AZ_MAP_TILES` /
 //! `AZ_MAP_RENDER` / `AZ_MAP_TILE` counters.
 //!
+//! A navigator too: public transport journeys (`transit_panel.rs`, Transitous), turn-by-turn
+//! navigation of a road route with spoken prompts, re-routing and arrival (`drive_ui.rs`,
+//! `navigate.rs`, `voice.rs`), the position from the platform or an external GPS receiver
+//! (`location.rs`), saved places in GeoJSON lists with imports from GPX, KML, CSV and Google
+//! Takeout (`lists_ui.rs`, `saved.rs`, `import/`), and one cache of every online answer so that
+//! a route, a journey or a place asked again needs no network (`services.rs`). More stdout for
+//! scripts (`scripts/azmaps_nav_e2e.py`): `AZMAPS_SUGGEST_SOURCE <end> <n>
+//! local|online|offline`, `AZMAPS_ROUTE_ORIGIN <mode> online|offline`, `AZMAPS_JOURNEYS <n>
+//! <departure> <arrival> <changes> <origin>` and `AZMAPS_LEG <kind> <line>`, `AZMAPS_NAV_START`,
+//! `AZMAPS_NAV <next step> <to it m> <left m> <state> <lat,lon>`, `AZMAPS_SAY <text>`,
+//! `AZMAPS_REROUTE` / `AZMAPS_REROUTED <n> <points> <origin>`, `AZMAPS_ARRIVED`,
+//! `AZMAPS_GPS <lat,lon> <quality>`, `AZMAPS_LISTS <lists> <places>`, `AZMAPS_IMPORTED <lists>
+//! <places> <placed> <review>`.
+//!
 //! Nothing here blocks the UI thread: the tiles are fetched, decoded AND drawn
 //! on the map's workers, the pins file and settings.json go through
 //! azul-appkit's file thread, a route is worked out on the route worker
@@ -64,14 +78,24 @@
 //! tilt.
 
 pub mod args;
+mod drive_ui;
 pub mod geocode;
 pub mod ids;
+pub mod import;
+pub mod journeys;
+mod lists_ui;
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
+pub mod location;
 pub mod model;
+pub mod navigate;
 pub mod places;
 pub mod route;
+pub mod saved;
+pub mod services;
+mod transit_panel;
+pub mod voice;
 
 use std::{
     cell::Cell,
@@ -87,7 +111,7 @@ use azul::{
         ButtonOnClickCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
-    css::{ColorU, CssProperty, CssPropertyWithConditions, LayoutWidth, PixelValue, SystemColorRef},
+    css::{ColorU, CssProperty, CssPropertyWithConditions, DarkLightMode, LayoutWidth, PixelValue, SystemColorRef},
     dom::{DomId, GeolocationProbeConfig, MapMountCallback, VirtualKeyCode},
     option::OptionRefAny,
     prelude::*,
@@ -120,7 +144,7 @@ use crate::{
         place_text, route_line as route_reply_line, travel_line, view_line, view_value, TravelMode, HOME, MAX_ZOOM,
         MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
     },
-    places::Suggestion,
+    places::{Suggestion, SuggestionSource},
     route::{route_source, Online, RouteKind, RouteProgress, RouteReply, RouteRequest, RouteSource, Tiles},
 };
 
@@ -152,6 +176,10 @@ pub const SHORTCUTS: [Shortcut; 6] = [
     Shortcut::new("azmaps-shortcuts-map", "+", "azmaps-zoom-in"),
     Shortcut::new("azmaps-shortcuts-map", "-", "azmaps-zoom-out"),
 ];
+
+/// AzMaps' own categories of the settings page (`azmaps-category-<name>`): Navigation (where
+/// the position comes from), Places (imports, the review, exports).
+pub const APP_CATEGORIES: [&str; 2] = ["Navigation", "Places"];
 
 /// The write-back tags of AzMaps' file jobs.
 const TAG_LOAD: u64 = 1;
@@ -260,6 +288,11 @@ const TO_MARK: &str = "width: 10px; height: 10px; border-radius: 6px; border: 2p
 /// The typeahead's suggestions under the travel fields.
 const SUGGESTIONS: &str = "display: flex; flex-direction: column; gap: 2px;";
 const NO_SUGGESTIONS: &str = "font-size: 12px; color: system:secondary-text; padding: 4px 6px;";
+/// A suggestion's row: the place, then its source, small.
+const SUGGESTION_ROW: &str = "display: flex; flex-direction: row; align-items: center; gap: 4px;";
+const SOURCE_TAG: &str = "font-size: 10px; color: system:secondary-text; white-space: nowrap;";
+/// The search results' credits under the list.
+const CREDITS: &str = "font-size: 10px; color: system:secondary-text; padding: 2px 6px; white-space: normal;";
 const DISTANCE: &str = "flex-grow: 1; text-align: right; font-size: 13px; color: \
                         system:secondary-text; white-space: nowrap;";
 /// The line saying where a route request goes while the routing server is asked.
@@ -390,6 +423,8 @@ struct Suggestions {
     list: Vec<Suggestion>,
     /// The row Return picks; Up and Down move it.
     highlighted: usize,
+    /// The online search could not be asked: the list says it is offline.
+    offline: bool,
 }
 
 struct MapState {
@@ -456,6 +491,14 @@ struct MapState {
     /// The newest search's number, shared with the geocoder workers (as
     /// `route_latest`).
     search_latest: Arc<AtomicU64>,
+    /// The online services of the session and the cache of their answers (`services.rs`).
+    services: crate::services::Services,
+    /// The public transport panel: its time and its journeys (`transit_panel.rs`).
+    transit: transit_panel::TransitState,
+    /// The navigation under way and the position source (`drive_ui.rs`).
+    drive: drive_ui::DriveState,
+    /// The saved lists, the recent searches, imports and their review (`lists_ui.rs`).
+    lists: lists_ui::ListsState,
 }
 
 impl MapState {
@@ -549,6 +592,9 @@ impl MapState {
             end,
             query,
             near: Some(near),
+            online: self.services.transit.clone(),
+            language: azul_appkit::l10n::locale().chars().take(2).collect(),
+            saved: Arc::clone(&self.lists.lists),
             latest: self.search_latest.clone(),
             on_done: on_search_done,
         };
@@ -567,6 +613,11 @@ impl MapState {
         };
         let label = place.label(azul_appkit::l10n::locale().starts_with("de"));
         *self.travel.text_mut(list.end) = label.clone();
+        // The search is remembered, and a destination among the recent ones.
+        lists_ui::remember_search(self, &list.query);
+        if list.end == End::To {
+            lists_ui::remember_destination(self, &label, (place.lat, place.lon));
+        }
         *self.travel.pick_mut(list.end) = Some(Picked {
             label,
             at: (place.lat, place.lon),
@@ -649,20 +700,32 @@ fn ask_route(app: &RefAny, info: &mut CallbackInfo) {
             Thread::create(RefAny::new(request), app.clone(), route::route_worker),
         );
     }
+    // Public transport is a timetable question: its journeys are asked of their own worker.
+    transit_panel::ask(app, info);
 }
 
 /// A route came back from the route worker: shown when it answers the newest
 /// request, dropped when the panel has asked for another since.
-extern "C" fn on_route_done(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_route_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
     let Some(reply) = msg.downcast_ref::<RouteReply>().map(|r| r.clone()) else {
         return Update::DoNothing;
     };
-    let Some(mut s) = app.downcast_mut::<MapState>() else {
-        return Update::DoNothing;
-    };
-    if s.route_latest.load(Ordering::Acquire) != reply.id {
-        return Update::DoNothing;
+    {
+        let Some(mut s) = app.downcast_mut::<MapState>() else {
+            return Update::DoNothing;
+        };
+        if s.route_latest.load(Ordering::Acquire) != reply.id {
+            return Update::DoNothing;
+        }
+        show_route(&mut s, reply);
     }
+    // `--navigate`: the road route is there, the navigation starts.
+    drive_ui::maybe_autostart(&app, &mut info);
+    Update::RefreshDom
+}
+
+/// The newest route arrived: announced for scripts, shown on the panel and the map.
+fn show_route(s: &mut MapState, reply: RouteReply) {
     println!("{}", route_reply_line(reply.mode, reply.route, reply.compute_ms));
     match &reply.kind {
         RouteKind::Road => println!(
@@ -679,9 +742,15 @@ extern "C" fn on_route_done(mut app: RefAny, mut msg: RefAny, _info: CallbackInf
         RouteKind::NoRoute(why) => println!("AZMAPS_NO_ROUTE {} {}", reply.mode.key(), why.key()),
         RouteKind::Estimate => {}
     }
+    if reply.kind == RouteKind::Road && reply.source == RouteSource::Online {
+        println!(
+            "AZMAPS_ROUTE_ORIGIN {} {}",
+            reply.mode.key(),
+            if reply.offline { "offline" } else { "online" }
+        );
+    }
     s.route_progress = None;
     s.route = Some(reply);
-    Update::RefreshDom
 }
 
 /// The route worker got further (a tile arrived, the search began): the
@@ -823,13 +892,11 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
             ids::TRAVEL_TO,
             End::To,
         ));
-    let ends = Dom::create_div().with_css(ROW).with_child(fields).with_child(tool(
-        app,
-        "swap_vert",
-        "azmaps-swap",
-        ids::TRAVEL_SWAP,
-        on_travel_swap,
-    ));
+    let ends = Dom::create_div()
+        .with_css(ROW)
+        .with_child(fields)
+        .with_child(tool(app, "swap_vert", "azmaps-swap", ids::TRAVEL_SWAP, on_travel_swap))
+        .with_child(tool(app, "mic", "azmaps-speak-destination", ids::TRAVEL_SPEAK, on_speak_destination));
 
     let mut modes = Dom::create_div().with_css(ROW);
     for mode in TravelMode::ALL {
@@ -864,6 +931,10 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
                     text = distance_text(r.route.km);
                     text.push_str(" \u{b7} ");
                     text.push_str(&duration_text(r.route.minutes));
+                    if r.offline {
+                        text.push_str(" \u{b7} ");
+                        text.push_str(label("azmaps-offline").as_str());
+                    }
                 }
             }
             Some(RouteKind::Estimate) => {
@@ -921,6 +992,11 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
                     .with_child(Dom::create_span_with_text(label("azmaps-route-privacy"))),
             );
         }
+    }
+    if s.travel.mode == TravelMode::Transit {
+        panel.add_child(transit_panel::panel(s, app));
+    } else if let Some(start) = drive_ui::start_row(s, app) {
+        panel.add_child(start);
     }
     if let Some(reply) = s
         .route
@@ -1025,21 +1101,59 @@ fn suggestion_list(list: &Suggestions, app: &RefAny) -> Dom {
     }
     for (index, place) in list.list.iter().enumerate() {
         rows.add_child(
-            Button::create(place.label(german))
-                .with_icon("place")
-                .with_toggled(index == list.highlighted)
-                .with_on_click(
-                    RefAny::new(SuggestionRef {
-                        app: app.clone(),
-                        index,
-                    }),
-                    on_suggestion as ButtonOnClickCallbackType,
+            Dom::create_div()
+                .with_css(SUGGESTION_ROW)
+                .with_child(
+                    Dom::create_div().with_css(FIELD_GROW).with_child(
+                        Button::create(place.label(german))
+                            .with_icon(place.kind.icon())
+                            .with_toggled(index == list.highlighted)
+                            .with_on_click(
+                                RefAny::new(SuggestionRef {
+                                    app: app.clone(),
+                                    index,
+                                }),
+                                on_suggestion as ButtonOnClickCallbackType,
+                            )
+                            .dom()
+                            .with_id(ids::indexed("suggestion", index)),
+                    ),
                 )
-                .dom()
-                .with_id(ids::indexed("suggestion", index)),
+                .with_child(
+                    Dom::create_div()
+                        .with_css(SOURCE_TAG)
+                        .with_child(Dom::create_span_with_text(source_tag(&place.source))),
+                ),
         );
     }
+    // The sources of what is listed, credited in full under the list.
+    let mut credits: Vec<String> = Vec::new();
+    for place in &list.list {
+        let credit = geocode::source_credit(&place.source);
+        if matches!(place.source, SuggestionSource::Saved(_)) || credits.contains(&credit) {
+            continue;
+        }
+        credits.push(credit);
+    }
+    if list.offline {
+        credits.push(label("azmaps-offline").as_str().to_string());
+    }
+    rows.add_child(
+        Dom::create_div()
+            .with_css(CREDITS)
+            .with_id(ids::SUGGESTION_CREDITS)
+            .with_child(Dom::create_span_with_text(credits.join(" \u{b7} "))),
+    );
     rows
+}
+
+/// A suggestion's source as the row says it, short: `OSM`, `AzMaps`, the saved list's name.
+fn source_tag(source: &SuggestionSource) -> String {
+    match source {
+        SuggestionSource::Places => "AzMaps".to_string(),
+        SuggestionSource::Transitous => "OSM".to_string(),
+        SuggestionSource::Saved(list) => list.clone(),
+    }
 }
 
 /// One place of the recents / on the map: which place, and the app.
@@ -1104,6 +1218,9 @@ fn sidebar(s: &MapState, app: &RefAny) -> Dom {
         .with_id(ids::SIDEBAR)
         .with_accessibility_name(label("azmaps-sidebar"))
         .with_child(travel_panel(s, app));
+    if let Some(saved) = lists_ui::saved_section(s, app) {
+        side.add_child(saved);
+    }
     if let Some(list) = recents(s, app) {
         side.add_child(list);
     }
@@ -1112,7 +1229,7 @@ fn sidebar(s: &MapState, app: &RefAny) -> Dom {
 
 /// A place's card, in the popover at its pin: what it is, where it is,
 /// directions to it, remove it.
-fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
+fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64, address: Option<&str>) -> Dom {
     let pin = || {
         RefAny::new(PinRef {
             app: app.clone(),
@@ -1124,7 +1241,11 @@ fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(CARD_TITLE)
-                .with_child(Dom::create_span_with_text(label("azmaps-dropped-pin"))),
+                .with_child(Dom::create_span_with_text(match address {
+                    // The search's address of the place, else what it is.
+                    Some(address) => AzString::from(address.to_string()),
+                    None => label("azmaps-dropped-pin"),
+                })),
         )
         .with_child(
             Dom::create_div()
@@ -1140,6 +1261,14 @@ fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
                         .with_on_click(pin(), on_place_directions as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::indexed("place-directions", index)),
+                )
+                .with_child(
+                    Button::create("")
+                        .with_icon("star")
+                        .with_on_click(pin(), on_place_favourite as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::indexed("place-favourite", index))
+                        .with_accessibility_name(label("azmaps-favourite")),
                 )
                 .with_child(
                     Button::create("")
@@ -1190,10 +1319,15 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
         let current = travel == Some((reply.from, reply.to)) && reply.mode == s.travel.mode;
         current.then_some(reply.road.as_slice())
     });
-    let here = if s.locating { s.last_fix } else { None };
+    let here = if s.locating && s.drive.nav.is_none() { s.last_fix } else { None };
     let plan = plan_overlays(&s.pins, s.selected, travel, road, here);
     let mut out = Vec::new();
-    if let Some(line) = plan.line {
+    // The picked journey leg by leg, the open saved list's places.
+    out.extend(transit_panel::overlays(s));
+    out.extend(lists_ui::markers(s));
+    // While navigating the navigation draws its own route (the new one after a reroute).
+    let line = if s.drive.nav.is_some() || s.travel.mode == TravelMode::Transit { None } else { plan.line };
+    if let Some(line) = line {
         let points = MapLatLonVec::from_vec(line.points.iter().copied().map(at).collect());
         out.push(MapOverlay::Polyline(travel_polyline(points, line.road)));
         // The picked turn-by-turn step's part, over the rest of the line.
@@ -1231,7 +1365,8 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
             .with_anchor(PIN_HALF_WIDTH, PIN_TIP_DEPTH)
             .with_name(AzString::from(coords(lat, lon)));
         if pin.open {
-            marker = marker.with_popup(place_card(app, pin.index, lat, lon), true);
+            let address = lists_ui::address_of(s, (lat, lon));
+            marker = marker.with_popup(place_card(app, pin.index, lat, lon, address), true);
         }
         out.push(MapOverlay::Marker(marker));
     }
@@ -1242,6 +1377,7 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
                 .with_name(label("azmaps-you-are-here")),
         ));
     }
+    out.extend(drive_ui::overlays(s));
     out
 }
 
@@ -1378,7 +1514,7 @@ fn map_controls(s: &MapState, app: &RefAny) -> Dom {
 }
 
 /// The map screen: the map, and what floats on it.
-fn screen(s: &MapState, app: &RefAny) -> Dom {
+fn screen(s: &MapState, app: &RefAny, dark: bool) -> Dom {
     let mut root = Dom::create_div()
         .with_css(ROOT)
         .with_child(map_area(s, app))
@@ -1405,6 +1541,16 @@ fn screen(s: &MapState, app: &RefAny) -> Dom {
                 .with_child(Dom::create_span_with_text(s.notice.as_str())),
         );
     }
+    // The navigation's banner and bar; else the indicator of an external position source.
+    let banner = drive_ui::banner(s, app, dark);
+    if banner.is_empty() {
+        if let Some(indicator) = drive_ui::indicator_on_map(s, None) {
+            root.add_child(indicator);
+        }
+    }
+    for part in banner {
+        root.add_child(part);
+    }
     root
 }
 
@@ -1413,7 +1559,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window (the
     // tiles' style follows it).
-    let _mode = info.get_mode();
+    let dark = matches!(info.get_mode(), DarkLightMode::Dark);
     let size = (info.get_window_width(), info.get_window_height());
     let app = data.clone();
     let Some(s) = data.downcast_ref::<MapState>() else {
@@ -1425,9 +1571,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         Dom::create_div()
             .with_css(COLUMN)
             .with_child(kit::title_row(SPEC.name))
-            .with_child(kit::settings_page(&s.kit, Vec::new()))
+            .with_child(kit::settings_page(
+                &s.kit,
+                vec![drive_ui::location_section(&s, &app, None), lists_ui::places_section(&s, &app)],
+            ))
     } else {
-        screen(&s, &app)
+        screen(&s, &app, dark)
     };
     let column = Dom::create_div().with_css(COLUMN).with_child(content);
     // The scope as the window's body: no UA margin, the full window height.
@@ -1577,33 +1726,46 @@ fn pin_of(data: &mut RefAny) -> Option<(RefAny, usize)> {
 }
 
 /// A recent place's row: the map centres on it and its card opens.
-extern "C" fn on_place_row(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_place_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, index)) = pin_of(&mut data) else {
         return Update::DoNothing;
     };
-    with_map(&mut app, |s| {
+    let mut opened = None;
+    let update = with_map(&mut app, |s| {
         if let Some((lat, lon)) = s.pins.get(index).copied() {
             s.centre_on(lat, lon);
             s.selected = Some(index);
+            opened = Some((lat, lon));
             println!("AZMAPS_PLACE {index}");
         }
-    })
+    });
+    // The card shows the place's address once the search knows it.
+    if let Some(at) = opened {
+        lists_ui::ask_address(&app, &mut info, at);
+    }
+    update
 }
 
 /// A tap on a marker: a pin opens its card, or closes it when it is open;
 /// the travel line's ends and where you are do nothing.
-extern "C" fn on_marker_tap(mut data: RefAny, _info: CallbackInfo, id: u64) -> Update {
+extern "C" fn on_marker_tap(mut data: RefAny, mut info: CallbackInfo, id: u64) -> Update {
     let Some(index) = pin_of_marker(id) else {
         return Update::DoNothing;
     };
-    with_map(&mut data, |s| {
+    let mut opened = None;
+    let update = with_map(&mut data, |s| {
         if s.selected == Some(index) {
             s.selected = None;
         } else if index < s.pins.len() {
             s.selected = Some(index);
+            opened = s.pins.get(index).copied();
             println!("AZMAPS_PLACE {index}");
         }
-    })
+    });
+    if let Some(at) = opened {
+        lists_ui::ask_address(&data, &mut info, at);
+    }
+    update
 }
 
 /// Directions to a place: it becomes the destination, the sidebar shows the
@@ -1624,6 +1786,23 @@ extern "C" fn on_place_directions(mut data: RefAny, mut info: CallbackInfo) -> U
     adopt_field_texts(&mut info);
     ask_route(&app, &mut info);
     update
+}
+
+/// A dropped pin's star: the place goes into the favourites, or out of them.
+extern "C" fn on_place_favourite(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = pin_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_map(&mut app, |s| {
+        if let Some((lat, lon)) = s.pins.get(index).copied() {
+            lists_ui::toggle_favourite(s, &coords(lat, lon), (lat, lon));
+            println!(
+                "AZMAPS_FAVOURITE {} {}",
+                index,
+                if lists_ui::is_favourite(s, (lat, lon)) { "on" } else { "off" }
+            );
+        }
+    })
 }
 
 /// A place removed from the recents (and the map).
@@ -1791,13 +1970,15 @@ extern "C" fn on_suggestion(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// otherwise. A field whose text stopped naming a place loses its route
 /// here too.
 extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((id, end, query, list, compute_ms)) = msg.downcast_mut::<SearchReply>().map(|mut r| {
+    let Some((id, end, query, list, compute_ms, complete, offline)) = msg.downcast_mut::<SearchReply>().map(|mut r| {
         (
             r.id,
             r.end,
             std::mem::take(&mut r.query),
             std::mem::take(&mut r.suggestions),
             r.compute_ms,
+            r.complete,
+            r.offline,
         )
     }) else {
         return Update::DoNothing;
@@ -1809,13 +1990,26 @@ extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         if s.search_latest.load(Ordering::Acquire) != id || s.travel.text(end).trim() != query {
             return Update::DoNothing;
         }
+        // Nothing known without the network yet: the list waits for the online search.
+        if !complete && list.is_empty() {
+            return Update::DoNothing;
+        }
         println!("AZMAPS_SUGGEST {} {} {compute_ms:.3}", end.key(), list.len());
+        let stage = if offline {
+            "offline"
+        } else if complete && s.services.transit.is_some() {
+            "online"
+        } else {
+            "local"
+        };
+        println!("AZMAPS_SUGGEST_SOURCE {} {} {stage}", end.key(), list.len());
         let pick_now = s.pick_first == Some(end) && !list.is_empty();
         s.suggestions = Some(Suggestions {
             end,
             query,
             list,
             highlighted: 0,
+            offline,
         });
         s.announce_travel();
         pick_now && s.pick(0)
@@ -1825,6 +2019,39 @@ extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
     }
     ask_route(&app, &mut info);
     Update::RefreshDom
+}
+
+/// The microphone beside the travel fields: the destination is spoken, heard on a worker
+/// (azul's speech recognition blocks), and searched like typed text.
+extern "C" fn on_speak_destination(app: RefAny, mut info: CallbackInfo) -> Update {
+    let request = voice::ListenRequest {
+        language: azul_appkit::l10n::locale().chars().take(2).collect(),
+        on_done: on_heard,
+    };
+    println!("AZMAPS_LISTENING");
+    info.add_thread(ThreadId::unique(), Thread::create(RefAny::new(request), app, voice::listen_worker));
+    Update::DoNothing
+}
+
+/// The destination was heard: it is the destination's text, searched once the "typing" rests.
+extern "C" fn on_heard(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(heard) = msg.downcast_ref::<voice::Heard>().map(|h| h.clone()) else {
+        return Update::DoNothing;
+    };
+    let update = with_map(&mut app, |s| match &heard.text {
+        Some(text) => {
+            println!("AZMAPS_HEARD {text}");
+            s.travel.to = text.clone();
+            s.travel.to_pick = None;
+            s.typed = Some((End::To, std::time::Instant::now()));
+        }
+        None => {
+            println!("AZMAPS_NOT_HEARD {}", heard.why);
+            s.notice = heard.why.clone();
+        }
+    });
+    adopt_field_texts(&mut info);
+    update
 }
 
 extern "C" fn on_travel_swap(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -2001,7 +2228,8 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
             }
             changed |= s.heading().map(|h| h.round() as i32) != shown;
         }
-        if s.locating {
+        // The platform's location; an external receiver's fixes come through its worker.
+        if s.locating && s.drive.source == azul_routing::gnss::Source::Platform {
             match fix {
                 Some(f) => {
                     let here = (f.latitude_deg, f.longitude_deg);
@@ -2048,6 +2276,10 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
         // travel field's text came to name a place, or stopped naming one.
         ask_route(&data, &mut info.callback_info);
     }
+    // The navigation, once a second; the lists changed since the last tick are written.
+    let platform = fix.map(|f| (f.latitude_deg, f.longitude_deg, f.accuracy_m, f.heading_deg, f.speed_mps));
+    changed |= drive_ui::tick(&data, &mut info.callback_info, platform);
+    lists_ui::save_dirty(&data, &mut info.callback_info);
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,
         should_update: if changed {
@@ -2073,7 +2305,9 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         Timer::create(app.clone(), tick, info.get_system_time_fn())
             .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS))),
     );
-    kit::spawn_file_jobs(&mut info, &root, vec![FileJob::Get { key }], app, TAG_LOAD, on_files_done);
+    kit::spawn_file_jobs(&mut info, &root, vec![FileJob::Get { key }], app.clone(), TAG_LOAD, on_files_done);
+    lists_ui::load(&app, &mut info);
+    drive_ui::start_source(&app, &mut info);
     Update::DoNothing
 }
 
@@ -2109,7 +2343,7 @@ pub fn start() {
         // Set before the app starts a single thread.
         std::env::set_var("AZ_MAP_STATS", "1");
     }
-    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.kit);
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.kit.clone());
     // The words first: everything from here is said in the language chosen (Settings,
     // `--language`; the system's otherwise).
     let mut config = kit::app_config(&kit_ref);
@@ -2171,11 +2405,37 @@ pub fn start() {
     // Without routing tiles a route is asked of the routing server (FOSSGIS's
     // public Valhalla unless `--routing-online` / AZMAPS_ROUTING_ONLINE names
     // another or says off).
+    // The online services and the one cache of their answers (`maps/cache/`): the routing
+    // server's routes, Transitous' journeys and places answer again offline.
+    let transit_url = args::transit_server(args.transit.as_deref(), std::env::var(args::TRANSIT_VAR).ok().as_deref());
+    let services = crate::services::Services::new(&data_root, transit_url.as_deref(), args.offline);
+    if let Some(server) = &services.transit {
+        println!("AZMAPS_TRANSIT {}", server.base);
+    }
+    if args.offline {
+        println!("AZMAPS_OFFLINE");
+    }
     let online = args::online_routing(
         args.routing_online.as_deref(),
         std::env::var(args::ROUTING_ONLINE_VAR).ok().as_deref(),
     )
-    .map(|url| route::online_source(&url));
+    .map(|url| route::online_source_cached(&url, Arc::clone(&services.cache), args.offline));
+    let transit_provider = services
+        .transit
+        .clone()
+        .map(|server| server as Arc<dyn azul_routing::transit::TransitProvider>);
+    // Where the position comes from: `--gps`, else Settings > Location, else the platform's.
+    let source_setting = {
+        let mut k = kit_ref.clone();
+        let found = k
+            .downcast_ref::<kit::Kit>()
+            .and_then(|k| k.settings.get(location::SOURCE_KEY).map(str::to_string));
+        found
+    };
+    let source = location::source_of(args.gps.as_deref(), source_setting.as_deref());
+    let simulate_mps = args
+        .simulate
+        .then(|| args.simulate_kmh.unwrap_or(args::SIMULATED_KMH) / 3.6);
     if let (None, Some(server)) = (&routing, &online) {
         println!("AZMAPS_ROUTING_ONLINE {}", server.url);
     }
@@ -2222,6 +2482,13 @@ pub fn start() {
         suggestions: None,
         pick_first: None,
         search_latest: Arc::new(AtomicU64::new(0)),
+        services,
+        transit: transit_panel::TransitState::new(transit_provider),
+        drive: drive_ui::DriveState::new(source, simulate_mps, args.navigate, args.replay_speed.unwrap_or(1.0)),
+        lists: lists_ui::ListsState::new(
+            |name| azul_appkit::data::app_key(ABOUT.app_folder, name),
+            args.import.clone(),
+        ),
     };
     let app = App::create(RefAny::new(state), config);
     let window =
