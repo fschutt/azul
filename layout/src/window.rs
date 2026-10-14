@@ -14804,7 +14804,7 @@ impl LayoutWindow {
         // Clone the old tree out first: it releases the `layout_results` borrow
         // before the `&mut self` work below, and the old arena is about to be
         // discarded anyway.
-        let (old_node_data, old_hierarchy) = match self.layout_results.get(&dom_id) {
+        let (mut old_node_data, old_hierarchy) = match self.layout_results.get(&dom_id) {
             Some(r) => (
                 r.styled_dom.node_data.as_ref().to_vec(),
                 r.styled_dom.node_hierarchy.as_ref().to_vec(),
@@ -14815,15 +14815,15 @@ impl LayoutWindow {
             None => (Vec::new(), Vec::new()),
         };
 
-        let mut new_node_data: Vec<azul_core::dom::NodeData> =
-            styled_dom.node_data.as_ref().to_vec();
+        // The new tree's nodes are read in place: the record below takes its
+        // one copy of them after the states moved over.
         let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
             styled_dom.node_hierarchy.as_ref().to_vec();
 
         let empty_layout = azul_core::OrderedMap::default();
         let diff = azul_core::diff::reconcile_dom(
             &old_node_data,
-            &new_node_data,
+            styled_dom.node_data.as_ref(),
             &old_hierarchy,
             &new_hierarchy,
             &empty_layout,
@@ -14869,7 +14869,7 @@ impl LayoutWindow {
             })
         };
 
-        let unmatched_new: BTreeSet<NodeId> = (0..new_node_data.len())
+        let unmatched_new: BTreeSet<NodeId> = (0..styled_dom.node_data.len())
             .map(NodeId::new)
             .filter(|id| !matched_new.contains(id))
             .collect();
@@ -14932,13 +14932,13 @@ impl LayoutWindow {
                 old_cache,
                 new_cache,
                 (&old_node_data, &old_hierarchy, old_states),
-                (&new_node_data, &new_hierarchy, new_states),
+                (styled_dom.node_data.as_ref(), &new_hierarchy, new_states),
                 &diff.node_moves,
             );
             for m in &diff.node_moves {
                 let (Some(old_nd), Some(new_nd)) = (
                     old_node_data.get(m.old_node_id.index()),
-                    new_node_data.get(m.new_node_id.index()),
+                    styled_dom.node_data.as_ref().get(m.new_node_id.index()),
                 ) else {
                     continue;
                 };
@@ -15063,9 +15063,38 @@ impl LayoutWindow {
         }
 
         if !diff.node_moves.is_empty() {
-            let mut old_mut = old_node_data.clone();
-            azul_core::diff::transfer_states(&mut old_mut, &mut new_node_data, &diff.node_moves);
-            styled_dom.node_data = new_node_data.clone().into();
+            // A merge callback consumes the old node's dataset, and the old
+            // arena stays in the record: it keeps a clone of each dataset a
+            // merge takes (a clone shares the allocation), which is what a
+            // full copy of the old arena kept, without copying every node.
+            let taken: Vec<(usize, azul_core::refany::RefAny)> = diff
+                .node_moves
+                .iter()
+                .filter(|m| {
+                    styled_dom
+                        .node_data
+                        .as_ref()
+                        .get(m.new_node_id.index())
+                        .is_some_and(|nd| nd.get_merge_callback().is_some())
+                })
+                .filter_map(|m| {
+                    let ds = old_node_data.get(m.old_node_id.index())?.get_dataset()?;
+                    Some((m.old_node_id.index(), ds.clone()))
+                })
+                .collect();
+            azul_core::diff::transfer_states(
+                &mut old_node_data,
+                styled_dom.node_data.as_mut(),
+                &diff.node_moves,
+            );
+            for (idx, ds) in taken {
+                if let Some(nd) = old_node_data
+                    .get_mut(idx)
+                    .filter(|nd| nd.get_dataset().is_none())
+                {
+                    nd.set_dataset(azul_core::refany::OptionRefAny::Some(ds));
+                }
+            }
 
             if let Some(old) = self.layout_results.get(&dom_id) {
                 styled_dom.migrate_user_overrides_from(
@@ -15248,6 +15277,8 @@ impl LayoutWindow {
         self.pending_css_dirty = Some((dom_id, restyled.clone()));
         self.reconciled_dom = Some(dom_id);
 
+        let new_node_data: Vec<azul_core::dom::NodeData> =
+            styled_dom.node_data.as_ref().to_vec();
         PendingReconciliation {
             node_moves: diff.node_moves,
             restyled,
