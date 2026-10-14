@@ -14923,6 +14923,7 @@ impl LayoutWindow {
             Vec::new();
         let mut move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode> =
             BTreeMap::new();
+        let mut compared = 0usize;
         if let Some(old_result) = self.layout_results.get(&dom_id) {
             let old_cache = &old_result.styled_dom.css_property_cache.ptr;
             let new_cache = &styled_dom.css_property_cache.ptr;
@@ -14988,6 +14989,7 @@ impl LayoutWindow {
                 if unchanged.get(m.new_node_id.index()).copied().unwrap_or(false) {
                     continue;
                 }
+                compared += 1;
 
                 let mut worst = azul_css::props::property::RelayoutScope::None;
                 let mut changed_any = false;
@@ -15293,6 +15295,7 @@ impl LayoutWindow {
             old_node_data,
             animate_moves: true,
             move_modes,
+            compared,
         }
     }
 
@@ -31315,6 +31318,12 @@ pub struct PendingReconciliation {
     /// and exits are (user, 2026-10-07): a node not in here is laid out at
     /// its new place, it does not slide there.
     pub move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode>,
+    /// How many matched nodes had their properties compared type by type.
+    /// A node whose cascade inputs are what they were is skipped
+    /// (`unchanged_cascades`), so on a rebuild that changed one widget this
+    /// is that widget's nodes; the whole page here means every click pays
+    /// for a full property diff. Read by tests.
+    pub compared: usize,
 }
 
 /// `LayoutRect` (integer origin, what the layout query returns) → `LogicalRect`
