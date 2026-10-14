@@ -366,6 +366,15 @@ enum ContentSizeOrigin {
     ContentBox,
 }
 
+/// Whether a box's own `min-width` / `max-width` can move its width away from
+/// the width its content was laid out at: a `max-width`, or a `min-width`
+/// above zero. The zero `min-width` the bridge gives every stretched item
+/// clamps nothing.
+fn width_can_be_clamped(style: &Style) -> bool {
+    !style.max_size.width.is_auto()
+        || !(style.min_size.width.is_auto() || style.min_size.width == Dimension::length(0.0))
+}
+
 /// Shared scrollbar detection for Taffy-managed flex/grid nodes.
 ///
 /// When Taffy lays out a flex/grid container, it may expand the container
@@ -2120,10 +2129,16 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         // wrapped line short, its button row hanging out of it. Its width is
         // right, and the pure-measure cache above keys by the width question
         // only.
+        //
+        // Only a column its own min-/max-width can clamp: every other column
+        // is laid out at the width it ends up with, so its answer is safe to
+        // cache. Measuring every column uncached laid out every card of a
+        // settings page again on each frame of an animation beside them.
         let width_only_column = inputs.run_mode == RunMode::ComputeSize
             && inputs.axis == taffy::RequestedAxis::Horizontal
             && fc == FormattingContext::Flex
-            && inputs.known_dimensions.width.is_none();
+            && inputs.known_dimensions.width.is_none()
+            && width_can_be_clamped(self.get_taffy_style(node_idx));
         let mut result = if width_only_column {
             drop(crate::probe::Probe::span("taffy_width_only_column"));
             // What `compute_cached_layout` would mark: the measure rewrote
