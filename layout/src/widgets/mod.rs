@@ -377,6 +377,13 @@ pub mod tabs;
 /// with a wedge, coloured by what the number means, breathing while busy,
 /// in a 15 x 25 hit area that is a button; see `pie_marker.rs`.
 pub mod pie_marker;
+/// Tab overview widget.
+///
+/// A window's location tabs as a list over a grey scrim, anchored under
+/// the tab button at the top right of the tab row (`TabOverviewButton`,
+/// with their count): rows to pick or close, a New tab row, the arrows,
+/// Return, Ctrl+W and Escape; see `tab_overview.rs`.
+pub mod tab_overview;
 /// How a tab strip shows its content.
 ///
 /// `TabClickBehaviour` (hover reveal with a double-click lock, open on a
