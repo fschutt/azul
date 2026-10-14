@@ -478,9 +478,8 @@ mod tests {
     use std::collections::HashMap;
 
     use azul_routing::{
-        format::{Access, Highway, Oneway, Way},
-        generate::{cut_level, gzip, write_to_folder},
-        format::write_tile,
+        format::{encode, gzip},
+        generate::{cut_level, write_to_folder, Access, Highway, Oneway, Way},
         tile::LEVELS,
     };
 
@@ -628,7 +627,7 @@ mod tests {
         };
         for z in LEVELS {
             for (tile, data) in cut_level(&[street.clone()], &coords, z) {
-                let bytes = gzip(write_tile(tile, &data).as_bytes()).expect("gzip");
+                let bytes = gzip(&encode(&data));
                 write_to_folder(&dir, tile, &bytes).expect("a tile written");
             }
         }
