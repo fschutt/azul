@@ -333,11 +333,14 @@ mod tests {
         let server = Server::start(|_| (200, vec![], "fresh".to_string()));
         let cache = Arc::new(ResponseCache::in_memory(8));
         cache.put("k", Entry::new(b"kept".to_vec(), 1, 1));
+        cache.put("fresh", Entry::new(b"new".to_vec(), now_s(), 3_600));
         let fetcher = Fetcher::new(AGENT, Duration::ZERO, cache);
         fetcher.set_offline(true);
         let url = format!("{}/x", server.base);
         let kept = fetcher.fetch(&get(&url, &[]), "k", 60, &mut || false).expect("kept").expect("not stopped");
         assert_eq!(kept.origin, Origin::Offline);
+        let fresh = fetcher.fetch(&get(&url, &[]), "fresh", 60, &mut || false).expect("kept").expect("not stopped");
+        assert_eq!(fresh.origin, Origin::Offline, "offline by choice, a fresh answer is marked offline too");
         assert!(matches!(fetcher.fetch(&get(&url, &[]), "new", 60, &mut || false), Err(FetchError::Offline(_))));
         assert_eq!(server.count(), 0);
     }
