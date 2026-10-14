@@ -37,6 +37,9 @@ pub mod log_gate;
 /// asks, the run loop exits with everything else stopped.
 pub mod process_exit;
 pub mod seats;
+/// The operating system asks the app to quit (a logout, a shutdown): every window's close
+/// protocol runs.
+pub mod session_end;
 /// A closing window hands the app's background threads to a window that stays open.
 pub mod thread_handover;
 pub mod transient;
