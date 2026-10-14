@@ -1079,3 +1079,5 @@ mod a_widget_focused_by_a_click_shows_no_focus_ring;
 mod a_pressed_app_button_sinks_its_curves_with_its_face;
 #[path = "a_tab_bar_takes_the_style_it_is_given.rs"]
 mod a_tab_bar_takes_the_style_it_is_given;
+#[path = "a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout.rs"]
+mod a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout;
