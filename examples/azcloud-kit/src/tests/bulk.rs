@@ -560,4 +560,168 @@ mod encrypted {
             "the refused file's object left the bucket again"
         );
     }
+
+    // ==== The sync: a folder deleted, added and renamed on this device ====
+
+    use std::fs;
+
+    use azul_storage::testing::TempDir;
+
+    use crate::sync::{local::path_of, sync_to, LocalRoot, RunHooks, SyncOptions, SyncReport, Target};
+
+    /// A folder on this device and its sync state.
+    struct Folder {
+        dir: TempDir,
+        state: TempDir,
+    }
+
+    impl Folder {
+        fn new(name: &str) -> Folder {
+            Folder {
+                dir: TempDir::new(&format!("azcloud-bulk-{name}")),
+                state: TempDir::new(&format!("azcloud-bulk-state-{name}")),
+            }
+        }
+
+        fn sync(&self, drive: &dyn Drive) -> Result<SyncReport, crate::error::CloudError> {
+            let mut opts = SyncOptions::new("Docs/", "d-bulk", "laptop").unwrap();
+            opts.allow_mass_delete = true;
+            opts.allow_burst = true;
+            let root = LocalRoot::folder(self.dir.path());
+            let index = self.state.path().join("index.json");
+            sync_to(Target::Named(drive), &root, &index, &opts, &RunHooks::default())
+        }
+
+        fn write_all(&self, files: &[(String, Vec<u8>)]) {
+            for (key, bytes) in files {
+                let path = path_of(self.dir.path(), key);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, bytes).unwrap();
+            }
+        }
+
+        fn path(&self, folder: &str) -> std::path::PathBuf {
+            self.dir.path().join(folder)
+        }
+    }
+
+    fn on_drive(drive: &dyn Drive, prefix: &str) -> usize {
+        list_all(drive, &format!("Docs/{prefix}")).unwrap().len()
+    }
+
+    #[test]
+    fn a_sync_that_deletes_a_ten_thousand_file_folder_commits_the_drive_index_once() {
+        let bucket = Arc::new(MemoryBucket::new());
+        let drive = open_encrypted_drive(
+            Arc::clone(&bucket),
+            DriveKey::generate().unwrap(),
+            "laptop",
+            "Laptop",
+            None,
+            false,
+        )
+        .unwrap()
+        .with_packing(PackOptions::default());
+        let here = Folder::new("delete");
+        here.write_all(&files("big/", 10_000, 30));
+        here.write_all(&files("kept/", 3, 30));
+        let sent = here.sync(&drive).unwrap();
+        assert_eq!(sent.files_up, 10_003, "{}", sent.summary());
+        fs::remove_dir_all(here.path("big")).unwrap();
+        let before = commits(&*bucket);
+        let gone = here.sync(&drive).unwrap();
+        assert_eq!(gone.deleted_there, 10_000, "{}", gone.summary());
+        assert_eq!(commits(&*bucket), before + 1, "one commit for 10,000 deletes");
+        assert_eq!(on_drive(&drive, "big/"), 0);
+        assert_eq!(on_drive(&drive, "kept/"), 3);
+    }
+
+    #[test]
+    fn a_sync_that_adds_a_folder_of_five_thousand_files_takes_a_few_commits() {
+        let bucket = Arc::new(MemoryBucket::new());
+        let drive = open_encrypted_drive(
+            Arc::clone(&bucket),
+            DriveKey::generate().unwrap(),
+            "laptop",
+            "Laptop",
+            None,
+            false,
+        )
+        .unwrap()
+        .with_packing(PackOptions::default());
+        let here = Folder::new("add");
+        let small = files("project/src/", 5_000, 900);
+        let large = files("project/assets/", 6, 700 * 1024);
+        here.write_all(&small);
+        here.write_all(&large);
+        let before = commits(&*bucket);
+        let sent = here.sync(&drive).unwrap();
+        assert_eq!(sent.files_up, 5_006, "{}", sent.summary());
+        let made = commits(&*bucket) - before;
+        assert!(made <= 4, "{made} commits for a folder of 5,006 files");
+        for (key, bytes) in small.iter().step_by(500).chain(&large) {
+            assert_eq!(&drive.get(&format!("Docs/{key}")).unwrap(), bytes, "{key}");
+        }
+    }
+
+    #[test]
+    fn a_folder_renamed_here_moves_on_the_drive_without_any_object_written() {
+        let s3 = FakeS3::new();
+        let index = Arc::new(Counting::default());
+        let drive = EncryptedDrive::new(
+            s3_drive(&s3),
+            DriveKey::generate().unwrap(),
+            Arc::clone(&index) as Arc<dyn NameIndex>,
+        )
+        .with_packing(PackOptions::default());
+        let here = Folder::new("rename");
+        let small = files("draft/", 5_000, 120);
+        let large = files("draft/scans/", 2, 600 * 1024);
+        here.write_all(&small);
+        here.write_all(&large);
+        here.sync(&drive).unwrap();
+        fs::rename(here.path("draft"), here.path("final")).unwrap();
+        s3.clear_log();
+        let applies = index.applies.load(Ordering::SeqCst);
+        let moved = here.sync(&drive).unwrap();
+        for method in ["PUT", "COPY", "GET"] {
+            assert_eq!(s3.count_under(method, "data/"), 0, "no {method} of an object");
+        }
+        assert_eq!(
+            index.applies.load(Ordering::SeqCst),
+            applies + 1,
+            "one commit moves the folder: {}",
+            moved.summary()
+        );
+        assert_eq!(on_drive(&drive, "draft/"), 0);
+        assert_eq!(on_drive(&drive, "final/"), 5_002);
+        for (key, bytes) in small.iter().step_by(700).chain(&large) {
+            let renamed = key.replacen("draft/", "final/", 1);
+            assert_eq!(&drive.get(&format!("Docs/{renamed}")).unwrap(), bytes, "{renamed}");
+        }
+    }
+
+    #[test]
+    fn a_crash_in_the_middle_of_a_sync_batch_leaves_the_drive_as_it_was_and_the_next_run_finishes() {
+        let index = Arc::new(Counting::default());
+        let drive = EncryptedDrive::new(
+            Arc::new(MemoryBucket::new()),
+            DriveKey::generate().unwrap(),
+            Arc::clone(&index) as Arc<dyn NameIndex>,
+        )
+        .with_packing(PackOptions::default());
+        let here = Folder::new("crash");
+        here.write_all(&files("old/", 200, 50));
+        here.sync(&drive).unwrap();
+        fs::remove_dir_all(here.path("old")).unwrap();
+        here.write_all(&files("new/", 200, 50));
+        // The first commit of the run fails: the pack of new files is named by nothing.
+        index.fail_next.store(1, Ordering::SeqCst);
+        assert!(here.sync(&drive).is_err());
+        assert_eq!(on_drive(&drive, "new/"), 0, "no name without its bytes");
+        assert_eq!(on_drive(&drive, "old/"), 200, "nothing deleted");
+        let again = here.sync(&drive).unwrap();
+        assert_eq!((again.files_up, again.deleted_there), (200, 200), "{}", again.summary());
+        assert_eq!((on_drive(&drive, "new/"), on_drive(&drive, "old/")), (200, 0));
+    }
 }
