@@ -108,15 +108,16 @@ fn a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout() {
     // Warm the fonts once, so neither side pays for loading them.
     let _ = lay_out(&mut fresh_window(&fonts), page());
 
-    // The best of three of each: the pass is measured, not the machine's
-    // other work.
-    let fresh = (0..3)
-        .map(|_| lay_out(&mut fresh_window(&fonts), page()))
-        .min()
-        .expect("three runs");
+    // The best of five of each, taken in turns: the pass is measured, not
+    // the machine's other work, and a busy moment (the rest of the suite
+    // runs beside this test) weighs on both sides alike.
     let mut lw = fresh_window(&fonts);
     let _ = lay_out(&mut lw, page());
-    let rebuilt = (0..3).map(|_| lay_out(&mut lw, page())).min().expect("three runs");
+    let (mut fresh, mut rebuilt) = (Duration::MAX, Duration::MAX);
+    for _ in 0..5 {
+        fresh = fresh.min(lay_out(&mut fresh_window(&fonts), page()));
+        rebuilt = rebuilt.min(lay_out(&mut lw, page()));
+    }
     eprintln!("[a_widget_page_rebuilt] fresh layout {fresh:?}, unchanged rebuild {rebuilt:?}");
     assert!(
         rebuilt < fresh,
