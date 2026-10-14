@@ -104,17 +104,19 @@ fn paints_a_colour(ty: CssPropertyType) -> bool {
 }
 
 /// A `system:` keyword resolves in the theme it is painted in, so it needs
-/// no twin.
+/// no twin. Neither does a see-through colour: it paints nothing in either
+/// mode (a button face made transparent over a video).
 fn follows_the_theme(p: &CssProperty) -> bool {
     let token = |c: azul_css::props::basic::color::ColorU| {
-        SystemColorRef::from_color_token(c).is_some()
+        c.a == 0 || SystemColorRef::from_color_token(c).is_some()
     };
     match p {
         CssProperty::BackgroundContent(v) => v.get_property().is_some_and(|layers| {
-            layers
-                .as_ref()
-                .iter()
-                .all(|l| matches!(l, StyleBackgroundContent::SystemColor(_)))
+            layers.as_ref().iter().all(|l| match l {
+                StyleBackgroundContent::SystemColor(_) => true,
+                StyleBackgroundContent::Color(c) => c.a == 0,
+                _ => false,
+            })
         }),
         CssProperty::TextColor(v) => v.get_property().is_some_and(|c| token(c.inner)),
         CssProperty::BorderTopColor(v) => v.get_property().is_some_and(|c| token(c.inner)),
