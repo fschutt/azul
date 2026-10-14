@@ -2375,6 +2375,29 @@ fn slide_animation(
     CssPropertyWithConditions::with_single_condition(property, NO_REDUCED_MOTION)
 }
 
+/// The motion of a content group whose strip switched from tab `from` to
+/// tab `to` (`None` for no switch): its entrance - in from the side the
+/// switch leaves, fading in - and its exit (a fade where it stands), and
+/// the keyframes they name, for the node that ships them.
+pub(crate) fn switch_motion(
+    from: usize,
+    to: usize,
+) -> Option<(Vec<CssPropertyWithConditions>, azul_css::css::Css)> {
+    use azul_css::props::basic::animation::AnimationTiming;
+    let enter = match to.cmp(&from) {
+        core::cmp::Ordering::Greater => SLIDE_IN_FROM_LEFT,
+        core::cmp::Ordering::Less => SLIDE_IN_FROM_RIGHT,
+        core::cmp::Ordering::Equal => return None,
+    };
+    Some((
+        vec![
+            slide_animation(false, enter, SLIDE_IN_MS, AnimationTiming::EaseOut),
+            slide_animation(true, FADE_OUT, FADE_OUT_MS, AnimationTiming::EaseIn),
+        ],
+        slide_keyframes(),
+    ))
+}
+
 impl TabContent {
     #[must_use]
     pub const fn new(content: Dom) -> Self {

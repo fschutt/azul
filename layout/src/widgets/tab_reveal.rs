@@ -476,6 +476,17 @@ impl TabReveal {
         self.machine().and_then(|m| m.selected()).into()
     }
 
+    /// Feeds `event` at `now_ms` (any clock; the widgets use their own)
+    /// without a callback: no timer, no app to tell. For tests and for an
+    /// app that drives the content itself (a shortcut that locks it open).
+    pub fn apply(&self, event: RevealEvent, now_ms: u64) -> RevealStep {
+        let mut state = self.state.clone();
+        let Some(mut shared) = state.downcast_mut::<RevealShared>() else {
+            return RevealStep::Unchanged;
+        };
+        shared.machine.apply(event, now_ms)
+    }
+
     /// A copy of the machine as it stands.
     pub(crate) fn machine(&self) -> Option<RevealMachine> {
         let mut state = self.state.clone();

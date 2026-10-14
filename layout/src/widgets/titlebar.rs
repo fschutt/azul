@@ -936,6 +936,12 @@ impl Titlebar {
 /// holds its tabs: the grab strip above them.
 const DEFAULT_TABS_TOP: f32 = 8.0;
 
+/// Where the first button of a title-bar row of buttons stands when the
+/// window controls sit before it: macOS's traffic lights are 12px discs at
+/// x 8, 28 and 48, so the last one ends at 60, and the first button keeps
+/// 14px from it.
+pub const BUTTON_ROW_LEAD: f32 = 74.0;
+
 // Whether a `NoTitle` window's controls sit OVER the app's content, so a tab
 // strip along the top has to leave them room: macOS draws its traffic lights
 // over the content view, and Linux overlays the software controls at the
@@ -1020,6 +1026,27 @@ impl TabsInTitlebar {
             top: DEFAULT_TABS_TOP,
             left,
             right,
+        }
+    }
+
+    /// This platform's offsets for a row of tab buttons that IS the title
+    /// bar (`TabStyle::Pills`): no grab strip above (the row is the title
+    /// bar's 28px, the window controls centred in it), and where the
+    /// controls sit before the first tab the buttons start
+    /// [`BUTTON_ROW_LEAD`] in - 14px after macOS's three traffic lights;
+    /// Linux's controls after the last tab keep their room.
+    #[must_use]
+    pub const fn button_row() -> Self {
+        let platform = Self::platform();
+        let left = if DEFAULT_CONTROLS_OVER_CONTENT && DEFAULT_BUTTON_SIDE_LEFT {
+            BUTTON_ROW_LEAD
+        } else {
+            0.0
+        };
+        Self {
+            top: 0.0,
+            left,
+            right: platform.right,
         }
     }
 

@@ -1254,6 +1254,152 @@ pub(crate) fn frosted(on: bool) -> Vec<CssPropertyWithConditions> {
     v
 }
 
+/// A small button at the end of the tab row (the chevron, the location
+/// tabs' button): 24 x 20, the house radius, the leather face in the
+/// hairline of a plain button, raised, never gold.
+#[must_use]
+pub(crate) fn strip_button() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let mut v = alloc::vec![
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+        P::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(24))),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(20))),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        decl::font_size(18),
+    ];
+    v.extend(decl::radius(3));
+    v.extend(decl::border(1));
+    v.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    v.extend(leather_faces());
+    v.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
+    v.extend(raised_depth());
+    v.extend(pressed_depth());
+    v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
+    v.extend(double_ring(0));
+    v
+}
+
+/// The seam between two of the ribbon's groups, pressed into the leather:
+/// 1px of shade and 1px of light along a group's right edge (by night the
+/// shade deeper and the light fainter).
+fn seam(dark_line: ColorU, light_line: ColorU) -> StyleBackgroundContent {
+    let stops = alloc::vec![
+        stop_after(100, -2, ColorU::TRANSPARENT),
+        stop_after(100, -2, dark_line),
+        stop_after(100, -1, dark_line),
+        stop_after(100, -1, light_line),
+        stop_after(100, 0, light_line),
+    ];
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(90),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(stops),
+    })
+}
+
+/// Words pressed into the leather (the group titles): a 1px highlight on
+/// the side away from the light (the sun at the top right), by night a
+/// shade toward it.
+fn pressed_text() -> [CssPropertyWithConditions; 2] {
+    let shadow = |x: f32, y: f32, color: ColorU| {
+        CssProperty::TextShadow(azul_css::css::CssPropertyValue::Exact(BoxOrStatic::heap(
+            StyleBoxShadow {
+                offset_x: PixelValueNoPercent { inner: PixelValue::px(x) },
+                offset_y: PixelValueNoPercent { inner: PixelValue::px(y) },
+                blur_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                clip_mode: BoxShadowClipMode::Outset,
+                color,
+            },
+        )))
+    };
+    CssPropertyWithConditions::themed(
+        shadow(-0.5, 0.87, ColorU::new(255, 255, 255, 158)),
+        shadow(0.3, -0.52, ColorU::new(0, 0, 0, 140)),
+    )
+}
+
+/// `slot` with `extra` appended (the slot's own declarations first, so
+/// `extra` wins where they meet).
+fn append_part(
+    slot: &mut azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec,
+    extra: Vec<CssPropertyWithConditions>,
+) {
+    let mut v: Vec<CssPropertyWithConditions> =
+        slot.as_ref().map(|x| x.as_ref().to_vec()).unwrap_or_default();
+    v.extend(extra);
+    *slot = azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+        CssPropertyWithConditionsVec::from_vec(v),
+    );
+}
+
+/// Flora's ribbon band on the leather (`TabStyle::Pills`): laid over the
+/// parts [`ribbon_style`] filled. Every command wears the plain button's
+/// raised face on the leather with the gold edge, 4px from the next and
+/// 3px between rows; a toggled one is recessed into the accent's frost; the
+/// gallery is a frosted panel; the groups are parted by seams and their
+/// titles pressed in. A disabled command takes [`quiet_command`] where the
+/// ribbon builds it.
+#[must_use]
+pub(crate) fn ribbon_leather_style(
+    mut s: crate::widgets::ribbon::RibbonStyle,
+) -> crate::widgets::ribbon::RibbonStyle {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let command = || {
+        let mut v = leather_command();
+        v.extend(raised_depth());
+        v.extend(pressed_depth());
+        v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
+        v.extend(double_ring(0));
+        v
+    };
+    append_part(&mut s.large_button_style, command());
+    append_part(&mut s.small_button_style, command());
+    let mut on = frosted(true);
+    on.extend(gold_edge());
+    append_part(&mut s.checked_style, on);
+    let mut gallery = frosted(false);
+    gallery.extend(decl::radius(3));
+    append_part(&mut s.gallery_frame_style, gallery);
+    append_part(&mut s.gallery_cell_selected_style, frosted(true));
+    append_part(
+        &mut s.group_items_style,
+        alloc::vec![P::simple(CssProperty::ColumnGap(
+            azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
+                inner: PixelValue::const_px(4),
+            }),
+        ))],
+    );
+    append_part(
+        &mut s.column_style,
+        alloc::vec![P::simple(CssProperty::RowGap(
+            azul_css::props::property::LayoutRowGapValue::Exact(LayoutRowGap {
+                inner: PixelValue::const_px(3),
+            }),
+        ))],
+    );
+    let mut group = alloc::vec![P::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(0),
+    ))];
+    group.extend(decl::padding(0, 6, 0, 6));
+    group.extend(decl::themed_layers(
+        alloc::vec![seam(ColorU::new(40, 30, 15, 20), ColorU::new(255, 255, 255, 77))],
+        alloc::vec![seam(ColorU::new(0, 0, 0, 102), ColorU::new(255, 255, 255, 10))],
+    ));
+    append_part(&mut s.group_style, group);
+    append_part(&mut s.group_label_style, pressed_text().to_vec());
+    s
+}
+
 const EB_GARAMOND_STR: AzString = AzString::from_const_str("EB Garamond");
 const GEORGIA_STR: AzString = AzString::from_const_str("Georgia");
 const SERIF_STR: AzString = AzString::from_const_str("serif");
