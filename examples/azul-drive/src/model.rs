@@ -1192,4 +1192,16 @@ mod tests {
         s.adopt(&order, &ListSelection::create());
         assert!(s.is_empty());
     }
+
+    #[test]
+    fn every_layout_that_draws_a_picture_per_item_shows_its_thumbnail() {
+        for layout in ViewLayout::ALL {
+            // The Tile widget draws its icon as a glyph: a tile has no place for a picture.
+            assert_eq!(
+                layout.shows_thumbnails(),
+                layout != ViewLayout::Tiles,
+                "{layout:?}"
+            );
+        }
+    }
 }

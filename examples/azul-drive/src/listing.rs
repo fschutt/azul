@@ -661,4 +661,20 @@ mod tests {
         assert_eq!(grouped_digits(999), "999");
         assert_eq!(grouped_digits(0), "0");
     }
+
+    #[test]
+    fn a_scroll_asks_for_the_rows_in_view_at_its_start_and_then_every_hundred_ms() {
+        let t0 = std::time::Instant::now();
+        let at = |ms: u64| t0 + std::time::Duration::from_millis(ms);
+        assert!(scroll_work_due(None, t0), "the first scroll event asks");
+        assert!(
+            !scroll_work_due(Some(t0), at(16)),
+            "the next frame of the scroll does not"
+        );
+        assert!(!scroll_work_due(Some(t0), at(SCROLL_WORK_MS - 1)));
+        assert!(
+            scroll_work_due(Some(t0), at(SCROLL_WORK_MS)),
+            "a long scroll asks again while it runs: the pictures stream in"
+        );
+    }
 }
