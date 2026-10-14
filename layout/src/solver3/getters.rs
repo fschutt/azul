@@ -8125,6 +8125,89 @@ pub fn get_box_shadows(
     shadows
 }
 
+/// The pseudo-state whose custom properties a node in `state` shows (to a
+/// render callback, to the light-following shadows): the most specific one
+/// it is in - a pressed button is `:active` before it is `:hover`, a
+/// disabled one `:disabled` before all.
+#[must_use]
+pub fn custom_property_state(
+    state: &StyledNodeState,
+) -> azul_css::dynamic_selector::PseudoStateType {
+    use azul_css::dynamic_selector::PseudoStateType;
+
+    if state.disabled {
+        PseudoStateType::Disabled
+    } else if state.active {
+        PseudoStateType::Active
+    } else if state.focused {
+        PseudoStateType::Focus
+    } else if state.hover {
+        PseudoStateType::Hover
+    } else if state.checked {
+        PseudoStateType::CheckedTrue
+    } else {
+        PseudoStateType::Normal
+    }
+}
+
+/// Which of `node`'s shadows follow the app's light: `--azul-follow-light:
+/// box-shadow`, `text-shadow`, both (`box-shadow text-shadow`, `all`) or
+/// `none` (the default). A custom property, so it inherits: set on an area,
+/// every box and word inside it follows; a button inside opts out with
+/// `none`. Answers (box-shadows, text-shadows).
+#[must_use]
+pub fn light_followers(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledNodeState) -> (bool, bool) {
+    let map = styled_dom
+        .get_css_property_cache()
+        .custom_property_envs
+        .map_for(node_id.index(), custom_property_state(node_state));
+    let Some(value) = map.get("azul-follow-light") else {
+        return (false, false);
+    };
+    let (mut boxes, mut texts) = (false, false);
+    for word in value.split(|c: char| c.is_whitespace() || c == ',') {
+        match word.trim().to_ascii_lowercase().as_str() {
+            "box-shadow" | "shadow" => boxes = true,
+            "text-shadow" | "text" => texts = true,
+            "all" | "both" | "1" | "true" => {
+                boxes = true;
+                texts = true;
+            }
+            _ => {}
+        }
+    }
+    (boxes, texts)
+}
+
+/// `shadow`, written for a light from straight above, turned to fall away
+/// from `light` at desktop point `at` (a box's shadow also lengthens as the
+/// light sinks: `stretch`). Offsets other than px stay as written.
+#[must_use]
+pub fn shadow_following_light(
+    shadow: azul_css::props::style::box_shadow::StyleBoxShadow,
+    light: &azul_core::light::Light,
+    at: [f32; 2],
+    stretch: bool,
+) -> azul_css::props::style::box_shadow::StyleBoxShadow {
+    use azul_css::props::basic::{
+        length::SizeMetric,
+        pixel::{PixelValue, PixelValueNoPercent},
+    };
+    let px = |v: &PixelValueNoPercent| (v.inner.metric == SizeMetric::Px).then(|| v.inner.number.get());
+    let (Some(x), Some(y)) = (px(&shadow.offset_x), px(&shadow.offset_y)) else {
+        return shadow;
+    };
+    let o = light.follow_offset([x, y], at, stretch);
+    let mut out = shadow;
+    out.offset_x = PixelValueNoPercent {
+        inner: PixelValue::px(o[0]),
+    };
+    out.offset_y = PixelValueNoPercent {
+        inner: PixelValue::px(o[1]),
+    };
+    out
+}
+
 /// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned),
 /// its `system:` colour resolved.
 #[must_use]

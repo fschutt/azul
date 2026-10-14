@@ -480,6 +480,11 @@ pub enum CallbackChange {
     SetMaterialLight {
         light: crate::texture::MaterialLight,
     },
+    /// Move the app's ONE light: every window adopts it - see
+    /// [`CallbackInfo::set_app_light`].
+    SetAppLight {
+        light: azul_core::light::Light,
+    },
     /// Trigger re-rendering of a `VirtualView` with a new DOM
     /// This forces the `VirtualView` to call its callback and update the display list
     UpdateVirtualView {
@@ -2437,6 +2442,25 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_material_light(&self) -> crate::texture::MaterialLight {
         self.get_layout_window().material_light
+    }
+
+    /// Move the app's ONE light (`AppConfig::light` at startup): the sun at
+    /// an azimuth and elevation, or a point light over the desktop. Every
+    /// window adopts it at its next frame - its materials, their bevels and
+    /// the cursor's sheen, the metals' reflection and the box-shadows and
+    /// pressed text that follow the light (`--azul-follow-light`) - and a
+    /// window opened later starts with it. A window that set its own light
+    /// (`set_material_light`) keeps that one. The light the app already has
+    /// does nothing.
+    pub fn set_app_light(&mut self, light: azul_core::light::Light) {
+        self.push_change(CallbackChange::SetAppLight { light });
+    }
+
+    /// The app's light (a `set_app_light` in the same callback is not
+    /// visible here yet).
+    #[must_use]
+    pub fn get_app_light(&self) -> azul_core::light::Light {
+        azul_core::light::app_light()
     }
 
     /// Trigger re-rendering of a `VirtualView` (applied after callback returns)
@@ -8018,21 +8042,65 @@ pub struct RenderImageCallbackExtras {
     pub border_radii: [f32; 4],
     /// Where the rect's top-left corner sits in the window, logical px.
     pub origin: LogicalPosition,
-    /// The window's light for the built-in materials.
+    /// The window's material light: the light's colour, strength, ambient
+    /// share and god rays (its direction is [`Self::light`]'s).
     pub material_light: crate::texture::MaterialLight,
+    /// Where the light comes from in this window: the app's one light, or
+    /// the window's own material light where it set one. The materials,
+    /// their bevels and the sheen are lit from it.
+    pub light: azul_core::light::Light,
+    /// Where the window's top-left sits on the desktop, desktop points: a
+    /// point light and the wallpaper a metal reflects are seen from the
+    /// rect's place on the desktop.
+    pub window_desktop_origin: LogicalPosition,
+    /// The screen the window is on, desktop points (the wallpaper's frame).
+    pub screen: LogicalRect,
+    /// The cursor's sheen on the rect, eased 0..1 (0 when the cursor is
+    /// elsewhere): the materials draw a soft highlight under the cursor.
+    pub sheen: f32,
+    /// The cursor, logical px from the rect's top-left (read only while
+    /// `sheen` is above 0).
+    pub cursor: LogicalPosition,
+    /// The system's text highlight colour: what a metal reflects where no
+    /// wallpaper is known.
+    pub highlight: azul_css::props::basic::ColorU,
     /// The node's custom properties in its current state; null for none.
     pub custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
+    /// The node's `clip-path` (a bevel can follow it); null for none.
+    pub clip_path: *const azul_css::props::layout::shape::ClipPath,
 }
 
 impl RenderImageCallbackExtras {
-    /// No radii, the window's origin, the default light, no properties.
+    /// No radii, the window's origin, the light `material_light` describes,
+    /// no sheen, no properties.
     #[must_use]
     pub const fn new(material_light: crate::texture::MaterialLight) -> Self {
         Self {
             border_radii: [0.0; 4],
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             material_light,
+            light: azul_core::light::Light::sun(
+                material_light.azimuth_deg,
+                material_light.elevation_deg,
+            ),
+            window_desktop_origin: LogicalPosition { x: 0.0, y: 0.0 },
+            screen: LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: azul_core::geom::LogicalSize {
+                    width: 1920.0,
+                    height: 1080.0,
+                },
+            },
+            sheen: 0.0,
+            cursor: LogicalPosition { x: 0.0, y: 0.0 },
+            highlight: azul_css::props::basic::ColorU {
+                r: 0xB3,
+                g: 0xD7,
+                b: 0xFF,
+                a: 255,
+            },
             custom_properties: core::ptr::null(),
+            clip_path: core::ptr::null(),
         }
     }
 

@@ -201,10 +201,10 @@ mod state {
         std::sync::RwLock::new((Light::DEFAULT, 0));
 
     std::thread_local! {
-        /// Where the window whose display list is being built sits on the
-        /// desktop, while a [`super::WindowOriginScope`] is entered.
-        pub(super) static WINDOW_ORIGIN: core::cell::Cell<[f32; 2]> =
-            const { core::cell::Cell::new([0.0, 0.0]) };
+        /// The light and the window origin of the display list being built on
+        /// this thread, while a [`super::LightScope`] is entered.
+        pub(super) static FRAME: core::cell::Cell<Option<(Light, [f32; 2])>> =
+            const { core::cell::Cell::new(None) };
     }
 }
 
@@ -252,54 +252,54 @@ pub fn app_light_with_generation() -> (Light, u64) {
     }
 }
 
-/// Where the window whose display list this thread builds sits on the
-/// desktop, desktop points: a point light's direction for a box is taken at
-/// the box's place on the desktop. `[0, 0]` outside a [`WindowOriginScope`].
+/// The light a display list being built on this thread is lit by, and
+/// where its window sits on the desktop (desktop points): the entered
+/// [`LightScope`]'s, else the app's light at the desktop's origin. The
+/// light-following box-shadows and text-shadows read it.
 #[must_use]
-pub fn current_window_origin() -> [f32; 2] {
+pub fn current_light_frame() -> (Light, [f32; 2]) {
     #[cfg(feature = "std")]
     {
-        state::WINDOW_ORIGIN.with(core::cell::Cell::get)
+        if let Some(frame) = state::FRAME.with(core::cell::Cell::get) {
+            return frame;
+        }
     }
-    #[cfg(not(feature = "std"))]
-    {
-        [0.0, 0.0]
-    }
+    (app_light(), [0.0, 0.0])
 }
 
-/// While alive, [`current_window_origin`] answers `origin` on this thread;
-/// dropping it restores the previous answer. The engine enters one around
-/// every display-list build of a window.
-#[must_use = "the origin applies only while the scope is alive"]
-pub struct WindowOriginScope {
-    /// The origin to restore when the scope ends (nested scopes unwind in
-    /// order). Unused without `std`.
+/// While alive, [`current_light_frame`] answers this scope's light and
+/// window origin on this thread; dropping it restores the previous answer.
+/// The engine enters one around every display-list build of a window, with
+/// the window's light (the app's, or the window's own) and its place on the
+/// desktop.
+#[must_use = "the light applies only while the scope is alive"]
+pub struct LightScope {
+    /// What to restore when the scope ends (nested scopes unwind in order).
+    /// Unused without `std`.
     #[allow(dead_code)]
-    previous: [f32; 2],
+    previous: Option<(Light, [f32; 2])>,
 }
 
-impl WindowOriginScope {
-    /// Enter a scope in which the window sits at `origin` on the desktop.
-    pub fn enter(origin: [f32; 2]) -> Self {
+impl LightScope {
+    /// Enter a scope lit by `light`, its window at `origin` on the desktop.
+    pub fn enter(light: Light, origin: [f32; 2]) -> Self {
         #[cfg(feature = "std")]
         {
-            let previous = state::WINDOW_ORIGIN.with(|o| o.replace(origin));
+            let previous = state::FRAME.with(|f| f.replace(Some((light, origin))));
             Self { previous }
         }
         #[cfg(not(feature = "std"))]
         {
-            let _ = origin;
-            Self {
-                previous: [0.0, 0.0],
-            }
+            let _ = (light, origin);
+            Self { previous: None }
         }
     }
 }
 
-impl Drop for WindowOriginScope {
+impl Drop for LightScope {
     fn drop(&mut self) {
         #[cfg(feature = "std")]
-        state::WINDOW_ORIGIN.with(|o| o.set(self.previous));
+        state::FRAME.with(|f| f.set(self.previous));
     }
 }
 

@@ -1,50 +1,65 @@
-//! The 2.5D MATERIALS: `builtin(leather)`, `builtin(bluejeans)`,
-//! `builtin(aluminium)` (cargo feature `materials`).
+//! The built-in MATERIALS: `builtin(leather)`, `builtin(aluminium)`,
+//! `builtin(bluejeans)` and `builtin(vellum-leaf)` (cargo feature
+//! `materials`).
 //!
-//! A material is not a picture but a surface: a 128 x 128 micro tile of a CC0
-//! PBR set (albedo, normal, roughness - `assets/textures/README.md`) that a
-//! small CPU shader lights for the rect it fills, at that rect's device size:
+//! A material is a surface lit for the rect it fills, at every DEVICE pixel
+//! of it - never a texture stretched over the rect. What it is made of is a
+//! function of the position (`surface`: the procedural leather, brushed
+//! aluminium, denim and vellum of the AzDrive design), or, as the
+//! alternative source, a small colourless tile (luma, the leather's own
+//! normal, occlusion) sampled with a cubic B-spline plus micro-detail finer
+//! than a texel. No map carries colour: the colour is the tint
+//! (`--azul-material-tint`), moved a little by the surface's luma.
 //!
-//! - the tile repeats (it wraps without a seam) at `--azul-material-scale` logical px per texel
-//!   (default 1), with the source's own large-scale mottling laid over it at the source's real
-//!   period (the MACRO map) so the repeat does not show;
-//! - each texel's tangent-space normal (GL convention) tilts the surface; a BEVEL `--azul-bevel` px
-//!   wide (default 3) follows the rect's rounded corners (its `border-radius`) and tilts the edge
-//!   outward - raised - or, with `--azul-inset: 1`, inward - a well, a pressed button;
-//! - `--azul-material-tint: <colour>` recolours the albedo and keeps each texel's brightness
-//!   relative to the tile's mean, so white or black leather keeps the brown leather's grain, and
-//!   a gold tint turns the aluminium (a metal, which reflects its albedo) into gold;
-//! - the light is the window's ([`MaterialLight`], `CallbackInfo::set_material_light`): Lambert
-//!   diffuse normalised so a flat texel shows exactly its albedo, a GGX highlight with Schlick
-//!   fresnel, an ambient share with a sky-to-ground tilt, a fresnel rim (the environment
-//!   reflected at grazing angles, so a bevel glints), the baked ambient occlusion, and an
-//!   optional soft band of light across the whole window - god rays - that a timer can sweep.
+//! The light is the app's one light ([`azul_core::light::Light`]), or a
+//! window's own [`MaterialLight`] where it set one. The shading (`shade`, and
+//! its GPU twin `shader.glsl` in `gpu`) is physically based: GGX with
+//! Smith-Schlick and Schlick's Fresnel (anisotropic for brushed metal), a
+//! wrapped diffuse normalised so a flat surface shows its tint, a studio
+//! room reflected - and for a metal the desktop behind the window
+//! (`environment`) -, the cursor's sheen as a second GGX lobe, a filmic
+//! shoulder, sRGB and a half level of dither.
 //!
-//! Fast where it matters: the shading of a FLAT texel depends only on the
-//! texel and the light, so it is computed once per tile and light (the
-//! preshade, 16 K texels) and the rect's interior is a lookup into it; only
-//! the bevel ring is shaded per pixel. Large rects render in row bands on
-//! the machine's cores. Renders are cached by everything they depend on
-//! (material, size, scale factor, bevel, radii, light; the window position
-//! only while god rays are on), so identical buttons share one render and a
-//! still frame renders nothing.
+//! The shape adds its own slope: a bevel along the edge (a cushion by
+//! default, so it draws no line), a padded cushion and the pillow that rounds
+//! a whole area (the AzDrive leather area). The edge is the rect's rounded
+//! border, or any `clip-path` through its exact distance field (`distance`).
 //!
-//! The tiles are cut and packed by `scripts/make_material_tiles.py`; the
-//! format is [`parse_tile`]'s.
+//! An element tunes its material with custom properties
+//! ([`MaterialParams::from_custom_properties`] lists them). Renders are
+//! cached by everything they depend on; the grain (the expensive part) is
+//! cached on its own in tiles of window pixels, so a new light, a moving
+//! sheen or a growing height relights without recomputing it. With a GPU
+//! context the frame is drawn by the GPU instead (`gpu`).
 
 // Per-channel loops over parallel colour arrays (`for c in 0..3`) read
 // clearer indexed than zipped three ways.
 #![allow(clippy::needless_range_loop)]
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::{
+    hash::{Hash, Hasher},
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use azul_core::{
+    light::Light,
     refany::RefAny,
     resources::{ImageRef, RawImage, RawImageData, RawImageFormat},
 };
 
-use super::{transparent_pixel, Material, MaterialLight};
+use super::{
+    environment::{self, Environment},
+    transparent_pixel, Material, MaterialLight, MaterialRays,
+};
 use crate::callbacks::{RenderImageCallback, RenderImageCallbackExtras, RenderImageCallbackInfo};
+
+mod distance;
+mod gpu;
+mod shade;
+mod surface;
+
+pub use distance::ShapeField;
+pub use gpu::material_shader_compiles;
 
 // -- The tiles -------------------------------------------------------------------------------
 
@@ -52,13 +67,15 @@ const LEATHER: &[u8] = include_bytes!("../../assets/textures/leather.azm");
 const BLUEJEANS: &[u8] = include_bytes!("../../assets/textures/bluejeans.azm");
 const ALUMINIUM: &[u8] = include_bytes!("../../assets/textures/aluminium.azm");
 
-/// The packed (brotli) tile of `material`.
+/// The packed (brotli) tile of `material`; empty for the vellum, whose tile
+/// is the built-in vellum's ink.
 #[must_use]
 pub const fn packed_tile(material: Material) -> &'static [u8] {
     match material {
         Material::Leather => LEATHER,
         Material::BlueJeans => BLUEJEANS,
         Material::Aluminium => ALUMINIUM,
+        Material::Vellum => &[],
     }
 }
 
@@ -67,6 +84,7 @@ const fn material_index(material: Material) -> usize {
         Material::Leather => 0,
         Material::BlueJeans => 1,
         Material::Aluminium => 2,
+        Material::Vellum => 3,
     }
 }
 
@@ -99,8 +117,8 @@ pub struct MaterialTile {
 /// does not decode (the material then draws nothing).
 #[must_use]
 pub fn tile(material: Material) -> Option<Arc<MaterialTile>> {
-    static TILES: [OnceLock<Option<Arc<MaterialTile>>>; 3] =
-        [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    static TILES: [OnceLock<Option<Arc<MaterialTile>>>; 4] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
     TILES[material_index(material)]
         .get_or_init(|| decode_tile(packed_tile(material)).map(Arc::new))
         .clone()
@@ -364,113 +382,437 @@ pub fn linear_to_srgb(c: f32) -> f32 {
     }
 }
 
-// -- What the surfaces are made of -----------------------------------------------------------
 
-/// How a material reflects: dielectric or metal, how strong its relief is.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Surface {
-    /// 0 = dielectric (reflects `f0` white), 1 = metal (reflects its albedo).
-    pub metallic: f32,
-    /// A dielectric's reflectance at normal incidence.
-    pub f0: f32,
-    /// The tile's normals' strength.
-    pub relief: f32,
-    /// The direct highlight's strength.
-    pub specular: f32,
-    /// The fresnel rim's strength (the environment reflected at grazing angles).
-    pub environment: f32,
+// -- The colourless tiles --------------------------------------------------------------------
+
+/// The minimum a material's tile needs, and no colour: R the luma (spread
+/// over 0..255), G / B the tile's own normal (the leather's; 128 = level for
+/// the others), A the occlusion; plus the source's large-scale mottling.
+/// The GPU uploads exactly these bytes, so both sample the same tile.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColourlessTile {
+    /// The tile's side, texels (it wraps).
+    pub side: usize,
+    /// RGBA bytes, row by row.
+    pub rgba: Vec<[u8; 4]>,
+    /// The mottling map's side (0 = none).
+    pub macro_side: usize,
+    /// The mottling, one byte per texel: `0.82 + 0.36 * q / 255` multiplies
+    /// the luma.
+    pub macro_q: Vec<u8>,
+    /// The mottling's period, logical px.
+    pub macro_period: f32,
 }
 
-impl Surface {
-    /// What `material` is made of.
+impl ColourlessTile {
+    /// The colourless half of a decoded tile: its sRGB luma, and the normal
+    /// and occlusion when `own_normal` (the leather's; the others derive
+    /// their slope from the luma).
     #[must_use]
-    pub const fn of(material: Material) -> Self {
-        match material {
-            Material::Leather => Self {
-                metallic: 0.0,
-                f0: 0.04,
-                relief: 1.6,
-                specular: 1.0,
-                environment: 0.6,
-            },
-            Material::BlueJeans => Self {
-                metallic: 0.0,
-                f0: 0.04,
-                relief: 1.4,
-                specular: 1.0,
-                environment: 0.6,
-            },
-            Material::Aluminium => Self {
-                metallic: 1.0,
-                f0: 0.91,
-                relief: 1.0,
-                specular: 1.0,
-                environment: 0.6,
-            },
+    pub fn from_tile(tile: &MaterialTile, own_normal: bool) -> Self {
+        let luma: Vec<f32> = tile
+            .albedo_srgb
+            .iter()
+            .map(|c| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2])
+            .collect();
+        let lo = luma.iter().copied().fold(f32::MAX, f32::min);
+        let hi = luma.iter().copied().fold(f32::MIN, f32::max);
+        let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let rgba = (0..tile.side * tile.side)
+            .map(|i| {
+                let r = byte((luma[i] - lo) / (hi - lo).max(1e-6));
+                if own_normal {
+                    [
+                        r,
+                        byte(tile.normal[i][0] * 0.5 + 0.5),
+                        byte(tile.normal[i][1] * 0.5 + 0.5),
+                        byte(tile.ao[i]),
+                    ]
+                } else {
+                    [r, 128, 128, 255]
+                }
+            })
+            .collect();
+        Self {
+            side: tile.side,
+            rgba,
+            macro_side: tile.macro_side,
+            macro_q: tile
+                .macro_map
+                .iter()
+                .map(|v| byte((v - 0.82) / 0.36))
+                .collect(),
+            macro_period: tile.macro_period,
         }
+    }
+
+    /// The vellum's tile: the built-in vellum's ink, inverted to a luma.
+    #[must_use]
+    pub fn vellum() -> Self {
+        let paper = super::builtin_raw_texture(super::BuiltinTexture::Vellum);
+        let RawImageData::U8(bytes) = &paper.pixels else {
+            return Self {
+                side: 1,
+                rgba: vec![[255, 128, 128, 255]],
+                macro_side: 0,
+                macro_q: Vec::new(),
+                macro_period: 0.0,
+            };
+        };
+        let grey: Vec<f32> = bytes.as_ref().chunks_exact(4).map(|p| f32::from(p[0])).collect();
+        let lo = grey.iter().copied().fold(f32::MAX, f32::min);
+        let hi = grey.iter().copied().fold(f32::MIN, f32::max);
+        Self {
+            side: paper.width,
+            rgba: grey
+                .iter()
+                .map(|g| [(((g - lo) / (hi - lo).max(1e-6)) * 255.0).round() as u8, 128, 128, 255])
+                .collect(),
+            macro_side: 0,
+            macro_q: Vec::new(),
+            macro_period: 0.0,
+        }
+    }
+
+    /// The tile at `uv` (tile widths), linear filtering at texel centres,
+    /// wrapping: what a GPU's `texture()` returns, 0..1 per channel.
+    pub(crate) fn bilinear(&self, uv: [f32; 2]) -> [f32; 4] {
+        let n = self.side;
+        let u = uv[0] * n as f32 - 0.5;
+        let v = uv[1] * n as f32 - 0.5;
+        let (fx, fy) = (u.floor(), v.floor());
+        let (tx, ty) = (u - fx, v - fy);
+        let x0 = wrap(fx as i64, n);
+        let y0 = wrap(fy as i64, n);
+        let (x1, y1) = ((x0 + 1) % n, (y0 + 1) % n);
+        let at = |x: usize, y: usize| self.rgba[y * n + x];
+        let mut out = [0.0; 4];
+        for c in 0..4 {
+            let a = f32::from(at(x0, y0)[c]) * (1.0 - tx) + f32::from(at(x1, y0)[c]) * tx;
+            let b = f32::from(at(x0, y1)[c]) * (1.0 - tx) + f32::from(at(x1, y1)[c]) * tx;
+            out[c] = (a * (1.0 - ty) + b * ty) / 255.0;
+        }
+        out
+    }
+
+    /// The mottling at `uv` (periods), linear and wrapping, 0..1.
+    pub(crate) fn macro_bilinear(&self, uv: [f32; 2]) -> f32 {
+        let n = self.macro_side;
+        if n == 0 {
+            return 0.5;
+        }
+        let u = uv[0] * n as f32 - 0.5;
+        let v = uv[1] * n as f32 - 0.5;
+        let (fx, fy) = (u.floor(), v.floor());
+        let (tx, ty) = (u - fx, v - fy);
+        let x0 = wrap(fx as i64, n);
+        let y0 = wrap(fy as i64, n);
+        let (x1, y1) = ((x0 + 1) % n, (y0 + 1) % n);
+        let at = |x: usize, y: usize| f32::from(self.macro_q[y * n + x]) / 255.0;
+        let a = at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx;
+        let b = at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx;
+        a * (1.0 - ty) + b * ty
     }
 }
 
-/// How one element wears its material - per element, from custom properties
-/// on its node: `--azul-bevel: 4px; --azul-inset: 1; --azul-material-scale:
-/// 2; --azul-relief: 1.5;` ([`Self::from_custom_properties`]).
+/// `i` wrapped into `0..side`.
+fn wrap(i: i64, side: usize) -> usize {
+    i.rem_euclid(side as i64) as usize
+}
+
+/// The colourless tile of `material`, made once per process (`None` when
+/// the material's tile does not decode).
+#[must_use]
+pub fn colourless_tile(material: Material) -> Option<Arc<ColourlessTile>> {
+    static TILES: [OnceLock<Option<Arc<ColourlessTile>>>; 4] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    TILES[material_index(material)]
+        .get_or_init(|| match material {
+            Material::Vellum => Some(Arc::new(ColourlessTile::vellum())),
+            _ => tile(material).map(|t| Arc::new(ColourlessTile::from_tile(&t, material == Material::Leather))),
+        })
+        .clone()
+}
+
+// -- How an element wears its material ----------------------------------------------------------
+
+/// What a material's surface is made from.
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum MaterialSource {
+    /// A function of the position: no data, detail at any resolution (the
+    /// default).
+    Procedural,
+    /// The material's colourless tile, upsampled smoothly, with
+    /// micro-detail.
+    Tile,
+    /// No grain at all: the material's colour, roughness and metal on a
+    /// perfectly smooth surface (a lacquer; what shape-only tests draw).
+    Smooth,
+}
+
+/// Which edge a bevel follows.
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum BevelFollow {
+    /// The rect's border, rounded by its `border-radius` (analytic).
+    Border,
+    /// The element's `clip-path`, through its distance field.
+    Shape,
+}
+
+/// A bevel along the edge (Photoshop's Bevel & Emboss): a height rising
+/// `width` px in from the edge.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Bevel {
+    /// How far in from the edge it rises, logical px (0 = none).
+    pub width: f32,
+    /// How high it rises, as a share of half its width.
+    pub depth: f32,
+    /// 0 = a chisel (straight, with a crease at its crown), 1 = a cushion
+    /// (no slope at the edge or the crown, so it draws no line).
+    pub softness: f32,
+    /// Sunk in (a well, a pressed button) rather than raised.
+    pub inset: bool,
+    /// The edge it follows.
+    pub follow: BevelFollow,
+}
+
+impl Bevel {
+    /// No bevel.
+    pub const NONE: Self = Self {
+        width: 0.0,
+        depth: 1.0,
+        softness: 1.0,
+        inset: false,
+        follow: BevelFollow::Border,
+    };
+}
+
+/// The pillow: the whole surface rounded up from its edges, its contours
+/// running parallel to every edge and round at every corner.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Pillow {
+    /// How far in from the edges it rolls, logical px at most (0 = none);
+    /// never more than the surface's height allows for a level crown.
+    pub width: f32,
+    /// Its height as a share of its width.
+    pub depth: f32,
+    /// How much of the roll the bottom edge keeps (1 = all of it; less makes
+    /// a short seam into a trim below).
+    pub foot: f32,
+}
+
+impl Pillow {
+    /// No pillow.
+    pub const NONE: Self = Self {
+        width: 0.0,
+        depth: 0.0,
+        foot: 1.0,
+    };
+}
+
+/// The light a strip of the accent throws onto a surface from its foot.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Glow {
+    /// Its colour, linear.
+    pub color: [f32; 3],
+    /// Its strength.
+    pub strength: f32,
+    /// How far up it reaches, logical px.
+    pub reach: f32,
+}
+
+/// How one element wears its material: the material's own defaults
+/// ([`Self::of`]) overridden by the element's custom properties
+/// ([`Self::from_custom_properties`]).
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MaterialParams {
-    /// The bevel's width, logical px (0 = flat to the edge).
-    pub bevel: f32,
-    /// Sunk in - a well, a pressed button - rather than raised.
-    pub inset: bool,
-    /// Logical px per tile texel: the grain's size.
-    pub scale: f32,
-    /// How strongly the relief shows (multiplies the tile's normals).
+    /// What the surface is made from.
+    pub source: MaterialSource,
+    /// The colour, linear RGB.
+    pub tint: [f32; 3],
+    /// The roughness the surface spreads over: smoothest, roughest.
+    pub roughness: [f32; 2],
+    /// How strongly the grain's relief tilts the light.
     pub relief: f32,
+    /// How far the surface's luma moves the tint (0 = one flat colour).
+    pub variation: f32,
+    /// The cursor's sheen's strength (0 = none).
+    pub sheen: f32,
+    /// How high over the cursor the sheen's light hangs, logical px.
+    pub sheen_size: f32,
+    /// The leather's grain cell, logical px.
+    pub grain: f32,
+    /// The pattern's size: 2 = everything twice as large.
+    pub scale: f32,
+    /// The bevel along the edge.
+    pub bevel: Bevel,
+    /// The padding: a soft rise over a wider band (width, depth px).
+    pub cushion: [f32; 2],
+    /// The pillow over the whole surface.
+    pub pillow: Pillow,
+    /// The strength of everything 3D - relief, bevels, cushion, pillow,
+    /// sheen - together: 1 is the tuned look.
+    pub depth: f32,
+    /// The accent's glow onto the surface, if any.
+    pub glow: Option<Glow>,
     /// The rect's corner radii, logical px: top-left, top-right,
-    /// bottom-right, bottom-left (a background layer's `border-radius`).
+    /// bottom-right, bottom-left (its `border-radius`).
     pub radii: [f32; 4],
-    /// The colour the albedo is recoloured to, linear RGB, or `None` for
-    /// the tile's own colours (`--azul-material-tint`).
-    pub tint: Option<[f32; 3]>,
 }
 
 impl MaterialParams {
-    /// A raised 3 px bevel, 1 px per texel, the tile's own relief, square.
-    pub const DEFAULT: Self = Self {
-        bevel: 3.0,
-        inset: false,
-        scale: 1.0,
-        relief: 1.0,
-        radii: [0.0; 4],
-        tint: None,
-    };
+    /// `material`'s defaults: the AzDrive design's settings for it.
+    #[must_use]
+    pub fn of(material: Material) -> Self {
+        let (tint, roughness, relief, variation, sheen, sheen_size, bevel) = match material {
+            Material::Leather => ([0xE4, 0xE2, 0xDD], [0.55, 0.66], 1.0, 0.3, 0.4, 240.0, 0.0),
+            Material::Aluminium => ([0xE9, 0xC6, 0x72], [0.14, 0.3], 0.9, 0.46, 0.55, 150.0, 1.0),
+            Material::BlueJeans => ([0x2D, 0x40, 0x61], [0.78, 0.96], 1.0, 0.55, 0.12, 220.0, 2.0),
+            Material::Vellum => ([0xEF, 0xE3, 0xC6], [0.72, 0.94], 0.7, 0.4, 0.08, 240.0, 0.0),
+        };
+        Self {
+            source: MaterialSource::Procedural,
+            tint: srgb8_to_linear(tint),
+            roughness,
+            relief,
+            variation,
+            sheen,
+            sheen_size,
+            grain: if material == Material::Leather { 1.7 } else { 5.2 },
+            scale: 1.0,
+            bevel: Bevel {
+                width: bevel,
+                depth: 1.0,
+                softness: 1.0,
+                inset: false,
+                follow: BevelFollow::Border,
+            },
+            cushion: [0.0, 0.0],
+            pillow: Pillow::NONE,
+            depth: 1.0,
+            glow: None,
+            radii: [0.0; 4],
+        }
+    }
 
-    /// The defaults, overridden by whichever of `--azul-bevel` (a length),
-    /// `--azul-inset` (`1` / `true` / `inset` / `on`, or `0` / `false` /
-    /// `raised` / `off`), `--azul-material-scale` and `--azul-relief` (numbers)
-    /// and `--azul-material-tint` (a CSS colour) `get` (the node's custom
-    /// properties, names without the dashes) has.
-    pub fn from_custom_properties(get: impl Fn(&str) -> Option<String>, radii: [f32; 4]) -> Self {
+    /// Set the tint from sRGB bytes.
+    pub fn set_tint_srgb(&mut self, srgb: [u8; 3]) {
+        self.tint = srgb8_to_linear(srgb);
+    }
+
+    /// `material`'s defaults, overridden by the element's custom properties
+    /// (`get` answers a name without its dashes), with the rect's `radii`:
+    ///
+    /// - `--azul-material-tint: <colour>`; `--azul-material-source: procedural | tile | smooth`;
+    /// - `--azul-material-roughness: 0.55 0.66` (or one number), `--azul-material-relief`
+    ///   (also `--azul-relief`), `--azul-material-variation`, `--azul-material-grain: 1.7px`,
+    ///   `--azul-material-scale`, `--azul-material-depth` (the 3D strength, 1 = tuned);
+    /// - `--azul-material-sheen`, `--azul-material-sheen-size: 240px`, `--azul-sheen-scale`;
+    /// - `--azul-bevel: 2px` or the shorthand `bevel(2px 1 1 inset)` (width, depth, softness,
+    ///   style), `--azul-bevel-depth`, `--azul-bevel-softness`, `--azul-bevel-style: raised |
+    ///   inset` (also `--azul-inset: 1`), `--azul-bevel-follow: border | shape`;
+    /// - `--azul-cushion: 12px 2px` (width, depth);
+    /// - `--azul-pillow: 76px .16` (width, depth ratio, and optionally how much the foot keeps);
+    /// - `--azul-material-glow: <colour> <strength> <reach px>`.
+    pub fn from_custom_properties(
+        material: Material,
+        get: impl Fn(&str) -> Option<String>,
+        radii: [f32; 4],
+    ) -> Self {
         let mut p = Self {
             radii,
-            ..Self::DEFAULT
+            ..Self::of(material)
         };
-        if let Some(v) = get("azul-bevel").as_deref().and_then(parse_length) {
-            p.bevel = v.max(0.0);
+        let number = |name: &str| get(name).as_deref().and_then(parse_length);
+        let numbers = |name: &str| get(name).map(|v| parse_numbers(&v)).unwrap_or_default();
+        if let Some(c) = get("azul-material-tint").and_then(|v| parse_colour(&v)) {
+            p.tint = srgb8_to_linear(c);
         }
-        if let Some(v) = get("azul-inset").as_deref().and_then(parse_flag) {
-            p.inset = v;
+        if let Some(v) = get("azul-material-source") {
+            match v.trim().to_ascii_lowercase().as_str() {
+                "procedural" => p.source = MaterialSource::Procedural,
+                "tile" => p.source = MaterialSource::Tile,
+                "smooth" | "none" => p.source = MaterialSource::Smooth,
+                _ => {}
+            }
         }
-        if let Some(v) = get("azul-material-scale").as_deref().and_then(parse_length) {
+        match numbers("azul-material-roughness").as_slice() {
+            [one] => p.roughness = [one.clamp(0.0, 1.0); 2],
+            [lo, hi, ..] => p.roughness = [lo.clamp(0.0, 1.0), hi.clamp(0.0, 1.0)],
+            [] => {}
+        }
+        if let Some(v) = number("azul-material-relief").or_else(|| number("azul-relief")) {
+            p.relief = v.max(0.0);
+        }
+        if let Some(v) = number("azul-material-variation") {
+            p.variation = v.max(0.0);
+        }
+        if let Some(v) = number("azul-material-grain") {
+            p.grain = v.max(0.1);
+        }
+        if let Some(v) = number("azul-material-scale") {
             if v > 0.0 {
                 p.scale = v;
             }
         }
-        if let Some(v) = get("azul-relief").as_deref().and_then(parse_length) {
-            p.relief = v.max(0.0);
+        if let Some(v) = number("azul-material-depth") {
+            p.depth = v.max(0.0);
         }
-        if let Some(c) = get("azul-material-tint")
-            .and_then(|v| azul_css::props::basic::color::parse_css_color(v.trim()).ok())
-        {
-            p.tint = Some([c.r, c.g, c.b].map(|v| srgb_to_linear(f32::from(v) / 255.0)));
+        if let Some(v) = number("azul-material-sheen") {
+            p.sheen = v.max(0.0);
+        }
+        if let Some(v) = number("azul-material-sheen-size") {
+            p.sheen_size = v.max(1.0);
+        }
+        if let Some(v) = number("azul-sheen-scale") {
+            p.sheen *= v.max(0.0);
+        }
+        if let Some(v) = get("azul-bevel") {
+            parse_bevel(&v, &mut p.bevel);
+        }
+        if let Some(v) = number("azul-bevel-depth") {
+            p.bevel.depth = v.max(0.0);
+        }
+        if let Some(v) = number("azul-bevel-softness") {
+            p.bevel.softness = v.clamp(0.0, 1.0);
+        }
+        if let Some(v) = get("azul-bevel-style").as_deref().and_then(parse_flag) {
+            p.bevel.inset = v;
+        }
+        if let Some(v) = get("azul-inset").as_deref().and_then(parse_flag) {
+            p.bevel.inset = v;
+        }
+        if let Some(v) = get("azul-bevel-follow") {
+            match v.trim().to_ascii_lowercase().as_str() {
+                "shape" | "clip-path" | "mask" => p.bevel.follow = BevelFollow::Shape,
+                "border" | "border-radius" => p.bevel.follow = BevelFollow::Border,
+                _ => {}
+            }
+        }
+        if let [w, d, ..] = numbers("azul-cushion").as_slice() {
+            p.cushion = [w.max(0.0), d.max(0.0)];
+        }
+        match numbers("azul-pillow").as_slice() {
+            [w, d, foot, ..] => {
+                p.pillow = Pillow {
+                    width: w.max(0.0),
+                    depth: d.max(0.0),
+                    foot: foot.max(0.0),
+                }
+            }
+            [w, d] => {
+                p.pillow = Pillow {
+                    width: w.max(0.0),
+                    depth: d.max(0.0),
+                    foot: 1.0,
+                }
+            }
+            _ => {}
+        }
+        if let Some(v) = get("azul-material-glow") {
+            p.glow = parse_glow(&v);
         }
         p
     }
@@ -478,8 +820,12 @@ impl MaterialParams {
 
 impl Default for MaterialParams {
     fn default() -> Self {
-        Self::DEFAULT
+        Self::of(Material::Leather)
     }
+}
+
+fn srgb8_to_linear(c: [u8; 3]) -> [f32; 3] {
+    c.map(|v| srgb_to_linear(f32::from(v) / 255.0))
 }
 
 /// `4`, `4px`, ` 4.5px ` -> the number; anything else `None`.
@@ -489,7 +835,19 @@ fn parse_length(value: &str) -> Option<f32> {
     v.parse::<f32>().ok().filter(|f| f.is_finite())
 }
 
-/// A custom property read as a switch.
+/// Every number in a space-separated value (`76px .16` -> [76, 0.16]).
+fn parse_numbers(value: &str) -> Vec<f32> {
+    value.split_whitespace().filter_map(parse_length).collect()
+}
+
+fn parse_colour(value: &str) -> Option<[u8; 3]> {
+    azul_css::props::basic::color::parse_css_color(value.trim())
+        .ok()
+        .map(|c| [c.r, c.g, c.b])
+}
+
+/// A custom property read as a switch: `inset` / `1` / `on`, or `raised` /
+/// `0` / `off`.
 fn parse_flag(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" | "inset" => Some(true),
@@ -498,683 +856,392 @@ fn parse_flag(value: &str) -> Option<bool> {
     }
 }
 
-// -- The tint ----------------------------------------------------------------------------------
-
-/// A tint ready for the shader: its colour and the tile's mean luma, which
-/// a texel's luma is measured against.
-#[derive(Debug, Clone, Copy)]
-struct Tint {
-    color: [f32; 3],
-    inv_mean_luma: f32,
-}
-
-impl Tint {
-    fn new(color: [f32; 3], tile: &MaterialTile) -> Self {
-        let n = tile.albedo.len().max(1) as f32;
-        let mean = tile.albedo.iter().map(|a| luma(*a)).sum::<f32>() / n;
-        Self {
-            color,
-            inv_mean_luma: if mean > 1e-6 { 1.0 / mean } else { 0.0 },
+/// `--azul-bevel`: a width (`2px`), or the shorthand `bevel(2px 1 .7 inset)`
+/// - width, depth, softness, style, each optional after the width.
+fn parse_bevel(value: &str, bevel: &mut Bevel) {
+    let v = value.trim();
+    let inner = v
+        .strip_prefix("bevel(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .unwrap_or(v);
+    let mut numbers = Vec::new();
+    for word in inner.split_whitespace() {
+        if let Some(n) = parse_length(word) {
+            numbers.push(n);
+        } else if let Some(inset) = parse_flag(word) {
+            bevel.inset = inset;
         }
     }
-
-    /// `albedo` in the tint's colour, as bright against the tint as the
-    /// texel is against the tile's mean: the grain stays, the colour goes.
-    fn apply(&self, albedo: [f32; 3]) -> [f32; 3] {
-        let k = luma(albedo) * self.inv_mean_luma;
-        self.color.map(|c| (c * k).clamp(0.0, 1.0))
+    if let Some(w) = numbers.first() {
+        bevel.width = w.max(0.0);
+    }
+    if let Some(d) = numbers.get(1) {
+        bevel.depth = d.max(0.0);
+    }
+    if let Some(s) = numbers.get(2) {
+        bevel.softness = s.clamp(0.0, 1.0);
     }
 }
 
-/// Relative luminance of a linear RGB colour.
-fn luma(c: [f32; 3]) -> f32 {
-    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
-}
-
-/// `albedo`, tinted when there is a tint.
-fn albedo_of(albedo: [f32; 3], tint: Option<&Tint>) -> [f32; 3] {
-    tint.map_or(albedo, |t| t.apply(albedo))
-}
-
-/// A tint as cache-key bits; `u32::MAX` three times for none.
-fn tint_bits(tint: Option<[f32; 3]>) -> [u32; 3] {
-    tint.map_or([u32::MAX; 3], |t| t.map(f32::to_bits))
-}
-
-// -- The light, prepared -----------------------------------------------------------------------
-
-/// A [`MaterialLight`] turned into the vectors the shader reads. Screen
-/// space: x right, y DOWN, z toward the viewer, who looks straight in.
-#[derive(Debug, Clone, Copy)]
-struct Light {
-    /// Toward the light.
-    l: [f32; 3],
-    /// Halfway between the light and the viewer.
-    h: [f32; 3],
-    /// The light's z (how a flat texel is lit), floored.
-    lz: f32,
-    /// `(1 - v.h)^5`, Schlick's term for the highlight.
-    vh5: f32,
-    /// The light's colour, linear.
-    color: [f32; 3],
-    intensity: f32,
-    ambient: f32,
-    rays: Option<Rays>,
-}
-
-/// God rays, prepared: a gaussian band across the window.
-#[derive(Debug, Clone, Copy)]
-struct Rays {
-    strength: f32,
-    /// Across the band (window logical px).
-    across: [f32; 2],
-    sigma: f32,
-    spacing: f32,
-    phase: f32,
-}
-
-impl Light {
-    fn new(light: &MaterialLight) -> Self {
-        let az = light.azimuth_deg.to_radians();
-        let el = light.elevation_deg.clamp(1.0, 90.0).to_radians();
-        let l = [el.cos() * az.cos(), -el.cos() * az.sin(), el.sin()];
-        let h = normalize([l[0], l[1], l[2] + 1.0]);
-        let rays = if light.rays.strength > 0.0 && light.rays.width > 0.0 {
-            let a = light.rays.angle_deg.to_radians();
-            Some(Rays {
-                strength: light.rays.strength,
-                across: [a.sin(), a.cos()],
-                sigma: light.rays.width / 2.355,
-                spacing: light.rays.spacing.max(0.0),
-                phase: light.rays.phase,
-            })
-        } else {
-            None
-        };
-        let c = light.color;
-        Self {
-            l,
-            h,
-            lz: l[2].max(0.05),
-            vh5: (1.0 - h[2]).powi(5),
-            color: [
-                srgb_to_linear(f32::from(c.r) / 255.0),
-                srgb_to_linear(f32::from(c.g) / 255.0),
-                srgb_to_linear(f32::from(c.b) / 255.0),
-            ],
-            intensity: light.intensity.max(0.0),
-            ambient: light.ambient.clamp(0.0, 1.0),
-            rays,
-        }
-    }
-
-    /// The direct light's factor at window point (`x`, `y`), logical px:
-    /// 1 off the rays, up to `1 + strength` at a band's centre.
-    fn ray_factor(&self, x: f32, y: f32) -> f32 {
-        let Some(r) = &self.rays else {
-            return 1.0;
-        };
-        let across = x * r.across[0] + y * r.across[1] - r.phase;
-        let d = if r.spacing > 0.0 {
-            across.rem_euclid(r.spacing) - r.spacing * 0.5
-        } else {
-            across
-        };
-        let t = d / r.sigma;
-        if t.abs() > 4.0 {
-            1.0
-        } else {
-            1.0 + r.strength * (-0.5 * t * t).exp()
-        }
-    }
-}
-
-fn normalize(v: [f32; 3]) -> [f32; 3] {
-    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if len > 1e-12 {
-        [v[0] / len, v[1] / len, v[2] / len]
-    } else {
-        [0.0, 0.0, 1.0]
-    }
-}
-
-const fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-/// GGX (Trowbridge-Reitz) distribution times Smith-Schlick visibility,
-/// over `4 n.l n.v`.
-fn ggx(nh: f32, nl: f32, nv: f32, alpha: f32) -> f32 {
-    let a2 = alpha * alpha;
-    let dd = nh * nh * (a2 - 1.0) + 1.0;
-    let d = a2 / (core::f32::consts::PI * dd * dd);
-    let k = alpha * 0.5;
-    let g = (nl / (nl * (1.0 - k) + k)) * (nv / (nv * (1.0 - k) + k));
-    d * g / (4.0 * nl * nv).max(1e-4)
-}
-
-/// A texel's normal in screen space: the tile's (GL: +y up the image, so
-/// its y flips) scaled by `relief`, over the SHAPE's slope `shape` (the
-/// bevel's), blended "whiteout" style.
-fn surface_normal(nxy: [f32; 2], relief: f32, shape: [f32; 2]) -> [f32; 3] {
-    let tx = nxy[0] * relief;
-    let ty = -nxy[1] * relief;
-    let tz = (1.0 - tx * tx - ty * ty).max(0.0).sqrt();
-    normalize([shape[0] * tz + tx, shape[1] * tz + ty, tz])
-}
-
-/// The light one texel sends to the viewer, split into what does not
-/// depend on the direct light's strength (`ambient`: the ambient share and
-/// the fresnel rim) and what does (`direct`: diffuse and highlight, times
-/// the intensity) - the god rays scale only the second. Linear light, times
-/// the light's colour. A flat texel (n = z) under a light from the front
-/// sends `albedo` (plus a faint highlight): ambient + diffuse = 1.
-fn shade(
-    albedo: [f32; 3],
-    rough: f32,
-    ao: f32,
-    n: [f32; 3],
-    surface: &Surface,
-    light: &Light,
-) -> ([f32; 3], [f32; 3]) {
-    let rough = rough.clamp(0.03, 1.0);
-    let nl = dot(n, light.l).max(0.0);
-    let nv = n[2].max(1e-3);
-    let nh = dot(n, light.h).max(0.0);
-    let alpha = rough * rough;
-    let highlight = ggx(nh, nl.max(1e-3), nv, alpha) * nl * surface.specular;
-    // A surface facing up (screen -y) sees more sky.
-    let sky = 1.0 - 0.25 * n[1];
-    let rim = (1.0 - nv).powi(5);
-    let environment =
-        surface.environment * (1.0 - rough) * (1.0 - rough) * (0.6 - 0.4 * n[1]) * ao;
-    let diffuse_ambient = light.ambient * ao * sky;
-    let diffuse_direct = (1.0 - light.ambient) * nl / light.lz;
-    let mut ambient = [0.0; 3];
-    let mut direct = [0.0; 3];
-    for c in 0..3 {
-        let f0 = albedo[c] * surface.metallic + surface.f0 * (1.0 - surface.metallic);
-        let fresnel_highlight = f0 + (1.0 - f0) * light.vh5;
-        let fresnel_rim = f0 + (1.0 - f0) * rim;
-        ambient[c] = (albedo[c] * diffuse_ambient + environment * fresnel_rim) * light.color[c];
-        direct[c] = (albedo[c] * diffuse_direct + highlight * fresnel_highlight)
-            * light.color[c]
-            * light.intensity;
-    }
-    (ambient, direct)
-}
-
-/// `i` wrapped into `0..side` (a mask for the power-of-two sides the tiles
-/// have - no division per pixel).
-fn wrap(i: i64, side: usize) -> usize {
-    if side.is_power_of_two() {
-        (i & (side as i64 - 1)) as usize
-    } else {
-        i.rem_euclid(side as i64) as usize
-    }
-}
-
-/// The index after `i` on a wrapping row of `side`.
-const fn next(i: usize, side: usize) -> usize {
-    if i + 1 == side {
-        0
-    } else {
-        i + 1
-    }
-}
-
-/// The four texels around (`u`, `v`) (texel units, centres at `i + 0.5`)
-/// on a wrapping `side` x `side` grid, and their bilinear weights.
-fn bilinear_taps(u: f32, v: f32, side: usize) -> ([usize; 4], [f32; 4]) {
-    let x = u - 0.5;
-    let y = v - 0.5;
-    let fx = x.floor();
-    let fy = y.floor();
-    let tx = x - fx;
-    let ty = y - fy;
-    let x0 = wrap(fx as i64, side);
-    let y0 = wrap(fy as i64, side);
-    let x1 = next(x0, side);
-    let y1 = next(y0, side);
-    (
-        [y0 * side + x0, y0 * side + x1, y1 * side + x0, y1 * side + x1],
-        [
-            (1.0 - tx) * (1.0 - ty),
-            tx * (1.0 - ty),
-            (1.0 - tx) * ty,
-            tx * ty,
-        ],
-    )
-}
-
-/// One texel of the tile, bilinearly sampled.
-struct TexelSample {
-    albedo: [f32; 3],
-    normal: [f32; 2],
-    rough: f32,
-    ao: f32,
-}
-
-impl MaterialTile {
-    fn sample(&self, u: f32, v: f32) -> TexelSample {
-        let (idx, w) = bilinear_taps(u, v, self.side);
-        let mut s = TexelSample {
-            albedo: [0.0; 3],
-            normal: [0.0; 2],
-            rough: 0.0,
-            ao: 0.0,
-        };
-        for k in 0..4 {
-            let i = idx[k];
-            for c in 0..3 {
-                s.albedo[c] += w[k] * self.albedo[i][c];
-            }
-            s.normal[0] += w[k] * self.normal[i][0];
-            s.normal[1] += w[k] * self.normal[i][1];
-            s.rough += w[k] * self.rough[i];
-            s.ao += w[k] * self.ao[i];
-        }
-        s
-    }
-
-    /// The macro map's multiplier at tile coordinate (`u`, `v`).
-    fn macro_at(&self, u: f32, v: f32) -> f32 {
-        if self.macro_side == 0 || self.macro_period <= 0.0 {
-            return 1.0;
-        }
-        let m = self.macro_side as f32;
-        let scale = m / self.macro_period;
-        let (idx, w) = bilinear_taps(u * scale, v * scale, self.macro_side);
-        w[0] * self.macro_map[idx[0]]
-            + w[1] * self.macro_map[idx[1]]
-            + w[2] * self.macro_map[idx[2]]
-            + w[3] * self.macro_map[idx[3]]
-    }
-}
-
-/// Every FLAT texel of a tile shaded under one light: the interior of a
-/// rect is a lookup into this.
-#[derive(Debug)]
-struct Preshade {
-    side: usize,
-    ambient: Vec<[f32; 3]>,
-    direct: Vec<[f32; 3]>,
-}
-
-impl Preshade {
-    fn new(tile: &MaterialTile, surface: &Surface, relief: f32, light: &Light, tint: Option<&Tint>) -> Self {
-        let n = tile.side * tile.side;
-        let mut ambient = Vec::with_capacity(n);
-        let mut direct = Vec::with_capacity(n);
-        for i in 0..n {
-            let normal = surface_normal(tile.normal[i], relief, [0.0, 0.0]);
-            let albedo = albedo_of(tile.albedo[i], tint);
-            let (a, d) = shade(albedo, tile.rough[i], tile.ao[i], normal, surface, light);
-            ambient.push(a);
-            direct.push(d);
-        }
-        Self {
-            side: tile.side,
-            ambient,
-            direct,
-        }
-    }
-
-    fn sample(&self, u: f32, v: f32) -> ([f32; 3], [f32; 3]) {
-        let (idx, w) = bilinear_taps(u, v, self.side);
-        let mut a = [0.0; 3];
-        let mut d = [0.0; 3];
-        for k in 0..4 {
-            let (ak, dk) = (self.ambient[idx[k]], self.direct[idx[k]]);
-            for c in 0..3 {
-                a[c] += w[k] * ak[c];
-                d[c] += w[k] * dk[c];
-            }
-        }
-        (a, d)
-    }
-
-    /// The texel at integer pixel (`x`, `y`) when one texel is one pixel.
-    fn at(&self, x: usize, y: usize) -> ([f32; 3], [f32; 3]) {
-        let i = wrap(y as i64, self.side) * self.side + wrap(x as i64, self.side);
-        (self.ambient[i], self.direct[i])
-    }
-}
-
-// -- The shape ---------------------------------------------------------------------------------
-
-/// The signed distance from (`px`, `py`) to the edge of the `w` x `h`
-/// rounded rect at the origin (negative inside) and the edge's outward unit
-/// direction there. `radii`: top-left, top-right, bottom-right, bottom-left.
-fn rounded_rect_distance(px: f32, py: f32, w: f32, h: f32, radii: [f32; 4]) -> (f32, f32, f32) {
-    let cx = w * 0.5;
-    let cy = h * 0.5;
-    let right = px >= cx;
-    let below = py >= cy;
-    let r = match (right, below) {
-        (false, false) => radii[0],
-        (true, false) => radii[1],
-        (true, true) => radii[2],
-        (false, true) => radii[3],
-    }
-    .min(cx)
-    .min(cy)
-    .max(0.0);
-    let qx = (px - cx).abs() - (cx - r);
-    let qy = (py - cy).abs() - (cy - r);
-    let ox = qx.max(0.0);
-    let oy = qy.max(0.0);
-    let outside = (ox * ox + oy * oy).sqrt();
-    let d = outside + qx.max(qy).min(0.0) - r;
-    let (gx, gy) = if qx > 0.0 && qy > 0.0 {
-        let len = outside.max(1e-6);
-        (ox / len, oy / len)
-    } else if qx >= qy {
-        (1.0, 0.0)
-    } else {
-        (0.0, 1.0)
-    };
-    (
-        d,
-        if right { gx } else { -gx },
-        if below { gy } else { -gy },
-    )
-}
-
-/// The bevel's slope at distance `d` from the edge (negative inside): a
-/// quarter-round profile `bevel` px wide, steepest at the edge.
-fn bevel_slope(d: f32, bevel: f32) -> f32 {
-    let t = (-d / bevel).clamp(0.0, 1.0);
-    let s = 1.0 - t;
-    (s / (1.0 - s * s).max(0.08).sqrt()).min(3.0)
-}
-
-// -- Rendering ---------------------------------------------------------------------------------
-
-/// The size of the linear -> sRGB table.
-const SRGB_TABLE: usize = 8192;
-
-fn srgb_table() -> &'static [u8] {
-    static TABLE: OnceLock<Vec<u8>> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        (0..SRGB_TABLE)
-            .map(|i| (linear_to_srgb(i as f32 / (SRGB_TABLE - 1) as f32) * 255.0 + 0.5) as u8)
-            .collect()
+/// `--azul-material-glow: #4C79E5 0.12 10px` - the colour, its strength and
+/// its reach.
+fn parse_glow(value: &str) -> Option<Glow> {
+    let words: Vec<&str> = value.split_whitespace().collect();
+    let (colour, rest) = words.split_first()?;
+    let c = parse_colour(colour)?;
+    let strength = rest.first().and_then(|w| parse_length(w)).unwrap_or(0.12);
+    let reach = rest.get(1).and_then(|w| parse_length(w)).unwrap_or(10.0);
+    (strength > 0.0 && reach > 0.0).then(|| Glow {
+        color: srgb8_to_linear(c),
+        strength,
+        reach,
     })
 }
 
-fn encode(table: &[u8], linear: f32) -> u8 {
-    let i = (linear.clamp(0.0, 1.0) * (SRGB_TABLE - 1) as f32 + 0.5) as usize;
-    table[i.min(SRGB_TABLE - 1)]
+// -- What a surface is lit by ---------------------------------------------------------------------
+
+/// Everything around a surface that its look depends on besides its own
+/// params: the light, where it sits, the cursor, the room it reflects and
+/// the shape it is cut to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SurfaceScene {
+    /// Where the light comes from (the app's light, or the window's own).
+    pub light: Light,
+    /// The light's colour, linear (a warm white by default).
+    pub light_color: [f32; 3],
+    /// The light's strength (1 = a flat surface shows its tint).
+    pub intensity: f32,
+    /// The share of the light that comes from everywhere.
+    pub ambient: f32,
+    /// The window's god rays (off by default; drawn on the CPU only).
+    pub rays: MaterialRays,
+    /// The surface's top-left in the window, logical px: the grain is laid
+    /// in window space, so neighbouring surfaces are one hide.
+    pub window_offset: [f32; 2],
+    /// The surface's top-left on the desktop, desktop points: where a point
+    /// light and the wallpaper are seen from.
+    pub desktop_origin: [f32; 2],
+    /// The screen the surface is on, desktop points: x, y, width, height.
+    pub screen: [f32; 4],
+    /// The cursor's sheen, eased 0..1 (0 = the cursor is elsewhere).
+    pub sheen: f32,
+    /// The cursor, logical px in the surface.
+    pub cursor: [f32; 2],
+    /// What a metal reflects.
+    pub environment: Environment,
+    /// The shape's distance field, for a bevel that follows the shape.
+    pub shape: Option<Arc<ShapeField>>,
 }
 
-/// Rects at least this big render in row bands on several cores.
-const PARALLEL_PIXELS: usize = 256 * 1024;
-
-/// What one render reads, shared by its row bands.
-struct Job<'a> {
-    tile: &'a MaterialTile,
-    preshade: &'a Preshade,
-    surface: Surface,
-    light: &'a Light,
-    width: usize,
-    height: usize,
-    /// Texels per device px.
-    per_px: f32,
-    /// Device px.
-    bevel: f32,
-    inset: bool,
-    relief: f32,
-    /// Device px.
-    radii: [f32; 4],
-    /// The rect's top-left in the window, logical px (the god rays).
-    origin: [f32; 2],
-    /// Logical px per device px.
-    inv_dpi: f32,
-    tint: Option<Tint>,
-    table: &'a [u8],
-}
-
-impl Job<'_> {
-    /// Rows `first..` into `out` (whole rows, RGBA8 premultiplied).
-    fn rows(&self, first: usize, out: &mut [u8]) {
-        let w = self.width;
-        let (wf, hf) = (self.width as f32, self.height as f32);
-        // One texel per pixel: the texel IS the pixel, no filtering.
-        let unit = self.per_px == 1.0;
-        // Rows clear of the rounded corners and the bevel are flat between
-        // the side bevels: no distance, no per-pixel shading there.
-        let edge = self.bevel + 1.5;
-        let top = self.radii[0].max(self.radii[1]) + edge;
-        let bottom = self.radii[2].max(self.radii[3]) + edge;
-        let inner_lo = edge.ceil() as usize;
-        let inner_hi = (wf - edge).floor().max(0.0) as usize;
-        for (row, line) in out.chunks_exact_mut(w * 4).enumerate() {
-            let y = first + row;
-            let py = y as f32 + 0.5;
-            let v = py * self.per_px;
-            let middle = py > top && py < hf - bottom;
-            for x in 0..w {
-                let px = x as f32 + 0.5;
-                let u = px * self.per_px;
-                let ray = self.light.ray_factor(
-                    self.origin[0] + px * self.inv_dpi,
-                    self.origin[1] + py * self.inv_dpi,
-                );
-                let (rgb, coverage) = if middle && x >= inner_lo && x < inner_hi {
-                    let (a, d) = if unit {
-                        self.preshade.at(x, y)
-                    } else {
-                        self.preshade.sample(u, v)
-                    };
-                    (
-                        [a[0] + ray * d[0], a[1] + ray * d[1], a[2] + ray * d[2]],
-                        1.0,
-                    )
-                } else {
-                    let (d, gx, gy) = rounded_rect_distance(px, py, wf, hf, self.radii);
-                    let coverage = (0.5 - d).clamp(0.0, 1.0);
-                    if coverage <= 0.0 {
-                        line[x * 4..x * 4 + 4].copy_from_slice(&[0; 4]);
-                        continue;
-                    }
-                    let (a, dd) = if self.bevel > 0.0 && d > -self.bevel {
-                        let t = self.tile.sample(u, v);
-                        let slope = bevel_slope(d, self.bevel) * if self.inset { -1.0 } else { 1.0 };
-                        let n = surface_normal(t.normal, self.relief, [slope * gx, slope * gy]);
-                        let albedo = albedo_of(t.albedo, self.tint.as_ref());
-                        shade(albedo, t.rough, t.ao, n, &self.surface, self.light)
-                    } else if unit {
-                        self.preshade.at(x, y)
-                    } else {
-                        self.preshade.sample(u, v)
-                    };
-                    (
-                        [a[0] + ray * dd[0], a[1] + ray * dd[1], a[2] + ray * dd[2]],
-                        coverage,
-                    )
-                };
-                let m = self.tile.macro_at(u, v);
-                let px_out = &mut line[x * 4..x * 4 + 4];
-                for c in 0..3 {
-                    let s = f32::from(encode(self.table, rgb[c] * m));
-                    px_out[c] = (s * coverage + 0.5) as u8;
-                }
-                px_out[3] = (coverage * 255.0 + 0.5) as u8;
-            }
+impl Default for SurfaceScene {
+    fn default() -> Self {
+        Self {
+            light: Light::DEFAULT,
+            light_color: [1.0, 0.975, 0.94],
+            intensity: 1.0,
+            ambient: 0.45,
+            rays: MaterialRays::OFF,
+            window_offset: [0.0, 0.0],
+            desktop_origin: [0.0, 0.0],
+            screen: [0.0, 0.0, 1920.0, 1080.0],
+            sheen: 0.0,
+            cursor: [0.0, 0.0],
+            environment: Environment::default(),
+            shape: None,
         }
     }
+}
 
-    fn render(&self) -> Vec<u8> {
-        let mut out = vec![0_u8; self.width * self.height * 4];
-        if out.is_empty() {
-            return out;
-        }
-        let threads = if self.width * self.height >= PARALLEL_PIXELS {
-            std::thread::available_parallelism().map_or(1, core::num::NonZeroUsize::get).min(8)
-        } else {
-            1
-        };
-        if threads <= 1 {
-            self.rows(0, &mut out);
-            return out;
-        }
-        let band = self.height.div_ceil(threads);
-        std::thread::scope(|scope| {
-            for (i, chunk) in out.chunks_mut(band * self.width * 4).enumerate() {
-                scope.spawn(move || self.rows(i * band, chunk));
-            }
-        });
-        out
+impl SurfaceScene {
+    /// The scene under a window's own `light`: its colour, strength, ambient
+    /// share and rays, and its direction as the sun.
+    #[must_use]
+    pub fn with_material_light(mut self, light: &MaterialLight) -> Self {
+        self.light = Light::sun(light.azimuth_deg, light.elevation_deg);
+        self.apply_light_colour(light);
+        self
+    }
+
+    /// Take `light`'s colour, strength, ambient share and rays (not its
+    /// direction).
+    pub fn apply_light_colour(&mut self, light: &MaterialLight) {
+        let c = light.color;
+        self.light_color = [c.r, c.g, c.b].map(|v| srgb_to_linear(f32::from(v) / 255.0));
+        self.intensity = light.intensity.max(0.0);
+        self.ambient = light.ambient.clamp(0.0, 1.0);
+        self.rays = light.rays;
     }
 }
 
-/// `material` rendered for a `width` x `height` device-px rect at `dpi`,
-/// worn as `params` say, lit by `light`, the rect's top-left at `origin`
-/// in the window (logical px; it only matters to the god rays). RGBA8,
-/// premultiplied, exactly `width` x `height`. Not cached - see
+/// Whether `material` is a metal (it reflects its colour and the room) and
+/// whether it is brushed (anisotropic).
+const fn metal_of(material: Material) -> (f32, bool) {
+    match material {
+        Material::Aluminium => (1.0, true),
+        _ => (0.0, false),
+    }
+}
+
+// -- Rendering ----------------------------------------------------------------------------------
+
+/// The uniforms of one render, for the CPU's shader and the GPU's alike:
+/// the params and the scene turned into what the shader reads.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Prepared {
+    pub(crate) size: [usize; 2],
+    pub(crate) dpr: f32,
+    /// The surface's top-left in the window, device px (rounded).
+    pub(crate) origin_px: [i32; 2],
+    pub(crate) bevel: [f32; 4],
+    pub(crate) cushion: [f32; 2],
+    pub(crate) pillow: [f32; 2],
+    pub(crate) pillow_foot: f32,
+    pub(crate) relief: f32,
+    pub(crate) sheen: f32,
+    pub(crate) metal: f32,
+    pub(crate) aniso: bool,
+    pub(crate) sun: [f32; 3],
+    pub(crate) point: Option<[f32; 3]>,
+    pub(crate) light_color: [f32; 3],
+    /// The surface on its wallpaper's screen (x, y from the screen's
+    /// corner) and the screen's size.
+    pub(crate) env_rect: [f32; 4],
+    pub(crate) glow: [f32; 4],
+}
+
+pub(crate) fn prepare(
+    material: Material,
+    [width, height]: [u32; 2],
+    dpr: f32,
+    params: &MaterialParams,
+    scene: &SurfaceScene,
+) -> Prepared {
+    let dpr = if dpr.is_finite() && dpr > 0.0 { dpr } else { 1.0 };
+    let h_l = height as f32 / dpr;
+    let d3 = params.depth;
+    let (metal, aniso) = metal_of(material);
+    // The pillow is as wide as a level crown allows: the smooth-min's crown
+    // sits at h/2 - k/4 with k = 0.75 w, so w = h / 2 / 1.1875.
+    let pillow_w = params.pillow.width.min(h_l * 0.5 / 1.1875).max(0.0);
+    let pillow = if params.pillow.width > 0.0 {
+        [pillow_w, pillow_w * params.pillow.depth * d3]
+    } else {
+        [0.0, 0.0]
+    };
+    // The padding never takes more than a third of a short surface.
+    let cushion = if params.cushion[0] > 0.0 {
+        [
+            params.cushion[0].min(h_l * 0.34),
+            params.cushion[1] * (h_l / 60.0).min(1.0) * d3,
+        ]
+    } else {
+        [0.0, 0.0]
+    };
+    let (sun, point) = match scene.light {
+        Light::Sun(s) => (azul_core::light::sun_vector(s.azimuth_deg, s.elevation_deg), None),
+        Light::Point(p) => (Light::DEFAULT.direction_at(0.0, 0.0), Some([p.x, p.y, p.height.max(1.0)])),
+    };
+    let wall_screen = scene
+        .environment
+        .wallpaper_at(scene.desktop_origin)
+        .map_or(scene.screen, |w| w.screen);
+    Prepared {
+        size: [width as usize, height as usize],
+        dpr,
+        origin_px: [
+            (scene.window_offset[0] * dpr).round() as i32,
+            (scene.window_offset[1] * dpr).round() as i32,
+        ],
+        bevel: [
+            params.bevel.width.max(0.0),
+            params.bevel.depth * d3,
+            params.bevel.softness,
+            if params.bevel.inset { 1.0 } else { 0.0 },
+        ],
+        cushion,
+        pillow,
+        pillow_foot: params.pillow.foot,
+        relief: params.relief * d3.sqrt(),
+        sheen: scene.sheen.clamp(0.0, 1.0) * params.sheen * 3.0 * d3,
+        metal,
+        aniso,
+        sun,
+        point,
+        light_color: scene.light_color.map(|c| c * scene.intensity),
+        env_rect: [
+            scene.desktop_origin[0] - wall_screen[0],
+            scene.desktop_origin[1] - wall_screen[1],
+            wall_screen[2].max(1.0),
+            wall_screen[3].max(1.0),
+        ],
+        glow: params.glow.map_or([0.0; 4], |g| {
+            [
+                g.color[0] * g.strength,
+                g.color[1] * g.strength,
+                g.color[2] * g.strength,
+                g.reach,
+            ]
+        }),
+    }
+}
+
+/// `material` rendered on the CPU for a `width` x `height` device-px rect at
+/// `dpr`, worn as `params` say, in `scene`. RGBA8, premultiplied, exactly
+/// `width` x `height`. Not cached as a frame (its grain is) - see
 /// [`render_material`].
 #[must_use]
 pub fn render_material_pixels(
     material: Material,
     width: u32,
     height: u32,
-    dpi: f32,
+    dpr: f32,
     params: &MaterialParams,
-    light: &MaterialLight,
-    origin: [f32; 2],
+    scene: &SurfaceScene,
 ) -> Option<RawImage> {
-    let tile = tile(material)?;
-    render(
-        &tile,
-        Surface::of(material),
-        Some(material),
-        [width, height],
-        dpi,
-        params,
-        light,
-        origin,
-    )
-}
-
-/// [`render_material_pixels`] for any tile and surface (not cached).
-#[must_use]
-pub fn render_tile(
-    tile: &MaterialTile,
-    surface: Surface,
-    width: u32,
-    height: u32,
-    dpi: f32,
-    params: &MaterialParams,
-    light: &MaterialLight,
-    origin: [f32; 2],
-) -> Option<RawImage> {
-    render(tile, surface, None, [width, height], dpi, params, light, origin)
-}
-
-/// The renderer behind both: `material` is the tile's when it is a built-in
-/// one (its preshade is then cached).
-fn render(
-    tile: &MaterialTile,
-    surface: Surface,
-    material: Option<Material>,
-    [width, height]: [u32; 2],
-    dpi: f32,
-    params: &MaterialParams,
-    light: &MaterialLight,
-    origin: [f32; 2],
-) -> Option<RawImage> {
-    let (width, height) = (width as usize, height as usize);
-    if tile.side == 0 || width > 16_384 || height > 16_384 {
+    if width > 16_384 || height > 16_384 {
         return None;
     }
-    let dpi = if dpi.is_finite() && dpi > 0.0 { dpi } else { 1.0 };
-    let prepared = Light::new(light);
-    let relief = surface.relief * params.relief.max(0.0);
-    let tint = params.tint.map(|c| Tint::new(c, tile));
-    let preshade = match material {
-        Some(material) => {
-            preshade_for(material, tile, &surface, relief, &prepared, light, params.tint)
-        }
-        None => Arc::new(Preshade::new(tile, &surface, relief, &prepared, tint.as_ref())),
+    let u = prepare(material, [width, height], dpr, params, scene);
+    let tile = match params.source {
+        MaterialSource::Tile => colourless_tile(material),
+        _ => None,
     };
-    let texel = (params.scale.max(0.01) * dpi).max(0.05);
-    let job = Job {
-        tile,
-        preshade: &preshade,
-        surface,
-        light: &prepared,
-        width,
-        height,
-        per_px: 1.0 / texel,
-        bevel: params.bevel.max(0.0) * dpi,
-        inset: params.inset,
-        relief,
-        radii: params.radii.map(|r| r.max(0.0) * dpi),
-        origin,
-        inv_dpi: 1.0 / dpi,
-        tint,
-        table: srgb_table(),
+    // A tile that does not decode is drawn from the procedural surface.
+    let source = if params.source == MaterialSource::Tile && tile.is_none() {
+        MaterialSource::Procedural
+    } else {
+        params.source
+    };
+    let shape = if params.bevel.follow == BevelFollow::Shape {
+        scene.shape.as_deref()
+    } else {
+        None
+    };
+    let wallpaper = scene.environment.wallpaper_at(scene.desktop_origin);
+    let env_flat = scene.environment.flat_colour();
+    let shader = shade::Shader {
+        spec: shade::SurfaceSpec {
+            material,
+            source,
+            tile: tile.as_deref(),
+            grain: params.grain,
+            scale: params.scale,
+            relief: u.relief,
+            dpr: u.dpr,
+        },
+        size: u.size,
+        origin_px: u.origin_px,
+        radii: params.radii,
+        shape,
+        bevel: u.bevel,
+        cushion: u.cushion,
+        pillow: u.pillow,
+        pillow_foot: u.pillow_foot,
+        tint: params.tint,
+        rough: params.roughness,
+        variation: params.variation,
+        metal: u.metal,
+        aniso: u.aniso,
+        sun: u.sun,
+        point: u.point,
+        light_color: u.light_color,
+        ambient: scene.ambient,
+        mouse: scene.cursor,
+        sheen: u.sheen,
+        sheen_size: params.sheen_size,
+        env_rect: u.env_rect,
+        desktop_origin: scene.desktop_origin,
+        wallpaper: wallpaper.map(|w| &**w),
+        env_flat,
+        glow: u.glow,
+        rays: (scene.rays.strength > 0.0).then(|| (scene.rays, scene.window_offset)),
     };
     Some(RawImage {
-        pixels: RawImageData::U8(job.render().into()),
-        width,
-        height,
+        pixels: RawImageData::U8(shader.render().into()),
+        width: u.size[0],
+        height: u.size[1],
         premultiplied_alpha: true,
         data_format: RawImageFormat::RGBA8,
         tag: Vec::new().into(),
     })
 }
 
-// -- Caches ------------------------------------------------------------------------------------
-
-/// Preshades kept (a few lights x materials x reliefs).
-const PRESHADES_KEPT: usize = 12;
-
-/// A built-in tile's preshade for this light, relief and tint, from the
-/// cache (the light's direction, colour and shares; the rays do not enter
-/// it).
-fn preshade_for(
+/// A hash of everything a render depends on.
+pub(crate) fn render_key(
     material: Material,
-    tile: &MaterialTile,
-    surface: &Surface,
-    relief: f32,
-    prepared: &Light,
-    light: &MaterialLight,
-    tint: Option<[f32; 3]>,
-) -> Arc<Preshade> {
-    type Key = [u32; 10];
-    static PRESHADES: Mutex<Vec<(Key, Arc<Preshade>)>> = Mutex::new(Vec::new());
-    let c = light.color;
-    let key: Key = [
-        material_index(material) as u32,
-        light.azimuth_deg.to_bits(),
-        light.elevation_deg.to_bits(),
-        u32::from_le_bytes([c.r, c.g, c.b, c.a]),
-        light.intensity.to_bits(),
-        light.ambient.to_bits(),
-        relief.to_bits(),
-        tint_bits(tint)[0],
-        tint_bits(tint)[1],
-        tint_bits(tint)[2],
-    ];
-    if let Ok(mut cache) = PRESHADES.lock() {
-        if let Some(i) = cache.iter().position(|(k, _)| *k == key) {
-            let entry = cache.remove(i);
-            let found = entry.1.clone();
-            cache.push(entry);
-            return found;
-        }
+    width: u32,
+    height: u32,
+    dpr: f32,
+    params: &MaterialParams,
+    scene: &SurfaceScene,
+) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    material.hash(&mut h);
+    (width, height, dpr.to_bits()).hash(&mut h);
+    let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<u32>>();
+    params.source.hash(&mut h);
+    bits(&params.tint).hash(&mut h);
+    bits(&params.roughness).hash(&mut h);
+    bits(&[
+        params.relief,
+        params.variation,
+        params.sheen,
+        params.sheen_size,
+        params.grain,
+        params.scale,
+        params.bevel.width,
+        params.bevel.depth,
+        params.bevel.softness,
+        params.cushion[0],
+        params.cushion[1],
+        params.pillow.width,
+        params.pillow.depth,
+        params.pillow.foot,
+        params.depth,
+    ])
+    .hash(&mut h);
+    (params.bevel.inset, params.bevel.follow).hash(&mut h);
+    params
+        .glow
+        .map(|g| bits(&[g.color[0], g.color[1], g.color[2], g.strength, g.reach]))
+        .hash(&mut h);
+    bits(&params.radii).hash(&mut h);
+    scene.light.key_bits().hash(&mut h);
+    bits(&scene.light_color).hash(&mut h);
+    bits(&[scene.intensity, scene.ambient]).hash(&mut h);
+    bits(&[
+        scene.rays.strength,
+        scene.rays.angle_deg,
+        scene.rays.width,
+        scene.rays.spacing,
+        scene.rays.phase,
+    ])
+    .hash(&mut h);
+    // The window offset in device px is where the grain lies; the desktop
+    // place matters to a point light, the rays and the wallpaper.
+    [
+        (scene.window_offset[0] * dpr).round() as i32,
+        (scene.window_offset[1] * dpr).round() as i32,
+    ]
+    .hash(&mut h);
+    let (metal, _) = metal_of(material);
+    if scene.light.depends_on_position() || scene.rays.strength > 0.0 || metal > 0.0 {
+        bits(&scene.desktop_origin).hash(&mut h);
+        bits(&scene.window_offset).hash(&mut h);
+        bits(&scene.screen).hash(&mut h);
     }
-    let tint = tint.map(|c| Tint::new(c, tile));
-    let made = Arc::new(Preshade::new(tile, surface, relief, prepared, tint.as_ref()));
-    if let Ok(mut cache) = PRESHADES.lock() {
-        cache.push((key, made.clone()));
-        while cache.len() > PRESHADES_KEPT {
-            cache.remove(0);
-        }
+    if metal > 0.0 {
+        scene.environment.key().hash(&mut h);
     }
-    made
+    let sheen = (scene.sheen * params.sheen).max(0.0);
+    if sheen > 0.0 {
+        bits(&[scene.sheen]).hash(&mut h);
+        bits(&scene.cursor).hash(&mut h);
+    }
+    if params.bevel.follow == BevelFollow::Shape {
+        scene.shape.as_deref().hash(&mut h);
+    }
+    h.finish()
 }
 
 /// The renders kept, at most this many bytes of pixels ...
@@ -1182,76 +1249,24 @@ const RENDERS_BYTES: usize = 64 * 1024 * 1024;
 /// ... and this many renders.
 const RENDERS_KEPT: usize = 96;
 
-/// Everything a render depends on, as bit patterns.
-type RenderKey = [u32; 27];
-
-fn render_key(
-    material: Material,
-    width: u32,
-    height: u32,
-    dpi: f32,
-    params: &MaterialParams,
-    light: &MaterialLight,
-    origin: [f32; 2],
-) -> RenderKey {
-    // The window position matters only to the god rays: without them two
-    // identical buttons anywhere share one render.
-    let origin = if light.rays.strength > 0.0 {
-        origin
-    } else {
-        [0.0, 0.0]
-    };
-    let c = light.color;
-    [
-        material_index(material) as u32,
-        width,
-        height,
-        dpi.to_bits(),
-        params.bevel.to_bits(),
-        u32::from(params.inset),
-        params.scale.to_bits(),
-        params.relief.to_bits(),
-        params.radii[0].to_bits(),
-        params.radii[1].to_bits(),
-        params.radii[2].to_bits(),
-        params.radii[3].to_bits(),
-        light.azimuth_deg.to_bits(),
-        light.elevation_deg.to_bits(),
-        u32::from_le_bytes([c.r, c.g, c.b, c.a]),
-        light.intensity.to_bits(),
-        light.ambient.to_bits(),
-        light.rays.strength.to_bits(),
-        light.rays.angle_deg.to_bits(),
-        light.rays.width.to_bits(),
-        light.rays.spacing.to_bits(),
-        light.rays.phase.to_bits(),
-        origin[0].to_bits(),
-        origin[1].to_bits(),
-        tint_bits(params.tint)[0],
-        tint_bits(params.tint)[1],
-        tint_bits(params.tint)[2],
-    ]
-}
-
 /// [`render_material_pixels`] as an image, from the process-wide render
 /// cache when the same surface was rendered before (the same `ImageRef`:
 /// nothing is uploaded or repainted again). A transparent pixel for an
-/// empty rect or a tile that does not decode.
+/// empty rect.
 #[must_use]
 pub fn render_material(
     material: Material,
     width: u32,
     height: u32,
-    dpi: f32,
+    dpr: f32,
     params: &MaterialParams,
-    light: &MaterialLight,
-    origin: [f32; 2],
+    scene: &SurfaceScene,
 ) -> ImageRef {
-    static RENDERS: Mutex<Vec<(RenderKey, ImageRef, usize)>> = Mutex::new(Vec::new());
+    static RENDERS: Mutex<Vec<(u64, ImageRef, usize)>> = Mutex::new(Vec::new());
     if width == 0 || height == 0 {
         return transparent_pixel();
     }
-    let key = render_key(material, width, height, dpi, params, light, origin);
+    let key = render_key(material, width, height, dpr, params, scene);
     if let Ok(mut cache) = RENDERS.lock() {
         if let Some(i) = cache.iter().position(|(k, _, _)| *k == key) {
             let entry = cache.remove(i);
@@ -1260,7 +1275,7 @@ pub fn render_material(
             return found;
         }
     }
-    let Some(image) = render_material_pixels(material, width, height, dpi, params, light, origin)
+    let Some(image) = render_material_pixels(material, width, height, dpr, params, scene)
         .and_then(ImageRef::new_rawimage)
     else {
         return transparent_pixel();
@@ -1276,7 +1291,7 @@ pub fn render_material(
     image
 }
 
-// -- The callback image ------------------------------------------------------------------------
+// -- The callback image -------------------------------------------------------------------------
 
 /// What a material's callback image carries.
 #[derive(Debug, Clone, Copy)]
@@ -1295,42 +1310,96 @@ pub fn material_callback_image(material: Material) -> ImageRef {
     )
 }
 
-/// The params a node's custom properties give a material
+/// The params a node's custom properties give `material`
 /// ([`MaterialParams::from_custom_properties`]), the radii the engine's.
 #[must_use]
-pub fn params_from_extras(extras: Option<&RenderImageCallbackExtras>) -> MaterialParams {
-    extras.map_or(MaterialParams::DEFAULT, |e| {
-        MaterialParams::from_custom_properties(
-            |name| e.custom_property(name).map(str::to_string),
-            e.border_radii,
-        )
-    })
+pub fn params_from_extras(material: Material, extras: Option<&RenderImageCallbackExtras>) -> MaterialParams {
+    extras.map_or_else(
+        || MaterialParams::of(material),
+        |e| {
+            MaterialParams::from_custom_properties(
+                material,
+                |name| e.custom_property(name).map(str::to_string),
+                e.border_radii,
+            )
+        },
+    )
+}
+
+/// The scene the engine describes for a rect `size` (logical px) at `dpr`:
+/// its light, place, cursor and shape, and - for a metal - the desktop.
+#[must_use]
+pub fn scene_from_extras(
+    material: Material,
+    extras: Option<&RenderImageCallbackExtras>,
+    params: &MaterialParams,
+    size: [f32; 2],
+    dpr: f32,
+) -> SurfaceScene {
+    let Some(e) = extras else {
+        return SurfaceScene::default();
+    };
+    let mut scene = SurfaceScene {
+        light: e.light,
+        window_offset: [e.origin.x, e.origin.y],
+        desktop_origin: [
+            e.window_desktop_origin.x + e.origin.x,
+            e.window_desktop_origin.y + e.origin.y,
+        ],
+        screen: [
+            e.screen.origin.x,
+            e.screen.origin.y,
+            e.screen.size.width,
+            e.screen.size.height,
+        ],
+        sheen: e.sheen,
+        cursor: [e.cursor.x, e.cursor.y],
+        ..SurfaceScene::default()
+    };
+    scene.apply_light_colour(&e.material_light);
+    let highlight = [e.highlight.r, e.highlight.g, e.highlight.b];
+    scene.environment = if metal_of(material).0 > 0.0 {
+        environment::desktop_environment(highlight)
+    } else {
+        Environment::highlight(highlight)
+    };
+    if params.bevel.follow == BevelFollow::Shape {
+        // SAFETY: the engine points this at the node's clip path for the
+        // duration of the invocation, or null.
+        if let Some(clip) = unsafe { e.clip_path.as_ref() } {
+            let range = 8.0_f32
+                .max(params.bevel.width + 1.0)
+                .max(params.cushion[0] + 1.0)
+                .max(params.pillow.width + 1.0);
+            scene.shape = ShapeField::from_clip_path_with_range(clip, size[0], size[1], dpr, range).map(Arc::new);
+        }
+    }
+    scene
 }
 
 /// The callback behind every material image: the rect's device size, its
-/// radii and node properties (the engine's extras), the window's light.
-extern "C" fn render_material_callback(
-    mut data: RefAny,
-    info: RenderImageCallbackInfo,
-) -> ImageRef {
+/// radii, node properties, light and cursor (the engine's extras). With a
+/// usable GPU context the GPU draws it; otherwise (and for god rays) the
+/// CPU.
+extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallbackInfo) -> ImageRef {
     let Some(material) = data.downcast_ref::<MaterialImageData>().map(|d| d.material) else {
         return transparent_pixel();
     };
     let bounds = info.get_bounds();
-    let dpi = bounds.get_hidpi_factor().inner.get();
+    let dpr = bounds.get_hidpi_factor().inner.get();
     let size = bounds.get_physical_size();
+    let logical = [bounds.logical_size.width, bounds.logical_size.height];
     let extras = info.get_extras();
-    let params = params_from_extras(extras);
-    let origin = extras.map_or([0.0, 0.0], |e| [e.origin.x, e.origin.y]);
-    render_material(
-        material,
-        size.width,
-        size.height,
-        dpi,
-        &params,
-        &info.get_material_light(),
-        origin,
-    )
+    let params = params_from_extras(material, extras);
+    let scene = scene_from_extras(material, extras, &params, logical, dpr);
+    if scene.rays.strength <= 0.0 {
+        if let Some(gl) = info.get_gl_context().as_ref() {
+            if let Some(frame) = gpu::render_material_gl(gl, material, size.width, size.height, dpr, &params, &scene) {
+                return frame;
+            }
+        }
+    }
+    render_material(material, size.width, size.height, dpr, &params, &scene)
 }
 
 #[cfg(test)]
@@ -1399,7 +1468,7 @@ mod tests {
     fn every_tile_wraps_without_a_seam() {
         // The last column / row is as close to the first as neighbours
         // inside the tile are to each other (the packer cut the seams).
-        for material in Material::ALL {
+        for material in [Material::Leather, Material::BlueJeans, Material::Aluminium] {
             let tile = tile(material).expect("the tile decodes");
             let n = tile.side;
             let diff = |a: usize, b: usize| -> f32 {
@@ -1429,102 +1498,50 @@ mod tests {
         }
     }
 
-    /// A tile of one flat texel colour.
-    fn flat_tile(albedo_linear: f32, rough: f32) -> MaterialTile {
-        let n = 4;
-        let srgb = linear_to_srgb(albedo_linear);
-        MaterialTile {
-            side: n,
-            albedo_srgb: vec![[srgb; 3]; n * n],
-            albedo: vec![[albedo_linear; 3]; n * n],
-            normal: vec![[0.0, 0.0]; n * n],
-            rough: vec![rough; n * n],
-            ao: vec![1.0; n * n],
-            macro_map: Vec::new(),
-            macro_side: 0,
-            macro_period: 0.0,
+    #[test]
+    fn every_material_has_a_colourless_tile() {
+        for material in Material::ALL {
+            let t = colourless_tile(material).expect("a tile");
+            assert!(t.side >= 16);
+            assert_eq!(t.rgba.len(), t.side * t.side);
+            let lumas: Vec<u8> = t.rgba.iter().map(|p| p[0]).collect();
+            assert!(lumas.iter().any(|&l| l < 40) && lumas.iter().any(|&l| l > 215), "spread over the bytes");
         }
-    }
-
-    const MATTE: Surface = Surface {
-        metallic: 0.0,
-        f0: 0.04,
-        relief: 1.0,
-        specular: 1.0,
-        environment: 0.6,
-    };
-
-    fn pixel(image: &RawImage, x: usize, y: usize) -> [u8; 4] {
-        let RawImageData::U8(bytes) = &image.pixels else {
-            panic!("RGBA8 bytes");
-        };
-        let i = (y * image.width + x) * 4;
-        let b = bytes.as_ref();
-        [b[i], b[i + 1], b[i + 2], b[i + 3]]
-    }
-
-    fn luma(p: [u8; 4]) -> f32 {
-        0.2126 * f32::from(p[0]) + 0.7152 * f32::from(p[1]) + 0.0722 * f32::from(p[2])
+        // Only the leather keeps a normal of its own.
+        let aluminium = colourless_tile(Material::Aluminium).expect("a tile");
+        assert!(aluminium.rgba.iter().all(|p| p[1] == 128 && p[2] == 128 && p[3] == 255));
     }
 
     #[test]
-    fn a_flat_surface_lit_from_the_front_shows_its_albedo() {
-        // n = z and the light straight in front: ambient + diffuse = 1, and
-        // a fully rough surface adds only GGX's faint 1/(4 pi) * f0.
-        let tile = flat_tile(0.25, 1.0);
-        let params = MaterialParams {
-            bevel: 0.0,
-            ..MaterialParams::DEFAULT
+    fn custom_properties_set_the_bevel_the_pillow_and_the_tint() {
+        let props = |name: &str| -> Option<String> {
+            match name {
+                "azul-bevel" => Some("bevel(3px 0.9 1 inset)".to_string()),
+                "azul-bevel-follow" => Some("shape".to_string()),
+                "azul-pillow" => Some("76px .16".to_string()),
+                "azul-material-tint" => Some("#2D4061".to_string()),
+                "azul-material-roughness" => Some("0.2 0.4".to_string()),
+                "azul-material-source" => Some("tile".to_string()),
+                "azul-material-depth" => Some("2.5".to_string()),
+                "azul-relief" => Some("not a number".to_string()),
+                _ => None,
+            }
         };
-        let light = MaterialLight::from_direction(135.0, 90.0);
-        let image = render_tile(&tile, MATTE, 16, 16, 1.0, &params, &light, [0.0, 0.0])
-            .expect("a render");
-        let lc = srgb_to_linear(250.0 / 255.0); // the default light's green
-        let expected = linear_to_srgb((0.25 + 0.04 / (4.0 * core::f32::consts::PI)) * lc) * 255.0;
-        for (x, y) in [(0, 0), (8, 8), (15, 3)] {
-            let p = pixel(&image, x, y);
-            assert_eq!(p[3], 255, "opaque");
-            assert!(
-                (f32::from(p[1]) - expected).abs() <= 1.5,
-                "({x},{y}) green {} vs albedo x light {expected:.1}",
-                p[1]
-            );
-        }
-    }
-
-    #[test]
-    fn the_bevel_s_lit_edge_faces_the_light() {
-        let tile = flat_tile(0.3, 0.7);
-        let raised = MaterialParams {
-            bevel: 6.0,
-            ..MaterialParams::DEFAULT
-        };
-        let inset = MaterialParams {
-            inset: true,
-            ..raised
-        };
-        let from_upper_left = MaterialLight::from_direction(135.0, 35.0);
-        let edges = |image: &RawImage| -> (f32, f32) {
-            // the left and top bevel vs the right and bottom bevel, mid-edge
-            let lit = luma(pixel(image, 2, 20)) + luma(pixel(image, 40, 2));
-            let shade = luma(pixel(image, 77, 20)) + luma(pixel(image, 40, 37));
-            (lit, shade)
-        };
-        let image = render_tile(&tile, MATTE, 80, 40, 1.0, &raised, &from_upper_left, [0.0, 0.0])
-            .expect("a render");
-        let (lit, shade) = edges(&image);
-        assert!(lit > shade + 20.0, "raised, lit from the upper left: {lit} vs {shade}");
-        let image = render_tile(&tile, MATTE, 80, 40, 1.0, &inset, &from_upper_left, [0.0, 0.0])
-            .expect("a render");
-        let (lit, shade) = edges(&image);
-        assert!(shade > lit + 20.0, "a well, lit from the upper left: {lit} vs {shade}");
-        // The light moves, the highlight follows: from the lower right the
-        // raised bevel is lit on the other side.
-        let from_lower_right = MaterialLight::from_direction(315.0, 35.0);
-        let image = render_tile(&tile, MATTE, 80, 40, 1.0, &raised, &from_lower_right, [0.0, 0.0])
-            .expect("a render");
-        let (lit, shade) = edges(&image);
-        assert!(shade > lit + 20.0, "raised, lit from the lower right: {lit} vs {shade}");
+        let p = MaterialParams::from_custom_properties(Material::Leather, props, [4.0; 4]);
+        assert_eq!(p.bevel.width, 3.0);
+        assert_eq!(p.bevel.depth, 0.9);
+        assert!(p.bevel.inset);
+        assert_eq!(p.bevel.follow, BevelFollow::Shape);
+        assert_eq!((p.pillow.width, p.pillow.depth, p.pillow.foot), (76.0, 0.16, 1.0));
+        assert_eq!(p.roughness, [0.2, 0.4]);
+        assert_eq!(p.source, MaterialSource::Tile);
+        assert_eq!(p.depth, 2.5);
+        assert_eq!(p.relief, 1.0, "an unreadable value keeps the default");
+        assert_eq!(p.radii, [4.0; 4]);
+        assert!(p.tint[2] > p.tint[0], "denim blue");
+        let plain = MaterialParams::from_custom_properties(Material::Aluminium, |_| None, [0.0; 4]);
+        assert_eq!(plain, MaterialParams::of(Material::Aluminium));
+        assert_eq!(plain.bevel.width, 1.0, "the aluminium's own bevel");
     }
 
     #[test]
@@ -1536,133 +1553,36 @@ mod tests {
                     w,
                     h,
                     1.0,
-                    &MaterialParams::DEFAULT,
-                    &MaterialLight::DEFAULT,
-                    [0.0, 0.0],
+                    &MaterialParams::of(material),
+                    &SurfaceScene::default(),
                 )
                 .expect("a render");
                 assert_eq!((image.width, image.height), (w as usize, h as usize));
-                let RawImageData::U8(bytes) = &image.pixels else {
-                    panic!("RGBA8 bytes");
-                };
-                assert_eq!(bytes.as_ref().len(), w as usize * h as usize * 4);
             }
         }
-        let rounded = MaterialParams {
-            radii: [12.0; 4],
-            ..MaterialParams::DEFAULT
+        let mut rounded = MaterialParams::of(Material::Leather);
+        rounded.radii = [12.0; 4];
+        let image = render_material_pixels(Material::Leather, 120, 40, 1.0, &rounded, &SurfaceScene::default())
+            .expect("a render");
+        let RawImageData::U8(bytes) = &image.pixels else {
+            panic!("RGBA8 bytes");
         };
-        let image = render_material_pixels(
-            Material::Leather,
-            120,
-            40,
-            1.0,
-            &rounded,
-            &MaterialLight::DEFAULT,
-            [0.0, 0.0],
-        )
-        .expect("a render");
-        assert_eq!(pixel(&image, 0, 0)[3], 0, "outside the rounded corner");
-        assert_eq!(pixel(&image, 60, 20)[3], 255, "inside");
-        let p = pixel(&image, 60, 20);
-        assert!(p[0] > p[1] && p[1] > p[2], "leather is brown: {p:?}");
+        assert_eq!(bytes.as_ref()[3], 0, "outside the rounded corner");
+        assert_eq!(bytes.as_ref()[(20 * 120 + 60) * 4 + 3], 255, "inside");
     }
 
     #[test]
     fn the_same_surface_renders_once_and_a_new_light_renders_again() {
-        let params = MaterialParams::DEFAULT;
-        let light = MaterialLight::DEFAULT;
-        let a = render_material(Material::Aluminium, 64, 24, 1.0, &params, &light, [10.0, 10.0]);
-        let b = render_material(Material::Aluminium, 64, 24, 1.0, &params, &light, [300.0, 50.0]);
-        assert_eq!(a.get_hash(), b.get_hash(), "no rays: the position does not matter");
-        let lower = MaterialLight::from_direction(270.0, 40.0);
-        let c = render_material(Material::Aluminium, 64, 24, 1.0, &params, &lower, [10.0, 10.0]);
+        let params = MaterialParams::of(Material::BlueJeans);
+        let scene = SurfaceScene::default();
+        let a = render_material(Material::BlueJeans, 64, 24, 1.0, &params, &scene);
+        let b = render_material(Material::BlueJeans, 64, 24, 1.0, &params, &scene);
+        assert_eq!(a.get_hash(), b.get_hash(), "the same surface is the same frame");
+        let lower = SurfaceScene {
+            light: Light::sun(270.0, 40.0),
+            ..SurfaceScene::default()
+        };
+        let c = render_material(Material::BlueJeans, 64, 24, 1.0, &params, &lower);
         assert_ne!(a.get_hash(), c.get_hash(), "another light is another render");
-        let rays = light.with_rays(crate::texture::MaterialRays::create(0.8, 135.0, 60.0, 30.0));
-        let d = render_material(Material::Aluminium, 64, 24, 1.0, &params, &rays, [10.0, 10.0]);
-        let e = render_material(Material::Aluminium, 64, 24, 1.0, &params, &rays, [300.0, 50.0]);
-        assert_ne!(d.get_hash(), e.get_hash(), "under god rays the position matters");
-        let f = render_material(Material::Aluminium, 64, 24, 1.0, &params, &rays, [300.0, 50.0]);
-        assert_eq!(e.get_hash(), f.get_hash());
-    }
-
-    #[test]
-    fn custom_properties_set_the_bevel_the_inset_and_the_scale() {
-        let props = |name: &str| -> Option<String> {
-            match name {
-                "azul-bevel" => Some(" 5px ".to_string()),
-                "azul-inset" => Some("inset".to_string()),
-                "azul-material-scale" => Some("2".to_string()),
-                "azul-relief" => Some("not a number".to_string()),
-                _ => None,
-            }
-        };
-        let p = MaterialParams::from_custom_properties(props, [4.0; 4]);
-        assert_eq!(p.bevel, 5.0);
-        assert!(p.inset);
-        assert_eq!(p.scale, 2.0);
-        assert_eq!(p.relief, 1.0, "an unreadable value keeps the default");
-        assert_eq!(p.radii, [4.0; 4]);
-        assert_eq!(
-            MaterialParams::from_custom_properties(|_| None, [0.0; 4]),
-            MaterialParams::DEFAULT
-        );
-    }
-
-    /// What a render costs - not a check. Run it in release:
-    /// `cargo test --release -p azul-layout --lib --features materials --
-    /// --ignored print_what_a_render_costs --nocapture`.
-    #[test]
-    #[ignore = "a measurement, not a check"]
-    fn print_what_a_render_costs() {
-        let params = MaterialParams {
-            radii: [8.0; 4],
-            ..MaterialParams::DEFAULT
-        };
-        for material in Material::ALL {
-            // Decode the tile and preshade the light first: once per process.
-            let _ = render_material_pixels(material, 8, 8, 1.0, &params, &MaterialLight::DEFAULT, [0.0; 2]);
-            for (w, h) in [(200, 40), (800, 600), (1920, 1080)] {
-                for (dpi, rays) in [(1.0, false), (1.0, true), (2.0, false)] {
-                    let runs = 5;
-                    let start = std::time::Instant::now();
-                    for i in 0..runs {
-                        let light = if rays {
-                            MaterialLight::DEFAULT.with_rays(crate::texture::MaterialRays::create(
-                                0.6,
-                                135.0,
-                                120.0,
-                                i as f32 * 10.0,
-                            ))
-                        } else {
-                            MaterialLight::DEFAULT
-                        };
-                        let _ = render_material_pixels(material, w, h, dpi, &params, &light, [0.0; 2]);
-                    }
-                    let ms = start.elapsed().as_secs_f64() * 1e3 / f64::from(runs);
-                    eprintln!(
-                        "{material:?} {w}x{h} device px, dpi {dpi}, rays {rays}: {ms:.2} ms"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn god_rays_brighten_a_band_and_nothing_else() {
-        let tile = flat_tile(0.2, 0.8);
-        let params = MaterialParams {
-            bevel: 0.0,
-            ..MaterialParams::DEFAULT
-        };
-        // A vertical band (running straight up: across it is +x) 20 px wide
-        // at x = 100 in the window; the rect sits at x = 10, so its pixel 90.
-        let rays = crate::texture::MaterialRays::create(1.0, 90.0, 20.0, 100.0);
-        let light = MaterialLight::DEFAULT.with_rays(rays);
-        let image = render_tile(&tile, MATTE, 200, 4, 1.0, &params, &light, [10.0, 0.0])
-            .expect("a render");
-        let at = |x| luma(pixel(&image, x, 2));
-        assert!(at(90) > at(20) + 10.0, "the band is brighter: {} vs {}", at(90), at(20));
-        assert!((at(20) - at(180)).abs() < 1.0, "away from it the light is the same");
     }
 }

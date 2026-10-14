@@ -6761,7 +6761,19 @@ where
 
         // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside
         // border box, not affecting layout.
-        let shadows = super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state);
+        let mut shadows = super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state);
+        // A shadow that follows the app's light falls away from it (written
+        // for a light from straight above), seen from the box's middle.
+        if !shadows.is_empty() && super::getters::light_followers(self.ctx.styled_dom, dom_id, node_state).0 {
+            let (light, origin) = azul_core::light::current_light_frame();
+            let at = [
+                origin[0] + border_box.origin.x + border_box.size.width * 0.5,
+                origin[1] + border_box.origin.y + border_box.size.height * 0.5,
+            ];
+            for s in &mut shadows {
+                *s = super::getters::shadow_following_light(*s, &light, at, true);
+            }
+        }
         let is_inset = |s: &StyleBoxShadow| matches!(s.clip_mode, BoxShadowClipMode::Inset);
         for shadow in shadows.iter().filter(|s| !is_inset(s)) {
             builder.push_item(DisplayListItem::BoxShadow {
@@ -7940,12 +7952,19 @@ where
                     if let Some(shadow) = shadow_val.get_property() {
                         // A `system:` shadow colour resolved against the
                         // cascade's theme, like every other colour handed on.
-                        builder.push_item(DisplayListItem::PushTextShadow {
-                            shadow: super::getters::system_colors_resolved(
-                                self.ctx.styled_dom,
-                                **shadow,
-                            ),
-                        });
+                        let mut shadow =
+                            super::getters::system_colors_resolved(self.ctx.styled_dom, **shadow);
+                        // Pressed text catches the light on the side away
+                        // from it: its 1px highlight turns with the light.
+                        if super::getters::light_followers(self.ctx.styled_dom, dom_id, node_state).1 {
+                            let (light, origin) = azul_core::light::current_light_frame();
+                            let at = [
+                                origin[0] + content_box_rect.origin.x + content_box_rect.size.width * 0.5,
+                                origin[1] + content_box_rect.origin.y + content_box_rect.size.height * 0.5,
+                            ];
+                            shadow = super::getters::shadow_following_light(shadow, &light, at, false);
+                        }
+                        builder.push_item(DisplayListItem::PushTextShadow { shadow });
                         pushed_text_shadow = true;
                     }
                 }
