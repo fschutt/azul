@@ -78,3 +78,7 @@ azmaps-transfers-many = { $count } changes
 azmaps-leg-walk = Walk { $distance }
 azmaps-leg-bike = Cycle { $distance }
 azmaps-leg-car = Drive { $distance }
+
+## Navigation
+
+azmaps-voice-arrived = You have arrived.

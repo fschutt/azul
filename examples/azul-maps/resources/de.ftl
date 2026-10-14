@@ -78,3 +78,7 @@ azmaps-transfers-many = { $count } Umstiege
 azmaps-leg-walk = Fußweg { $distance }
 azmaps-leg-bike = Rad { $distance }
 azmaps-leg-car = Auto { $distance }
+
+## Navigation
+
+azmaps-voice-arrived = Sie haben Ihr Ziel erreicht.
