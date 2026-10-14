@@ -10093,12 +10093,13 @@ impl LayoutWindow {
         let light = self.effective_light();
         let window_origin = self.window_desktop_origin();
         let screen = self.window_screen_rect();
-        // Where the window sits matters to a point light and to the
-        // wallpaper a metal reflects.
+        // A new wallpaper is a new reflection for every metal.
         #[cfg(feature = "materials")]
         let environment_generation = crate::texture::environment::desktop_generation();
         #[cfg(not(feature = "materials"))]
         let environment_generation = 0_u64;
+        // Where the window sits matters to a point light and to the
+        // wallpaper a metal reflects.
         let desktop_bits = if light.depends_on_position() || self.reflects_the_desktop() {
             [window_origin.x.to_bits(), window_origin.y.to_bits()]
         } else {
