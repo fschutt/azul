@@ -225,6 +225,11 @@ water_name { text-color: #5f8fbf; text-halo-color: #1c1c1e; }
 transportation_name { text-color: #9a9aa0; text-halo-color: #1c1c1e; }
 ";
 
+/// The land colour of a sheet that declares no `canvas`: the built-in
+/// palette's. The tile decoder paints it under every tile, the map widget
+/// grounds its view in it.
+pub const DEFAULT_CANVAS: &str = "#d6d8db";
+
 /// The `canvas { fill: #rrggbb; }` colour of a sheet, if it declares one.
 #[must_use]
 pub fn canvas_fill(sheet: &str) -> Option<[u8; 3]> {

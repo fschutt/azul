@@ -44,6 +44,19 @@ use azul_css::{
 use azul_css::system::DarkLightMode;
 
 pub mod overlay;
+pub mod labels;
+#[cfg(feature = "std")]
+pub mod disk_cache;
+#[cfg(test)]
+mod label_placement_tests;
+#[cfg(test)]
+mod stand_in_tests;
+#[cfg(test)]
+mod ground_tests;
+#[cfg(test)]
+mod disk_cache_tests;
+#[cfg(test)]
+mod seed_tests;
 pub use overlay::{
     MapLatLonVec, MapLatLonVecDestructor, MapLatLonVecDestructorType, MapLatLonVecSlice,
     MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,
@@ -353,6 +366,27 @@ impl MapTileLayer {
         }
         AzString::from(look.sheet())
     }
+}
+
+/// The ground under a map's tiles as CSS: the land colour (`canvas`) of the
+/// layer's light look, and of its dark look under `prefers-color-scheme:
+/// dark`, so it switches with the window as every other node does. It shows
+/// before the first tile arrives, under a tile still loading and beyond the
+/// poles.
+#[must_use]
+pub fn map_ground_css(layer: &MapTileLayer) -> String {
+    let ground = |scheme: MapColorScheme| {
+        let sheet = layer.effective_style_css_for(layer.theme.look(scheme));
+        let rgb = super::map_themes::canvas_fill(sheet.as_str())
+            .or_else(|| super::map_themes::parse_hex_rgb(super::map_themes::DEFAULT_CANVAS))
+            .unwrap_or([0xd6, 0xd8, 0xdb]);
+        alloc::format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2])
+    };
+    alloc::format!(
+        "background: {}; @media (prefers-color-scheme: dark) {{ background: {}; }}",
+        ground(MapColorScheme::Light),
+        ground(MapColorScheme::Dark)
+    )
 }
 
 impl Default for MapTileLayer {
@@ -733,7 +767,14 @@ impl MapWidget {
             // instead sizes against the container's final, finite content box. The
             // container MUST be a positioned box (the demo's `position: relative`);
             // a non-empty `container_style` (via `with_container_style`) overrides.
-            .with_css("position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;")
+            .with_css(
+                alloc::format!(
+                    "position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; \
+                     {}",
+                    map_ground_css(&self.layer)
+                )
+                .as_str(),
+            )
             // The widget as a whole; the tile grid inside it is the part a
             // screen reader describes (see map_widget_render).
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo::named(
@@ -869,6 +910,54 @@ impl Ord for TileStyleKey {
     }
 }
 
+/// How long a tile's drawing takes to fade in over what stood in for it,
+/// in seconds.
+pub const TILE_FADE_SECS: f64 = 0.16;
+
+/// One drawing a tile's box shows ([`MapTileCache::tile_stack`]): which
+/// one, and where it lies relative to the box, in tiles of the box's zoom
+/// (the box is `0..1` across). An ancestor `d` levels up is `2^d` across and
+/// shifted onto the box's part of it; a child is half the box.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TilePiece {
+    pub key: TileStyleKey,
+    pub left: f64,
+    pub top: f64,
+    pub size: f64,
+    /// 0 (not yet visible) .. 1.
+    pub opacity: f32,
+}
+
+impl TilePiece {
+    /// `key`'s drawing over the whole box.
+    #[must_use]
+    pub const fn whole(key: TileStyleKey, opacity: f32) -> Self {
+        Self {
+            key,
+            left: 0.0,
+            top: 0.0,
+            size: 1.0,
+            opacity,
+        }
+    }
+}
+
+/// How far a fade of `secs` is after `elapsed` seconds, `0..=1`. The last
+/// thousandth snaps to 1 so a fade measured at its end time is over, not a
+/// rounding error short of it.
+#[allow(clippy::cast_possible_truncation)] // a fraction in 0..=1
+fn fade_progress(elapsed: f64, secs: f64) -> f32 {
+    if secs <= 0.0 || elapsed.is_nan() {
+        return 1.0;
+    }
+    let t = (elapsed / secs).clamp(0.0, 1.0);
+    if t >= 0.999 {
+        1.0
+    } else {
+        t as f32
+    }
+}
+
 #[derive(Debug)]
 pub struct MapTileCache {
     pub layer: MapTileLayer,
@@ -978,7 +1067,39 @@ pub struct MapTileCache {
     /// The view's size (width, height) at the last render, px: the camera a
     /// drag is unprojected through when the event reports no node size.
     pub view_size: (f32, f32),
+    /// The labels the last renders showed, held or fading: what keeps a
+    /// label in its slot from one frame to the next (see [`labels`]).
+    pub labels: labels::LabelPlacement,
+    /// When the last fade in flight ends ([`map_clock`] seconds): a label
+    /// fading in or out, a tile fading in over its stand-in. Written by the
+    /// render; the fade timer draws the view again until then.
+    pub fade_until: f64,
+    /// Whether the fade timer runs ([`keep_fading`] starts it, it stops
+    /// itself once nothing has faded for a few ticks).
+    pub fade_timer_running: bool,
+    /// The fade timer's ticks in a row without a fade in flight.
+    pub fade_idle_ticks: u32,
+    /// When each drawing arrived ([`map_clock`] seconds), while it still
+    /// fades in over what stood in for it ([`TILE_FADE_SECS`]); the render
+    /// drops the entries whose fade is over. A drawing without an entry is
+    /// shown at full.
+    pub arrived: BTreeMap<TileStyleKey, f64>,
+    /// The drawings the last render showed in place of a missing tile (an
+    /// ancestor, children, the other look). The prune keeps them: without
+    /// them the tile's box would be blank until its own drawing arrives.
+    pub stand_ins: alloc::collections::BTreeSet<TileStyleKey>,
+    /// The tiles the app shipped ([`MapSetup::seed_tiles`]), installed on
+    /// mount: queued first at every look the map shows, never forgotten,
+    /// never evicted (entry, drawing or bytes).
+    pub pinned: alloc::collections::BTreeSet<MapTileId>,
+    /// When each `Failed` entry failed ([`map_clock`] seconds): a wanted tile
+    /// is queued again [`RETRY_FAILED_SECS`] later ([`Self::want_tiles_at`]).
+    pub failed_at: BTreeMap<TileStyleKey, f64>,
 }
+
+/// How long a tile whose fetch failed waits before the view asks for it
+/// again, in seconds.
+pub const RETRY_FAILED_SECS: f64 = 15.0;
 
 impl MapTileCache {
     #[must_use]
@@ -1008,6 +1129,27 @@ impl MapTileCache {
             on_marker_tap: OptionMapMarkerTap::None,
             pressed_marker: None,
             view_size: (0.0, 0.0),
+            labels: labels::LabelPlacement::new(),
+            fade_until: 0.0,
+            fade_timer_running: false,
+            fade_idle_ticks: 0,
+            arrived: BTreeMap::new(),
+            stand_ins: alloc::collections::BTreeSet::new(),
+            pinned: alloc::collections::BTreeSet::new(),
+            failed_at: BTreeMap::new(),
+        }
+    }
+
+    /// Takes the setup's seed tiles as tiles the map already has: their
+    /// bytes go where a download's would, so drawing one is a restyle, and
+    /// they are pinned.
+    pub fn install_seed_tiles(&mut self) {
+        for seed in self.setup.seed_tiles.as_ref() {
+            if seed.bytes.as_ref().is_empty() {
+                continue;
+            }
+            self.tile_bytes.insert(seed.tile, seed.bytes.clone());
+            self.pinned.insert(seed.tile);
         }
     }
 
@@ -1028,16 +1170,118 @@ impl MapTileCache {
                 svg: AzString::from_const_str(""),
             },
         );
-        self.drawn.insert(key, drawn);
+        // Only a first arrival fades in: a drawing that replaces one of the
+        // same key (a revalidated tile that changed) takes its place at once.
+        if self.drawn.insert(key, drawn).is_none() {
+            self.arrived.insert(key, map_clock());
+        }
+        self.failed_at.remove(&key);
+    }
+
+    /// What `tile`'s box shows at `look` and clock time `now`, bottom first.
+    ///
+    /// A drawing of its own at full opacity is all there is. Otherwise the
+    /// box shows what stands in for it - the other look's drawing of the same
+    /// tile (a light/dark switch), else the nearest drawn ancestor scaled up
+    /// (the world tile at the latest) with the drawn children over it (a zoom
+    /// out) - and its own drawing, when it has one, fading in on top.
+    #[must_use]
+    pub fn tile_stack(&self, tile: MapTileId, look: MapLook, now: f64) -> Vec<TilePiece> {
+        let own_key = TileStyleKey { tile, look };
+        let own = self
+            .drawn
+            .contains_key(&own_key)
+            .then(|| self.arrival_opacity(own_key, now));
+        if own == Some(1.0) {
+            return alloc::vec![TilePiece::whole(own_key, 1.0)];
+        }
+        let mut out = Vec::new();
+        if let Some((key, _)) = looks_of(&self.drawn, tile).find(|(k, _)| k.look != look) {
+            out.push(TilePiece::whole(*key, 1.0));
+        } else {
+            for d in 1..=tile.z.min(31) {
+                let ancestor = MapTileId {
+                    z: tile.z - d,
+                    x: tile.x >> d,
+                    y: tile.y >> d,
+                };
+                if let Some((found, _)) = self.best_drawn(ancestor, look) {
+                    let mask = (1u32 << d) - 1;
+                    out.push(TilePiece {
+                        key: TileStyleKey {
+                            tile: ancestor,
+                            look: found,
+                        },
+                        left: -f64::from(tile.x & mask),
+                        top: -f64::from(tile.y & mask),
+                        size: f64::from(1u32 << d),
+                        opacity: 1.0,
+                    });
+                    break;
+                }
+            }
+            if tile.z < 31 {
+                for j in 0..2u32 {
+                    for i in 0..2u32 {
+                        let child = MapTileId {
+                            z: tile.z + 1,
+                            x: tile.x * 2 + i,
+                            y: tile.y * 2 + j,
+                        };
+                        if let Some((found, _)) = self.best_drawn(child, look) {
+                            out.push(TilePiece {
+                                key: TileStyleKey {
+                                    tile: child,
+                                    look: found,
+                                },
+                                left: f64::from(i) * 0.5,
+                                top: f64::from(j) * 0.5,
+                                size: 0.5,
+                                opacity: 1.0,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(opacity) = own {
+            out.push(TilePiece::whole(own_key, opacity));
+        }
+        out
+    }
+
+    /// How far `key`'s drawing has faded in at `now`: 1 when it arrived
+    /// longer ago than [`TILE_FADE_SECS`] (or before anyone kept count).
+    #[must_use]
+    pub fn arrival_opacity(&self, key: TileStyleKey, now: f64) -> f32 {
+        self.arrived
+            .get(&key)
+            .map_or(1.0, |at| fade_progress(now - at, TILE_FADE_SECS))
     }
 
     /// Queue `wanted`'s tiles for `look` and remember the range as what the
     /// view needs now.
     pub fn want_tiles(&mut self, wanted: WantedTiles, look: MapLook) {
+        self.want_tiles_at(wanted, look, map_clock());
+    }
+
+    /// [`Self::want_tiles`] at clock time `now`. A wanted tile whose fetch
+    /// failed at least [`RETRY_FAILED_SECS`] ago is queued again: the
+    /// network may be back (a first start offline), and a failure that young
+    /// is not retried, so a dead server is not asked on every render.
+    pub fn want_tiles_at(&mut self, wanted: WantedTiles, look: MapLook, now: f64) {
         for tile in wanted.tiles() {
-            self.tiles
-                .entry(TileStyleKey { tile, look })
-                .or_insert(TileEntry::Pending);
+            let key = TileStyleKey { tile, look };
+            let entry = self.tiles.entry(key).or_insert(TileEntry::Pending);
+            if matches!(entry, TileEntry::Failed { .. })
+                && self
+                    .failed_at
+                    .get(&key)
+                    .is_none_or(|at| now - at >= RETRY_FAILED_SECS)
+            {
+                *entry = TileEntry::Pending;
+                self.failed_at.remove(&key);
+            }
         }
         self.wanted = Some(wanted);
     }
@@ -1053,8 +1297,12 @@ impl MapTileCache {
         let Some(wanted) = self.wanted else {
             return;
         };
-        self.tiles
-            .retain(|key, entry| !matches!(entry, TileEntry::Pending) || wanted.contains(key.tile));
+        let pinned = &self.pinned;
+        self.tiles.retain(|key, entry| {
+            !matches!(entry, TileEntry::Pending)
+                || wanted.contains(key.tile)
+                || pinned.contains(&key.tile)
+        });
     }
 
     /// The look to render right now: the layer's choice of cartography, taken
@@ -1113,6 +1361,8 @@ impl MapTileCache {
     pub fn mark_tile_ready(&mut self, key: TileStyleKey, svg: AzString) {
         self.tiles.insert(key, TileEntry::Ready { svg });
         self.drawn.remove(&key);
+        self.arrived.insert(key, map_clock());
+        self.failed_at.remove(&key);
     }
 
     /// Mark a tile's fetch as failed so the grid doesn't re-spawn it
@@ -1120,6 +1370,7 @@ impl MapTileCache {
     pub fn mark_tile_failed(&mut self, key: TileStyleKey, error: AzString) {
         self.tiles.insert(key, TileEntry::Failed { error });
         self.drawn.remove(&key);
+        self.failed_at.insert(key, map_clock());
     }
 
     /// The drawing to show for `tile`, preferring `want`: an exact hit, else
@@ -1223,10 +1474,16 @@ impl MapTileCache {
                 }
         };
 
+        // A stand-in's entry goes with its drawing (see prune_drawn_tiles).
+        let (stand_ins, pinned) = (&self.stand_ins, &self.pinned);
         let mut evictable: Vec<(f64, TileStyleKey)> = self
             .tiles
             .iter()
-            .filter(|(_, e)| !matches!(e, TileEntry::Pending | TileEntry::Fetching))
+            .filter(|(k, e)| {
+                !matches!(e, TileEntry::Pending | TileEntry::Fetching)
+                    && !stand_ins.contains(k)
+                    && !pinned.contains(&k.tile)
+            })
             .map(|(k, _)| (score(k), *k))
             .collect();
         // Farthest first.
@@ -1251,7 +1508,7 @@ impl MapTileCache {
             let mut byte_evictable: Vec<(f64, MapTileId)> = self
                 .tile_bytes
                 .keys()
-                .filter(|t| !live.contains(t))
+                .filter(|t| !live.contains(t) && !self.pinned.contains(t))
                 .map(|t| (tile_viewport_score(&self.viewport, &self.layer, *t), *t))
                 .collect();
             byte_evictable
@@ -1286,11 +1543,13 @@ impl MapTileCache {
         }
         let active = self.active_look;
         let wanted = self.wanted;
-        let (viewport, layer) = (&self.viewport, &self.layer);
+        let (viewport, layer, stand_ins, pinned) =
+            (&self.viewport, &self.layer, &self.stand_ins, &self.pinned);
         let mut evictable: Vec<(f64, TileStyleKey)> = self
             .drawn
             .keys()
             .filter(|k| !(k.look == active && wanted.is_some_and(|w| w.contains(k.tile))))
+            .filter(|k| !stand_ins.contains(k) && !pinned.contains(&k.tile))
             .map(|k| {
                 let penalty = if k.look == active {
                     0.0
@@ -1306,6 +1565,7 @@ impl MapTileCache {
         for (_, k) in evictable.into_iter().take(excess) {
             self.drawn.remove(&k);
             self.tiles.remove(&k);
+            self.arrived.remove(&k);
         }
     }
 
@@ -1439,6 +1699,11 @@ pub struct TileFetchInit {
     /// The connection pool to download through, from the map's [`MapSetup`].
     /// `None` opens a connection for this tile alone.
     pub client: OptionHttpClient,
+    /// The folder the tile is kept in on disk and looked up in first
+    /// ([`MapSetup::disk_cache_dir`]); empty: no disk cache.
+    pub cache_dir: AzString,
+    /// That folder's cap ([`MapSetup::disk_cache_max_bytes`]).
+    pub cache_max_bytes: u64,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -1733,7 +1998,49 @@ pub struct MapSetup {
     /// Most tiles downloading at once. 0 = no limit (at most 16 are started
     /// per pass).
     pub max_in_flight: u32,
+    /// The folder the map keeps its downloaded tiles in across restarts
+    /// ([`disk_cache`]); empty keeps them in memory only. Every fetch is
+    /// handed it ([`TileFetchInit::cache_dir`]).
+    pub disk_cache_dir: AzString,
+    /// The most bytes that folder holds before the least recently used tiles
+    /// go; 0 = [`disk_cache::DEFAULT_DISK_CACHE_BYTES`].
+    pub disk_cache_max_bytes: u64,
+    /// Tiles the app ships, as the tile server serves them (the world at
+    /// zoom 0 and 1, say): the map holds them from mount on as tiles it
+    /// already has, never downloads them, and keeps them drawn as the ground
+    /// of last resort under every tile that has not arrived
+    /// ([`MapTileCache::install_seed_tiles`]).
+    pub seed_tiles: MapSeedTileVec,
 }
+
+/// A tile an app ships with its map: which one, and its bytes as the
+/// layer's tile server serves them (an MVT tile for a vector layer). See
+/// [`MapSetup::seed_tiles`].
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct MapSeedTile {
+    pub tile: MapTileId,
+    pub bytes: azul_css::U8Vec,
+}
+
+azul_css::impl_option!(
+    MapSeedTile,
+    OptionMapSeedTile,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+azul_css::impl_vec!(
+    MapSeedTile,
+    MapSeedTileVec,
+    MapSeedTileVecDestructor,
+    MapSeedTileVecDestructorType,
+    MapSeedTileVecSlice,
+    OptionMapSeedTile
+);
+azul_css::impl_vec_clone!(MapSeedTile, MapSeedTileVec, MapSeedTileVecDestructor);
+azul_css::impl_vec_debug!(MapSeedTile, MapSeedTileVec);
+azul_css::impl_vec_mut!(MapSeedTile, MapSeedTileVec);
+azul_css::impl_vec_partialeq!(MapSeedTile, MapSeedTileVec);
 
 impl azul_core::host_invoker::HostOut for MapSetup {
     /// Shares nothing: owns no pool, no thread.
@@ -1756,6 +2063,9 @@ impl MapSetup {
             http_client: OptionHttpClient::None,
             thread_pool: OptionThreadPool::None,
             max_in_flight: 0,
+            disk_cache_dir: AzString::from_const_str(""),
+            disk_cache_max_bytes: 0,
+            seed_tiles: MapSeedTileVec::from_const_slice(&[]),
         }
     }
 
@@ -1777,6 +2087,26 @@ impl MapSetup {
     #[must_use]
     pub const fn with_max_in_flight(mut self, max_in_flight: u32) -> Self {
         self.max_in_flight = max_in_flight;
+        self
+    }
+
+    /// Keep the downloaded tiles in `dir` across restarts, at most
+    /// `max_bytes` of them (0 = 256 MB): a pan back or a restart shows them
+    /// without a download, as long as the tile server says they are fresh
+    #[must_use]
+    pub fn with_disk_cache(mut self, dir: AzString, max_bytes: u64) -> Self {
+        self.disk_cache_dir = dir;
+        self.disk_cache_max_bytes = max_bytes;
+        self
+    }
+
+    /// Ship `tile` with the map: `bytes` are the tile as the layer's server
+    /// serves it. The map never downloads it and keeps it drawn under every
+    /// tile that has not arrived - the world tiles make a first start
+    /// without a network show the world
+    #[must_use]
+    pub fn with_seed_tile(mut self, tile: MapTileId, bytes: azul_css::U8Vec) -> Self {
+        self.seed_tiles.push(MapSeedTile { tile, bytes });
         self
     }
 }
@@ -1825,6 +2155,7 @@ fn mount_map(data: &mut RefAny, info: &CallbackInfo) {
     let setup = hook.callback.invoke(hook.refany, *info, setup);
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
         cache.setup = setup;
+        cache.install_seed_tiles();
     }
 }
 
@@ -1925,6 +2256,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let vp = cache.viewport;
         let marker = cache.view_marker.clone();
         drop(cache);
+        keep_fading(&mut data, &mut info);
         return finish_viewport_change(&hook, &mut info, vp, marker);
     }
 
@@ -1954,6 +2286,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let vp = cache_guard.viewport;
         let marker = cache_guard.view_marker.clone();
         drop(cache_guard);
+        keep_fading(&mut data, &mut info);
         return finish_viewport_change(&hook, &mut info, vp, marker);
     }
     let Some(anchor) = cache_guard.drag_anchor else {
@@ -2000,6 +2333,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let vp = cache_guard.viewport;
     let marker = cache_guard.view_marker.clone();
     drop(cache_guard);
+    keep_fading(&mut data, &mut info);
     finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
@@ -2057,6 +2391,7 @@ extern "C" fn map_on_rotate_gesture(mut data: RefAny, mut info: CallbackInfo) ->
     let vp = cache_guard.viewport;
     let marker = cache_guard.view_marker.clone();
     drop(cache_guard);
+    keep_fading(&mut data, &mut info);
     finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
@@ -2173,6 +2508,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         )
     };
     spawn_pending_tile_fetches(&mut data, &mut info);
+    keep_fading(&mut data, &mut info);
     finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
@@ -2508,29 +2844,11 @@ fn xml_unescape(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The most labels one frame shows. Each is a text node the view lays out
-/// and shapes on every render; 300 cost more than the tiles under them, and
-/// a decluttered map window rarely holds more than this many readable names.
-const MAX_LABELS_PER_FRAME: usize = 160;
-
-/// A label is not repeated closer than this to itself (one road name per
-/// tile reads as a repeat every 256 px otherwise).
-const LABEL_REPEAT_PX: f32 = 180.0;
-
-/// House numbers only from this zoom on (the tiles carry them from z14,
-/// where they would bury the streets).
-const HOUSENUMBER_MIN_ZOOM: f32 = 17.0;
-
-/// The box a label's text takes: an estimate (no font is measured on the
-/// render path), generous so a centred line never overflows to one side.
-fn label_box(label: &TileLabel) -> (f32, f32) {
-    let chars = label.text.chars().count() as f32;
-    (chars * label.size * 0.62 + 6.0, label.size * 1.35)
-}
-
-/// The labels the frame shows, as DOM: [`declutter_labels`]'s choice, each
-/// built by [`label_dom`]. `candidates` are `(x, y, label)` in the grid's
-/// pixel space.
+/// The labels a view of `width x height` px at `viewport` shows for
+/// `candidates` (`(x, y, label)` in the grid's pixel space), as DOM: one
+/// placement from scratch, the anchors' world points taken from their pixels.
+/// The render places through the cache's [`labels::LabelPlacement`], which
+/// remembers its frames.
 #[cfg(test)]
 fn map_label_doms<L: core::borrow::Borrow<TileLabel>>(
     candidates: Vec<(f32, f32, L)>,
@@ -2539,91 +2857,50 @@ fn map_label_doms<L: core::borrow::Borrow<TileLabel>>(
     viewport: &MapViewport,
     margin: f32,
 ) -> Vec<Dom> {
-    declutter_labels(&candidates, width, height, viewport, margin)
-        .into_iter()
-        .map(|index| {
-            let (x, y, label) = &candidates[index];
-            label_dom(*x, *y, label_of(label), viewport)
+    let view = labels::LabelView {
+        width,
+        height,
+        margin,
+        zoom: viewport.zoom,
+        centre: (0.5, 0.5),
+    };
+    let world_px = view.world_px();
+    let offered: Vec<labels::LabelCandidate<'_>> = candidates
+        .iter()
+        .map(|(x, y, label)| labels::LabelCandidate {
+            x: *x,
+            y: *y,
+            label: label_of(label),
+            world: (
+                0.5 + (f64::from(*x) - f64::from(width) * 0.5) / world_px,
+                0.5 + (f64::from(*y) - f64::from(height) * 0.5) / world_px,
+            ),
+        })
+        .collect();
+    let frame = labels::LabelPlacement::new().place(&offered, &view, 0.0);
+    frame
+        .placed
+        .iter()
+        .filter_map(|p| match p.from {
+            labels::PlacedFrom::Candidate(i) => {
+                Some(label_dom(p.x, p.y, offered[i].label, viewport, 1.0))
+            }
+            labels::PlacedFrom::Remembered(_) => None,
         })
         .collect()
 }
 
 /// A candidate's label, held or borrowed.
+#[cfg(test)]
 fn label_of<L: core::borrow::Borrow<TileLabel>>(label: &L) -> &TileLabel {
     <L as core::borrow::Borrow<TileLabel>>::borrow(label)
-}
-
-/// Which labels the frame shows - indexes into `candidates`, most important
-/// first: none on top of another, none repeated within [`LABEL_REPEAT_PX`],
-/// none outside the view (with `margin` px to spare for a turned or tilted
-/// camera), at most [`MAX_LABELS_PER_FRAME`]. `candidates` are `(x, y,
-/// label)` in the grid's pixel space.
-#[allow(clippy::cast_precision_loss)] // label counts and character counts are small
-fn declutter_labels<L: core::borrow::Borrow<TileLabel>>(
-    candidates: &[(f32, f32, L)],
-    width: f32,
-    height: f32,
-    viewport: &MapViewport,
-    margin: f32,
-) -> Vec<usize> {
-    // Most important first; stable, so equal priorities keep their order.
-    let mut order: Vec<usize> = (0..candidates.len()).collect();
-    order.sort_by_key(|&index| label_of(&candidates[index].2).priority);
-    let mut taken: Vec<(f32, f32, f32, f32)> = Vec::new();
-    let mut shown: Vec<(&str, f32, f32)> = Vec::new();
-    let mut out = Vec::new();
-    for index in order {
-        if out.len() >= MAX_LABELS_PER_FRAME {
-            break;
-        }
-        let (x, y, label) = (
-            candidates[index].0,
-            candidates[index].1,
-            label_of(&candidates[index].2),
-        );
-        if !x.is_finite() || !y.is_finite() {
-            continue;
-        }
-        if label.kind == "housenumber" && viewport.zoom < HOUSENUMBER_MIN_ZOOM {
-            continue;
-        }
-        let (w, h) = label_box(label);
-        let (sin, cos) = label.angle.to_radians().sin_cos();
-        let (bw, bh) = (
-            w * cos.abs() + h * sin.abs(),
-            w * sin.abs() + h * cos.abs(),
-        );
-        let rect = (x - bw * 0.5 - 2.0, y - bh * 0.5 - 2.0, x + bw * 0.5 + 2.0, y + bh * 0.5 + 2.0);
-        if rect.2 < -margin
-            || rect.0 > width + margin
-            || rect.3 < -margin
-            || rect.1 > height + margin
-        {
-            continue;
-        }
-        if taken.iter().any(|other| {
-            rect.0 < other.2 && other.0 < rect.2 && rect.1 < other.3 && other.1 < rect.3
-        }) {
-            continue;
-        }
-        if shown
-            .iter()
-            .any(|(text, sx, sy)| *text == label.text && (sx - x).hypot(sy - y) < LABEL_REPEAT_PX)
-        {
-            continue;
-        }
-        taken.push(rect);
-        shown.push((label.text.as_str(), x, y));
-        out.push(index);
-    }
-    out
 }
 
 /// One label's node: its text centred on `(x, y)` (grid pixels), in its
 /// ink with its halo, turned along its road - or upright under the camera's
 /// bearing (the grid turns by it, each point label turns back).
-fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport) -> Dom {
-    let (w, h) = label_box(label);
+fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport, opacity: f32) -> Dom {
+    let (w, h) = labels::label_box(label);
     let turn = if label.angle.abs() > 0.01 {
         label.angle
     } else {
@@ -2634,10 +2911,16 @@ fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport) -> Dom {
     } else {
         String::new()
     };
+    // A label fading in or out; a placed one is fully drawn.
+    let fade = if opacity < 0.999 {
+        format!(" opacity: {:.3};", opacity.clamp(0.0, 1.0))
+    } else {
+        String::new()
+    };
     let style = format!(
         "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: {:.1}px; \
          margin: 0px; font-size: {:.1}px; line-height: {:.1}px; color: {}; text-align: \
-         center; white-space: nowrap; text-shadow: 0px 0px 2px {};{}{}",
+         center; white-space: nowrap; text-shadow: 0px 0px 2px {};{}{}{}",
         x - w * 0.5,
         y - h * 0.5,
         w,
@@ -2648,6 +2931,7 @@ fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport) -> Dom {
         label.halo,
         if label.italic { " font-style: italic;" } else { "" },
         transform,
+        fade,
     );
     crate::widgets::widget_p_with_text(AzString::from(label.text.as_str()))
         .with_css(style.as_str())
@@ -2757,10 +3041,18 @@ fn rasterize_tile_geometry(_svg: &str) -> Option<ImageRef> {
 /// What the render puts in a tile's box for its drawing: the image, else the
 /// geometry through the DOM (a build without the rasteriser), else the
 /// tile's "nothing to draw" mark.
-fn drawn_tile_dom(drawn: &DrawnTile, z: u8, x: i32, y: i32) -> Dom {
+fn drawn_tile_dom(drawn: &DrawnTile, z: u8, x: i32, y: i32, opacity: f32) -> Dom {
     if let Some(image) = &drawn.image {
+        let css = if opacity < 0.999 {
+            alloc::format!(
+                "position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: {:.3};",
+                opacity.clamp(0.0, 1.0)
+            )
+        } else {
+            String::from("position: absolute; left: 0; top: 0; width: 100%; height: 100%;")
+        };
         return Dom::create_image(image.clone())
-            .with_css("position: absolute; left: 0; top: 0; width: 100%; height: 100%;")
+            .with_css(css.as_str())
             // One piece of the map graphic, which the tile grid names:
             // decorative, so a screen reader does not read out every tile.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
@@ -2775,6 +3067,71 @@ fn drawn_tile_dom(drawn: &DrawnTile, z: u8, x: i32, y: i32) -> Dom {
     }
     crate::widgets::widget_p_with_text(alloc::format!("✓? z{z}/{x}/{y}"))
         .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;")
+}
+
+/// A drawing standing in for a missing tile: its image at `left`, `top`
+/// (px, relative to the tile's box, which clips it) and `width x height` px.
+/// `None` for a drawing without an image (a build without the rasteriser
+/// draws only a tile's own geometry, through the DOM).
+fn stand_in_dom(
+    drawn: &DrawnTile,
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+    opacity: f32,
+) -> Option<Dom> {
+    let image = drawn.image.as_ref()?;
+    let fade = if opacity < 0.999 {
+        alloc::format!(" opacity: {:.3};", opacity.clamp(0.0, 1.0))
+    } else {
+        String::new()
+    };
+    let css = alloc::format!(
+        "position: absolute; left: {left}px; top: {top}px; width: {width}px; height: \
+         {height}px;{fade}"
+    );
+    Some(
+        Dom::create_image(image.clone())
+            .with_css(css.as_str())
+            // Part of the one "Map" graphic, like the tile it stands in for.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Nothing,
+                ..Default::default()
+            }),
+    )
+}
+
+/// The labels a missing tile's box shows from what stands in for it, in the
+/// box's own units (`0..1` across), with the tile each came from. A finer
+/// tile's labels all lie in its quarter; a coarser tile's are taken where
+/// they fall inside the box and no finer tile covers that quarter, so no
+/// name is offered twice.
+fn stand_in_labels(pieces: &[(TilePiece, DrawnTile)]) -> Vec<((f64, f64), &TileLabel, MapTileId)> {
+    let quarter = |u: f64, v: f64| (usize::from(u >= 0.5), usize::from(v >= 0.5));
+    let mut covered = [[false; 2]; 2];
+    for (piece, _) in pieces {
+        if piece.size <= 0.5 {
+            let (i, j) = quarter(piece.left, piece.top);
+            covered[i][j] = true;
+        }
+    }
+    let mut out = Vec::new();
+    for (piece, drawn) in pieces {
+        for label in drawn.labels.iter() {
+            let u = piece.left + f64::from(label.x) / 256.0 * piece.size;
+            let v = piece.top + f64::from(label.y) / 256.0 * piece.size;
+            if !(0.0..1.0).contains(&u) || !(0.0..1.0).contains(&v) {
+                continue;
+            }
+            let (i, j) = quarter(u, v);
+            if piece.size > 0.5 && covered[i][j] {
+                continue;
+            }
+            out.push(((u, v), label, piece.key.tile));
+        }
+    }
+    out
 }
 
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
@@ -2972,40 +3329,31 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 .or_insert(TileEntry::Pending);
         }
         cache.drop_unwanted_pending();
+        // The view's tiles again: a failure old enough is queued once more
+        // (the network may be back) without waiting for a pan.
+        if let Some(wanted) = cache.wanted {
+            cache.want_tiles_at(wanted, look, map_clock());
+        }
+        // The shipped tiles at the look shown: queued whatever the view
+        // wants, since they stand in for every tile that has not arrived.
+        let pinned: Vec<MapTileId> = cache.pinned.iter().copied().collect();
+        for tile in &pinned {
+            cache
+                .tiles
+                .entry(TileStyleKey { tile: *tile, look })
+                .or_insert(TileEntry::Pending);
+        }
 
-        let template = cache.layer.url_template.as_str().to_string();
         let budget = spawn_budget(&cache);
-        // Centre-out: the tiles under the user's eyes first, the off-screen
+        // The shipped tiles first (a restyle each, no network), then
+        // centre-out: the tiles under the user's eyes first, the off-screen
         // margin and other-zoom leftovers last (see `pending_tiles_nearest_first`).
-        let pending: Vec<TileStyleKey> = cache
-            .pending_tiles_nearest_first()
-            .into_iter()
-            .take(budget)
-            .collect();
+        let mut queue = cache.pending_tiles_nearest_first();
+        queue.sort_by_key(|key| !cache.pinned.contains(&key.tile));
+        let pending: Vec<TileStyleKey> = queue.into_iter().take(budget).collect();
         for key in pending {
-            let url = build_tile_url(&template, key.tile);
-            // Each job is styled for the look ITS KEY asks for, not for one
-            // cache-wide "current" look. A sweep can therefore legitimately
-            // carry jobs for two different looks at once (the new one being
-            // filled in, an old one still queued) and neither invalidates the
-            // other.
-            let style_css = cache.layer.effective_style_css_for(key.look);
-            // Bytes already in hand => restyle, no network. This is the whole
-            // point of the split cache: geometry is fetched once per tile, ever.
-            let bytes = cache
-                .tile_bytes
-                .get(&key.tile)
-                .cloned()
-                .unwrap_or_else(|| azul_css::U8Vec::from_vec(Vec::new()));
+            to_spawn.push(tile_fetch_init(&cache, key));
             cache.tiles.insert(key, TileEntry::Fetching);
-            to_spawn.push(TileFetchInit {
-                tile: key.tile,
-                url: AzString::from(url),
-                style_css,
-                look: key.look,
-                bytes,
-                client: cache.setup.http_client.clone(),
-            });
         }
         // Now that the current view's tiles are queued (Fetching, so eviction
         // protects them), bound the cache by dropping tiles far from the
@@ -3053,6 +3401,31 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     #[cfg(feature = "std")]
     if map_debug() {
         eprintln!("[map] spawn_pending: {spawn_count} thread(s) spawned");
+    }
+}
+
+/// The job that fetches (or restyles) the tile `key` names for `cache`'s map.
+///
+/// Each job is styled for the look ITS KEY asks for, not for one cache-wide
+/// "current" look: a pass can carry jobs for two looks at once (the new one
+/// being filled in, an old one still queued) and neither invalidates the
+/// other. Bytes already in hand make it a restyle with no network at all:
+/// a tile's geometry is downloaded once per session. Otherwise the worker
+/// looks in the map's disk cache first.
+fn tile_fetch_init(cache: &MapTileCache, key: TileStyleKey) -> TileFetchInit {
+    TileFetchInit {
+        tile: key.tile,
+        url: AzString::from(build_tile_url(cache.layer.url_template.as_str(), key.tile)),
+        style_css: cache.layer.effective_style_css_for(key.look),
+        look: key.look,
+        bytes: cache
+            .tile_bytes
+            .get(&key.tile)
+            .cloned()
+            .unwrap_or_else(|| azul_css::U8Vec::from_vec(Vec::new())),
+        client: cache.setup.http_client.clone(),
+        cache_dir: cache.setup.disk_cache_dir.clone(),
+        cache_max_bytes: cache.setup.disk_cache_max_bytes,
     }
 }
 
@@ -3232,6 +3605,96 @@ fn rerender_map_view(data: &mut RefAny, info: &mut CallbackInfo) {
         .downcast_ref::<MapTileCache>()
         .map(|cache| cache.view_marker.clone());
     rerender_marked_view(marker, info);
+    keep_fading(data, info);
+}
+
+/// The map's clock: seconds since a map first asked. What the fades of
+/// labels and tiles start and end at.
+fn map_clock() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+}
+
+/// How often a fade in flight draws the view again, ms: about a frame.
+const FADE_FRAME_MS: u64 = 16;
+
+/// Ticks without a fade in flight after which the fade timer stops.
+const FADE_IDLE_TICKS: u32 = 6;
+
+/// Makes sure the view is drawn again while a fade runs: starts the fade
+/// timer unless it runs. Every callback that re-renders the view calls this,
+/// because the render that starts a fade cannot start a timer itself and
+/// runs only after the callback; the timer stops itself when there is
+/// nothing to fade.
+fn keep_fading(data: &mut RefAny, info: &mut CallbackInfo) {
+    let start = match data.downcast_mut::<MapTileCache>() {
+        Some(mut cache) if !cache.fade_timer_running => {
+            cache.fade_timer_running = true;
+            cache.fade_idle_ticks = 0;
+            true
+        }
+        _ => false,
+    };
+    if start {
+        let timer = Timer::create(
+            data.clone(),
+            TimerCallback::create(map_fade_tick),
+            info.get_system_time_fn(),
+        )
+        .with_interval(Duration::System(SystemTimeDiff::from_millis(FADE_FRAME_MS)));
+        info.add_timer(TimerId::unique(), timer);
+    }
+}
+
+/// The fade timer: draws the view while a fade is in flight (and once more
+/// after it ends, so its last frame is drawn at full), and stops after
+/// [`FADE_IDLE_TICKS`] ticks without one.
+extern "C" fn map_fade_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    #[allow(clippy::cast_precision_loss)] // a few milliseconds
+    let last_frame = FADE_FRAME_MS as f64 / 1000.0;
+    let now = map_clock();
+    let redraw = match data.downcast_mut::<MapTileCache>() {
+        None => false,
+        Some(mut cache) => {
+            if now <= cache.fade_until + last_frame {
+                cache.fade_idle_ticks = 0;
+                true
+            } else {
+                cache.fade_idle_ticks += 1;
+                if cache.fade_idle_ticks > FADE_IDLE_TICKS {
+                    cache.fade_timer_running = false;
+                    return TimerCallbackReturn {
+                        should_update: Update::DoNothing,
+                        should_terminate: TerminateTimer::Terminate,
+                    };
+                }
+                false
+            }
+        }
+    };
+    if redraw {
+        let marker = data
+            .downcast_ref::<MapTileCache>()
+            .map(|cache| cache.view_marker.clone());
+        rerender_marked_view(marker, &mut info.callback_info);
+    }
+    TimerCallbackReturn {
+        should_update: Update::DoNothing,
+        should_terminate: TerminateTimer::Continue,
+    }
+}
+
+/// Where a tile's label stands in the world (Web Mercator fractions, `0..1`
+/// west to east and north to south).
+fn label_world(tile: MapTileId, label: &TileLabel) -> (f64, f64) {
+    let count = f64::from(1u32 << u32::from(tile.z.min(31)));
+    (
+        (f64::from(tile.x) + f64::from(label.x) / 256.0) / count,
+        (f64::from(tile.y) + f64::from(label.y) / 256.0) / count,
+    )
 }
 
 /// [`rerender_map_view`] for a marker already read out of the cache (the
@@ -3509,7 +3972,12 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // to clone), or the glyph of its state.
     enum TileDisplay {
         Glyph(&'static str),
-        Drawn(DrawnTile),
+        /// The drawings the box shows, bottom first ([`MapTileCache::tile_stack`]);
+        /// `own` when the last one is the tile's own.
+        Stack {
+            pieces: Vec<(TilePiece, DrawnTile)>,
+            own: bool,
+        },
     }
     let started = map_stats_enabled().then(std::time::Instant::now);
     let mut data = data;
@@ -3644,23 +4112,60 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         y_min,
         y_max,
     };
+    //
+    // A tile without a drawing of its own at full opacity shows what stands
+    // in for it (`tile_stack`): the coarser tile it lies in, the finer ones
+    // it covers, the other look's drawing - and its own fading in on top.
+    // Those stand-ins are remembered so the prune keeps them.
+    let now = map_clock();
     let states: BTreeMap<MapTileId, TileDisplay> = match data.downcast_mut::<MapTileCache>() {
         Some(mut cache) => {
             cache.want_tiles(wanted, look);
             let mut out = BTreeMap::new();
+            let mut stand_ins = alloc::collections::BTreeSet::new();
             for tile in wanted.tiles() {
                 if out.contains_key(&tile) {
                     continue;
                 }
-                let display = match cache.drawing_for(tile, look) {
-                    Some(drawn) => TileDisplay::Drawn(drawn),
-                    None => match cache.tiles.get(&TileStyleKey { tile, look }) {
+                // Draws a tile its fetcher handed back only as SVG, once.
+                let _ = cache.drawing_for(tile, look);
+                let stack = cache.tile_stack(tile, look, now);
+                let own_key = TileStyleKey { tile, look };
+                let own = stack.last().is_some_and(|p| p.key == own_key);
+                let pieces: Vec<(TilePiece, DrawnTile)> = stack
+                    .iter()
+                    .filter_map(|p| cache.drawn.get(&p.key).map(|d| (*p, d.clone())))
+                    .collect();
+                for (piece, _) in &pieces {
+                    if piece.key != own_key {
+                        stand_ins.insert(piece.key);
+                    }
+                }
+                let display = if pieces.is_empty() {
+                    match cache.tiles.get(&own_key) {
                         Some(TileEntry::Fetching) => TileDisplay::Glyph("⟳"),
                         Some(TileEntry::Failed { .. }) => TileDisplay::Glyph("✗"),
                         _ => TileDisplay::Glyph("…"),
-                    },
+                    }
+                } else {
+                    TileDisplay::Stack { pieces, own }
                 };
                 out.insert(tile, display);
+            }
+            cache.stand_ins = stand_ins;
+            // The tiles still fading in keep the view drawing; the ones done
+            // are shown at full from now on.
+            // (Only a fade still running moves `fade_until`: moving it to
+            // every render's time would keep the fade timer drawing forever.)
+            let tiles_settle = cache
+                .arrived
+                .values()
+                .map(|at| at + TILE_FADE_SECS)
+                .filter(|end| *end > now)
+                .fold(now, f64::max);
+            cache.arrived.retain(|_, at| now - *at < TILE_FADE_SECS);
+            if tiles_settle > now {
+                cache.fade_until = cache.fade_until.max(tiles_settle);
             }
             out
         }
@@ -3705,8 +4210,14 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // view bubbles to them - the tiles in the grid, and the markers over it
     // unless a marker keeps its press. `data` is the shared cache the
     // handlers mutate; the in-place re-render they trigger re-reads it.
+    // The view stands on the ground of the map's look: what a tile still
+    // loading lets through, and what lies beyond the poles.
     let mut view_root = Dom::create_div().with_css(
-        "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;",
+        alloc::format!(
+            "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; {}",
+            map_ground_css(&layer)
+        )
+        .as_str(),
     );
     {
         use azul_core::dom::{EventFilter, HoverEventFilter};
@@ -3797,11 +4308,9 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             );
     }
 
-    // Every visible tile's labels, in the grid's pixel space - borrowed from
-    // the drawings in `states` - and the key of each: its tile and its place
-    // in the tile's list.
-    let mut label_candidates: Vec<(f32, f32, &TileLabel)> = Vec::new();
-    let mut label_keys: Vec<(u8, i32, i32, usize)> = Vec::new();
+    // Every visible tile's labels, in the grid's pixel space and in the
+    // world - borrowed from the drawings in `states`.
+    let mut label_candidates: Vec<labels::LabelCandidate<'_>> = Vec::new();
     let mut tile_nodes = 0usize;
     // Every tile box as placed: the lines and areas are drawn over them.
     let mut tile_boxes: Vec<overlay::TileBox> = Vec::new();
@@ -3843,17 +4352,15 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                 .saturating_sub(screen_y)
                 .max(1);
 
-            // Placeholder (still-loading) tiles show the loading grid — a grey
-            // background + 1px border — so fetch state is visible. A LOADED tile
-            // drops that chrome entirely: the drawing covers the tile, and
-            // keeping the per-tile border would draw a grey seam-grid over the
-            // whole map (user-reported "small grey borders around the tiles").
-            let is_ready = matches!(states.get(&id), Some(TileDisplay::Drawn(_)));
-            let chrome = if is_ready {
-                ""
-            } else {
-                "background: #e7e9ec; border: 1px solid #d0d4d9;"
-            };
+            // A tile with nothing to show yet paints nothing: the view's
+            // ground shows through, in the look's land colour, light or dark.
+            // A tile shown by a stand-in clips it: the stand-in is larger
+            // than the box.
+            let clips = matches!(
+                states.get(&id),
+                Some(TileDisplay::Stack { pieces, own }) if !*own || pieces.len() > 1
+            );
+            let chrome = if clips { "overflow: hidden;" } else { "" };
             let style = alloc::format!(
                 "position: absolute; left: {screen_x}px; top: {screen_y}px; width: {size_w}px; \
                  height: {size_h}px; {chrome}"
@@ -3878,24 +4385,70 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             });
 
             // A drawn tile is its image (the worker's, shared - not drawn
-            // again); everything else shows a state glyph + tile id so the
-            // grid math + fetch state stay observable.
+            // again), over whatever stands in for it while it fades in.
             match states.get(&id) {
-                Some(TileDisplay::Drawn(drawn)) => {
-                    // The labels leave the tile here and are laid out over
-                    // the whole grid below, in its pixel space.
-                    let (sx, sy) = (size_w as f32 / 256.0, size_h as f32 / 256.0);
-                    for (index, label) in drawn.labels.iter().enumerate() {
-                        label_candidates.push((
-                            screen_x as f32 + label.x * sx,
-                            screen_y as f32 + label.y * sy,
-                            label,
-                        ));
-                        label_keys.push((z_int, x, y, index));
+                Some(TileDisplay::Stack { pieces, own }) => {
+                    let last = pieces.len().saturating_sub(1);
+                    for (index, (piece, drawn)) in pieces.iter().enumerate() {
+                        if *own && index == last {
+                            tile_div = tile_div.with_child(drawn_tile_dom(
+                                drawn,
+                                z_int,
+                                x,
+                                y,
+                                piece.opacity,
+                            ));
+                            continue;
+                        }
+                        // A stand-in, placed on the same rounded grid as the
+                        // tiles so its edges meet theirs exactly.
+                        let left = proj(x as f32 + piece.left as f32, centre_x, width_px);
+                        let right =
+                            proj(x as f32 + (piece.left + piece.size) as f32, centre_x, width_px);
+                        let top = proj(y as f32 + piece.top as f32, centre_y, height_px);
+                        let bottom =
+                            proj(y as f32 + (piece.top + piece.size) as f32, centre_y, height_px);
+                        if let Some(node) = stand_in_dom(
+                            drawn,
+                            left.saturating_sub(screen_x),
+                            top.saturating_sub(screen_y),
+                            right.saturating_sub(left).max(1),
+                            bottom.saturating_sub(top).max(1),
+                            piece.opacity,
+                        ) {
+                            tile_div = tile_div.with_child(node);
+                        }
                     }
-                    tile_div = tile_div.with_child(drawn_tile_dom(drawn, z_int, x, y));
+                    // The labels leave the tile here and are laid out over
+                    // the whole grid below, in its pixel space: the tile's
+                    // own, else the ones of what stands in for it.
+                    let (sw, sh) = (size_w as f32, size_h as f32);
+                    let offered: Vec<((f64, f64), &TileLabel, MapTileId)> = match pieces.last() {
+                        Some((_, drawn)) if *own => drawn
+                            .labels
+                            .iter()
+                            .map(|l| {
+                                (
+                                    (f64::from(l.x) / 256.0, f64::from(l.y) / 256.0),
+                                    l,
+                                    id,
+                                )
+                            })
+                            .collect(),
+                        _ => stand_in_labels(pieces),
+                    };
+                    for ((u, v), label, from) in offered {
+                        label_candidates.push(labels::LabelCandidate {
+                            x: screen_x as f32 + u as f32 * sw,
+                            y: screen_y as f32 + v as f32 * sh,
+                            label,
+                            world: label_world(from, label),
+                        });
+                    }
                 }
-                other => {
+                // The fetch state, as text over the tile, only for the debug
+                // log's reader (`AZ_MAP_DEBUG`): the map shows its ground.
+                other if map_debug() => {
                     let state_tag = match other {
                         Some(TileDisplay::Glyph(g)) => *g,
                         _ => "",
@@ -3910,6 +4463,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                         ),
                     );
                 }
+                _ => {}
             }
 
             grid = grid.with_child(tile_div);
@@ -3957,21 +4511,40 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     } else {
         0.0
     };
-    let shown = declutter_labels(
-        &label_candidates,
-        width_px,
-        height_px,
-        &viewport,
-        label_margin,
-    );
-    let label_nodes = shown.len();
-    for index in shown {
-        let (x, y, label) = label_candidates[index];
-        let (z, tile_x, tile_y, nth) = label_keys[index];
-        // Keyed like its tile: the same label is the same node next frame.
-        grid = grid.with_child(
-            label_dom(x, y, label, &viewport).with_key(("azul-map-label", z, tile_x, tile_y, nth)),
-        );
+    // Placed through the cache's memory of the last frames, so a label keeps
+    // its slot, its identity and its node across pans, zooms and tiles.
+    let label_view = labels::LabelView {
+        width: width_px,
+        height: height_px,
+        margin: label_margin,
+        zoom: viewport.zoom,
+        centre: (
+            f64::from(centre_x) / f64::from(tile_count),
+            f64::from(centre_y) / f64::from(tile_count),
+        ),
+    };
+    let mut label_nodes = 0usize;
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        let frame = cache.labels.place(&label_candidates, &label_view, now);
+        if frame.settled_at > now {
+            cache.fade_until = cache.fade_until.max(frame.settled_at);
+        }
+        for placed in &frame.placed {
+            let label = match placed.from {
+                labels::PlacedFrom::Candidate(i) => Some(label_candidates[i].label),
+                labels::PlacedFrom::Remembered(i) => cache.labels.remembered(i),
+            };
+            let Some(label) = label else {
+                continue;
+            };
+            // Keyed by the label's identity: the same label is the same node
+            // next frame, whichever tile offers it then.
+            grid = grid.with_child(
+                label_dom(placed.x, placed.y, label, &viewport, placed.opacity)
+                    .with_key(("azul-map-label", placed.id)),
+            );
+            label_nodes += 1;
+        }
     }
 
     if let Some(started) = started {
@@ -7288,10 +7861,16 @@ mod autotest_generated {
         let (update, changes) =
             with_callback_info(|info| map_on_after_mount(dataset.clone(), info));
         assert_eq!(update, Update::DoNothing);
+        // The fade timer may start beside it (the first render's labels
+        // fade in); the sweep is the timer running `map_fetch_sweep_tick`.
+        let sweep = map_fetch_sweep_tick as usize;
         assert_eq!(
             changes
                 .iter()
-                .filter(|c| matches!(c, CallbackChange::AddTimer { .. }))
+                .filter(|c| matches!(
+                    c,
+                    CallbackChange::AddTimer { timer, .. } if timer.callback.cb as usize == sweep
+                ))
                 .count(),
             1,
             "exactly one sweep timer per mount"
@@ -7700,6 +8279,35 @@ mod autotest_generated {
             "one label per tile at most ({children} nodes for {} tiles)",
             tiles.len()
         );
+    }
+
+    #[test]
+    fn an_unchanged_view_rendered_twice_draws_the_same_labels_under_the_same_keys() {
+        let image = a_tiny_image();
+        let (dataset, tiles) = drawn_view(
+            &image,
+            &[
+                a_label("Atlantis", 128.0, 128.0, 100),
+                a_label("Lemuria", 140.0, 130.0, 100),
+            ],
+        );
+        let label_keys = |ret: &VirtualViewReturn| -> Vec<Option<u64>> {
+            the_grid(ret)
+                .children
+                .as_slice()
+                .iter()
+                .skip(tiles.len())
+                .map(|label| label.root.get_key())
+                .collect()
+        };
+        let first = label_keys(&with_virtual_view_info(512.0, 512.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        }));
+        let second = label_keys(&with_virtual_view_info(512.0, 512.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        }));
+        assert!(!first.is_empty(), "the drawings' labels are drawn");
+        assert_eq!(first, second, "the same labels, in the same order, under the same keys");
     }
 
     #[test]

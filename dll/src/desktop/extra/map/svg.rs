@@ -155,8 +155,9 @@ struct MapCss {
     canvas_fill: Option<String>,
 }
 
-/// The built-in base (land) colour behind every tile.
-const DEFAULT_CANVAS_FILL: &str = "#d6d8db";
+/// The built-in base (land) colour behind every tile: the same colour the
+/// widget grounds its view in when a sheet declares none.
+const DEFAULT_CANVAS_FILL: &str = azul_layout::widgets::map_themes::DEFAULT_CANVAS;
 
 impl MapCss {
     fn parse(src: &str) -> Self {
