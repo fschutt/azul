@@ -2,15 +2,17 @@
 //! the S10 `CallShell` of azul's app shells) and the settings (azul-appkit's settings page).
 //!
 //! - **Start screen** (`lobby`): "New meeting", "New chat room", "Schedule", joining with a link
-//!   or a code, the meeting server and whether it answers (Retry when it does not), and "Your
-//!   rooms" with their unread counts. Nothing is captured here: no camera, no microphone.
+//!   or a code, and "Your rooms" with their unread counts. The connection server is not shown
+//!   here: only a line when it cannot be used, with "Connection settings" (its field is in
+//!   Settings > Meetings). Nothing is captured here: no camera, no microphone.
 //! - **Room view** (`room_view`), a room outside a call: its encrypted chat, its times and link,
 //!   this device's safety code, the members with theirs ("Mark verified"), the devices asking to
 //!   join ("Admit"), "Join call", "Leave room" and Back.
 //! - **Waiting room** (`waiting_room`), between the start screen and the call, for a meeting just
 //!   found or made: this side's camera large (mirrored, as a mirror shows it; the test pattern's
 //!   still in a headless run; the initials while the camera is off), the microphone and camera
-//!   switches under it with the level meter, and beside it who is in the meeting already (their
+//!   switches under it with the level meter and the sound check ("Test speakers", "Record a test
+//!   clip"), and beside it who is in the meeting already (their
 //!   faces and "Ada is in this meeting" / "No one else is here yet"), the meeting's code and link
 //!   ("Copy link"), the name others see, the microphone, speaker and camera pickers, and "Join
 //!   now" ("Start meeting" for a meeting this side made) or Back. It mounts the one camera widget
@@ -187,10 +189,10 @@ pub(crate) enum PanelView {
 #[derive(Debug, Clone)]
 pub(crate) struct LobbyView {
     pub opening: bool,
-    pub server_text: String,
-    pub server_status: String,
+    /// The connection server answered its last check. The start screen says only when it did
+    /// not; its address and status are in Settings > Meetings.
     pub server_ok: bool,
-    /// No meeting server is set at all.
+    /// No connection server is set at all.
     pub server_unset: bool,
     pub join_text: String,
     /// The "Schedule" form: the start (local time) and the minutes.
@@ -239,7 +241,17 @@ pub(crate) struct SettingsView {
     /// A meeting is joined with the microphone off, with the camera off.
     pub join_muted: bool,
     pub join_camera_off: bool,
+    /// The connection server in use, or "none set": shown while it cannot be changed.
     pub server: String,
+    /// The connection server field as typed, what its last check said, whether it answered,
+    /// whether none is set.
+    pub server_text: String,
+    pub server_status: String,
+    pub server_ok: bool,
+    pub server_unset: bool,
+    /// The field may be changed: outside a meeting, the waiting room and a room view (a new
+    /// server binds the iroh endpoint anew, which would cut every peer off).
+    pub server_editable: bool,
     pub name: String,
     /// "Video: H.264 (VideoToolbox)".
     pub codec: String,
@@ -302,7 +314,27 @@ pub(crate) struct CallView {
     pub mic_level: f32,
     /// Show the "Drop a video packet" button (`AZMEET_TEST_PATTERN=1`).
     pub video_debug: bool,
+    /// What the sound check does now, and how the last one ended (empty while none did).
+    pub sound_check: SoundCheckState,
+    pub sound_check_note: String,
     pub settings: SettingsView,
+}
+
+/// What the sound check does now, as its buttons say it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SoundCheckState {
+    Idle,
+    /// Recording the test clip; the button counts the seconds down.
+    Recording { seconds_left: u64 },
+    PlayingClip,
+    PlayingChime,
+}
+
+impl SoundCheckState {
+    /// The microphone is recorded: it is mounted (and its meter shown) even while muted.
+    pub(crate) fn records(self) -> bool {
+        matches!(self, SoundCheckState::Recording { .. })
+    }
 }
 
 /// The app's callbacks the window wires (all live in `lib.rs`).
@@ -362,6 +394,12 @@ pub(crate) struct Actions {
     /// "Admit" beside a knock, "Verified" beside a member (`RowClick`: `<room> <device>`).
     pub admit: ButtonOnClickCallbackType,
     pub verify: ButtonOnClickCallbackType,
+    /// The sound check: "Test speakers" and "Record a test clip" (a click while it records or
+    /// plays the clip back stops it).
+    pub test_speakers: ButtonOnClickCallbackType,
+    pub test_mic: ButtonOnClickCallbackType,
+    /// The start screen's "Connection settings": Settings > Meetings.
+    pub connection_settings: ButtonOnClickCallbackType,
 }
 
 // ==== Styles: structure and the few colours of their own (video tiles are dark in both modes) ====
@@ -1278,25 +1316,6 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             .dom()
             .with_css(ROW_FIELD)
             .with_id(ids::JOIN_FIELD);
-        let server = TextInput::create()
-            .with_text(lobby.server_text.as_str())
-            .with_placeholder(crate::rooms::SERVER_PLACEHOLDER)
-            .with_on_text_input(data.clone(), actions.server_text)
-            .with_on_virtual_key_down(data.clone(), actions.server_key)
-            .with_on_focus_lost(data.clone(), actions.server_blur)
-            .dom()
-            .with_css(ROW_FIELD)
-            .with_id(ids::SERVER);
-        let mut server_row = Dom::create_div().with_css(ROW).with_child(server);
-        if !lobby.server_ok && !lobby.server_unset {
-            server_row = server_row.with_child(
-                Button::create(label("azmeet-retry"))
-                    .with_on_click(data.clone(), actions.retry_server)
-                    .dom()
-                    .with_id(ids::RETRY)
-                    .with_css("flex-shrink: 0;"),
-            );
-        }
         let new_meeting = Button::with_type(
             label(if lobby.opening {
                 "azmeet-please-wait"
@@ -1359,20 +1378,24 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                             .with_id(ids::JOIN),
                     ),
             ))
-            .with_child(labelled(&t("azmeet-schedule-label"), schedule))
-            .with_child(labelled(&t("azmeet-meeting-server"), server_row))
-            .with_child(text(
-                &lobby.server_status,
-                if lobby.server_ok {
-                    "font-size: 12px; color: system:secondary-text; margin: -8px 0px 12px 0px;"
-                } else {
-                    // A server that does not answer: flat's accent; flora's clay stone
-                    // (its colour for a problem, by day and by night).
-                    "font-size: 12px; color: system:accent; margin: -8px 0px 12px 0px; \
-                     @theme(flora) { color: #7E4A42; @media (prefers-color-scheme: dark) { \
-                     color: #B3837A; } }"
-                },
-            ));
+            .with_child(labelled(&t("azmeet-schedule-label"), schedule));
+        if let Some(problem) = server_problem(lobby) {
+            card = card.with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row; align-items: center; margin-bottom: 12px; min-width: 0px;")
+                    .with_child(text(
+                        &problem,
+                        &format!("flex-grow: 1; min-width: 0px; margin-right: 8px; {PROBLEM_LINE}"),
+                    ))
+                    .with_child(
+                        Button::create(label("azmeet-connection-settings"))
+                            .with_on_click(data.clone(), actions.connection_settings)
+                            .dom()
+                            .with_id(ids::CONNECTION_SETTINGS)
+                            .with_css("flex-shrink: 0;"),
+                    ),
+            );
+        }
         if !lobby.identity_ready {
             card = card.with_child(text(&t("azmeet-loading-key"), SECONDARY));
         }
@@ -1382,6 +1405,23 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         .with_css(PAGE)
         .with_child(header(view, data, actions))
         .with_child(Dom::create_div().with_css(CENTERED).with_child(card))
+}
+
+/// A line that says something is wrong: flat's accent; flora's clay stone (its colour for a
+/// problem, by day and by night).
+const PROBLEM_LINE: &str = "font-size: 12px; color: system:accent; @theme(flora) { color: \
+                            #7E4A42; @media (prefers-color-scheme: dark) { color: #B3837A; } }";
+
+/// What the start screen says about the connection server: nothing while it answers, else one
+/// short line. The address, its check and Retry are in Settings > Meetings.
+pub(crate) fn server_problem(lobby: &LobbyView) -> Option<String> {
+    if lobby.server_unset {
+        Some(t("azmeet-lobby-no-server"))
+    } else if lobby.server_ok {
+        None
+    } else {
+        Some(t("azmeet-lobby-server-silent"))
+    }
 }
 
 /// "Your rooms": one button per room (its view), with what it is and its unread count.
@@ -1460,16 +1500,22 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 .with_child(mic_switch(view, data, actions))
                 .with_child(cam_switch(view, data, actions)),
         );
-    if view.mic && !view.tone_mic {
+    let listening = view.mic || view.sound_check.records();
+    if listening && !view.tone_mic {
         preview = preview.with_child(microphone(data));
     }
-    if view.mic {
+    if listening {
         preview = preview.with_child(
             Dom::create_div()
                 .with_css("padding: 4px 24px;")
                 .with_child(level_meter(view, data)),
         );
     }
+    preview = preview.with_child(
+        Dom::create_div()
+            .with_css("padding: 8px 24px 0px 24px;")
+            .with_child(sound_check(view, data, actions)),
+    );
     let created = view.waiting.as_ref().is_some_and(|w| w.created);
     let knock = view.waiting.as_ref().and_then(|w| w.knock);
     let mut column = Dom::create_div().with_css(JOIN_COLUMN).with_child(text(
@@ -1615,6 +1661,81 @@ fn device_pickers(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
         ))
 }
 
+// ==== The sound check ====
+
+/// "Record a test clip", and while it runs what it does (a click then stops it).
+pub(crate) fn record_label(state: SoundCheckState) -> String {
+    match state {
+        SoundCheckState::Recording { seconds_left } => t_args(
+            "azmeet-test-mic-recording",
+            &[("seconds", Arg::from(seconds_left.to_string()))],
+        ),
+        SoundCheckState::PlayingClip => t("azmeet-test-mic-playing"),
+        SoundCheckState::Idle | SoundCheckState::PlayingChime => t("azmeet-test-mic"),
+    }
+}
+
+/// "Test speakers", and while its sound plays that it does.
+pub(crate) fn speakers_label(state: SoundCheckState) -> String {
+    match state {
+        SoundCheckState::PlayingChime => t("azmeet-test-speakers-playing"),
+        _ => t("azmeet-test-speakers"),
+    }
+}
+
+/// The line under the sound check's buttons: how the last check ended.
+pub(crate) fn sound_check_note(outcome: crate::soundcheck::Outcome) -> String {
+    use crate::soundcheck::Outcome;
+    match outcome {
+        Outcome::None => String::new(),
+        Outcome::PlayedClip => t("azmeet-test-mic-done"),
+        Outcome::PlayedChime => t("azmeet-test-speakers-done"),
+        Outcome::Quiet => t("azmeet-test-mic-quiet"),
+        Outcome::NoMicrophone => t("azmeet-test-mic-none"),
+    }
+}
+
+/// The sound check: "Test speakers" and "Record a test clip" side by side, the line about the
+/// last check under them. Each is primary while it runs.
+fn sound_check(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let state = view.sound_check;
+    let speakers_busy = state == SoundCheckState::PlayingChime;
+    let mic_busy = matches!(state, SoundCheckState::Recording { .. } | SoundCheckState::PlayingClip);
+    let button = |label: String, busy: bool| {
+        Button::with_type(
+            AzString::from(label),
+            if busy {
+                ButtonType::Primary
+            } else {
+                ButtonType::Default
+            },
+        )
+    };
+    let mut check = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; min-width: 0px;")
+        .with_child(
+            Dom::create_div()
+                .with_css(ROW)
+                .with_child(
+                    button(speakers_label(state), speakers_busy)
+                        .with_on_click(data.clone(), actions.test_speakers)
+                        .dom()
+                        .with_id(ids::TEST_SPEAKERS)
+                        .with_css("margin-right: 8px;"),
+                )
+                .with_child(
+                    button(record_label(state), mic_busy)
+                        .with_on_click(data.clone(), actions.test_mic)
+                        .dom()
+                        .with_id(ids::TEST_MIC),
+                ),
+        );
+    if !view.sound_check_note.is_empty() {
+        check = check.with_child(text(&view.sound_check_note, &format!("margin-top: 4px; {SECONDARY}")));
+    }
+    check
+}
+
 // ==== The settings: azul-appkit's page with AzMeet's own categories ====
 
 /// AzMeet's categories on the kit's settings page, before the kit's Appearance, Data, Shortcuts
@@ -1631,7 +1752,7 @@ fn settings(view: &CallView, data: &RefAny, kit_ref: &RefAny, actions: &Actions)
         .with_child(title_row(view))
         .with_child(kit::settings_page(
             kit_ref,
-            settings_sections(&view.settings, data, actions),
+            settings_sections(view, data, actions),
         ))
 }
 
@@ -1644,8 +1765,9 @@ fn check(on: bool, id: AzString, data: &RefAny, action: CheckBoxOnToggleCallback
 }
 
 /// AzMeet's own sections, one per [`APP_CATEGORIES`] entry.
-fn settings_sections(s: &SettingsView, data: &RefAny, actions: &Actions) -> Vec<AppSection> {
-    let audio_video = Dom::create_div()
+fn settings_sections(view: &CallView, data: &RefAny, actions: &Actions) -> Vec<AppSection> {
+    let s = &view.settings;
+    let mut audio_video = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(kit::row(
             "azmeet-microphone",
@@ -1673,6 +1795,16 @@ fn settings_sections(s: &SettingsView, data: &RefAny, actions: &Actions) -> Vec<
                 actions.quality,
             ),
         ))
+        .with_child(kit::row("azmeet-sound-check", sound_check(view, data, actions)));
+    // The test clip needs the microphone even while it is muted (the call's widget is not
+    // mounted while the settings show), and the meter shows that it hears something.
+    if view.sound_check.records() {
+        if !view.tone_mic {
+            audio_video = audio_video.with_child(microphone(data));
+        }
+        audio_video = audio_video.with_child(kit::row("", level_meter(view, data)));
+    }
+    let audio_video = audio_video
         .with_child(kit::note("azmeet-mirror-note"))
         .with_child(kit::note("azmeet-devices-note"))
         .with_child(kit::note(&s.codec));
@@ -1687,7 +1819,7 @@ fn settings_sections(s: &SettingsView, data: &RefAny, actions: &Actions) -> Vec<
             "azmeet-join-camera-off",
             check(s.join_camera_off, ids::JOIN_CAMERA_OFF, data, actions.join_camera_off),
         ))
-        .with_child(kit::row("azmeet-meeting-server", text(&s.server, "font-size: 13px;")))
+        .with_child(kit::row("azmeet-meeting-server", connection_server(s, data, actions)))
         .with_child(kit::row(
             "azmeet-device-safety-code",
             text(&s.identity, "font-size: 13px;"),
@@ -1710,6 +1842,45 @@ fn settings_sections(s: &SettingsView, data: &RefAny, actions: &Actions) -> Vec<
             content,
         })
         .collect()
+}
+
+/// The connection server: its field with Retry while it does not answer, and what its last
+/// check said. Only its address while it cannot be changed (in a meeting or a room view).
+fn connection_server(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
+    if !s.server_editable {
+        return Dom::create_div()
+            .with_css("display: flex; flex-direction: column; min-width: 0px;")
+            .with_child(text(&s.server, "font-size: 13px;"))
+            .with_child(text(&t("azmeet-server-locked"), SECONDARY));
+    }
+    let field = TextInput::create()
+        .with_text(s.server_text.as_str())
+        .with_placeholder(crate::rooms::SERVER_PLACEHOLDER)
+        .with_on_text_input(data.clone(), actions.server_text)
+        .with_on_virtual_key_down(data.clone(), actions.server_key)
+        .with_on_focus_lost(data.clone(), actions.server_blur)
+        .dom()
+        .with_css(ROW_FIELD)
+        .with_id(ids::SERVER);
+    let mut row = Dom::create_div().with_css(ROW).with_child(field);
+    if !s.server_ok && !s.server_unset {
+        row = row.with_child(
+            Button::create(label("azmeet-retry"))
+                .with_on_click(data.clone(), actions.retry_server)
+                .dom()
+                .with_id(ids::RETRY)
+                .with_css("flex-shrink: 0;"),
+        );
+    }
+    let status = if s.server_ok {
+        format!("margin-top: 4px; {SECONDARY}")
+    } else {
+        format!("margin-top: 4px; {PROBLEM_LINE}")
+    };
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; min-width: 0px;")
+        .with_child(row)
+        .with_child(text(&s.server_status, &status))
 }
 
 /// A drop-down of `choices` with `selected` chosen.
@@ -1833,8 +2004,6 @@ mod tests {
     fn lobby(server_ok: bool, server_unset: bool) -> LobbyView {
         LobbyView {
             opening: false,
-            server_text: String::from("iroh://connect.azlin.io"),
-            server_status: String::from("The meeting server at iroh://connect.azlin.io does not answer."),
             server_ok,
             server_unset,
             join_text: String::new(),

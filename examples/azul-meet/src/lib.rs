@@ -20,16 +20,24 @@
 //! member signed, and dial the peers whose endpoint id is higher than its own. `--screen waiting`
 //! opens a new meeting's waiting room (a preview of one when no meeting server answers); with
 //! `--shot <png>` that is a screenshot. Every HTTP request runs on an azul `Thread` and resumes on
-//! the UI thread, so no callback waits on the network. The start screen's "Meeting server" field
-//! holds the Worker's address: `--worker`, else the one saved last time, else the shared Azlin
+//! the UI thread, so no callback waits on the network.
+//!
+//! The connection server (the meet Worker's API) is set in Settings > Meetings, not on the start
+//! screen, which only says when it cannot be used ("Connection settings" opens the field). Its
+//! address is `--worker` (this run only), else the one saved last time, else the shared Azlin
 //! config's (azul-appkit `azlin_config`: `AZMEET_WORKER`, else `endpoints.meet` of the config
-//! file `AZLIN_CONFIG` names, else of `~/.azlin/config.json`), else one built in at build time,
-//! else the config profile's (`local`, the default: the local stack's `http://127.0.0.1:8790`;
-//! `production` names none yet) - and nothing else: with none, the start screen asks for one,
-//! and an unreachable one is an error with a Retry button. A new address is used for every
-//! request from Enter or leaving the field on, checked with `GET /health`, and saved once it
-//! answers. The relays come the same way (`--relay`, `AZMEET_RELAY`, `endpoints.relay`, the
-//! profile's).
+//! file `AZLIN_CONFIG` names, else of `~/.azlin/config.json`), else the built-in one: Azlin's
+//! `iroh://connect.azlin.io` (`rooms::DEFAULT_SERVER`), or another a build names with
+//! `AZMEET_DEFAULT_WORKER`. An `iroh://` address's API is https on the same host
+//! (`rooms::api_base`). An unreachable one is an error with a Retry button in the settings. A new
+//! address is used for every request from Enter or leaving the field on, checked with
+//! `GET /health`, and saved once it answers. The relays come the same way (`--relay`,
+//! `AZMEET_RELAY`, `endpoints.relay`, the profile's).
+//!
+//! The sound check (`soundcheck.rs`), in the waiting room and in Settings > Audio & Video: "Test
+//! speakers" plays a short chime, "Record a test clip" records three seconds of the microphone
+//! and plays them back, on the playout thread's own sink. stdout says `AZMEET_SOUND_CHECK
+//! <speakers|recording|playing|ended <outcome>>`.
 //!
 //! Settings: the gear at the top right of every screen (or Mod+,) opens azul-appkit's settings
 //! page, the one every Azlin app shares (AzMail's File > Options): AzMeet's Audio & Video (the
@@ -87,11 +95,12 @@
 //! Switches (`args.rs`, `--help` lists them): each AzMeet switch also reads its `AZMEET_*`
 //! environment variable when it is not given (`1` for a switch without a value), so older scripts
 //! keep working; the switch wins.
-//! - `--worker <url>` (`AZMEET_WORKER`): the meeting server, e.g. `http://127.0.0.1:8790` (the
-//!   local stack's `wrangler dev`). `--worker` wins over the one saved from the start screen; the
-//!   variable and the shared config only count when none was saved. Else the `PRODUCTION_WORKER`
-//!   constant, set at build time with `AZMEET_DEFAULT_WORKER=<url>`, else the config profile's
-//!   address, else none: the start screen asks for one. A headless run (`AZ_BACKEND=headless`)
+//! - `--worker <url>` (`AZMEET_WORKER`): the connection server, e.g. `http://127.0.0.1:8790`
+//!   (the local stack's `wrangler dev`) or `iroh://connect.azlin.io`. `--worker` wins over the
+//!   one saved in the settings; the variable and the shared config only count when none was
+//!   saved. Else the `PRODUCTION_WORKER` constant: Azlin's, or the build's
+//!   `AZMEET_DEFAULT_WORKER=<url>` (an empty one leaves the config profile's address, else none,
+//!   and the settings ask for one). A headless run (`AZ_BACKEND=headless`)
 //!   keeps no files unless it is given a data root (`--data-dir`, `AZLIN_DATA`), so without one
 //!   nothing saved outranks the configuration there.
 //! - `--identity-file <path>` (`AZMEET_IDENTITY_FILE`): keep this device's seed in that file
@@ -262,12 +271,12 @@ const SOURCES: [&str; 2] = ["camera", "screen"];
 /// How often the statistics are gathered (and the report re-sent, and the plan re-made).
 const STATS_EVERY_MS: u64 = 2000;
 
-/// The meeting server when nothing else names one: the deployed `meet` Worker (azul-apps
-/// `cf-workers/meet/README.md`, "Deploy"), baked in at build time with
-/// `AZMEET_DEFAULT_WORKER=https://...`. Empty means none: the start screen asks for one.
+/// The connection server when nothing else names one: Azlin's ([`rooms::DEFAULT_SERVER`]), or
+/// the one a build names with `AZMEET_DEFAULT_WORKER=https://...` (a self-hosted `meet` Worker).
+/// A build that names an empty one has none: the settings ask for one.
 const PRODUCTION_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
     Some(url) => url,
-    None => "",
+    None => rooms::DEFAULT_SERVER,
 };
 /// How often a participant in a room reads the peers list.
 const ROOM_POLL_MS: u64 = 2000;
@@ -444,6 +453,11 @@ struct Minting {
 }
 
 impl RoomSession {
+    /// Where the meeting API of `worker` answers: an iroh address's is https on its host.
+    fn api(&self) -> String {
+        rooms::api_base(&self.worker)
+    }
+
     fn new(worker: String, relay: Relay) -> Self {
         RoomSession {
             waiting: None,
@@ -766,6 +780,15 @@ struct MeetState {
     /// The rooms whose files of an earlier visit are being read back (`on_history_read`): their
     /// chat and record are not written over meanwhile.
     reading_history: BTreeSet<String>,
+    /// The sound check of the waiting room and the settings (`soundcheck.rs`): the speaker
+    /// test's chime, the test clip being recorded or played back.
+    sound_check: soundcheck::SoundCheck,
+    /// The sound check's timer runs (`sound_check_tick`); it ends with the check, so an idle
+    /// window has no timer of its own for it.
+    sound_check_ticking: bool,
+    /// The seconds the recording button showed last: the window changes once a second while
+    /// recording, not with every tick.
+    sound_check_shown: u64,
 }
 
 /// What the keyring was asked (`identity.rs`).
@@ -876,6 +899,9 @@ impl MeetState {
             record: None,
             unsaved: Unsaved::default(),
             reading_history: BTreeSet::new(),
+            sound_check: soundcheck::SoundCheck::new(),
+            sound_check_ticking: false,
+            sound_check_shown: 0,
         }
     }
 }
@@ -1388,8 +1414,6 @@ fn snapshot(s: &MeetState) -> ui::CallView {
     };
     let lobby = s.room.as_ref().map(|room| ui::LobbyView {
         opening: room.stage == Stage::Opening,
-        server_text: room.server_text.clone(),
-        server_status: room.server_status.clone(),
         server_ok: room.server_ok,
         server_unset: room.worker.is_empty(),
         join_text: room.join_text.clone(),
@@ -1479,6 +1503,8 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         camera_renditions,
         mic_level: s.mic_level,
         video_debug: s.video_debug,
+        sound_check: sound_check_state(s, now),
+        sound_check_note: ui::sound_check_note(s.sound_check.outcome()),
         settings: ui::SettingsView {
             mics: device_choices(&s.mics),
             mic_choice: s.mic_choice,
@@ -1496,6 +1522,11 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                 .map(|room| room.worker.clone())
                 .filter(|worker| !worker.is_empty())
                 .unwrap_or_else(|| t("azmeet-server-none-set")),
+            server_text: s.room.as_ref().map(|room| room.server_text.clone()).unwrap_or_default(),
+            server_status: s.room.as_ref().map(|room| room.server_status.clone()).unwrap_or_default(),
+            server_ok: s.room.as_ref().is_some_and(|room| room.server_ok),
+            server_unset: s.room.as_ref().map_or(true, |room| room.worker.is_empty()),
+            server_editable: s.room.as_ref().is_some_and(|room| room.stage == Stage::Start),
             name: s.name.clone(),
             codec: codec_status(s),
             recordings: files_root().map_or_else(
@@ -1559,6 +1590,9 @@ const ACTIONS: ui::Actions = ui::Actions {
     room_copy: on_room_copy,
     admit: on_admit,
     verify: on_verify,
+    test_speakers: on_test_speakers,
+    test_mic: on_test_mic,
+    connection_settings: on_connection_settings,
 };
 
 fn meet_layout(mut data: RefAny) -> Dom {
@@ -1946,7 +1980,16 @@ struct Playout {
     /// playout plays, used by `send_audio`. `None` when nothing plays on a device, or turned off
     /// (`AZMEET_ECHO_CANCEL=0`).
     echo: Option<SharedEcho>,
+    /// The sound check's packets still to play (the chime, the test clip), one per turn on a
+    /// sink of their own ([`SOUND_CHECK_SINK`]), and the rate they are at. Never a jitter
+    /// buffer: the whole clip arrives at once, and a jitter buffer keeps only 200 ms.
+    check: std::collections::VecDeque<Vec<i16>>,
+    check_rate: u32,
 }
+
+/// The playout's key for the sound check's sink, next to the peers' keys. A peer's key is a hash
+/// of its endpoint id, so it is never this one in practice.
+const SOUND_CHECK_SINK: u64 = u64::MAX;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -1973,6 +2016,8 @@ fn start_playout(play: bool) -> Arc<Mutex<Playout>> {
         peers: BTreeMap::new(),
         play,
         echo,
+        check: std::collections::VecDeque::new(),
+        check_rate: MIC_RATE,
     }));
     let weak = Arc::downgrade(&shared);
     let spawned = std::thread::Builder::new()
@@ -2016,6 +2061,20 @@ fn playout_loop(shared: Weak<Mutex<Playout>>) {
                         out.push((*handle, jitter.sample_rate(), samples));
                     }
                 }
+                // The sound check plays like one more peer, and is cancelled from the
+                // microphone like one: in a call nobody hears the test clip a second time.
+                let check_rate = playout.check_rate;
+                if let Some(samples) = playout.check.pop_front() {
+                    if check_rate == MIC_RATE {
+                        if mix.len() < samples.len() {
+                            mix.resize(samples.len(), 0.0);
+                        }
+                        for (m, v) in mix.iter_mut().zip(&samples) {
+                            *m += audio::from_pcm16(*v);
+                        }
+                    }
+                    out.push((SOUND_CHECK_SINK, check_rate, samples));
+                }
                 if let (Some(echo), false) = (playout.echo.as_ref().map(|e| &e.0), mix.is_empty()) {
                     let _ = echo.far_end(AudioFrame {
                         sample_rate: MIC_RATE,
@@ -2025,7 +2084,12 @@ fn playout_loop(shared: Weak<Mutex<Playout>>) {
                 }
             }
             let play = playout.play;
-            let live: BTreeSet<u64> = playout.peers.keys().copied().collect();
+            let mut live: BTreeSet<u64> = playout.peers.keys().copied().collect();
+            // The sound check's sink stays open while it has packets left, and for the turn
+            // that played its last one.
+            if !playout.check.is_empty() || out.iter().any(|(key, _, _)| *key == SOUND_CHECK_SINK) {
+                live.insert(SOUND_CHECK_SINK);
+            }
             (play, live)
         };
         // Close the sinks of peers that are gone, outside the lock.
@@ -2098,11 +2162,14 @@ fn configure_audio(s: &mut MeetState) {
     }
 }
 
-/// Starts or stops the test tone with the microphone; a mute forgets the unfinished packet.
+/// Starts or stops the test tone with the microphone (and while the sound check records); a
+/// mute forgets the unfinished packet.
 fn sync_mic(s: &mut MeetState) {
     if !s.mic_on {
         s.packetizer.reset();
         s.opus_framer.reset();
+    }
+    if !s.mic_on && !s.sound_check.records() {
         s.tone = None;
     } else if s.tone_mic && s.tone.is_none() {
         s.tone = Some((
@@ -2480,10 +2547,160 @@ fn pump_tone(data: &mut RefAny, info: &mut TimerCallbackInfo) {
             return None;
         }
         send_audio(s, rate, 1, &samples);
+        s.sound_check.feed(rate, 1, &samples);
         meter_change(s, &samples)
     });
     if let Some((bar, level)) = meter {
         show_level(info.callback_info, bar, level);
+    }
+}
+
+// ==== The sound check: the speaker test and the test clip (the rules are in soundcheck.rs) ====
+
+/// How often the sound check looks at the clock while it runs: the recording's countdown and the
+/// end of what plays need no finer step.
+const SOUND_CHECK_TICK_MS: u64 = 100;
+
+/// The sound check as the window shows it at `now`.
+fn sound_check_state(s: &MeetState, now: u64) -> ui::SoundCheckState {
+    match s.sound_check.phase() {
+        soundcheck::Phase::Idle => ui::SoundCheckState::Idle,
+        soundcheck::Phase::Recording { .. } => ui::SoundCheckState::Recording {
+            seconds_left: s.sound_check.seconds_left(now),
+        },
+        soundcheck::Phase::Playing { clip: true, .. } => ui::SoundCheckState::PlayingClip,
+        soundcheck::Phase::Playing { clip: false, .. } => ui::SoundCheckState::PlayingChime,
+    }
+}
+
+/// Hands the sound check's packets to the playout thread, in place of any it still plays.
+fn play_check(s: &mut MeetState, rate: u32, packets: Vec<Vec<i16>>) {
+    let play = s.play_audio;
+    let shared = s.playout.get_or_insert_with(|| start_playout(play));
+    let mut playout = lock(shared);
+    playout.check = packets.into();
+    playout.check_rate = rate;
+}
+
+/// Drops what the sound check still had to play.
+fn stop_check_playback(s: &MeetState) {
+    if let Some(shared) = s.playout.as_ref() {
+        lock(shared).check.clear();
+    }
+}
+
+/// Starts the sound check's timer unless it runs already. Called after the state's borrow is
+/// given back: the timer holds a clone of `data`.
+fn start_sound_check_timer(data: &RefAny, info: &mut CallbackInfo, needed: bool) {
+    if !needed {
+        return;
+    }
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(data.clone(), sound_check_tick, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(SOUND_CHECK_TICK_MS))),
+    );
+}
+
+/// Marks the sound check's timer as running; true when it has to be started.
+fn claim_sound_check_timer(s: &mut MeetState) -> bool {
+    !std::mem::replace(&mut s.sound_check_ticking, true)
+}
+
+/// "Test speakers": the chime plays through the speaker, in place of any check that runs.
+extern "C" fn on_test_speakers(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let needed = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let now = now_ms(s);
+        let packets = s.sound_check.start_chime(MIC_RATE, now);
+        play_check(s, MIC_RATE, packets);
+        sync_mic(s);
+        println!("AZMEET_SOUND_CHECK speakers");
+        claim_sound_check_timer(s)
+    };
+    start_sound_check_timer(&data, &mut info, needed);
+    Update::RefreshDom
+}
+
+/// "Record a test clip": the microphone is recorded for a few seconds (opened for it while it is
+/// muted) and then played back. A click while it records or plays the clip back stops it.
+extern "C" fn on_test_mic(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let needed = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let now = now_ms(s);
+        let busy = matches!(
+            s.sound_check.phase(),
+            soundcheck::Phase::Recording { .. } | soundcheck::Phase::Playing { clip: true, .. }
+        );
+        if busy {
+            s.sound_check.cancel();
+            stop_check_playback(s);
+            sync_mic(s);
+            return Update::RefreshDom;
+        }
+        s.sound_check.start_recording(now);
+        s.sound_check_shown = s.sound_check.seconds_left(now);
+        // A chime still playing stops: the clip must not record it.
+        stop_check_playback(s);
+        sync_mic(s);
+        println!("AZMEET_SOUND_CHECK recording");
+        claim_sound_check_timer(s)
+    };
+    start_sound_check_timer(&data, &mut info, needed);
+    Update::RefreshDom
+}
+
+/// Every [`SOUND_CHECK_TICK_MS`] while the sound check runs: the tone microphone's samples (a
+/// headless run's), the countdown, the recorded clip handed to the playout, the end. The timer
+/// ends with the check.
+extern "C" fn sound_check_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let tone = data
+        .downcast_ref::<MeetState>()
+        .is_some_and(|s| s.tone_mic && s.sound_check.records());
+    if tone {
+        pump_tone(&mut data, &mut info);
+    }
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let s = &mut *guard;
+    let now = now_ms(s);
+    let changed = match s.sound_check.tick(now) {
+        soundcheck::Tick::Nothing => {
+            let left = s.sound_check.seconds_left(now);
+            left != std::mem::replace(&mut s.sound_check_shown, left)
+        }
+        soundcheck::Tick::Play(rate, packets) => {
+            play_check(s, rate, packets);
+            sync_mic(s);
+            println!("AZMEET_SOUND_CHECK playing");
+            true
+        }
+        soundcheck::Tick::Ended => {
+            sync_mic(s);
+            println!("AZMEET_SOUND_CHECK ended {:?}", s.sound_check.outcome());
+            true
+        }
+    };
+    if s.sound_check.phase() == soundcheck::Phase::Idle {
+        s.sound_check_ticking = false;
+        return if changed {
+            TimerCallbackReturn::terminate_and_refresh_dom()
+        } else {
+            TimerCallbackReturn::terminate_unchanged()
+        };
+    }
+    if changed {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_unchanged()
     }
 }
 
@@ -4436,7 +4653,7 @@ impl HttpJob {
         }
         HttpJob {
             verb: Verb::Post,
-            url: format!("{}/rooms", room.worker),
+            url: format!("{}/rooms", room.api()),
             body: body.to_string().into_bytes(),
             headers: Vec::new(),
             on_result: on_room_opened,
@@ -4447,7 +4664,7 @@ impl HttpJob {
 
     fn look_up(room: &RoomSession, key: &RoomKey) -> Self {
         HttpJob::get(
-            format!("{}/rooms/{}?format=json", room.worker, key.as_str()),
+            format!("{}/rooms/{}?format=json", room.api(), key.as_str()),
             on_room_opened,
             room.session,
         )
@@ -4470,7 +4687,7 @@ impl HttpJob {
         let headers = Vec::from(me.request_headers("POST", &path, ts, &body));
         HttpJob {
             verb: Verb::Post,
-            url: format!("{}{path}", room.worker),
+            url: format!("{}{path}", room.api()),
             body,
             headers,
             on_result: on_announced,
@@ -4483,7 +4700,9 @@ impl HttpJob {
         HttpJob::get(
             format!(
                 "{}/rooms/{}/peers?except={}",
-                room.worker, room.room_id, room.node_id
+                room.api(),
+                room.room_id,
+                room.node_id
             ),
             on_peers,
             room.session,
@@ -4499,7 +4718,9 @@ impl HttpJob {
         HttpJob::get(
             format!(
                 "{}/rooms/{}/peers?except={}",
-                room.worker, meeting, room.node_id
+                room.api(),
+                meeting,
+                room.node_id
             ),
             on_waiting_peers,
             room.session,
@@ -4509,7 +4730,7 @@ impl HttpJob {
     /// Whether the meeting server answers (`GET /health`); the answer is matched to the check by
     /// `session`, which holds the check's number here.
     fn health(room: &RoomSession) -> Self {
-        HttpJob::get(format!("{}/health", room.worker), on_health, room.checks)
+        HttpJob::get(format!("{}/health", room.api()), on_health, room.checks)
     }
 
     /// Takes this endpoint off the room's list (Leave), signed by the device that announced it.
@@ -4517,7 +4738,7 @@ impl HttpJob {
         let path = format!("/rooms/{}/peers/{}", room.room_id, room.node_id);
         HttpJob {
             verb: Verb::Delete,
-            url: format!("{}{path}", room.worker),
+            url: format!("{}{path}", room.api()),
             body: Vec::new(),
             headers: Vec::from(me.request_headers("DELETE", &path, ts, b"")),
             on_result: on_left,
@@ -4541,7 +4762,7 @@ impl HttpJob {
         };
         HttpJob {
             verb: Verb::of(call.method),
-            url: call.url(&chat.server),
+            url: call.url(&rooms::api_base(&chat.server)),
             body: call.body,
             headers,
             on_result: on_chat_answer,
@@ -5219,7 +5440,7 @@ extern "C" fn on_waiting_peers(data: RefAny, _info: CallbackInfo, result: RefAny
     }
 }
 
-// ==== The meeting server field (start screen) ====
+// ==== The connection server field (Settings > Meetings) ====
 
 /// The meeting server field as typed.
 extern "C" fn on_server_text(
@@ -5667,7 +5888,7 @@ fn local_offset_at(unix: u64) -> i32 {
         )
 }
 
-/// What the start screen says while no meeting server is set.
+/// What the notice line says while no connection server is set.
 fn no_server_notice() -> String {
     t("azmeet-no-server")
 }
@@ -6820,7 +7041,7 @@ extern "C" fn on_verify(data: RefAny, mut info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// The start screen's Retry: the meeting server is asked again now.
+/// The connection server's Retry (Settings > Meetings): it is asked again now.
 extern "C" fn on_retry_server(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let job = {
         let Some(mut guard) = data.downcast_mut::<MeetState>() else {
@@ -6879,6 +7100,7 @@ extern "C" fn mic_on_frame(mut data: RefAny, info: CallbackInfo, frame: AudioFra
         };
         let s = &mut *guard;
         send_audio(s, frame.sample_rate, frame.channels, samples);
+        s.sound_check.feed(frame.sample_rate, frame.channels, samples);
         meter_change(s, samples)
     };
     if let Some((bar, level)) = meter {
@@ -7167,6 +7389,16 @@ extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update 
     Update::RefreshDom
 }
 
+/// The start screen's "Connection settings": the settings page at Meetings, where the
+/// connection server's field is.
+extern "C" fn on_connection_settings(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(kit_ref) = data.downcast_ref::<MeetState>().map(|s| s.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    kit::open_settings(&kit_ref, Some(ui::APP_CATEGORIES[1]));
+    Update::RefreshDom
+}
+
 /// The microphone picked (the waiting room, the settings), remembered by its name.
 /// (`MicrophoneWidget` and `AudioSink` open the system's default device on every platform
 /// today; the pick is kept for when they take one.)
@@ -7365,9 +7597,9 @@ fn display_name() -> String {
         .unwrap_or_else(|| String::from("Guest"))
 }
 
-/// Host (IPv6 without brackets) and port of an http(s) address.
+/// Host (IPv6 without brackets) and port of an http(s) address, or of an iroh address's API.
 fn server_address(url: &str) -> Option<(String, u16)> {
-    let parsed = Url::parse(url).into_result().ok()?;
+    let parsed = Url::parse(rooms::api_base(url).as_str()).into_result().ok()?;
     let host = parsed
         .host
         .as_str()
@@ -7473,12 +7705,12 @@ fn shared_endpoint(endpoint: azlin_config::Endpoint) -> Option<(&'static str, St
     Some((value, resolved.source.label()))
 }
 
-/// The meeting server at start, where it came from (for the log and the start screen), and
+/// The connection server at start, where it came from (for the log and the settings), and
 /// whether it accepts a connection: `--worker` (this run only), else the one saved last time
-/// (the start screen's field), else the shared Azlin config's (`AZMEET_WORKER`, else its file's
-/// `endpoints.meet`), else one built in at build time (`AZMEET_DEFAULT_WORKER`), else the config
-/// profile's (`local`: the local stack's `http://127.0.0.1:8790`), else none - the start screen
-/// asks for one. A headless run without a data root of its own reads no settings, so nothing
+/// (the settings' field), else the shared Azlin config's (`AZMEET_WORKER`, else its file's
+/// `endpoints.meet`), else the built-in one (Azlin's, or the build's `AZMEET_DEFAULT_WORKER`).
+/// Only a build that names an empty one falls back to the config profile's (`local`: the local
+/// stack's `http://127.0.0.1:8790`), else to none - the settings ask for one. A headless run without a data root of its own reads no settings, so nothing
 /// saved outranks the configuration there.
 fn meeting_server() -> (String, String, Result<(), String>) {
     let saved = store::Prefs::read(saved_settings()).server;
@@ -7603,8 +7835,8 @@ fn relay_for(worker: &str) -> Relay {
 
 /// The window with the start screen, talking to the meeting server at `worker` (none when
 /// empty; `from`: where its address came from); `answer` says whether it accepted a connection
-/// at start. An unreachable or missing server is said under the field, with a Retry button:
-/// nothing else opens instead.
+/// at start. An unreachable or missing server is said on the start screen and, with a Retry
+/// button, under the settings' field: nothing else opens instead.
 fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
     let relay = relay_for(&worker);
     let name = display_name();

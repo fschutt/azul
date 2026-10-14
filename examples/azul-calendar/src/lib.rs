@@ -968,7 +968,8 @@ pub(crate) fn sync_links(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny
 extern "C" fn sync_thread(mut init: RefAny, _sender: ThreadSender, _receiver: ThreadReceiver) {
     let Some((url, body, reply)) = init.downcast_ref::<SyncInit>().map(|i| {
         (
-            format!("{}/rooms", i.job.server),
+            // An iroh:// connection server's API is https on its host.
+            format!("{}/rooms", meet_rooms::api_base(&i.job.server)),
             i.job.body.clone(),
             SyncReply {
                 app: i.app.clone(),

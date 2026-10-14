@@ -276,9 +276,15 @@ pub fn transport_label(relay: &Relay, relay_only: bool) -> String {
     }
 }
 
-/// What the meeting server field shows while it is empty: an example, never an address AzMeet
-/// would use by itself.
+/// What the connection server field shows while it is empty: an example, never an address
+/// AzMeet would use by itself.
 pub const SERVER_PLACEHOLDER: &str = "https://meet.example.com";
+/// Azlin's connection server, the one AzMeet uses when nothing else names one.
+pub const DEFAULT_SERVER: &str = "iroh://connect.azlin.io";
+/// The scheme of an Azlin connection server's address. Its meeting API is served over HTTPS at
+/// the same host, port and path ([`api_base`]); the scheme says that the peers meet over iroh
+/// through the public relays, and keeps the address apart from a self-hosted meet Worker's.
+const IROH_SCHEME: &str = "iroh://";
 /// The longest meeting server address taken.
 const MAX_SERVER_CHARS: usize = 2048;
 
@@ -287,20 +293,21 @@ const MAX_SERVER_CHARS: usize = 2048;
 pub enum ServerSource {
     /// The command line's `--worker`: this run only, over the saved one.
     CommandLine,
-    /// Saved the last time it answered (the start screen's field).
+    /// Saved the last time it answered (the field in Settings > Meetings).
     Saved,
     /// `AZMEET_WORKER`, or what the shared Azlin config names (AzMeet passes its resolved
     /// address as the `env` layer: the variable, the config file, the profile).
     Environment,
-    /// Built in: `PRODUCTION_WORKER` (`AZMEET_DEFAULT_WORKER` at build time).
+    /// Built in: `PRODUCTION_WORKER`, Azlin's [`DEFAULT_SERVER`] unless the build names another
+    /// (`AZMEET_DEFAULT_WORKER`).
     BuiltIn,
-    /// None anywhere: the start screen asks for one. AzMeet never guesses an address.
+    /// None anywhere (a build that names an empty one): the settings ask for one.
     Unset,
 }
 
 /// A meeting server address as typed: trimmed, without trailing slashes. `None` unless it is an
-/// http or https address with a host, printable ASCII without spaces, a query or a fragment, and at
-/// most 2048 characters.
+/// http, https or iroh address with a host, printable ASCII without spaces, a query or a fragment,
+/// and at most 2048 characters.
 pub fn normalize_server(input: &str) -> Option<String> {
     let s = input.trim().trim_end_matches('/');
     if s.is_empty() || s.len() > MAX_SERVER_CHARS || !s.bytes().all(|b| b.is_ascii_graphic()) {
@@ -310,7 +317,8 @@ pub fn normalize_server(input: &str) -> Option<String> {
         return None;
     }
     let rest = strip_prefix_ignore_case(s, "https://")
-        .or_else(|| strip_prefix_ignore_case(s, "http://"))?;
+        .or_else(|| strip_prefix_ignore_case(s, "http://"))
+        .or_else(|| strip_prefix_ignore_case(s, IROH_SCHEME))?;
     let host = rest.split('/').next().unwrap_or("");
     if host.is_empty() || host.starts_with(':') {
         return None;
@@ -318,7 +326,16 @@ pub fn normalize_server(input: &str) -> Option<String> {
     Some(s.to_string())
 }
 
-/// The meeting server the start screen's field shows at start, and where it came from: the one
+/// Where the meeting API of the server at `server` (a [`normalize_server`] address) answers:
+/// `https://` at the same host for an iroh address, the address itself otherwise.
+pub fn api_base(server: &str) -> String {
+    match strip_prefix_ignore_case(server, IROH_SCHEME) {
+        Some(rest) => format!("https://{rest}"),
+        None => server.to_string(),
+    }
+}
+
+/// The meeting server the settings' field shows at start, and where it came from: the one
 /// saved last time, else `AZMEET_WORKER`, else `built_in`, else none ([`ServerSource::Unset`],
 /// an empty address). A candidate that is no meeting server address is passed over.
 pub fn server_prefill(

@@ -64,7 +64,7 @@ azmeet-schedule = Planen
 azmeet-join-with = Mit einem Link oder Code beitreten
 azmeet-join = Beitreten
 azmeet-schedule-label = Besprechung planen (deine Uhrzeit, Minuten)
-azmeet-meeting-server = Besprechungsserver
+azmeet-meeting-server = Verbindungsserver
 azmeet-loading-key = Der Schlüssel dieses Geräts wird geladen...
 azmeet-your-rooms = Deine Räume
 azmeet-none-yet = Noch keine.
@@ -100,7 +100,7 @@ azmeet-devices-note = Mikrofon und Lautsprecher sind vorerst die des Systems; di
 azmeet-join-muted = Mit ausgeschaltetem Mikrofon beitreten
 azmeet-join-camera-off = Mit ausgeschalteter Kamera beitreten
 azmeet-device-safety-code = Sicherheitscode dieses Geräts
-azmeet-waiting-room-note = Der Warteraum beginnt mit Mikrofon und Kamera, wie sie hier eingestellt sind; schalte sie dort um, bevor du beitrittst. Der Besprechungsserver wird auf dem Startbildschirm geändert.
+azmeet-waiting-room-note = Der Warteraum beginnt mit Mikrofon und Kamera, wie sie hier eingestellt sind; schalte sie dort um, bevor du beitrittst.
 azmeet-encryption-note = Räume und ihre Chats sind mit dem Schlüssel dieses Geräts Ende-zu-Ende-verschlüsselt: Der Besprechungsserver behält nur, was er nicht lesen kann. Vergleiche die Sicherheitscodes mit den anderen (die Mitgliederliste eines Raums zeigt sie), um sicher zu sein, dass niemand dazwischensteht.
 azmeet-recordings-go-to = Aufzeichnungen landen in
 azmeet-recording-note = Aufzeichnung, ein auf diesem Computer erstelltes Transkript und eine per Mail gesendete Zusammenfassung sind unterwegs. Eine Aufzeichnung wird im Ordner ihrer Besprechung neben deren Chat und Protokoll aufbewahrt und reist mit deinem Azlin-Speicher.
@@ -166,10 +166,10 @@ azmeet-meeting-not-encrypted = Diese Besprechung wurde von einem älteren AzMeet
 azmeet-secret-damaged = Das Geheimnis dieses Links ist beschädigt: Frag noch einmal nach dem Link.
 azmeet-room-mismatch = Der Besprechungsserver hat einen Raum gesendet, der nicht zu diesem Link passt.
 azmeet-answer-unreadable = Der Besprechungsserver hat eine Antwort gesendet, die AzMeet nicht lesen kann.
-azmeet-not-server-address = Das ist keine Adresse eines Besprechungsservers: Sie beginnt mit http:// oder https://.
+azmeet-not-server-address = Das ist keine Adresse eines Verbindungsservers: Sie beginnt mit iroh://, https:// oder http://.
 azmeet-asking-server = { $server } wird gefragt ...
 azmeet-server-answers = Der Besprechungsserver antwortet.
-azmeet-no-server = Kein Besprechungsserver festgelegt: Gib seine Adresse unter „Besprechungsserver“ ein und drücke die Eingabetaste, oder starte AzMeet mit --worker <url>.
+azmeet-no-server = Kein Verbindungsserver festgelegt: Gib seine Adresse unter Einstellungen > Besprechungen ein und drücke die Eingabetaste, oder starte AzMeet mit --worker <url>.
 azmeet-left-room = Du hast den Raum verlassen.
 azmeet-key-not-loaded = Der Schlüssel dieses Geräts ist noch nicht geladen: einen Moment, bitte.
 azmeet-no-random = Die Zufallsquelle des Systems ist ausgefallen: Es kann kein Raum erstellt werden.
@@ -179,7 +179,7 @@ azmeet-not-a-link = Das ist kein Besprechungslink. Füge einen azlin://meet/...-
 azmeet-looking-up = Die Besprechung wird gesucht...
 azmeet-schedule-bad-start = Gib den Beginn als 2026-10-09 14:00 ein (deine Uhrzeit).
 azmeet-schedule-bad-length = Gib die Dauer der Besprechung in Minuten ein (1 bis 10080).
-azmeet-preview-cannot-join = Dieser Warteraum ist eine Vorschau: Unter { $server } antwortet kein Besprechungsserver. Starte einen (den Dev-Server des Meet-Workers) oder wähle auf dem Startbildschirm einen anderen, um Leute zu treffen.
+azmeet-preview-cannot-join = Dieser Warteraum ist eine Vorschau: Unter { $server } antwortet kein Verbindungsserver. Starte einen (den Dev-Server des Meet-Workers) oder wähle unter Einstellungen > Besprechungen einen anderen, um Leute zu treffen.
 azmeet-asked-to-join = Beitritt angefragt: Jemand in der Besprechung lässt dich ein. Vergleiche deinen Sicherheitscode mit ihrem.
 azmeet-preview-no-server = Eine Vorschau des Warteraums: Kein Besprechungsserver ist festgelegt.
 azmeet-preview-silent-server = Eine Vorschau des Warteraums: Unter { $server } antwortet kein Besprechungsserver.
@@ -201,9 +201,9 @@ azmeet-leaving-room = Der Raum wird verlassen...
 azmeet-members-only-call = Nur ein Mitglied des Raums tritt seinem Anruf bei.
 azmeet-left-meeting = Du hast die Besprechung verlassen.
 azmeet-not-http = keine http(s)-Adresse
-azmeet-server-saved = auf dem Startbildschirm gespeichert
-azmeet-server-built-in = eingebaut (AZMEET_DEFAULT_WORKER)
-azmeet-server-silent = Der Besprechungsserver unter { $server } ({ $from }) antwortet nicht ({ $why }). AzMeet fragt alle { $seconds } Sekunden erneut; „Erneut versuchen“ fragt sofort, oder gib einen anderen ein und drücke die Eingabetaste.
+azmeet-server-saved = in den Einstellungen gespeichert
+azmeet-server-built-in = eingebaut
+azmeet-server-silent = Der Verbindungsserver unter { $server } ({ $from }) antwortet nicht ({ $why }). AzMeet fragt alle { $seconds } Sekunden erneut; „Erneut versuchen“ fragt sofort, oder gib einen anderen ein und drücke die Eingabetaste.
 azmeet-no-network = Keine Netzwerkverbindung, daher ist niemand erreichbar: { $why }
 
 ## AzMeet: rooms, identity, times
@@ -235,3 +235,23 @@ azmeet-shortcuts-call = Anruf
 azmeet-shortcut-mic = Das Mikrofon stumm- oder lautschalten
 azmeet-shortcut-camera = Die Kamera starten oder beenden
 azmeet-room-old = Dieser Raum wurde von einem älteren AzMeet erstellt und ist nicht Ende-zu-Ende-verschlüsselt, daher nutzt dieses AzMeet ihn nicht.
+
+## Der Verbindungsserver auf dem Startbildschirm und in den Einstellungen
+
+azmeet-lobby-no-server = Kein Verbindungsserver ist festgelegt.
+azmeet-lobby-server-silent = Der Verbindungsserver antwortet nicht.
+azmeet-connection-settings = Verbindungseinstellungen
+azmeet-server-locked = Der Verbindungsserver lässt sich außerhalb einer Besprechung oder eines Raums ändern.
+
+## Der Tontest (der Warteraum, Einstellungen > Audio und Video)
+
+azmeet-sound-check = Tontest
+azmeet-test-speakers = Lautsprecher testen
+azmeet-test-speakers-playing = Ein Ton wird abgespielt...
+azmeet-test-speakers-done = Hast du den Ton gehört? Wenn nicht, prüfe den Lautsprecher und seine Lautstärke.
+azmeet-test-mic = Testaufnahme machen
+azmeet-test-mic-recording = Aufnahme... { $seconds } s
+azmeet-test-mic-playing = Wird abgespielt...
+azmeet-test-mic-done = So hören dich die anderen.
+azmeet-test-mic-quiet = Das Mikrofon lieferte nur Stille: Prüfe, ob es angeschlossen und nicht stummgeschaltet ist und ob AzMeet es verwenden darf.
+azmeet-test-mic-none = Vom Mikrofon kam kein Ton: Prüfe, ob es angeschlossen ist und ob AzMeet es verwenden darf.
