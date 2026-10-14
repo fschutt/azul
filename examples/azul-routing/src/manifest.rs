@@ -16,6 +16,10 @@ use crate::tile::TileId;
 /// What the manifest's `format` says.
 pub const FORMAT: &str = "azul-routing-tiles";
 
+/// Where a tile set keeps its tiles, relative to its manifest: what the
+/// builds write, and what a folder without a manifest holds.
+pub const DEFAULT_TILES: &str = "tiles/{z}/{x}/{y}.pbf";
+
 /// One source extract the tiles were built from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Region {
@@ -202,12 +206,7 @@ impl Manifest {
     /// The URL (or path) of `tile`, given the manifest's own URL (or path).
     #[must_use]
     pub fn tile_url(&self, manifest_url: &str, tile: TileId) -> String {
-        let relative = self
-            .tiles
-            .replace("{z}", &tile.z.to_string())
-            .replace("{x}", &tile.x.to_string())
-            .replace("{y}", &tile.y.to_string());
-        resolve(manifest_url, &relative)
+        resolve(manifest_url, &fill(&self.tiles, tile))
     }
 
     /// The URL (or path) of the tile list, given the manifest's own URL (or
@@ -240,6 +239,15 @@ pub fn resolve(base: &str, relative: &str) -> String {
         Some(slash) => format!("{}{relative}", &base[..=slash]),
         None => relative.to_string(),
     }
+}
+
+/// `template` with `{z}`, `{x}` and `{y}` of `tile` filled in.
+#[must_use]
+pub fn fill(template: &str, tile: TileId) -> String {
+    template
+        .replace("{z}", &tile.z.to_string())
+        .replace("{x}", &tile.x.to_string())
+        .replace("{y}", &tile.y.to_string())
 }
 
 /// Whether a routing value (`--routing`, `AZMAPS_ROUTING`,
