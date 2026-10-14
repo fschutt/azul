@@ -247,6 +247,8 @@ pub(crate) fn screen(m: &Manager, app: &RefAny) -> Dom {
     .with_on_click(app.clone(), on_update_all);
     if m.busy {
         check = check.with_disabled(s(&t("azinstallmgr-busy")));
+    } else if !model::has_source(&m.updates) {
+        check = check.with_disabled(s(&t("azinstallmgr-source-unset-reason")));
     }
     if m.busy || pending == 0 {
         update_all = update_all.with_disabled(s(&t("azinstallmgr-nothing-to-update")));
@@ -281,7 +283,15 @@ pub(crate) fn screen(m: &Manager, app: &RefAny) -> Dom {
         rows,
     )
     .with_id(s("installmgr-table"));
-    let mut children = vec![toolbar, table];
+    let mut children = vec![toolbar];
+    if !model::has_source(&m.updates) {
+        // Without an update source nothing can be checked or updated: say so above the table.
+        children.push(
+            pieces::block("padding: 8px 12px;", pieces::text(t("azinstallmgr-source-none")))
+                .with_id(s("installmgr-no-source")),
+        );
+    }
+    children.push(table);
     if !m.notice.is_empty() {
         children.push(
             pieces::block("padding: 8px 12px;", pieces::text(m.notice.clone()))

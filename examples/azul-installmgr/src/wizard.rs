@@ -283,8 +283,18 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
             let reason = p.blocked_reason().as_str().to_string();
             (p.dom(), reason)
         }
+        // The channel and auto-update, then where the apps come from.
         Step::Channel => (
-            w.options.clone().with_on_event(app.clone(), on_page).dom(),
+            pieces::column(
+                "flex-grow: 1; min-height: 0px;",
+                vec![
+                    w.options.clone().with_on_event(app.clone(), on_page).dom(),
+                    pieces::block(
+                        "padding: 0px 24px 12px 24px;",
+                        crate::settings::source_section(m, app),
+                    ),
+                ],
+            ),
             String::new(),
         ),
         Step::Ready => {
@@ -303,13 +313,26 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
             } else {
                 "azinstallmgr-no"
             });
+            let source = m
+                .updates
+                .manifest_url
+                .clone()
+                .filter(|_| model::has_source(&m.updates))
+                .unwrap_or_else(|| t("azinstallmgr-source-unset"));
             let p = WizardSummaryPage::create(StringPairVec::from_vec(Vec::new()))
                 .with_intro(s(&t("azinstallmgr-ready-intro")))
                 .with_row(s(&t("azinstallmgr-ready-folder")), s(&w.path))
                 .with_row(s(&t("azinstallmgr-ready-apps")), s(&names.join(", ")))
                 .with_row(s(&t("azinstallmgr-ready-channel")), s(&channel))
-                .with_row(s(&t("azinstallmgr-autoupdate")), s(&autoupdate));
-            (p.dom(), String::new())
+                .with_row(s(&t("azinstallmgr-autoupdate")), s(&autoupdate))
+                .with_row(s(&t("azinstallmgr-settings-source")), s(&source));
+            // Nothing can be fetched without a source: Install waits and says where to set it.
+            let reason = if model::has_source(&m.updates) {
+                String::new()
+            } else {
+                t("azinstallmgr-ready-no-source")
+            };
+            (p.dom(), reason)
         }
         Step::Installing => {
             let progress = &w.progress;
@@ -570,4 +593,44 @@ pub(crate) fn finished(w: &mut Wizard) {
         w.progress.done - w.progress.failed,
         w.progress.failed
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manager(source: Option<&str>) -> Manager {
+        let mut updates = azul_appkit::azlin_config::UpdatesSection::default();
+        updates.manifest_url = source.map(str::to_string);
+        Manager::for_test(std::path::PathBuf::from("/tmp/azlin-test/config.json"), updates)
+    }
+
+    /// The Updates page asks for the update source beside the channel: a first run has none
+    /// configured, and the wizard is where the user meets that.
+    #[test]
+    fn the_updates_page_asks_for_the_update_source() {
+        crate::l10n::in_english();
+        let mut m = manager(None);
+        m.wizard.step = Step::Channel;
+        let (dom, reason) = page(&m, &RefAny::new(0u8));
+        assert!(crate::has_id(&dom, "installmgr-source"), "a field for the update source");
+        assert!(crate::has_id(&dom, "installmgr-source-help"), "a line that explains it");
+        assert_eq!(reason, "", "the page itself never holds Next");
+    }
+
+    /// Without an update source nothing can be fetched: Install waits and says why, instead of
+    /// failing every app with a path to a config file.
+    #[test]
+    fn without_an_update_source_install_waits_and_says_why() {
+        crate::l10n::in_english();
+        let mut m = manager(None);
+        m.wizard.step = Step::Ready;
+        let (_, reason) = page(&m, &RefAny::new(0u8));
+        assert_eq!(reason, t("azinstallmgr-ready-no-source"));
+        assert!(!reason.starts_with("azinstallmgr-"), "a sentence, not a key: {reason}");
+        let mut m = manager(Some("https://example.org/{app}/{channel}.json"));
+        m.wizard.step = Step::Ready;
+        let (_, reason) = page(&m, &RefAny::new(0u8));
+        assert_eq!(reason, "", "with a source Install may go");
+    }
 }

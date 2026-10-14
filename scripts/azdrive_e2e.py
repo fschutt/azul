@@ -128,9 +128,11 @@ import zipfile
 import os
 import re
 import shutil
+import struct
 import sys
 import tempfile
 import time
+import zlib
 
 import azlin_blake3
 import azlin_e2e as e2e
@@ -433,6 +435,67 @@ def bar_texts(app, cls):
     return app.texts_within("." + cls)
 
 
+def write_png(path, width, height):
+    """A `width` x `height` RGB picture (a colour ramp) as a PNG file. The sample's own picture
+    is square, and a square picture cannot show whether a thumbnail keeps its proportions."""
+    rows = b"".join(
+        b"\x00" + bytes(v for x in range(width)
+                        for v in (x * 255 // max(width - 1, 1), y * 255 // max(height - 1, 1), 160))
+        for y in range(height))
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF))
+
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows))
+                + chunk(b"IEND", b""))
+
+
+# The non-square pictures in Home's Pictures folder: (name, width, height).
+WIDE_PICTURE = ("panorama.png", 96, 48)
+TALL_PICTURE = ("tower.png", 48, 96)
+
+
+def thumbnail_sizes(app):
+    """(width, height) of every picture the rows draw in an icon's place (`__azdrive_thumbnail`),
+    in whichever DOM holds the rows."""
+    sizes = []
+    for dom in app.doms():
+        for n in app.hierarchy_of(dom):
+            if C("thumbnail") not in (n.get("classes") or []):
+                continue
+            answer = app.op("get_node_layout", node_id=n["index"], dom_id=dom)
+            if not isinstance(answer, dict) or answer.get("status") == "error":
+                continue
+            rect = ((answer.get("data") or {}).get("value") or {}).get("rect") or {}
+            sizes.append((float(rect.get("width", 0)), float(rect.get("height", 0))))
+    return sizes
+
+
+def check_thumbnails_whole(app, icon_px, layout):
+    """Every picture of the rows fills its `icon_px` icon square on its longer side and keeps
+    its proportions: the 2:1 picture is twice as wide as tall, the 1:2 one twice as tall as wide
+    (Chrome's sizes for the same `<img>` under max-width / max-height). A sliver one or two
+    pixels wide is the failure this guards."""
+    def whole():
+        sizes = thumbnail_sizes(app)
+        if len(sizes) < 3:
+            return None
+        return sizes
+    sizes = app.until("the %s pictures laid out" % layout, whole)
+    for w, h in sizes:
+        if abs(max(w, h) - icon_px) > 1.0 or min(w, h) < icon_px / 2.0 - 1.0:
+            raise Failure("%s: a thumbnail drawn %.1fx%.1f in a %.0f px icon square (all: %s)"
+                          % (layout, w, h, icon_px, sizes))
+    if not any(w >= 1.8 * h for w, h in sizes) or not any(h >= 1.8 * w for w, h in sizes):
+        raise Failure("%s: the wide and the tall picture do not keep their proportions: %s"
+                      % (layout, sizes))
+    log("%s: the pictures drawn whole: %s" % (layout, sizes))
+
+
 def run(args, logs):
     binary = e2e.find_binary("AzDrive", args.bin, "AZDRIVE_BIN")
     log("AzDrive: %s" % binary)
@@ -465,6 +528,10 @@ def run(args, logs):
         f.write(b"# Plan\n\nthe zebra-quartz line\n")
     with open(os.path.join(home, "Find", "other.txt"), "wb") as f:
         f.write(b"nothing either\n")
+    # Step 12's thumbnails: a wide and a tall picture beside the sample's square one.
+    os.makedirs(os.path.join(home, "Pictures"))
+    for name, width, height in (WIDE_PICTURE, TALL_PICTURE):
+        write_png(os.path.join(home, "Pictures", name), width, height)
     # Step 22's index: a Word document (a zip of XML, deflated: binary to the walk) holding a
     # word no other file holds.
     with zipfile.ZipFile(os.path.join(home, "Find", "Minutes.docx"), "w",
@@ -796,6 +863,15 @@ def run(args, logs):
         app.until("a thumbnail in the list",
                   lambda: app.count("AZDRIVE_THUMBNAIL", r"Pictures/gradient\.png") > 0)
         app.until("the thumbnail drawn in the list", lambda: thumbnail_drawn(app))
+        for name, _, _ in (WIDE_PICTURE, TALL_PICTURE):
+            app.until("a thumbnail of %s" % name,
+                      lambda: app.count("AZDRIVE_THUMBNAIL", r"Pictures/" + re.escape(name)) > 0)
+        check_thumbnails_whole(app, 16.0, "Details")
+        app.after("List", "AZDRIVE_LAYOUT", r"list", lambda: app.key("5", primary=True, shift=True))
+        check_thumbnails_whole(app, 18.0, "List")
+        app.screenshot(os.path.join(out, "12-list-thumbnails.png"))
+        app.after("Details again", "AZDRIVE_LAYOUT", r"details",
+                  lambda: app.key("6", primary=True, shift=True))
         app.after("an image preview", "AZDRIVE_PREVIEW", r"image Pictures/gradient\.png",
                   lambda: select_item(app, "gradient.png"))
         app.until("the image in the preview", lambda: app.has("#" + I("preview-image")))

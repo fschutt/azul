@@ -80,10 +80,9 @@ use azul::{
     css::EventFilter,
     dom::Dom,
     shells::{ShellThemeAccent, ShellThemeScope},
-    str::String as AzString,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
-    widgets::{CloseGuard, CloseGuardEvent, CloseGuardEventKind},
+    widgets::{CloseGuardEvent, CloseGuardEventKind},
     window::WindowEventFilter,
 };
 use azul_appkit::{
@@ -259,7 +258,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         ui::window(&app, st)
     };
     let document = st.tabs.active().map_or_else(|| "AzCode".to_string(), |d| d.name.clone());
-    let guarded = CloseGuard::create(content, AzString::from(document))
+    let guarded = kit::close_guard(content, &document)
         .with_dirty(st.any_dirty())
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard)

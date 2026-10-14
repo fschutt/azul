@@ -78,7 +78,7 @@ use azul::{
     svg::{CssPath, CssPathSelector},
     vec::{AccessibilityStateVec, BackstageNavItemVec, CellGridRangeVec, CellGridSizeVec, StringVec},
     widgets::{
-        AboutDialog, Backstage, BackstageNavItem, Button, CellGrid, CellGridCell, CloseGuard,
+        AboutDialog, Backstage, BackstageNavItem, Button, CellGrid, CellGridCell,
         CloseGuardEvent, CloseGuardEventKind,
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
@@ -2175,7 +2175,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // "Save changes?" before the window closes with unsaved work: the close
     // request is held while the workbook is dirty (the standard question
     // over the window, the answer in on_close_guard).
-    let guarded = CloseGuard::create(shell.dom(), AzString::from(s.doc.title.as_str()))
+    let guarded = kit::close_guard(shell.dom(), &s.doc.title)
         .with_dirty(s.doc.dirty)
         .with_asking(s.asking_close)
         .with_on_event(app.clone(), on_close_guard as CloseGuardOnEventCallbackType)

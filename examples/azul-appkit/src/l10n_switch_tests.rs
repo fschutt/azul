@@ -176,6 +176,32 @@ fn a_date_is_written_as_the_language_writes_it() {
     set_locale("en-US");
 }
 
+/// The question a window asks before it closes over unsaved work, and its three buttons, are
+/// said in the window's language: azul's own words are English only.
+#[test]
+fn the_close_question_and_its_buttons_are_in_the_windows_language() {
+    use azul::dom::Dom;
+
+    keep(&sources(&[]));
+    set_locale("de-DE");
+    let german = crate::ui::close_guard(Dom::create_div(), "Bericht");
+    set_locale("en-US");
+    let english = crate::ui::close_guard(Dom::create_div(), "Report");
+    assert_eq!(german.question.as_str(), "\u{c4}nderungen an \u{201e}Bericht\u{201c} speichern?");
+    assert_eq!(
+        german.text.as_str(),
+        "Deine \u{c4}nderungen gehen verloren, wenn du sie nicht speicherst."
+    );
+    assert_eq!(german.save_label.as_str(), "Speichern");
+    assert_eq!(german.discard_label.as_str(), "Nicht speichern");
+    assert_eq!(german.cancel_label.as_str(), "Abbrechen");
+    assert_eq!(english.question.as_str(), "Save changes to \"Report\"?");
+    assert_eq!(english.text.as_str(), "Your changes will be lost if you don't save them.");
+    assert_eq!(english.save_label.as_str(), "Save");
+    assert_eq!(english.discard_label.as_str(), "Don't Save");
+    assert_eq!(english.cancel_label.as_str(), "Cancel");
+}
+
 #[test]
 fn a_worker_thread_that_adopts_the_ui_threads_voice_says_its_words_in_its_language() {
     keep(&sources(&[]));
@@ -189,7 +215,10 @@ fn a_worker_thread_that_adopts_the_ui_threads_voice_says_its_words_in_its_langua
     })
     .join()
     .expect("the worker thread ends");
-    assert_eq!(before, "Language", "a new thread says appkit's own words, in English");
+    assert_eq!(
+        before, "Language",
+        "a new thread says appkit's own words in English, not the UI thread's German"
+    );
     assert_eq!(after, "Sprache", "the voice's language, not this thread's English");
     assert_eq!(Voice::here(), Voice::here());
     assert_ne!(Voice::here(), voice_in("de-DE"), "a printout in another language differs");

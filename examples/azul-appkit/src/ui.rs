@@ -54,8 +54,8 @@ use azul::{
     },
     time::{Duration, SystemTimeDiff},
     widgets::{
-        AboutDialog, Button, Modal, ModalState, Segmented, SegmentedState, StandardDialogEvent,
-        TabsInTitlebar, Titlebar,
+        AboutDialog, Button, CloseGuard, Modal, ModalState, Segmented, SegmentedState,
+        StandardDialogEvent, TabsInTitlebar, Titlebar,
     },
     window::{WindowCreateOptions, WindowDecorations, WindowFrame},
 };
@@ -428,6 +428,24 @@ pub fn title_row(title: &str) -> Dom {
 #[must_use]
 pub fn tabs_in_titlebar() -> TabsInTitlebar {
     TabsInTitlebar::platform()
+}
+
+/// The standard "Save changes?" guard around a window's `content`, for the open `document`,
+/// its question and its three buttons in the window's language. azul's guard words are
+/// English: an app that built its guard with `CloseGuard::create` asked a German user in
+/// English.
+#[must_use]
+pub fn close_guard(content: Dom, document: &str) -> CloseGuard {
+    CloseGuard::create(content, AzString::from(document))
+        .with_question(
+            t_args("kit-close-question", &[("document", l10n::Arg::from(document))]),
+            l10n::t("kit-close-text"),
+        )
+        .with_labels(
+            l10n::t("kit-close-save"),
+            l10n::t("kit-close-discard"),
+            l10n::t("kit-button-cancel"),
+        )
 }
 
 /// Asks for a new frame of the image at `node` - its `RenderImageCallback` runs again before

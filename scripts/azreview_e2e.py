@@ -6,8 +6,9 @@
        fresh data folder (`--data-dir`); it opens the first file (`AZREVIEW_FILE README.md`);
     2. the window is filled: the sheet strip reaches down to the window's bottom (there is no
        status bar);
-    3. a click on `lib.rs` in the files (they fly out over the pages at the start) opens it
-       (`AZREVIEW_FILE src/lib.rs`) and folds the files away;
+    3. the files fly out over the pages at the start (the sheet strip starts under the flyout,
+       not beside it); a click on `lib.rs` in them opens it (`AZREVIEW_FILE src/lib.rs`) and
+       folds the files away, and the pages stay where they were;
     4. a stroke drawn with the mouse on the first page is kept (`AZREVIEW_STROKES 1`) and the
        session is written on a Thread to review/src_lib.rs.azreview.zip (`AZREVIEW_SAVED ...`):
        a zip whose session.json holds the stroke;
@@ -34,6 +35,7 @@ from azlin_e2e import Failure
 TAG = "azreview"
 WIDTH, HEIGHT = 1280, 820
 STRIP = "__azreview_sheet-strip"
+FLYOUT = "__azreview_flyout"
 ARCHIVE = "review/src_lib.rs.azreview.zip"
 
 
@@ -68,11 +70,24 @@ def body(args, logs, out):
         if not strip or strip.get("height", 0) < 300 or strip.get("y", 0) + strip.get("height", 0) > HEIGHT:
             raise Failure("the sheet strip does not fill the document: %s" % strip)
         app.screenshot(os.path.join(out, "1-readme.png"))
+        # The files fly out OVER the pages: the sheet strip keeps its place under the flyout
+        # (it does not start where the flyout ends), and keeps it when the files fold away.
+        under = strip
+        flyout = app.rect(FLYOUT)
+        if not flyout or flyout.get("width", 0) <= 0:
+            raise Failure("the files do not fly out at the start: %s" % flyout)
+        if under["x"] >= flyout["x"] + flyout["width"]:
+            raise Failure("the files lie beside the pages, not over them: flyout %s, strip %s"
+                          % (flyout, under))
 
         # Open lib.rs from the files.
         app.click(text="lib.rs")
         app.expect_line("AZREVIEW_FILE", os.path.join("src", "lib.rs"), "a click opens lib.rs")
         app.frame(2)
+        app.until("the files folded away", lambda: not app.has_id(FLYOUT))
+        folded = app.rect(STRIP)
+        if abs(folded.get("x", 0) - under["x"]) > 1.0:
+            raise Failure("the pages moved when the files folded away: %s -> %s" % (under, folded))
 
         # Draw a stroke on the first page.
         strip = app.rect(STRIP)

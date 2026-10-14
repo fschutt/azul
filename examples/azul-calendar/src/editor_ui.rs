@@ -25,7 +25,7 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, CheckBoxState, CloseGuard, CloseGuardDocumentState, CloseGuardEvent,
+        ButtonType, CheckBoxState, CloseGuardDocumentState, CloseGuardEvent,
         CloseGuardEventKind, DatePicker,
         DatePickerState, DatePickerWeekStart,
         OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Ribbon, RibbonGroup,
@@ -203,7 +203,7 @@ extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // from the one it opened with - asked when the close comes (`editor_dirty_check`), so the
     // close a Save & Close makes right after its save passes (WIDGETS7's dirty check).
     let shell = match &s.editor {
-        Some(form) => CloseGuard::create(shell, form.window_title())
+        Some(form) => azul_appkit::ui::close_guard(shell, &form.window_title())
             .with_dirty_check(app.clone(), editor_dirty_check as CloseGuardDirtyCheckCallbackType)
             .with_asking(s.editor_asking)
             .with_on_event(app.clone(), on_editor_answer as CloseGuardOnEventCallbackType)

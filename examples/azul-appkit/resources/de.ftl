@@ -4,6 +4,10 @@
 ## Schaltflächen
 kit-button-ok = OK
 kit-button-cancel = Abbrechen
+kit-close-question = Änderungen an „{ $document }“ speichern?
+kit-close-text = Deine Änderungen gehen verloren, wenn du sie nicht speicherst.
+kit-close-save = Speichern
+kit-close-discard = Nicht speichern
 
 ## Die Kategorien der Einstellungsseite und die Zeile darüber
 kit-category-general = Allgemein

@@ -1312,6 +1312,28 @@ where
     Ok((apply, rest))
 }
 
+/// The update source as the user typed it: `None` for an empty field (no source), the address
+/// without the spaces around it, or the message key of why it cannot be one. A source is a web
+/// address: the manifests are fetched from it, `{app}` and `{channel}` filled in.
+pub fn source_from_text(text: &str) -> Result<Option<String>, &'static str> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    if text.starts_with("https://") || text.starts_with("http://") {
+        Ok(Some(text.to_string()))
+    } else {
+        Err("azinstallmgr-source-not-web")
+    }
+}
+
+/// Whether the apps can be fetched at all: an update source is configured. Nothing is
+/// published at a default address, so a first run starts without one.
+#[must_use]
+pub fn has_source(updates: &UpdatesSection) -> bool {
+    manifest_url_for(updates, RUNTIME_KEY, Channel::Stable).is_some()
+}
+
 /// `AZINSTALLMGR_STEP <index> <name>`, for scripts.
 #[must_use]
 pub fn step_line(steps: &[Step], step: Step) -> String {
@@ -1350,6 +1372,21 @@ mod model_tests {
     use azul_storage::testing::TempDir;
 
     use super::*;
+
+    #[test]
+    fn a_typed_update_source_is_a_web_address_and_an_empty_field_is_none() {
+        assert_eq!(
+            source_from_text("  https://example.org/{app}/{channel}.json \n"),
+            Ok(Some("https://example.org/{app}/{channel}.json".to_string()))
+        );
+        assert_eq!(source_from_text("http://127.0.0.1:8000/{app}.json"), Ok(Some("http://127.0.0.1:8000/{app}.json".to_string())));
+        assert_eq!(source_from_text("   "), Ok(None));
+        assert_eq!(source_from_text("example.org/updates"), Err("azinstallmgr-source-not-web"));
+        let mut updates = UpdatesSection::default();
+        assert!(!has_source(&updates), "a first run has none");
+        updates.manifest_url = Some("https://example.org/{app}/{channel}.json".to_string());
+        assert!(has_source(&updates));
+    }
 
     /// An engine with one release per app key and a record of what it was asked.
     #[derive(Default)]

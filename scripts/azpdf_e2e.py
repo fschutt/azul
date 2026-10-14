@@ -16,7 +16,9 @@ the recent list in the data tree (PDF9).
        in the side pane; a click on the first goes to its page;
     6. the recent list is written to pdf/recent.json and names the file;
     7. the Outline tab says there is no outline; the gear opens azul-appkit's
-       settings page, Escape closes it;
+       settings page, Escape closes it (after the open: no text of the window
+       is a Fluent key, the navigation tabs say Pages / Outline, Open is an
+       icon without its word);
     8. flora / dark: a screenshot (the chrome follows, the pages stay paper);
     9. a PDF with a form (a text field and a check box): an input over each
        field; typing and a click change the values (`AZPDF_FIELD`), "Export
@@ -44,6 +46,19 @@ from pdf_chrome_probe import pdf_bytes
 TAG = "azpdf"
 WIDTH, HEIGHT = 1280, 860
 PAGES = "__azpdf_pages"
+NAV_TABS = "__azpdf_nav-tabs"
+TOOLBAR = "__azpdf_toolbar"
+
+
+def raw_keys(app):
+    """The texts of the window that are one of AzPdf's Fluent keys instead of a word."""
+    found = []
+    for dom in app.dom_ids():
+        for n in e2e.dicts(app.op("get_node_hierarchy", dom_id=dom)):
+            text = n.get("text")
+            if isinstance(text, str) and text.strip().startswith("azpdf-"):
+                found.append(text)
+    return found
 
 
 def page_content(n, needle):
@@ -192,6 +207,16 @@ def body(args, logs, out):
             raise Failure("a triple click on the page's text does not select its line: %s"
                           % json.dumps(state)[:400])
         app.screenshot(os.path.join(out, "1-opened.png"))
+        # Words, not keys: the navigation tabs say Pages / Outline, no text of the window is a
+        # key, and the toolbar's Open is a small icon (its name is its tooltip, not a label).
+        raw = raw_keys(app)
+        if raw:
+            raise Failure("the window shows Fluent keys instead of words: %s" % raw)
+        tabs = app.texts_within("#" + NAV_TABS)
+        if "Pages" not in tabs or "Outline" not in tabs:
+            raise Failure("the navigation tabs do not say Pages / Outline: %s" % tabs)
+        if "Open" in app.texts_within("#" + TOOLBAR):
+            raise Failure("the toolbar's Open is a word beside its icon, not a small icon")
 
         # Page turns.
         app.click(selector="#__azpdf_next")

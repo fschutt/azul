@@ -44,7 +44,7 @@ use azul::{
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     widgets::{
-        AboutDialog, CloseGuard, CloseGuardEvent, CloseGuardEventKind, Modal, ModalState,
+        AboutDialog, CloseGuardEvent, CloseGuardEventKind, Modal, ModalState,
         StandardDialogEvent,
     },
     window::WindowEventFilter,
@@ -241,7 +241,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         }
     };
     let document_name = st.doc.as_ref().map_or_else(|| "AzWriter".to_string(), DocumentModel::title);
-    let guarded = CloseGuard::create(content, AzString::from(document_name))
+    let guarded = kit::close_guard(content, &document_name)
         .with_dirty(st.is_dirty())
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard)

@@ -4,6 +4,10 @@
 ## Buttons
 kit-button-ok = OK
 kit-button-cancel = Cancel
+kit-close-question = Save changes to "{ $document }"?
+kit-close-text = Your changes will be lost if you don't save them.
+kit-close-save = Save
+kit-close-discard = Don't Save
 
 ## The categories of the settings page and the line over each
 kit-category-general = General

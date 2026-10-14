@@ -317,7 +317,7 @@ pub fn ribbon(app: &RefAny, st: &AppState) -> Dom {
     let tabs = vec![home_tab(app, editor), insert_tab(app), view_tab(app, st)];
     let active = st.ribbon_tab.min(tabs.len() - 1);
     Ribbon::create(tabs)
-        .with_app_button(RibbonAppButton::create(s("FILE")).with_on_click(
+        .with_app_button(RibbonAppButton::create(s("azwriter-tab-file")).with_on_click(
             command(app, Command::OpenBackstage(BackstagePage::Info)),
             on_command as ButtonOnClickCallbackType,
         ))
@@ -335,6 +335,36 @@ mod tests {
 
     fn editor_on(markdown: &str) -> RichTextEditorState {
         RichTextEditorState::create(RichTextDoc::create_from_markdown(markdown))
+    }
+
+    /// The words inside `dom`.
+    fn texts(dom: &Dom) -> Vec<String> {
+        let mut out: Vec<String> = dom
+            .root
+            .node_type
+            .get_text()
+            .into_option()
+            .map(|t| t.as_str().to_string())
+            .into_iter()
+            .collect();
+        for child in dom.children.as_slice() {
+            out.extend(texts(child));
+        }
+        out
+    }
+
+    /// The File tab is said in the window's language, as the tabs beside it are: DATEI, not
+    /// FILE, in a German window.
+    #[test]
+    fn the_file_tab_is_said_in_the_windows_language() {
+        crate::l10n::in_english();
+        let st = AppState::new(RefAny::new(()), std::path::PathBuf::from("data"), false);
+        azul_appkit::l10n::set_locale("de-DE");
+        let shown = texts(&ribbon(&RefAny::new(()), &st));
+        azul_appkit::l10n::set_locale("en-US");
+        assert!(shown.iter().any(|t| t == "DATEI"), "{shown:?}");
+        assert!(shown.iter().any(|t| t == "START"), "the tab beside it: {shown:?}");
+        assert!(!shown.iter().any(|t| t == "FILE"), "{shown:?}");
     }
 
     #[test]
