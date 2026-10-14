@@ -44,6 +44,7 @@ use azul_css::{
 use azul_css::system::DarkLightMode;
 
 pub mod overlay;
+pub mod labels;
 #[cfg(test)]
 mod label_placement_tests;
 pub use overlay::{
@@ -980,6 +981,18 @@ pub struct MapTileCache {
     /// The view's size (width, height) at the last render, px: the camera a
     /// drag is unprojected through when the event reports no node size.
     pub view_size: (f32, f32),
+    /// The labels the last renders showed, held or fading: what keeps a
+    /// label in its slot from one frame to the next (see [`labels`]).
+    pub labels: labels::LabelPlacement,
+    /// When the last fade in flight ends ([`map_clock`] seconds): a label
+    /// fading in or out, a tile fading in over its stand-in. Written by the
+    /// render; the fade timer draws the view again until then.
+    pub fade_until: f64,
+    /// Whether the fade timer runs ([`keep_fading`] starts it, it stops
+    /// itself once nothing has faded for a few ticks).
+    pub fade_timer_running: bool,
+    /// The fade timer's ticks in a row without a fade in flight.
+    pub fade_idle_ticks: u32,
 }
 
 impl MapTileCache {
@@ -1010,6 +1023,10 @@ impl MapTileCache {
             on_marker_tap: OptionMapMarkerTap::None,
             pressed_marker: None,
             view_size: (0.0, 0.0),
+            labels: labels::LabelPlacement::new(),
+            fade_until: 0.0,
+            fade_timer_running: false,
+            fade_idle_ticks: 0,
         }
     }
 
@@ -1927,6 +1944,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let vp = cache.viewport;
         let marker = cache.view_marker.clone();
         drop(cache);
+        keep_fading(&mut data, &mut info);
         return finish_viewport_change(&hook, &mut info, vp, marker);
     }
 
@@ -1956,6 +1974,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let vp = cache_guard.viewport;
         let marker = cache_guard.view_marker.clone();
         drop(cache_guard);
+        keep_fading(&mut data, &mut info);
         return finish_viewport_change(&hook, &mut info, vp, marker);
     }
     let Some(anchor) = cache_guard.drag_anchor else {
@@ -2002,6 +2021,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let vp = cache_guard.viewport;
     let marker = cache_guard.view_marker.clone();
     drop(cache_guard);
+    keep_fading(&mut data, &mut info);
     finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
@@ -2059,6 +2079,7 @@ extern "C" fn map_on_rotate_gesture(mut data: RefAny, mut info: CallbackInfo) ->
     let vp = cache_guard.viewport;
     let marker = cache_guard.view_marker.clone();
     drop(cache_guard);
+    keep_fading(&mut data, &mut info);
     finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
@@ -2175,6 +2196,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         )
     };
     spawn_pending_tile_fetches(&mut data, &mut info);
+    keep_fading(&mut data, &mut info);
     finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
@@ -2510,29 +2532,11 @@ fn xml_unescape(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The most labels one frame shows. Each is a text node the view lays out
-/// and shapes on every render; 300 cost more than the tiles under them, and
-/// a decluttered map window rarely holds more than this many readable names.
-const MAX_LABELS_PER_FRAME: usize = 160;
-
-/// A label is not repeated closer than this to itself (one road name per
-/// tile reads as a repeat every 256 px otherwise).
-const LABEL_REPEAT_PX: f32 = 180.0;
-
-/// House numbers only from this zoom on (the tiles carry them from z14,
-/// where they would bury the streets).
-const HOUSENUMBER_MIN_ZOOM: f32 = 17.0;
-
-/// The box a label's text takes: an estimate (no font is measured on the
-/// render path), generous so a centred line never overflows to one side.
-fn label_box(label: &TileLabel) -> (f32, f32) {
-    let chars = label.text.chars().count() as f32;
-    (chars * label.size * 0.62 + 6.0, label.size * 1.35)
-}
-
-/// The labels the frame shows, as DOM: [`declutter_labels`]'s choice, each
-/// built by [`label_dom`]. `candidates` are `(x, y, label)` in the grid's
-/// pixel space.
+/// The labels a view of `width x height` px at `viewport` shows for
+/// `candidates` (`(x, y, label)` in the grid's pixel space), as DOM: one
+/// placement from scratch, the anchors' world points taken from their pixels.
+/// The render places through the cache's [`labels::LabelPlacement`], which
+/// remembers its frames.
 #[cfg(test)]
 fn map_label_doms<L: core::borrow::Borrow<TileLabel>>(
     candidates: Vec<(f32, f32, L)>,
@@ -2541,91 +2545,50 @@ fn map_label_doms<L: core::borrow::Borrow<TileLabel>>(
     viewport: &MapViewport,
     margin: f32,
 ) -> Vec<Dom> {
-    declutter_labels(&candidates, width, height, viewport, margin)
-        .into_iter()
-        .map(|index| {
-            let (x, y, label) = &candidates[index];
-            label_dom(*x, *y, label_of(label), viewport)
+    let view = labels::LabelView {
+        width,
+        height,
+        margin,
+        zoom: viewport.zoom,
+        centre: (0.5, 0.5),
+    };
+    let world_px = view.world_px();
+    let offered: Vec<labels::LabelCandidate<'_>> = candidates
+        .iter()
+        .map(|(x, y, label)| labels::LabelCandidate {
+            x: *x,
+            y: *y,
+            label: label_of(label),
+            world: (
+                0.5 + (f64::from(*x) - f64::from(width) * 0.5) / world_px,
+                0.5 + (f64::from(*y) - f64::from(height) * 0.5) / world_px,
+            ),
+        })
+        .collect();
+    let frame = labels::LabelPlacement::new().place(&offered, &view, 0.0);
+    frame
+        .placed
+        .iter()
+        .filter_map(|p| match p.from {
+            labels::PlacedFrom::Candidate(i) => {
+                Some(label_dom(p.x, p.y, offered[i].label, viewport, 1.0))
+            }
+            labels::PlacedFrom::Remembered(_) => None,
         })
         .collect()
 }
 
 /// A candidate's label, held or borrowed.
+#[cfg(test)]
 fn label_of<L: core::borrow::Borrow<TileLabel>>(label: &L) -> &TileLabel {
     <L as core::borrow::Borrow<TileLabel>>::borrow(label)
-}
-
-/// Which labels the frame shows - indexes into `candidates`, most important
-/// first: none on top of another, none repeated within [`LABEL_REPEAT_PX`],
-/// none outside the view (with `margin` px to spare for a turned or tilted
-/// camera), at most [`MAX_LABELS_PER_FRAME`]. `candidates` are `(x, y,
-/// label)` in the grid's pixel space.
-#[allow(clippy::cast_precision_loss)] // label counts and character counts are small
-fn declutter_labels<L: core::borrow::Borrow<TileLabel>>(
-    candidates: &[(f32, f32, L)],
-    width: f32,
-    height: f32,
-    viewport: &MapViewport,
-    margin: f32,
-) -> Vec<usize> {
-    // Most important first; stable, so equal priorities keep their order.
-    let mut order: Vec<usize> = (0..candidates.len()).collect();
-    order.sort_by_key(|&index| label_of(&candidates[index].2).priority);
-    let mut taken: Vec<(f32, f32, f32, f32)> = Vec::new();
-    let mut shown: Vec<(&str, f32, f32)> = Vec::new();
-    let mut out = Vec::new();
-    for index in order {
-        if out.len() >= MAX_LABELS_PER_FRAME {
-            break;
-        }
-        let (x, y, label) = (
-            candidates[index].0,
-            candidates[index].1,
-            label_of(&candidates[index].2),
-        );
-        if !x.is_finite() || !y.is_finite() {
-            continue;
-        }
-        if label.kind == "housenumber" && viewport.zoom < HOUSENUMBER_MIN_ZOOM {
-            continue;
-        }
-        let (w, h) = label_box(label);
-        let (sin, cos) = label.angle.to_radians().sin_cos();
-        let (bw, bh) = (
-            w * cos.abs() + h * sin.abs(),
-            w * sin.abs() + h * cos.abs(),
-        );
-        let rect = (x - bw * 0.5 - 2.0, y - bh * 0.5 - 2.0, x + bw * 0.5 + 2.0, y + bh * 0.5 + 2.0);
-        if rect.2 < -margin
-            || rect.0 > width + margin
-            || rect.3 < -margin
-            || rect.1 > height + margin
-        {
-            continue;
-        }
-        if taken.iter().any(|other| {
-            rect.0 < other.2 && other.0 < rect.2 && rect.1 < other.3 && other.1 < rect.3
-        }) {
-            continue;
-        }
-        if shown
-            .iter()
-            .any(|(text, sx, sy)| *text == label.text && (sx - x).hypot(sy - y) < LABEL_REPEAT_PX)
-        {
-            continue;
-        }
-        taken.push(rect);
-        shown.push((label.text.as_str(), x, y));
-        out.push(index);
-    }
-    out
 }
 
 /// One label's node: its text centred on `(x, y)` (grid pixels), in its
 /// ink with its halo, turned along its road - or upright under the camera's
 /// bearing (the grid turns by it, each point label turns back).
-fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport) -> Dom {
-    let (w, h) = label_box(label);
+fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport, opacity: f32) -> Dom {
+    let (w, h) = labels::label_box(label);
     let turn = if label.angle.abs() > 0.01 {
         label.angle
     } else {
@@ -2636,10 +2599,16 @@ fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport) -> Dom {
     } else {
         String::new()
     };
+    // A label fading in or out; a placed one is fully drawn.
+    let fade = if opacity < 0.999 {
+        format!(" opacity: {:.3};", opacity.clamp(0.0, 1.0))
+    } else {
+        String::new()
+    };
     let style = format!(
         "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: {:.1}px; \
          margin: 0px; font-size: {:.1}px; line-height: {:.1}px; color: {}; text-align: \
-         center; white-space: nowrap; text-shadow: 0px 0px 2px {};{}{}",
+         center; white-space: nowrap; text-shadow: 0px 0px 2px {};{}{}{}",
         x - w * 0.5,
         y - h * 0.5,
         w,
@@ -2650,6 +2619,7 @@ fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport) -> Dom {
         label.halo,
         if label.italic { " font-style: italic;" } else { "" },
         transform,
+        fade,
     );
     crate::widgets::widget_p_with_text(AzString::from(label.text.as_str()))
         .with_css(style.as_str())
@@ -3234,6 +3204,96 @@ fn rerender_map_view(data: &mut RefAny, info: &mut CallbackInfo) {
         .downcast_ref::<MapTileCache>()
         .map(|cache| cache.view_marker.clone());
     rerender_marked_view(marker, info);
+    keep_fading(data, info);
+}
+
+/// The map's clock: seconds since a map first asked. What the fades of
+/// labels and tiles start and end at.
+fn map_clock() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+}
+
+/// How often a fade in flight draws the view again, ms: about a frame.
+const FADE_FRAME_MS: u64 = 16;
+
+/// Ticks without a fade in flight after which the fade timer stops.
+const FADE_IDLE_TICKS: u32 = 6;
+
+/// Makes sure the view is drawn again while a fade runs: starts the fade
+/// timer unless it runs. Every callback that re-renders the view calls this,
+/// because the render that starts a fade cannot start a timer itself and
+/// runs only after the callback; the timer stops itself when there is
+/// nothing to fade.
+fn keep_fading(data: &mut RefAny, info: &mut CallbackInfo) {
+    let start = match data.downcast_mut::<MapTileCache>() {
+        Some(mut cache) if !cache.fade_timer_running => {
+            cache.fade_timer_running = true;
+            cache.fade_idle_ticks = 0;
+            true
+        }
+        _ => false,
+    };
+    if start {
+        let timer = Timer::create(
+            data.clone(),
+            TimerCallback::create(map_fade_tick),
+            info.get_system_time_fn(),
+        )
+        .with_interval(Duration::System(SystemTimeDiff::from_millis(FADE_FRAME_MS)));
+        info.add_timer(TimerId::unique(), timer);
+    }
+}
+
+/// The fade timer: draws the view while a fade is in flight (and once more
+/// after it ends, so its last frame is drawn at full), and stops after
+/// [`FADE_IDLE_TICKS`] ticks without one.
+extern "C" fn map_fade_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    #[allow(clippy::cast_precision_loss)] // a few milliseconds
+    let last_frame = FADE_FRAME_MS as f64 / 1000.0;
+    let now = map_clock();
+    let redraw = match data.downcast_mut::<MapTileCache>() {
+        None => false,
+        Some(mut cache) => {
+            if now <= cache.fade_until + last_frame {
+                cache.fade_idle_ticks = 0;
+                true
+            } else {
+                cache.fade_idle_ticks += 1;
+                if cache.fade_idle_ticks > FADE_IDLE_TICKS {
+                    cache.fade_timer_running = false;
+                    return TimerCallbackReturn {
+                        should_update: Update::DoNothing,
+                        should_terminate: TerminateTimer::Terminate,
+                    };
+                }
+                false
+            }
+        }
+    };
+    if redraw {
+        let marker = data
+            .downcast_ref::<MapTileCache>()
+            .map(|cache| cache.view_marker.clone());
+        rerender_marked_view(marker, &mut info.callback_info);
+    }
+    TimerCallbackReturn {
+        should_update: Update::DoNothing,
+        should_terminate: TerminateTimer::Continue,
+    }
+}
+
+/// Where a tile's label stands in the world (Web Mercator fractions, `0..1`
+/// west to east and north to south).
+fn label_world(tile: MapTileId, label: &TileLabel) -> (f64, f64) {
+    let count = f64::from(1u32 << u32::from(tile.z.min(31)));
+    (
+        (f64::from(tile.x) + f64::from(label.x) / 256.0) / count,
+        (f64::from(tile.y) + f64::from(label.y) / 256.0) / count,
+    )
 }
 
 /// [`rerender_map_view`] for a marker already read out of the cache (the
@@ -3799,11 +3859,9 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             );
     }
 
-    // Every visible tile's labels, in the grid's pixel space - borrowed from
-    // the drawings in `states` - and the key of each: its tile and its place
-    // in the tile's list.
-    let mut label_candidates: Vec<(f32, f32, &TileLabel)> = Vec::new();
-    let mut label_keys: Vec<(u8, i32, i32, usize)> = Vec::new();
+    // Every visible tile's labels, in the grid's pixel space and in the
+    // world - borrowed from the drawings in `states`.
+    let mut label_candidates: Vec<labels::LabelCandidate<'_>> = Vec::new();
     let mut tile_nodes = 0usize;
     // Every tile box as placed: the lines and areas are drawn over them.
     let mut tile_boxes: Vec<overlay::TileBox> = Vec::new();
@@ -3887,13 +3945,13 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                     // The labels leave the tile here and are laid out over
                     // the whole grid below, in its pixel space.
                     let (sx, sy) = (size_w as f32 / 256.0, size_h as f32 / 256.0);
-                    for (index, label) in drawn.labels.iter().enumerate() {
-                        label_candidates.push((
-                            screen_x as f32 + label.x * sx,
-                            screen_y as f32 + label.y * sy,
+                    for label in drawn.labels.iter() {
+                        label_candidates.push(labels::LabelCandidate {
+                            x: screen_x as f32 + label.x * sx,
+                            y: screen_y as f32 + label.y * sy,
                             label,
-                        ));
-                        label_keys.push((z_int, x, y, index));
+                            world: label_world(id, label),
+                        });
                     }
                     tile_div = tile_div.with_child(drawn_tile_dom(drawn, z_int, x, y));
                 }
@@ -3959,21 +4017,39 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     } else {
         0.0
     };
-    let shown = declutter_labels(
-        &label_candidates,
-        width_px,
-        height_px,
-        &viewport,
-        label_margin,
-    );
-    let label_nodes = shown.len();
-    for index in shown {
-        let (x, y, label) = label_candidates[index];
-        let (z, tile_x, tile_y, nth) = label_keys[index];
-        // Keyed like its tile: the same label is the same node next frame.
-        grid = grid.with_child(
-            label_dom(x, y, label, &viewport).with_key(("azul-map-label", z, tile_x, tile_y, nth)),
-        );
+    // Placed through the cache's memory of the last frames, so a label keeps
+    // its slot, its identity and its node across pans, zooms and tiles.
+    let label_view = labels::LabelView {
+        width: width_px,
+        height: height_px,
+        margin: label_margin,
+        zoom: viewport.zoom,
+        centre: (
+            f64::from(centre_x) / f64::from(tile_count),
+            f64::from(centre_y) / f64::from(tile_count),
+        ),
+    };
+    let now = map_clock();
+    let mut label_nodes = 0usize;
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        let frame = cache.labels.place(&label_candidates, &label_view, now);
+        cache.fade_until = cache.fade_until.max(frame.settled_at);
+        for placed in &frame.placed {
+            let label = match placed.from {
+                labels::PlacedFrom::Candidate(i) => Some(label_candidates[i].label),
+                labels::PlacedFrom::Remembered(i) => cache.labels.remembered(i),
+            };
+            let Some(label) = label else {
+                continue;
+            };
+            // Keyed by the label's identity: the same label is the same node
+            // next frame, whichever tile offers it then.
+            grid = grid.with_child(
+                label_dom(placed.x, placed.y, label, &viewport, placed.opacity)
+                    .with_key(("azul-map-label", placed.id)),
+            );
+            label_nodes += 1;
+        }
     }
 
     if let Some(started) = started {
@@ -7290,10 +7366,16 @@ mod autotest_generated {
         let (update, changes) =
             with_callback_info(|info| map_on_after_mount(dataset.clone(), info));
         assert_eq!(update, Update::DoNothing);
+        // The fade timer may start beside it (the first render's labels
+        // fade in); the sweep is the timer running `map_fetch_sweep_tick`.
+        let sweep = map_fetch_sweep_tick as usize;
         assert_eq!(
             changes
                 .iter()
-                .filter(|c| matches!(c, CallbackChange::AddTimer { .. }))
+                .filter(|c| matches!(
+                    c,
+                    CallbackChange::AddTimer { timer, .. } if timer.callback.cb as usize == sweep
+                ))
                 .count(),
             1,
             "exactly one sweep timer per mount"
@@ -7702,6 +7784,35 @@ mod autotest_generated {
             "one label per tile at most ({children} nodes for {} tiles)",
             tiles.len()
         );
+    }
+
+    #[test]
+    fn an_unchanged_view_rendered_twice_draws_the_same_labels_under_the_same_keys() {
+        let image = a_tiny_image();
+        let (dataset, tiles) = drawn_view(
+            &image,
+            &[
+                a_label("Atlantis", 128.0, 128.0, 100),
+                a_label("Lemuria", 140.0, 130.0, 100),
+            ],
+        );
+        let label_keys = |ret: &VirtualViewReturn| -> Vec<Option<u64>> {
+            the_grid(ret)
+                .children
+                .as_slice()
+                .iter()
+                .skip(tiles.len())
+                .map(|label| label.root.get_key())
+                .collect()
+        };
+        let first = label_keys(&with_virtual_view_info(512.0, 512.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        }));
+        let second = label_keys(&with_virtual_view_info(512.0, 512.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        }));
+        assert!(!first.is_empty(), "the drawings' labels are drawn");
+        assert_eq!(first, second, "the same labels, in the same order, under the same keys");
     }
 
     #[test]
