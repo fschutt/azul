@@ -3599,6 +3599,8 @@ fn win32_msg_name(msg: u32) -> &'static str {
         0x0008 => "WM_KILLFOCUS",
         0x000F => "WM_PAINT",
         0x0010 => "WM_CLOSE",
+        0x0011 => "WM_QUERYENDSESSION",
+        0x0016 => "WM_ENDSESSION",
         0x0014 => "WM_ERASEBKGND",
         0x0024 => "WM_GETMINMAXINFO",
         0x0046 => "WM_WINDOWPOSCHANGING",
@@ -4104,6 +4106,8 @@ unsafe extern "system" fn window_proc(
     const WM_DESTROY: u32 = 0x0002;
     const WM_PAINT: u32 = 0x000F;
     const WM_CLOSE: u32 = 0x0010;
+    const WM_QUERYENDSESSION: u32 = 0x0011;
+    const WM_ENDSESSION: u32 = 0x0016;
     const WM_ERASEBKGND: u32 = 0x0014;
     const WM_SIZE: u32 = 0x0005;
     const WM_MOVE: u32 = 0x0003;
@@ -4331,6 +4335,47 @@ unsafe extern "system" fn window_proc(
                 log_debug!(LogCategory::Callbacks, "WM_CLOSE cancelled by callback");
             }
 
+            0
+        }
+
+        WM_QUERYENDSESSION => {
+            // Windows asks every top-level window before a logout, a restart or a shutdown.
+            // It is the title bar's close request (`common::session_end`): a window with
+            // unsaved work asks its question and answers no, which holds the session's end
+            // (Windows then lists this app as one that prevents it, in the user's language).
+            // A window that agrees stays open until WM_ENDSESSION says the session really
+            // ends: another app may still cancel it.
+            let window_type = window.common.current_window_state().flags.window_type;
+            if !super::common::session_end::asks_before_session_end(window_type) {
+                return 1;
+            }
+            let outcome = window.run_close_protocol("windows.wm_queryendsession");
+            window.route_main_window_result(hwnd, outcome.result);
+            if outcome.confirmed {
+                // Agreed but not closed yet: the flag the protocol left up would close the
+                // window in the loop's next turn.
+                window
+                    .common
+                    .update_window_state(event::WindowStateSource::Os, |ws| {
+                        ws.flags.close_requested = false;
+                    });
+                window.discard_input_delta("windows.wm_queryendsession.agreed");
+                1
+            } else {
+                log_debug!(LogCategory::Callbacks, "WM_QUERYENDSESSION held by a callback");
+                0
+            }
+        }
+
+        WM_ENDSESSION => {
+            // `wparam` is nonzero when the session really ends: every window agreed (or the
+            // user ended it anyway), and the process may be ended any time after this
+            // returns. The window closes as after an agreed WM_CLOSE.
+            if wparam != 0 && window.is_open {
+                window.is_open = false;
+                window.release_gpu_resources();
+                (window.win32.user32.DestroyWindow)(hwnd);
+            }
             0
         }
 

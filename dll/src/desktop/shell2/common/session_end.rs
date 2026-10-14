@@ -11,6 +11,62 @@
 
 use azul_core::window::WindowType;
 
+/// Whether a window of `window_type` is asked before the session ends. A menu or a tooltip
+/// holds no work of its own and closes with its owner.
+#[must_use]
+pub const fn asks_before_session_end(window_type: WindowType) -> bool {
+    !matches!(window_type, WindowType::Menu | WindowType::Tooltip)
+}
+
+#[cfg(unix)]
+mod signals {
+    use core::sync::atomic::{AtomicBool, Ordering};
+
+    /// Raised by the signal handler, taken by the run loop. A signal handler may do nothing
+    /// but this: it runs between any two instructions of the UI thread.
+    static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn on_quit_signal(_signal: libc::c_int) {
+        QUIT_REQUESTED.store(true, Ordering::SeqCst);
+    }
+
+    /// Turns `SIGTERM` and `SIGHUP` into a quit request for the run loop. A signal the app
+    /// already handles itself (its disposition is not the default) is left alone. The signal
+    /// also wakes the loop: it interrupts the `poll(2)` the loop parks in.
+    pub fn install_quit_signal_handlers() {
+        for signal in [libc::SIGTERM, libc::SIGHUP] {
+            // SAFETY: plain sigaction calls with zeroed, then filled structs; the handler only
+            // stores to an atomic, which is async-signal-safe.
+            unsafe {
+                let mut old: libc::sigaction = core::mem::zeroed();
+                if libc::sigaction(signal, core::ptr::null(), &mut old) != 0
+                    || old.sa_sigaction != libc::SIG_DFL
+                {
+                    continue;
+                }
+                let mut action: libc::sigaction = core::mem::zeroed();
+                action.sa_sigaction = on_quit_signal as extern "C" fn(libc::c_int) as usize;
+                libc::sigemptyset(&mut action.sa_mask);
+                let _ = libc::sigaction(signal, &action, core::ptr::null_mut());
+            }
+        }
+    }
+
+    /// Whether a quit was requested since the last call.
+    pub fn take_quit_request() -> bool {
+        QUIT_REQUESTED.swap(false, Ordering::SeqCst)
+    }
+
+    /// Raises the request as the handler does (for tests).
+    #[cfg(test)]
+    pub fn request_quit() {
+        on_quit_signal(libc::SIGTERM);
+    }
+}
+
+#[cfg(unix)]
+pub use signals::{install_quit_signal_handlers, take_quit_request};
+
 #[cfg(test)]
 mod tests {
     use super::*;

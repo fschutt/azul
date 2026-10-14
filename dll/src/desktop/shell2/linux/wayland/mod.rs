@@ -1399,6 +1399,21 @@ impl WaylandWindow {
     pub fn is_open(&self) -> bool {
         self.is_open
     }
+
+    /// The session ends (a logout, a shutdown: `common::session_end`): the window is asked
+    /// as xdg_toplevel.close asks it, and closes unless a callback holds it ("Save changes?").
+    pub(crate) fn ask_to_close_for_session_end(&mut self) {
+        let window_type = self.common.current_window_state().flags.window_type;
+        if !self.is_open || !super::super::common::session_end::asks_before_session_end(window_type) {
+            return;
+        }
+        let outcome = self.run_close_protocol("wayland.session_end");
+        self.handle_process_event_result(outcome.result);
+        if outcome.confirmed {
+            self.is_open = false;
+        }
+    }
+
     pub fn close_requested(&self) -> bool {
         self.common.current_window_state().flags.close_requested
     }

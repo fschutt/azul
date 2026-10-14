@@ -130,6 +130,15 @@ pub(crate) unsafe fn hand_over_background_work(closing: &mut LinuxWindow) {
 
 // Lifecycle methods (formerly on PlatformWindow V1 trait)
 impl LinuxWindow {
+    /// The session ends: the window is asked to close (`common::session_end`).
+    pub(crate) fn ask_to_close_for_session_end(&mut self) {
+        match self {
+            LinuxWindow::X11(w) => w.ask_to_close_for_session_end(),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(w) => w.ask_to_close_for_session_end(),
+        }
+    }
+
     pub fn poll_event(&mut self) -> Option<LinuxEvent> {
         match self {
             LinuxWindow::X11(w) => w.poll_event().map(LinuxEvent::X11),
