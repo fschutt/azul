@@ -1101,3 +1101,5 @@ mod thread_cpu_clock;
 mod a_rebuild_draws_a_waiting_entrance_without_a_second_display_list;
 #[path = "a_picture_scaled_down_by_max_width_and_max_height_keeps_its_proportions.rs"]
 mod a_picture_scaled_down_by_max_width_and_max_height_keeps_its_proportions;
+#[path = "a_padded_full_width_button_fills_its_column_and_no_more.rs"]
+mod a_padded_full_width_button_fills_its_column_and_no_more;
