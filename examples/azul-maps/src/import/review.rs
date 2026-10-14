@@ -2,6 +2,7 @@
 //! single clear match is taken while anything less waits for the user to confirm or fix.
 
 use super::Unplaced;
+use crate::places::fold;
 
 /// A match the search found for an unplaced place.
 #[derive(Debug, Clone, PartialEq)]
@@ -25,14 +26,27 @@ pub enum Verdict {
 /// The text looked up for an unplaced place: its title, and its address where it has one.
 #[must_use]
 pub fn query_of(place: &Unplaced) -> String {
-    let _ = place;
-    String::new()
+    if place.address.trim().is_empty() {
+        place.name.trim().to_string()
+    } else {
+        format!("{}, {}", place.name.trim(), place.address.trim())
+    }
 }
 
 /// Whether `candidates` clearly name `title`: the first one's name is the title (without case
 /// or accents) and no other match has that name too.
 #[must_use]
 pub fn verdict(title: &str, candidates: &[Candidate]) -> Verdict {
-    let _ = (title, candidates);
-    Verdict::NotFound
+    let Some(first) = candidates.first() else {
+        return Verdict::NotFound;
+    };
+    let title = fold(title);
+    let name_of = |c: &Candidate| fold(c.label.split(',').next().unwrap_or(""));
+    if name_of(first) != title {
+        return Verdict::Uncertain;
+    }
+    if candidates[1..].iter().any(|c| name_of(c) == title) {
+        return Verdict::Uncertain;
+    }
+    Verdict::Certain(0)
 }

@@ -101,8 +101,38 @@ impl PlaceList {
     /// The list as a GeoJSON `FeatureCollection`.
     #[must_use]
     pub fn to_geojson(&self) -> String {
-        let _ = json!(null);
-        String::new()
+        let mut features: Vec<Value> = self
+            .places
+            .iter()
+            .map(|p| {
+                json!({
+                    "type": "Feature",
+                    "geometry": { "type": "Point", "coordinates": [p.at.1, p.at.0] },
+                    "properties": {
+                        "name": p.name,
+                        "note": p.note,
+                        "address": p.address,
+                        "url": p.url,
+                        "saved": p.saved_s,
+                    },
+                })
+            })
+            .collect();
+        features.extend(self.routes.iter().map(|r| {
+            let line: Vec<Value> = r.points.iter().map(|&(lat, lon)| json!([lon, lat])).collect();
+            json!({
+                "type": "Feature",
+                "geometry": { "type": "LineString", "coordinates": line },
+                "properties": { "name": r.name },
+            })
+        }));
+        let doc = json!({
+            "type": "FeatureCollection",
+            "name": self.name,
+            "azmaps:kind": self.kind.key(),
+            "features": features,
+        });
+        serde_json::to_string_pretty(&doc).unwrap_or_default()
     }
 
     /// The list a GeoJSON file holds (its id is the file's name); points are places, lines
@@ -112,29 +142,107 @@ impl PlaceList {
     ///
     /// The file is no GeoJSON `FeatureCollection`.
     pub fn from_geojson(id: &str, text: &str) -> Result<Self, String> {
-        let _ = (id, text, Value::Null);
-        Err("not built".to_string())
+        let doc: Value = serde_json::from_str(text).map_err(|e| format!("not GeoJSON: {e}"))?;
+        if doc.get("type").and_then(Value::as_str) != Some("FeatureCollection") {
+            return Err("not a GeoJSON FeatureCollection".to_string());
+        }
+        let kind = match doc.get("azmaps:kind").and_then(Value::as_str) {
+            Some("recents") => ListKind::Recents,
+            Some("favourites") => ListKind::Favourites,
+            _ => ListKind::Named,
+        };
+        let name = doc
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or(id);
+        let mut list = Self::new(id, name, kind);
+        for feature in doc.get("features").and_then(Value::as_array).into_iter().flatten() {
+            let geometry = feature.get("geometry").unwrap_or(&Value::Null);
+            let properties = feature.get("properties").unwrap_or(&Value::Null);
+            let coordinates = geometry.get("coordinates");
+            match geometry.get("type").and_then(Value::as_str) {
+                Some("Point") => {
+                    let Some(at) = coordinates.and_then(lat_lon) else {
+                        continue;
+                    };
+                    list.places.push(SavedPlace {
+                        name: property(properties, &["name", "title", "Name", "Title"]),
+                        at,
+                        note: property(properties, &["note", "description", "desc", "Note", "Description"]),
+                        address: property(properties, &["address", "Address"]),
+                        url: property(properties, &["url", "google_maps_url", "Google Maps URL"]),
+                        saved_s: properties.get("saved").and_then(Value::as_i64).unwrap_or(0),
+                    });
+                }
+                Some("LineString") => {
+                    let points: Vec<(f64, f64)> = coordinates
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(lat_lon)
+                        .collect();
+                    if points.len() >= 2 {
+                        list.routes.push(SavedRoute {
+                            name: property(properties, &["name", "title", "Name", "Title"]),
+                            points,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(list)
     }
 
     /// Puts `place` first, as the most recent; the same place further down goes, and the list
     /// keeps at most `limit`.
     pub fn remember(&mut self, place: SavedPlace, limit: usize) {
-        let _ = (place, limit);
+        self.places
+            .retain(|p| azul_routing::distance_m(p.at, place.at) > SAME_PLACE_M);
+        self.places.insert(0, place);
+        self.places.truncate(limit);
     }
 
     /// Whether the list has a place within [`SAME_PLACE_M`] of `at`.
     #[must_use]
     pub fn has_place_at(&self, at: (f64, f64)) -> bool {
-        let _ = at;
-        false
+        self.places
+            .iter()
+            .any(|p| azul_routing::distance_m(p.at, at) <= SAME_PLACE_M)
     }
+}
+
+/// A GeoJSON position (`[lon, lat]` or `[lon, lat, alt]`) as `(lat, lon)`, when it is a place
+/// on Earth.
+fn lat_lon(position: &Value) -> Option<(f64, f64)> {
+    let lon = position.get(0)?.as_f64()?;
+    let lat = position.get(1)?.as_f64()?;
+    (lat.abs() <= 90.0 && lon.abs() <= 180.0).then_some((lat, lon))
+}
+
+/// The first of `names` a feature's properties have as text.
+fn property(properties: &Value, names: &[&str]) -> String {
+    names
+        .iter()
+        .find_map(|name| properties.get(*name).and_then(Value::as_str))
+        .unwrap_or("")
+        .to_string()
 }
 
 /// A slug of a list's name, for its file: `My Trip to Rome` is `my-trip-to-rome`; never empty.
 #[must_use]
 pub fn slug(name: &str) -> String {
-    let _ = fold(name);
-    String::new()
+    let words: Vec<String> = fold(name)
+        .split(' ')
+        .map(|w| w.chars().filter(char::is_ascii_alphanumeric).collect::<String>())
+        .filter(|w| !w.is_empty())
+        .collect();
+    if words.is_empty() {
+        "list".to_string()
+    } else {
+        words.join("-")
+    }
 }
 
 /// A place found in the saved lists by a search: the list's index and the place's.
@@ -148,27 +256,57 @@ pub struct SavedHit {
 /// accents), favourites first, then the named lists, then the recents; at most `limit`.
 #[must_use]
 pub fn search(lists: &[PlaceList], query: &str, limit: usize) -> Vec<SavedHit> {
-    let _ = (lists, query, limit);
-    Vec::new()
+    let query = fold(query);
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let matches = |text: &str| {
+        let text = fold(text);
+        text.starts_with(&query) || text.contains(&format!(" {query}"))
+    };
+    let rank = |kind: ListKind| match kind {
+        ListKind::Favourites => 0,
+        ListKind::Named => 1,
+        ListKind::Recents => 2,
+    };
+    let mut order: Vec<usize> = (0..lists.len()).collect();
+    order.sort_by_key(|&i| rank(lists[i].kind));
+    let mut hits = Vec::new();
+    for list in order {
+        for (place, p) in lists[list].places.iter().enumerate() {
+            if hits.len() >= limit {
+                return hits;
+            }
+            if matches(&p.name) || matches(&p.address) || matches(&p.note) {
+                hits.push(SavedHit { list, place });
+            }
+        }
+    }
+    hits
 }
 
 /// Puts `query` first among the recent searches (once), keeping at most [`SEARCHES_LIMIT`].
 pub fn remember_search(searches: &mut Vec<String>, query: &str) {
-    let _ = (searches, query);
+    let query = query.trim();
+    if query.is_empty() {
+        return;
+    }
+    let folded = fold(query);
+    searches.retain(|s| fold(s) != folded);
+    searches.insert(0, query.to_string());
+    searches.truncate(SEARCHES_LIMIT);
 }
 
 /// The recent searches as their file holds them.
 #[must_use]
 pub fn searches_to_json(searches: &[String]) -> String {
-    let _ = searches;
-    String::new()
+    serde_json::to_string_pretty(searches).unwrap_or_default()
 }
 
 /// The recent searches of their file; a damaged file is no searches.
 #[must_use]
 pub fn searches_from_json(text: &str) -> Vec<String> {
-    let _ = text;
-    Vec::new()
+    serde_json::from_str(text).unwrap_or_default()
 }
 
 #[cfg(test)]
