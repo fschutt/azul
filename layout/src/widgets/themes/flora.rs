@@ -8632,8 +8632,7 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
     shell_right_bar.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
 
     // ---- ShellNavigationPane ----
-    let mut nav_root = vec![px(CssProperty::const_width(LayoutWidth::const_px(230)))];
-    nav_root.extend(shell_font(13));
+    let mut nav_root = shell_font(13).to_vec();
     nav_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     nav_root.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
     nav_root.extend(hairline_right());

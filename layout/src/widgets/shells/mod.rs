@@ -133,7 +133,8 @@ pub(crate) struct ShellLook {
     pub shell_backstage: Vec<CssPropertyWithConditions>,
 
     // ---- ShellNavigationPane ----
-    /// The pane's box.
+    /// The open pane's box. It carries no width: the pane fills its host,
+    /// whose share or rail width decides how wide it is.
     pub nav_root: Vec<CssPropertyWithConditions>,
     /// The header slot ("+ New").
     pub nav_header: Vec<CssPropertyWithConditions>,

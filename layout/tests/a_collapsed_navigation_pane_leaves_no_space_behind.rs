@@ -7,6 +7,12 @@
 //! blank (AzMail, the user's screenshot): the shell has to give a collapsed pane the strip's
 //! width, outside the splits.
 //!
+//! Open, the pane fills whatever slot holds it, across and down: the slot's share (or a rail's
+//! width) decides how wide the pane is, never the pane itself. A flex column's item with a
+//! `width` of its own is not stretched across, and one that does not grow is only as tall as
+//! its content, in Chrome as in azul (the plain-CSS probe below), so a pane box of fixed width
+//! that does not grow left blank space beside it and under it (AzNotes, AzMail).
+//!
 //! Not compiled by the author (house rule).
 
 use azul_core::{
@@ -21,15 +27,15 @@ use azul_layout::{
     widgets::shells::{
         navigation_pane::NAV_CLASS,
         pim_shell::{LIST_ID, NAVIGATION_ID},
-        PimShell, ShellNavigationModule, ShellNavigationPane,
+        OfficeShell, PimShell, ShellNavigationModule, ShellNavigationPane, ShellPane,
     },
     window::LayoutWindow,
     window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
-fn lay_out(collapsed: bool) -> LayoutWindow {
-    let navigation = ShellNavigationPane::create()
+fn navigation_pane(collapsed: bool) -> Dom {
+    ShellNavigationPane::create()
         .with_module(ShellNavigationModule::create(
             AzString::from("Mail"),
             AzString::from("mail"),
@@ -39,21 +45,34 @@ fn lay_out(collapsed: bool) -> LayoutWindow {
             AzString::from("calendar_month"),
         ))
         .with_collapsed(collapsed)
-        .dom();
+        .dom()
+}
+
+fn lay_out(collapsed: bool) -> LayoutWindow {
+    lay_out_at(collapsed, 1000.0)
+}
+
+/// The PIM shell in a window `width` wide, its navigation pane open or collapsed.
+fn lay_out_at(collapsed: bool, width: f32) -> LayoutWindow {
     let shell = PimShell::create(
-        navigation,
+        navigation_pane(collapsed),
         Dom::create_div().with_child(Dom::create_p_with_text("Inbox")),
         Dom::create_div().with_child(Dom::create_p_with_text("A message")),
     )
     .dom();
-    let mut body = Dom::create_body().with_child(shell);
-    body.root.set_css(
-        "margin: 0px; width: 1000px; height: 600px; display: flex; flex-direction: column;",
-    );
+    lay_out_dom(shell, width)
+}
+
+/// `content` as the only child of a column body `width` x 600 px, laid out in a window that size.
+fn lay_out_dom(content: Dom, width: f32) -> LayoutWindow {
+    let mut body = Dom::create_body().with_child(content);
+    body.root.set_css(&format!(
+        "margin: 0px; width: {width}px; height: 600px; display: flex; flex-direction: column;"
+    ));
     let styled = StyledDom::create_from_dom(body);
     let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
     let mut ws = FullWindowState::default();
-    ws.size.dimensions = LogicalSize::new(1000.0, 600.0);
+    ws.size.dimensions = LogicalSize::new(width, 600.0);
     lw.current_window_state = ws.clone();
     let mut dbg = None;
     lw.layout_and_generate_display_list(
@@ -120,5 +139,81 @@ fn a_collapsed_navigation_pane_leaves_no_space_behind() {
     assert!(
         list.origin.x - (strip.origin.x + strip.size.width) < 2.0,
         "the list {list:?} starts beside the strip {strip:?}, nothing blank between them"
+    );
+}
+
+/// The navigation pane covers `slot` but for a pixel of rounding on each side.
+fn assert_fills(nav: LogicalRect, slot: LogicalRect, what: &str) {
+    assert!(
+        (nav.size.width - slot.size.width).abs() < 2.0 && (nav.origin.x - slot.origin.x).abs() < 2.0,
+        "{what}: the navigation pane {nav:?} is as wide as its slot {slot:?}, nothing blank beside it"
+    );
+    assert!(
+        (nav.size.height - slot.size.height).abs() < 2.0 && (nav.origin.y - slot.origin.y).abs() < 2.0,
+        "{what}: the navigation pane {nav:?} is as tall as its slot {slot:?}, nothing blank under it"
+    );
+}
+
+#[test]
+fn an_open_navigation_pane_fills_its_share_of_the_pim_shell() {
+    // A fifth of 1400 px is wider than the themes' old fixed 230 px, a fifth of 1000 px is
+    // narrower: the pane follows the share both ways.
+    for width in [1000.0, 1400.0] {
+        let lw = lay_out_at(false, width);
+        assert_fills(nav(&lw), pane(&lw, NAVIGATION_ID), &format!("{width} px wide"));
+    }
+}
+
+#[test]
+fn an_open_navigation_pane_fills_a_rail_of_the_office_shell() {
+    // AzCalendar's layout: the pane in a rail of the app's width, the main pane beside it.
+    let shell = OfficeShell::create()
+        .with_pane(
+            ShellPane::create(AzString::from("calendar-navigation"), navigation_pane(false))
+                .with_width(252.0),
+        )
+        .with_pane(ShellPane::create(
+            AzString::from("calendar-main"),
+            Dom::create_div().with_child(Dom::create_p_with_text("October")),
+        ))
+        .dom();
+    let lw = lay_out_dom(shell, 1000.0);
+    let slot = pane(&lw, "calendar-navigation");
+    assert!(
+        (slot.size.width - 252.0).abs() < 2.0,
+        "the rail keeps the width the app gave it: {slot:?}"
+    );
+    assert_fills(nav(&lw), slot, "a 252 px rail");
+}
+
+#[test]
+fn a_flex_column_neither_stretches_an_item_with_a_width_nor_grows_one_that_does_not_grow() {
+    // The plain-CSS probe for the two tests above, which Chrome lays out the same way: a
+    // column's item is stretched across only while its width is auto (CSS Flexbox 8.3,
+    // align-self: stretch), and an item without flex-grow is as tall as its content.
+    let item = |id: &str, css: &str| {
+        let mut d = Dom::create_div()
+            .with_id(AzString::from(id))
+            .with_child(Dom::create_div().with_css("height: 50px;"));
+        d.root.set_css(css);
+        d
+    };
+    let mut column = Dom::create_div()
+        .with_id(AzString::from("column"))
+        .with_child(item("fixed", "width: 230px; flex-grow: 0; flex-shrink: 0;"))
+        .with_child(item("grown", "flex-grow: 1; min-height: 0px;"));
+    column
+        .root
+        .set_css("display: flex; flex-direction: column; width: 300px; height: 400px;");
+    let lw = lay_out_dom(column, 1000.0);
+    let fixed = pane(&lw, "fixed");
+    let grown = pane(&lw, "grown");
+    assert!(
+        (fixed.size.width - 230.0).abs() < 0.5 && (fixed.size.height - 50.0).abs() < 0.5,
+        "the item with a width keeps it and is as tall as its content: {fixed:?}"
+    );
+    assert!(
+        (grown.size.width - 300.0).abs() < 0.5 && (grown.size.height - 350.0).abs() < 0.5,
+        "the auto-width item that grows is stretched across and takes the rest: {grown:?}"
     );
 }
