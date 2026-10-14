@@ -599,10 +599,11 @@ impl<T: ParsedFontTrait> FontManager<T> {
         self.register_builtin_ui_fonts();
     }
 
-    /// Register the UI fonts azul bundles for its widget themes (see
-    /// [`crate::text3::ui_fonts`]: flora's EB Garamond), in the FALLBACK tier
-    /// so an installed copy of the family wins. Static faces, so every
-    /// constructor after the first takes the idempotent reuse path.
+    /// Register the UI fonts azul bundles (see [`crate::text3::ui_fonts`]:
+    /// flora's EB Garamond, AzDrive's Calmet UI), each with exactly its cmap
+    /// as its coverage, in the FALLBACK tier so an installed copy of the
+    /// family wins. Static faces, so every constructor after the first takes
+    /// the idempotent reuse path.
     pub fn register_builtin_ui_fonts(&mut self) {
         for face in crate::text3::ui_fonts::bundled_ui_fonts() {
             if face.bytes.is_empty() {
