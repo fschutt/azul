@@ -8290,10 +8290,12 @@ mod overlay_tests {
             panic!("a finite box renders");
         };
         let stroke = find(root, &has_path).expect("a line in the accent is drawn");
+        // `with_css` gives the stroke node its own sheet, not inline style.
         let color = stroke
-            .root
-            .style
-            .iter_inline_properties()
+            .css
+            .as_ref()
+            .iter()
+            .flat_map(|sheet| sheet.iter_inline_properties())
             .find_map(|(p, _)| match p {
                 CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
                 _ => None,
