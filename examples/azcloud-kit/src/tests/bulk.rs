@@ -3,7 +3,9 @@
 //! CopyObject on the service, never a download); an encrypted drive does it in ONE commit of its
 //! index, and a move or a rename writes no object at all.
 
-use azul_storage::{BatchDelete, BatchMove, Drive, DriveError};
+use std::io::{Cursor, Read};
+
+use azul_storage::{BatchDelete, BatchMove, BatchStream, Drive, DriveError, Precondition};
 
 use super::{fake_s3::FakeS3, sync_named::s3_drive};
 
@@ -108,11 +110,41 @@ fn moving_many_files_of_a_plain_bucket_never_overwrites_and_says_what_was_missin
     assert_eq!(s3.count("DELETEOBJECTS"), 1);
 }
 
+#[test]
+fn a_batch_of_large_files_to_a_plain_bucket_lands_with_one_result_each() {
+    let s3 = FakeS3::new();
+    s3.write("taken.bin", b"there already".to_vec());
+    let drive = s3_drive(&s3);
+    let bodies: Vec<Vec<u8>> = (0..6).map(|i| vec![b'0' + i as u8; 700 * 1024]).collect();
+    let keys: Vec<String> = (0..6).map(|i| format!("video/{i}.bin")).collect();
+    let mut readers: Vec<Cursor<&[u8]>> = bodies.iter().map(|b| Cursor::new(&b[..])).collect();
+    let absent = Precondition::Absent;
+    let mut taken = Cursor::new(&b"mine"[..]);
+    let mut items: Vec<BatchStream<'_>> = keys
+        .iter()
+        .zip(readers.iter_mut())
+        .map(|(key, body)| BatchStream::new(key, body as &mut (dyn Read + Send)))
+        .collect();
+    items.push(BatchStream::new("taken.bin", &mut taken).when(&absent));
+    let results = drive.put_from_many(&mut items);
+    assert!(results[..6].iter().all(Result::is_ok), "{results:?}");
+    assert!(matches!(results[6], Err(DriveError::Conflict { .. })), "{:?}", results[6]);
+    for (key, body) in keys.iter().zip(&bodies) {
+        assert_eq!(s3.read(key).as_ref(), Some(body), "{key}");
+    }
+    assert_eq!(s3.read("taken.bin"), Some(b"there already".to_vec()));
+}
+
 #[cfg(feature = "encryption")]
 mod encrypted {
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
+    use std::{
+        io::{Cursor, Read},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        thread,
+        time::Duration,
     };
 
     use azul_storage::{
@@ -121,7 +153,8 @@ mod encrypted {
         meta::{open_encrypted_drive, MemoryBucket},
         ops::list_all,
         packing::PackOptions,
-        BatchDelete, BatchMove, BatchPut, Drive, DriveError, ListRequest,
+        BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Drive, DriveError, ListPage,
+        ListRequest, ObjectInfo, Precondition, PARALLEL_FILES,
     };
 
     use super::super::{fake_s3::FakeS3, sync_named::s3_drive};
@@ -378,5 +411,153 @@ mod encrypted {
             assert_eq!(&drive.get(key).unwrap(), bytes, "{key} as it was");
         }
         assert!(list_all(&drive, "moved/").unwrap().is_empty());
+    }
+
+    /// A bucket in memory whose writes take a while and that counts how many run at once.
+    #[derive(Default)]
+    struct Slow {
+        inner: MemoryBucket,
+        now: AtomicUsize,
+        most: AtomicUsize,
+    }
+
+    impl Slow {
+        fn track<T>(&self, write: impl FnOnce() -> T) -> T {
+            let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+            self.most.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(30));
+            let result = write();
+            self.now.fetch_sub(1, Ordering::SeqCst);
+            result
+        }
+    }
+
+    impl Drive for Slow {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            self.inner.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.inner.get(key)
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.inner.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.track(|| self.inner.put(key, bytes))
+        }
+        fn put_if(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            condition: &Precondition,
+        ) -> Result<Option<String>, DriveError> {
+            self.track(|| self.inner.put_if(key, bytes, condition))
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.inner.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            self.inner.head(key)
+        }
+    }
+
+    fn streams<'a>(
+        keys: &'a [String],
+        readers: &'a mut [Cursor<Vec<u8>>],
+    ) -> Vec<BatchStream<'a>> {
+        keys.iter()
+            .zip(readers.iter_mut())
+            .map(|(key, body)| BatchStream::new(key, body as &mut (dyn Read + Send)))
+            .collect()
+    }
+
+    #[test]
+    fn a_batch_of_large_files_uploads_several_at_once_and_commits_the_index_once() {
+        let bucket = Arc::new(Slow::default());
+        let index = Arc::new(Counting::default());
+        let drive = EncryptedDrive::new(
+            Arc::clone(&bucket),
+            DriveKey::generate().unwrap(),
+            Arc::clone(&index) as Arc<dyn NameIndex>,
+        )
+        .with_packing(PackOptions::default());
+        let big = files("films/", 10, 600 * 1024);
+        let small = files("notes/", 40, 200);
+        let mut keys: Vec<String> = big.iter().map(|(k, _)| k.clone()).collect();
+        keys.extend(small.iter().map(|(k, _)| k.clone()));
+        let mut readers: Vec<Cursor<Vec<u8>>> = big
+            .iter()
+            .chain(&small)
+            .map(|(_, b)| Cursor::new(b.clone()))
+            .collect();
+        let applies = index.applies.load(Ordering::SeqCst);
+        let mut items = streams(&keys, &mut readers);
+        let results = drive.put_from_many(&mut items);
+        assert!(results.iter().all(Result::is_ok), "{results:?}");
+        assert_eq!(
+            index.applies.load(Ordering::SeqCst),
+            applies + 2,
+            "one commit for the pack of small files, one for the large ones"
+        );
+        let most = bucket.most.load(Ordering::SeqCst);
+        assert!((2..=PARALLEL_FILES).contains(&most), "{most} uploads at once");
+        for (key, bytes) in big.iter().chain(&small) {
+            assert_eq!(&drive.get(key).unwrap(), bytes, "{key}");
+        }
+        assert!(drive.entry(&big[0].0).unwrap().object.unwrap().packed.is_none());
+        assert!(drive.entry(&small[0].0).unwrap().object.unwrap().packed.is_some());
+    }
+
+    #[test]
+    fn a_crash_before_the_commit_of_a_batch_of_large_files_names_none_of_them() {
+        let bucket = Arc::new(MemoryBucket::new());
+        let index = Arc::new(Counting::default());
+        let drive = EncryptedDrive::new(
+            Arc::clone(&bucket),
+            DriveKey::generate().unwrap(),
+            Arc::clone(&index) as Arc<dyn NameIndex>,
+        );
+        let big = files("films/", 5, 600 * 1024);
+        let keys: Vec<String> = big.iter().map(|(k, _)| k.clone()).collect();
+        let mut readers: Vec<Cursor<Vec<u8>>> =
+            big.iter().map(|(_, b)| Cursor::new(b.clone())).collect();
+        index.fail_next.store(1, Ordering::SeqCst);
+        let mut items = streams(&keys, &mut readers);
+        assert!(drive.put_from_many(&mut items).iter().all(Result::is_err));
+        assert!(list_all(&drive, "films/").unwrap().is_empty(), "the index names none");
+        // What went up is garbage nothing names, never a name without its bytes.
+        for (key, _) in &big {
+            assert!(matches!(drive.get(key), Err(DriveError::NotFound { .. })));
+        }
+    }
+
+    #[test]
+    fn a_batch_of_large_files_drops_only_the_one_whose_condition_failed() {
+        let bucket = Arc::new(MemoryBucket::new());
+        let drive = EncryptedDrive::new(
+            Arc::clone(&bucket),
+            DriveKey::generate().unwrap(),
+            Arc::new(MemoryIndex::new()),
+        );
+        drive.put("films/00001.txt", b"there already").unwrap();
+        let objects_before = list_all(&*bucket, "data/").unwrap().len();
+        let big = files("films/", 3, 600 * 1024);
+        let keys: Vec<String> = big.iter().map(|(k, _)| k.clone()).collect();
+        let mut readers: Vec<Cursor<Vec<u8>>> =
+            big.iter().map(|(_, b)| Cursor::new(b.clone())).collect();
+        let absent = Precondition::Absent;
+        let mut items: Vec<BatchStream<'_>> = streams(&keys, &mut readers)
+            .into_iter()
+            .map(|item| item.when(&absent))
+            .collect();
+        let results = drive.put_from_many(&mut items);
+        assert!(matches!(results[1], Err(DriveError::Conflict { .. })), "{results:?}");
+        assert!(results[0].is_ok() && results[2].is_ok());
+        assert_eq!(drive.get("films/00001.txt").unwrap(), b"there already");
+        assert_eq!(
+            list_all(&*bucket, "data/").unwrap().len(),
+            objects_before + 2,
+            "the refused file's object left the bucket again"
+        );
     }
 }
