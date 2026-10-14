@@ -21,10 +21,14 @@ lays its pages out at a new scale.
     3. after the drag the art is laid out at the frame's width, with one
        `AZPDF_LAID_OUT` line (crisp at the final size);
     4. the same drag at a fixed zoom (Zoom in): the scale never changes, no
-       line at all; its steps are the floor a Fit width step is compared with.
+       line at all; its steps are the floor a Fit width step is compared with;
+    5. during both drags each page shows its picture (`#__azpdf_picture-1`,
+       drawn at the settled scale once the view settled: `AZPDF_PICTURED
+       <page> <width>`) instead of its DOM, and no step draws a page it has
+       a picture of again (a page coming into view may be drawn once).
 
 It prints the median and the slowest step of both drags (wall clock) and
-fails on 1, 2, 3 or 4. Run ONE app at a time:
+fails on 1 to 5. Run ONE app at a time:
 
     scripts/waves/tools/run_capped.sh --cap-mb 1500 --seconds 240 --log /tmp/azpdf-resize.log -- \\
       python3 scripts/azpdf_resize_e2e.py --bin target/release/AzPdf
@@ -43,6 +47,7 @@ WIDTH, HEIGHT = 1280, 860
 PAGES = "__azpdf_pages"
 FRAME = "__azpdf_page-1"
 ART = "__azpdf_art-1"
+PICTURE = "__azpdf_picture-1"
 STEPS = 12
 STEP_PX = 24
 # How long the view has to keep its size before the pages are laid out at it
@@ -90,20 +95,36 @@ def within(app, seconds, check):
     return check()
 
 
-def drag(app, what):
+def drag(app, what, findings):
     """Drags the right window edge in STEPS steps of STEP_PX px, one `resize` and one frame
     each and nothing in between; the step times in ms and the `AZPDF_LAID_OUT` lines the
-    drag printed."""
+    drag printed. A step that shows page 1's DOM instead of its picture, and a page drawn
+    during the drag, are findings."""
     before = app.count("AZPDF_LAID_OUT")
+    drawn_before = app.printed("AZPDF_PICTURED")
     times = []
+    without_picture = 0
     for step in range(1, STEPS + 1):
         t0 = time.perf_counter()
         app.must("resize", width=float(WIDTH - step * STEP_PX), height=float(HEIGHT))
         app.frame(1)
         times.append((time.perf_counter() - t0) * 1000.0)
+        if not app.has_id(PICTURE, every_dom=True):
+            without_picture += 1
     laid_out = app.count("AZPDF_LAID_OUT") - before
-    app.log("%s: drag step median %.1f ms, slowest %.1f ms (%d steps of %d px), %d relayouts"
-            % (what, statistics.median(times), max(times), STEPS, STEP_PX, laid_out))
+    during = app.printed("AZPDF_PICTURED")[len(drawn_before):]
+    drawn = sum(1 for picture in during if picture in drawn_before)
+    app.log("%s: drag step median %.1f ms, slowest %.1f ms (%d steps of %d px), %d relayouts, "
+            "%d steps without the picture, %d pictures drawn, %d of them again"
+            % (what, statistics.median(times), max(times), STEPS, STEP_PX, laid_out,
+               without_picture, len(during), drawn))
+    if without_picture:
+        findings.append("%s: %d of %d drag steps showed page 1's DOM instead of its picture "
+                        "(the page's text laid out again at those steps)"
+                        % (what, without_picture, STEPS))
+    if drawn:
+        findings.append("%s: the drag drew %d pages again at a size they had a picture of"
+                        % (what, drawn))
     return times, laid_out
 
 
@@ -123,6 +144,7 @@ def body(args, logs, out):
         app.until("pages 1 and 2 made", lambda: app.printed("AZPDF_RENDERED", r"1 dom")
                   and app.printed("AZPDF_RENDERED", r"2 dom"))
         app.until("page 1 laid out", lambda: (width_of(app, FRAME) or 0) > 300)
+        app.until("page 1's picture", lambda: app.printed("AZPDF_PICTURED", r"1 \d+"))
         app.frame(3)
         app.screenshot(os.path.join(out, "1-before.png"))
         frame0, art0 = width_of(app, FRAME), width_of(app, ART)
@@ -130,7 +152,7 @@ def body(args, logs, out):
             findings.append("before the drag the page's art (#%s) is not laid out at its frame's "
                             "width: frame %s, art %s" % (ART, frame0, art0))
 
-        fit_times, laid_out = drag(app, "Fit width")
+        fit_times, laid_out = drag(app, "Fit width", findings)
         frame1 = width_of(app, FRAME)
         if frame1 is None or frame1 >= frame0 - 1.0:
             findings.append("the page frame does not follow the window at Fit width: %s -> %s"
@@ -161,8 +183,10 @@ def body(args, logs, out):
         app.click(selector="#__azpdf_zoom-in")
         app.until("the zoom changed", lambda: app.printed("AZPDF_ZOOM", r"\d+"))
         within(app, 3.0, settled)
+        zoom_pictures = app.count("AZPDF_PICTURED")
+        within(app, 5.0, lambda: app.count("AZPDF_PICTURED") > zoom_pictures)
         app.frame(4)
-        fixed_times, fixed_laid_out = drag(app, "fixed zoom")
+        fixed_times, fixed_laid_out = drag(app, "fixed zoom", findings)
         app.frame(2)
         time.sleep(0.5)
         if fixed_laid_out or not settled():

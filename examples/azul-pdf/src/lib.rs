@@ -76,8 +76,8 @@ mod model_tests;
 
 use jobs::{Doc, Done, Job, JobInit, Kind, Outcome};
 use model::{
-    filled_name, plan_renders, render_width, search, ExportFormat, ExportRequest, FormValues, Hit,
-    PageCache, Recent, RecentDoc, Strip, ViewMemo, ViewSize, Zoom,
+    filled_name, picture_width, plan_renders, render_width, search, ExportFormat, ExportRequest,
+    FormValues, Hit, PageCache, Recent, RecentDoc, Strip, ViewMemo, ViewSize, Zoom,
 };
 
 /// What azul-appkit's switches know about AzPdf.
@@ -138,6 +138,9 @@ const MAX_RENDER_THREADS: usize = 2;
 const RENDER_BATCH: usize = 2;
 /// Pages kept: the view's DOMs, and the thumbnails' pictures.
 const PAGE_CACHE: usize = 10;
+/// How many page pictures (`AppState::pictures`) are kept: the pages in
+/// view and one either side, at the scale they are laid out at.
+const PICTURE_CACHE: usize = 4;
 const THUMB_CACHE: usize = 160;
 /// The thumbnails' width, CSS px.
 pub const THUMB_W: f32 = 112.0;
@@ -193,8 +196,13 @@ pub struct AppState {
     pub laid_out_scale: Option<f32>,
     /// What the page view's DOM was last built from - the pages in it, the
     /// view's width, the shown and the laid-out scale (the bits of each
-    /// `f32`): a call with the same keeps the DOM.
-    pub pages_built: ViewMemo<(usize, usize, u32, u32, u32)>,
+    /// `f32`), whether the window was being resized (the pages show their
+    /// pictures then): a call with the same keeps the DOM.
+    pub pages_built: ViewMemo<(usize, usize, u32, u32, u32, bool)>,
+    /// Whether the page view's DOM shows a page's picture instead of its
+    /// DOM (`model::page_face`, a window drag): once the view settles it is
+    /// made again with the pages' DOMs, whatever the scale.
+    pub pictures_shown: bool,
     /// What the thumbnail rail's DOM was last built from - the thumbnails in
     /// it, the rail's width, the current page.
     pub thumbs_built: ViewMemo<(usize, usize, u32, usize)>,
@@ -208,6 +216,11 @@ pub struct AppState {
     /// The pages' DOMs, by page (width [`PAGE_DOM`]).
     pub pages: PageCache<Dom>,
     pub thumbs: PageCache<ImageRef>,
+    /// The pages as pictures at the scale their DOMs are laid out at, by
+    /// (page, width): a window drag shows these scaled onto the page frames
+    /// instead of the DOMs, which the page view would lay out again at every
+    /// step of the drag ([`model::page_face`]).
+    pub pictures: PageCache<ImageRef>,
     /// Renders in flight: (kind, page, width).
     pub running: Vec<(Kind, usize, u32)>,
     pub render_threads: usize,
@@ -243,6 +256,7 @@ impl AppState {
             view: ViewSize::new((900.0, 700.0)),
             laid_out_scale: None,
             pages_built: ViewMemo::new(),
+            pictures_shown: false,
             thumbs_built: ViewMemo::new(),
             dpi: 1.0,
             current_page: 0,
@@ -251,6 +265,7 @@ impl AppState {
             thumbs_visible: 0..0,
             pages: PageCache::new(PAGE_CACHE),
             thumbs: PageCache::new(THUMB_CACHE),
+            pictures: PageCache::new(PICTURE_CACHE),
             running: Vec::new(),
             render_threads: 0,
             nav: Nav::Pages,
@@ -319,6 +334,16 @@ impl AppState {
         render_width(css, self.dpi)
     }
 
+    /// The width page `page`'s picture is drawn at
+    /// ([`model::picture_width`], at the scale the pages are laid out at).
+    #[must_use]
+    pub fn picture_width_of(&self, page: usize) -> u32 {
+        self.doc
+            .as_ref()
+            .and_then(|d| d.sizes.get(page))
+            .map_or(0, |size| picture_width(*size, self.layout_scale()))
+    }
+
     fn running_of(&self, kind: Kind) -> Vec<(usize, u32)> {
         self.running
             .iter()
@@ -369,6 +394,19 @@ impl AppState {
                 if out.len() >= RENDER_BATCH {
                     return out;
                 }
+            }
+        }
+        // The pages in view as pictures at the scale they are laid out at,
+        // for the next window drag. Last: they never hold up a page or a
+        // thumbnail.
+        let running = self.running_of(Kind::Picture);
+        for page in self.visible.clone().filter(|p| *p < n) {
+            let width = self.picture_width_of(page);
+            let planned =
+                plan_renders(&[page], width, |p| self.pictures.has(p, width), &running, 1);
+            out.extend(planned.into_iter().map(|(p, w)| (Kind::Picture, p, w)));
+            if out.len() >= RENDER_BATCH {
+                return out;
             }
         }
         out
@@ -611,6 +649,8 @@ fn show(s: &mut AppState, doc: Doc) {
     };
     s.pages.clear();
     s.thumbs.clear();
+    s.pictures.clear();
+    s.pictures_shown = false;
     s.running.clear();
     s.view.reset();
     s.laid_out_scale = None;
@@ -674,10 +714,11 @@ extern "C" fn on_pump(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
         spawn(&mut info.callback_info, &handle, job);
     }
     // A resize that has stopped: the pages are laid out at the final size.
-    // Only the page view is made again, and only if its scale changed (at a
-    // fixed zoom, or for a change of height at Fit width, it did not).
+    // Only the page view is made again: when its scale changed (at a fixed
+    // zoom, or for a change of height at Fit width, it did not), and when it
+    // shows the pages' pictures, which give way to their DOMs again.
     let laid_out_at = s.layout_scale();
-    if s.view.settle(StdInstant::now()) && s.layout_scale() != laid_out_at {
+    if s.view.settle(StdInstant::now()) && (s.layout_scale() != laid_out_at || s.pictures_shown) {
         rerender_pages(&mut info.callback_info);
     }
     if s.current_page != s.shown_page {
@@ -820,6 +861,16 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             let Some(image) = image else {
                 return Update::DoNothing;
             };
+            if kind == Kind::Picture {
+                println!("AZPDF_PICTURED {} {}", page + 1, width);
+                s.pictures.insert(page, width, image);
+                // A drag shows it at once; else it waits for the next one.
+                return if s.view.is_resizing() && s.visible.contains(&page) {
+                    Update::RefreshDom
+                } else {
+                    Update::DoNothing
+                };
+            }
             s.thumbs.insert(page, width, image);
             if s.thumbs_visible.contains(&page) {
                 Update::RefreshDom

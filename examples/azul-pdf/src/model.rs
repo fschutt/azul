@@ -591,17 +591,25 @@ pub enum PageFace<D, P> {
 /// made yet.
 #[must_use]
 pub fn page_face<D, P>(resizing: bool, dom: Option<D>, picture: Option<P>) -> PageFace<D, P> {
-    let _ = (resizing, picture);
-    dom.map_or(PageFace::Blank, PageFace::Dom)
+    match (dom, picture) {
+        (_, Some(picture)) if resizing => PageFace::Picture(picture),
+        (Some(dom), _) => PageFace::Dom(dom),
+        (None, Some(picture)) => PageFace::Picture(picture),
+        (None, None) => PageFace::Blank,
+    }
 }
 
+/// The widest a page's picture is drawn, px: a picture is RGBA, so a page
+/// 1600 px wide is ~13 MB. A drag at a higher zoom shows it scaled up.
+pub const MAX_PICTURE_WIDTH: u32 = 1600;
+
 /// The width `page` is drawn at for the page view's picture of it: its width
-/// at the settled scale, at one physical px per CSS px. A drag shows the
-/// picture for a moment; at a 2x display's density it would take four times
-/// the memory.
+/// at the settled scale, at one physical px per CSS px, at most
+/// [`MAX_PICTURE_WIDTH`]. A drag shows the picture for a moment; at a 2x
+/// display's density it would take four times the memory.
 #[must_use]
 pub fn picture_width(page: PageSize, settled_scale: f32) -> u32 {
-    render_width(page.css(settled_scale).0, 1.0)
+    render_width(page.css(settled_scale).0, 1.0).min(MAX_PICTURE_WIDTH)
 }
 
 // ==== Search ====

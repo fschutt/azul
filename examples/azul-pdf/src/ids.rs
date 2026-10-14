@@ -15,6 +15,9 @@ pub const PAGE_PREFIX: &str = "__azpdf_page-";
 /// The box in a page's frame that holds the page's DOM: laid out at the
 /// settled scale, scaled onto the frame while the window is resized.
 pub const ART_PREFIX: &str = "__azpdf_art-";
+/// A page's picture in its frame, shown instead of its DOM while the window
+/// is resized: the prefix and the page number (1-based).
+pub const PICTURE_PREFIX: &str = "__azpdf_picture-";
 /// One thumbnail: the prefix and the page number (1-based).
 pub const THUMB_PREFIX: &str = "__azpdf_thumb-";
 /// One outline entry: the prefix and its index.
