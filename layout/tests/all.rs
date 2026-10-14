@@ -1105,3 +1105,5 @@ mod a_tracked_label_centres_once_its_last_tracking_is_given_back;
 mod line_clamp_ends_its_last_line_with_an_ellipsis;
 #[path = "a_sticky_header_holds_while_its_list_scrolls.rs"]
 mod a_sticky_header_holds_while_its_list_scrolls;
+#[path = "a_drag_image_follows_the_pointer.rs"]
+mod a_drag_image_follows_the_pointer;
