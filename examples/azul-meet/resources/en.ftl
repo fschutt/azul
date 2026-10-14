@@ -183,6 +183,7 @@ azmeet-preview-cannot-join = This waiting room is a preview: no meetings service
 azmeet-asked-to-join = Asked to join: someone in the meeting lets you in. Compare your safety code with theirs.
 azmeet-preview-no-server = A preview of the waiting room: no meeting server is set.
 azmeet-preview-silent-server = A preview of the waiting room: no meeting server answers at { $server }.
+azmeet-local-meeting = This meeting is made on this device: the meetings service does not answer, so nobody can join it yet. Camera, microphone and the sound check work.
 azmeet-keyring-stored = stored
 azmeet-keyring-retrieved = retrieved
 azmeet-keyring-deleted = deleted

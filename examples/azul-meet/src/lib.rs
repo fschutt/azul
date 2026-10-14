@@ -1456,6 +1456,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                     _ => None,
                 },
                 knock,
+                local: room.preview,
             }
         })
     });
@@ -1599,6 +1600,7 @@ const ACTIONS: ui::Actions = ui::Actions {
     join: on_join,
     join_now: on_join_now,
     waiting_back: on_waiting_back,
+    preview_retry: on_preview_retry,
     mic_choice: on_mic_choice,
     speaker_choice: on_speaker_choice,
     camera_choice: on_camera_choice,
@@ -5241,6 +5243,9 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
         }
         room.busy = false;
         let minting = room.minting.take();
+        let making_a_meeting = minting
+            .as_ref()
+            .is_some_and(|m| m.kind == chatroom::RoomKind::Meeting);
         let secret = room.join_secret.take();
         let worker = room.worker.clone();
         let found = match &answer {
@@ -5255,6 +5260,13 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
                 }
                 eprintln!("[azmeet] {}: {why}", s.name);
                 s.notice = why;
+                None
+            }
+            // A meeting the service did not make (it is down, or answered an error): made
+            // here, so the waiting room and its camera still open.
+            None if making_a_meeting && !matches!(&answer, Ok((200 | 201 | 404, _))) => {
+                let notice = server_trouble(&worker, &answer);
+                let _ = open_local_meeting(s, notice);
                 None
             }
             None => {
@@ -6336,6 +6348,9 @@ fn begin_new_room(
             return Update::DoNothing;
         }
         if room.worker.is_empty() {
+            if kind == chatroom::RoomKind::Meeting {
+                return open_local_meeting(s, t("azmeet-preview-no-server"));
+            }
             s.notice = no_server_notice();
             return Update::RefreshDom;
         }
@@ -6567,6 +6582,13 @@ fn enter_room(
 /// unless "Join with the microphone off" / "... the camera off"). Not where they are a test tone
 /// or a test pattern (a headless run, `--test-tone`, `--test-pattern`): those keep the state
 /// their switches gave them, so a script knows what it gets.
+/// The start screen shows this side's camera and microphone live, as Meet does before a
+/// meeting: they open with the join defaults (muted or the camera off when the settings say
+/// so), whether or not a meetings service answers.
+fn open_devices_at_start(s: &mut MeetState) {
+    apply_join_defaults(s);
+}
+
 fn apply_join_defaults(s: &mut MeetState) {
     if !devices_allowed() {
         return;
@@ -6777,20 +6799,35 @@ fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 }
 
 /// `--screen waiting` with no meeting server answering (a screenshot of the waiting room): the
-/// waiting room of a meeting that exists only here - a code made up here, its link, nobody in
-/// it; "Join now" says that no meeting server answers. stdout: `AZMEET_WAITING <link>`, as for a
-/// real one.
+/// meeting made here ([`open_local_meeting`]).
 fn preview_waiting_room(data: &mut RefAny) -> Update {
     let Some(mut guard) = data.downcast_mut::<MeetState>() else {
         return Update::DoNothing;
     };
     let s = &mut *guard;
+    let notice = match s.room.as_ref() {
+        Some(room) if room.stage == Stage::Start => {
+            if room.worker.is_empty() {
+                t("azmeet-preview-no-server")
+            } else {
+                t_args("azmeet-preview-silent-server", &[("server", Arg::from(&room.worker))])
+            }
+        }
+        _ => return Update::DoNothing,
+    };
+    open_local_meeting(s, notice)
+}
+
+/// A meeting made here, when no meetings service answers (none is set, it is down, or it did
+/// not answer the creation): its waiting room with a code and a link made up here and nobody
+/// in it. The camera preview, the microphone's level, the sound check, the devices and the
+/// settings all work in it; only what needs the service - letting others join, announcing,
+/// the peers list - says that it is unreachable, and "Retry" asks it again. stdout:
+/// `AZMEET_WAITING <link>`, as for a real one.
+fn open_local_meeting(s: &mut MeetState, notice: String) -> Update {
     let Some(room) = s.room.as_mut() else {
         return Update::DoNothing;
     };
-    if room.stage != Stage::Start {
-        return Update::DoNothing;
-    }
     let code = gen_link();
     let found = RoomInfo {
         room: code.clone(),
@@ -6804,22 +6841,38 @@ fn preview_waiting_room(data: &mut RefAny) -> Update {
     };
     println!("AZMEET_WAITING {}", found.link);
     eprintln!(
-        "[azmeet] {}: a preview of the waiting room (meeting {}): no meeting server answers at {}",
+        "[azmeet] {}: meeting {} made here: no meetings service answers at {}",
         s.name, found.code, room.worker
     );
     room.stage = Stage::Waiting;
+    room.busy = false;
     room.created = true;
     room.copied = false;
+    room.minting = None;
     room.waiting = Some(found);
     room.close_waiting();
     room.preview = true;
-    s.notice = if room.worker.is_empty() {
-        t("azmeet-preview-no-server")
-    } else {
-        t_args("azmeet-preview-silent-server", &[("server", Arg::from(&room.worker))])
-    };
+    s.notice = notice;
     apply_join_defaults(s);
     Update::RefreshDom
+}
+
+/// The waiting room of a meeting made here: "Retry" asks the meetings service again to make
+/// the meeting for real; while it still does not answer, the meeting stays the one made here.
+extern "C" fn on_preview_retry(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let kind = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let Some(room) = guard.room.as_mut().filter(|room| room.preview) else {
+            return Update::DoNothing;
+        };
+        room.stage = Stage::Start;
+        room.preview = false;
+        room.waiting = None;
+        chatroom::RoomKind::Meeting
+    };
+    begin_new_room(&mut data, &mut info, false, kind, None)
 }
 
 // ==== This device's identity (`identity.rs`, CRYPTO.md section 3) ====
@@ -7733,7 +7786,8 @@ fn bind_failure(endpoint: &IrohEndpoint) -> String {
 }
 
 /// The name others see: `--name`, else the one typed in the lobby last time, else
-/// `AZMEET_NAME`, else the login name.
+/// `AZMEET_NAME`, else the account's full name (what the system's login window shows), else
+/// the login name.
 fn display_name() -> String {
     if let Some(name) = launch_args().name.clone().filter(|n| !n.trim().is_empty()) {
         return name.trim().to_string();
@@ -7741,15 +7795,46 @@ fn display_name() -> String {
     if let Some(name) = store::Prefs::read(saved_settings()).name {
         return name;
     }
-    ["AZMEET_NAME", "USER", "USERNAME"]
-        .into_iter()
-        .find_map(|key| {
-            std::env::var(key)
-                .ok()
-                .map(|v| v.trim().to_string())
-                .filter(|v| !v.is_empty())
-        })
+    let set = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    set("AZMEET_NAME")
+        .or_else(account_full_name)
+        .or_else(|| set("USER"))
+        .or_else(|| set("USERNAME"))
         .unwrap_or_else(|| String::from("Guest"))
+}
+
+/// The account's full name: on macOS what `id -F` says, elsewhere the first field of the
+/// account's GECOS entry (`getent passwd`); `None` when the system keeps none.
+fn account_full_name() -> Option<String> {
+    let output = if cfg!(target_os = "macos") {
+        std::process::Command::new("id").arg("-F").output().ok()?
+    } else if cfg!(unix) {
+        let user = std::env::var("USER").ok()?;
+        std::process::Command::new("getent").args(["passwd", &user]).output().ok()?
+    } else {
+        return None;
+    };
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    if cfg!(target_os = "macos") {
+        full_name_of(text.trim())
+    } else {
+        full_name_of(text.trim().split(':').nth(4)?)
+    }
+}
+
+/// A full name as the account keeps it: the GECOS field's first part (`Felix Schütt,Room 1`),
+/// trimmed; `None` when empty.
+fn full_name_of(gecos: &str) -> Option<String> {
+    let name = gecos.split(',').next()?.trim();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 /// Host (IPv6 without brackets) and port of an http(s) address.
@@ -8049,6 +8134,7 @@ fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
     configure_video(&mut me, &probe_video());
     configure_network(&mut me);
     apply_launch_args(&mut me);
+    open_devices_at_start(&mut me);
     run(me);
 }
 
@@ -8076,4 +8162,47 @@ fn run(me: MeetState) {
 #[ctor::ctor]
 fn azul_android_init() {
     start();
+}
+
+#[cfg(test)]
+mod service_down_tests {
+    use super::*;
+
+    /// The start screen with no meetings service set.
+    fn lobby_without_a_service() -> MeetState {
+        let mut s = MeetState::new("Ada", make_kit());
+        s.room = Some(RoomSession::new(String::new(), rooms::Relay::Default));
+        s
+    }
+
+    #[test]
+    fn without_a_meetings_service_a_new_meeting_opens_its_waiting_room_with_the_camera_on() {
+        let mut s = lobby_without_a_service();
+        let _ = open_local_meeting(&mut s, t("azmeet-preview-no-server"));
+        let room = s.room.as_ref().expect("a room");
+        assert_eq!(room.stage, Stage::Waiting, "the waiting room opens");
+        let view = snapshot(&s);
+        assert!(view.cam, "its camera preview is on");
+        let waiting = view.waiting.expect("the waiting room's facts");
+        assert!(waiting.local, "it says the meeting is made here, with Retry");
+        assert!(waiting.code.contains('-'), "a code made here: {}", waiting.code);
+    }
+
+    #[test]
+    fn the_name_is_the_accounts_full_name_without_its_extra_fields() {
+        assert_eq!(full_name_of("Felix Schütt").as_deref(), Some("Felix Schütt"));
+        assert_eq!(full_name_of(" Felix Schütt ,Room 1,,").as_deref(), Some("Felix Schütt"));
+        assert_eq!(full_name_of(""), None);
+        assert_eq!(full_name_of(",,,"), None);
+    }
+
+    #[test]
+    fn the_start_screen_shows_the_camera_at_once_even_with_no_meetings_service() {
+        let mut s = lobby_without_a_service();
+        open_devices_at_start(&mut s);
+        let view = snapshot(&s);
+        assert!(matches!(view.screen, ui::UiScreen::Lobby), "the start screen");
+        assert!(view.cam, "its camera preview is on from the start");
+        assert!(view.mic, "and the microphone's level shows");
+    }
 }

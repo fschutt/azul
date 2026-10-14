@@ -183,6 +183,7 @@ azmeet-preview-cannot-join = Dieser Warteraum ist eine Vorschau: Unter { $server
 azmeet-asked-to-join = Beitritt angefragt: Jemand in der Besprechung lässt dich ein. Vergleiche deinen Sicherheitscode mit ihrem.
 azmeet-preview-no-server = Eine Vorschau des Warteraums: Kein Besprechungsserver ist festgelegt.
 azmeet-preview-silent-server = Eine Vorschau des Warteraums: Unter { $server } antwortet kein Besprechungsserver.
+azmeet-local-meeting = Diese Besprechung ist auf diesem Gerät angelegt: Der Besprechungsdienst antwortet nicht, darum kann noch niemand beitreten. Kamera, Mikrofon und Soundcheck funktionieren.
 azmeet-keyring-stored = gespeichert
 azmeet-keyring-retrieved = gelesen
 azmeet-keyring-deleted = gelöscht

@@ -11,8 +11,10 @@
 //! With routing tiles (`--routing`, see [`routing_source`]) the worker works the road route out
 //! on them with azul-routing: the corridor's tiles are fetched in parallel (and cached in memory
 //! and in the data folder), A* runs over them, the corridor widens when there is no way, and
-//! every tile that arrives is reported to the panel. Without tiles, and for public transport
-//! (a timetable question, not a road graph), it answers the straight-line estimate
+//! every tile that arrives is reported to the panel. Without tiles the worker asks a Valhalla
+//! server (`--routing-online`, FOSSGIS's public one by default; see [`route_source`]) for the
+//! road, its time and the turn-by-turn steps. With neither, and for public transport (a
+//! timetable question, not a road graph), it answers the straight-line estimate
 //! ([`crate::model::estimate_route`]).
 
 use std::{
@@ -31,6 +33,7 @@ use azul::{
     task::{ThreadReceiveMsg, ThreadReceiver, ThreadSendMsg, ThreadSender, ThreadWriteBackMsg},
 };
 use azul_routing::{
+    online::{OnlineError, Step, Valhalla},
     source::{CachedTiles, FolderTiles, HttpTiles},
     Mode, Progress, RouteError, TileSource,
 };
@@ -40,6 +43,61 @@ use crate::model::{estimate_route, RouteEstimate, TravelMode};
 /// Where the routing tiles come from, shared by every route worker of the session: one cache in
 /// memory, one connection pool.
 pub type Tiles = Arc<RoutingTiles>;
+
+/// The routing server, shared by every route worker of the session: one connection pool, its
+/// requests a second apart, the session's routes remembered.
+pub type Online = Arc<Valhalla>;
+
+/// What AzMaps' downloads name themselves: the app and its version, nothing about the user.
+#[must_use]
+pub fn user_agent() -> String {
+    format!("AzMaps/{} (+https://github.com/fschutt/azul)", env!("CARGO_PKG_VERSION"))
+}
+
+/// The routing server at `url` (a Valhalla `/route` endpoint).
+#[must_use]
+pub fn online_source(url: &str) -> Online {
+    Arc::new(Valhalla::new(url.trim(), user_agent()))
+}
+
+/// Where a route comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteSource {
+    /// azul-routing's A* on the routing tiles.
+    Tiles,
+    /// The routing server.
+    Online,
+    /// The straight-line estimate.
+    Estimate,
+}
+
+impl RouteSource {
+    /// The word scripts read (`AZMAPS_ROAD <mode> ... <source>`).
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Tiles => "tiles",
+            Self::Online => "online",
+            Self::Estimate => "estimate",
+        }
+    }
+}
+
+/// Where a route for `mode` comes from: the routing tiles when there are any, else the routing
+/// server when there is one, else the straight-line estimate - which public transport always
+/// is (a timetable question, not a road graph).
+#[must_use]
+pub const fn route_source(tiles: bool, online: bool, mode: TravelMode) -> RouteSource {
+    if road_mode(mode).is_none() {
+        RouteSource::Estimate
+    } else if tiles {
+        RouteSource::Tiles
+    } else if online {
+        RouteSource::Online
+    } else {
+        RouteSource::Estimate
+    }
+}
 
 /// The routing tiles of a `--routing` value ([`routing_source`]).
 pub enum RoutingTiles {
@@ -81,9 +139,7 @@ pub fn routing_source(template: &str, cache_root: &Path) -> Tiles {
     let template = template.trim();
     let cache = cache_root.join(format!("{:016x}", fnv(template)));
     if template.starts_with("http://") || template.starts_with("https://") {
-        // The app and its version, nothing about the user.
-        let agent = format!("AzMaps/{} (+https://github.com/fschutt/azul)", env!("CARGO_PKG_VERSION"));
-        let http = HttpTiles::new(template, agent);
+        let http = HttpTiles::new(template, user_agent());
         Arc::new(RoutingTiles::Http(CachedTiles::new(http, Some(cache), CACHE_BYTES)))
     } else {
         // A folder is on disk already: the cache only keeps its tiles in memory.
@@ -117,8 +173,12 @@ pub struct RouteRequest {
     pub from: (f64, f64),
     pub to: (f64, f64),
     pub mode: TravelMode,
-    /// The routing tiles; `None` answers the straight-line estimate.
+    /// The routing tiles, else ...
     pub tiles: Option<Tiles>,
+    /// ... the routing server; with neither, the straight-line estimate.
+    pub online: Option<Online>,
+    /// The language the server writes the steps in (`en`, `de`).
+    pub language: String,
     /// The newest request's number, shared with the app.
     pub latest: Arc<AtomicU64>,
     /// The write-back that hands the reply to the app, on the UI thread.
@@ -130,9 +190,9 @@ pub struct RouteRequest {
 /// How a route was worked out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouteKind {
-    /// Along the roads of the routing tiles.
+    /// Along the roads: of the routing tiles, or as the routing server answered.
     Road,
-    /// The straight-line estimate: no routing tiles, or public transport.
+    /// The straight-line estimate: no routing source, or public transport.
     Estimate,
     /// The tiles have no way: the reason, for the panel.
     NoRoute(NoRoute),
@@ -149,6 +209,12 @@ pub enum NoRoute {
     NoWay,
     /// The tiles could not be had.
     TilesFailed,
+    /// The routing server could not be reached.
+    Offline,
+    /// The routing server asks to slow down.
+    Busy,
+    /// The routing server answered something else.
+    ServiceFailed,
 }
 
 impl NoRoute {
@@ -160,6 +226,9 @@ impl NoRoute {
             Self::NoRoadAtDestination => "azmaps-route-no-road-destination",
             Self::NoWay => "azmaps-route-none",
             Self::TilesFailed => "azmaps-route-tiles-failed",
+            Self::Offline => "azmaps-route-offline",
+            Self::Busy => "azmaps-route-busy",
+            Self::ServiceFailed => "azmaps-route-service-failed",
         }
     }
 
@@ -171,6 +240,9 @@ impl NoRoute {
             Self::NoRoadAtDestination => "no-road-at-destination",
             Self::NoWay => "no-way",
             Self::TilesFailed => "tiles-failed",
+            Self::Offline => "offline",
+            Self::Busy => "busy",
+            Self::ServiceFailed => "service-failed",
         }
     }
 }
@@ -187,6 +259,10 @@ pub struct RouteReply {
     /// straight-line estimate.
     pub route: RouteEstimate,
     pub kind: RouteKind,
+    /// Where it came from.
+    pub source: RouteSource,
+    /// The routing server's turn-by-turn steps; empty for any other source.
+    pub steps: Vec<Step>,
     /// The road route's places, `(lat, lon)`, from where the start meets the roads to where the
     /// destination does; empty for any other kind.
     pub road: Vec<(f64, f64)>,
@@ -248,79 +324,42 @@ pub extern "C" fn route_worker(
     mut sender: ThreadSender,
     mut receiver: ThreadReceiver,
 ) {
-    let Some((id, from, to, mode, tiles, latest, on_done, on_progress)) =
-        init.downcast_ref::<RouteRequest>().map(|r| {
-            (
-                r.id,
-                r.from,
-                r.to,
-                r.mode,
-                r.tiles.clone(),
-                r.latest.clone(),
-                r.on_done,
-                r.on_progress,
-            )
-        })
-    else {
+    let Some((asked, latest, on_done, on_progress)) = init.downcast_ref::<RouteRequest>().map(|r| {
+        let asked = Asked {
+            id: r.id,
+            from: r.from,
+            to: r.to,
+            mode: r.mode,
+            tiles: r.tiles.clone(),
+            online: r.online.clone(),
+            language: r.language.clone(),
+        };
+        (asked, r.latest.clone(), r.on_done, r.on_progress)
+    }) else {
         return;
     };
+    let id = asked.id;
     let mut stop = Stop::new(id, &latest, &mut receiver);
     if stop.now() {
         return;
     }
-    let started = Instant::now();
-    let estimate = estimate_route(from, to, mode);
-    let mut reply = RouteReply {
-        id,
-        from,
-        to,
-        mode,
-        route: estimate,
-        kind: RouteKind::Estimate,
-        road: Vec::new(),
-        tiles: 0,
-        attempts: 0,
-        compute_ms: 0.0,
-    };
-    if let (Some(tiles), Some(road)) = (tiles, road_mode(mode)) {
-        let mut last_sent: Option<(Instant, Progress)> = None;
-        let mut progress = |p: Progress| {
-            // Every tile is a step; the panel needs a few a second, and every change of stage.
-            let due = last_sent.map_or(true, |(at, last)| {
-                at.elapsed() >= PROGRESS_EVERY || last.stage != p.stage || last.attempt != p.attempt
-            });
-            if due {
-                last_sent = Some((Instant::now(), p));
-                let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
-                    on_progress,
-                    RefAny::new(RouteProgress { id, progress: p }),
-                )));
-            }
-        };
-        match azul_routing::route(&*tiles, from, to, road, &mut progress, &mut || stop.now()) {
-            Ok(found) => {
-                reply.route = RouteEstimate {
-                    km: found.distance_m / 1000.0,
-                    minutes: found.duration_s / 60.0,
-                };
-                reply.kind = RouteKind::Road;
-                reply.road = found.points;
-                reply.tiles = found.tiles;
-                reply.attempts = found.attempts;
-            }
-            Err(RouteError::Stopped) => return,
-            Err(why) => {
-                reply.kind = RouteKind::NoRoute(match why {
-                    RouteError::NoRoadNearStart => NoRoute::NoRoadAtStart,
-                    RouteError::NoRoadNearDestination => NoRoute::NoRoadAtDestination,
-                    RouteError::Fetch(_) => NoRoute::TilesFailed,
-                    RouteError::NoRoute | RouteError::Stopped => NoRoute::NoWay,
-                });
-            }
+    let mut last_sent: Option<(Instant, Progress)> = None;
+    let mut progress = |p: Progress| {
+        // Every tile is a step; the panel needs a few a second, and every change of stage.
+        let due = last_sent.map_or(true, |(at, last)| {
+            at.elapsed() >= PROGRESS_EVERY || last.stage != p.stage || last.attempt != p.attempt
+        });
+        if due {
+            last_sent = Some((Instant::now(), p));
+            let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+                on_progress,
+                RefAny::new(RouteProgress { id, progress: p }),
+            )));
         }
-        tiles.prune();
-    }
-    reply.compute_ms = started.elapsed().as_secs_f64() * 1000.0;
+    };
+    let Some(reply) = work_out(&asked, &mut progress, &mut || stop.now()) else {
+        return;
+    };
     if stop.now() {
         return;
     }
@@ -328,6 +367,97 @@ pub extern "C" fn route_worker(
         on_done,
         RefAny::new(reply),
     )));
+}
+
+/// What a route worker was asked: a [`RouteRequest`] without its write-backs.
+pub struct Asked {
+    pub id: u64,
+    pub from: (f64, f64),
+    pub to: (f64, f64),
+    pub mode: TravelMode,
+    pub tiles: Option<Tiles>,
+    pub online: Option<Online>,
+    pub language: String,
+}
+
+/// Works the route of `asked` out from its source ([`route_source`]), reporting the tiles'
+/// progress; `None` when `stop` said to give up first.
+pub fn work_out(
+    asked: &Asked,
+    progress: &mut dyn FnMut(Progress),
+    stop: &mut dyn FnMut() -> bool,
+) -> Option<RouteReply> {
+    let started = Instant::now();
+    let source = route_source(asked.tiles.is_some(), asked.online.is_some(), asked.mode);
+    let mut reply = RouteReply {
+        id: asked.id,
+        from: asked.from,
+        to: asked.to,
+        mode: asked.mode,
+        route: estimate_route(asked.from, asked.to, asked.mode),
+        kind: RouteKind::Estimate,
+        source: RouteSource::Estimate,
+        steps: Vec::new(),
+        road: Vec::new(),
+        tiles: 0,
+        attempts: 0,
+        compute_ms: 0.0,
+    };
+    let road = road_mode(asked.mode);
+    match (source, &asked.tiles, &asked.online, road) {
+        (RouteSource::Tiles, Some(tiles), _, Some(road)) => {
+            reply.source = RouteSource::Tiles;
+            match azul_routing::route(&**tiles, asked.from, asked.to, road, progress, stop) {
+                Ok(found) => {
+                    reply.route = RouteEstimate {
+                        km: found.distance_m / 1000.0,
+                        minutes: found.duration_s / 60.0,
+                    };
+                    reply.kind = RouteKind::Road;
+                    reply.road = found.points;
+                    reply.tiles = found.tiles;
+                    reply.attempts = found.attempts;
+                }
+                Err(RouteError::Stopped) => return None,
+                Err(why) => {
+                    reply.kind = RouteKind::NoRoute(match why {
+                        RouteError::NoRoadNearStart => NoRoute::NoRoadAtStart,
+                        RouteError::NoRoadNearDestination => NoRoute::NoRoadAtDestination,
+                        RouteError::Fetch(_) => NoRoute::TilesFailed,
+                        RouteError::NoRoute | RouteError::Stopped => NoRoute::NoWay,
+                    });
+                }
+            }
+            tiles.prune();
+        }
+        (RouteSource::Online, _, Some(online), Some(road)) => {
+            reply.source = RouteSource::Online;
+            match online.route(&[asked.from, asked.to], road, &asked.language, stop) {
+                Ok(Some(found)) => {
+                    reply.route = RouteEstimate {
+                        km: found.distance_m / 1000.0,
+                        minutes: found.duration_s / 60.0,
+                    };
+                    reply.kind = RouteKind::Road;
+                    reply.road = found.points;
+                    reply.steps = found.steps;
+                    reply.attempts = 1;
+                }
+                Ok(None) => return None,
+                Err(why) => {
+                    reply.kind = RouteKind::NoRoute(match why {
+                        OnlineError::Offline(_) => NoRoute::Offline,
+                        OnlineError::Busy => NoRoute::Busy,
+                        OnlineError::NoRoute(_) => NoRoute::NoWay,
+                        OnlineError::Server(_) => NoRoute::ServiceFailed,
+                    });
+                }
+            }
+        }
+        _ => {}
+    }
+    reply.compute_ms = started.elapsed().as_secs_f64() * 1000.0;
+    Some(reply)
 }
 
 #[cfg(test)]
@@ -353,6 +483,110 @@ mod tests {
             RoutingTiles::Http(_)
         ));
         assert_ne!(fnv("https://a.example/{z}"), fnv("https://b.example/{z}"), "a cache per source");
+    }
+
+    #[test]
+    fn a_route_comes_from_the_tiles_then_the_routing_server_then_the_estimate() {
+        assert_eq!(route_source(true, true, TravelMode::Car), RouteSource::Tiles);
+        assert_eq!(route_source(false, true, TravelMode::Walk), RouteSource::Online);
+        assert_eq!(route_source(false, false, TravelMode::Bike), RouteSource::Estimate);
+        assert_eq!(route_source(true, true, TravelMode::Transit), RouteSource::Estimate);
+    }
+
+    /// A routing server on a local port that answers every request with `body`: its URL, and
+    /// the requests it read.
+    fn routing_server(body: String) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let url = format!("http://{}/route", listener.local_addr().expect("an address"));
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().expect("a stream"));
+                let (mut request, mut length) = (String::new(), 0usize);
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap_or(0);
+                    }
+                    request.push_str(&line);
+                }
+                let mut sent = vec![0u8; length];
+                let _ = reader.read_exact(&mut sent);
+                request.push_str(&String::from_utf8_lossy(&sent));
+                log.lock().expect("the log").push(request);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        (url, seen)
+    }
+
+    fn asked(online: Option<Online>, mode: TravelMode) -> Asked {
+        Asked {
+            id: 7,
+            from: (52.5163, 13.3777),
+            to: (52.5200, 13.4050),
+            mode,
+            tiles: None,
+            online,
+            language: "de".to_string(),
+        }
+    }
+
+    #[test]
+    fn without_tiles_the_worker_asks_the_routing_server_for_the_road_its_time_and_steps() {
+        let answer = serde_json::json!({
+            "trip": {
+                "summary": { "length": 2.4, "time": 420.0 },
+                "legs": [{
+                    "shape": "_izlhA~rlgdF_{geC~ywl@_kwzCn`{nI",
+                    "maneuvers": [
+                        { "type": 2, "instruction": "Fahren Sie Richtung Osten.", "length": 1.0, "begin_shape_index": 0, "end_shape_index": 1 },
+                        { "type": 15, "instruction": "Biegen Sie links ab.", "length": 1.4, "begin_shape_index": 1, "end_shape_index": 2 },
+                        { "type": 4, "instruction": "Sie haben Ihr Ziel erreicht.", "length": 0.0, "begin_shape_index": 2, "end_shape_index": 2 }
+                    ]
+                }]
+            }
+        });
+        let (url, seen) = routing_server(answer.to_string());
+        let reply = work_out(&asked(Some(online_source(&url)), TravelMode::Bike), &mut |_| {}, &mut || false)
+            .expect("not stopped");
+        assert_eq!(reply.source, RouteSource::Online);
+        assert_eq!(reply.kind, RouteKind::Road);
+        assert_eq!(reply.road.len(), 3);
+        assert!((reply.route.km - 2.4).abs() < 1e-9 && (reply.route.minutes - 7.0).abs() < 1e-9);
+        assert_eq!(reply.steps.len(), 3);
+        assert_eq!(reply.steps[1].instruction, "Biegen Sie links ab.");
+        let seen = seen.lock().expect("the log");
+        assert_eq!(seen.len(), 1);
+        let request = seen[0].to_ascii_lowercase();
+        assert!(request.contains("user-agent: azmaps/"), "{request}");
+        assert!(request.contains("\"costing\":\"bicycle\""), "{request}");
+        assert!(request.contains("\"language\":\"de-de\""), "{request}");
+        // Public transport never asks it.
+        let transit = work_out(&asked(Some(online_source(&url)), TravelMode::Transit), &mut |_| {}, &mut || false)
+            .expect("not stopped");
+        assert_eq!((transit.source, transit.kind), (RouteSource::Estimate, RouteKind::Estimate));
+        assert_eq!(seen.len(), 1);
+    }
+
+    #[test]
+    fn an_unreachable_routing_server_is_said_plainly() {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let url = format!("http://{}/route", closed.local_addr().expect("an address"));
+        drop(closed);
+        let reply = work_out(&asked(Some(online_source(&url)), TravelMode::Car), &mut |_| {}, &mut || false)
+            .expect("not stopped");
+        assert_eq!(reply.kind, RouteKind::NoRoute(NoRoute::Offline));
+        assert_eq!(NoRoute::Offline.label(), "azmaps-route-offline");
     }
 
     #[test]

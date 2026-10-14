@@ -83,7 +83,7 @@ use azul::{
         ButtonOnClickCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
-    css::{ColorU, SystemColorRef},
+    css::{ColorU, CssProperty, CssPropertyWithConditions, LayoutWidth, PixelValue, SystemColorRef},
     dom::{DomId, GeolocationProbeConfig, MapMountCallback, VirtualKeyCode},
     option::OptionRefAny,
     prelude::*,
@@ -117,7 +117,7 @@ use crate::{
         MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
     },
     places::Suggestion,
-    route::{RouteKind, RouteProgress, RouteReply, RouteRequest, Tiles},
+    route::{route_source, Online, RouteKind, RouteProgress, RouteReply, RouteRequest, RouteSource, Tiles},
 };
 
 /// What azul-appkit's switches know about AzMaps.
@@ -258,6 +258,17 @@ const SUGGESTIONS: &str = "display: flex; flex-direction: column; gap: 2px;";
 const NO_SUGGESTIONS: &str = "font-size: 12px; color: system:secondary-text; padding: 4px 6px;";
 const DISTANCE: &str = "flex-grow: 1; text-align: right; font-size: 13px; color: \
                         system:secondary-text; white-space: nowrap;";
+/// The line saying where a route request goes while the routing server is asked.
+const PRIVACY_NOTE: &str = "font-size: 11px; color: system:secondary-text; white-space: normal;";
+/// The turn-by-turn steps: their own scrolling box, so the panel keeps its
+/// controls in sight in a small window.
+const STEPS: &str = "display: flex; flex-direction: column; align-items: stretch; gap: 2px; \
+                     max-height: 220px; overflow-x: hidden; overflow-y: auto; min-height: 0px;";
+/// A step's row: as wide as the list, its words wrapping inside it.
+const STEP_ROW: &str = "min-width: 0px; height: auto; justify-content: flex-start; text-align: \
+                        left; white-space: normal;";
+/// The zoom a picked step is shown at, at least: its turn in sight.
+const STEP_ZOOM: f32 = 15.0;
 const RECENTS_SECTION: &str =
     "display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-height: 0px;";
 const SECTION_HEAD: &str = "display: flex; flex-direction: row; align-items: center; \
@@ -292,6 +303,14 @@ const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 50px; width: 
                              justify-content: center; box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
 const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; border-radius: 4px 4px 0px 0px;";
 const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; border-radius: 0px 0px 4px 4px;";
+/// The picked turn-by-turn step's part of the road route: amber, so it stands
+/// out of the accent-coloured line in every theme.
+const STEP_LINE: ColorU = ColorU {
+    r: 0xff,
+    g: 0xa0,
+    b: 0x00,
+    a: 0xff,
+};
 /// The outline under the road route that keeps it readable on any tile.
 const ROUTE_CASING: ColorU = ColorU {
     r: 0xff,
@@ -407,9 +426,14 @@ struct MapState {
     route: Option<RouteReply>,
     /// How far the route worker of the newest request got, until it answers.
     route_progress: Option<RouteProgress>,
-    /// The routing tiles (`--routing`), shared by every route worker: `None`
-    /// answers the straight-line estimate.
+    /// The routing tiles (`--routing`), shared by every route worker ...
     routing: Option<Tiles>,
+    /// ... else the routing server (`--routing-online`); with neither a route
+    /// is the straight-line estimate.
+    online: Option<Online>,
+    /// The turn-by-turn step picked in the route panel: the map is centred on
+    /// it and its part of the line is drawn over the rest.
+    selected_step: Option<usize>,
     /// What the newest route request asked: the ends and the mode.
     route_asked: Option<((f64, f64), (f64, f64), TravelMode)>,
     /// The newest route request's number, shared with the route workers: an
@@ -431,6 +455,11 @@ struct MapState {
 }
 
 impl MapState {
+    /// Where the travel panel's route comes from, for its mode.
+    fn route_source(&self) -> RouteSource {
+        route_source(self.routing.is_some(), self.online.is_some(), self.travel.mode)
+    }
+
     fn heading(&self) -> Option<f32> {
         if !self.has_mag {
             return None;
@@ -581,6 +610,7 @@ impl MapState {
         self.route_asked = Some(asked);
         self.route = None;
         self.route_progress = None;
+        self.selected_step = None;
         let id = self.route_latest.fetch_add(1, Ordering::AcqRel) + 1;
         Some(RouteRequest {
             id,
@@ -588,6 +618,8 @@ impl MapState {
             to,
             mode: self.travel.mode,
             tiles: self.routing.clone(),
+            online: self.online.clone(),
+            language: azul_appkit::l10n::locale().chars().take(2).collect(),
             latest: self.route_latest.clone(),
             on_done: on_route_done,
             on_progress: on_route_progress,
@@ -630,13 +662,15 @@ extern "C" fn on_route_done(mut app: RefAny, mut msg: RefAny, _info: CallbackInf
     println!("{}", route_reply_line(reply.mode, reply.route, reply.compute_ms));
     match &reply.kind {
         RouteKind::Road => println!(
-            "AZMAPS_ROAD {} {:.1} {:.0} {} {} {}",
+            "AZMAPS_ROAD {} {:.1} {:.0} {} {} {} {} {}",
             reply.mode.key(),
             reply.route.km,
             reply.route.minutes,
             reply.road.len(),
             reply.tiles,
-            reply.attempts
+            reply.attempts,
+            reply.source.key(),
+            reply.steps.len()
         ),
         RouteKind::NoRoute(why) => println!("AZMAPS_NO_ROUTE {} {}", reply.mode.key(), why.key()),
         RouteKind::Estimate => {}
@@ -832,11 +866,17 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
                 if let Some(r) = reply {
                     text.push_str(" \u{b7} ");
                     text.push_str(&duration_text(r.route.minutes));
+                    text.push_str(" \u{b7} ");
+                    text.push_str(label("azmaps-route-estimate").as_str());
                 }
             }
             Some(RouteKind::NoRoute(why)) => {
                 text.push_str(" \u{b7} ");
                 text.push_str(label(why.label()).as_str());
+            }
+            None if s.route_source() == RouteSource::Online => {
+                text.push_str(" \u{b7} ");
+                text.push_str(label("azmaps-route-asking").as_str());
             }
             None => {
                 if let Some(step) = s.route_progress {
@@ -867,7 +907,93 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
     if let Some(list) = &s.suggestions {
         panel.add_child(suggestion_list(list, app));
     }
-    panel.with_child(modes)
+    panel.add_child(modes);
+    if let (Some(_), Some(_)) = s.travel_ends() {
+        if s.route_source() == RouteSource::Online {
+            panel.add_child(
+                Dom::create_div()
+                    .with_css(PRIVACY_NOTE)
+                    .with_id(ids::ROUTE_PRIVACY)
+                    .with_child(Dom::create_span_with_text(label("azmaps-route-privacy"))),
+            );
+        }
+    }
+    if let Some(reply) = s
+        .route
+        .as_ref()
+        .filter(|r| r.kind == RouteKind::Road && !r.steps.is_empty())
+    {
+        panel.add_child(step_list(reply, s.selected_step, app));
+    }
+    panel
+}
+
+/// One step's row: which one, and the app.
+struct StepRef {
+    app: RefAny,
+    index: usize,
+}
+
+/// The routing server's turn-by-turn steps under the route's summary: each
+/// row its arrow, what to do and how far it goes; the picked one marked. The
+/// list scrolls in its own box, so a long trip leaves the panel usable in a
+/// small window.
+fn step_list(reply: &RouteReply, selected: Option<usize>, app: &RefAny) -> Dom {
+    let mut rows = Dom::create_div()
+        .with_css(STEPS)
+        .with_id(ids::ROUTE_STEPS)
+        .with_accessibility_name(label("azmaps-route-steps"));
+    for (index, step) in reply.steps.iter().enumerate() {
+        let mut text = step.instruction.clone();
+        if step.distance_m >= 1.0 {
+            text.push_str(" \u{b7} ");
+            text.push_str(&distance_text(step.distance_m / 1000.0));
+        }
+        rows.add_child(
+            Button::create(text)
+                .with_icon(step.kind.icon())
+                .with_toggled(selected == Some(index))
+                .with_on_click(
+                    RefAny::new(StepRef {
+                        app: app.clone(),
+                        index,
+                    }),
+                    on_step as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_id(ids::route_step(index))
+                .with_css(STEP_ROW)
+                // The row's own width, not its parts': the label shrinks and wraps.
+                .with_css_property(CssPropertyWithConditions::simple(CssProperty::width(
+                    LayoutWidth::px(PixelValue::percent(100.0)),
+                ))),
+        );
+    }
+    rows
+}
+
+/// A step was picked: the map centres on where it starts and its part of the
+/// line is drawn over the rest.
+extern "C" fn on_step(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<StepRef>().map(|r| (r.app.clone(), r.index)) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<MapState>() else {
+        return Update::DoNothing;
+    };
+    let Some(first) = s
+        .route
+        .as_ref()
+        .and_then(|r| r.steps.get(index).and_then(|step| r.road.get(step.first_point)))
+        .copied()
+    else {
+        return Update::DoNothing;
+    };
+    s.selected_step = Some(index);
+    s.viewport.zoom = s.viewport.zoom.max(STEP_ZOOM);
+    s.centre_on(first.0, first.1);
+    println!("AZMAPS_STEP {index} {:.4},{:.4}", first.0, first.1);
+    Update::RefreshDom
 }
 
 /// One suggestion's row: which one, and the app.
@@ -1066,6 +1192,21 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
     if let Some(line) = plan.line {
         let points = MapLatLonVec::from_vec(line.points.iter().copied().map(at).collect());
         out.push(MapOverlay::Polyline(travel_polyline(points, line.road)));
+        // The picked turn-by-turn step's part, over the rest of the line.
+        let picked = s.selected_step.zip(s.route.as_ref()).and_then(|(index, reply)| {
+            let step = reply.steps.get(index)?;
+            let part = reply.road.get(step.first_point..=step.last_point.max(step.first_point + 1))?;
+            Some(part.to_vec())
+        });
+        if let (true, Some(part)) = (line.road, picked) {
+            let points = MapLatLonVec::from_vec(part.into_iter().map(at).collect());
+            out.push(MapOverlay::Polyline(
+                MapPolyline::create(points)
+                    .with_color(STEP_LINE)
+                    .with_width(7.0)
+                    .with_casing(ROUTE_CASING, 10.0),
+            ));
+        }
     }
     let end = |id: u64, place: (f64, f64), css: &'static str, name: &str| {
         MapOverlay::Marker(
@@ -1242,10 +1383,16 @@ fn screen(s: &MapState, app: &RefAny) -> Dom {
         root.add_child(sidebar(s, app));
     }
     root.add_child(map_controls(s, app));
+    // The routing server's credit beside the map's, while routes are asked of it.
+    let mut credits = s.layer.attribution.as_str().to_string();
+    if s.routing.is_none() && s.online.is_some() {
+        credits.push_str(" \u{b7} ");
+        credits.push_str(label("azmaps-routing-credit").as_str());
+    }
     root.add_child(
         Dom::create_div()
             .with_css(ATTRIBUTION)
-            .with_child(Dom::create_span_with_text(s.layer.attribution.as_str())),
+            .with_child(Dom::create_span_with_text(credits)),
     );
     if !s.notice.is_empty() {
         root.add_child(
@@ -2017,6 +2164,17 @@ pub fn start() {
     }
     let routing = routing_template
         .map(|t| route::routing_source(&t, &data_root.join("maps").join("routing")));
+    // Without routing tiles a route is asked of the routing server (FOSSGIS's
+    // public Valhalla unless `--routing-online` / AZMAPS_ROUTING_ONLINE names
+    // another or says off).
+    let online = args::online_routing(
+        args.routing_online.as_deref(),
+        std::env::var(args::ROUTING_ONLINE_VAR).ok().as_deref(),
+    )
+    .map(|url| route::online_source(&url));
+    if let (None, Some(server)) = (&routing, &online) {
+        println!("AZMAPS_ROUTING_ONLINE {}", server.url);
+    }
     // The map opens where it was left (settings.json), else on the start.
     let (lat, lon, zoom) = kept.unwrap_or(HOME);
     println!("{}", view_line(lat, lon, zoom));
@@ -2052,6 +2210,8 @@ pub fn start() {
         route: None,
         route_progress: None,
         routing,
+        online,
+        selected_step: None,
         route_asked: None,
         route_latest: Arc::new(AtomicU64::new(0)),
         typed: None,
