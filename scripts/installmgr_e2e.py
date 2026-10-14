@@ -3,14 +3,16 @@
 the rollout gate, the beta channel, an uninstall, refused releases, and AzWriter's banner, against
 fake manifests on a local server, in a sandbox home folder.
 
-    0. a sandbox: HOME, AZLIN_CONFIG (with the manifest URL of a local server and rollout group
-       60) and XDG_DATA_HOME under a temporary folder, a fake package manager (brew on macOS, apt
+    0. a sandbox: HOME, AZLIN_CONFIG (rollout group 60, no update source) and XDG_DATA_HOME
+       under a temporary folder, a fake package manager (brew on macOS, apt
        elsewhere) first on the PATH; a local HTTP server with a manifest per app and channel and
        the artifacts: AzWriter is the real AzWriter program, the runtime and AzClock are bytes;
     1. the wizard: Welcome; the package manager's page (Copy puts `... azlin-writer
        azlin-clock` on the clipboard); the destination (~/.azlin/apps, the space lines); the
        apps (the groups cleared, AzWriter and AzClock ticked: the total is 70 + 15 + 7 MB);
-       the channel (stable, auto-update); Install: the runtime, AzWriter and AzClock 0.1.0 are
+       the channel (stable, auto-update); no update source yet: the Updates page says so, the
+       Ready page holds Install with a sentence; the local server's address typed into the
+       source's field (Enter) goes into the config and the summary; Install: the runtime, AzWriter and AzClock 0.1.0 are
        fetched and put in place (`current/`, `current.json`, the .desktop file on Linux, the
        ~/.azlin/bin link and the .zshrc line on macOS); Finish shows the installed apps;
     2. the table: AzWriter 0.1.1 is published (no rollout) and AzClock 0.2.0 half rolled out
@@ -162,7 +164,34 @@ class Sandbox:
         return read_json(os.path.join(self.app_dir(key), "current.json"))
 
 
-def walk_wizard(app, box, out):
+def set_source(app, box, rel, out):
+    """The first run has no update source: the Updates page says so under the source's field,
+    the Ready page holds Install with a sentence; the address typed into the field (Enter) is
+    kept in the config, and the summary names it."""
+    url = rel.url("{app}/{channel}.json")
+    app.until("the source's field", lambda: app.has_id("installmgr-source"))
+    if not app.shows("No update source is set"):
+        raise Failure("the Updates page does not say that there is no update source")
+    app.screenshot(os.path.join(out, "5a-no-source.png"))
+    next_to(app, "ready")
+    app.until("Install held", lambda: app.shows("Set an update source on the Updates page first"))
+    app.screenshot(os.path.join(out, "5b-install-held.png"))
+    app.click(text="Install")
+    app.frame(3)
+    if step(app) != "ready":
+        raise Failure("Install went on without an update source: %s" % step(app))
+    app.click(text="< Back")
+    app.until("the Updates page again", lambda: step(app) == "channel")
+    app.text_input("#installmgr-source", url)
+    app.key("return")
+    app.until("the source kept", lambda: app.last("AZINSTALLMGR_SETTING") == "source " + url)
+    app.until("the source in the config",
+              lambda: read_json(box.config).get("updates", {}).get("manifest_url") == url)
+    app.until("the source's explanation", lambda: app.shows("The apps and their updates come from"))
+    app.log("the update source typed on the Updates page is kept in the config")
+
+
+def walk_wizard(app, box, rel, out):
     app.until("the welcome page", lambda: app.shows("Welcome to the Azlin apps"))
     app.screenshot(os.path.join(out, "1-welcome.png"))
     next_to(app, "package-manager")
@@ -197,8 +226,11 @@ def walk_wizard(app, box, out):
     next_to(app, "channel")
     app.until("the channel page", lambda: app.shows("Stable") and app.shows("Beta"))
     app.screenshot(os.path.join(out, "5-channel.png"))
+    set_source(app, box, rel, out)
     next_to(app, "ready")
     app.until("the summary", lambda: app.shows(folder))
+    if not app.shows(rel.url("{app}/{channel}.json")):
+        raise Failure("the summary does not name the update source")
     app.screenshot(os.path.join(out, "6-ready.png"))
     next_to(app, "installing", label="Install")
     app.until("the install to end", lambda: app.last("AZINSTALLMGR_DONE"))
@@ -410,8 +442,8 @@ def body(args, logs, out):
         writer_bytes = f.read()
     box = Sandbox(logs)
     rel = Releases(os.path.join(box.root, "releases"))
+    # No update source: the wizard asks for it (set_source), as on a fresh computer.
     edit_config(box.config, lambda u: u.update({
-        "manifest_url": rel.url("{app}/{channel}.json"),
         "cohort": 60,
     }))
     rel.publish("runtime", "stable", "0.1.0", b"the azul runtime 0.1.0")
@@ -420,7 +452,7 @@ def body(args, logs, out):
     try:
         app = start_manager("wizard", manager_bin, box, logs, args)
         try:
-            walk_wizard(app, box, out)
+            walk_wizard(app, box, rel, out)
             check_installed_files(box, writer_bytes)
             table(app, box, rel, writer_bytes, out)
         except Failure:
