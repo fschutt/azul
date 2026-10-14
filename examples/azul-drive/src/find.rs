@@ -684,10 +684,16 @@ pub struct FindState {
     pub end: Option<FindEnd>,
     /// The rows whose size and date were asked for (the ones in view).
     pub stats_asked: HashSet<String>,
-    /// The order a click on a column's header asked for; `None`: as found.
+    /// The order a click on a column's header asked for; `None`: ranked and grouped by folder.
     pub sort: Option<Sort>,
-    /// The rows' positions in `sort`'s order (while there is one).
+    /// The rows' positions in the order they show: `sort`'s, else ranked and grouped.
     view: Vec<usize>,
+    /// What the ranking knows of each row (its name, its line), by key; a line that joins a
+    /// row found by its name makes its document again.
+    docs: HashMap<String, crate::rank::Doc>,
+    /// The folders as the view shows them (the key prefix, the results in it), best first;
+    /// empty while a column's sort shows the rows flat.
+    groups: Vec<(String, usize)>,
     /// The jobs still running (This PC runs one per drive); the last one's end is the search's.
     pub pending: usize,
     /// What the jobs that ended so far came to.
@@ -719,6 +725,8 @@ impl FindState {
             stats_asked: HashSet::new(),
             sort: None,
             view: Vec::new(),
+            docs: HashMap::new(),
+            groups: Vec::new(),
             pending: 1,
             ended: None,
         }
@@ -728,34 +736,55 @@ impl FindState {
     /// results it holds), the folder of the best match first; empty while a column's sort is on.
     #[must_use]
     pub fn groups(&self) -> Vec<(String, usize)> {
-        todo!()
+        self.groups.clone()
     }
 
-    /// The rows in the order they show: sorted by the column clicked, else as found.
+    /// The rows in the order they show: sorted by the column clicked, else ranked and grouped
+    /// by folder.
     #[must_use]
     pub fn shown(&self) -> Vec<&Entry> {
-        match self.sort {
-            Some(_) => self.view.iter().filter_map(|&i| self.rows.get(i)).collect(),
-            None => self.rows.iter().collect(),
-        }
+        self.view.iter().filter_map(|&i| self.rows.get(i)).collect()
     }
 
-    /// Sorts the rows by a column (`None`: back to the order they were found in).
+    /// Sorts the rows by a column (`None`: back to the ranked order).
     pub fn set_sort(&mut self, sort: Option<Sort>) {
         self.sort = sort;
         self.resort();
     }
 
-    /// The view's order again (new rows, new sizes or dates).
+    /// The view's order again (new rows, new lines, new sizes or dates).
     fn resort(&mut self) {
-        let Some(sort) = self.sort else {
-            self.view.clear();
-            return;
-        };
         let rows = &self.rows;
-        let mut view: Vec<usize> = (0..rows.len()).collect();
-        view.sort_by(|&a, &b| browse::compare_entries(&rows[a], &rows[b], sort));
-        self.view = view;
+        if let Some(sort) = self.sort {
+            let mut view: Vec<usize> = (0..rows.len()).collect();
+            view.sort_by(|&a, &b| browse::compare_entries(&rows[a], &rows[b], sort));
+            self.view = view;
+            self.groups.clear();
+            return;
+        }
+        let empty = crate::rank::Doc::default();
+        let docs: Vec<(&crate::rank::Doc, bool)> = rows
+            .iter()
+            .map(|row| {
+                let doc = self.docs.get(&row.key).unwrap_or(&empty);
+                (doc, crate::rank::name_matches(&row.name, &self.query))
+            })
+            .collect();
+        let scores = crate::rank::scores(&docs, &self.query, self.searched);
+        let folders: Vec<&str> = rows.iter().map(|row| folder_of(&row.key)).collect();
+        let groups = crate::rank::group_by_folder(&folders, &scores);
+        self.view = groups.iter().flat_map(|g| g.positions.iter().copied()).collect();
+        self.groups = groups
+            .into_iter()
+            .map(|g| (g.folder, g.positions.len()))
+            .collect();
+    }
+
+    /// The ranking's document of the row `key` (named `name`) with the line it matched on.
+    fn learn(&mut self, key: &str, name: &str) {
+        let text = self.lines.get(key).map_or("", |line| line.text.as_str());
+        self.docs
+            .insert(key.to_string(), crate::rank::Doc::new(name, text));
     }
 
     /// The sizes and dates a stat found join the rows; how many changed.
@@ -798,12 +827,21 @@ impl FindState {
     pub fn merge(&mut self, batch: Vec<Found>) {
         for found in batch {
             let key = found.entry.key.clone();
-            if !self.index.contains_key(&key) {
+            let name = found.entry.name.clone();
+            let new_row = !self.index.contains_key(&key);
+            if new_row {
                 self.index.insert(key.clone(), self.rows.len());
                 self.rows.push(found.entry);
             }
-            if let Some(line) = found.line {
-                self.lines.entry(key).or_insert(line);
+            let new_line = match found.line {
+                Some(line) if !self.lines.contains_key(&key) => {
+                    self.lines.insert(key.clone(), line);
+                    true
+                }
+                _ => false,
+            };
+            if new_row || new_line {
+                self.learn(&key, &name);
             }
         }
         self.resort();
@@ -820,6 +858,7 @@ impl FindState {
         for key in keys {
             self.lines.remove(key);
             self.stats_asked.remove(key);
+            self.docs.remove(key);
         }
         self.index = self
             .rows

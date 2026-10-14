@@ -31,30 +31,105 @@ const MAX_EDITS: usize = 2;
 /// `text`'s, so a position in the folded text is the same position in `text`.
 #[must_use]
 pub fn fold(text: &str) -> String {
-    let _ = text;
-    todo!()
+    text.chars().map(fold_char).collect()
+}
+
+/// One character lower case and without its accent: the first character of its lower case,
+/// decomposed, as a browser's `normalize("NFD")` leaves it (letters without a decomposition,
+/// such as ø or ł, stay).
+fn fold_char(c: char) -> char {
+    match c.to_lowercase().next().unwrap_or(c) {
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => 'a',
+        'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => 'c',
+        'ď' => 'd',
+        'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => 'e',
+        'ĝ' | 'ğ' | 'ġ' | 'ģ' => 'g',
+        'ĥ' => 'h',
+        'ì' | 'í' | 'î' | 'ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' => 'i',
+        'ĵ' => 'j',
+        'ķ' => 'k',
+        'ĺ' | 'ļ' | 'ľ' => 'l',
+        'ñ' | 'ń' | 'ņ' | 'ň' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ō' | 'ŏ' | 'ő' => 'o',
+        'ŕ' | 'ŗ' | 'ř' => 'r',
+        'ś' | 'ŝ' | 'ş' | 'š' => 's',
+        'ţ' | 'ť' => 't',
+        'ù' | 'ú' | 'û' | 'ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => 'u',
+        'ŵ' => 'w',
+        'ý' | 'ÿ' | 'ŷ' => 'y',
+        'ź' | 'ż' | 'ž' => 'z',
+        other => other,
+    }
+}
+
+/// The folded words of `text` of at least `min_chars` characters.
+fn split_words(text: &str, min_chars: usize) -> Vec<String> {
+    fold(text)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.chars().count() >= min_chars)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Where `term` first appears in `folded` (a position in characters).
+fn find_chars(folded: &[char], term: &[char]) -> Option<usize> {
+    if term.is_empty() || term.len() > folded.len() {
+        return None;
+    }
+    (0..=folded.len() - term.len()).find(|&i| folded[i..i + term.len()] == *term)
 }
 
 /// The terms of a query: its folded words, split at anything but letters and digits.
 #[must_use]
 pub fn tokens(query: &str) -> Vec<String> {
-    let _ = query;
-    todo!()
+    split_words(query, 1)
 }
 
 /// Whether every term of `query` appears in `name` (an empty query matches every name).
 #[must_use]
 pub fn name_matches(name: &str, query: &str) -> bool {
-    let _ = (name, query);
-    todo!()
+    let folded = fold(name);
+    tokens(query).iter().all(|term| folded.contains(term.as_str()))
 }
 
 /// The parts of `text` the terms of `query` cover, as byte ranges of `text`, in order and
 /// merged where they touch: what a result's name and snippet highlight.
 #[must_use]
 pub fn marks(text: &str, query: &str) -> Vec<(usize, usize)> {
-    let _ = (text, query);
-    todo!()
+    let folded: Vec<char> = fold(text).chars().collect();
+    let count = folded.len();
+    let mut marked = vec![false; count];
+    for term in tokens(query) {
+        let term: Vec<char> = term.chars().collect();
+        if term.len() > count {
+            continue;
+        }
+        for start in 0..=count - term.len() {
+            if folded[start..start + term.len()] == term[..] {
+                marked[start..start + term.len()].fill(true);
+            }
+        }
+    }
+    // Folding keeps one character per character, so a position in `folded` is one in `text`.
+    let bytes: Vec<usize> = text
+        .char_indices()
+        .map(|(at, _)| at)
+        .chain(std::iter::once(text.len()))
+        .collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < count {
+        if marked[i] {
+            let start = i;
+            while i < count && marked[i] {
+                i += 1;
+            }
+            out.push((bytes[start], bytes[i]));
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 /// What the ranking knows of one result: how often each word occurs (a name's word three
@@ -72,8 +147,25 @@ impl Doc {
     /// was found by its name alone).
     #[must_use]
     pub fn new(name: &str, text: &str) -> Doc {
-        let _ = (name, text);
-        todo!()
+        let mut doc = Doc::default();
+        for word in split_words(name, 2) {
+            *doc.tf.entry(word).or_insert(0.0) += NAME_WEIGHT;
+            doc.len += NAME_WEIGHT;
+        }
+        for word in split_words(text, 2) {
+            *doc.tf.entry(word).or_insert(0.0) += 1.0;
+            doc.len += 1.0;
+        }
+        doc
+    }
+
+    /// How often the words holding `term` occur.
+    fn tf_of(&self, term: &str) -> f32 {
+        self.tf
+            .iter()
+            .filter(|(word, _)| word.contains(term))
+            .map(|(_, count)| count)
+            .sum()
     }
 }
 
@@ -82,8 +174,45 @@ impl Doc {
 /// terms' rarity is counted against.
 #[must_use]
 pub fn scores(docs: &[(&Doc, bool)], query: &str, searched: usize) -> Vec<f32> {
-    let _ = (docs, query, searched);
-    todo!()
+    let terms = tokens(query);
+    let corpus = searched.max(docs.len()).max(1) as f32;
+    let average = docs.iter().map(|(doc, _)| doc.len).sum::<f32>() / docs.len().max(1) as f32;
+    // How many documents hold each word; a term's count is that of the most common word
+    // holding it.
+    let mut df: HashMap<&str, usize> = HashMap::new();
+    for (doc, _) in docs {
+        for word in doc.tf.keys() {
+            *df.entry(word.as_str()).or_insert(0) += 1;
+        }
+    }
+    let idf: Vec<f32> = terms
+        .iter()
+        .map(|term| {
+            let held = df
+                .iter()
+                .filter(|(word, _)| word.contains(term.as_str()))
+                .map(|(_, count)| *count)
+                .max()
+                .unwrap_or(0) as f32;
+            (1.0 + (corpus - held + 0.5) / (held + 0.5)).ln()
+        })
+        .collect();
+    docs.iter()
+        .map(|(doc, named)| {
+            let norm = if average > 0.0 { doc.len / average } else { 0.0 };
+            let mut score = 0.0;
+            for (term, idf) in terms.iter().zip(&idf) {
+                let tf = doc.tf_of(term);
+                if tf == 0.0 {
+                    // Every term must be in the file for its contents to count.
+                    score = 0.0;
+                    break;
+                }
+                score += idf * (tf * (K1 + 1.0)) / (tf + K1 * (1.0 - B + B * norm));
+            }
+            score + if *named { NAME_BONUS } else { 0.0 }
+        })
+        .collect()
 }
 
 /// One folder of the results and the results in it (their positions in the list handed in),
@@ -98,23 +227,52 @@ pub struct Group {
 /// first, the best match first within a folder; equal scores keep the order they came in.
 #[must_use]
 pub fn group_by_folder(folders: &[&str], scores: &[f32]) -> Vec<Group> {
-    let _ = (folders, scores);
-    todo!()
+    let score = |i: usize| scores.get(i).copied().unwrap_or(0.0);
+    let mut order: Vec<usize> = (0..folders.len()).collect();
+    // A stable sort: equal scores keep the order they came in.
+    order.sort_by(|&a, &b| score(b).partial_cmp(&score(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let mut groups: Vec<Group> = Vec::new();
+    let mut index: HashMap<&str, usize> = HashMap::new();
+    for i in order {
+        let folder = folders[i];
+        match index.get(folder) {
+            Some(&group) => groups[group].positions.push(i),
+            None => {
+                index.insert(folder, groups.len());
+                groups.push(Group {
+                    folder: folder.to_string(),
+                    positions: vec![i],
+                });
+            }
+        }
+    }
+    groups
 }
 
 /// A folder's group header: its drive and its folders from the drive's root, joined by `›`
 /// (`Home › Documents › Steuer`).
 #[must_use]
 pub fn group_label(drive_name: &str, folder: &str) -> String {
-    let _ = (drive_name, folder);
-    todo!()
+    std::iter::once(drive_name)
+        .chain(folder.split('/').filter(|part| !part.is_empty()))
+        .collect::<Vec<&str>>()
+        .join(" \u{203A} ")
 }
 
 /// The number of single-character edits (insert, delete, replace) between `a` and `b`.
 #[must_use]
 pub fn edit_distance(a: &str, b: &str) -> usize {
-    let _ = (a, b);
-    todo!()
+    let b: Vec<char> = b.chars().collect();
+    let mut previous: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut current = vec![i + 1; b.len() + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let replace = previous[j] + usize::from(ca != *cb);
+            current[j + 1] = replace.min(previous[j + 1] + 1).min(current[j] + 1);
+        }
+        previous = current;
+    }
+    previous[b.len()]
 }
 
 /// "Did you mean": the word of `vocabulary` nearest to the last term of `query`, at most
@@ -122,8 +280,22 @@ pub fn edit_distance(a: &str, b: &str) -> usize {
 /// none. The first of equally near words wins.
 #[must_use]
 pub fn did_you_mean<'a>(query: &str, vocabulary: impl IntoIterator<Item = &'a str>) -> Option<String> {
-    let _ = (query, vocabulary.into_iter().count());
-    todo!()
+    let term = tokens(query).pop()?;
+    let length = term.chars().count();
+    if length < 3 {
+        return None;
+    }
+    let mut best: Option<(usize, String)> = None;
+    for word in vocabulary.into_iter().flat_map(|text| split_words(text, 3)) {
+        if word.chars().count().abs_diff(length) > MAX_EDITS {
+            continue;
+        }
+        let edits = edit_distance(&term, &word);
+        if edits > 0 && edits <= MAX_EDITS && best.as_ref().is_none_or(|(b, _)| edits < *b) {
+            best = Some((edits, word));
+        }
+    }
+    best.map(|(_, word)| word)
 }
 
 /// The part of `text` around the first match of `query`: up to [`SNIPPET_BEFORE`] characters
@@ -131,8 +303,40 @@ pub fn did_you_mean<'a>(query: &str, vocabulary: impl IntoIterator<Item = &'a st
 /// and the marks of the terms in it. `None` when no term appears in `text`.
 #[must_use]
 pub fn snippet(text: &str, query: &str) -> Option<(String, Vec<(usize, usize)>)> {
-    let _ = (text, query);
-    todo!()
+    let folded: Vec<char> = fold(text).chars().collect();
+    let chars: Vec<char> = text.chars().collect();
+    let at = tokens(query)
+        .iter()
+        .filter_map(|term| find_chars(&folded, &term.chars().collect::<Vec<char>>()))
+        .min()?;
+    let count = chars.len();
+    let mut start = at.saturating_sub(SNIPPET_BEFORE);
+    let mut end = (at + SNIPPET_AFTER).min(count);
+    // Cut at a space: after the first one past the start, before the last one before the end.
+    if start > 0 {
+        if let Some(space) = (start..count).find(|&i| chars[i] == ' ') {
+            if space < at {
+                start = space + 1;
+            }
+        }
+    }
+    if end < count {
+        if let Some(space) = (0..=end).rev().find(|&i| chars[i] == ' ') {
+            if space > at {
+                end = space;
+            }
+        }
+    }
+    let mut cut = String::new();
+    if start > 0 {
+        cut.push_str("\u{2026} ");
+    }
+    cut.extend(&chars[start..end]);
+    if end < count {
+        cut.push_str(" \u{2026}");
+    }
+    let marks = marks(&cut, query);
+    Some((cut, marks))
 }
 
 #[cfg(test)]
