@@ -1190,6 +1190,12 @@ def run(args, logs):
     database = os.path.join(logs, "shop.sqlite")
     make_database(database)
     drives_file = os.path.join(logs, "config", "drives.json")
+    # The status bar on (View > Status bar, off by default): steps 5 and 6 read a drive's space
+    # from its status line.
+    view = os.path.join(logs, "data", "drive", "view.json")
+    os.makedirs(os.path.dirname(view), exist_ok=True)
+    with open(view, "w", encoding="utf-8") as f:
+        json.dump({"status_bar": True}, f)
 
     switches = [
         "--screen", "this-pc", "--theme", "flat", "--mode", "light",
