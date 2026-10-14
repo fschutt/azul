@@ -915,14 +915,23 @@ mod tests {
     }
 
     /// Whether `dom`'s own CSS (the app's `with_css`) declares `what`, as the
-    /// property prints (`AppRegion(Exact(Drag))`).
+    /// property prints (`AppRegion(Exact(Drag))`). Through the library a
+    /// declaration prints over several lines (`{:#?}`), so the print is read
+    /// on one line first.
     fn declares(dom: &Dom, what: &str) -> bool {
         dom.css
             .as_slice()
             .iter()
             .flat_map(|css| css.rules.as_slice().iter())
             .flat_map(|rule| rule.declarations.as_slice().iter())
-            .any(|d| format!("{d:?}").contains(what))
+            .any(|d| one_line(&format!("{d:?}")).contains(what))
+    }
+
+    /// A Debug print on one line: no whitespace, no comma before a closing
+    /// bracket (`Exact(\n    Drag,\n)` reads `Exact(Drag)`).
+    fn one_line(printed: &str) -> String {
+        let flat: String = printed.chars().filter(|c| !c.is_whitespace()).collect();
+        flat.replace(",)", ")").replace(",}", "}").replace(",]", "]")
     }
 
     fn buttons(dom: &Dom) -> Vec<&Dom> {
