@@ -2877,4 +2877,17 @@ mod tests {
         let stranger = MemoryKeyring::new();
         assert!(run_maintenance(&meta_provider(None), &bucket, &stranger, "d_upkeep", &rules).is_err());
     }
+
+    /// AzDrive's encrypted drives pack their small files: a sync of a folder of notes sends a
+    /// few packs, not one object (and one index commit) per note.
+    #[test]
+    fn azdrives_encrypted_drives_pack_small_files() {
+        let packing = meta_provider(None).packing("d_any").expect("small files are packed");
+        assert_eq!(packing.threshold, azul_storage::SMALL_FILE_BYTES);
+        assert_eq!(packing.journal, None, "no cache folder: the journal in memory");
+        let dir = std::env::temp_dir().join("azdrive-pack-provider");
+        let with_cache = meta_provider(Some(dir.clone())).packing("d_any").unwrap();
+        let journal = with_cache.journal.expect("beside the drive's index copy");
+        assert!(journal.starts_with(&dir) && journal.ends_with("packs"), "{journal:?}");
+    }
 }
