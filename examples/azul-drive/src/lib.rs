@@ -2970,9 +2970,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_backstage(ui_dialogs::backstage(s, &app, page));
     }
     let mut body = Dom::create_body()
+        // The design's typeface under flora: Calmet UI everywhere (EB Garamond for what it
+        // lacks), 15 px on 1.3, tabular figures so sizes and dates line up.
         .with_css(
             "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px; \
-             font-family: system:ui; color: system:text;",
+             font-family: system:ui; color: system:text; @theme(flora) { font-family: \
+             \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", Georgia, serif; \
+             font-size: 15px; line-height: 1.3; font-variant-numeric: tabular-nums; }",
         )
         .with_child(
             Dom::create_div()
@@ -3014,6 +3018,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 app.clone(),
                 ui_view::on_column_drag_end,
             );
+    }
+    // The location tabs' overview over the window, while it is open.
+    if let Some(overview) = ui_tabs::overview(s, &app) {
+        body.add_child(overview);
     }
     if let Some(popup) = &s.popup {
         let (title, panel) = ui_dialogs::popup_parts(popup, s, &app);
@@ -3422,7 +3430,7 @@ pub fn start() {
     let mut window = azul_appkit::ui::window_options(
         &state.kit,
         layout,
-        (1200.0, 760.0),
+        (1280.0, 800.0),
         (640.0, 420.0),
         startup,
     );

@@ -30,9 +30,13 @@
 //! ([`why_not`]): what AzDrive cannot do at all (a Windows shortcut, a disc burner) says so. The
 //! tab strip IS the window's title bar (`with_tabs_in_titlebar`: the window drags around the
 //! tabs, which sit clear of macOS's traffic lights); the window's title is the open place's
-//! path. File drops Windows 8's File menu - a mini backstage in a popup under its tab (azul's
-//! `RibbonFileMenu`): Open new window, Open terminal here, Delete history, Help, Close, and the
-//! frequent places with their pins.
+//! path. File drops the File menu - a mini backstage in a popup under its tab (azul's
+//! `RibbonFileMenu`): New tab, New window, Open terminal here, Delete history, Keyboard
+//! shortcuts, Options, About, Close, and the frequent places with their pins.
+//!
+//! The tabs are buttons on the leather (`TabStyle::Pills`): at rest the tab content is closed,
+//! hovering a tab opens it, a double click locks it open (`TabClickBehaviour`). The strip's tab
+//! button at its right end counts the location tabs and opens their overview.
 
 use azul::{
     callbacks::{
@@ -47,6 +51,7 @@ use azul::{
         CheckBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonFileMenu,
         RibbonFileMenuCommand, RibbonFileMenuEvent, RibbonFileMenuEventKind,
         RibbonFileMenuPlace, RibbonGallery, RibbonGalleryCell, RibbonItem, RibbonRow, RibbonTab,
+        TabClickBehaviour, TabStyle,
     },
 };
 use azul_appkit::{
@@ -774,12 +779,15 @@ fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
 
 // ==== File: Windows 8's File menu ====
 
-/// The File menu's commands, in Windows 8's order (their positions are the menu's events).
-const NEW_WINDOW: usize = 0;
-const TERMINAL: usize = 1;
-const DELETE_HISTORY: usize = 2;
-const HELP: usize = 3;
-const CLOSE: usize = 4;
+/// The File menu's commands, in the design's order (their positions are the menu's events).
+const NEW_TAB: usize = 0;
+const NEW_WINDOW: usize = 1;
+const TERMINAL: usize = 2;
+const DELETE_HISTORY: usize = 3;
+const SHORTCUTS: usize = 4;
+const OPTIONS: usize = 5;
+const ABOUT: usize = 6;
+const CLOSE: usize = 7;
 
 /// The places File > Frequent places lists: the pinned folders first, then the folders visited
 /// last that are not pinned - ten at most, each with whether it is pinned.
@@ -829,6 +837,8 @@ fn file_menu(s: &DriveState, app: &RefAny) -> Dom {
         terminal = terminal.with_disabled(label(&reason));
     }
     let commands = vec![
+        RibbonFileMenuCommand::create(AzString::from("tab"), label("azdrive-loctab-new"))
+            .with_description(label("azdrive-file-new-tab-about")),
         RibbonFileMenuCommand::create(
             AzString::from("open_in_new"),
             label("azdrive-file-new-window"),
@@ -861,19 +871,13 @@ fn file_menu(s: &DriveState, app: &RefAny) -> Dom {
                 )
                 .with_description(label("azdrive-file-everything-about")),
             ),
-        RibbonFileMenuCommand::create(AzString::from("help"), label("azdrive-file-help"))
+        RibbonFileMenuCommand::create(AzString::from("keyboard"), label("azdrive-file-shortcuts"))
             .with_separator_before(true)
-            .with_child(
-                RibbonFileMenuCommand::create(
-                    AzString::from("keyboard"),
-                    label("azdrive-file-shortcuts"),
-                )
-                .with_description(label("azdrive-file-shortcuts-about")),
-            )
-            .with_child(
-                RibbonFileMenuCommand::create(AzString::from("info"), label("azdrive-file-about"))
-                    .with_description(label("azdrive-file-about-about")),
-            ),
+            .with_description(label("azdrive-file-shortcuts-about")),
+        RibbonFileMenuCommand::create(AzString::from("tune"), label("azdrive-backstage-options"))
+            .with_description(label("azdrive-file-options-about")),
+        RibbonFileMenuCommand::create(AzString::from("info"), label("azdrive-file-about"))
+            .with_description(label("azdrive-file-about-about")),
         RibbonFileMenuCommand::create(AzString::from("close"), label("azdrive-ribbon-close"))
             .with_separator_before(true),
     ];
@@ -902,7 +906,11 @@ fn file_menu(s: &DriveState, app: &RefAny) -> Dom {
 pub(crate) fn file_menu_action(s: &DriveState, event: &RibbonFileMenuEvent) -> Option<Action> {
     match event.kind {
         RibbonFileMenuEventKind::Command => match event.index {
+            NEW_TAB => Some(Action::NewTab),
             NEW_WINDOW => Some(Action::NewWindow),
+            SHORTCUTS => Some(Action::Shortcuts),
+            OPTIONS => Some(Action::Options),
+            ABOUT => Some(Action::About),
             CLOSE => Some(Action::CloseWindow),
             _ => None,
         },
@@ -921,8 +929,6 @@ pub(crate) fn file_menu_action(s: &DriveState, event: &RibbonFileMenuEvent) -> O
                 recent: true,
                 back_forward: true,
             }),
-            (HELP, 0) => Some(Action::Shortcuts),
-            (HELP, 1) => Some(Action::About),
             _ => None,
         },
         RibbonFileMenuEventKind::OpenPlace => frequent_places(s)
@@ -953,7 +959,7 @@ extern "C" fn on_file_menu(
 
 /// The ribbon for the open place; the tab strip is the window's title bar.
 pub(crate) fn ribbon(s: &DriveState, app: &RefAny) -> Dom {
-    let searching = s.find.is_some();
+    let searching = s.search_open || s.find.is_some();
     let tabs: Vec<RibbonTab> = tabs_of(&s.place, searching)
         .iter()
         .map(|tab| match tab {
@@ -972,6 +978,17 @@ pub(crate) fn ribbon(s: &DriveState, app: &RefAny) -> Dom {
         .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
         // No title row over the ribbon: its tabs are the title bar.
         .with_tabs_in_titlebar(azul_appkit::ui::tabs_in_titlebar())
+        // The design's tab area: the tabs are buttons (flora's submit and plain buttons) on
+        // the leather, the content opens while a tab is hovered and a double click locks it.
+        .with_tab_style(TabStyle::Pills)
+        .with_click_behaviour(TabClickBehaviour::HoverRevealDoubleClickLock)
+        // The strip's tab button: the location tabs' count, the overview on a click.
+        .with_tab_overview(
+            s.tabs.len(),
+            AzString::from(crate::ui_tabs::count_label(s)),
+            action_ref(app, Action::TabOverview),
+            on_action as ButtonOnClickCallbackType,
+        )
         .dom_desktop()
         .with_id(ids::RIBBON)
 }
@@ -980,7 +997,8 @@ extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize)
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return Update::DoNothing;
     };
-    let Some(tab) = tabs_of(&s.place, s.find.is_some()).get(index).copied() else {
+    let searching = s.search_open || s.find.is_some();
+    let Some(tab) = tabs_of(&s.place, searching).get(index).copied() else {
         return Update::DoNothing;
     };
     s.ribbon_tab = tab;

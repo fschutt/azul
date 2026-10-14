@@ -20,7 +20,7 @@ use azul::{
     vec::TabOverviewRowVec,
     widgets::{TabOverview, TabOverviewEvent, TabOverviewEventKind, TabOverviewRow},
 };
-use azul_appkit::l10n::{label, t, t_args, Arg, Phrase, Text};
+use azul_appkit::l10n::{label, t_args, Arg, Phrase, Text};
 
 use crate::{
     actions,
@@ -224,9 +224,4 @@ pub(crate) fn count_label(s: &DriveState) -> String {
         "{} (\u{2303}\u{21E7}A)",
         t_args("azdrive-loctabs-count", &[("count", Arg::from(s.tabs.len()))])
     )
-}
-
-/// The New tab row's words, for the File menu.
-pub(crate) fn new_tab_label() -> String {
-    t("azdrive-loctab-new")
 }

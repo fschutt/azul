@@ -934,9 +934,10 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
         RowKind::Go(Place::Folder { .. } | Place::QuickAccess)
     );
     let mut css = format!(
-        "{} padding-left: {}px; {} {} {}",
+        "{} padding-left: {}px; height: {}px; {} {} {}",
         look::ROW,
         4 + row.depth * 14,
+        s.settings.density.nav_row_px(),
         if selected { look::ROW_SELECTED } else { "" },
         look::ROW_FOCUS,
         if takes_drops { look::ROW_DROP } else { "" },

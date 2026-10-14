@@ -5,7 +5,7 @@
 //! (`--fl-fld`) filling its pane, over the linen page (`--fl-pg` and its two hairline rasters,
 //! `--fl-grain`); the source list rests on a soft vertical gradient from the strip tone down to
 //! the desk (`--fl-strip` .. `--fl-desk`);
-//! its section titles are flora's capitals (`.fl-label`: EB Garamond, bold, tracked, `--fl-soft1`);
+//! its section titles are flora's capitals (Calmet UI, bold, tracked, `--fl-soft1`);
 //! a selected source is the accent stone (`--az-accent`) under paper ink, with a lip and a cast;
 //! the Details header is the raised face (`--fl-rT` -> `--fl-rB`), its rows alternate field paper
 //! with a quiet wash, a selected item rests on the accent's soft wash (flora's data table and
@@ -64,7 +64,8 @@ pub(crate) const SIDEBAR: &str = themed!(
      min-width: 0px; min-height: 0px; overflow: hidden; font-size: 13px;",
     "background: linear-gradient(to bottom, #EAEFF5, #D6DEE8); color: #1E1E1E;",
     "background: linear-gradient(to bottom, #303338, #25272B); color: #F2F2F2;",
-    "background: linear-gradient(to bottom, #EEECE7, #DCD9D2); color: #262521;",
+    "background: linear-gradient(to bottom, #EEECE7, #DCD9D2); color: #262521; \
+     font-size: 15px;",
     "background: linear-gradient(to bottom, #282828, #1B1B1B); color: #E7E7E7;",
 );
 
@@ -73,16 +74,16 @@ pub(crate) const SIDEBAR_LIST: &str =
     "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
      padding: 0px 0px 10px 0px;";
 
-/// A section's title: small capitals behind a disclosure triangle (flora's `.fl-label`: EB
-/// Garamond, bold, tracked out).
+/// A section's title: small capitals behind a disclosure triangle (flora's caps: Calmet UI,
+/// 10.5 px, bold, tracked out).
 pub(crate) const SECTION_HEAD: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; height: 20px; \
      margin: 10px 6px 3px 6px; padding: 0px 6px 0px 2px; border-radius: 4px; font-size: 11px; \
      font-weight: 700; text-transform: uppercase; cursor: pointer;",
     "color: #6A7788; :hover { color: #27364A; }",
     "color: #9AA6B5; :hover { color: #E3E8EE; }",
-    "color: #66645C; font-family: EB Garamond, Georgia, Times New Roman, serif; \
-     letter-spacing: 1px; :hover { color: #262521; }",
+    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", \
+     Georgia, serif; font-size: 10.5px; letter-spacing: 0.08em; :hover { color: #262521; }",
     "color: #A8A8A8; :hover { color: #E7E7E7; }",
 );
 
@@ -209,13 +210,13 @@ pub(crate) const ACTIVITY: &str = themed!(
     "border-top: 1px solid #3F3F3F;",
 );
 
-/// The activity area's title.
+/// The cash orders' area title (under the source list).
 pub(crate) const ACTIVITY_HEAD: &str = themed!(
     "padding: 0px 10px 3px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase;",
     "color: #6A7788;",
     "color: #9AA6B5;",
-    "color: #66645C; font-family: EB Garamond, Georgia, Times New Roman, serif; \
-     letter-spacing: 1px;",
+    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", \
+     Georgia, serif; letter-spacing: 0.08em;",
     "color: #A8A8A8;",
 );
 
