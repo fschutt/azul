@@ -19,6 +19,9 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 # and the pins file's JSON (both already in the tree).
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 serde_json = "1"
+# The road routing on static tiles (ROUTING.md): the corridor, the tiles' download and cache,
+# A*. No azul types; its `http` feature is the ureq and rustls azul-layout builds already.
+azul-routing = { path = "../azul-routing", features = ["http"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity", "map-tiles"] }

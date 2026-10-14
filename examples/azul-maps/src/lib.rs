@@ -17,14 +17,14 @@
 //!
 //! A click on the map drops a pin; the pins are the RECENT places (newest
 //! first in the sidebar, a click centres the map on one and opens its card).
-//! A place's card is a transient popover anchored at its pin (Directions,
-//! Remove). The travel panel takes a start (empty: where you are, once the
+//! A place's card shows above its pin (Directions, Remove): the pin marker's
+//! popup. The travel panel takes a start (empty: where you are, once the
 //! location is known) and a destination, each a place name picked from the
 //! typeahead's suggestions (`places.rs`, searched on the geocoder worker once
 //! the typing rests) or `lat, lon`, a mode (drive, walk, cycle, public
-//! transport), and draws the straight line between them with its distance and
-//! the route worker's estimate - the road routing is not built yet
-//! (ROUTING.md).
+//! transport), and draws the way between them: the straight line with its
+//! distance at once, then the road route the route worker works out on the
+//! routing tiles (`--routing`, ROUTING.md), or its estimate without them.
 //!
 //! Pins are kept in the data tree (`maps/pins.json`, through azul-appkit's
 //! file jobs on a Thread); the last viewport and the sidebar in settings.json.
@@ -116,7 +116,7 @@ use crate::{
         MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
     },
     places::Suggestion,
-    route::{RouteReply, RouteRequest},
+    route::{RouteKind, RouteProgress, RouteReply, RouteRequest, Tiles},
 };
 
 /// What azul-appkit's switches know about AzMaps.
@@ -419,6 +419,11 @@ struct MapState {
     /// The travel panel's route, as the route worker answered the newest
     /// request (`route.rs`).
     route: Option<RouteReply>,
+    /// How far the route worker of the newest request got, until it answers.
+    route_progress: Option<RouteProgress>,
+    /// The routing tiles (`--routing`), shared by every route worker: `None`
+    /// answers the straight-line estimate.
+    routing: Option<Tiles>,
     /// What the newest route request asked: the ends and the mode.
     route_asked: Option<((f64, f64), (f64, f64), TravelMode)>,
     /// The newest route request's number, shared with the route workers: an
@@ -589,14 +594,17 @@ impl MapState {
         }
         self.route_asked = Some(asked);
         self.route = None;
+        self.route_progress = None;
         let id = self.route_latest.fetch_add(1, Ordering::AcqRel) + 1;
         Some(RouteRequest {
             id,
             from,
             to,
             mode: self.travel.mode,
+            tiles: self.routing.clone(),
             latest: self.route_latest.clone(),
             on_done: on_route_done,
+            on_progress: on_route_progress,
         })
     }
 }
@@ -634,7 +642,48 @@ extern "C" fn on_route_done(mut app: RefAny, mut msg: RefAny, _info: CallbackInf
         return Update::DoNothing;
     }
     println!("{}", route_reply_line(reply.mode, reply.route, reply.compute_ms));
+    match &reply.kind {
+        RouteKind::Road => println!(
+            "AZMAPS_ROAD {} {:.1} {:.0} {} {} {}",
+            reply.mode.key(),
+            reply.route.km,
+            reply.route.minutes,
+            reply.road.len(),
+            reply.tiles,
+            reply.attempts
+        ),
+        RouteKind::NoRoute(why) => println!("AZMAPS_NO_ROUTE {} {}", reply.mode.key(), why.key()),
+        RouteKind::Estimate => {}
+    }
+    s.route_progress = None;
     s.route = Some(reply);
+    Update::RefreshDom
+}
+
+/// The route worker got further (a tile arrived, the search began): the
+/// panel says how far, while the request is the newest.
+extern "C" fn on_route_progress(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(step) = msg.downcast_ref::<RouteProgress>().map(|p| *p) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<MapState>() else {
+        return Update::DoNothing;
+    };
+    if s.route_latest.load(Ordering::Acquire) != step.id || s.route.is_some() {
+        return Update::DoNothing;
+    }
+    let p = step.progress;
+    println!(
+        "AZMAPS_ROUTE_PROGRESS {} {} {} {}",
+        p.attempt,
+        match p.stage {
+            azul_routing::Stage::Fetching => "fetching",
+            azul_routing::Stage::Searching => "searching",
+        },
+        p.tiles_done,
+        p.tiles_wanted
+    );
+    s.route_progress = Some(step);
     Update::RefreshDom
 }
 
@@ -780,13 +829,41 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
         // The distance as the crow flies at once; the route worker's time
         // once it answers for these ends.
         let mut text = distance_text(distance_km(a, b));
-        if let Some(reply) = s
+        let reply = s
             .route
             .as_ref()
-            .filter(|r| r.from == a && r.to == b && r.mode == s.travel.mode)
-        {
-            text.push_str(" \u{b7} ");
-            text.push_str(&duration_text(reply.route.minutes));
+            .filter(|r| r.from == a && r.to == b && r.mode == s.travel.mode);
+        match reply.map(|r| &r.kind) {
+            // Along the roads: the road's length, not the crow's.
+            Some(RouteKind::Road) => {
+                if let Some(r) = reply {
+                    text = distance_text(r.route.km);
+                    text.push_str(" \u{b7} ");
+                    text.push_str(&duration_text(r.route.minutes));
+                }
+            }
+            Some(RouteKind::Estimate) => {
+                if let Some(r) = reply {
+                    text.push_str(" \u{b7} ");
+                    text.push_str(&duration_text(r.route.minutes));
+                }
+            }
+            Some(RouteKind::NoRoute(why)) => {
+                text.push_str(" \u{b7} ");
+                text.push_str(label(why.label()).as_str());
+            }
+            None => {
+                if let Some(step) = s.route_progress {
+                    text.push_str(" \u{b7} ");
+                    text.push_str(&t_args(
+                        "azmaps-route-searching",
+                        &[
+                            ("done", Arg::from(step.progress.tiles_done.to_string())),
+                            ("total", Arg::from(step.progress.tiles_wanted.to_string())),
+                        ],
+                    ));
+                }
+            }
         }
         modes.add_child(
             Dom::create_div()
@@ -1874,6 +1951,27 @@ pub fn start() {
         std::env::var(args::TILES_VAR).ok().as_deref(),
         shared_tiles.as_deref(),
     );
+    // The routing tiles: `--routing`, `AZMAPS_ROUTING`, the shared config's `endpoints.routing`;
+    // without them a route is the straight-line estimate. Downloads are cached in the data
+    // folder (`maps/routing/`).
+    let shared_routing = {
+        let mut k = kit_ref.clone();
+        let found = k
+            .downcast_ref::<kit::Kit>()
+            .and_then(|k| k.config_path.clone());
+        found
+    }
+    .and_then(|path| azul_appkit::shared_endpoint::in_file(&path, "routing"));
+    let routing_template = args::tile_template(
+        args.routing.as_deref(),
+        std::env::var(args::ROUTING_VAR).ok().as_deref(),
+        shared_routing.as_deref(),
+    );
+    if let Some(template) = &routing_template {
+        println!("AZMAPS_ROUTING {template}");
+    }
+    let routing = routing_template
+        .map(|t| route::routing_source(&t, &data_root.join("maps").join("routing")));
     // The map opens where it was left (settings.json), else on the start.
     let (lat, lon, zoom) = kept.unwrap_or(HOME);
     println!("{}", view_line(lat, lon, zoom));
@@ -1907,6 +2005,8 @@ pub fn start() {
         notice: String::new(),
         size: Cell::new((0.0, 0.0)),
         route: None,
+        route_progress: None,
+        routing,
         route_asked: None,
         route_latest: Arc::new(AtomicU64::new(0)),
         typed: None,
