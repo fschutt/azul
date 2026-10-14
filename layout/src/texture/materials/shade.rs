@@ -103,23 +103,45 @@ impl SurfaceSpec<'_> {
     }
 
     /// One tile of grain: window device pixels `tx * TILE ..` x `ty * TILE ..`.
+    ///
+    /// The slope's samples half a device pixel either side of a pixel lie on
+    /// the pixel's edges, which its neighbour shares: the heights on the
+    /// edges are computed once (a row of `TILE + 1` per pixel row, a column of
+    /// `TILE + 1` per pixel column), three surface samples a pixel instead
+    /// of five.
     fn compute_tile(&self, tx: i32, ty: i32) -> Vec<Grain> {
         let e = 0.5 / self.dpr;
         let x0 = tx * TILE as i32;
         let y0 = ty * TILE as i32;
+        let edge = |i: i32| i as f32 / self.dpr;
+        let centre = |i: i32| (i as f32 + 0.5) / self.dpr;
+        // Heights on the vertical edges of each row's pixels ...
+        let mut on_columns = vec![0.0_f32; TILE * (TILE + 1)];
+        // ... and on the horizontal edges of each column's pixels.
+        let mut on_rows = vec![0.0_f32; TILE * (TILE + 1)];
+        for yy in 0..TILE {
+            let gy = centre(y0 + yy as i32);
+            for k in 0..=TILE {
+                on_columns[yy * (TILE + 1) + k] = self.surf([edge(x0 + k as i32), gy], false).h;
+            }
+        }
+        for xx in 0..TILE {
+            let gx = centre(x0 + xx as i32);
+            for k in 0..=TILE {
+                on_rows[xx * (TILE + 1) + k] = self.surf([gx, edge(y0 + k as i32)], false).h;
+            }
+        }
         let mut out = Vec::with_capacity(TILE * TILE);
         let tile_normal = self.source == MaterialSource::Tile && self.material == Material::Leather;
         for yy in 0..TILE {
-            let wy = (y0 + yy as i32) as f32;
-            let gy = (wy + 0.5) / self.dpr;
+            let gy = centre(y0 + yy as i32);
             for xx in 0..TILE {
-                let wx = (x0 + xx as i32) as f32;
-                let gx = (wx + 0.5) / self.dpr;
+                let gx = centre(x0 + xx as i32);
                 let s = self.surf([gx, gy], true);
-                let hx0 = self.surf([gx - e, gy], false).h;
-                let hx1 = self.surf([gx + e, gy], false).h;
-                let hy0 = self.surf([gx, gy - e], false).h;
-                let hy1 = self.surf([gx, gy + e], false).h;
+                let hx0 = on_columns[yy * (TILE + 1) + xx];
+                let hx1 = on_columns[yy * (TILE + 1) + xx + 1];
+                let hy0 = on_rows[xx * (TILE + 1) + yy];
+                let hy1 = on_rows[xx * (TILE + 1) + yy + 1];
                 let grad = [(hx1 - hx0) / (2.0 * e), (hy1 - hy0) / (2.0 * e)];
                 let mut n = normalize([-grad[0] * self.relief, -grad[1] * self.relief, 1.0]);
                 if tile_normal {
