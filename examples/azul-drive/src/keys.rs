@@ -115,7 +115,8 @@ pub enum Command {
     },
     /// Ctrl+Space.
     ToggleFocused,
-    /// Ctrl+Shift+1..8: Explorer's layouts, Extra large icons (1) .. Content (8).
+    /// Ctrl+Shift+1..8: Explorer's layouts, Extra large icons (1) .. Content (8); on macOS
+    /// Cmd+1 (large icons, 2) and Cmd+2 (details, 6) as in Finder.
     Layout(u8),
     /// Alt+P: the preview pane on or off (Explorer's key).
     PreviewPane,
@@ -141,7 +142,7 @@ pub enum Command {
 /// table, `Mod` = Cmd on macOS, Ctrl elsewhere; the groups and actions are keys of the
 /// resources). A test checks that every one of them runs a command in [`command_for`], so the
 /// list cannot drift from the keys (DEDUP_OFFICE D13).
-pub const SHORTCUTS: [Shortcut; 28] = [
+pub const SHORTCUTS: [Shortcut; 41] = [
     Shortcut::new("azdrive-shortcut-group-open", "Enter", "azdrive-shortcut-open-selected"),
     Shortcut::new("azdrive-shortcut-group-open", "Alt+Enter", "azdrive-shortcut-properties"),
     Shortcut::new("azdrive-shortcut-group-open", "Backspace", "azdrive-shortcut-up"),
@@ -152,8 +153,14 @@ pub const SHORTCUTS: [Shortcut; 28] = [
     Shortcut::new("azdrive-shortcut-group-open", "Mod+R", "azdrive-shortcut-refresh"),
     Shortcut::new("azdrive-shortcut-group-open", "Mod+F", "azdrive-shortcut-search"),
     Shortcut::new("azdrive-shortcut-group-open", "F3", "azdrive-shortcut-search"),
+    Shortcut::new("azdrive-shortcut-group-open", "Mod+Down", "azdrive-shortcut-open-selected"),
+    Shortcut::new("azdrive-shortcut-group-open", "Mod+I", "azdrive-shortcut-properties"),
+    Shortcut::new("azdrive-shortcut-group-open", "Mod+Up", "azdrive-shortcut-up"),
+    Shortcut::new("azdrive-shortcut-group-open", "Mod+[", "azdrive-shortcut-back"),
+    Shortcut::new("azdrive-shortcut-group-open", "Mod+]", "azdrive-shortcut-forward"),
     Shortcut::new("azdrive-shortcut-group-organize", "F2", "azdrive-shortcut-rename"),
     Shortcut::new("azdrive-shortcut-group-organize", "Delete", "azdrive-shortcut-delete"),
+    Shortcut::new("azdrive-shortcut-group-organize", "Mod+Backspace", "azdrive-shortcut-delete"),
     Shortcut::new(
         "azdrive-shortcut-group-organize",
         "Shift+Delete",
@@ -174,12 +181,51 @@ pub const SHORTCUTS: [Shortcut; 28] = [
     Shortcut::new("azdrive-shortcut-group-view", "Mod+Shift+6", "azdrive-shortcut-details"),
     Shortcut::new("azdrive-shortcut-group-view", "Alt+P", "azdrive-shortcut-preview-pane"),
     Shortcut::new("azdrive-shortcut-group-view", "Alt+Shift+P", "azdrive-shortcut-details-pane"),
+    Shortcut::new("azdrive-shortcut-group-view", "Mod+Alt+P", "azdrive-shortcut-preview-pane"),
+    Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+T", "azdrive-shortcut-new-tab"),
+    Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+W", "azdrive-shortcut-close-tab"),
+    Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+Tab", "azdrive-shortcut-next-tab"),
+    Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+Shift+Tab", "azdrive-shortcut-previous-tab"),
+    Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+1", "azdrive-shortcut-jump-tab"),
+    Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+Shift+A", "azdrive-shortcut-tab-overview"),
 ];
 
-/// Explorer's keyboard.
+/// The location tabs' keys: the Control key on every platform, and for Ctrl+T and Ctrl+W the
+/// shortcut modifier too (Cmd+T, Cmd+W on macOS, as a browser has them).
+fn tab_command(key: Key, mods: Mods) -> Option<Command> {
+    let Mods {
+        shift,
+        ctrl,
+        alt,
+        control,
+    } = mods;
+    if alt {
+        return None;
+    }
+    let command = match key {
+        Key::Char('t') if (ctrl || control) && !shift => Command::NewTab,
+        Key::Char('w') if (ctrl || control) && !shift => Command::CloseTab,
+        Key::Tab if control && shift => Command::PrevTab,
+        Key::Tab if control => Command::NextTab,
+        Key::Char(c @ '1'..='9') if control && !shift => Command::JumpTab(c as u8 - b'0'),
+        Key::Char('a') if control && shift => Command::TabOverview,
+        _ => return None,
+    };
+    Some(command)
+}
+
+/// Explorer's keyboard, with Finder's Cmd keys and the location tabs' keys.
 #[must_use]
 pub fn command_for(key: Key, mods: Mods) -> Option<Command> {
-    let Mods { shift, ctrl, alt } = mods;
+    if let Some(command) = tab_command(key, mods) {
+        return Some(command);
+    }
+    let Mods {
+        shift,
+        ctrl,
+        alt,
+        control,
+    } = mods;
     let plain_ctrl = ctrl && !alt && !shift;
     let step = match key {
         Key::Up => Some(Step::PrevRow),
@@ -195,6 +241,14 @@ pub fn command_for(key: Key, mods: Mods) -> Option<Command> {
     let command = match key {
         Key::Enter if alt => Command::Properties,
         Key::Enter => Command::Open,
+        // Finder's: Cmd+Up goes up, Cmd+Down opens, Cmd+Backspace deletes, Cmd+[ / Cmd+] walk
+        // the history, Cmd+I shows the properties.
+        Key::Up if plain_ctrl => Command::Up,
+        Key::Down if plain_ctrl => Command::Open,
+        Key::Back if plain_ctrl => Command::Delete,
+        Key::Char('[') if plain_ctrl => Command::Back,
+        Key::Char(']') if plain_ctrl => Command::Forward,
+        Key::Char('i') if plain_ctrl => Command::Properties,
         Key::Back if !ctrl && !alt => Command::Up,
         Key::Up if alt => Command::Up,
         Key::Left if alt => Command::Back,
@@ -212,6 +266,10 @@ pub fn command_for(key: Key, mods: Mods) -> Option<Command> {
         Key::Char(c @ '1'..='8') if ctrl && shift && !alt => Command::Layout(c as u8 - b'0'),
         Key::Char('p') if alt && !ctrl && shift => Command::DetailsPane,
         Key::Char('p') if alt && !ctrl => Command::PreviewPane,
+        Key::Char('p') if alt && ctrl && !shift => Command::PreviewPane,
+        // Finder's Cmd+1 and Cmd+2 (macOS only: where Cmd is Ctrl, Ctrl+1 is a tab key).
+        Key::Char('1') if plain_ctrl && !control => Command::Layout(2),
+        Key::Char('2') if plain_ctrl && !control => Command::Layout(6),
         Key::Char('r') if plain_ctrl => Command::Refresh,
         Key::Char('f' | 'e') if plain_ctrl => Command::Search,
         Key::Char('c') if plain_ctrl => Command::Copy,
@@ -219,7 +277,7 @@ pub fn command_for(key: Key, mods: Mods) -> Option<Command> {
         Key::Char('v') if plain_ctrl => Command::Paste,
         Key::Char('a') if plain_ctrl => Command::SelectAll,
         Key::Char('z') if plain_ctrl => Command::Undo,
-        Key::Char(c) if !ctrl && !alt => Command::TypeAhead(c),
+        Key::Char(c) if !ctrl && !alt && !control => Command::TypeAhead(c),
         _ => match step {
             Some(step) if !alt => Command::Move {
                 step,

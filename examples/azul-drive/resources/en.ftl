@@ -699,6 +699,13 @@ azdrive-shortcut-list = List
 azdrive-shortcut-details = Details
 azdrive-shortcut-preview-pane = Preview pane
 azdrive-shortcut-details-pane = Details pane
+azdrive-shortcut-group-tabs = Tabs
+azdrive-shortcut-new-tab = New tab on this folder
+azdrive-shortcut-close-tab = Close the tab
+azdrive-shortcut-next-tab = Next tab
+azdrive-shortcut-previous-tab = Previous tab
+azdrive-shortcut-jump-tab = Tab 1 to 9 (Ctrl+1 to Ctrl+9)
+azdrive-shortcut-tab-overview = All open tabs
 
 ## Search, status line, preview and details panes
 

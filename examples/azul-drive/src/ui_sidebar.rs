@@ -1248,7 +1248,9 @@ pub(crate) fn on_sidebar_key(
     key: Key,
     mods: Mods,
 ) -> Option<Update> {
-    if mods.ctrl || mods.alt {
+    // A modified key is the window's (Ctrl+Tab and Ctrl+1 switch the location tab, also with
+    // the keyboard in the list).
+    if mods.ctrl || mods.alt || mods.control {
         return None;
     }
     let (focused, row_node) = focus_in_sidebar(info)?;
