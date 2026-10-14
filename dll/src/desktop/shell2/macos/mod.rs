@@ -2018,8 +2018,8 @@ mod gl_surface_tests {
     //! Which windows let the desktop show through their GL surface. Every
     //! window whose material is not Opaque clears to transparent
     //! (`clear_color`) and its CPU view composites that alpha; a GL surface
-    //! that stays opaque lays a modal dialog's half-transparent backdrop
-    //! over black instead of over the app beneath.
+    //! that stays opaque lays a popup's see-through pixels over black
+    //! instead of over the app beneath.
 
     use azul_core::window::WindowBackgroundMaterial as Material;
 
@@ -2044,11 +2044,13 @@ mod gl_surface_tests {
         }
     }
 
-    /// A modal `Dialog` is a transient window over its parent with the
-    /// Transparent material and a dimmed `::backdrop` as its root.
+    /// A non-modal `Dialog` is a popup window with the Transparent
+    /// material, so its rounded corners are real corners. (A modal one is an
+    /// opaque framed dialog window.)
     #[test]
-    fn a_modal_dialogs_window_shows_the_app_through_its_backdrop_on_the_gpu() {
+    fn a_popup_dialogs_window_shows_the_app_through_its_corners_on_the_gpu() {
         assert!(gl_surface_see_through(Material::Transparent));
+        assert!(!gl_surface_see_through(Material::Opaque));
     }
 }
 
