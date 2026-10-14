@@ -10,7 +10,13 @@ Three modes, ONE app at a time (inside the machine-wide lock, under the memory c
    with `--poll`, when transitions were in flight (`get_animations`; the debug server answers
    about every 45 ms, so this is coarse). `--profile` adds AZ_PROFILE=cpu: the per-phase dump on
    the app's stderr (`css_transition_tick`, `dl_regenerate_full`, `raster_damage_body` per glide
-   frame).
+   frame). `--phases` prints, per toggle, the app's own timing log of every pass the click and
+   its frames ran: `[phases] total ... | after_create_from_dom ... | after_state_migrate ...`
+   for a DOM rebuild, `incremental_relayout (... ms)` for a relayout. `--selector` clicks another
+   node of the app, e.g. AzWidgets' accordion: `--selector .__azul-native-accordion-header`.
+
+       scripts/waves/tools/run_capped.sh --cap-mb 1500 --seconds 150 --log /tmp/s13/w.log -- \
+         python3 scripts/switch13_probe.py --app widgets --phases --toggles 5 --out /tmp/s13/w
 
        until mkdir /tmp/az_app_run.lock 2>/dev/null; do sleep 10; done
        scripts/waves/tools/run_capped.sh --cap-mb 1500 --seconds 150 --log /tmp/s13/c.log -- \\
@@ -75,7 +81,15 @@ def live(args):
         app_args += ["--data-dir", data_dir]
     if args.profile:
         env["AZ_PROFILE"] = "cpu"
+    if args.phases:
+        # The Window category alone, at debug: the passes' timing lines.
+        env["AZ_LOG_STDERR"] = "1"
+        env["AZ_LOG"] = ("debug,-layout,-text,-displaylist,-rendering,-input,-eventloop,"
+                         "-callbacks,-timer,-debugserver,-platform,-general,-resources")
+    if args.selector:
+        selector = args.selector
     app = e2e.App(args.app, binary, app_args, args.port, out, args.timeout, extra_env=env)
+    phase_lines_seen = 0
     try:
         app.until("the debug server", lambda: app.op("list_windows"))
         app.frame(3)
@@ -113,11 +127,28 @@ def live(args):
                             "timeline": timeline})
             app.log("toggle %d: %s, transitions in flight (ms after the click) %s"
                     % (toggle, json.dumps(summary), glide))
+            if args.phases:
+                passes = phase_lines(app.err_path)
+                for line in passes[phase_lines_seen:]:
+                    app.log("  " + line)
+                phase_lines_seen = len(passes)
         with open(os.path.join(out, "result.json"), "w", encoding="utf-8") as f:
             json.dump(results, f, indent=1)
         return True
     finally:
         app.stop()
+
+
+def phase_lines(path):
+    """The timing lines of every pass in the app's stderr so far: a rebuild's `[phases]` split
+    and a relayout's duration."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return []
+    return [line.split("] ", 2)[-1][:300] for line in text.split("\n")
+            if "[phases]" in line or "incremental_relayout (" in line]
 
 
 def write_scenario(args):
@@ -214,6 +245,9 @@ def main():
     p.add_argument("--window", type=float, default=0.8, help="seconds observed after a click")
     p.add_argument("--poll", action="store_true", help="poll get_animations while observing")
     p.add_argument("--profile", action="store_true", help="AZ_PROFILE=cpu (the app's stderr)")
+    p.add_argument("--phases", action="store_true",
+                   help="print the timing line of every pass each toggle ran")
+    p.add_argument("--selector", help="click this node instead of the app's switch")
     p.add_argument("--port", type=int, default=8791)
     p.add_argument("--timeout", type=int, default=100)
     p.add_argument("--out", help="live mode: the folder for the logs, data and result.json")
