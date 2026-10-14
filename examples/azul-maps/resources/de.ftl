@@ -89,3 +89,6 @@ azmaps-voice-rerouting = Die Route wird neu berechnet.
 ## Positionsquelle
 
 azmaps-gps-no-fix = Keine Position
+azmaps-gps-fix = { $dimension }D-Fix
+azmaps-gps-satellites = { $count } Satelliten
+azmaps-gps-uncertainty = ±{ $metres } m

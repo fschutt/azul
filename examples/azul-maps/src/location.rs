@@ -110,50 +110,102 @@ pub extern "C" fn location_worker(mut init: RefAny, mut sender: ThreadSender, mu
 /// A receiver's fix as the navigation takes it, taken at `time_s` on its clock.
 #[must_use]
 pub fn fix_of_gnss(fix: &GnssFix, time_s: f64) -> Fix {
-    let _ = (fix, time_s);
-    Fix::default()
+    Fix {
+        at: fix.at,
+        time_s,
+        accuracy_m: fix.accuracy_m,
+        heading_deg: fix.heading_deg,
+        speed_mps: fix.speed_mps,
+    }
 }
 
 /// The platform's fix as the navigation takes it (its missing values are NaN there).
 #[must_use]
 pub fn fix_of_platform(lat: f64, lon: f64, accuracy_m: f32, heading_deg: f32, speed_mps: f32, time_s: f64) -> Fix {
-    let _ = (lat, lon, accuracy_m, heading_deg, speed_mps, time_s);
-    Fix::default()
+    let known = |v: f32| v.is_finite().then_some(f64::from(v));
+    Fix {
+        at: (lat, lon),
+        time_s,
+        accuracy_m: known(accuracy_m),
+        heading_deg: known(heading_deg),
+        speed_mps: known(speed_mps),
+    }
 }
 
 /// The indicator's line for a receiver's fix: `3D fix · 9 satellites · ±5 m`.
 #[must_use]
 pub fn quality_text(fix: &GnssFix) -> String {
-    let _ = (fix, t_args("azmaps-gps-no-fix", &[]), Arg::from(0i64));
-    String::new()
+    if fix.quality.dimension < 2 {
+        return t_args("azmaps-gps-no-fix", &[]);
+    }
+    let mut parts = vec![t_args(
+        "azmaps-gps-fix",
+        &[("dimension", Arg::from(u32::from(fix.quality.dimension)))],
+    )];
+    if let Some(count) = fix.quality.satellites {
+        parts.push(t_args("azmaps-gps-satellites", &[("count", Arg::from(count))]));
+    }
+    let uncertainty = fix
+        .accuracy_m
+        .or_else(|| fix.quality.hdop.map(|h| h * gnss::METRES_PER_HDOP));
+    if let Some(metres) = uncertainty {
+        parts.push(uncertainty_text(metres));
+    }
+    parts.join(" \u{b7} ")
+}
+
+/// `±5 m`.
+fn uncertainty_text(metres: f64) -> String {
+    t_args(
+        "azmaps-gps-uncertainty",
+        &[("metres", Arg::from(format!("{:.0}", metres.max(0.0).round())))],
+    )
 }
 
 /// The indicator's line for the platform's fix: `±65 m`.
 #[must_use]
 pub fn platform_quality_text(accuracy_m: f32) -> String {
-    let _ = accuracy_m;
-    String::new()
+    if accuracy_m.is_finite() {
+        uncertainty_text(f64::from(accuracy_m))
+    } else {
+        t_args("azmaps-gps-no-fix", &[])
+    }
 }
 
 /// The indicator's colour for a grade, `(r, g, b)`: green, amber, red, grey.
 #[must_use]
 pub const fn grade_colour(grade: Grade) -> (u8, u8, u8) {
-    let _ = grade;
-    (0, 0, 0)
+    match grade {
+        Grade::Good => (0x2e, 0x9d, 0x48),
+        Grade::Fair => (0xe0, 0x9b, 0x1a),
+        Grade::Poor => (0xd3, 0x3a, 0x2f),
+        Grade::None => (0x8a, 0x8f, 0x98),
+    }
 }
 
 /// The grade of the platform's fix, by its uncertainty.
 #[must_use]
 pub fn platform_grade(accuracy_m: f32) -> Grade {
-    let _ = accuracy_m;
-    Grade::None
+    if !accuracy_m.is_finite() {
+        Grade::None
+    } else if accuracy_m <= 10.0 {
+        Grade::Good
+    } else if accuracy_m <= 30.0 {
+        Grade::Fair
+    } else {
+        Grade::Poor
+    }
 }
 
 /// The source for this run: `--gps`, else the setting, else the platform's.
 #[must_use]
 pub fn source_of(flag: Option<&str>, setting: Option<&str>) -> Source {
-    let _ = (flag, setting);
-    Source::Platform
+    [flag, setting]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|t| !t.is_empty())
+        .map_or(Source::Platform, Source::parse)
 }
 
 #[cfg(test)]
