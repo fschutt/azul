@@ -527,17 +527,19 @@ mod tests {
         let mut m = SampleMachine::new();
         let s = m.read(0);
         let pipewire = named(&s, "pipewire")[0].pid;
-        let done = m.end(pipewire, false);
-        assert_eq!(done, Ok(format!("Ended pipewire ({pipewire})")));
+        let keys = |said: &Text| said.keys().join(" ");
+        let done = m.end(pipewire, false).expect("ended");
+        assert_eq!(keys(&done), "azmonitor-ended");
+        let phrase = done.phrase("azmonitor-ended").expect("the phrase");
+        assert_eq!(phrase.get("name"), Some(&azul_appkit::phrase::Arg::from("pipewire")));
+        assert_eq!(phrase.get("pid"), Some(&azul_appkit::phrase::Arg::from(pipewire)));
         let next = m.read(1000);
         assert!(named(&next, "pipewire").is_empty());
         assert_eq!(next.processes.len(), 44);
         // Killing says so.
         let xwayland = named(&next, "Xwayland")[0].pid;
-        assert_eq!(
-            m.end(xwayland, true),
-            Ok(format!("Killed Xwayland ({xwayland})"))
-        );
+        let killed = m.end(xwayland, true).expect("killed");
+        assert_eq!(keys(&killed), "azmonitor-killed");
     }
 
     #[test]
@@ -545,13 +547,8 @@ mod tests {
         let mut m = SampleMachine::new();
         let s = m.read(0);
         let sshd = named(&s, "sshd")[0].pid;
-        let refused = m.end(sshd, true);
-        assert!(
-            refused
-                .as_ref()
-                .is_err_and(|why| why.contains("administrator")),
-            "{refused:?}"
-        );
+        let refused = m.end(sshd, true).expect_err("refused");
+        assert_eq!(refused.keys(), vec!["azmonitor-needs-admin"]);
         let next = m.read(1000);
         assert_eq!(named(&next, "sshd").len(), 1);
     }
@@ -560,7 +557,8 @@ mod tests {
     fn ending_a_process_that_is_gone_says_so() {
         let mut m = SampleMachine::new();
         m.read(0);
-        let gone = m.end(999_999, false);
-        assert!(gone.is_err_and(|why| why.contains("999999")));
+        let gone = m.end(999_999, false).expect_err("gone");
+        let phrase = gone.phrase("azmonitor-no-process").expect("the phrase");
+        assert_eq!(phrase.get("pid"), Some(&azul_appkit::phrase::Arg::from(999_999_u32)));
     }
 }

@@ -1357,15 +1357,15 @@ mod tests {
             1000,
             vec![proc(1, "a", "u", 1.0, 1), proc(2, "b", "u", 1.0, 1)],
         );
-        r.notices = vec!["Ended b (2)".to_string()];
+        r.notices = vec![Text::plain("Ended b (2)")];
         r.uptime = 99;
         m.apply(r);
         assert_eq!(m.summary.processes, 2);
         assert_eq!(m.summary.uptime, 99);
-        assert_eq!(m.notices, vec!["Ended b (2)".to_string()]);
+        assert_eq!(m.notices, vec![Text::plain("Ended b (2)")]);
         // A reading without notices keeps the last ones (the status bar says it until the next).
         m.apply(reading(1000, vec![]));
-        assert_eq!(m.notices, vec!["Ended b (2)".to_string()]);
+        assert_eq!(m.notices, vec![Text::plain("Ended b (2)")]);
     }
 
     #[test]
