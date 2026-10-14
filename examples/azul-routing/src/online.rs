@@ -25,6 +25,19 @@ pub const FOSSGIS_VALHALLA: &str = "https://valhalla1.openstreetmap.de/route";
 /// servers allow one request a second.
 pub const MIN_GAP: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// How long a road route stays fresh in the cache, seconds: a week (roads change slowly; a
+/// stale route still answers when the server cannot be reached).
+pub const ROUTE_TTL_S: u64 = 7 * 24 * 3600;
+
+/// The cache key of a route question: the mode, the language and the places to about 10 m, so
+/// a route asked again from a few metres away is the same question. The server is not part of
+/// it: a route kept from one server answers offline when another is named.
+#[must_use]
+pub fn route_key(places: &[(f64, f64)], mode: Mode, language: &str) -> String {
+    let _ = (places, mode, language);
+    String::new()
+}
+
 /// A route the server worked out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OnlineRoute {
@@ -339,6 +352,36 @@ impl Valhalla {
         }
     }
 
+    /// The server at `url`, its routes kept in `cache` (in memory and, with a folder, on disk
+    /// across sessions).
+    #[must_use]
+    pub fn with_cache(
+        url: impl Into<String>,
+        user_agent: impl Into<String>,
+        cache: std::sync::Arc<crate::cache::ResponseCache>,
+    ) -> Self {
+        let _ = cache;
+        Self::new(url, user_agent)
+    }
+
+    /// [`Valhalla::route`], and where the route came from: the server, the cache, or - the
+    /// server out of reach - a kept route marked offline.
+    ///
+    /// # Errors
+    ///
+    /// [`OnlineError`]; `Ok(None)` when `stop` said to give up first.
+    pub fn route_with_origin(
+        &self,
+        places: &[(f64, f64)],
+        mode: Mode,
+        language: &str,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<(OnlineRoute, crate::fetch::Origin)>, OnlineError> {
+        Ok(self
+            .route(places, mode, language, stop)?
+            .map(|route| (route, crate::fetch::Origin::Network)))
+    }
+
     /// The route through `places` for `mode`, its steps in `language`.
     /// Waits for its turn after the last request ([`MIN_GAP`]), asking
     /// `stop` meanwhile; a route asked for before is answered from memory.
@@ -482,6 +525,16 @@ mod tests {
     }
 
     #[test]
+    fn a_route_asked_again_from_a_few_metres_away_is_the_same_question() {
+        let a = route_key(&[(52.516_30, 13.377_70), (52.52, 13.405)], Mode::Car, "en");
+        let b = route_key(&[(52.516_32, 13.377_72), (52.52, 13.405)], Mode::Car, "en");
+        assert_eq!(a, b);
+        assert_ne!(a, route_key(&[(52.516_30, 13.377_70), (52.52, 13.405)], Mode::Walk, "en"));
+        assert_ne!(a, route_key(&[(52.516_30, 13.377_70), (52.52, 13.405)], Mode::Car, "de"));
+        assert_ne!(a, route_key(&[(52.5263, 13.3777), (52.52, 13.405)], Mode::Car, "en"));
+    }
+
+    #[test]
     fn the_servers_refusals_are_told_apart() {
         let no_path = r#"{"error_code":442,"error":"No path could be found for input","status_code":400}"#;
         assert!(matches!(parse_error(400, no_path), OnlineError::NoRoute(_)));
@@ -580,6 +633,39 @@ mod tests {
             let stopped = server.route(&[(1.0, 1.0), (1.3, 1.3)], Mode::Car, "en", &mut || true);
             assert_eq!(stopped, Ok(None));
             assert_eq!(seen.lock().expect("the log").len(), 1);
+        }
+
+        #[test]
+        fn a_route_of_an_earlier_session_answers_from_the_disk_marked_offline() {
+            use crate::{cache::ResponseCache, fetch::Origin};
+            let dir = std::env::temp_dir().join(format!("azul-routing-valhalla-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let places = [(52.5163, 13.3777), (52.52, 13.405)];
+            let (url, _) = mock(200, answer());
+            let first = Valhalla::with_cache(url, "AzMaps-test/1", Arc::new(ResponseCache::new(Some(dir.clone()), 8, 1 << 20)));
+            let (route, origin) = first
+                .route_with_origin(&places, Mode::Car, "en", &mut || false)
+                .expect("an answer")
+                .expect("not stopped");
+            assert_eq!(origin, Origin::Network);
+            // The next session: the kept route is old and the server is gone.
+            let cache = Arc::new(ResponseCache::new(Some(dir.clone()), 8, 1 << 20));
+            let key = route_key(&places, Mode::Car, "en");
+            let mut kept = cache.get(&key).expect("kept on disk");
+            kept.stored_at = 0;
+            cache.put(&key, kept);
+            let closed = TcpListener::bind("127.0.0.1:0").expect("a port");
+            let gone = format!("http://{}/route", closed.local_addr().expect("an address"));
+            drop(closed);
+            let offline = Valhalla::with_cache(gone, "AzMaps-test/1", cache);
+            let nearby = [(52.516_31, 13.377_71), (52.52, 13.405)];
+            let (again, origin) = offline
+                .route_with_origin(&nearby, Mode::Car, "en", &mut || false)
+                .expect("the kept route")
+                .expect("not stopped");
+            assert_eq!(origin, Origin::Offline);
+            assert_eq!(again, route);
+            let _ = std::fs::remove_dir_all(&dir);
         }
 
         #[test]
