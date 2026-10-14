@@ -15568,10 +15568,26 @@ impl LayoutWindow {
                 .map(|(node, tr)| (*node, tr.sample()))
                 .collect();
             if !fresh.is_empty() && self.layout_results.contains_key(&dom_id) {
+                // A track whose node had both keys before this pass is drawn
+                // by the list the pass built: published by an earlier rebuild,
+                // it has not ticked since (nobody drives a spinner that cannot
+                // be seen). Only a track that gets its keys now needs the list
+                // built again.
+                let gets_keys_now = {
+                    let cache = self.gpu_state_manager.caches.get(&DomId::ROOT_ID);
+                    fresh.iter().any(|(node, _)| {
+                        !cache.is_some_and(|c| {
+                            c.anim_transform_keys.contains_key(node)
+                                && c.anim_opacity_keys.contains_key(node)
+                        })
+                    })
+                };
                 for (node, sample) in fresh {
                     self.publish_live_sample(node, sample);
                 }
-                self.regenerate_display_list_for_dom(dom_id);
+                if gets_keys_now {
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
             }
         }
     }
