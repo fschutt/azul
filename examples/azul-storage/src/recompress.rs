@@ -131,6 +131,10 @@ pub(crate) fn recompress_with<D: Drive>(
     let Some(object) = entry.object.as_ref() else {
         return Ok(RecompressOutcome::Ineligible);
     };
+    // A packed file is small and compressed on its own in its pack; repacking keeps it.
+    if object.packed.is_some() {
+        return Ok(RecompressOutcome::Ineligible);
+    }
     if entry.size < policy.min_size.max(1) {
         return Ok(RecompressOutcome::Ineligible);
     }

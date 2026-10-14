@@ -547,6 +547,9 @@ pub struct MetaIndexProvider {
     device_name: String,
     cache_root: Option<PathBuf>,
     lazy: bool,
+    /// Whether the drives it opens pack small files ([`crate::packing`]), their journal in
+    /// each drive's cache folder.
+    packing: bool,
 }
 
 impl MetaIndexProvider {
@@ -558,6 +561,7 @@ impl MetaIndexProvider {
             device_name: device_name.to_string(),
             cache_root: None,
             lazy: false,
+            packing: false,
         }
     }
 
@@ -572,6 +576,15 @@ impl MetaIndexProvider {
     #[must_use]
     pub fn with_lazy(mut self, lazy: bool) -> Self {
         self.lazy = lazy;
+        self
+    }
+
+    /// The drives it opens pack small files together ([`crate::packing`]): the sync client's
+    /// choice for Azlin drives. Their journal lives in `<drive cache>/packs`; without a cache
+    /// root it is kept in memory.
+    #[must_use]
+    pub fn with_packing(mut self, packing: bool) -> Self {
+        self.packing = packing;
         self
     }
 
@@ -636,6 +649,17 @@ impl MetaIndexProvider {
 }
 
 impl IndexProvider for MetaIndexProvider {
+    fn packing(&self, drive: &str) -> Option<crate::packing::PackOptions> {
+        if !self.packing {
+            return None;
+        }
+        let options = crate::packing::PackOptions::default();
+        Some(match self.drive_cache_dir(drive) {
+            Some(dir) => options.with_journal(dir.join("packs")),
+            None => options,
+        })
+    }
+
     fn open_index(
         &self,
         drive: &str,

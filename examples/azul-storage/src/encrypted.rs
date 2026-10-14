@@ -28,6 +28,8 @@
 //! - [`EncryptedDrive::write_from`] streams: one segment of plaintext in memory, the object
 //!   put together in a spool (memory up to 8 MiB, then a temporary file of ciphertext only,
 //!   because the header is written last) and handed to the inner drive's `put_from`.
+//! - A drive that packs ([`EncryptedDrive::with_packing`]) puts small files into shared AZL1
+//!   objects instead, each file read back with one ranged GET ([`crate::packing`]).
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -48,22 +50,38 @@ use crate::{
     keyring::KeyringStore,
     ops::check_folder,
     time::now_unix,
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
+    packing::{PackOptions, PackState, PackedAt},
+    BatchPut, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
     DEFAULT_PAGE_SIZE,
 };
 
 /// The object a file version's bytes are in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredObject {
+    /// The file's own AZL1 object; for a packed file, this version's own id (its entity tag),
+    /// which names no object in the bucket.
     pub id: ObjectId,
-    /// The object's bytes in the bucket: compressed and encrypted, what the quota counts.
+    /// The object's bytes in the bucket: compressed and encrypted, what the quota counts. For a
+    /// packed file, its record's bytes in the pack (the quota counts the pack once).
     pub stored_size: u64,
     /// BLAKE3 of the plaintext.
     pub blake3: [u8; 32],
-    /// The file key, wrapped with the drive key.
+    /// The file key, wrapped with the drive key; for a packed file, the pack's.
     pub wrapped_key: WrappedKey,
-    /// Whether a segment is compressed.
+    /// Whether a segment (for a packed file: its record) is compressed.
     pub compressed: bool,
+    /// Where the bytes are when the file is packed with other small files; `None` for a file
+    /// with an object of its own.
+    pub packed: Option<PackedAt>,
+}
+
+impl StoredObject {
+    /// The bucket object that holds the bytes: the pack for a packed file, else the file's own
+    /// object. The file key is wrapped for it.
+    #[must_use]
+    pub fn bucket_object(&self) -> ObjectId {
+        self.packed.as_ref().map_or(self.id, |packed| packed.pack.id)
+    }
 }
 
 /// What the index keeps for one path.
@@ -79,10 +97,17 @@ pub struct IndexEntry {
 }
 
 impl IndexEntry {
-    /// The id of the entry's object.
+    /// The id of the entry's object: the version the entity tag names (for a packed file not
+    /// a bucket object, see [`IndexEntry::bucket_object`]).
     #[must_use]
     pub fn object_id(&self) -> Option<ObjectId> {
         self.object.as_ref().map(|object| object.id)
+    }
+
+    /// The bucket object that holds the entry's bytes ([`StoredObject::bucket_object`]).
+    #[must_use]
+    pub fn bucket_object(&self) -> Option<ObjectId> {
+        self.object.as_ref().map(StoredObject::bucket_object)
     }
 }
 
@@ -212,6 +237,13 @@ pub trait IndexProvider: Send + Sync {
         let _ = previous;
         self.open_index(drive, bucket, drive_key)
     }
+
+    /// How the drive `drive` packs small files ([`crate::packing`]), its journal beside the
+    /// index's copy; `None` (the default): one object per file.
+    fn packing(&self, drive: &str) -> Option<PackOptions> {
+        let _ = drive;
+        None
+    }
 }
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
@@ -238,18 +270,22 @@ pub fn open_encrypted(
             ),
         });
     };
-    match provider.open_index(drive, Arc::clone(&bucket), &drive_key) {
-        Ok(index) => Ok(EncryptedDrive::new(bucket, drive_key, index)),
+    let opened = match provider.open_index(drive, Arc::clone(&bucket), &drive_key) {
+        Ok(index) => EncryptedDrive::new(bucket, drive_key, index),
         // The first error stands when there is nothing to catch up from.
         Err(e) => match device::catch_up(bucket.as_ref(), keyring, drive) {
             Ok(Some((current, previous))) => {
                 let index =
                     provider.open_index_in_window(drive, Arc::clone(&bucket), &current, &previous)?;
-                Ok(EncryptedDrive::new(bucket, current, index))
+                EncryptedDrive::new(bucket, current, index)
             }
-            Ok(None) | Err(_) => Err(e),
+            Ok(None) | Err(_) => return Err(e),
         },
-    }
+    };
+    Ok(match provider.packing(drive) {
+        Some(options) => opened.with_packing(options),
+        None => opened,
+    })
 }
 
 /// A drive's bucket that may hold an encrypted drive, for an app that opens drives on its UI
@@ -409,6 +445,12 @@ impl Drive for AutoEncrypted {
     ) -> Result<Option<String>, DriveError> {
         self.resolved()?.put_from_if(key, body, condition)
     }
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        match self.resolved() {
+            Ok(drive) => drive.put_many(items),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
 }
 
 /// The mutex's value, also after a thread panicked while holding it.
@@ -518,7 +560,7 @@ impl NameIndex for MemoryIndex {
         }
         let mut before: Vec<ObjectId> = staged
             .keys()
-            .filter_map(|path| entries.get(path).and_then(IndexEntry::object_id))
+            .filter_map(|path| entries.get(path).and_then(IndexEntry::bucket_object))
             .collect();
         for (path, next) in staged {
             match next {
@@ -532,14 +574,14 @@ impl NameIndex for MemoryIndex {
         }
         before.sort();
         before.dedup();
-        before.retain(|id| !entries.values().any(|e| e.object_id() == Some(*id)));
+        before.retain(|id| !entries.values().any(|e| e.bucket_object() == Some(*id)));
         Ok(before)
     }
 }
 
 /// The listing's and `head`'s view of an entry: the plaintext size, the date, the object id
 /// as the entity tag (a new one for every write; [`Precondition::Matches`] takes it).
-fn info_of(path: String, entry: &IndexEntry) -> ObjectInfo {
+pub(crate) fn info_of(path: String, entry: &IndexEntry) -> ObjectInfo {
     ObjectInfo {
         key: path,
         size: entry.size,
@@ -609,7 +651,7 @@ impl ObjectSource for DriveObject<'_> {
 
 /// A read's error as the drive's, about `path`: an object missing from the bucket is a
 /// damaged drive, not a missing file.
-fn read_error(e: ReadError, path: &str) -> DriveError {
+pub(crate) fn read_error(e: ReadError, path: &str) -> DriveError {
     match e {
         ReadError::Drive(DriveError::NotFound { .. }) => DriveError::Corrupt {
             key: path.to_string(),
@@ -764,11 +806,16 @@ pub(crate) enum Rewrite {
 /// index's names with the plaintext of their objects; what it stores are AZL1 objects under
 /// random keys. See the module documentation.
 pub struct EncryptedDrive<D: Drive> {
-    inner: D,
-    drive_key: DriveKey,
-    index: Arc<dyn NameIndex>,
-    options: WriteOptions,
+    /// The bucket.
+    pub(crate) inner: D,
+    pub(crate) drive_key: DriveKey,
+    pub(crate) index: Arc<dyn NameIndex>,
+    /// How new objects are written (segment size, compression).
+    pub(crate) options: WriteOptions,
+    /// Objects opened for ranged reads (their header and trailer read), by id.
     opened: Mutex<HashMap<ObjectId, Arc<OpenObject>>>,
+    /// Whether and how small files are packed, the packs in flight, the hot packs.
+    pub(crate) packs: PackState,
 }
 
 impl<D: Drive> fmt::Debug for EncryptedDrive<D> {
@@ -789,6 +836,7 @@ impl<D: Drive> EncryptedDrive<D> {
             index,
             options: WriteOptions::default(),
             opened: Mutex::new(HashMap::new()),
+            packs: PackState::new(None),
         }
     }
 
@@ -876,9 +924,15 @@ impl<D: Drive> EncryptedDrive<D> {
         Ok(open)
     }
 
-    /// A reader of `path`'s plaintext, a segment at a time (one ranged GET each).
+    /// A reader of `path`'s plaintext, a segment at a time (one ranged GET each). A packed file
+    /// (small: it is read whole with `get`) has none: `Unsupported`.
     pub fn open_reader(&self, path: &str) -> Result<Azl1Reader<DriveObject<'_>>, DriveError> {
         let object = self.object_of(path)?;
+        if object.packed.is_some() {
+            return Err(DriveError::Unsupported(format!(
+                "a segment reader of the packed file \"{path}\" (read it whole)"
+            )));
+        }
         let file_key = self
             .drive_key
             .unwrap_file_key(&object.wrapped_key, &object.id)
@@ -890,7 +944,7 @@ impl<D: Drive> EncryptedDrive<D> {
     }
 
     /// Puts a new object's bytes: conditionally where the inner drive can.
-    fn put_object(&self, id: &ObjectId, bytes: &[u8]) -> Result<(), DriveError> {
+    pub(crate) fn put_object(&self, id: &ObjectId, bytes: &[u8]) -> Result<(), DriveError> {
         let key = id.bucket_key();
         match self.inner.put_if(&key, bytes, &Precondition::Absent) {
             Ok(_) => Ok(()),
@@ -920,6 +974,7 @@ impl<D: Drive> EncryptedDrive<D> {
                 blake3: summary.blake3,
                 wrapped_key: summary.wrapped_key,
                 compressed: summary.compressed,
+                packed: None,
             }),
         };
         let info = info_of(path.to_string(), &entry);
@@ -944,12 +999,15 @@ impl<D: Drive> EncryptedDrive<D> {
     /// Deletes released objects from the bucket. Best effort: an object the bucket refused to
     /// delete is named by nothing, garbage for a collector, not an error of the call that
     /// released it.
-    fn release(&self, released: Vec<ObjectId>) {
+    pub(crate) fn release(&self, released: Vec<ObjectId>) {
         {
             let mut cache = lock(&self.opened);
             for id in &released {
                 cache.remove(id);
             }
+        }
+        for id in &released {
+            self.forget_pack(id);
         }
         for id in released {
             let _ = self.inner.delete(&id.bucket_key());
@@ -960,6 +1018,9 @@ impl<D: Drive> EncryptedDrive<D> {
     /// shows of it.
     pub fn write(&self, path: &str, bytes: &[u8], expect: Expect) -> Result<ObjectInfo, DriveError> {
         check_path_key(path)?;
+        if self.packs_size(bytes.len() as u64) {
+            return self.write_packed(path, bytes, expect);
+        }
         let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
         let (object, summary) =
             azl1::encrypt(bytes, id, &self.drive_key, &self.options).map_err(|e| e.for_key(path))?;
@@ -969,7 +1030,8 @@ impl<D: Drive> EncryptedDrive<D> {
 
     /// Writes `path` from what `body` reads, when `expect` holds of its index entry: one
     /// segment of plaintext in memory at a time; the object put together in a spool and
-    /// handed to the inner drive's `put_from` (a conditional PUT when it fits in memory).
+    /// handed to the inner drive's `put_from` (a conditional PUT when it fits in memory). A
+    /// drive that packs reads up to its threshold first: a body that ends before it is packed.
     pub fn write_from(
         &self,
         path: &str,
@@ -977,6 +1039,25 @@ impl<D: Drive> EncryptedDrive<D> {
         expect: Expect,
     ) -> Result<ObjectInfo, DriveError> {
         check_path_key(path)?;
+        let Some(threshold) = self.pack_threshold() else {
+            return self.write_stream(path, body, expect);
+        };
+        let mut head: zeroize::Zeroizing<Vec<u8>> = zeroize::Zeroizing::new(Vec::new());
+        (&mut *body).take(threshold).read_to_end(&mut head)?;
+        if (head.len() as u64) < threshold {
+            return self.write_packed(path, &head, expect);
+        }
+        let mut whole = Cursor::new(head.as_slice()).chain(body);
+        self.write_stream(path, &mut whole, expect)
+    }
+
+    /// [`EncryptedDrive::write_from`] into an object of its own.
+    fn write_stream(
+        &self,
+        path: &str,
+        body: &mut dyn Read,
+        expect: Expect,
+    ) -> Result<ObjectInfo, DriveError> {
         let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
         let mut spool = Spool::new();
         let summary = azl1::encrypt_stream(body, &mut spool, id, &self.drive_key, &self.options)
@@ -1043,6 +1124,7 @@ impl<D: Drive> EncryptedDrive<D> {
                 blake3: summary.blake3,
                 wrapped_key: summary.wrapped_key.clone(),
                 compressed: summary.compressed,
+                packed: None,
             }),
         };
         let change = IndexChange::Put {
@@ -1071,6 +1153,12 @@ impl<D: Drive> EncryptedDrive<D> {
     /// with the metadata repository).
     pub fn share_file(&self, path: &str, share: &ShareKey) -> Result<SharedFile, DriveError> {
         let object = self.object_of(path)?;
+        // A pack's key opens every file in the pack: the file moves into an object of its own.
+        let object = if object.packed.is_some() {
+            self.promote(path)?
+        } else {
+            object
+        };
         let file_key = self
             .drive_key
             .unwrap_file_key(&object.wrapped_key, &object.id)
@@ -1085,8 +1173,56 @@ impl<D: Drive> EncryptedDrive<D> {
         })
     }
 
+    /// Moves the packed file `path` into an object of its own (when it still names that
+    /// version); its record in the pack becomes garbage. Its new object.
+    pub(crate) fn promote(&self, path: &str) -> Result<StoredObject, DriveError> {
+        let entry = self.entry(path)?;
+        let Some(object) = entry.object.clone() else {
+            return Err(DriveError::NotFound {
+                key: path.to_string(),
+            });
+        };
+        let Some(packed) = object.packed.clone() else {
+            return Ok(object);
+        };
+        let plain = zeroize::Zeroizing::new(self.read_packed(path, &entry, &object, &packed)?);
+        let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
+        let (bytes, summary) =
+            azl1::encrypt(&plain, id, &self.drive_key, &self.options).map_err(|e| e.for_key(path))?;
+        self.put_object(&id, &bytes)?;
+        let own = StoredObject {
+            id,
+            stored_size: summary.object_len,
+            blake3: summary.blake3,
+            wrapped_key: summary.wrapped_key,
+            compressed: summary.compressed,
+            packed: None,
+        };
+        let change = IndexChange::Put {
+            path: path.to_string(),
+            entry: IndexEntry {
+                size: entry.size,
+                modified: entry.modified,
+                object: Some(own.clone()),
+            },
+            expect: Expect::Object(object.id),
+        };
+        match self.index.apply(vec![change]) {
+            Ok(released) => {
+                self.release(released);
+                Ok(own)
+            }
+            Err(e) => {
+                // Nothing names the new object: it goes.
+                let _ = self.inner.delete(&id.bucket_key());
+                Err(e)
+            }
+        }
+    }
+
     /// What the drive's index holds: its files, their size before compression and their
-    /// objects' bytes in the bucket (an object two paths name - a copy - counted once). The
+    /// objects' bytes in the bucket (an object two paths name - a copy - counted once, a pack
+    /// once with all its padding and garbage). The
     /// quota counts stored bytes as the drive's node counts them ([`crate::S3Drive::space`]);
     /// [`Totals::stored_bytes`] is only this device's estimate of that (the index's own objects
     /// aside), the original size only extra information. Walks the whole index: call it from a
@@ -1100,8 +1236,11 @@ impl<D: Drive> EncryptedDrive<D> {
             };
             totals.files += 1;
             totals.original_bytes += entry.size;
-            if seen.insert(object.id) {
-                totals.stored_bytes += object.stored_size;
+            if seen.insert(object.bucket_object()) {
+                totals.stored_bytes += object
+                    .packed
+                    .as_ref()
+                    .map_or(object.stored_size, |packed| packed.pack.object_len);
             }
         }
         Ok(totals)
@@ -1195,7 +1334,15 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
     /// One GET of the whole object; its plaintext checked against the header's hash and the
     /// index's.
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        let object = self.object_of(key)?;
+        let entry = self.entry(key)?;
+        let Some(object) = entry.object.clone() else {
+            return Err(DriveError::NotFound {
+                key: key.to_string(),
+            });
+        };
+        if let Some(packed) = &object.packed {
+            return self.read_packed(key, &entry, &object, packed);
+        }
         let file_key = self
             .drive_key
             .unwrap_file_key(&object.wrapped_key, &object.id)
@@ -1232,6 +1379,11 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         let end = range.end.map_or(entry.size - 1, |end| end.min(entry.size - 1));
         if end < range.start {
             return Err(out_of_range());
+        }
+        if let Some(packed) = &object.packed {
+            // A packed file is small: it is read whole (one ranged GET) and cut here.
+            let plain = zeroize::Zeroizing::new(self.read_packed(key, &entry, object, packed)?);
+            return Ok(plain[range.start as usize..=end as usize].to_vec());
         }
         let open = self.opened(key, object)?;
         let source = DriveObject::new(&self.inner, &object.id);
@@ -1385,8 +1537,27 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
                 String::from("Compressed"),
                 String::from(if object.compressed { "Yes" } else { "No" }),
             ));
+            if let Some(packed) = &object.packed {
+                pairs.push((
+                    String::from("Packed"),
+                    format!(
+                        "with other small files in one object of {} bytes",
+                        packed.pack.object_len
+                    ),
+                ));
+            }
+            pairs.push((
+                crate::OBJECT_KEY_METADATA.to_string(),
+                object.bucket_object().bucket_key(),
+            ));
         }
         Ok(pairs)
+    }
+
+    /// Small files into packs, one index change per pack, when the drive packs
+    /// ([`crate::packing`]); every other file one at a time.
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        self.write_many(items)
     }
 
     /// [`EncryptedDrive::put_if`]'s condition on a streamed body: encrypted as it is read, named
@@ -1404,7 +1575,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
 
 /// What the index must hold for a conditional write: absent, or still naming the object whose
 /// id is the entity tag (a tag that is no object id cannot match: a conflict).
-fn expect_of(key: &str, condition: &Precondition) -> Result<Expect, DriveError> {
+pub(crate) fn expect_of(key: &str, condition: &Precondition) -> Result<Expect, DriveError> {
     match condition {
         Precondition::Absent => Ok(Expect::Absent),
         Precondition::Matches(etag) => match ObjectId::from_hex(etag) {

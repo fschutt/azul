@@ -34,7 +34,8 @@
 //!   under random names - every file version an AZL1 object (`crypto::azl1`: 1 MiB segments,
 //!   zstd where it pays, XChaCha20-Poly1305 in the STREAM construction, a key commitment), the
 //!   names in a `NameIndex`, the drive key sealed to the members and the recovery code
-//!   (`crypto::keys`). Encryption and compression happen on this device only.
+//!   (`crypto::keys`). Encryption and compression happen on this device only. Small files
+//!   can share AZL1 objects (`packing`), each read back with one ranged GET.
 //!
 //! Configuration ([`config`]): the list of drives the user added lives in
 //! `<config dir>/azul-storage/drives.json` WITHOUT secrets; the secrets (an S3
@@ -120,6 +121,9 @@ pub mod sharing;
 /// A new drive key after a compromise ("I was hacked"), and re-encrypting everything.
 #[cfg(feature = "encryption")]
 pub mod rotation;
+/// Small files of an encrypted drive packed together into shared AZL1 objects.
+#[cfg(feature = "encryption")]
+pub mod packing;
 
 use std::{
     fmt,
@@ -147,6 +151,11 @@ pub const DELIMITER: &str = "/";
 /// lowercase hex digits), where the drive knows it without reading the file: an encrypted
 /// drive's index keeps it. A sync compares it with a file on this device without a download.
 pub const CONTENT_HASH_METADATA: &str = "BLAKE3";
+
+/// The name of a [`Drive::metadata`] row that holds the key, in the bucket below the drive, of
+/// the object the file's bytes are in: an encrypted drive's AZL1 object, or the pack a small
+/// file shares with others. A device that keeps a file's ciphertext keeps that object.
+pub const OBJECT_KEY_METADATA: &str = "Object key";
 
 /// One object of a drive.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -274,6 +283,36 @@ impl ByteRange {
             Some(end) => format!("bytes={}-{end}", self.start),
             None => format!("bytes={}-", self.start),
         }
+    }
+}
+
+/// One file of a batch write ([`Drive::put_many`]).
+#[derive(Debug, Clone, Copy)]
+pub struct BatchPut<'a> {
+    /// The file's key.
+    pub key: &'a str,
+    /// Its bytes (a batch is for small files: they are in memory anyway).
+    pub bytes: &'a [u8],
+    /// Written only when this holds ([`Drive::put_if`]); `None`: whatever is there.
+    pub condition: Option<&'a Precondition>,
+}
+
+impl<'a> BatchPut<'a> {
+    /// `bytes` for `key`, whatever is there.
+    #[must_use]
+    pub fn new(key: &'a str, bytes: &'a [u8]) -> BatchPut<'a> {
+        BatchPut {
+            key,
+            bytes,
+            condition: None,
+        }
+    }
+
+    /// Only when `condition` holds.
+    #[must_use]
+    pub fn when(mut self, condition: &'a Precondition) -> BatchPut<'a> {
+        self.condition = Some(condition);
+        self
     }
 }
 
@@ -553,6 +592,21 @@ pub trait Drive: Send + Sync {
         body.read_to_end(&mut bytes)?;
         self.put_if(key, &bytes, condition)
     }
+
+    /// Writes several files, each as [`Drive::put`] or (with a condition) [`Drive::put_if`]
+    /// would: one result per item, in order, the entity tag when the drive tells it. A failed
+    /// condition refuses that file only. By default one write after the other (a plain bucket
+    /// keeps one object per file); an encrypted drive that packs puts small files into shared
+    /// objects, one index change per pack ([`crate::packing`]).
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        items
+            .iter()
+            .map(|item| match item.condition {
+                Some(condition) => self.put_if(item.key, item.bytes, condition),
+                None => self.put(item.key, item.bytes).map(|()| None),
+            })
+            .collect()
+    }
 }
 
 /// A drive behind a pointer is that drive: a `Box`, an `Arc` or a reference forwards
@@ -622,6 +676,12 @@ macro_rules! forward_drive {
                 condition: &Precondition,
             ) -> Result<Option<String>, DriveError> {
                 (**self).put_from_if(key, body, condition)
+            }
+            fn put_many(
+                &self,
+                items: &[BatchPut<'_>],
+            ) -> Vec<Result<Option<String>, DriveError>> {
+                (**self).put_many(items)
             }
         }
     )*};
