@@ -83,7 +83,7 @@ use azul::{
         ButtonOnClickCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
-    css::ColorU,
+    css::{ColorU, SystemColorRef},
     dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
     prelude::*,
     sensor::SensorKind,
@@ -291,27 +291,12 @@ const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 50px; width: 
                              justify-content: center; box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
 const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; border-radius: 4px 4px 0px 0px;";
 const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; border-radius: 0px 0px 4px 4px;";
-/// The road route's line, and the outline that keeps it readable on any
-/// tile.
-const ROUTE_COLOR: ColorU = ColorU {
-    r: 0x1a,
-    g: 0x73,
-    b: 0xe8,
-    a: 0xff,
-};
+/// The outline under the road route that keeps it readable on any tile.
 const ROUTE_CASING: ColorU = ColorU {
     r: 0xff,
     g: 0xff,
     b: 0xff,
     a: 0xff,
-};
-/// The straight preview from the start to the destination, until the road
-/// route arrives: the route's blue, faded.
-const PREVIEW_COLOR: ColorU = ColorU {
-    r: 0x1a,
-    g: 0x73,
-    b: 0xe8,
-    a: 0x99,
 };
 
 // ==== State ====
@@ -1045,16 +1030,19 @@ fn pin_icon(index: usize, (lat, lon): (f64, f64)) -> Dom {
         .with_accessibility_name(coords(lat, lon))
 }
 
-/// The travel line through `points`: the road route (`road`) with an outline
-/// under it, else the straight preview.
+/// The travel line through `points`, in the theme's accent: the road route
+/// (`road`) with an outline under it, else the straight preview, thinner. The
+/// accent is a colour token, so the map resolves it against the theme it is
+/// drawn in and the line follows a theme switch without a new colour here.
 fn travel_polyline(points: MapLatLonVec, road: bool) -> MapPolyline {
+    let accent = SystemColorRef::Accent.to_color_token();
     if road {
         MapPolyline::create(points)
-            .with_color(ROUTE_COLOR)
+            .with_color(accent)
             .with_width(5.0)
             .with_casing(ROUTE_CASING, 8.0)
     } else {
-        MapPolyline::create(points).with_color(PREVIEW_COLOR).with_width(4.0)
+        MapPolyline::create(points).with_color(accent).with_width(3.0)
     }
 }
 
@@ -2027,8 +2015,6 @@ pub fn start() {
 
 #[cfg(test)]
 mod travel_line_tests {
-    use azul::css::SystemColorRef;
-
     use super::*;
 
     fn two_places() -> MapLatLonVec {
