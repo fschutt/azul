@@ -6799,6 +6799,26 @@ pub const RULE_METAL: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(RULE_METAL_STOPS),
     });
 
+const RULE_SHIMMER_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, at_alpha(METAL_SHADE, 40)),
+    stop(16, at_alpha(TAB_METAL, 96)),
+    stop(32, at_alpha(METAL_GLINT, 150)),
+    stop(50, at_alpha(METAL_DIM, 90)),
+    stop(68, at_alpha(METAL_GLINT, 150)),
+    stop(84, at_alpha(TAB_METAL, 96)),
+    stop(100, at_alpha(METAL_SHADE, 40)),
+];
+
+/// [`RULE_METAL`]'s shimmer, translucent: laid over a metal of its own (the
+/// pill strip's gold-tinted aluminium), the glints and the darker roll move
+/// along it while the metal's grain shows through.
+pub const RULE_SHIMMER: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(90),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(RULE_SHIMMER_STOPS),
+    });
+
 const ROLLED_TAB_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, METAL_LIT),
     stop(22, METAL_ROLL),
@@ -7214,6 +7234,52 @@ pub(crate) fn tab_curves(raised: bool) -> crate::widgets::tabs::TabCurveLook {
     }
 }
 
+/// The curves of an unselected tab of flora's Aurora row: the shape of the
+/// selected tab's, a gauge shorter (the tab stands on the rule), the S a
+/// hairline; bare at rest, and - as parts of the tab, which take its hover
+/// and press - the hover face inside the S with its edge in `--fl-bd` under
+/// the pointer, the pressed face held, fading at the tab's pace. No
+/// run-outs: the tab does not break the rule.
+#[must_use]
+#[allow(clippy::cast_precision_loss)] // a tab's height in px
+pub(crate) fn unselected_tab_curves() -> crate::widgets::tabs::TabCurveLook {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let part = CssPropertyWithConditionsVec::from_vec;
+    let fill = || {
+        let mut v = vec![
+            P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(1))),
+            P::simple(CssProperty::background_clip(StyleBackgroundClipVec::from_vec(
+                alloc::vec![StyleBackgroundClip::ContentBox],
+            ))),
+            P::simple(decl::fill(ColorU::TRANSPARENT)),
+        ];
+        v.extend(decl::hover_layers(
+            vec![HOVER_FACE_LIGHT],
+            vec![HOVER_FACE_DARK],
+        ));
+        v.extend(decl::active_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+        v.extend(flora_fade(&["background"], FL_DUR_MS));
+        part(v)
+    };
+    let mut metal = vec![P::simple(decl::fill(ColorU::TRANSPARENT))];
+    metal.extend(decl::hover_fill(LIGHT_BD, DARK_BD));
+    metal.extend(flora_fade(&["background"], FL_DUR_MS));
+    crate::widgets::tabs::TabCurveLook {
+        height: (TAB_HEIGHT - TAB_GAUGE) as f32,
+        gauge: 1.0,
+        left_fill: fill(),
+        right_fill: fill(),
+        metal: part(metal),
+        runout: 0.0,
+        runout_left: CssPropertyWithConditionsVec::from_const_slice(&[]),
+        runout_right: CssPropertyWithConditionsVec::from_const_slice(&[]),
+    }
+}
+
 /// The parts of a flora tab row - the strip, an unselected tab, the selected
 /// tab - each on `established` (the part's structure and the geometry it
 /// was laid out with, whose own paint is dropped; see `chrome_part`) with
@@ -7277,6 +7343,44 @@ pub(crate) mod australis {
         v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
     }
 
+    /// An unselected tab of the Aurora row: cut like the selected one, its
+    /// sides S curves (`unselected_tab_curves`, hung on it as parts that
+    /// light with it), but standing on the rule in the unselected tab's box.
+    /// Bare at rest; under the pointer the hover face, its head in the
+    /// `--fl-bd` hairline and the house ink; held, the pressed face - every
+    /// change over `--fl-dur`, a press at once.
+    pub(crate) fn aurora_tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
+        use super::super::decl;
+        type P = CssPropertyWithConditions;
+        australis_tab_box(v, false, border_box);
+        tab_caps(v);
+        // The curves hang off its box, and stand under the selected tab's.
+        v.push(decl::position(azul_css::props::layout::LayoutPosition::Relative));
+        v.push(P::simple(CssProperty::const_z_index(
+            azul_css::props::layout::LayoutZIndex::Integer(0),
+        )));
+        v.extend(decl::radius(0));
+        v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        v.push(P::simple(decl::fill(ColorU::TRANSPARENT)));
+        // Its sides are the curves: only the head takes the hairline.
+        v.extend(decl::border_colors(ColorU::TRANSPARENT).map(P::simple));
+        // States last: a resting dark twin matches in every state.
+        v.extend(decl::hover_layers(
+            vec![HOVER_FACE_LIGHT],
+            vec![HOVER_FACE_DARK],
+        ));
+        v.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
+        v.extend(P::themed_on_hover(
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: LIGHT_BD }),
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD }),
+        ));
+        v.extend(decl::active_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+        v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
+    }
+
     /// The selected tab: the upright stone in `--fl-on-acc` on its padding
     /// box, over the rolled metal on its border box - seen through the
     /// transparent head (its sides are its curves, `tab_curves`) - and the
@@ -7332,11 +7436,13 @@ pub(crate) mod australis {
     }
 }
 
-/// Flora's tab-bar look: the Australis tab row ("the Australis tab") on the
-/// navigation strip's raised chrome, closed by the rule. The selected tab's
-/// curves and run-outs are hung on it by `TabHeader::dom` (`tab_curves`).
+/// A flora tab row of `shape` on the navigation strip's raised chrome,
+/// closed by the rule ("the Australis tab"). In the Aurora row every tab
+/// carries curves (`tab_curves` on the selected one, run-outs included;
+/// `unselected_tab_curves` on the rest), which `TabHeader::dom` hangs on
+/// the tabs.
 #[must_use]
-pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
+fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
     use super::decl;
     type P = CssPropertyWithConditions;
     let part = CssPropertyWithConditionsVec::from_vec;
@@ -7381,24 +7487,69 @@ pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
         v
     };
     let mut tab = tab_box();
-    australis::tab(&mut tab, false);
+    match shape {
+        TabShape::Aurora => australis::aurora_tab(&mut tab, false),
+        TabShape::Rectangular => australis::tab(&mut tab, false),
+    }
     tab.extend(decl::focus_halo_inset_stacked(LIGHT_ACC, DARK_GLOW));
 
     let mut active = tab_box();
     australis::selected(&mut active, false);
+    if shape == TabShape::Rectangular {
+        // Square, its top corners eased like an unselected tab's.
+        active.extend(decl::radius_corners(4, 4, 0, 0));
+    }
     active.extend(decl::focus_halo_inset_stacked(LIGHT_GLOW, DARK_GLOW));
 
     // No seams: a tab next to the selected one is a tab like any other.
     let tab = part(tab);
-    crate::widgets::tabs::TabHeaderLook {
-        header: part(header),
-        before: part(before),
-        after: part(after),
-        active: part(active),
-        before_active: tab.clone(),
-        after_active: tab.clone(),
-        inactive: tab,
-        marker: Some(super::style_kit::FLORA_CLASS),
+    let mut look = crate::widgets::tabs::TabHeaderLook::plain(
+        part(header),
+        part(before),
+        part(after),
+        part(active),
+        tab.clone(),
+        tab.clone(),
+        tab,
+        Some(super::style_kit::FLORA_CLASS),
+    );
+    if shape == TabShape::Aurora {
+        look.selected_curves = Some(tab_curves(false));
+        look.tab_curves = Some(unselected_tab_curves());
+    }
+    look
+}
+
+/// The two tab shapes flora draws on its own strip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TabShape {
+    /// Every tab cut with Australis curves.
+    Aurora,
+    /// Square tabs, the selected one a stone with eased top corners.
+    Rectangular,
+}
+
+/// Flora's tab-bar look: the Aurora row, every tab cut as Firefox's.
+#[must_use]
+pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
+    tab_row_look(TabShape::Aurora)
+}
+
+/// Flora's tab-bar look in `style`: the Aurora row (what `Auto` means in
+/// flora), the same strip with square tabs, or the pills of flora's
+/// commands on leather.
+#[must_use]
+pub(crate) fn tab_header_look_in(
+    style: crate::widgets::tabs::TabStyle,
+) -> crate::widgets::tabs::TabHeaderLook {
+    use crate::widgets::tabs::TabStyle;
+    match style.resolved(super::UiTheme::Flora) {
+        TabStyle::Rectangular => tab_row_look(TabShape::Rectangular),
+        TabStyle::Pills => crate::widgets::tabs::pill_look(
+            super::UiTheme::Flora,
+            Some(super::style_kit::FLORA_CLASS),
+        ),
+        TabStyle::Aurora | TabStyle::Auto => tab_row_look(TabShape::Aurora),
     }
 }
 
