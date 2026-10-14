@@ -96,3 +96,5 @@ azmaps-gps-uncertainty = ±{ $metres } m
 ## Suchquellen
 
 azmaps-source-places = AzMaps' Städteliste
+azmaps-source-transitous = Transitous · © OpenStreetMap-Mitwirkende
+azmaps-source-saved = Gespeichert in { $list }
