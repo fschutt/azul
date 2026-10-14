@@ -91,6 +91,14 @@ impl ViewLayout {
         }
     }
 
+    /// Whether a picture's row or cell shows the picture itself (its thumbnail) in place of the
+    /// file type's icon: every layout but Tiles, whose Tile draws its icon as a glyph. The
+    /// small rows show it at their icon's size, as Finder's list does.
+    #[must_use]
+    pub fn shows_thumbnails(self) -> bool {
+        self != ViewLayout::Tiles
+    }
+
     /// The size of an item's icon, in px.
     #[must_use]
     pub fn icon_px(self) -> f32 {
@@ -1191,5 +1199,17 @@ mod tests {
         // Nothing selected in the grid: nothing selected here.
         s.adopt(&order, &ListSelection::create());
         assert!(s.is_empty());
+    }
+
+    #[test]
+    fn every_layout_that_draws_a_picture_per_item_shows_its_thumbnail() {
+        for layout in ViewLayout::ALL {
+            // The Tile widget draws its icon as a glyph: a tile has no place for a picture.
+            assert_eq!(
+                layout.shows_thumbnails(),
+                layout != ViewLayout::Tiles,
+                "{layout:?}"
+            );
+        }
     }
 }

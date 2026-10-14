@@ -667,3 +667,32 @@ fn a_field_sizes_its_text_and_knows_its_checked_state() {
     assert_eq!(filled_name("Tax form"), "Tax form (filled).pdf");
     assert_eq!(filled_name(" "), "filled.pdf");
 }
+
+// ==== views called again ====
+
+#[test]
+fn a_view_called_again_with_the_same_inputs_keeps_the_dom_it_has() {
+    let mut memo: ViewMemo<(usize, usize, u32)> = ViewMemo::new();
+    assert!(memo.must_build((0, 3, 900), false), "the first call builds");
+    for frame in 0..20 {
+        assert!(
+            !memo.must_build((0, 3, 900), false),
+            "frame {frame} of a drag that changes nothing the view draws builds nothing"
+        );
+    }
+    assert!(
+        memo.must_build((1, 4, 900), false),
+        "another slice of pages builds"
+    );
+    assert!(!memo.must_build((1, 4, 900), false));
+}
+
+#[test]
+fn a_view_the_engine_asks_afresh_is_always_built() {
+    let mut memo: ViewMemo<u32> = ViewMemo::new();
+    assert!(memo.must_build(7, false));
+    // Its first render, or the window's DOM made again: the view has no DOM
+    // to keep, whatever its inputs.
+    assert!(memo.must_build(7, true));
+    assert!(!memo.must_build(7, false), "and kept again after it");
+}

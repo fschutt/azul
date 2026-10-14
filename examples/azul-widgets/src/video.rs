@@ -51,10 +51,14 @@ const STAGE_CSS: &str =
      background-color: system:control-background; @theme(flora) { border-radius: 5px; }";
 /// The overlay over the whole video is a button: a click anywhere on the
 /// video plays or pauses it, and so do Space and Enter once it has focus.
+/// A button has a face of its own, as in a browser: this one is see-through,
+/// or it would hide every frame under it.
 const OVERLAY_CSS: &str =
     "position: absolute; top: 0px; left: 0px; width: 480px; height: 270px; display: flex; \
-     align-items: center; justify-content: center; padding: 0px; border-width: 0px; cursor: \
-     pointer;";
+     align-items: center; justify-content: center; padding: 0px; border-width: 0px; \
+     background: transparent; cursor: pointer;";
+/// The overlay's id: the e2e scenario finds it by it.
+const OVERLAY_ID: &str = "video-overlay";
 /// The round play button over the poster.
 const BADGE_CSS: &str =
     "display: flex; align-items: center; justify-content: center; width: 72px; height: 72px; \
@@ -146,6 +150,7 @@ pub fn card(state: &RefAny, theme: UiTheme) -> Dom {
         "Play video"
     };
     let mut overlay = Dom::create_node(NodeType::Button)
+        .with_id(OVERLAY_ID)
         .with_accessibility_name(overlay_name)
         .with_css(OVERLAY_CSS);
     match status.phase {

@@ -28,8 +28,8 @@ node layout, AzDrive's stdout markers and the files on disk:
      9. Home > Copy / Paste into the new folder, again: the conflict dialog, "Keep both files";
     10. Delete: into the trash folder (on disk), Ctrl+Z brings it back;
     11. Backspace (up), Alt+Left (back), Alt+Right (forward);
-    12. the panes (View tab): Preview pane (a text and an image preview), a thumbnail in Large
-        icons, Navigation pane off / on, the Details pane in the preview pane's place (they share
+    12. the panes (View tab): Preview pane (a text and an image preview), a thumbnail in the
+        list and in Large icons, Navigation pane off / on, the Details pane in the preview pane's place (they share
         the right side) and off, Alt+P: the preview pane again;
     13. Properties (Alt+Enter) in the in-window sheet, OK;
     14. View > Options: the backstage with the Options (its own title row), Escape;
@@ -791,12 +791,17 @@ def run(args, logs):
         app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
         app.after("Pictures", "AZDRIVE_LISTED", r"home Pictures/ \d+",
                   lambda: open_item(app, "Pictures"))
+        # The list shows its pictures as thumbnails in their icons' place: the pictures in view
+        # get one as soon as the folder lists them.
+        app.until("a thumbnail in the list",
+                  lambda: app.count("AZDRIVE_THUMBNAIL", r"Pictures/gradient\.png") > 0)
+        app.until("the thumbnail drawn in the list", lambda: thumbnail_drawn(app))
         app.after("an image preview", "AZDRIVE_PREVIEW", r"image Pictures/gradient\.png",
                   lambda: select_item(app, "gradient.png"))
         app.until("the image in the preview", lambda: app.has("#" + I("preview-image")))
         app.screenshot(os.path.join(out, "12-preview.png"))
-        # Large icons (the IconGrid) show the picture as a thumbnail: the pictures in view.
-        app.after("a thumbnail", "AZDRIVE_THUMBNAIL", r"Pictures/gradient\.png",
+        # Large icons (the IconGrid) show the same thumbnail at once: it is made once.
+        app.after("Large icons", "AZDRIVE_LAYOUT", r"large_icons",
                   lambda: app.key("2", primary=True, shift=True))
         app.until("the thumbnail drawn", lambda: thumbnail_drawn(app))
         app.screenshot(os.path.join(out, "12-thumbnails.png"))

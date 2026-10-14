@@ -541,6 +541,7 @@ fn render_svg_group_painted(
         &SvgInheritedStyle::default(),
         None,
         paint,
+        &mut SvgText::for_document(node),
     );
 }
 
@@ -597,6 +598,7 @@ fn render_svg_group_with_style(
         parent_style,
         None,
         &SvgPaintContext::default(),
+        &mut SvgText::for_document(node),
     );
 }
 
@@ -611,6 +613,7 @@ fn render_svg_group_inner(
     parent_style: &SvgInheritedStyle,
     parent_color: Option<&str>,
     paint: &SvgPaintContext,
+    text: &mut SvgText,
 ) {
     use azul_core::xml::XmlNodeChild;
 
@@ -666,8 +669,23 @@ fn render_svg_group_inner(
                     &group_style,
                     group_color.as_deref(),
                     paint,
+                    text,
                 );
             }
+            "text" => {
+                draw_text_element(
+                    child_node,
+                    pixmap,
+                    &group_transform,
+                    &group_style,
+                    group_color.as_deref(),
+                    paint,
+                    text,
+                );
+            }
+            // A stylesheet is no picture: its `@font-face`s were read when
+            // the document's text painter was made.
+            "style" => {}
             "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
                 let Some(path_storage) = build_agg_path(child_node) else {
                     continue;
@@ -761,10 +779,230 @@ fn render_svg_group_inner(
                     &group_style,
                     group_color.as_deref(),
                     paint,
+                    text,
                 );
             }
         }
     }
+}
+
+/// What draws a document's `<text>`: the faces its `@font-face`s embed and a
+/// glyph cache, made once per document.
+#[cfg(all(
+    feature = "std",
+    feature = "xml",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
+struct SvgText(super::text_raster::SvgTextPainter);
+
+#[cfg(all(
+    feature = "std",
+    feature = "xml",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
+impl SvgText {
+    /// The painter for the document under `root`: the fonts of every
+    /// `@font-face` in its `<style>` elements (a PDF page's SVG embeds its
+    /// fonts as `data:` URIs), by the family each declares.
+    fn for_document(root: &azul_core::xml::XmlNode) -> Self {
+        let mut css = String::new();
+        collect_style_text(root, &mut css);
+        let embedded = azul_core::xml::element::font_face_rules(&css)
+            .into_iter()
+            .filter_map(|(family, src)| Some((family, crate::font_from_url(&src)?)))
+            .collect();
+        Self(super::text_raster::SvgTextPainter::new(embedded))
+    }
+
+    #[allow(clippy::too_many_arguments)] // one text run's whole description
+    fn draw(
+        &mut self,
+        pixmap: &mut AzulPixmap,
+        content: &str,
+        families: &str,
+        bold: bool,
+        italic: bool,
+        size_px: f32,
+        color: ColorU,
+        x: f32,
+        y: f32,
+    ) {
+        self.0.draw(
+            pixmap, content, families, bold, italic, size_px, color, x, y,
+        );
+    }
+}
+
+/// Without the text engine an SVG's text is not drawn.
+#[cfg(all(
+    feature = "std",
+    feature = "xml",
+    not(all(feature = "text_layout", feature = "font_loading"))
+))]
+struct SvgText;
+
+#[cfg(all(
+    feature = "std",
+    feature = "xml",
+    not(all(feature = "text_layout", feature = "font_loading"))
+))]
+impl SvgText {
+    const fn for_document(_root: &azul_core::xml::XmlNode) -> Self {
+        Self
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::unused_self)]
+    fn draw(
+        &mut self,
+        _pixmap: &mut AzulPixmap,
+        _content: &str,
+        _families: &str,
+        _bold: bool,
+        _italic: bool,
+        _size_px: f32,
+        _color: ColorU,
+        _x: f32,
+        _y: f32,
+    ) {
+    }
+}
+
+/// The text of every `<style>` element under `node`, appended to `out`.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[cfg_attr(
+    not(all(feature = "text_layout", feature = "font_loading")),
+    allow(dead_code)
+)]
+fn collect_style_text(node: &azul_core::xml::XmlNode, out: &mut String) {
+    use azul_core::xml::XmlNodeChild;
+    for child in node.children.as_ref() {
+        let XmlNodeChild::Element(el) = child else {
+            continue;
+        };
+        if el.node_type.as_str().eq_ignore_ascii_case("style") {
+            out.push_str(&element_text(el));
+            out.push('\n');
+        } else {
+            collect_style_text(el, out);
+        }
+    }
+}
+
+/// The character data of `node` and of every element under it, in order.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn element_text(node: &azul_core::xml::XmlNode) -> String {
+    use azul_core::xml::XmlNodeChild;
+    let mut out = String::new();
+    for child in node.children.as_ref() {
+        match child {
+            XmlNodeChild::Text(t) => out.push_str(t.as_str()),
+            XmlNodeChild::Element(el) => out.push_str(&element_text(el)),
+        }
+    }
+    out
+}
+
+/// The first number of a coordinate attribute (`x="10"`, or a list
+/// `x="10 20 30"`, whose first entry places the run); `0` when absent.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn first_coordinate(node: &azul_core::xml::XmlNode, key: &str) -> f64 {
+    node.attributes
+        .get_key(key)
+        .and_then(|v| {
+            v.as_str()
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .find(|t| !t.is_empty())
+                .and_then(|t| t.trim_end_matches("px").parse::<f64>().ok())
+        })
+        .filter(|v| v.is_finite())
+        .map_or(0.0, |v| v.clamp(-1.0e6, 1.0e6))
+}
+
+/// A `<text>` element: its characters (its `<tspan>`s' included, white space
+/// collapsed as SVG does) on one line, from its first `x` / `y`, in its
+/// `font-family`, `font-size`, `font-weight`, `font-style` and fill. The
+/// element's transform places and scales the run; a rotated or skewed run is
+/// drawn upright at its scale.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::cast_possible_truncation)] // device px and colour channels
+fn draw_text_element(
+    node: &azul_core::xml::XmlNode,
+    pixmap: &mut AzulPixmap,
+    group_transform: &TransAffine,
+    group_style: &SvgInheritedStyle,
+    group_color: Option<&str>,
+    paint: &SvgPaintContext,
+    text: &mut SvgText,
+) {
+    let content = element_text(node)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if content.is_empty() {
+        return;
+    }
+    let transform = node
+        .attributes
+        .get_key("transform")
+        .map_or(*group_transform, |t| {
+            let mut tf = parse_svg_transform(t.as_str());
+            tf.multiply(group_transform);
+            tf
+        });
+    let elem_color =
+        presentation_property(node, "color").or_else(|| group_color.map(str::to_string));
+    let fill_attr = presentation_property(node, "fill").or_else(|| group_style.fill.clone());
+    let fill = match fill_attr.as_deref() {
+        Some("none") => None,
+        Some(c) => paint.resolve(c, elem_color.as_deref()),
+        None => Some(paint.remap(SVG_BLACK)),
+    };
+    let Some(mut fill) = fill else {
+        return;
+    };
+    let number = |name: &str| {
+        presentation_property(node, name)
+            .and_then(|s| s.trim().trim_end_matches("px").trim().parse::<f64>().ok())
+            .filter(|v| v.is_finite())
+    };
+    let alpha = number("fill-opacity").unwrap_or(1.0) * number("opacity").unwrap_or(1.0);
+    fill.a = (f64::from(fill.a) * alpha.clamp(0.0, 1.0)).min(255.0) as u8;
+    let font_size = number("font-size").unwrap_or(16.0);
+    let families =
+        presentation_property(node, "font-family").unwrap_or_else(|| String::from("sans-serif"));
+    let weight = presentation_property(node, "font-weight").unwrap_or_default();
+    let bold = matches!(weight.trim(), "bold" | "bolder")
+        || weight.trim().parse::<u32>().is_ok_and(|w| w >= 600);
+    let slant = presentation_property(node, "font-style").unwrap_or_default();
+    let italic = matches!(slant.trim(), "italic" | "oblique");
+
+    let (mut x, mut y) = (first_coordinate(node, "x"), first_coordinate(node, "y"));
+    transform.transform(&mut x, &mut y);
+    // The run's em in device pixels: the transform's area scale, so a page
+    // drawn at a fifth of its size sets its text at a fifth too.
+    let scale = transform.determinant().abs().sqrt();
+    let size_px = font_size * scale;
+    if !size_px.is_finite() || size_px < 0.5 {
+        return;
+    }
+    text.draw(
+        pixmap,
+        &content,
+        &families,
+        bold,
+        italic,
+        size_px as f32,
+        ColorU {
+            r: fill.r,
+            g: fill.g,
+            b: fill.b,
+            a: fill.a,
+        },
+        x as f32,
+        y as f32,
+    );
 }
 
 /// Build an agg `PathStorage` from an SVG shape element's attributes.
@@ -3134,5 +3372,93 @@ mod autotest_generated {
         let p = render(dashed(&[("stroke-dashoffset", "5")]));
         assert_eq!(px(&p, 2, 10), WHITE, "an offset of 5 starts with the gap");
         assert_eq!(px(&p, 7, 10), RED_PX, "and the dash follows");
+    }
+}
+
+/// `<text>`: an SVG's text is drawn like its shapes, in the font its
+/// `@font-face` embeds (the SVG of a PDF page carries its fonts that way),
+/// else in the installed family it names.
+#[cfg(all(
+    test,
+    feature = "std",
+    feature = "xml",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
+mod svg_text_tests {
+    use base64::Engine as _;
+
+    /// A page as printpdf writes it: the font embedded by a `data:` URI, one
+    /// `<text>` at the origin, placed by its transform (baseline at y 60).
+    fn page_with_text(text: &str) -> String {
+        let font = base64::engine::general_purpose::STANDARD
+            .encode(crate::text3::mock_fonts::MOCK_MONO_TTF);
+        format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200px\" height=\"100px\" \
+             viewBox=\"0 0 200 100\">\n<style>\n@font-face {{ font-family: \"F1\"; src: \
+             url(\"data:font/otf;charset=utf-8;base64,{font}\"); }}</style>\n<text x=\"0\" \
+             y=\"0\" font-family=\"F1\" font-size=\"40\" font-weight=\"normal\" \
+             font-style=\"normal\" fill=\"rgb(0, 0, 0)\" stroke=\"none\" stroke-width=\"1\" \
+             transform=\"matrix(1 -0 -0 1 10 60)\">{text}</text></svg>"
+        )
+    }
+
+    /// The box around the dark pixels of `svg` drawn `w` x `h` on white:
+    /// `(min_x, min_y, max_x, max_y)`, `None` when nothing dark was drawn.
+    fn ink(svg: &str, w: u32, h: u32) -> Option<(usize, usize, usize, usize)> {
+        let image =
+            super::render_svg_to_raw_image_over(svg.as_bytes(), w, h, Some((255, 255, 255, 255)))
+                .expect("the page renders");
+        let azul_core::resources::RawImageData::U8(pixels) = &image.pixels else {
+            panic!("RGBA8 pixels");
+        };
+        let pixels = pixels.as_ref();
+        let mut found: Option<(usize, usize, usize, usize)> = None;
+        for y in 0..image.height {
+            for x in 0..image.width {
+                let i = (y * image.width + x) * 4;
+                if pixels[i] < 128 && pixels[i + 1] < 128 && pixels[i + 2] < 128 {
+                    found = Some(match found {
+                        None => (x, y, x, y),
+                        Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+                    });
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn an_svg_text_is_drawn_in_the_font_its_font_face_embeds() {
+        let (x0, y0, x1, y1) = ink(&page_with_text("MMMM"), 200, 100).expect("the text draws ink");
+        // Four glyphs of half an em at 40 px from x 10: 80 px wide, on the
+        // baseline at y 60 and at most an em above it.
+        assert!(
+            x0 >= 9 && x1 <= 92,
+            "the text spans x {x0}..{x1}, not 10..90"
+        );
+        assert!(
+            y0 >= 18 && y1 <= 70,
+            "the text spans y {y0}..{y1}, not about 20..60"
+        );
+        assert!(x1 > 60, "four glyphs, not one: the ink ends at x {x1}");
+    }
+
+    #[test]
+    fn an_svg_text_is_scaled_with_the_page() {
+        // The page drawn at half its size: the text at half its size too, as
+        // a thumbnail draws it.
+        let (x0, _, x1, y1) =
+            ink(&page_with_text("MMMM"), 100, 50).expect("the small page draws its text");
+        assert!(
+            x0 >= 4 && x1 <= 47,
+            "the text spans x {x0}..{x1}, not 5..45"
+        );
+        assert!(y1 <= 35, "the text ends at y {y1}, above 35");
+    }
+
+    #[test]
+    fn the_style_block_of_an_svg_draws_nothing() {
+        assert_eq!(ink(&page_with_text(""), 200, 100), None);
     }
 }

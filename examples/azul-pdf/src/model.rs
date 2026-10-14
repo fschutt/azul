@@ -502,6 +502,45 @@ impl ViewSize {
     }
 }
 
+/// What a `VirtualView`'s DOM was last built from.
+///
+/// The engine calls a view again whenever its box changes - every frame of a
+/// window drag - and a DOM built anew is styled and laid out anew. A view
+/// whose inputs are the ones its DOM was built from keeps that DOM
+/// (`VirtualViewReturn::keep_current`): the thumbnail rail at every frame of
+/// a drag, the page view at a fixed zoom or when only the height changes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ViewMemo<K> {
+    /// The inputs of the last build; `None` before the first.
+    built: Option<K>,
+}
+
+impl<K: PartialEq> ViewMemo<K> {
+    /// A view not built yet.
+    #[must_use]
+    pub const fn new() -> ViewMemo<K> {
+        ViewMemo { built: None }
+    }
+
+    /// Whether the view must be built for `key`, and remembers `key` when
+    /// it must: always when the engine asks afresh (`fresh`: the view's
+    /// first render, or the window's DOM made again, which leaves the view
+    /// no DOM to keep), else when `key` is not the last build's.
+    pub fn must_build(&mut self, key: K, fresh: bool) -> bool {
+        if !fresh && self.built.as_ref() == Some(&key) {
+            return false;
+        }
+        self.built = Some(key);
+        true
+    }
+}
+
+impl<K: PartialEq> Default for ViewMemo<K> {
+    fn default() -> ViewMemo<K> {
+        ViewMemo::new()
+    }
+}
+
 /// How a page is drawn while the window may be resized: its DOM laid out at
 /// `size` (the page at the settled scale), then scaled by `factor` onto its
 /// frame (the page at the live scale). The scale is a CSS transform, which

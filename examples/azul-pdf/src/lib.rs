@@ -77,7 +77,7 @@ mod model_tests;
 use jobs::{Doc, Done, Job, JobInit, Kind, Outcome};
 use model::{
     filled_name, plan_renders, render_width, search, ExportFormat, ExportRequest, FormValues, Hit,
-    PageCache, Recent, RecentDoc, Strip, ViewSize, Zoom,
+    PageCache, Recent, RecentDoc, Strip, ViewMemo, ViewSize, Zoom,
 };
 
 /// What azul-appkit's switches know about AzPdf.
@@ -191,6 +191,13 @@ pub struct AppState {
     /// The scale the page view last laid its pages out at: a new one prints
     /// `AZPDF_LAID_OUT`. `None` until a document's first layout.
     pub laid_out_scale: Option<f32>,
+    /// What the page view's DOM was last built from - the pages in it, the
+    /// view's width, the shown and the laid-out scale (the bits of each
+    /// `f32`): a call with the same keeps the DOM.
+    pub pages_built: ViewMemo<(usize, usize, u32, u32, u32)>,
+    /// What the thumbnail rail's DOM was last built from - the thumbnails in
+    /// it, the rail's width, the current page.
+    pub thumbs_built: ViewMemo<(usize, usize, u32, usize)>,
     /// The display's density (physical px per CSS px).
     pub dpi: f32,
     pub current_page: usize,
@@ -235,6 +242,8 @@ impl AppState {
             zoom: Zoom::FitWidth,
             view: ViewSize::new((900.0, 700.0)),
             laid_out_scale: None,
+            pages_built: ViewMemo::new(),
+            thumbs_built: ViewMemo::new(),
             dpi: 1.0,
             current_page: 0,
             shown_page: 0,

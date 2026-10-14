@@ -19,6 +19,7 @@ use azul::{
         ToolbarOnEventCallbackType,
     },
     css::{Css, CssDeclaration, CssPropertyWithConditions},
+    dom::VirtualViewCallbackReason,
     image::ImageRef,
     prelude::*,
     shells::{DocumentShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
@@ -415,6 +416,18 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     s.current_page = strip.page_at(y + view_h / 3.0);
 
     let (top, bottom) = slice(&strip, first, end);
+    let materialized = rect(0.0, top, view_w, bottom - top);
+    let whole = rect(0.0, 0.0, view_w, strip.height);
+    let key = (
+        first,
+        end,
+        view_w.to_bits(),
+        scale.to_bits(),
+        layout_scale.to_bits(),
+    );
+    if !s.pages_built.must_build(key, asked_afresh(&info)) {
+        return VirtualViewReturn::keep_current(materialized, whole);
+    }
     let mut root = Dom::create_div().with_css(
         format!(
             "position: relative; width: {view_w}px; height: {}px;",
@@ -452,10 +465,16 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         }
         root.add_child(frame);
     }
-    VirtualViewReturn::with_dom(
-        root,
-        rect(0.0, top, view_w, bottom - top),
-        rect(0.0, 0.0, view_w, strip.height),
+    VirtualViewReturn::with_dom(root, materialized, whole)
+}
+
+/// Whether the engine calls a view for a DOM it does not have: its first
+/// render, or the window's DOM made again. Called for a new box or a scroll,
+/// the view still has the DOM it built last.
+fn asked_afresh(info: &VirtualViewCallbackInfo) -> bool {
+    matches!(
+        info.reason,
+        VirtualViewCallbackReason::InitialRender | VirtualViewCallbackReason::DomRecreated
     )
 }
 
@@ -745,6 +764,12 @@ extern "C" fn thumbs_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
     s.thumbs_visible = first..end;
 
     let (top, bottom) = slice(&strip, first, end);
+    let materialized = rect(0.0, top, view_w, bottom - top);
+    let whole = rect(0.0, 0.0, view_w, strip.height);
+    let key = (first, end, view_w.to_bits(), s.current_page);
+    if !s.thumbs_built.must_build(key, asked_afresh(&info)) {
+        return VirtualViewReturn::keep_current(materialized, whole);
+    }
     let mut root = Dom::create_div().with_css(
         format!(
             "position: relative; width: {view_w}px; height: {}px;",
@@ -769,11 +794,7 @@ extern "C" fn thumbs_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
             &cb_app,
         ));
     }
-    VirtualViewReturn::with_dom(
-        root,
-        rect(0.0, top, view_w, bottom - top),
-        rect(0.0, 0.0, view_w, strip.height),
-    )
+    VirtualViewReturn::with_dom(root, materialized, whole)
 }
 
 fn thumb_frame(

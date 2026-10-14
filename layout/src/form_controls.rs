@@ -71,8 +71,12 @@
 //!   live-state attributes (`value`, `checked`, `selected`, `placeholder`)
 //!   are not: the widget owns that state now, and a stale copy would lie to
 //!   assistive technology.
-//! * The node's inline style is appended AFTER the widget's own, so the
-//!   app's declarations win. Of its scoped `with_css` sheets, the
+//! * The node's inline style is appended AFTER the widget's own, and a
+//!   property it sets at rest takes the widget's declarations of that
+//!   property away in every state, mode and theme: the app's style is the
+//!   author's, the widget's the control's default look, and the author wins
+//!   (a `background: transparent` button stays see-through when hovered, as
+//!   in a browser). Of its scoped `with_css` sheets, the
 //!   declarations that target the node itself (`* {..}`, `*:hover {..}`)
 //!   move into the root's inline style - on a void `<input>` they could only
 //!   ever mean the control; a `:hover` there becomes a `:hover` condition,
@@ -140,9 +144,13 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
-    css::{Css, CssPathSelector, CssRuleBlock},
+    css::{rule_priority, Css, CssDeclaration, CssPathSelector, CssRuleBlock},
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    props::{basic::color::ColorU, layout::LayoutDisplay, property::CssProperty},
+    props::{
+        basic::color::ColorU,
+        layout::LayoutDisplay,
+        property::{CssProperty, CssPropertyType},
+    },
     AzString, OptionString, StringVec,
 };
 
@@ -2177,10 +2185,15 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
     }));
     widget.root.set_attributes(attrs.into());
 
-    // 2. Inline style: the widget's, then the app's (last match wins), then
-    //    the declarations of the app's scoped sheets that target the node.
-    let mut rules = widget.root.style.rules.clone().into_library_owned_vec();
-    rules.extend(from.style.rules.clone().into_library_owned_vec());
+    // 2. Inline style: the widget's, then the app's, then the declarations of
+    //    the app's scoped sheets that target the node. The app's style is the
+    //    author's and the widget's the default look of the control, so a
+    //    property the app sets at rest replaces the widget's value for it in
+    //    every state, mode and theme, as an author `background` beats a
+    //    browser's hovered button face. Order alone cannot do that: the
+    //    widget's look sits in `@theme(..)` blocks, which outrank an unthemed
+    //    declaration wherever it comes.
+    let mut app_rules = from.style.rules.clone().into_library_owned_vec();
     let mut keyframes = widget.root.style.keyframes.clone().into_library_owned_vec();
     keyframes.extend(from.style.keyframes.clone().into_library_owned_vec());
     let mut sheets = widget.css.clone().into_library_owned_vec();
@@ -2195,7 +2208,7 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
                 // `*` under a `:hover` condition, as `Css::parse_inline` does.
                 let mut own = rule.clone();
                 own.lower_node_pseudo_states();
-                rules.push(own);
+                app_rules.push(own);
             } else {
                 rest.push(rule.clone());
             }
@@ -2209,6 +2222,12 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
             });
         }
     }
+    let set_by_app = resting_property_types(&app_rules);
+    let mut rules = without_properties(
+        widget.root.style.rules.clone().into_library_owned_vec(),
+        &set_by_app,
+    );
+    rules.extend(app_rules);
     widget.root.style.rules = rules.into();
     widget.root.style.keyframes = keyframes.into();
     widget.css = sheets.into();
@@ -2273,6 +2292,52 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
             dst.described_by = src.described_by;
         }
     }
+}
+
+/// The properties the app's `rules` declare without a condition: what the
+/// app gives the node at rest, in every state. A presentational hint (what a
+/// markup attribute says about the style) is below every author rule and
+/// leaves the widget's look alone.
+fn resting_property_types(rules: &[CssRuleBlock]) -> Vec<CssPropertyType> {
+    let mut types = Vec::new();
+    let authored = rules
+        .iter()
+        .filter(|r| r.priority >= rule_priority::AUTHOR && r.conditions.as_slice().is_empty());
+    for rule in authored {
+        for declaration in rule.declarations.as_slice() {
+            if let Some(ty) = declaration.get_type() {
+                if !types.contains(&ty) {
+                    types.push(ty);
+                }
+            }
+        }
+    }
+    types
+}
+
+/// `rules` without their declarations of `types`, in any condition; a rule
+/// left with no declaration goes.
+fn without_properties(rules: Vec<CssRuleBlock>, types: &[CssPropertyType]) -> Vec<CssRuleBlock> {
+    if types.is_empty() {
+        return rules;
+    }
+    rules
+        .into_iter()
+        .filter_map(|mut rule| {
+            let kept: Vec<CssDeclaration> = rule
+                .declarations
+                .as_slice()
+                .iter()
+                .filter(|d| d.get_type().is_none_or(|ty| !types.contains(&ty)))
+                .cloned()
+                .collect();
+            if kept.is_empty() {
+                return None;
+            }
+            rule.declarations = kept.into();
+            Some(rule)
+        })
+        .collect()
 }
 
 /// Nothing in `dom` reacts, takes focus or edits.

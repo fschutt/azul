@@ -303,6 +303,192 @@ mod set {
         })
     }
 
+    /// The text of one SVG document, drawn straight into its pixmap: in the
+    /// faces its `@font-face`s embed (by the family they declare), else in
+    /// the installed family a `<text>` names. A face is looked up once per
+    /// document and the glyph outlines are kept across its texts, so a PDF
+    /// page of a thousand runs in three fonts makes three faces.
+    pub struct SvgTextPainter {
+        /// The faces the document embeds, by the family their `@font-face`
+        /// declares.
+        embedded: Vec<(String, FontRef)>,
+        /// Installed faces looked up so far, by (family, bold, italic);
+        /// `None` where nothing matched, so a miss is not looked up again.
+        installed: Vec<((String, bool, bool), Option<FontRef>)>,
+        /// The manager the glyph path resolves the faces from, made with the
+        /// first text drawn.
+        fonts: Option<FontManager<FontRef>>,
+        /// The hashes of the faces `fonts` holds.
+        registered: Vec<u64>,
+        /// Glyph outlines, kept across the document's texts.
+        glyph_cache: GlyphCache,
+    }
+
+    impl SvgTextPainter {
+        /// A painter for a document that embeds `embedded`.
+        #[must_use]
+        pub fn new(embedded: Vec<(String, FontRef)>) -> Self {
+            Self {
+                embedded,
+                installed: Vec::new(),
+                fonts: None,
+                registered: Vec::new(),
+                glyph_cache: GlyphCache::new(),
+            }
+        }
+
+        /// The face for the CSS family list `families`: the first family the
+        /// document embeds, else the first family as an installed one (with
+        /// fontconfig's fallback, `sans-serif` last).
+        fn face(&mut self, families: &str, bold: bool, italic: bool) -> Option<FontRef> {
+            let names: Vec<&str> = families
+                .split(',')
+                .map(|f| f.trim().trim_matches(|c| c == '"' || c == '\''))
+                .filter(|f| !f.is_empty())
+                .collect();
+            for name in &names {
+                if let Some((_, font)) = self
+                    .embedded
+                    .iter()
+                    .find(|(f, _)| f.eq_ignore_ascii_case(name))
+                {
+                    return Some(font.clone());
+                }
+            }
+            let family = names.first().map_or("sans-serif", |f| *f).to_string();
+            let key = (family.clone(), bold, italic);
+            if let Some((_, found)) = self.installed.iter().find(|(k, _)| *k == key) {
+                return found.clone();
+            }
+            let style = TextRasterStyle::create(
+                azul_css::AzString::from(family),
+                16.0,
+                azul_css::props::basic::ColorU::rgb(0, 0, 0),
+            )
+            .with_bold(bold)
+            .with_italic(italic);
+            let found = with_process_fonts(|fc| resolve_font(fc, &style))
+                .map(crate::parsed_font_to_font_ref);
+            self.installed.push((key, found.clone()));
+            found
+        }
+
+        /// `text`, one line in `families` at `size_px`, its baseline starting
+        /// at (`x`, `y`) in `pixmap`'s pixels, in `color`. Draws nothing when
+        /// no face is found or the text does not shape.
+        #[allow(clippy::too_many_arguments)] // one text run's whole description
+        #[allow(clippy::cast_precision_loss)] // pixmap sides are far below 2^24
+        pub fn draw(
+            &mut self,
+            pixmap: &mut AzulPixmap,
+            text: &str,
+            families: &str,
+            bold: bool,
+            italic: bool,
+            size_px: f32,
+            color: azul_css::props::basic::ColorU,
+            x: f32,
+            y: f32,
+        ) {
+            if text.is_empty()
+                || !size_px.is_finite()
+                || size_px <= 0.0
+                || size_px > TEXT_RASTER_MAX_SIZE_PX
+                || !(x.is_finite() && y.is_finite())
+            {
+                return;
+            }
+            let Some(font) = self.face(families, bold, italic) else {
+                return;
+            };
+            let parsed = crate::font_ref_to_parsed_font(&font);
+            let shaping = StyleProperties {
+                font_size_px: size_px,
+                ..StyleProperties::default()
+            };
+            let script = detect_script(text).unwrap_or(Script::Latin);
+            let Ok(shaped) = shape_text_for_parsed_font(
+                parsed,
+                text,
+                script,
+                Language::EnglishUS,
+                BidiDirection::Ltr,
+                &shaping,
+            ) else {
+                return;
+            };
+            let mut glyphs = Vec::with_capacity(shaped.len());
+            let mut pen = x;
+            for g in &shaped {
+                glyphs.push(GlyphInstance {
+                    index: u32::from(g.glyph_id),
+                    point: LogicalPosition {
+                        x: pen + g.offset.x,
+                        y: y - g.offset.y,
+                    },
+                    size: LogicalSize {
+                        width: g.advance,
+                        height: size_px,
+                    },
+                });
+                pen += g.advance + g.kerning;
+            }
+            if glyphs.is_empty() {
+                return;
+            }
+            let hash = parsed.hash;
+            if self.fonts.is_none() {
+                self.fonts = FontManager::new(FcFontCache::default()).ok();
+            }
+            let Some(fonts) = self.fonts.as_ref() else {
+                return;
+            };
+            if !self.registered.contains(&hash) {
+                fonts.insert_font(rust_fontconfig::FontId::new(), font.clone());
+                self.registered.push(hash);
+            }
+            let clip_rect = LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: LogicalSize {
+                    width: pixmap.width as f32,
+                    height: pixmap.height as f32,
+                },
+            };
+            super::super::raster::render_text(
+                &glyphs,
+                FontHash { font_hash: hash },
+                size_px,
+                color,
+                pixmap,
+                &clip_rect,
+                None,
+                &RendererResources::default(),
+                fonts,
+                1.0,
+                &mut self.glyph_cache,
+                (0.0, 0.0),
+                // Coverage only: the page may be transparent under its text.
+                true,
+            );
+        }
+    }
+
+    /// `f` with the installed fonts for SVG text, scanned once per PROCESS:
+    /// the threads that draw pages come and go (a viewer's render jobs), and
+    /// a scan per thread would cost each of them the scan of every font
+    /// folder.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn with_process_fonts<R>(f: impl FnOnce(&FcFontCache) -> R) -> R {
+        static FONTS: std::sync::OnceLock<FcFontCache> = std::sync::OnceLock::new();
+        f(FONTS.get_or_init(crate::font::loading::build_font_cache))
+    }
+
+    /// One thread on the web: the thread's own scan is the process's.
+    #[cfg(target_arch = "wasm32")]
+    fn with_process_fonts<R>(f: impl FnOnce(&FcFontCache) -> R) -> R {
+        with_system_fonts(f)
+    }
+
     thread_local! {
         /// The system fonts, scanned once per thread on first use.
         static SYSTEM_FONTS: core::cell::OnceCell<FcFontCache> = const { core::cell::OnceCell::new() };
@@ -314,6 +500,8 @@ mod set {
     }
 }
 
+#[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+pub(crate) use set::SvgTextPainter;
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
 pub use set::{rasterize_text_at, with_system_fonts};
 
