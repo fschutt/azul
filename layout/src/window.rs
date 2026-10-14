@@ -10199,6 +10199,17 @@ impl LayoutWindow {
                     }
                     _ => (0.0, LogicalPosition::zero()),
                 };
+                // The CPU relights a whole surface per sheen frame: it steps
+                // the sheen in sixteenths and the cursor in 4 px, so an easing
+                // or a moving cursor costs a few relights, not one per frame.
+                let (sheen, cursor) = if sheen > 0.0 && gl_context.as_ref().is_none() {
+                    (
+                        ((sheen * 16.0).round() / 16.0).max(1.0 / 16.0),
+                        LogicalPosition::new((cursor.x / 4.0).round() * 4.0, (cursor.y / 4.0).round() * 4.0),
+                    )
+                } else {
+                    (sheen, cursor)
+                };
                 let inputs = BackgroundFrameInputs {
                     hidpi_factor,
                     radii_bits: radii.map(f32::to_bits),
