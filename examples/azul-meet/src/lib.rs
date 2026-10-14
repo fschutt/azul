@@ -7786,7 +7786,8 @@ fn bind_failure(endpoint: &IrohEndpoint) -> String {
 }
 
 /// The name others see: `--name`, else the one typed in the lobby last time, else
-/// `AZMEET_NAME`, else the login name.
+/// `AZMEET_NAME`, else the account's full name (what the system's login window shows), else
+/// the login name.
 fn display_name() -> String {
     if let Some(name) = launch_args().name.clone().filter(|n| !n.trim().is_empty()) {
         return name.trim().to_string();
@@ -7794,15 +7795,46 @@ fn display_name() -> String {
     if let Some(name) = store::Prefs::read(saved_settings()).name {
         return name;
     }
-    ["AZMEET_NAME", "USER", "USERNAME"]
-        .into_iter()
-        .find_map(|key| {
-            std::env::var(key)
-                .ok()
-                .map(|v| v.trim().to_string())
-                .filter(|v| !v.is_empty())
-        })
+    let set = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    set("AZMEET_NAME")
+        .or_else(account_full_name)
+        .or_else(|| set("USER"))
+        .or_else(|| set("USERNAME"))
         .unwrap_or_else(|| String::from("Guest"))
+}
+
+/// The account's full name: on macOS what `id -F` says, elsewhere the first field of the
+/// account's GECOS entry (`getent passwd`); `None` when the system keeps none.
+fn account_full_name() -> Option<String> {
+    let output = if cfg!(target_os = "macos") {
+        std::process::Command::new("id").arg("-F").output().ok()?
+    } else if cfg!(unix) {
+        let user = std::env::var("USER").ok()?;
+        std::process::Command::new("getent").args(["passwd", &user]).output().ok()?
+    } else {
+        return None;
+    };
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    if cfg!(target_os = "macos") {
+        full_name_of(text.trim())
+    } else {
+        full_name_of(text.trim().split(':').nth(4)?)
+    }
+}
+
+/// A full name as the account keeps it: the GECOS field's first part (`Felix Schütt,Room 1`),
+/// trimmed; `None` when empty.
+fn full_name_of(gecos: &str) -> Option<String> {
+    let name = gecos.split(',').next()?.trim();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 /// Host (IPv6 without brackets) and port of an http(s) address.
@@ -8154,6 +8186,14 @@ mod service_down_tests {
         let waiting = view.waiting.expect("the waiting room's facts");
         assert!(waiting.local, "it says the meeting is made here, with Retry");
         assert!(waiting.code.contains('-'), "a code made here: {}", waiting.code);
+    }
+
+    #[test]
+    fn the_name_is_the_accounts_full_name_without_its_extra_fields() {
+        assert_eq!(full_name_of("Felix Schütt").as_deref(), Some("Felix Schütt"));
+        assert_eq!(full_name_of(" Felix Schütt ,Room 1,,").as_deref(), Some("Felix Schütt"));
+        assert_eq!(full_name_of(""), None);
+        assert_eq!(full_name_of(",,,"), None);
     }
 
     #[test]
