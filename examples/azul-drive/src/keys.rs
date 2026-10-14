@@ -136,6 +136,11 @@ pub enum Command {
     JumpTab(u8),
     /// Ctrl+Shift+A: the tab overview.
     TabOverview,
+    /// Space: Quick Look, a large preview of the focused item over the window (the arrows step
+    /// through the files, Space or Escape closes it).
+    QuickLook,
+    /// Cmd+K: the command palette (folders, files, commands, a search of every drive).
+    Palette,
 }
 
 /// The keyboard shortcuts as the Options' "Keyboard shortcuts" section lists them (azul-appkit's
@@ -539,6 +544,17 @@ mod tests {
         assert_eq!(command_for(Key::Char('1'), CTRL), Some(Command::Layout(2)));
         assert_eq!(command_for(Key::Char('2'), CTRL), Some(Command::Layout(6)));
         assert_eq!(command_for(Key::Char('1'), PC_CTRL), Some(Command::JumpTab(1)));
+    }
+
+    /// Space alone is Quick Look (Ctrl+Space still toggles the focused item); Cmd+K opens the
+    /// command palette.
+    #[test]
+    fn space_opens_quick_look_and_cmd_k_the_command_palette() {
+        assert_eq!(command_for(Key::Space, NONE), Some(Command::QuickLook));
+        assert_eq!(command_for(Key::Space, CTRL), Some(Command::ToggleFocused));
+        assert_eq!(command_for(Key::Char('k'), CTRL), Some(Command::Palette));
+        assert_eq!(command_for(Key::Char('k'), PC_CTRL), Some(Command::Palette));
+        assert_eq!(command_for(Key::Char('k'), NONE), Some(Command::TypeAhead('k')));
     }
 
     /// `Mod+Shift+N` -> (`Char('n')`, Ctrl + Shift), as the table spells keys; `Ctrl` is the

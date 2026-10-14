@@ -222,6 +222,8 @@ pub mod location_tabs;
 /// The body's looks in flat and flora, by day and at night.
 mod look;
 pub mod model;
+/// The command palette (Cmd+K): what it lists for what was typed.
+pub mod palette;
 mod paper;
 mod pay_words;
 #[cfg(test)]

@@ -1458,6 +1458,7 @@ pub(crate) fn run_command(
             }
         }
         Command::TabOverview => crate::ui_tabs::toggle_overview(s),
+        Command::QuickLook | Command::Palette => {}
     }
 }
 
