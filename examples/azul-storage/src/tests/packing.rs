@@ -757,3 +757,22 @@ fn a_packed_ten_kilobyte_file_is_one_read_of_one_data_shard() {
     }
     assert!(seen >= 250, "{seen} files in packs of a MiB and more");
 }
+
+#[test]
+fn the_pack_summary_counts_packed_files_packs_and_files_with_objects_of_their_own() {
+    let drive = packing_drive(None);
+    let files = small_files(20, 1_500);
+    put_all(&drive, &files);
+    drive.put("big.bin", &noise(PACK_THRESHOLD as usize)).unwrap();
+    drive.copy("notes/0001.txt", "copies/one.txt").unwrap();
+    let summary = drive.pack_summary().unwrap();
+    assert_eq!(summary.packed_files, 21, "a copy names its version twice: {summary:?}");
+    assert_eq!(summary.packs, 1);
+    assert_eq!(summary.own_objects, 1);
+    let pack = data_objects(drive.inner())
+        .into_iter()
+        .find(|key| drive.inner().object(key).unwrap().len() < PACK_THRESHOLD as usize)
+        .unwrap();
+    assert_eq!(summary.pack_bytes, drive.inner().object(&pack).unwrap().len() as u64);
+    assert!(summary.live_bytes > 0 && summary.live_bytes <= summary.pack_bytes, "{summary:?}");
+}
