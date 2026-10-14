@@ -3624,3 +3624,151 @@ mod reference_frame_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod text_halo_tests {
+    //! What WebRender is handed for text under a blurred shadow, a map
+    //! label's halo. A map pans by drawing every label again where it moved,
+    //! on every frame; WebRender draws a blurred shadow as an offscreen
+    //! surface blurred in two passes, so a frame of a pan paid that for each
+    //! label. A halo is drawn once as a picture and painted as an image.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::{DpiScaleFactor, RendererResources},
+        styled_dom::StyledDom,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+    use webrender::{
+        api::{units::DeviceIntSize, BuiltDisplayList, DisplayItem, ImageKey, PipelineId},
+        render_api::Transaction,
+    };
+
+    use super::translate_displaylist_to_wr;
+    use crate::desktop::wr_translate2::register_frame_resources;
+
+    const LABELS: usize = 6;
+    /// Ink that leaves the labels' shadows as all that paints: at an alpha
+    /// of 0.01 it darkens white by three at most.
+    const FAINT_INK: &str = "rgba(0, 0, 0, 0.01)";
+
+    /// Six map labels as the map draws them (`label_dom`): absolutely placed,
+    /// each in its halo, every other one turned along its road when `turned`;
+    /// `dx` moves them all, as a pan does.
+    pub(super) fn labels(dx: f32, ink: &str, halo: &str, turned: bool) -> Dom {
+        let mut grid = Dom::create_div().with_css(
+            "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; \
+             overflow: hidden; background: #ffffff;",
+        );
+        for i in 0..LABELS {
+            let turn = if turned && i % 2 == 1 { " transform: rotate(12.00deg);" } else { "" };
+            let style = format!(
+                "position: absolute; left: {:.1}px; top: {}px; width: 80px; height: 14px; \
+                 margin: 0px; font-size: 12px; line-height: 14px; color: {ink}; \
+                 text-align: center; white-space: nowrap; text-shadow: 0px 0px 2px {halo};{turn}",
+                20.0 + dx + 90.0 * i as f32,
+                40 + 20 * i,
+            );
+            grid = grid.with_child(
+                Dom::create_p()
+                    .with_css(style.as_str())
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        format!("Main St {i}"),
+                    )),
+            );
+        }
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div()
+                .with_css("position: relative; width: 600px; height: 200px;")
+                .with_child(grid),
+        )
+    }
+
+    /// The WebRender list of one frame of `dom` in `window`, at 2x, its fonts
+    /// and images registered as a frame registers them.
+    fn frame(window: &mut LayoutWindow, dom: Dom) -> BuiltDisplayList {
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(600.0, 200.0);
+        state.size.dpi = 192;
+        window.current_window_state = state.clone();
+        let mut messages = None;
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(dom),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut messages,
+            )
+            .expect("the labels lay out");
+        let dpi = DpiScaleFactor::new(2.0);
+        register_frame_resources(window, &mut Transaction::new(), dpi);
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let (_, built, _) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(1200, 400),
+            &window.renderer_resources,
+            dpi,
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("the frame translates");
+        built
+    }
+
+    /// The shadows and the images of a built list, in list order.
+    fn shadows_and_images(list: &BuiltDisplayList) -> (usize, Vec<ImageKey>) {
+        let (mut shadows, mut images) = (0, Vec::new());
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::PushShadow(_) => shadows += 1,
+                DisplayItem::Image(image) => images.push(image.image_key),
+                _ => {}
+            }
+        }
+        (shadows, images)
+    }
+
+    #[test]
+    fn a_panned_maps_label_halos_reach_webrender_as_kept_pictures_not_blurs() {
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let first = frame(&mut window, labels(0.0, "#333333", "#ffffff", true));
+        let moved = frame(&mut window, labels(37.5, "#333333", "#ffffff", true));
+        let (shadows, halos) = shadows_and_images(&first);
+        assert_eq!(shadows, 0, "no label's halo is a WebRender shadow, a blurred surface");
+        assert_eq!(halos.len(), LABELS, "every label's halo is a picture");
+        assert_eq!(
+            shadows_and_images(&moved),
+            (0, halos),
+            "the labels moved, their halos did not change: the same pictures"
+        );
+    }
+
+    /// The same frame drawn by WebRender: the GPU's halos are the CPU's.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_labels_halo_on_the_gpu_is_the_cpu_renderers_halo() {
+        use crate::desktop::shell2::macos::headless_gpu::{draw_both, keep, largest_difference};
+
+        let dom = labels(0.0, FAINT_INK, "#000000", false);
+        let Some(frames) = draw_both(dom, 600.0, 200.0, 2.0) else {
+            return;
+        };
+        keep("label-halos", &frames);
+        let (difference, at) = largest_difference(&frames.gpu, &frames.cpu, (0, 0, 1200, 400));
+        assert!(difference <= 24, "the GPU's halos differ from the CPU's by {difference} at {at:?}");
+    }
+}

@@ -1293,7 +1293,7 @@ fn wr_translate_synthetic_italics(italics: SyntheticItalics) -> WrSyntheticItali
 ///
 /// Shared by [`generate_frame`] and [`build_webrender_transaction`], which both
 /// previously inlined this identical font+image registration block.
-fn register_frame_resources(
+pub(crate) fn register_frame_resources(
     layout_window: &mut LayoutWindow,
     txn: &mut WrTransaction,
     dpi: DpiScaleFactor,
