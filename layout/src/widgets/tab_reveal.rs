@@ -212,8 +212,97 @@ impl RevealMachine {
 
     /// Feeds `event`, which happened at `now` ms, and says what it changed.
     pub fn apply(&mut self, event: RevealEvent, now: u64) -> RevealStep {
-        let _ = (event, now);
-        RevealStep::Unchanged
+        let before = (self.open, self.shown, self.locked);
+        let hovers = self.behaviour == TabClickBehaviour::HoverRevealDoubleClickLock;
+        match event {
+            RevealEvent::EnterTab(tab) => {
+                self.inside = true;
+                self.leave_since = None;
+                if hovers && !self.rearm {
+                    if self.open {
+                        if !self.locked {
+                            self.shown = tab;
+                        }
+                    } else {
+                        self.hover = Some((tab, now));
+                    }
+                }
+            }
+            RevealEvent::LeaveTab(tab) => {
+                if self.hover.is_some_and(|(hovered, _)| hovered == tab) {
+                    self.hover = None;
+                }
+            }
+            RevealEvent::EnterArea => {
+                self.inside = true;
+                self.leave_since = None;
+            }
+            RevealEvent::LeaveArea => {
+                self.inside = false;
+                self.hover = None;
+                self.rearm = false;
+                if hovers && self.open && !self.locked && !self.menu_up {
+                    self.leave_since = Some(now);
+                }
+            }
+            RevealEvent::Click(tab) => self.press(tab, now, false),
+            RevealEvent::DoubleClick(tab) => self.double_press(tab),
+            RevealEvent::Key { tab, shift } => {
+                // The keyboard has no double click: a second press on the
+                // same tab soon after the first is one.
+                let double = self.first_press.is_some_and(|(t, at, _)| {
+                    t == tab && now.saturating_sub(at) <= DOUBLE_PRESS_MS
+                });
+                self.press(tab, now, shift || double);
+            }
+            RevealEvent::Chevron => {
+                if self.behaviour != TabClickBehaviour::AlwaysOpen {
+                    if self.open && self.locked {
+                        self.close(hovers);
+                    } else {
+                        self.open = true;
+                        self.locked = true;
+                        self.hover = None;
+                        self.leave_since = None;
+                    }
+                }
+            }
+            RevealEvent::MenuUp(up) => {
+                self.menu_up = up;
+                if up {
+                    self.leave_since = None;
+                } else if hovers && !self.inside && self.open && !self.locked {
+                    self.leave_since = Some(now);
+                }
+            }
+            RevealEvent::Tick => {
+                if let Some((tab, since)) = self.hover {
+                    if now >= since.saturating_add(HOVER_OPEN_MS) {
+                        self.hover = None;
+                        if !self.open {
+                            self.open = true;
+                            self.shown = tab;
+                        }
+                    }
+                }
+                if let Some(since) = self.leave_since {
+                    if now >= since.saturating_add(LEAVE_CLOSE_MS) {
+                        self.leave_since = None;
+                        self.open = false;
+                    }
+                }
+            }
+        }
+        match (before.0, self.open) {
+            (false, true) => RevealStep::Opened(self.shown),
+            (true, false) => RevealStep::Closed,
+            (true, true) if before.1 != self.shown => RevealStep::Switched {
+                from: before.1,
+                to: self.shown,
+            },
+            (true, true) if before.2 != self.locked => RevealStep::Relocked,
+            _ => RevealStep::Unchanged,
+        }
     }
 
     /// The content closes and unlocks; closed by a click, hovering does not
