@@ -874,6 +874,54 @@ impl Ord for TileStyleKey {
     }
 }
 
+/// How long a tile's drawing takes to fade in over what stood in for it,
+/// in seconds.
+pub const TILE_FADE_SECS: f64 = 0.16;
+
+/// One drawing a tile's box shows ([`MapTileCache::tile_stack`]): which
+/// one, and where it lies relative to the box, in tiles of the box's zoom
+/// (the box is `0..1` across). An ancestor `d` levels up is `2^d` across and
+/// shifted onto the box's part of it; a child is half the box.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TilePiece {
+    pub key: TileStyleKey,
+    pub left: f64,
+    pub top: f64,
+    pub size: f64,
+    /// 0 (not yet visible) .. 1.
+    pub opacity: f32,
+}
+
+impl TilePiece {
+    /// `key`'s drawing over the whole box.
+    #[must_use]
+    pub const fn whole(key: TileStyleKey, opacity: f32) -> Self {
+        Self {
+            key,
+            left: 0.0,
+            top: 0.0,
+            size: 1.0,
+            opacity,
+        }
+    }
+}
+
+/// How far a fade of `secs` is after `elapsed` seconds, `0..=1`. The last
+/// thousandth snaps to 1 so a fade measured at its end time is over, not a
+/// rounding error short of it.
+#[allow(clippy::cast_possible_truncation)] // a fraction in 0..=1
+fn fade_progress(elapsed: f64, secs: f64) -> f32 {
+    if secs <= 0.0 || elapsed.is_nan() {
+        return 1.0;
+    }
+    let t = (elapsed / secs).clamp(0.0, 1.0);
+    if t >= 0.999 {
+        1.0
+    } else {
+        t as f32
+    }
+}
+
 #[derive(Debug)]
 pub struct MapTileCache {
     pub layer: MapTileLayer,
@@ -995,6 +1043,15 @@ pub struct MapTileCache {
     pub fade_timer_running: bool,
     /// The fade timer's ticks in a row without a fade in flight.
     pub fade_idle_ticks: u32,
+    /// When each drawing arrived ([`map_clock`] seconds), while it still
+    /// fades in over what stood in for it ([`TILE_FADE_SECS`]); the render
+    /// drops the entries whose fade is over. A drawing without an entry is
+    /// shown at full.
+    pub arrived: BTreeMap<TileStyleKey, f64>,
+    /// The drawings the last render showed in place of a missing tile (an
+    /// ancestor, children, the other look). The prune keeps them: without
+    /// them the tile's box would be blank until its own drawing arrives.
+    pub stand_ins: alloc::collections::BTreeSet<TileStyleKey>,
 }
 
 impl MapTileCache {
@@ -1029,6 +1086,8 @@ impl MapTileCache {
             fade_until: 0.0,
             fade_timer_running: false,
             fade_idle_ticks: 0,
+            arrived: BTreeMap::new(),
+            stand_ins: alloc::collections::BTreeSet::new(),
         }
     }
 
@@ -1050,6 +1109,88 @@ impl MapTileCache {
             },
         );
         self.drawn.insert(key, drawn);
+        self.arrived.insert(key, map_clock());
+    }
+
+    /// What `tile`'s box shows at `look` and clock time `now`, bottom first.
+    ///
+    /// A drawing of its own at full opacity is all there is. Otherwise the
+    /// box shows what stands in for it - the other look's drawing of the same
+    /// tile (a light/dark switch), else the nearest drawn ancestor scaled up
+    /// (the world tile at the latest) with the drawn children over it (a zoom
+    /// out) - and its own drawing, when it has one, fading in on top.
+    #[must_use]
+    pub fn tile_stack(&self, tile: MapTileId, look: MapLook, now: f64) -> Vec<TilePiece> {
+        let own_key = TileStyleKey { tile, look };
+        let own = self
+            .drawn
+            .contains_key(&own_key)
+            .then(|| self.arrival_opacity(own_key, now));
+        if own == Some(1.0) {
+            return alloc::vec![TilePiece::whole(own_key, 1.0)];
+        }
+        let mut out = Vec::new();
+        if let Some((key, _)) = looks_of(&self.drawn, tile).find(|(k, _)| k.look != look) {
+            out.push(TilePiece::whole(*key, 1.0));
+        } else {
+            for d in 1..=tile.z.min(31) {
+                let ancestor = MapTileId {
+                    z: tile.z - d,
+                    x: tile.x >> d,
+                    y: tile.y >> d,
+                };
+                if let Some((found, _)) = self.best_drawn(ancestor, look) {
+                    let mask = (1u32 << d) - 1;
+                    out.push(TilePiece {
+                        key: TileStyleKey {
+                            tile: ancestor,
+                            look: found,
+                        },
+                        left: -f64::from(tile.x & mask),
+                        top: -f64::from(tile.y & mask),
+                        size: f64::from(1u32 << d),
+                        opacity: 1.0,
+                    });
+                    break;
+                }
+            }
+            if tile.z < 31 {
+                for j in 0..2u32 {
+                    for i in 0..2u32 {
+                        let child = MapTileId {
+                            z: tile.z + 1,
+                            x: tile.x * 2 + i,
+                            y: tile.y * 2 + j,
+                        };
+                        if let Some((found, _)) = self.best_drawn(child, look) {
+                            out.push(TilePiece {
+                                key: TileStyleKey {
+                                    tile: child,
+                                    look: found,
+                                },
+                                left: f64::from(i) * 0.5,
+                                top: f64::from(j) * 0.5,
+                                size: 0.5,
+                                opacity: 1.0,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(opacity) = own {
+            out.push(TilePiece::whole(own_key, opacity));
+        }
+        out
+    }
+
+    /// How far `key`'s drawing has faded in at `now`: 1 when it arrived
+    /// longer ago than [`TILE_FADE_SECS`] (or before anyone kept count).
+    #[must_use]
+    pub fn arrival_opacity(&self, key: TileStyleKey, now: f64) -> f32 {
+        self.arrived
+            .get(&key)
+            .map_or(1.0, |at| fade_progress(now - at, TILE_FADE_SECS))
     }
 
     /// Queue `wanted`'s tiles for `look` and remember the range as what the
@@ -1134,6 +1275,7 @@ impl MapTileCache {
     pub fn mark_tile_ready(&mut self, key: TileStyleKey, svg: AzString) {
         self.tiles.insert(key, TileEntry::Ready { svg });
         self.drawn.remove(&key);
+        self.arrived.insert(key, map_clock());
     }
 
     /// Mark a tile's fetch as failed so the grid doesn't re-spawn it
@@ -1244,10 +1386,14 @@ impl MapTileCache {
                 }
         };
 
+        // A stand-in's entry goes with its drawing (see prune_drawn_tiles).
+        let stand_ins = &self.stand_ins;
         let mut evictable: Vec<(f64, TileStyleKey)> = self
             .tiles
             .iter()
-            .filter(|(_, e)| !matches!(e, TileEntry::Pending | TileEntry::Fetching))
+            .filter(|(k, e)| {
+                !matches!(e, TileEntry::Pending | TileEntry::Fetching) && !stand_ins.contains(k)
+            })
             .map(|(k, _)| (score(k), *k))
             .collect();
         // Farthest first.
@@ -1307,11 +1453,12 @@ impl MapTileCache {
         }
         let active = self.active_look;
         let wanted = self.wanted;
-        let (viewport, layer) = (&self.viewport, &self.layer);
+        let (viewport, layer, stand_ins) = (&self.viewport, &self.layer, &self.stand_ins);
         let mut evictable: Vec<(f64, TileStyleKey)> = self
             .drawn
             .keys()
             .filter(|k| !(k.look == active && wanted.is_some_and(|w| w.contains(k.tile))))
+            .filter(|k| !stand_ins.contains(k))
             .map(|k| {
                 let penalty = if k.look == active {
                     0.0
@@ -1327,6 +1474,7 @@ impl MapTileCache {
         for (_, k) in evictable.into_iter().take(excess) {
             self.drawn.remove(&k);
             self.tiles.remove(&k);
+            self.arrived.remove(&k);
         }
     }
 
@@ -2731,10 +2879,18 @@ fn rasterize_tile_geometry(_svg: &str) -> Option<ImageRef> {
 /// What the render puts in a tile's box for its drawing: the image, else the
 /// geometry through the DOM (a build without the rasteriser), else the
 /// tile's "nothing to draw" mark.
-fn drawn_tile_dom(drawn: &DrawnTile, z: u8, x: i32, y: i32) -> Dom {
+fn drawn_tile_dom(drawn: &DrawnTile, z: u8, x: i32, y: i32, opacity: f32) -> Dom {
     if let Some(image) = &drawn.image {
+        let css = if opacity < 0.999 {
+            alloc::format!(
+                "position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: {:.3};",
+                opacity.clamp(0.0, 1.0)
+            )
+        } else {
+            String::from("position: absolute; left: 0; top: 0; width: 100%; height: 100%;")
+        };
         return Dom::create_image(image.clone())
-            .with_css("position: absolute; left: 0; top: 0; width: 100%; height: 100%;")
+            .with_css(css.as_str())
             // One piece of the map graphic, which the tile grid names:
             // decorative, so a screen reader does not read out every tile.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
@@ -2749,6 +2905,71 @@ fn drawn_tile_dom(drawn: &DrawnTile, z: u8, x: i32, y: i32) -> Dom {
     }
     crate::widgets::widget_p_with_text(alloc::format!("✓? z{z}/{x}/{y}"))
         .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;")
+}
+
+/// A drawing standing in for a missing tile: its image at `left`, `top`
+/// (px, relative to the tile's box, which clips it) and `width x height` px.
+/// `None` for a drawing without an image (a build without the rasteriser
+/// draws only a tile's own geometry, through the DOM).
+fn stand_in_dom(
+    drawn: &DrawnTile,
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+    opacity: f32,
+) -> Option<Dom> {
+    let image = drawn.image.as_ref()?;
+    let fade = if opacity < 0.999 {
+        alloc::format!(" opacity: {:.3};", opacity.clamp(0.0, 1.0))
+    } else {
+        String::new()
+    };
+    let css = alloc::format!(
+        "position: absolute; left: {left}px; top: {top}px; width: {width}px; height: \
+         {height}px;{fade}"
+    );
+    Some(
+        Dom::create_image(image.clone())
+            .with_css(css.as_str())
+            // Part of the one "Map" graphic, like the tile it stands in for.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Nothing,
+                ..Default::default()
+            }),
+    )
+}
+
+/// The labels a missing tile's box shows from what stands in for it, in the
+/// box's own units (`0..1` across), with the tile each came from. A finer
+/// tile's labels all lie in its quarter; a coarser tile's are taken where
+/// they fall inside the box and no finer tile covers that quarter, so no
+/// name is offered twice.
+fn stand_in_labels(pieces: &[(TilePiece, DrawnTile)]) -> Vec<((f64, f64), &TileLabel, MapTileId)> {
+    let quarter = |u: f64, v: f64| (usize::from(u >= 0.5), usize::from(v >= 0.5));
+    let mut covered = [[false; 2]; 2];
+    for (piece, _) in pieces {
+        if piece.size <= 0.5 {
+            let (i, j) = quarter(piece.left, piece.top);
+            covered[i][j] = true;
+        }
+    }
+    let mut out = Vec::new();
+    for (piece, drawn) in pieces {
+        for label in drawn.labels.iter() {
+            let u = piece.left + f64::from(label.x) / 256.0 * piece.size;
+            let v = piece.top + f64::from(label.y) / 256.0 * piece.size;
+            if !(0.0..1.0).contains(&u) || !(0.0..1.0).contains(&v) {
+                continue;
+            }
+            let (i, j) = quarter(u, v);
+            if piece.size > 0.5 && covered[i][j] {
+                continue;
+            }
+            out.push(((u, v), label, piece.key.tile));
+        }
+    }
+    out
 }
 
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
@@ -3573,7 +3794,12 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // to clone), or the glyph of its state.
     enum TileDisplay {
         Glyph(&'static str),
-        Drawn(DrawnTile),
+        /// The drawings the box shows, bottom first ([`MapTileCache::tile_stack`]);
+        /// `own` when the last one is the tile's own.
+        Stack {
+            pieces: Vec<(TilePiece, DrawnTile)>,
+            own: bool,
+        },
     }
     let started = map_stats_enabled().then(std::time::Instant::now);
     let mut data = data;
@@ -3708,24 +3934,57 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         y_min,
         y_max,
     };
+    //
+    // A tile without a drawing of its own at full opacity shows what stands
+    // in for it (`tile_stack`): the coarser tile over it, the finer ones
+    // under it, the other look's drawing - and its own fading in on top.
+    // Those stand-ins are remembered so the prune keeps them.
+    let now = map_clock();
     let states: BTreeMap<MapTileId, TileDisplay> = match data.downcast_mut::<MapTileCache>() {
         Some(mut cache) => {
             cache.want_tiles(wanted, look);
             let mut out = BTreeMap::new();
+            let mut stand_ins = alloc::collections::BTreeSet::new();
             for tile in wanted.tiles() {
                 if out.contains_key(&tile) {
                     continue;
                 }
-                let display = match cache.drawing_for(tile, look) {
-                    Some(drawn) => TileDisplay::Drawn(drawn),
-                    None => match cache.tiles.get(&TileStyleKey { tile, look }) {
+                // Draws a tile its fetcher handed back only as SVG, once.
+                let _ = cache.drawing_for(tile, look);
+                let stack = cache.tile_stack(tile, look, now);
+                let own_key = TileStyleKey { tile, look };
+                let own = stack.last().is_some_and(|p| p.key == own_key);
+                let pieces: Vec<(TilePiece, DrawnTile)> = stack
+                    .iter()
+                    .filter_map(|p| cache.drawn.get(&p.key).map(|d| (*p, d.clone())))
+                    .collect();
+                for (piece, _) in &pieces {
+                    if piece.key != own_key {
+                        stand_ins.insert(piece.key);
+                    }
+                }
+                let display = if pieces.is_empty() {
+                    match cache.tiles.get(&own_key) {
                         Some(TileEntry::Fetching) => TileDisplay::Glyph("⟳"),
                         Some(TileEntry::Failed { .. }) => TileDisplay::Glyph("✗"),
                         _ => TileDisplay::Glyph("…"),
-                    },
+                    }
+                } else {
+                    TileDisplay::Stack { pieces, own }
                 };
                 out.insert(tile, display);
             }
+            cache.stand_ins = stand_ins;
+            // The tiles still fading in keep the view drawing; the ones done
+            // are shown at full from now on.
+            let tiles_settle = cache
+                .arrived
+                .values()
+                .map(|at| at + TILE_FADE_SECS)
+                .filter(|end| *end > now)
+                .fold(now, f64::max);
+            cache.arrived.retain(|_, at| now - *at < TILE_FADE_SECS);
+            cache.fade_until = cache.fade_until.max(tiles_settle);
             out
         }
         None => BTreeMap::new(),
@@ -3910,11 +4169,17 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             // drops that chrome entirely: the drawing covers the tile, and
             // keeping the per-tile border would draw a grey seam-grid over the
             // whole map (user-reported "small grey borders around the tiles").
-            let is_ready = matches!(states.get(&id), Some(TileDisplay::Drawn(_)));
-            let chrome = if is_ready {
-                ""
-            } else {
-                "background: #e7e9ec; border: 1px solid #d0d4d9;"
+            let (is_ready, clips) = match states.get(&id) {
+                Some(TileDisplay::Stack { pieces, own }) => {
+                    (true, !*own || pieces.len() > 1)
+                }
+                _ => (false, false),
+            };
+            let chrome = match (is_ready, clips) {
+                // A stand-in is larger than the box: show its part of it.
+                (true, true) => "overflow: hidden;",
+                (true, false) => "",
+                (false, _) => "background: #e7e9ec; border: 1px solid #d0d4d9;",
             };
             let style = alloc::format!(
                 "position: absolute; left: {screen_x}px; top: {screen_y}px; width: {size_w}px; \
@@ -3943,19 +4208,64 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             // again); everything else shows a state glyph + tile id so the
             // grid math + fetch state stay observable.
             match states.get(&id) {
-                Some(TileDisplay::Drawn(drawn)) => {
+                Some(TileDisplay::Stack { pieces, own }) => {
+                    let last = pieces.len().saturating_sub(1);
+                    for (index, (piece, drawn)) in pieces.iter().enumerate() {
+                        if *own && index == last {
+                            tile_div = tile_div.with_child(drawn_tile_dom(
+                                drawn,
+                                z_int,
+                                x,
+                                y,
+                                piece.opacity,
+                            ));
+                            continue;
+                        }
+                        // A stand-in, placed on the same rounded grid as the
+                        // tiles so its edges meet theirs exactly.
+                        let left = proj(x as f32 + piece.left as f32, centre_x, width_px);
+                        let right =
+                            proj(x as f32 + (piece.left + piece.size) as f32, centre_x, width_px);
+                        let top = proj(y as f32 + piece.top as f32, centre_y, height_px);
+                        let bottom =
+                            proj(y as f32 + (piece.top + piece.size) as f32, centre_y, height_px);
+                        if let Some(node) = stand_in_dom(
+                            drawn,
+                            left.saturating_sub(screen_x),
+                            top.saturating_sub(screen_y),
+                            right.saturating_sub(left).max(1),
+                            bottom.saturating_sub(top).max(1),
+                            piece.opacity,
+                        ) {
+                            tile_div = tile_div.with_child(node);
+                        }
+                    }
                     // The labels leave the tile here and are laid out over
-                    // the whole grid below, in its pixel space.
-                    let (sx, sy) = (size_w as f32 / 256.0, size_h as f32 / 256.0);
-                    for label in drawn.labels.iter() {
+                    // the whole grid below, in its pixel space: the tile's
+                    // own, else the ones of what stands in for it.
+                    let (sw, sh) = (size_w as f32, size_h as f32);
+                    let offered: Vec<((f64, f64), &TileLabel, MapTileId)> = match pieces.last() {
+                        Some((_, drawn)) if *own => drawn
+                            .labels
+                            .iter()
+                            .map(|l| {
+                                (
+                                    (f64::from(l.x) / 256.0, f64::from(l.y) / 256.0),
+                                    l,
+                                    id,
+                                )
+                            })
+                            .collect(),
+                        _ => stand_in_labels(pieces),
+                    };
+                    for ((u, v), label, from) in offered {
                         label_candidates.push(labels::LabelCandidate {
-                            x: screen_x as f32 + label.x * sx,
-                            y: screen_y as f32 + label.y * sy,
+                            x: screen_x as f32 + u as f32 * sw,
+                            y: screen_y as f32 + v as f32 * sh,
                             label,
-                            world: label_world(id, label),
+                            world: label_world(from, label),
                         });
                     }
-                    tile_div = tile_div.with_child(drawn_tile_dom(drawn, z_int, x, y));
                 }
                 other => {
                     let state_tag = match other {
@@ -4031,7 +4341,6 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             f64::from(centre_y) / f64::from(tile_count),
         ),
     };
-    let now = map_clock();
     let mut label_nodes = 0usize;
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
         let frame = cache.labels.place(&label_candidates, &label_view, now);

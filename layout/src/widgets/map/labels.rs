@@ -153,13 +153,8 @@ struct Remembered {
 }
 
 impl Remembered {
-    #[allow(clippy::cast_possible_truncation)] // a fraction in 0..=1
     fn opacity(&self, now: f64) -> f32 {
-        let t = if LABEL_FADE_SECS > 0.0 {
-            ((now - self.since) / LABEL_FADE_SECS).clamp(0.0, 1.0) as f32
-        } else {
-            1.0
-        };
+        let t = super::fade_progress(now - self.since, LABEL_FADE_SECS);
         let to = if self.shown { 1.0 } else { 0.0 };
         (self.from + (to - self.from) * t).clamp(0.0, 1.0)
     }
