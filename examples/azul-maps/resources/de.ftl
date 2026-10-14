@@ -98,3 +98,84 @@ azmaps-gps-uncertainty = ±{ $metres } m
 azmaps-source-places = AzMaps' Städteliste
 azmaps-source-transitous = Transitous · © OpenStreetMap-Mitwirkende
 azmaps-source-saved = Gespeichert in { $list }
+azmaps-transit-time = Uhrzeit
+azmaps-transit-off = Kein Dienst für öffentlichen Verkehr eingerichtet (--transit off).
+azmaps-transit-asking = Transitous wird nach Verbindungen gefragt …
+azmaps-transit-offline = Transitous ist nicht erreichbar, und für diese Frage sind keine Verbindungen gespeichert.
+azmaps-transit-busy = Transitous ist ausgelastet, bitte gleich noch einmal versuchen.
+azmaps-transit-none = Keine Verbindung gefunden.
+azmaps-transit-failed = Transitous hat keine Verbindungen geliefert.
+azmaps-transit-offline-shown = Offline: gespeicherte Verbindungen, die Zeiten können sich geändert haben.
+azmaps-transit-earlier = Früher
+azmaps-transit-later = Später
+azmaps-transit-credit = Öffentlicher Verkehr: { $provider }
+azmaps-transit-sources = Quellen
+azmaps-transit-platform = Gl. { $platform }
+azmaps-transit-cancelled = fällt aus
+azmaps-offline = offline
+
+## Navigation auf dem Bildschirm
+
+azmaps-nav-start = Starten
+azmaps-nav-end = Beenden
+azmaps-nav-banner = Nächstes Manöver
+azmaps-nav-arrived = Sie haben Ihr Ziel erreicht.
+azmaps-nav-waiting = Warte auf die Position …
+azmaps-nav-destination = Ihr Ziel
+azmaps-nav-rerouting = Neue Route wird gesucht …
+azmaps-nav-follow = Der Route folgen
+azmaps-nav-summary = { $arrival } · { $left } · { $distance }
+azmaps-nav-heading-up = In Fahrtrichtung
+azmaps-nav-north-up = Norden oben
+azmaps-nav-voice = Sprachansagen
+azmaps-nav-car-mode = Autoansicht
+
+## Einstellungen: Ort
+
+azmaps-category-navigation = Navigation
+azmaps-gps-title = Ort
+azmaps-gps-source = Position aus
+azmaps-gps-platform = Diesem Gerät
+azmaps-gps-gpsd = gpsd
+azmaps-gps-device = GPS-Empfänger
+azmaps-gps-replay = Aufzeichnung
+azmaps-gps-gpsd-address = Adresse von gpsd (Host:Port)
+azmaps-gps-replay-file = Eine NMEA-Datei
+azmaps-gps-apply = Verwenden
+azmaps-gps-no-devices = Kein GPS-Empfänger angeschlossen (ein USB- oder Bluetooth-Empfänger erscheint als serieller Anschluss).
+azmaps-gps-waiting = Warte auf den Empfänger …
+azmaps-gps-ended = Die Quelle ist zu Ende.
+azmaps-gps-failed = Die Quelle ist ausgefallen: { $why }
+azmaps-gps-simulated = Simulierte Fahrt
+azmaps-gps-about = Ein Mac hat kein GPS: Seine Position kommt aus dem WLAN (oder von einem iPhone in der Nähe), ungenau oder auf der Autobahn gar nicht. Ein GPS-Empfänger per USB oder Bluetooth liefert die Position des Autos - direkt als NMEA oder über gpsd. Telefone nutzen ihr eigenes GPS.
+
+## Gespeicherte Orte, Import und Export
+
+azmaps-category-places = Orte
+azmaps-saved = Gespeichert
+azmaps-list-favourites = Favoriten
+azmaps-list-recents = Letzte Ziele
+azmaps-clear-recent-destinations = Letzte Ziele und Suchen löschen
+azmaps-favourite = Favorit
+azmaps-lists-unsaved = Die gespeicherten Orte konnten nicht geschrieben werden: { $why }
+azmaps-places-title = Import und Export
+azmaps-import-file = Datei importieren …
+azmaps-import-folder = Ordner importieren …
+azmaps-import-formats = GPX (auch OsmAnd-Favoriten), KML oder KMZ (Google My Maps, Organic Maps, MAPS.ME), GeoJSON, CSV mit Breite und Länge, oder der entpackte Google-Takeout-Ordner (Gespeicherte Orte, markierte Orte, die gespeicherten Listen).
+azmaps-import-apple = Apple Karten kann seine Orte nicht exportieren: Teilen Sie einen Ort daraus und fügen Sie den Link hier ein.
+azmaps-import-link = Geteilten Link von Apple Karten oder Google Maps einfügen
+azmaps-import-link-add = Hinzufügen
+azmaps-import-busy = Importiere …
+azmaps-import-done = { $places } Orte in { $lists } Listen importiert; { $review } zu prüfen.
+azmaps-import-failed = Der Import ist fehlgeschlagen: { $why }
+azmaps-review-head = { $count } Orte kamen ohne Koordinaten: Prüfen Sie, was die Suche gefunden hat.
+azmaps-review-match = Gefunden: { $place }
+azmaps-review-none = Von der Suche nicht gefunden.
+azmaps-review-use = Übernehmen
+azmaps-review-next = Anderer Treffer
+azmaps-review-skip = Überspringen
+azmaps-export-gpx = Als GPX exportieren
+azmaps-export-geojson = Als GeoJSON exportieren
+azmaps-export-offered = Exportiert; eine Kopie liegt als { $file }
+azmaps-export-kept = Als { $file } in Ihrem Datenordner abgelegt
+azmaps-export-failed = Der Export konnte nicht geschrieben werden: { $why }
