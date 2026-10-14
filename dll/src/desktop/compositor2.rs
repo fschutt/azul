@@ -3879,3 +3879,208 @@ mod text_halo_tests {
         assert!(difference <= 24, "the GPU's halos differ from the CPU's by {difference} at {at:?}");
     }
 }
+
+#[cfg(test)]
+mod flora_window_tests {
+    //! A whole flora window as WebRender is handed it: the ribbon's tab strip
+    //! (its selected tab's S-curves are SVG path masks over gradients), a tab
+    //! bar and the stone buttons, at 1x and 2x. The gradients and the masks
+    //! are what the GPU drew wrong; these hold every one of them to the rules
+    //! the single-item tests above pin.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::{DpiScaleFactor, RendererResources},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{AzString, StringVec};
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks,
+        widgets::{
+            button::{Button, ButtonType},
+            ribbon::{Ribbon, RibbonAppButton, RibbonTab, RibbonTabVec},
+            tabs::TabHeader,
+            themes::UiTheme,
+        },
+        window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+    use webrender::{
+        api::{units::DeviceIntSize, BuiltDisplayList, ClipChainId, ClipId, DisplayItem, PipelineId},
+        render_api::Transaction,
+    };
+
+    use super::translate_displaylist_to_wr;
+    use crate::desktop::wr_translate2::register_frame_resources;
+
+    /// AzDrive's ribbon (the application button, the second tab selected), a
+    /// flora tab bar and a primary, a default and a danger button.
+    pub(super) fn flora_window() -> Dom {
+        let ribbon = Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("Computer")),
+            RibbonTab::new(AzString::from("Ansicht")),
+        ]))
+        .with_theme(UiTheme::Flora)
+        .with_app_button(RibbonAppButton::new(AzString::from("Datei")))
+        .with_active_tab(1)
+        .dom_desktop();
+        let tab_bar = TabHeader::create(StringVec::from_vec(vec![
+            AzString::from("Allgemein"),
+            AzString::from("Freigabe"),
+            AzString::from("Sicherheit"),
+        ]))
+        .with_theme(UiTheme::Flora)
+        .with_active_tab(1)
+        .dom();
+        let mut buttons = Dom::create_div().with_css("display: flex; column-gap: 8px; padding: 8px;");
+        for (label, kind) in [
+            ("OK", ButtonType::Primary),
+            ("Abbrechen", ButtonType::Default),
+            ("Entfernen", ButtonType::Danger),
+        ] {
+            buttons = buttons.with_child(
+                Button::create(AzString::from(label))
+                    .with_theme(UiTheme::Flora)
+                    .with_button_type(kind)
+                    .dom(),
+            );
+        }
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(ribbon)
+            .with_child(tab_bar)
+            .with_child(buttons)
+    }
+
+    /// The WebRender list of the flora window at `dpi`, its fonts and images
+    /// (the masks among them) registered as a frame registers them.
+    fn built(dpi: f32) -> BuiltDisplayList {
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(500.0, 260.0);
+        state.size.dpi = (96.0 * dpi) as u32;
+        window.current_window_state = state.clone();
+        let mut messages = None;
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(flora_window()),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut messages,
+            )
+            .expect("the window lays out");
+        register_frame_resources(&mut window, &mut Transaction::new(), DpiScaleFactor::new(dpi));
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let (_, built, _) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new((500.0 * dpi) as i32, (260.0 * dpi) as i32),
+            &window.renderer_resources,
+            DpiScaleFactor::new(dpi),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("the window translates");
+        built
+    }
+
+    /// WebRender fills its gradient table from a stop at 0 to a stop at 1
+    /// and logs "Gradient stops abruptly ..., auto-completing to white" for
+    /// a gradient whose stops end early - and paints that white. Every
+    /// gradient of the window reaches it with stops from 0 to 1, in order.
+    #[test]
+    fn every_gradient_of_a_flora_window_reaches_webrender_with_stops_from_0_to_1() {
+        for dpi in [1.0, 2.0] {
+            let list = built(dpi);
+            let mut gradients = 0;
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                let kind = match item.item() {
+                    DisplayItem::Gradient(_) => "linear",
+                    DisplayItem::RadialGradient(_) => "radial",
+                    DisplayItem::ConicGradient(_) => "conic",
+                    _ => continue,
+                };
+                gradients += 1;
+                let offsets: Vec<f32> = item.gradient_stops().iter().map(|s| s.offset).collect();
+                let ordered = offsets.windows(2).all(|pair| pair[0] <= pair[1]);
+                let (first, last) = (offsets.first().copied(), offsets.last().copied());
+                assert!(
+                    ordered
+                        && first.is_some_and(|f| f.abs() < 1e-4)
+                        && last.is_some_and(|l| (l - 1.0).abs() < 1e-4),
+                    "a {kind} gradient at {dpi}x reaches WebRender with stops {offsets:?}"
+                );
+            }
+            assert!(gradients > 20, "the flora window paints its gradients ({gradients} at {dpi}x)");
+        }
+    }
+
+    /// WebRender applies an image mask to a stacking context, which it draws
+    /// to a surface and masks as a whole; a gradient, text or image that only
+    /// carries the mask in its own clip chain is drawn unmasked - the selected
+    /// tab's curves were drawn as boxes. Every mask of the window's curves
+    /// clips a stacking context and no gradient, text or image. (A plain
+    /// colour is masked in its own chain: a stroke is painted that way.)
+    #[test]
+    fn every_image_mask_of_a_flora_window_clips_a_stacking_context_and_no_single_item() {
+        for dpi in [1.0, 2.0] {
+            let list = built(dpi);
+            let mut masks: Vec<ClipId> = Vec::new();
+            let mut masked_chains: Vec<ClipChainId> = Vec::new();
+            let mut masked_contexts = 0;
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                let masked = |chain: ClipChainId, chains: &[ClipChainId]| chains.contains(&chain);
+                match item.item() {
+                    DisplayItem::ImageMaskClip(mask) => masks.push(mask.id),
+                    DisplayItem::ClipChain(chain) => {
+                        if item.clip_chain_items().iter().any(|c| masks.contains(c))
+                            || chain.parent.is_some_and(|p| masked_chains.contains(&p))
+                        {
+                            masked_chains.push(chain.id);
+                        }
+                    }
+                    DisplayItem::PushStackingContext(sc) => {
+                        if sc
+                            .stacking_context
+                            .clip_chain_id
+                            .is_some_and(|c| masked(c, &masked_chains))
+                        {
+                            masked_contexts += 1;
+                        }
+                    }
+                    DisplayItem::Gradient(g) => {
+                        assert!(!masked(g.common.clip_chain_id, &masked_chains), "a gradient carries a mask at {dpi}x")
+                    }
+                    DisplayItem::RadialGradient(g) => {
+                        assert!(!masked(g.common.clip_chain_id, &masked_chains), "a radial gradient carries a mask")
+                    }
+                    DisplayItem::Text(t) => {
+                        assert!(!masked(t.common.clip_chain_id, &masked_chains), "text carries a mask at {dpi}x")
+                    }
+                    DisplayItem::Image(i) => {
+                        assert!(!masked(i.common.clip_chain_id, &masked_chains), "an image carries a mask at {dpi}x")
+                    }
+                    _ => {}
+                }
+            }
+            assert!(
+                masked_contexts >= 4,
+                "the selected tab's and the application button's curves are masked at {dpi}x \
+                 ({masked_contexts} masked contexts, {} masks)",
+                masks.len()
+            );
+        }
+    }
+}
