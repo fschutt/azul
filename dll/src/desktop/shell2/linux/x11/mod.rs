@@ -8475,6 +8475,26 @@ impl PlatformWindow for X11Window {
         }
     }
 
+    fn adopt_app_light_in_other_windows(&mut self) {
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.window as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                    let changed = w
+                        .common
+                        .layout_window
+                        .as_mut()
+                        .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+                    if changed {
+                        w.request_redraw();
+                    }
+                }
+            }
+        }
+    }
+
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }

@@ -6925,14 +6925,33 @@ pub trait PlatformWindow {
             }
 
             // The window's material light: its material backgrounds render
-            // again (patched into the display list right away), and the
+            // again, its light-following shadows are made anew, and the
             // frame shows them. The same light again is nothing.
             CallbackChange::SetMaterialLight { light } => {
                 let changed = self
                     .get_layout_window_mut()
                     .is_some_and(|lw| lw.set_material_light(*light));
                 if changed {
-                    ProcessEventResult::ShouldReRenderCurrentWindow
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
+            // The app's ONE light: published first, so a window opened from
+            // now on starts with it; this window adopts it at once, the
+            // others through the registry walk (each one also adopts at its
+            // next frame, wherever the walk cannot reach).
+            CallbackChange::SetAppLight { light } => {
+                if !azul_core::light::set_app_light(*light) {
+                    return ProcessEventResult::DoNothing;
+                }
+                self.adopt_app_light_in_other_windows();
+                let changed = self
+                    .get_layout_window_mut()
+                    .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+                if changed {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 } else {
                     ProcessEventResult::DoNothing
                 }
@@ -11141,6 +11160,13 @@ pub trait PlatformWindow {
     /// [`Self::request_regeneration_all_windows`]; the default is nobody
     /// (headless, iOS and Android run one window).
     fn adopt_app_mode_in_other_windows(&mut self) {}
+
+    /// Every OTHER open window adopts the app's light
+    /// (`LayoutWindow::adopt_app_light`) and redraws. Backends with several
+    /// windows walk their registry like [`Self::adopt_app_mode_in_other_windows`];
+    /// the default is nobody - and a window the walk misses adopts the light
+    /// at its next frame anyway.
+    fn adopt_app_light_in_other_windows(&mut self) {}
 
     /// Stop the OS timers of nodes that unmounted (`managers::thread_owner`):
     /// a timer one of a node's lifecycle callbacks started - the map's tile

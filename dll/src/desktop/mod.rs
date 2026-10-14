@@ -204,6 +204,8 @@ pub mod zip {
 }
 /// Native screenshot extension trait using dlopen
 pub mod native_screenshot;
+/// The desktop wallpaper the materials' metals reflect: the platform readers.
+pub mod wallpaper;
 /// Re-exports of errors
 pub(crate) mod errors {
     #[cfg(all(feature = "font_loading", feature = "std"))]

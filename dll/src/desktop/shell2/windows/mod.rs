@@ -7675,6 +7675,28 @@ impl PlatformWindow for Win32Window {
         }
     }
 
+    fn adopt_app_light_in_other_windows(&mut self) {
+        let hwnd = self.hwnd;
+        for other_hwnd in registry::get_all_window_handles() {
+            if other_hwnd == hwnd {
+                continue;
+            }
+            if let Some(wptr) = registry::get_window(other_hwnd) {
+                let w = unsafe { &mut *wptr };
+                let changed = w
+                    .common
+                    .layout_window
+                    .as_mut()
+                    .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+                if changed {
+                    unsafe {
+                        (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                    }
+                }
+            }
+        }
+    }
+
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }

@@ -3643,6 +3643,12 @@ define_class!(
                     macos_window.snapshot_window_state_baseline("macos.window_did_become_key");
                     macos_window.common.update_unsynced_state(|ws| ws.window_focused = true);
                     macos_window.common.note_focus_gained();
+                    // The user may have changed the wallpaper while away: the
+                    // metals read it again (one `stat` when it is the same)
+                    // and the window redraws when it changed.
+                    if crate::desktop::wallpaper::refresh() {
+                        macos_window.request_redraw();
+                    }
                     macos_window.dynamic_selector_context.window_focused = true;
 
                     // Phase 2: OnFocus callback - sync IME position after focus
@@ -4998,6 +5004,24 @@ impl PlatformWindow for MacOSWindow {
             }
             // Even when its mode did not move: a pin forces the chrome.
             w.sync_native_appearance();
+        }
+    }
+
+    fn adopt_app_light_in_other_windows(&mut self) {
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            let changed = w
+                .common
+                .layout_window
+                .as_mut()
+                .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+            if changed {
+                w.request_redraw();
+            }
         }
     }
 

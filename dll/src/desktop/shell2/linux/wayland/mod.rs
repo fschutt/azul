@@ -1779,6 +1779,26 @@ impl PlatformWindow for WaylandWindow {
         }
     }
 
+    fn adopt_app_light_in_other_windows(&mut self) {
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.surface as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
+                    let changed = w
+                        .common
+                        .layout_window
+                        .as_mut()
+                        .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+                    if changed {
+                        w.request_redraw();
+                    }
+                }
+            }
+        }
+    }
+
     fn adopt_app_mode_in_other_windows(&mut self) {
         // The same registry walk as above; each window adopts the app's
         // mode through its own trigger (restyle, or a rebuild where its
