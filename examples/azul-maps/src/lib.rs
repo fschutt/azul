@@ -887,13 +887,11 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
             ids::TRAVEL_TO,
             End::To,
         ));
-    let ends = Dom::create_div().with_css(ROW).with_child(fields).with_child(tool(
-        app,
-        "swap_vert",
-        "azmaps-swap",
-        ids::TRAVEL_SWAP,
-        on_travel_swap,
-    ));
+    let ends = Dom::create_div()
+        .with_css(ROW)
+        .with_child(fields)
+        .with_child(tool(app, "swap_vert", "azmaps-swap", ids::TRAVEL_SWAP, on_travel_swap))
+        .with_child(tool(app, "mic", "azmaps-speak-destination", ids::TRAVEL_SPEAK, on_speak_destination));
 
     let mut modes = Dom::create_div().with_css(ROW);
     for mode in TravelMode::ALL {
@@ -1965,6 +1963,39 @@ extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
     }
     ask_route(&app, &mut info);
     Update::RefreshDom
+}
+
+/// The microphone beside the travel fields: the destination is spoken, heard on a worker
+/// (azul's speech recognition blocks), and searched like typed text.
+extern "C" fn on_speak_destination(app: RefAny, mut info: CallbackInfo) -> Update {
+    let request = voice::ListenRequest {
+        language: azul_appkit::l10n::locale().chars().take(2).collect(),
+        on_done: on_heard,
+    };
+    println!("AZMAPS_LISTENING");
+    info.add_thread(ThreadId::unique(), Thread::create(RefAny::new(request), app, voice::listen_worker));
+    Update::DoNothing
+}
+
+/// The destination was heard: it is the destination's text, searched once the "typing" rests.
+extern "C" fn on_heard(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(heard) = msg.downcast_ref::<voice::Heard>().map(|h| h.clone()) else {
+        return Update::DoNothing;
+    };
+    let update = with_map(&mut app, |s| match &heard.text {
+        Some(text) => {
+            println!("AZMAPS_HEARD {text}");
+            s.travel.to = text.clone();
+            s.travel.to_pick = None;
+            s.typed = Some((End::To, std::time::Instant::now()));
+        }
+        None => {
+            println!("AZMAPS_NOT_HEARD {}", heard.why);
+            s.notice = heard.why.clone();
+        }
+    });
+    adopt_field_texts(&mut info);
+    update
 }
 
 extern "C" fn on_travel_swap(mut data: RefAny, mut info: CallbackInfo) -> Update {

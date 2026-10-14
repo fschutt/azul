@@ -23,6 +23,8 @@ names! {
     TRAVEL_FROM = "travel-from";
     TRAVEL_TO = "travel-to";
     TRAVEL_SWAP = "travel-swap";
+    /// The microphone: the destination spoken.
+    TRAVEL_SPEAK = "travel-speak";
     /// The distance once both ends are places.
     TRAVEL_DISTANCE = "travel-distance";
     /// The typeahead's suggestions under the travel fields (each row

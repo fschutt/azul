@@ -179,3 +179,4 @@ azmaps-export-geojson = Export as GeoJSON
 azmaps-export-offered = Exported; a copy is kept as { $file }
 azmaps-export-kept = Kept as { $file } in your data folder
 azmaps-export-failed = The export could not be written: { $why }
+azmaps-speak-destination = Speak the destination
