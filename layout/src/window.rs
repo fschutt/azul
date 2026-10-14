@@ -8855,6 +8855,102 @@ impl LayoutWindow {
         moved
     }
 
+    /// Moves what follows the pointer in a node drag, through the GPU
+    /// transform values - no relayout, no callback per move: the drag image
+    /// a `DragStart` named (`CallbackInfo::set_drag_image`: the node with
+    /// that id, its border box put at the pointer plus the image's offset),
+    /// else the dragged node itself, by the pointer's way since the press.
+    ///
+    /// Both ride the ANIMATION channel: a DOM rebuild remaps it, the CSS
+    /// sync leaves it alone, and a keyed node is painted through a reference
+    /// frame as a stacking context of its own, so any box can follow. The
+    /// move that first keys a node asks for a display-list rebuild (the list
+    /// opens the frame only for a keyed node); every later one only
+    /// repaints. A drag image named after the first moves takes over: the
+    /// dragged node is released and stays in place.
+    pub fn update_drag_visual(&mut self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+
+        let Some(ctx) = self.gesture_drag_manager.get_drag_context() else {
+            return ProcessEventResult::DoNothing;
+        };
+        let Some(node_drag) = ctx.as_node_drag() else {
+            return ProcessEventResult::DoNothing;
+        };
+        let dom_id = node_drag.dom_id;
+        let pointer = ctx.current_position();
+        let press = ctx.start_position();
+        let (node, x, y) = if let Some(image) = self.gesture_drag_manager.drag_image() {
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return ProcessEventResult::DoNothing;
+            };
+            let Some(node) = layout_result
+                .styled_dom
+                .node_data
+                .as_ref()
+                .iter()
+                .position(|data| data.has_id(image.id.as_str()))
+                .map(NodeId::new)
+            else {
+                // Not rendered yet: the rebuild `DragStart` asked for brings it.
+                return ProcessEventResult::DoNothing;
+            };
+            let Some(rect) = self.get_node_layout_rect(DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            }) else {
+                return ProcessEventResult::DoNothing;
+            };
+            (
+                node,
+                pointer.x + image.offset.x - rect.origin.x,
+                pointer.y + image.offset.y - rect.origin.y,
+            )
+        } else {
+            (node_drag.node_id, pointer.x - press.x, pointer.y - press.y)
+        };
+        let previous = self.gesture_drag_manager.drag_visual_node.replace((dom_id, node));
+        if let Some((old_dom, old)) = previous.filter(|p| *p != (dom_id, node)) {
+            if let Some(cache) = self.gpu_state_manager.caches.get_mut(&old_dom) {
+                cache.anim_transform_keys.remove(&old);
+                cache.anim_current_transform_values.remove(&old);
+            }
+        }
+        let cache = self.gpu_state_manager.get_or_create_cache(dom_id);
+        let keyed = cache.anim_transform_keys.contains_key(&node);
+        if !keyed {
+            cache
+                .anim_transform_keys
+                .insert(node, azul_core::resources::TransformKey::unique());
+        }
+        cache.anim_current_transform_values.insert(
+            node,
+            azul_core::transform::ComputedTransform3D::new_translation(x, y, 0.0),
+        );
+        if keyed && previous.is_some() {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        }
+    }
+
+    /// Ends what [`Self::update_drag_visual`] moved, when a node drag ends
+    /// (before its context goes): the node it keyed is painted where layout
+    /// put it again, and the drag image is forgotten. Returns whether
+    /// anything moved back (then the display list needs a rebuild: it still
+    /// opens the node's reference frame).
+    pub fn end_drag_visual(&mut self) -> bool {
+        self.gesture_drag_manager.drag_image = None;
+        let Some((dom, node)) = self.gesture_drag_manager.drag_visual_node.take() else {
+            return false;
+        };
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom) {
+            cache.anim_transform_keys.remove(&node);
+            cache.anim_current_transform_values.remove(&node);
+        }
+        true
+    }
+
     /// The CONTENT half of [`Self::prepare_frame_cpu`]: journal frame clock +
     /// `RenderImageCallback` invocation through the chokepoint, WITHOUT the
     /// scrollbar-fade cache refresh. For hosts that deliberately freeze
@@ -16585,11 +16681,19 @@ impl LayoutWindow {
         {
             return;
         }
+        // The node a node drag moves with the pointer (`update_drag_visual`)
+        // is driven too, by the pointer.
+        let dragged = self
+            .gesture_drag_manager
+            .drag_visual_node
+            .filter(|(dom, _)| *dom == DomId::ROOT_ID)
+            .map(|(_, node)| node);
         let driven: BTreeSet<NodeId> = self
             .animations
             .iter()
             .filter_map(|(key, _)| self.anim_key_to_node.get(&key).copied())
             .chain(self.live_tracks.keys().copied())
+            .chain(dragged)
             .collect();
         if let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) {
             cache

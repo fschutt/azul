@@ -549,6 +549,10 @@ impl crate::managers::NodeIdRemap for GpuStateManager {
         remap_hashmap(&mut cache.anim_current_transform_values, map);
         remap_hashmap(&mut cache.anim_opacity_keys, map);
         remap_hashmap(&mut cache.anim_current_opacity_values, map);
+        // The STICKY channel: the next sync re-keys every sticky node anyway,
+        // but until then a moved box keeps its own translation.
+        remap_hashmap(&mut cache.sticky_transform_keys, map);
+        remap_hashmap(&mut cache.sticky_current_transform_values, map);
         remap_dom_hashmap(&mut cache.scrollbar_v_opacity_keys, dom, map);
         remap_dom_hashmap(&mut cache.scrollbar_h_opacity_keys, dom, map);
         remap_dom_hashmap(&mut cache.scrollbar_v_opacity_values, dom, map);

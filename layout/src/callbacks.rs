@@ -973,6 +973,13 @@ pub enum CallbackChange {
     SetDropEffect {
         effect: azul_core::drag::DropEffect,
     },
+    /// Name the drag image of the current node drag (the live counterpart of
+    /// W3C `dataTransfer.setDragImage`): the node with `id` follows the
+    /// pointer at `offset` (`GestureAndDragManager::set_drag_image`).
+    SetDragImage {
+        id: AzString,
+        offset: LogicalPosition,
+    },
 
     // DOM Mutation (for Debug API)
     /// Insert a new child node into the DOM tree.
@@ -6895,6 +6902,22 @@ impl CallbackInfo {
     /// Should be called from a `DragStart` callback to populate the drag data.
     pub fn set_drag_data(&mut self, mime_type: AzString, data: Vec<u8>) {
         self.push_change(CallbackChange::SetDragData { mime_type, data });
+    }
+
+    /// Name the drag image of the current node drag: the node whose `id`
+    /// attribute is `id` follows the pointer, its border box at the pointer
+    /// plus `offset`, until the drag ends, and the dragged node stays where it
+    /// is. Moved through the GPU transform values: no relayout, no callback
+    /// per move.
+    ///
+    /// W3C equivalent: `dataTransfer.setDragImage(element, x, y)`, live: the
+    /// image is a DOM node the app renders (a ghost with the file's icon,
+    /// name and count, `position: fixed` at the top left), not a snapshot.
+    /// Call it from a `DragStart` callback; by id, because the ghost usually
+    /// appears with the rebuild the callback asks for. Keep the offset off
+    /// the pointer (positive), or the image is what the pointer is over.
+    pub fn set_drag_image(&mut self, id: AzString, offset: LogicalPosition) {
+        self.push_change(CallbackChange::SetDragImage { id, offset });
     }
 
     /// Accept the current drop operation on this node.
