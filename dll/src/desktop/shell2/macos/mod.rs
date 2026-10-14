@@ -86,6 +86,7 @@ use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_tr
 
 pub mod accessibility;
 pub mod clipboard;
+mod color_space;
 mod coregraphics;
 mod corevideo;
 mod events;
@@ -2262,19 +2263,7 @@ define_class!(
                 let cached_h = ivars.cached_bitmap_h.get();
 
                 if cached.is_none() || cached_w != width || cached_h != height {
-                    *cached = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
-                        NSBitmapImageRep::alloc(),
-                        std::ptr::null_mut(),
-                        width as isize,
-                        height as isize,
-                        8,
-                        4,
-                        true,
-                        false,
-                        ns_string!("NSCalibratedRGBColorSpace"),
-                        (width * 4) as isize,
-                        32,
-                    );
+                    *cached = color_space::cpu_frame_bitmap(width, height);
                     ivars.cached_bitmap_w.set(width);
                     ivars.cached_bitmap_h.set(height);
                     ivars.cached_bitmap_stale.set(true);
