@@ -4175,3 +4175,56 @@ mod tab_curve_pixel_tests {
         }
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod material_gpu_tests {
+    //! The built-in materials as a GPU window draws them - the material
+    //! shader run with the window's GL context into a texture of its own -
+    //! held to the CPU renderer's frame of the same surfaces: the two
+    //! renderers share every formula, so their pictures match to the dither.
+
+    use azul_core::dom::Dom;
+
+    use crate::desktop::shell2::macos::headless_gpu::{draw_gpu_materials, keep, pixels_differing};
+
+    /// A pillowed leather area with a golden line under it, a bevelled denim
+    /// button and a vellum leaf.
+    fn surfaces() -> Dom {
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(Dom::create_div().with_css(
+                "width: 240px; height: 60px; background: builtin(leather); \
+                 border-radius: 10px 10px 0px 0px; --azul-pillow: 76px .16;",
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_css("width: 240px; height: 4px; background: builtin(aluminium); --azul-bevel: 1px;"),
+            )
+            .with_child(Dom::create_div().with_css(
+                "width: 120px; height: 40px; margin: 8px; border-radius: 6px; \
+                 background: builtin(bluejeans); --azul-bevel: 3px;",
+            ))
+            .with_child(Dom::create_div().with_css("width: 120px; height: 40px; background: builtin(vellum-leaf);"))
+    }
+
+    #[test]
+    fn a_material_on_the_gpu_is_the_cpu_renderers_material() {
+        for dpi in [1.0_f32, 2.0] {
+            let Some((frames, on_gpu)) = draw_gpu_materials(surfaces, 260.0, 180.0, dpi) else {
+                return;
+            };
+            keep(&format!("materials-{dpi}x"), &frames);
+            assert!(on_gpu, "the GPU drew the materials: the material shader compiled ({dpi}x)");
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let (w, h) = ((260.0 * dpi) as u32, (180.0 * dpi) as u32);
+            let (differing, worst) = pixels_differing(&frames.gpu, &frames.cpu, (0, 0, w, h), 6);
+            assert!(
+                differing * 100 <= w * h,
+                "{differing} of {} pixels differ by more than 6 levels at {dpi}x, the worst by {} at {:?}",
+                w * h,
+                worst.0,
+                worst.1
+            );
+        }
+    }
+}

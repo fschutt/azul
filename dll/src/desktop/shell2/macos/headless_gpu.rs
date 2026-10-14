@@ -270,6 +270,146 @@ pub(crate) fn draw_both(dom: Dom, width: f32, height: f32, dpi: f32) -> Option<F
     })
 }
 
+/// `dom()` drawn with its MATERIALS on the GPU, as a GPU window draws them:
+/// the window is marked hardware (its background image callbacks run only in
+/// the GL frame path, with this context), so the material shader draws every
+/// `builtin(<material>)` background into a GL texture WebRender shows. The
+/// CPU frame comes from a second window laid out the same way without GL,
+/// whose materials the CPU shader draws. Also answers whether the GPU
+/// window's display list holds GL textures (the material shader ran). `None`
+/// without an OpenGL context.
+pub(crate) fn draw_gpu_materials(
+    dom: impl Fn() -> Dom,
+    width: f32,
+    height: f32,
+    dpi: f32,
+) -> Option<(Frames, bool)> {
+    use azul_core::{gl::GlContextPtr, window::RendererType};
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    let context = OffscreenContext::new()?;
+    let gl_functions = GlFunctions::initialize().ok()?;
+    let gl = gl_functions.get_context();
+    let gl_ptr = GlContextPtr::new(RendererType::Hardware, gl.clone());
+    if !gl_ptr.is_gl_usable() {
+        return None;
+    }
+    let (device_width, device_height) = ((width * dpi) as u32, (height * dpi) as u32);
+    let device_size = DeviceIntSize::new(device_width as i32, device_height as i32);
+    let framebuffer = Framebuffer::new(gl.clone(), device_size.width, device_size.height)?;
+
+    let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
+    let notifier = Notifier {
+        new_frame_ready: new_frame_ready.clone(),
+        wake: None,
+    };
+    let mut options = default_renderer_options(&WindowCreateOptions::default(), None, None);
+    options.clear_color = webrender::api::ColorF::WHITE;
+    let (mut renderer, sender) =
+        webrender::create_webrender_instance(gl.clone(), Box::new(notifier), options, None).ok()?;
+    renderer.set_external_image_handler(Box::new(crate::desktop::wr_translate2::Compositor::default()));
+    let mut render_api = sender.create_api();
+
+    let mut state = FullWindowState::default();
+    state.size.dimensions = LogicalSize::new(width, height);
+    state.size.dpi = (96.0 * dpi) as u32;
+
+    let mut window = LayoutWindow::new(FcFontCache::build()).ok()?;
+    window.document_id = translate_document_id_wr(render_api.add_document(device_size));
+    window.id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+    window.renderer_type = Some(RendererType::Hardware);
+    window.current_window_state = state.clone();
+    let mut messages = None;
+    window
+        .layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom()),
+            &state,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut messages,
+        )
+        .ok()?;
+
+    let mut txn = Transaction::new();
+    generate_frame(
+        &mut txn,
+        &mut window,
+        &mut render_api,
+        true,
+        &OptionGlContextPtr::Some(gl_ptr.clone()),
+    );
+    render_api.send_transaction(wr_translate_document_id(window.document_id), txn);
+    render_api.flush_scene_builder();
+    {
+        let (ready, signal) = &*new_frame_ready;
+        let mut ready = ready.lock().ok()?;
+        while !*ready {
+            let (next, timeout) = signal.wait_timeout(ready, Duration::from_secs(20)).ok()?;
+            ready = next;
+            if timeout.timed_out() {
+                return None;
+            }
+        }
+    }
+    framebuffer.bind();
+    renderer.update();
+    renderer.render(device_size, 0).ok()?;
+    let mut gpu = AzulPixmap::new(device_width, device_height)?;
+    gpu.data_mut()
+        .copy_from_slice(&framebuffer.read(device_width, device_height));
+    let display_list = window
+        .get_layout_result(&DomId::ROOT_ID)?
+        .display_list
+        .clone();
+    let on_gpu = display_list.items.iter().any(|item| {
+        matches!(item, DisplayListItem::Image { image, .. } if image.is_gl_texture())
+    });
+    // The GL textures go while their context is current.
+    drop(display_list);
+    drop(window);
+    drop(framebuffer);
+    renderer.deinit();
+    drop(gl_ptr);
+    drop(context);
+
+    let mut cpu_window = LayoutWindow::new(FcFontCache::build()).ok()?;
+    cpu_window.current_window_state = state.clone();
+    cpu_window
+        .layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom()),
+            &state,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut messages,
+        )
+        .ok()?;
+    cpu_window.prepare_frame_content();
+    let display_list = cpu_window
+        .get_layout_result(&DomId::ROOT_ID)?
+        .display_list
+        .clone();
+    let cpu = render(
+        &display_list,
+        &cpu_window.renderer_resources,
+        &cpu_window.font_manager,
+        RenderOptions {
+            width,
+            height,
+            dpi_factor: dpi,
+        },
+        &mut GlyphCache::new(),
+    )
+    .ok()?;
+    Some((
+        Frames {
+            gpu,
+            cpu,
+            display_list,
+        },
+        on_gpu,
+    ))
+}
+
 /// The largest difference of any channel between the two frames' pixels in
 /// the device-pixel box `(x, y, w, h)`, and where it is.
 pub(crate) fn largest_difference(
