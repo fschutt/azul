@@ -295,19 +295,33 @@ pub(crate) fn largest_difference(
 
 /// How many pixels of the device-pixel box `(x, y, w, h)` differ between the
 /// two frames by more than `by` in some channel, and the largest difference
-/// with where it is. A count tells a bar or a block from the antialiasing of
-/// an edge, which differs a little along a line.
+/// with where it is. A pixel of `a` that matches one of `b` at most one device
+/// pixel away is not counted: two rasterisers may put a long curved edge
+/// half a pixel apart all along it, while a missing bar or block still
+/// differs inside. A count tells those from the antialiasing of an edge.
 pub(crate) fn pixels_differing(
     a: &AzulPixmap,
     b: &AzulPixmap,
     (x, y, w, h): (u32, u32, u32, u32),
     by: u8,
 ) -> (u32, (u8, (u32, u32))) {
+    let (x_end, y_end) = (
+        (x + w).min(a.width).min(b.width),
+        (y + h).min(a.height).min(b.height),
+    );
+    let matches_near = |px: u32, py: u32| {
+        let i = ((py * a.width + px) * 4) as usize;
+        (py.saturating_sub(1)..=(py + 1).min(b.height - 1)).any(|qy| {
+            (px.saturating_sub(1)..=(px + 1).min(b.width - 1)).any(|qx| {
+                let j = ((qy * b.width + qx) * 4) as usize;
+                (0..4).all(|c| a.data()[i + c].abs_diff(b.data()[j + c]) <= by)
+            })
+        })
+    };
     let mut differing = 0;
-    for py in y..(y + h).min(a.height).min(b.height) {
-        for px in x..(x + w).min(a.width).min(b.width) {
-            let (d, _) = largest_difference(a, b, (px, py, 1, 1));
-            if d > by {
+    for py in y..y_end {
+        for px in x..x_end {
+            if !matches_near(px, py) {
                 differing += 1;
             }
         }

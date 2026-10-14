@@ -4126,9 +4126,9 @@ mod tab_curve_pixel_tests {
     }
 
     /// Inside every curve's box at most one pixel in twenty-five differs from
-    /// the CPU's frame by more than an edge's antialiasing (32 in a channel),
-    /// which leaves room for a box edge on a half device pixel; a bar three
-    /// CSS px wide down a curve is fifteen in a hundred.
+    /// the CPU's frame by more than an edge's antialiasing (32 in a channel)
+    /// once the curve's edges may lie a device pixel apart; a bar three CSS
+    /// px wide down a curve is still ten in a hundred.
     #[test]
     fn the_ribbons_tab_curves_are_drawn_on_the_gpu_as_on_the_cpu() {
         const DPI: f32 = 2.0;
