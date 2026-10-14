@@ -277,6 +277,13 @@ pub(crate) fn css_color(color: ColorU) -> String {
         .map_or_else(|| color.to_hex(), |system| String::from(system.as_css_str()))
 }
 
+/// Whether `color` paints anything: an opaque or translucent colour, or a
+/// system colour token (whose own alpha is 0: it names the theme's colour).
+fn paints(color: ColorU) -> bool {
+    color.a > 0
+        || azul_css::props::basic::color::SystemColorRef::from_color_token(color).is_some()
+}
+
 /// The camera of a map view: the transform its tile grid is drawn with
 /// (`perspective() rotateX() rotate()` about the grid's centre), as a plane
 /// homography, and its inverse.
@@ -807,15 +814,15 @@ pub(crate) fn ground_nodes(
                     let Some(stroke) = &shape.stroke else {
                         continue;
                     };
-                    if line.casing_width > line.width && line.casing_color.a > 0 {
+                    if line.casing_width > line.width && paints(line.casing_color) {
                         layers.push(stroke_node(stroke, line.casing_color, line.casing_width));
                     }
-                    if line.width > 0.0 && line.color.a > 0 {
+                    if line.width > 0.0 && paints(line.color) {
                         layers.push(stroke_node(stroke, line.color, line.width));
                     }
                 }
                 MapOverlay::Polygon(area) => {
-                    if let Some(fill) = shape.fill.as_ref().filter(|_| area.fill.a > 0) {
+                    if let Some(fill) = shape.fill.as_ref().filter(|_| paints(area.fill)) {
                         let css = alloc::format!("{layer} background: {};", css_color(area.fill));
                         layers.push(
                             Dom::create_div()
@@ -824,7 +831,7 @@ pub(crate) fn ground_nodes(
                         );
                     }
                     if let Some(stroke) = &shape.stroke {
-                        if area.stroke_width > 0.0 && area.stroke.a > 0 {
+                        if area.stroke_width > 0.0 && paints(area.stroke) {
                             layers.push(stroke_node(stroke, area.stroke, area.stroke_width));
                         }
                     }

@@ -41,7 +41,7 @@ pub struct RouteRequest {
 }
 
 /// A route the worker worked out.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RouteReply {
     /// The request's number.
     pub id: u64,
@@ -49,6 +49,10 @@ pub struct RouteReply {
     pub to: (f64, f64),
     pub mode: TravelMode,
     pub route: RouteEstimate,
+    /// The road route's places, `(lat, lon)`, from where the start meets
+    /// the roads to where the destination does; empty when there is no road
+    /// route (the estimate is all there is).
+    pub road: Vec<(f64, f64)>,
     /// How long the worker worked on it, in ms.
     pub compute_ms: f64,
 }
@@ -118,6 +122,7 @@ pub extern "C" fn route_worker(
             to,
             mode,
             route,
+            road: Vec::new(),
             compute_ms,
         }),
     )));

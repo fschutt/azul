@@ -40,20 +40,11 @@ names! {
 }
 
 /// An id made at run time: `__azmaps_<stem>-<n>` (`place-0` the first
-/// place's row, `place-pin-0` its pin, `place-directions-0` the button in its
-/// popover).
+/// place's row, `place-pin-0` its pin's icon on the map, `place-directions-0` the
+/// button on its card).
 #[must_use]
 pub fn indexed(stem: &str, n: usize) -> AzString {
     AzString::from(format!("__azmaps_{stem}-{n}"))
-}
-
-/// The outer box of a mark the window draws at a place on the map:
-/// `__azmaps_mark-<generation>-<key>`, the key `route`, `from`, `to`, `here`
-/// or `pin-<n>`. The generation changes after a pan moved the marks in place
-/// (`MapState::mark_generation` says why).
-#[must_use]
-pub fn mark(generation: u64, key: &str) -> AzString {
-    AzString::from(format!("__azmaps_mark-{generation}-{key}"))
 }
 
 /// A travel mode's button: `__azmaps_travel-car`, `__azmaps_travel-walk`, ...
