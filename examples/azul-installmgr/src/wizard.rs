@@ -283,8 +283,18 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
             let reason = p.blocked_reason().as_str().to_string();
             (p.dom(), reason)
         }
+        // The channel and auto-update, then where the apps come from.
         Step::Channel => (
-            w.options.clone().with_on_event(app.clone(), on_page).dom(),
+            pieces::column(
+                "flex-grow: 1; min-height: 0px;",
+                vec![
+                    w.options.clone().with_on_event(app.clone(), on_page).dom(),
+                    pieces::block(
+                        "padding: 0px 24px 12px 24px;",
+                        crate::settings::source_section(m, app),
+                    ),
+                ],
+            ),
             String::new(),
         ),
         Step::Ready => {
@@ -303,13 +313,26 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
             } else {
                 "azinstallmgr-no"
             });
+            let source = m
+                .updates
+                .manifest_url
+                .clone()
+                .filter(|_| model::has_source(&m.updates))
+                .unwrap_or_else(|| t("azinstallmgr-source-unset"));
             let p = WizardSummaryPage::create(StringPairVec::from_vec(Vec::new()))
                 .with_intro(s(&t("azinstallmgr-ready-intro")))
                 .with_row(s(&t("azinstallmgr-ready-folder")), s(&w.path))
                 .with_row(s(&t("azinstallmgr-ready-apps")), s(&names.join(", ")))
                 .with_row(s(&t("azinstallmgr-ready-channel")), s(&channel))
-                .with_row(s(&t("azinstallmgr-autoupdate")), s(&autoupdate));
-            (p.dom(), String::new())
+                .with_row(s(&t("azinstallmgr-autoupdate")), s(&autoupdate))
+                .with_row(s(&t("azinstallmgr-settings-source")), s(&source));
+            // Nothing can be fetched without a source: Install waits and says where to set it.
+            let reason = if model::has_source(&m.updates) {
+                String::new()
+            } else {
+                t("azinstallmgr-ready-no-source")
+            };
+            (p.dom(), reason)
         }
         Step::Installing => {
             let progress = &w.progress;

@@ -64,11 +64,13 @@ impl Job {
     }
 }
 
-/// A change of the update policy: for every app (`None`) or one app (its key).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A change of the update policy: for every app (`None`) or one app (its key), or the update
+/// source every app is fetched from (`None`: no source).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConfigChange {
     Autoupdate(Option<&'static str>, bool),
     Channel(Option<&'static str>, Channel),
+    Source(Option<String>),
 }
 
 impl ConfigChange {
@@ -79,6 +81,7 @@ impl ConfigChange {
             ConfigChange::Channel(key, channel) => {
                 format!("channel {} {}", key.unwrap_or("*"), channel.name())
             }
+            ConfigChange::Source(url) => format!("source {}", url.as_deref().unwrap_or("-")),
         }
     }
 
@@ -104,6 +107,7 @@ impl ConfigChange {
                 }
             }
             ConfigChange::Channel(Some(key), channel) => updates.set_channel(Some(key), channel),
+            ConfigChange::Source(url) => updates.manifest_url = url,
         }
     }
 }
@@ -331,5 +335,24 @@ fn requests(engine: &dyn UpdateEngine, fetching: &Fetching, send: &mut dyn FnMut
             }
         }
         send(Progress::Requested { key, result });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_update_source_is_kept_in_the_config_and_an_empty_one_removes_it() {
+        let url = "https://example.org/{app}/{channel}.json";
+        let mut updates = azul_appkit::azlin_config::UpdatesSection::default();
+        let change = ConfigChange::Source(Some(url.to_string()));
+        assert_eq!(change.describe(), format!("source {url}"));
+        change.apply(&mut updates);
+        assert_eq!(updates.manifest_url.as_deref(), Some(url));
+        let change = ConfigChange::Source(None);
+        assert_eq!(change.describe(), "source -");
+        change.apply(&mut updates);
+        assert_eq!(updates.manifest_url, None);
     }
 }

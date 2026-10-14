@@ -133,6 +133,9 @@ pub(crate) struct Manager {
     pub(crate) polling: bool,
     /// The last thing to tell the user, under the table (empty: nothing).
     pub(crate) notice: String,
+    /// Why the update source last typed was not kept (not a web address), shown under its
+    /// field on the settings screen and the wizard's Updates page; empty: nothing to say.
+    pub(crate) source_problem: String,
     pub(crate) about_open: bool,
     /// The wizard's "Exit Setup?" question is open.
     pub(crate) confirm_cancel: bool,
@@ -175,6 +178,7 @@ impl Manager {
             busy: false,
             polling: false,
             notice: String::new(),
+            source_problem: String::new(),
             about_open: false,
             confirm_cancel: false,
             confirm_uninstall: None,
@@ -602,6 +606,7 @@ pub fn start() {
         busy: false,
         polling: false,
         notice: String::new(),
+        source_problem: String::new(),
         about_open: false,
         confirm_cancel: false,
         confirm_uninstall: None,
