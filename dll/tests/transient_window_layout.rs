@@ -3927,7 +3927,8 @@ fn a_modal_the_app_reopens_after_its_close_button_closed_it_shows_again() {
     assert!(modal_shown(&parent), "the app opened it");
 
     // The user presses the close button, wherever the modal is shown: in
-    // the parent's own layout, or in the modal's window.
+    // the parent's own layout, or on the modal's window - a modal dialog is
+    // a window of its own, and its close button is the system's close box.
     if let Some(x) = laid_out_rect(&parent, "-close") {
         click_at(&mut parent, center_of(x));
     } else {
@@ -3935,8 +3936,12 @@ fn a_modal_the_app_reopens_after_its_close_button_closed_it_shows_again() {
         let mut popup = headless(popup_opts, parent.common.app_data.clone());
         popup.regenerate_layout().expect("popup layout");
         let _ = popup.process_window_events(0);
-        let x = laid_out_rect(&popup, "-close").expect("the close button is in the modal's window");
-        click_at(&mut popup, center_of(x));
+        match laid_out_rect(&popup, "-close") {
+            Some(x) => click_at(&mut popup, center_of(x)),
+            None => {
+                let _ = popup.request_window_close("test.close_box");
+            }
+        }
     }
     parent.regenerate_layout().expect("the app's rebuild");
     assert_eq!(
