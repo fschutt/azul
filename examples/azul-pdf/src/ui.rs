@@ -39,8 +39,8 @@ use azul_appkit::{
 use crate::{
     ids,
     model::{
-        file_title, size_label, Field, FieldKind, FieldWidget, PageArt, Strip, Zoom, PAGE_GAP,
-        VIEW_PAD,
+        file_title, size_label, Field, FieldKind, FieldWidget, PageArt, PageSize, Strip, Zoom,
+        PAGE_GAP, VIEW_PAD,
     },
     AppState, Nav,
 };
@@ -219,6 +219,15 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
 /// (never in the "more" menu) and the settings gear. Each tool's `id` is its
 /// DOM-id name from [`ids`]: what [`on_toolbar`] matches.
 fn toolbar(s: &AppState, data: &RefAny) -> Dom {
+    Toolbar::create(t("azpdf-document"))
+        .with_items(toolbar_items(s, data))
+        .with_on_event(data.clone(), on_toolbar as ToolbarOnEventCallbackType)
+        .dom()
+        .with_id(ids::TOOLBAR)
+}
+
+/// The toolbar's tools, in their order.
+fn toolbar_items(s: &AppState, data: &RefAny) -> Vec<ToolbarItem> {
     let count = s.doc.as_ref().map_or(0, crate::jobs::Doc::page_count);
     let page = s.current_page.min(count.saturating_sub(1));
 
@@ -297,11 +306,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
                 .with_show_label(true),
         );
     }
-    Toolbar::create(t("azpdf-document"))
-        .with_items(items)
-        .with_on_event(data.clone(), on_toolbar as ToolbarOnEventCallbackType)
-        .dom()
-        .with_id(ids::TOOLBAR)
+    items
 }
 
 /// A tool was pressed: the tool's `id` names the command.
@@ -955,25 +960,133 @@ fn status_bar(s: &AppState) -> Dom {
     if let Some(doc) = s.doc.as_ref() {
         let count = doc.page_count();
         let page = s.current_page.min(count.saturating_sub(1));
-        segments.push(StatusBarSegment::create(
-            t_args(
-                "azpdf-page-of",
-                &[("page", Arg::from(page + 1)), ("count", Arg::from(count))],
-            )
-            .as_str(),
-        ));
-        if let Some(size) = doc.sizes.get(page) {
-            segments.push(StatusBarSegment::create(size_label(*size).as_str()));
-        }
         let percent = (s.scale() * 100.0).round() as u32;
-        segments.push(StatusBarSegment::create(
-            match s.zoom {
-                Zoom::Percent(_) => format!("{percent} %"),
-                other => format!("{} ({percent} %)", other.label()),
-            }
-            .as_str(),
-        ));
+        let figures = status_figures(page, count, doc.sizes.get(page).copied(), s.zoom, percent);
+        for (icon, text) in figures {
+            let segment = StatusBarSegment::create(text.as_str());
+            segments.push(if icon.is_empty() { segment } else { segment.with_icon(icon) });
+        }
     }
     segments.push(StatusBarSegment::create(s.status.as_str()));
     StatusBar::create(segments).dom()
+}
+
+/// The status line's figures about the document, each with its icon (empty for none): the
+/// page of `count`, the page's `size`, the `zoom` at `percent`.
+fn status_figures(
+    page: usize,
+    count: usize,
+    size: Option<PageSize>,
+    zoom: Zoom,
+    percent: u32,
+) -> Vec<(&'static str, String)> {
+    let mut figures = vec![(
+        "",
+        t_args(
+            "azpdf-page-of",
+            &[("page", Arg::from(page + 1)), ("count", Arg::from(count))],
+        ),
+    )];
+    if let Some(size) = size {
+        figures.push(("", size_label(size)));
+    }
+    figures.push((
+        "",
+        match zoom {
+            Zoom::Percent(_) => format!("{percent} %"),
+            other => format!("{} ({percent} %)", other.label()),
+        },
+    ));
+    figures
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app() -> AppState {
+        AppState::new(RefAny::new(0u8), std::path::PathBuf::new(), None, false)
+    }
+
+    /// `dom` and every box inside it, in tree order.
+    fn nodes(dom: &Dom) -> Vec<&Dom> {
+        let mut out = vec![dom];
+        for child in dom.children.as_slice() {
+            out.extend(nodes(child));
+        }
+        out
+    }
+
+    /// The words inside `dom`.
+    fn texts(dom: &Dom) -> Vec<String> {
+        nodes(dom)
+            .into_iter()
+            .filter_map(|n| n.root.node_type.get_text().into_option())
+            .map(|t| t.as_str().to_string())
+            .filter(|t| !t.trim().is_empty())
+            .collect()
+    }
+
+    /// The navigation pane's two tabs read as words in the window's language, never as the
+    /// keys they are looked up by.
+    #[test]
+    fn the_navigation_tabs_say_pages_and_outline_in_the_windows_language() {
+        crate::l10n::in_english();
+        let s = app();
+        let shown = texts(&navigation(&s, &RefAny::new(0u8)));
+        assert!(shown.iter().any(|t| t == "Pages"), "{shown:?}");
+        assert!(shown.iter().any(|t| t == "Outline"), "{shown:?}");
+        azul_appkit::l10n::set_locale("de-DE");
+        let shown = texts(&navigation(&s, &RefAny::new(0u8)));
+        azul_appkit::l10n::set_locale("en-US");
+        assert!(shown.iter().any(|t| t == "Seiten"), "{shown:?}");
+        assert!(shown.iter().any(|t| t == "Gliederung"), "{shown:?}");
+    }
+
+    /// Every command of the toolbar is a small icon; its name is its tooltip and what a screen
+    /// reader says.
+    #[test]
+    fn the_toolbar_commands_are_small_icons_named_by_their_tooltips() {
+        crate::l10n::in_english();
+        let s = app();
+        let items = toolbar_items(&s, &RefAny::new(0u8));
+        let open = items
+            .iter()
+            .find(|item| item.id.as_str() == ids::OPEN.as_str())
+            .expect("an Open tool");
+        assert_eq!(open.label.as_str(), "Open", "its name, for the tooltip");
+        for item in items.iter().filter(|item| !item.icon.as_str().is_empty()) {
+            assert!(
+                !item.shows_label(),
+                "{} shows its words beside its icon",
+                item.id.as_str()
+            );
+        }
+    }
+
+    /// The status line is figures beside small icons - the page of the count, the paper, the
+    /// zoom - not sentences.
+    #[test]
+    fn the_status_line_shows_figures_beside_small_icons() {
+        crate::l10n::in_english();
+        let a4 = PageSize {
+            width_pt: 595.0,
+            height_pt: 842.0,
+        };
+        assert_eq!(
+            status_figures(0, 3, Some(a4), Zoom::FitWidth, 85),
+            vec![
+                ("description", "1 / 3".to_string()),
+                ("straighten", "A4 \u{b7} 210 \u{d7} 297 mm".to_string()),
+                ("fit_screen", "85 %".to_string()),
+            ]
+        );
+        assert_eq!(
+            status_figures(1, 3, None, Zoom::Percent(150), 150),
+            vec![
+                ("description", "2 / 3".to_string()),
+                ("zoom_in", "150 %".to_string()),
+            ]
+        );
+    }
 }
