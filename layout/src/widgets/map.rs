@@ -3329,6 +3329,11 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 .or_insert(TileEntry::Pending);
         }
         cache.drop_unwanted_pending();
+        // The view's tiles again: a failure old enough is queued once more
+        // (the network may be back) without waiting for a pan.
+        if let Some(wanted) = cache.wanted {
+            cache.want_tiles_at(wanted, look, map_clock());
+        }
         // The shipped tiles at the look shown: queued whatever the view
         // wants, since they stand in for every tile that has not arrived.
         let pinned: Vec<MapTileId> = cache.pinned.iter().copied().collect();
