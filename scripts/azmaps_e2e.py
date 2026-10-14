@@ -106,7 +106,9 @@ def body(args, logs, out):
         app = e2e.App(name, binary,
                       ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--stats", "--language", "en",
                        # No public routing server from a test run: the routes are the estimate.
-                       "--routing-online", "off"],
+                       "--routing-online", "off",
+                       # No public transport server either: the places are AzMaps' own list.
+                       "--transit", "off"],
                       args.debug_port, logs, args.timeout)
         app.until("AzMaps' window", lambda: app.has_id(MAP))
         app.frame(2)
