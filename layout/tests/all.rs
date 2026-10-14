@@ -1099,3 +1099,5 @@ mod tab_labels_sit_evenly_apart_in_every_tab_style;
 mod tab_buttons_are_22px_flora_buttons_in_a_28px_row;
 #[path = "a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line.rs"]
 mod a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line;
+#[path = "a_tab_bar_with_a_reveal_draws_no_tab_selected_while_its_panel_is_closed.rs"]
+mod a_tab_bar_with_a_reveal_draws_no_tab_selected_while_its_panel_is_closed;
