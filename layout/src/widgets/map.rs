@@ -47,6 +47,8 @@ pub mod overlay;
 pub mod labels;
 #[cfg(test)]
 mod label_placement_tests;
+#[cfg(test)]
+mod stand_in_tests;
 pub use overlay::{
     MapLatLonVec, MapLatLonVecDestructor, MapLatLonVecDestructorType, MapLatLonVecSlice,
     MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,
