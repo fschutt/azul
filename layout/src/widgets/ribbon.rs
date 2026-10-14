@@ -4085,7 +4085,7 @@ impl Ribbon {
                         Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
                             inner: FloatValue::const_new(0),
                         })),
-                        Cond::simple(P::ColumnGap(LayoutColumnGapValue::Exact(LayoutColumnGap {
+                        Cond::simple(P::ColumnGap(azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
                             inner: PixelValue::const_px(STRIP_END_GAP),
                         }))),
                     ]))
@@ -4515,7 +4515,7 @@ fn pill_row_style(mut s: RibbonStyle, theme: UiTheme) -> RibbonStyle {
                 inner: FloatValue::const_new(0),
             })),
             Cond::simple(P::const_height(LayoutHeight::const_px(PILL_ROW))),
-            Cond::simple(P::ColumnGap(LayoutColumnGapValue::Exact(LayoutColumnGap {
+            Cond::simple(P::ColumnGap(azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
                 inner: PixelValue::const_px(PILL_GAP),
             }))),
             Cond::simple(decl::fill(ColorU::TRANSPARENT)),

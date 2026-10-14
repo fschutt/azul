@@ -564,7 +564,7 @@ impl TabOverview {
             decl::display_flex(),
             decl::flex_direction(LayoutFlexDirection::Row),
             C::simple(P::const_align_items(LayoutAlignItems::Center)),
-            C::simple(P::ColumnGap(LayoutColumnGapValue::Exact(LayoutColumnGap {
+            C::simple(P::ColumnGap(azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
                 inner: PixelValue::const_px(11),
             }))),
             C::simple(P::const_cursor(StyleCursor::Pointer)),
@@ -602,7 +602,7 @@ impl TabOverview {
                 decl::flex_direction(LayoutFlexDirection::Column),
                 decl::grow(1),
                 C::simple(P::const_min_width(LayoutMinWidth::const_px(0))),
-                C::simple(P::RowGap(LayoutRowGapValue::Exact(LayoutRowGap {
+                C::simple(P::RowGap(azul_css::props::property::LayoutRowGapValue::Exact(LayoutRowGap {
                     inner: PixelValue::const_px(1),
                 }))),
             ]))
