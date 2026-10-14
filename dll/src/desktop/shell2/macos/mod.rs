@@ -3782,6 +3782,16 @@ define_class!(
                     }
                     // GL surface may have moved to a different screen
                     macos_window.surface_needs_update = true;
+                    // Under a point light, or reflecting the wallpaper behind
+                    // it, the window's materials change as it moves.
+                    let relight = macos_window
+                        .common
+                        .layout_window
+                        .as_ref()
+                        .is_some_and(azul_layout::window::LayoutWindow::materials_follow_window_position);
+                    if relight {
+                        macos_window.request_redraw();
+                    }
                     // Dispatch the move and consume the delta in THIS handler.
                     let result = macos_window.process_window_events(0);
                     macos_window.apply_activation_pass_result(result);

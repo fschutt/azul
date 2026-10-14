@@ -10436,6 +10436,14 @@ impl LayoutWindow {
         })
     }
 
+    /// Whether this window's materials change when the window moves: under
+    /// a point light, or while they reflect the desktop's wallpaper. A shell
+    /// that sees the window move redraws it then.
+    #[must_use]
+    pub fn materials_follow_window_position(&self) -> bool {
+        self.effective_light().depends_on_position() || self.reflects_the_desktop()
+    }
+
     /// Whether a material here reflects the desktop (the wallpapers are
     /// known): a window that moves then renders its metals again.
     fn reflects_the_desktop(&self) -> bool {
