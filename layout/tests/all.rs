@@ -1093,3 +1093,5 @@ mod a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout;
 mod a_marker_stands_where_the_ground_shows_its_place;
 #[path = "a_closing_window_hands_its_app_threads_to_a_window_that_stays_open.rs"]
 mod a_closing_window_hands_its_app_threads_to_a_window_that_stays_open;
+#[path = "calmet_ui_falls_back_per_code_point.rs"]
+mod calmet_ui_falls_back_per_code_point;
