@@ -4,6 +4,8 @@
 mod account;
 mod ban;
 mod bucket;
+/// Many files at once: folders deleted and moved, batch deletes and moves.
+mod bulk;
 mod cash;
 mod claim;
 mod claim_ticket;
