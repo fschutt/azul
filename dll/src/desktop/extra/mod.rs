@@ -73,6 +73,10 @@ pub mod screencap;
 ///   the network ([`sensors::network`]), each a synchronous query
 ///   of a cached or cheap reading; a fixed reading (or a test's switch file) in headless runs.
 pub mod sensors;
+/// Speech on the platform's engines: text said aloud (AVSpeechSynthesizer, SAPI,
+/// speech-dispatcher) and what the user says heard (SFSpeechRecognizer, WinRT); logged, not
+/// spoken, in a headless run. See `speech/mod.rs`.
+pub mod speech;
 /// SQLite-backed `Db` engine (P4.3). The `Db` handle is always present
 /// (so it flows through the normal api.json codegen with no feature
 /// gating); the bundled-SQLite `rusqlite` engine behind it is opt-in via
