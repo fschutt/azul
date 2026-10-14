@@ -1846,3 +1846,18 @@ azdrive-loctabs-count = { $count ->
        *[other] { $count } tabs
     }
 azdrive-menu-open-in-new-tab = Open in new tab
+
+## The search view (behaviour B): its bar, its empty states, its results' folders
+
+azdrive-scope-folder = This folder
+azdrive-scope-drive = This drive
+azdrive-scope-all = All drives
+azdrive-find-type-to-search = Type to search the names and contents of your files.
+azdrive-find-did-you-mean = Did you mean “{ $word }”?
+azdrive-find-search-everywhere = Search all drives
+azdrive-find-search-contents = Search the files’ contents too
+azdrive-find-clear-filters = Clear the filters
+azdrive-find-group-count = { $count ->
+        [one] one item
+       *[other] { $count } items
+    }

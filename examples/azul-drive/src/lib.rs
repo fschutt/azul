@@ -1017,7 +1017,7 @@ impl DriveState {
     /// The layout the folder view draws: the search's results always in Details (a row each,
     /// with its folder and the line it matched on), else the user's.
     pub fn view_layout(&self) -> model::ViewLayout {
-        if self.find.is_some() {
+        if self.find.is_some() || self.search_open {
             model::ViewLayout::Details
         } else {
             self.settings.layout
@@ -1027,7 +1027,7 @@ impl DriveState {
     /// The grouping the folder view draws: none for the search's results (they come in the
     /// order they were found: names first), else the user's.
     pub fn view_grouping(&self) -> model::GroupBy {
-        if self.find.is_some() {
+        if self.find.is_some() || self.search_open {
             model::GroupBy::None
         } else {
             self.settings.group_by

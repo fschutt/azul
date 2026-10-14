@@ -32,7 +32,7 @@ pub const EMPTY_FOLDER: AzString = AzString::from_const_str("__azdrive_empty_fol
 pub const FOLDER_VIEW: AzString = AzString::from_const_str("__azdrive_folder_view");
 /// The icon layouts' grid (azul's IconGrid); its items are `__azdrive_icon_grid-<index>`.
 pub const ICON_GRID: AzString = AzString::from_const_str("__azdrive_icon_grid");
-/// The search's results: their column header (Name, Folder, Match, Date modified, Size).
+/// The search's results: their column header (Name, Match, Date modified, Size).
 pub const FIND_HEADER: AzString = AzString::from_const_str("__azdrive_find_header");
 /// The note over a cloud drive's results: searched by name, slower.
 pub const FIND_NOTE: AzString = AzString::from_const_str("__azdrive_find_note");
@@ -376,9 +376,9 @@ pub const SIDE_ROW_CLASS: AzString = AzString::from_const_str("__azdrive_side_ro
 pub const SIDE_SECTION_CLASS: AzString = AzString::from_const_str("__azdrive_side_section");
 /// The row of the place the window shows.
 pub const SIDE_SELECTED_CLASS: AzString = AzString::from_const_str("__azdrive_side_selected");
-/// A search result's Folder cell (where it is).
-pub const FIND_FOLDER_CLASS: AzString = AzString::from_const_str("__azdrive_find_folder");
-/// A search result's Match cell (the line its contents matched on).
+/// The header of a folder's search results ("Home › Documents · 2 items").
+pub const FIND_GROUP_CLASS: AzString = AzString::from_const_str("__azdrive_find_group");
+/// A search result's Match cell (two lines of the text its contents matched on).
 pub const FIND_MATCH_CLASS: AzString = AzString::from_const_str("__azdrive_find_match");
 /// The sync state icon after an item's name (its accessible name says the state).
 pub const SYNC_STATE_CLASS: AzString = AzString::from_const_str("__azdrive_sync_state");

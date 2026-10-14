@@ -421,6 +421,170 @@ pub(crate) const FIND_NOTE: &str = themed!(
     "background: #302B1E; border-bottom: 1px solid #101010; color: #DCD2B0;",
 );
 
+/// The search's bar over its view: the chips, the count, Save search.
+pub(crate) const FIND_BAR: &str = themed!(
+    "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; flex-shrink: 0; \
+     padding: 7px 10px; column-gap: 6px; row-gap: 6px;",
+    "background: #F3F6F9; border-bottom: 1px solid #D3D9E0;",
+    "background: #2B2B2B; border-bottom: 1px solid #1E1E1E;",
+    "background: #EFEDE7; border-bottom: 1px solid #D8D5CE;",
+    "background: #222222; border-bottom: 1px solid #383838;",
+);
+
+/// The rule between the scope chips and the refine chips.
+pub(crate) const FIND_BAR_SEPARATOR: &str = themed!(
+    "width: 1px; height: 18px; margin: 0px 4px; flex-shrink: 0;",
+    "background: #C2C9D2;",
+    "background: #4D4D4D;",
+    "background: #C6C3BB;",
+    "background: #3F3F3F;",
+);
+
+/// A chip: a small rounded button of the search's bar and its empty states.
+pub(crate) const CHIP: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 24px; \
+     box-sizing: border-box; padding: 0px 10px; border-radius: 12px; font-size: 12.5px; \
+     white-space: nowrap; cursor: default;",
+    "border: 1px solid #C2C9D2; background: linear-gradient(to bottom, #FFFFFF, #EDF1F5); \
+     color: #3D4A5C; :hover { border-color: #8E9BAD; color: #1E1E1E; }",
+    "border: 1px solid #4D4D4D; background: linear-gradient(to bottom, #3C3C3C, #313131); \
+     color: #D0D0D0; :hover { border-color: #6A6A6A; color: #F2F2F2; }",
+    "border: 1px solid #C6C3BB; background: linear-gradient(to bottom, #FAF9F5, #ECEAE4); \
+     color: #4E4C45; :hover { border-color: #9C9890; color: #262521; }",
+    "border: 1px solid #3F3F3F; background: linear-gradient(to bottom, #333333, #292929); \
+     color: #BCBCBC; :hover { border-color: #616161; color: #E7E7E7; }",
+);
+
+/// A chosen scope chip: the accent.
+pub(crate) const CHIP_ON: &str = themed!(
+    "",
+    "background: #2B579A; border-color: #1E3F73; color: #FFFFFF; \
+     :hover { background: #2B579A; color: #FFFFFF; }",
+    "background: #2B579A; border-color: #1E3F73; color: #FFFFFF; \
+     :hover { background: #2B579A; color: #FFFFFF; }",
+    "background: #2F4A85; border-color: #1E3260; color: #F4F2EA; \
+     box-shadow: inset 0px 1px 0px rgba(255, 255, 255, 0.16); \
+     :hover { background: #2F4A85; color: #F4F2EA; }",
+    "background: #2F4A85; border-color: #1E3260; color: #F4F2EA; \
+     :hover { background: #2F4A85; color: #F4F2EA; }",
+);
+
+/// A filter chip that narrows the search: outlined in the accent.
+pub(crate) const CHIP_SET: &str = themed!(
+    "",
+    "border-color: #2B579A; color: #2B579A; background: #E3ECF7; \
+     :hover { background: #E3ECF7; }",
+    "border-color: #4683D6; color: #DCE6F2; background: #2E3E55; \
+     :hover { background: #2E3E55; }",
+    "border-color: #2F4A85; color: #2F4A85; background: #E0E4EE; \
+     :hover { background: #E0E4EE; }",
+    "border-color: #4A65A0; color: #DCE3F2; background: #24304A; \
+     :hover { background: #24304A; }",
+);
+
+/// A row of chips under an empty state, centred.
+pub(crate) const CHIP_ROW: &str =
+    "display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center; \
+     column-gap: 8px; row-gap: 8px; margin-top: 10px;";
+
+/// The search bar's count.
+pub(crate) const FIND_STATUS: &str = themed!(
+    "font-size: 12.5px; font-variant-numeric: tabular-nums; margin-right: 6px;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// A quiet text button (Save search): its words in the accent, a face only under the pointer.
+pub(crate) const QUIET_BUTTON: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; height: 24px; padding: 0px 8px; \
+     border-radius: 3px; font-size: 12.5px; cursor: default;",
+    "color: #2B579A; :hover { background: #DDE4EC; }",
+    "color: #7AA7E0; :hover { background: #3A3A3A; }",
+    "color: #2F4A85; :hover { background: #E4E1DA; }",
+    "color: #7A93C6; :hover { background: #333333; }",
+);
+
+/// An empty state of the search view: centred, its icon, its title, its detail, its chips.
+pub(crate) const FIND_EMPTY_STATE: &str = themed!(
+    "display: flex; flex-direction: column; align-items: center; justify-content: center; \
+     flex-grow: 1; padding: 40px; text-align: center;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// The empty state's big icon.
+pub(crate) const FIND_EMPTY_ICON: &str = themed!(
+    "font-size: 46px; margin-bottom: 6px;",
+    "color: #B4BDC9;",
+    "color: #5A5A5A;",
+    "color: #B4B1A9;",
+    "color: #4A4A4A;",
+);
+
+/// The empty state's title.
+pub(crate) const FIND_EMPTY_TITLE: &str = themed!(
+    "font-size: 18px; margin-bottom: 6px;",
+    "color: #1E1E1E;",
+    "color: #F2F2F2;",
+    "color: #262521;",
+    "color: #E7E7E7;",
+);
+
+/// The empty state's sentence under its title.
+pub(crate) const FIND_EMPTY_DETAIL: &str = "font-size: 13.5px; max-width: 420px;";
+
+/// The header of a folder's results: the folder's path in the accent, a rule to the edge.
+pub(crate) const FIND_GROUP: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; box-sizing: border-box; \
+     padding: 0px 10px; flex-shrink: 0; font-size: 13.5px; position: sticky; top: 0px;",
+    "color: #2B579A; background: #FFFFFF; border-bottom: 1px solid #E2E6EB;",
+    "color: #7AA7E0; background: #1E1E1E; border-bottom: 1px solid #333333;",
+    "color: #2F4A85; background: #FBFAF6; border-bottom: 1px solid #E0DDD7;",
+    "color: #7A93C6; background: #1D1D1D; border-bottom: 1px solid #2E2E2E;",
+);
+
+/// "· 2 items" after a results header's path.
+pub(crate) const FIND_GROUP_COUNT: &str = themed!(
+    "font-size: 12px; margin: 0px 8px 0px 4px; font-variant-numeric: tabular-nums;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76;",
+    "color: #8C8C8C;",
+);
+
+/// The rule after a results header's count.
+pub(crate) const FIND_GROUP_RULE: &str = themed!(
+    "flex-grow: 1; height: 1px;",
+    "background: #E2E6EB;",
+    "background: #333333;",
+    "background: #D8D5CE;",
+    "background: #383838;",
+);
+
+/// A result's two lines of the text its contents matched on.
+pub(crate) const SNIPPET: &str = themed!(
+    "display: block; display: -webkit-box; -webkit-box-orient: vertical; \
+     -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; \
+     max-height: 33px; font-size: 12.5px; line-height: 1.3; padding-right: 8px;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// What a result found by its name is, in the snippet's place.
+pub(crate) const SNIPPET_KIND: &str = themed!(
+    "font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76;",
+    "color: #8C8C8C;",
+);
+
 // ==== Items (every layout) ====
 
 /// An item at rest: a hairline kept free for the focus, a wash under the pointer.
