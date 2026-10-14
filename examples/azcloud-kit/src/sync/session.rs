@@ -1246,7 +1246,7 @@ impl SyncSession {
                 continue;
             }
             let etag = info.etag.as_deref().unwrap_or("").trim_matches('"');
-            let object = bucket_key_of(etag);
+            let object = object_key_of(drive, &info.key, etag);
             let kept = object.as_deref().is_some_and(|o| objects.has(o));
             let old = states.files.get(key);
             let modified = info.modified.and_then(|m| i64::try_from(m).ok()).unwrap_or(0);
@@ -1344,7 +1344,7 @@ impl SyncSession {
         let kept = states.files.get(key).is_some_and(|r| r.encrypted_copy);
         if !kept {
             let etag = drive.head(&full)?.etag.unwrap_or_default();
-            if let Some(object) = bucket_key_of(etag.trim_matches('"')) {
+            if let Some(object) = object_key_of(drive, &full, etag.trim_matches('"')) {
                 objects.fill(&object)?;
                 if let Some(record) = states.files.get_mut(key) {
                     record.cloud_only = false;
@@ -1365,6 +1365,19 @@ impl SyncSession {
 #[cfg(feature = "encryption")]
 fn bucket_key_of(etag: &str) -> Option<String> {
     azul_storage::crypto::ObjectId::from_hex(etag).map(|id| id.bucket_key())
+}
+
+/// The bucket key of the object the bytes of `full` (a drive key) are in, as the drive names it
+/// ([`azul_storage::OBJECT_KEY_METADATA`]: for a small file, the pack it shares with others),
+/// else the AZL1 object its entity tag `etag` names. A kept pack keeps every file in it.
+#[cfg(feature = "encryption")]
+fn object_key_of(drive: &dyn Drive, full: &str, etag: &str) -> Option<String> {
+    let named = drive.metadata(full).ok().and_then(|rows| {
+        rows.into_iter()
+            .find(|(name, _)| name == azul_storage::OBJECT_KEY_METADATA)
+            .map(|(_, value)| value)
+    });
+    named.or_else(|| bucket_key_of(etag))
 }
 
 /// Whether `drive` lists `prefix`.

@@ -11,6 +11,8 @@
 //! - **An upload** writes the file itself, conditional on the version the run read
 //!   (`If-Match`; `If-None-Match` for a new name): a file another device changed meanwhile is
 //!   never overwritten - the upload waits, and the next run sees both changes (a conflict).
+//!   Small files go in batches ([`Drive::put_many`]): an encrypted drive packs them into shared
+//!   objects with one index commit per pack, a plain one writes them one after the other.
 //! - **A delete** first checks the version is still the one read: an edit beats a delete.
 //! - **The commit** is the files themselves; the run's marker is a hash of the names and
 //!   versions, and the generation counts this device's commits.
@@ -24,7 +26,10 @@ use std::{
     },
 };
 
-use azul_storage::{ops, transfer, Drive, DriveError, Precondition, CONTENT_HASH_METADATA};
+use azul_storage::{
+    ops, transfer, BatchPut, Drive, DriveError, Precondition, CONTENT_HASH_METADATA,
+    SMALL_FILE_BYTES,
+};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -56,6 +61,20 @@ pub(super) struct NamedFiles<'d> {
     dirty: AtomicBool,
     /// The versions the last read saw: key -> entity tag (an upload's condition).
     seen: Mutex<BTreeMap<String, String>>,
+}
+
+/// The small files' bytes a batch holds before it is sent: a few packs' worth.
+const BATCH_BYTES: u64 = 16 << 20;
+
+/// A small file read for the next batch.
+struct Batched {
+    /// The file's key in the folder (what the report and the events name).
+    key: String,
+    /// Where it goes in the folder: the key, or a conflict copy's name.
+    target: String,
+    condition: Precondition,
+    hash: String,
+    bytes: Vec<u8>,
 }
 
 /// An entity tag as the drives compare it: without its quotes.
@@ -264,7 +283,10 @@ impl SyncRemote for NamedFiles<'_> {
     ) -> CloudResult<BTreeSet<String>> {
         let seen = lock(&self.seen).clone();
         let mut abandoned = BTreeSet::new();
-        // One file at a time: each write is a commit of the drive's index.
+        // Small files together, a batch at a time (an encrypted drive commits its index once per
+        // pack); a bigger file on its own (each write a commit of the drive's index).
+        let mut batch: Vec<Batched> = Vec::new();
+        let mut batch_bytes = 0u64;
         for action in work.actions {
             let Some(hash) = uploaded_hash(action, work.scan, work.merged) else {
                 continue;
@@ -296,6 +318,32 @@ impl SyncRemote for NamedFiles<'_> {
                 Some(etag) if !etag.is_empty() => Precondition::Matches(etag.clone()),
                 _ => Precondition::Absent,
             };
+            // Small files are never streamed (that starts at BIG_BLOB): read whole, sent together.
+            if job.size < SMALL_FILE_BYTES {
+                match job_bytes(&job) {
+                    Ok(bytes) => {
+                        batch_bytes += bytes.len() as u64;
+                        batch.push(Batched {
+                            key,
+                            target,
+                            condition,
+                            hash: hash.to_string(),
+                            bytes,
+                        });
+                        if batch_bytes >= BATCH_BYTES {
+                            let full = std::mem::take(&mut batch);
+                            self.send_batch(full, work, report, &mut abandoned)?;
+                            batch_bytes = 0;
+                        }
+                    }
+                    Err(why) => {
+                        report.changed_during_sync.push(format!("{key}: {why}"));
+                        finished(Some(why));
+                        abandoned.insert(key);
+                    }
+                }
+                continue;
+            }
             let full = self.full(&target);
             // A big file streamed, checked against its hash as it is read; a small one at once.
             let sent = match streamed(&job) {
@@ -347,7 +395,82 @@ impl SyncRemote for NamedFiles<'_> {
                 }
             }
         }
+        self.send_batch(batch, work, report, &mut abandoned)?;
         Ok(abandoned)
+    }
+
+    /// Writes `batch` in one [`Drive::put_many`], then tells each file's outcome as the single
+    /// upload does; the first error other than a lost condition stops the run, after every file
+    /// of the batch was told.
+    fn send_batch(
+        &self,
+        batch: Vec<Batched>,
+        work: &Uploads<'_>,
+        report: &mut SyncReport,
+        abandoned: &mut BTreeSet<String>,
+    ) -> CloudResult<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        if work.hooks.cancelled() {
+            // Stopped before the batch went: none of it is written, the next run sends it.
+            for b in batch {
+                work.hooks.tell(SyncEvent::Finished {
+                    key: b.key.clone(),
+                    up: true,
+                    bytes: b.bytes.len() as u64,
+                    error: Some(String::from("stopped")),
+                });
+                abandoned.insert(b.key);
+            }
+            return Ok(());
+        }
+        let fulls: Vec<String> = batch.iter().map(|b| self.full(&b.target)).collect();
+        let items: Vec<BatchPut<'_>> = batch
+            .iter()
+            .zip(&fulls)
+            .map(|(b, full)| BatchPut::new(full, &b.bytes).when(&b.condition))
+            .collect();
+        let results = self.drive.put_many(&items);
+        let mut stop = None;
+        for (b, result) in batch.iter().zip(results) {
+            let finished = |error: Option<String>| {
+                work.hooks.tell(SyncEvent::Finished {
+                    key: b.key.clone(),
+                    up: true,
+                    bytes: b.bytes.len() as u64,
+                    error,
+                });
+            };
+            match result {
+                Ok(etag) => {
+                    let etag = match etag {
+                        Some(etag) => bare(&etag),
+                        None => self.tag_now(&b.target).ok().flatten().unwrap_or_default(),
+                    };
+                    self.remember(&b.target, &etag, &b.hash);
+                    report.blobs_up += 1;
+                    report.bytes_up += b.bytes.len() as u64;
+                    finished(None);
+                }
+                Err(DriveError::Conflict { .. }) => {
+                    let why = String::from(
+                        "changed on the drive while it was synced; the next run compares them",
+                    );
+                    report.changed_during_sync.push(format!("{}: {why}", b.key));
+                    finished(Some(why));
+                    abandoned.insert(b.key.clone());
+                }
+                Err(e) => {
+                    finished(Some(e.to_string()));
+                    stop.get_or_insert(e);
+                }
+            }
+        }
+        match stop {
+            Some(e) => Err(e.into()),
+            None => Ok(()),
+        }
     }
 
     fn commit(

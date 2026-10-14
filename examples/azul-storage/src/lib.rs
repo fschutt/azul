@@ -62,6 +62,8 @@ pub mod oauth;
 pub mod ops;
 pub mod s3;
 pub mod scoped;
+/// Where an object's bytes lie in an Azlin server's 4 + 2 code: chunks and data shards.
+pub mod shards;
 pub mod sigv4;
 pub mod tables;
 pub mod time;
@@ -151,6 +153,13 @@ pub const DELIMITER: &str = "/";
 /// lowercase hex digits), where the drive knows it without reading the file: an encrypted
 /// drive's index keeps it. A sync compares it with a file on this device without a download.
 pub const CONTENT_HASH_METADATA: &str = "BLAKE3";
+
+/// Files below this many bytes are small: an encrypted drive packs them together
+/// (`packing`), and a sync sends them in batches ([`Drive::put_many`]). From here on a file's
+/// own object costs under 1 % in header and trailer, and its reads span shards of its own
+/// anyway; below it the cost per object wins: six shards, four seeks and a 4 KiB header for
+/// every file.
+pub const SMALL_FILE_BYTES: u64 = 512 * 1024;
 
 /// The name of a [`Drive::metadata`] row that holds the key, in the bucket below the drive, of
 /// the object the file's bytes are in: an encrypted drive's AZL1 object, or the pack a small

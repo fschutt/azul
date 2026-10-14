@@ -45,6 +45,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+pub use crate::shards::{data_shard_len, data_shards_of, CHUNK_SIZE, DATA_SHARDS};
 use crate::{
     crypto::{
         azl1::{self, PublicHeader, StoredSegments, WriteOptions, HEADER_LEN, PREFIX_LEN, SEGMENT_OVERHEAD},
@@ -61,14 +62,8 @@ use crate::{
     BatchPut, ByteRange, Drive, DriveError, ObjectInfo,
 };
 
-/// Files below this many bytes are packed. From here on a file's own object costs under 1 % in
-/// header and trailer, and its reads span shards of its own anyway; below it the cost per object
-/// wins: six shards, four seeks and a 4 KiB header for every file.
-pub const PACK_THRESHOLD: u64 = 512 * 1024;
-/// The server's chunk: an object is cut into chunks of this many bytes, each coded on its own.
-pub const CHUNK_SIZE: u64 = 4 << 20;
-/// Data shards per chunk (the 4 + 2 code; the 2 parity shards are never read while all is well).
-pub const DATA_SHARDS: u64 = 4;
+/// Files below this many bytes are packed ([`crate::SMALL_FILE_BYTES`] says why).
+pub const PACK_THRESHOLD: u64 = crate::SMALL_FILE_BYTES;
 /// The largest pack: one chunk, so a pack is coded as one stripe of four data shards.
 pub const PACK_MAX: u64 = CHUNK_SIZE;
 /// The record bytes an open pack takes before it counts as full: a sixteenth is left for the
@@ -108,6 +103,9 @@ const RETIRED_FORMAT: &str = "azul-storage retired packs 1";
 const IN_FLIGHT_DIR: &str = "in-flight";
 /// The list of retired packs, in the journal folder.
 const RETIRED_FILE: &str = "retired.json";
+/// The packs this device knows of, in the journal folder: one line per pack it wrote or saw
+/// named (`+<id> <bytes>`), one per pack that left the bucket (`-<id>`).
+const KNOWN_FILE: &str = "known.log";
 /// Packs whose reads are counted, at most; the count starts again beyond it.
 const COUNTED_PACKS: usize = 1024;
 
@@ -212,32 +210,6 @@ fn span_in(body_len: u64, segment_size: u32, offset: u64, length: u64) -> (u64, 
 #[must_use]
 pub fn pack_object_len(body_len: u64) -> u64 {
     azl1::stored_object_len(body_len, PACK_SEGMENT)
-}
-
-/// The bytes of each data shard of a chunk of `chunk_len` bytes, as the server codes it: a
-/// quarter, rounded up to whole 64-byte blocks.
-#[must_use]
-pub fn data_shard_len(chunk_len: u64) -> u64 {
-    chunk_len.div_ceil(DATA_SHARDS).max(1).div_ceil(64) * 64
-}
-
-/// The data shards, as (chunk, shard) pairs in order, that hold bytes `start..start + len` of an
-/// object of `object_len` bytes: what a read of them touches on the server's disks.
-#[must_use]
-pub fn data_shards_of(object_len: u64, start: u64, len: u64) -> Vec<(u64, u64)> {
-    let mut out = Vec::new();
-    let end = start.saturating_add(len).min(object_len);
-    let mut at = start;
-    while at < end {
-        let chunk = at / CHUNK_SIZE;
-        let chunk_start = chunk * CHUNK_SIZE;
-        let chunk_len = (object_len - chunk_start).min(CHUNK_SIZE);
-        let shard_len = data_shard_len(chunk_len);
-        let shard = (at - chunk_start) / shard_len;
-        out.push((chunk, shard));
-        at = (chunk_start + (shard + 1) * shard_len).min(chunk_start + chunk_len);
-    }
-    out
 }
 
 /// Where the records of a pack go ([`plan_layout`]).
@@ -574,6 +546,7 @@ struct Journal {
 struct JournalMemory {
     in_flight: BTreeMap<ObjectId, u64>,
     retired: Vec<(ObjectId, u64)>,
+    known: BTreeMap<ObjectId, u64>,
 }
 
 impl Journal {
@@ -725,6 +698,86 @@ impl Journal {
         let mut memory = lock(&self.memory);
         self.store_locked(&mut memory, retired)
     }
+
+    /// The packs this device knows of (it wrote them, or saw the index name them), with their
+    /// bytes. A pack the index no longer names at all is one whose every file went: only this
+    /// list still finds it.
+    fn known(&self) -> Result<BTreeMap<ObjectId, u64>, DriveError> {
+        let memory = lock(&self.memory);
+        self.known_locked(&memory)
+    }
+
+    fn known_locked(&self, memory: &JournalMemory) -> Result<BTreeMap<ObjectId, u64>, DriveError> {
+        let Some(dir) = &self.dir else {
+            return Ok(memory.known.clone());
+        };
+        let file = dir.join(KNOWN_FILE);
+        let text = match fs::read_to_string(&file) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+            Err(e) => return Err(io_error(&file, &e)),
+        };
+        let mut known = BTreeMap::new();
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix('+') {
+                let (id, bytes) = rest.split_once(' ').unwrap_or((rest, "0"));
+                if let Some(id) = ObjectId::from_hex(id) {
+                    known.insert(id, bytes.parse().unwrap_or(0));
+                }
+            } else if let Some(id) = line.strip_prefix('-').and_then(ObjectId::from_hex) {
+                known.remove(&id);
+            }
+        }
+        Ok(known)
+    }
+
+    /// This device knows of `packs` (id and bytes): one line each at the end of the list.
+    fn note(&self, packs: &[(ObjectId, u64)]) -> Result<(), DriveError> {
+        let mut memory = lock(&self.memory);
+        let Some(dir) = &self.dir else {
+            memory.known.extend(packs.iter().copied());
+            return Ok(());
+        };
+        let lines: String = packs
+            .iter()
+            .map(|(id, bytes)| format!("+{} {bytes}\n", id.to_hex()))
+            .collect();
+        Journal::append(dir, &lines)
+    }
+
+    /// `packs` left the bucket: the list is written anew without them.
+    fn forget(&self, packs: &[ObjectId]) -> Result<(), DriveError> {
+        if packs.is_empty() {
+            return Ok(());
+        }
+        let mut memory = lock(&self.memory);
+        let mut known = self.known_locked(&memory)?;
+        for id in packs {
+            known.remove(id);
+        }
+        let Some(dir) = &self.dir else {
+            memory.known = known;
+            return Ok(());
+        };
+        let text: String = known
+            .iter()
+            .map(|(id, bytes)| format!("+{} {bytes}\n", id.to_hex()))
+            .collect();
+        let file = dir.join(KNOWN_FILE);
+        write_atomically(&file, text.as_bytes()).map_err(|e| io_error(&file, &e))
+    }
+
+    fn append(dir: &Path, lines: &str) -> Result<(), DriveError> {
+        use std::io::Write as _;
+        fs::create_dir_all(dir).map_err(|e| io_error(dir, &e))?;
+        let file = dir.join(KNOWN_FILE);
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file)
+            .and_then(|mut f| f.write_all(lines.as_bytes()))
+            .map_err(|e| io_error(&file, &e))
+    }
 }
 
 /// Packs read recently: how often, and the whole ones kept (ciphertext).
@@ -845,6 +898,8 @@ pub struct RepackReport {
     pub files_moved: usize,
     /// Versions whose record did not check out: left where they are.
     pub files_damaged: usize,
+    /// Packs none of whose files the index names any more (retired without a read).
+    pub packs_emptied: usize,
     /// The bucket bytes of the packs read.
     pub bytes_before: u64,
     /// The bucket bytes of the packs written.
@@ -1212,6 +1267,8 @@ impl<D: Drive> EncryptedDrive<D> {
                 self.packs.journal.end(&id);
             }
         } else {
+            // Best effort: a pack missing from the list is still found while the index names it.
+            let _ = self.packs.journal.note(&[(id, sealed.pack.object_len)]);
             self.packs.journal.end(&id);
         }
         let results = members
@@ -1281,6 +1338,28 @@ impl<D: Drive> EncryptedDrive<D> {
     pub fn repack(&self, now: u64) -> Result<RepackReport, DriveError> {
         let below = self.upkeep_options().repack_below_percent;
         let uses = self.pack_uses()?;
+        // The packs this device knows that the index names no more: every file of them went.
+        let known = self.packs.journal.known()?;
+        let retired: HashSet<ObjectId> = self
+            .packs
+            .journal
+            .retired()?
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        let emptied: Vec<ObjectId> = known
+            .keys()
+            .filter(|id| !uses.contains_key(*id) && !retired.contains(*id))
+            .copied()
+            .collect();
+        let unknown: Vec<(ObjectId, u64)> = uses
+            .values()
+            .filter(|u| !known.contains_key(&u.pack.id))
+            .map(|u| (u.pack.id, u.pack.object_len))
+            .collect();
+        if !unknown.is_empty() {
+            self.packs.journal.note(&unknown)?;
+        }
         let small = uses.values().filter(|u| u.pack.object_len < SMALL_PACK).count();
         let selected: Vec<PackUse> = uses
             .into_values()
@@ -1289,7 +1368,12 @@ impl<D: Drive> EncryptedDrive<D> {
                     || (small >= 2 && u.pack.object_len < SMALL_PACK)
             })
             .collect();
-        self.repack_selected(selected, now)
+        let mut report = self.repack_selected(selected, now)?;
+        if !emptied.is_empty() {
+            self.packs.journal.retire(&emptied, now)?;
+            report.packs_emptied = emptied.len();
+        }
+        Ok(report)
     }
 
     /// After a key rotation: every pack holding a file dated before `before` is written anew
@@ -1307,13 +1391,16 @@ impl<D: Drive> EncryptedDrive<D> {
         if !old.is_empty() {
             let named = self.named_objects()?;
             let mut retired = self.packs.journal.retired()?;
+            let mut deleted = Vec::new();
             for id in &old {
                 if !named.contains(id) && self.inner.delete(&id.bucket_key()).is_ok() {
                     self.forget_pack(id);
                     retired.retain(|(pack, _)| pack != id);
+                    deleted.push(*id);
                 }
             }
             self.packs.journal.set_retired(retired)?;
+            self.packs.journal.forget(&deleted)?;
         }
         Ok(report)
     }
@@ -1434,7 +1521,7 @@ impl<D: Drive> EncryptedDrive<D> {
         }
         let named = self.named_objects()?;
         let mut keep = Vec::new();
-        let mut deleted = 0;
+        let mut deleted = Vec::new();
         for (id, at) in retired {
             if named.contains(&id) {
                 continue;
@@ -1445,14 +1532,15 @@ impl<D: Drive> EncryptedDrive<D> {
             }
             match self.inner.delete(&id.bucket_key()) {
                 Ok(()) => {
-                    deleted += 1;
                     self.forget_pack(&id);
+                    deleted.push(id);
                 }
                 Err(_) => keep.push((id, at)),
             }
         }
         self.packs.journal.set_retired(keep)?;
-        Ok(deleted)
+        self.packs.journal.forget(&deleted)?;
+        Ok(deleted.len())
     }
 
     /// Clears up the packs whose writer stopped between the upload and the journal's end (a
