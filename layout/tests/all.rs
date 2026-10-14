@@ -1097,3 +1097,5 @@ mod a_closing_window_hands_its_app_threads_to_a_window_that_stays_open;
 mod tab_labels_sit_evenly_apart_in_every_tab_style;
 #[path = "tab_buttons_are_22px_flora_buttons_in_a_28px_row.rs"]
 mod tab_buttons_are_22px_flora_buttons_in_a_28px_row;
+#[path = "a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line.rs"]
+mod a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line;
