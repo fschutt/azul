@@ -24,6 +24,7 @@ use azul::{
         TextInputOnTextInputCallbackType,
     },
     prelude::*,
+    str::String as AzString,
     task::{Thread, ThreadId},
     vec::{MapLatLonVec, StringVec},
     widgets::{

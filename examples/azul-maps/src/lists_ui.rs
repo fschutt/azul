@@ -23,6 +23,7 @@ use azul::{
     dialog::{FileDialog, FileOpenResult},
     option::{OptionFileTypeList, OptionString},
     prelude::*,
+    str::String as AzString,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
     widgets::{Button, MapMarker, MapOverlay, OnTextInputReturn, TextInputState, TextInputValid},
 };

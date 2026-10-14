@@ -17,6 +17,7 @@ use azul::{
     callbacks::{ButtonOnClickCallbackType, SegmentedOnChangeCallbackType, TimePickerOnChangeCallbackType},
     css::ColorU,
     prelude::*,
+    str::String as AzString,
     task::{Thread, ThreadId},
     vec::MapLatLonVec,
     widgets::{Button, MapMarker, MapOverlay, MapPolyline, Segmented, SegmentedState, TimePicker, TimePickerState},
