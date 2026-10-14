@@ -1608,4 +1608,21 @@ mod tests {
         );
         assert_eq!(default_prefix(Path::new("/")), "sync/root/");
     }
+
+    /// The packs' upkeep takes a grace period in days, and the command line's encrypted drives
+    /// pack their small files, the journal in the state folder's drive index.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn the_packs_command_takes_a_grace_period_and_the_drives_pack_small_files() {
+        let a = Args::parse(&argv("packs --grace-days 0")).unwrap();
+        assert_eq!(a.number::<u64>("--grace-days").unwrap(), Some(0));
+        assert!(USAGE.contains("packs [--grace-days D]"));
+        let dir = std::env::temp_dir().join(format!("azcloud-packs-{}", std::process::id()));
+        let state = StateDir::open(&dir).unwrap();
+        let provider = index_provider(&state, "laptop");
+        let packing = provider.packing("d_1").expect("small files are packed");
+        let journal = packing.journal.expect("a journal beside the drive index");
+        assert!(journal.starts_with(dir.join("drive-index")), "{journal:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
