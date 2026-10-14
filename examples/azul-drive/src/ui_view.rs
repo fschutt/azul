@@ -1604,6 +1604,18 @@ pub(crate) fn scroll_view_to_top(info: &mut CallbackInfo) {
     info.scroll_to(dom, node, LogicalPosition::create(0.0, 0.0));
 }
 
+/// Scrolls the folder's rows to `y` (a location tab back where it was left) and records it as
+/// the view's offset.
+pub(crate) fn scroll_view_to(info: &mut CallbackInfo, s: &mut DriveState, y: f32) {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, ids::FOLDER_ROWS);
+    if node.into_raw() == 0 {
+        return;
+    }
+    s.view_scroll.0 = y.max(0.0);
+    info.scroll_to(dom, node, LogicalPosition::create(0.0, y.max(0.0)));
+}
+
 /// Scrolls the folder's rows so the item `key` is in view (the arrow keys, a new folder waiting
 /// for its name).
 pub(crate) fn reveal_item(info: &mut CallbackInfo, s: &mut DriveState, key: &str) {

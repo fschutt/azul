@@ -38,6 +38,19 @@ pub const FIND_HEADER: AzString = AzString::from_const_str("__azdrive_find_heade
 pub const FIND_NOTE: AzString = AzString::from_const_str("__azdrive_find_note");
 /// "Searching..." / "No items match your search." where the results would be.
 pub const FIND_EMPTY: AzString = AzString::from_const_str("__azdrive_find_empty");
+/// The search's bar over its results: the scope chips, the refine chips, File contents, how
+/// many were found, Save search.
+pub const FIND_BAR: AzString = AzString::from_const_str("__azdrive_find_bar");
+/// The search bar's count ("3 items found", "Searching...").
+pub const FIND_STATUS: AzString = AzString::from_const_str("__azdrive_find_status");
+/// The search bar's Save search button.
+pub const FIND_SAVE: AzString = AzString::from_const_str("__azdrive_find_save");
+/// The search view with an empty box: the recent and saved searches as chips.
+pub const FIND_START: AzString = AzString::from_const_str("__azdrive_find_start");
+/// The suggestions when nothing was found (did you mean, all drives, contents, no filters).
+pub const FIND_SUGGESTIONS: AzString = AzString::from_const_str("__azdrive_find_suggestions");
+/// The tab overview: the open location tabs over a grey scrim.
+pub const TAB_OVERVIEW: AzString = AzString::from_const_str("__azdrive_tab_overview");
 
 /// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
 /// Refresh, the search box).
@@ -49,7 +62,7 @@ pub const NAV_PANE: AzString = AzString::from_const_str("__azdrive_nav_pane");
 
 // ==== The source list (ui_sidebar.rs) ====
 
-/// The source list's column (the rows, the activity area, the buttons under them).
+/// The source list's column (the rows, the foot with its buttons and pies).
 pub const SIDEBAR: AzString = AzString::from_const_str("__azdrive_sidebar");
 /// The section titles: FAVORITES, LOCATIONS, CLOUD (a click opens or closes the section).
 pub const SIDE_FAVORITES: AzString = AzString::from_const_str("__azdrive_side_favorites");
@@ -60,10 +73,15 @@ pub const SIDE_QUICK_ACCESS: AzString = AzString::from_const_str("__azdrive_side
 pub const SIDE_THIS_PC: AzString = AzString::from_const_str("__azdrive_side_this_pc");
 /// Cloud's "Add drive" row.
 pub const SIDE_ADD_DRIVE: AzString = AzString::from_const_str("__azdrive_side_add_drive");
-/// The activity area (the transfers) and the buttons under the list.
-pub const SIDE_ACTIVITY: AzString = AzString::from_const_str("__azdrive_side_activity");
+/// The buttons under the list: + (add a drive) and the gear (the options).
 pub const SIDE_ADD: AzString = AzString::from_const_str("__azdrive_side_add");
 pub const SIDE_ACTIONS: AzString = AzString::from_const_str("__azdrive_side_actions");
+/// The two pies at the right of the list's foot: the sync, the drive's space (a click opens
+/// the sync popover).
+pub const SYNC_PIE: AzString = AzString::from_const_str("__azdrive_sync_pie");
+pub const SPACE_PIE: AzString = AzString::from_const_str("__azdrive_space_pie");
+/// The sync popover: the sync's state and numbers, the drive's usage, the health line, actions.
+pub const SYNC_POPOVER: AzString = AzString::from_const_str("__azdrive_sync_popover");
 
 /// A part of an id: the characters a script's `#id` selector takes as they are (letters,
 /// digits, `-`, `_`), every other one as `_`.

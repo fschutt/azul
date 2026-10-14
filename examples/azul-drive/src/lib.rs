@@ -229,6 +229,8 @@ mod ui_dialogs;
 /// The search's results in the folder view.
 mod ui_find;
 mod ui_panes;
+/// The navigation pane's two pies (the sync, the drive's space) and their popover.
+mod ui_pies;
 /// Windows 8's ribbon and its File menu.
 mod ui_ribbon;
 /// The navigation pane: Finder's source list.
@@ -830,6 +832,17 @@ pub(crate) struct DriveState {
     pub indexes: HashMap<String, find::IndexInfo>,
     /// The item to select once the open folder is listed (Open file location of a result).
     pub select_when_listed: Option<String>,
+    /// Where to scroll the folder view once the open folder is listed: a location tab that
+    /// comes back scrolls to where it was left.
+    pub scroll_when_listed: Option<f32>,
+    /// The window's location tabs: the one showing lives in this state, the others are parked
+    /// there.
+    pub tabs: location_tabs::LocationTabs,
+    /// The tab overview is showing (the strip's tab button, Ctrl+Shift+A).
+    pub tab_overview: bool,
+    /// The search view is open: from the first key typed into the search box until Escape on
+    /// an empty box (or another place). An empty query shows the recent and saved searches.
+    pub search_open: bool,
     pub editing_path: bool,
     pub renaming: Option<Renaming>,
     pub column_drag: Option<ColumnDrag>,
@@ -1361,23 +1374,44 @@ pub(crate) fn stop_find(s: &mut DriveState) -> bool {
     true
 }
 
+/// The open search's text joins the recent searches when it found something (the empty search
+/// view offers it again). Whether the list changed (the settings are then saved).
+pub(crate) fn remember_open_search(s: &mut DriveState) -> bool {
+    let Some(query) = s
+        .find
+        .as_ref()
+        .filter(|f| !f.rows.is_empty())
+        .map(|f| f.query.clone())
+    else {
+        return false;
+    };
+    let before = s.settings.recent_searches.clone();
+    find::remember_search(&mut s.settings.recent_searches, &query);
+    s.settings.recent_searches != before
+}
+
 /// The search box's text changed, or a setting of the search did: the search running stops and
-/// a new one starts for the open folder - with every folder below it, or ("Current folder") its
-/// own items - as the Search tab says: the names, then the files' contents when "File
-/// contents" is on, the Refine's kinds, sizes and dates; a cloud drive's names over its listing
-/// (slower, no contents); on This PC every drive on this computer, a job each. Its results
-/// stream into the view as rows. An empty box (Escape cleared it) shows the place again and
-/// forgets the Refine. Quick access is not searched.
+/// a new one starts where the scope says (the open folder, its drive from the root, every
+/// drive) - with every folder below it, or ("Current folder") its own items - as the Search tab
+/// says: the names, then the files' contents when "File contents" is on, the Refine's kinds,
+/// sizes and dates; a cloud drive's names over its listing (slower, no contents); every drive
+/// on this computer a job each. Its results stream into the view as rows, ranked and grouped by
+/// folder. An empty box (Escape cleared it) keeps the search view open on the recent and saved
+/// searches; the text searched last joins the recent ones.
 pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    let was_open = stop_find(s);
     let query = s.search.trim().to_string();
+    if query.is_empty() && remember_open_search(s) {
+        save_settings(info, app, s);
+    }
+    let was_open = stop_find(s);
     if query.is_empty() {
         s.refines = find::Refines::default();
         if was_open {
-            println!("AZDRIVE_SEARCH_CLOSED");
+            println!("AZDRIVE_SEARCH_CLEARED");
         }
         return;
     }
+    s.search_open = true;
     let mut options = find::FindOptions {
         contents: s.settings.search_contents && find::searches_contents(&query),
         show_hidden: s.settings.show_hidden,
@@ -1391,11 +1425,17 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     let mut jobs = Vec::new();
     let mut remote = false;
     let mut drive_index = false;
-    if let Some(index) = s.current_drive() {
+    let root = s.settings.search_scope.root(&s.place);
+    let searched = match &root {
+        find::SearchRoot::Folder { drive, prefix } => s
+            .slot_index(drive)
+            .map(|index| (index, prefix.clone())),
+        find::SearchRoot::AllDrives => None,
+    };
+    if let Some((index, prefix)) = searched {
         let Some(drive) = open_slot(s, index) else {
             return;
         };
-        let prefix = s.prefix().to_string();
         match s.local_dir(index, &prefix) {
             Some(dir) => {
                 let ask = if options.contents {
@@ -1446,8 +1486,8 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 });
             }
         }
-    } else if s.place == Place::ThisPc {
-        // This PC: every drive on this computer, from its root; a row's key names its drive.
+    } else if root == find::SearchRoot::AllDrives {
+        // Every drive on this computer, from its root; a row's key names its drive.
         for index in 0..s.slots.len() {
             let Some(root) = s.local_root(index) else {
                 continue;
@@ -1824,6 +1864,11 @@ pub(crate) fn go(
         let leaving = s.place.clone();
         s.history.visit(leaving);
     }
+    // The search being left joins the recent searches.
+    if remember_open_search(s) {
+        save_settings(info, app, s);
+    }
+    s.search_open = false;
     s.recent.retain(|p| *p != place);
     s.recent.insert(0, place.clone());
     s.recent.truncate(RECENT_PLACES);
@@ -2329,6 +2374,10 @@ fn scanned(
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
     s.selection.retain(&order);
+    // A location tab that came back: its view where it was left.
+    if let Some(y) = s.scroll_when_listed.take() {
+        ui_view::scroll_view_to(info, s, y);
+    }
     // Open file location: the result the folder was opened for is selected, in view.
     if let Some(key) = s.select_when_listed.take() {
         if s.entries.iter().any(|e| e.key == key) {
@@ -3256,6 +3305,8 @@ pub fn start() {
     // A big upload outlives the app: its state file in the cache, resumed by the next upload of
     // the same file to the same drive (azul-storage's multipart).
     azul_storage::multipart::set_resume_folder(cache_dir.as_ref().map(|dir| dir.join("uploads")));
+    // The first location tab, on the place the window opens at.
+    let first_tab = location_tabs::TabState::at(place.clone(), settings.layout);
     let mut state = DriveState {
         slots,
         place,
@@ -3285,6 +3336,10 @@ pub fn start() {
         refines: find::Refines::default(),
         indexes: HashMap::new(),
         select_when_listed: None,
+        scroll_when_listed: None,
+        tabs: location_tabs::LocationTabs::new(first_tab),
+        tab_overview: false,
+        search_open: false,
         editing_path: false,
         renaming: None,
         column_drag: None,
