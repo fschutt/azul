@@ -1,0 +1,9 @@
+These vector tiles (zoom 0 and 1, https://tiles.openfreemap.org/planet/20260531_080002_pt/{z}/{x}/{y}.pbf) are embedded in AzMaps so its
+map shows the world before any download.
+
+Data: (c) OpenStreetMap contributors, Open Database License (ODbL 1.0),
+https://www.openstreetmap.org/copyright
+Schema and tiles: (c) OpenMapTiles (CC BY 4.0), https://openmaptiles.org
+Served by OpenFreeMap, https://openfreemap.org
+
+AzMaps shows the attribution line of its tile layer over the map.
