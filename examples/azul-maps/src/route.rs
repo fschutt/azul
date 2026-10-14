@@ -88,9 +88,12 @@ impl RouteSource {
 /// is (a timetable question, not a road graph).
 #[must_use]
 pub const fn route_source(tiles: bool, online: bool, mode: TravelMode) -> RouteSource {
-    let _ = (online, mode);
-    if tiles {
+    if road_mode(mode).is_none() {
+        RouteSource::Estimate
+    } else if tiles {
         RouteSource::Tiles
+    } else if online {
+        RouteSource::Online
     } else {
         RouteSource::Estimate
     }

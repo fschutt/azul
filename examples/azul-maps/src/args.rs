@@ -39,13 +39,12 @@ pub const ROUTING_ONLINE_VAR: &str = "AZMAPS_ROUTING_ONLINE";
 /// routing tiles is the straight-line estimate.
 #[must_use]
 pub fn online_routing(flag: Option<&str>, env: Option<&str>) -> Option<String> {
-    let _ = azul_routing::online::FOSSGIS_VALHALLA;
     let chosen = [flag, env]
         .into_iter()
         .flatten()
         .map(str::trim)
         .find(|t| !t.is_empty())
-        .unwrap_or("off");
+        .unwrap_or(azul_routing::online::FOSSGIS_VALHALLA);
     (!matches!(chosen.to_ascii_lowercase().as_str(), "off" | "none")).then(|| chosen.to_string())
 }
 
