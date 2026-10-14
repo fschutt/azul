@@ -9577,6 +9577,7 @@ const KNOWN_MANAGERS: &[&str] = &[
     "text_input",
     "permission",
     "media_player",
+    "webview",
 ];
 
 const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
@@ -10024,6 +10025,22 @@ fn eval_assert_manager_invariants(
                                  {:?}), which no longer exists",
                                 node.dom.inner,
                                 node.node.into_crate_internal().map(|n| n.index())
+                            ));
+                        }
+                    }
+                }
+                // A mounted web view is a native view keyed by its node: one whose node is
+                // gone is a page nothing shows and nothing closes.
+                "webview" => {
+                    for view in lw.webviews.views() {
+                        checked += 1;
+                        if !dom_node_is_live(lw, view.node) {
+                            violations.push(format!(
+                                "X10 webview: view {:?} is mounted on ({}, {:?}), which no \
+                                 longer exists",
+                                view.id,
+                                view.node.dom.inner,
+                                view.node.node.into_crate_internal().map(|n| n.index())
                             ));
                         }
                     }
@@ -10736,6 +10753,7 @@ fn fingerprinted_managers() -> Vec<&'static str> {
         "device_events",
         "hid",
         "media_player",
+        "webview",
     ];
     #[cfg(feature = "a11y")]
     names.push("a11y");
@@ -10925,6 +10943,7 @@ pub(crate) fn manager_fingerprints(
         "media_player".to_string(),
         fp_media_player(&lw.media_player_manager),
     );
+    out.insert("webview".to_string(), fp_webview(&lw.webviews));
     #[cfg(feature = "a11y")]
     out.insert("a11y".to_string(), fp_a11y(&lw.a11y_manager));
     out
@@ -11439,6 +11458,10 @@ fn fp_media_player(
     m: &azul_layout::managers::media_player::MediaPlayerManager,
 ) -> ManagerFingerprint {
     ManagerFingerprint::new(m.pending.len(), format!("{m:?}"))
+}
+
+fn fp_webview(m: &azul_layout::managers::webview::WebViewManager) -> ManagerFingerprint {
+    ManagerFingerprint::new(m.views().len(), format!("{m:?}"))
 }
 
 /// The `get_accessibility_tree` answer: the tree as the platform adapter
@@ -22623,6 +22646,16 @@ mod non_interference_can_fail {
                 m.play(DomNodeId::ROOT);
             },
             super::fp_media_player
+        );
+        assert_moves!(
+            "webview",
+            azul_layout::managers::webview::WebViewManager::new(),
+            |m: &mut azul_layout::managers::webview::WebViewManager| {
+                m.set_platform(azul_layout::managers::webview::WebViewPlatform::Absent(
+                    "no backend in this test".into(),
+                ));
+            },
+            super::fp_webview
         );
         #[cfg(feature = "a11y")]
         assert_moves!(
