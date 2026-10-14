@@ -436,14 +436,14 @@ impl Flattening {
             edges[back].data.opp_local_index = edges[there].data.local_index;
         }
         let shapes = &self.graph.shapes;
-        let name = |e: &FlatEdge| shapes[e.shape].name.as_deref();
+        let names: Vec<Option<&str>> = edges.iter().map(|e| shapes[e.shape].name.as_deref()).collect();
         for at_node in &leaving {
             for &e in at_node {
                 let mut same = 0u8;
-                if let Some(own) = name(&edges[e]) {
+                if let Some(own) = names[e] {
                     for &other in at_node {
                         let i = edges[other].data.local_index;
-                        if other != e && i < 8 && name(&edges[other]) == Some(own) {
+                        if other != e && i < 8 && names[other] == Some(own) {
                             same |= 1 << i;
                         }
                     }
@@ -580,8 +580,12 @@ pub fn manifest_of(generated: &Generated, region: &str, source: &str, built_at: 
         levels: LEVELS
             .iter()
             .map(|&z| {
-                let of_zoom = generated.index.iter().filter(|(t, _)| t.z == z);
-                LevelStats { z, tiles: of_zoom.clone().count() as u64, bytes: of_zoom.map(|(_, b)| b).sum() }
+                let (tiles, bytes) = generated
+                    .index
+                    .iter()
+                    .filter(|(t, _)| t.z == z)
+                    .fold((0, 0), |(tiles, sum), (_, bytes)| (tiles + 1, sum + bytes));
+                LevelStats { z, tiles, bytes }
             })
             .collect(),
     }
