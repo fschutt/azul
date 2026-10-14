@@ -4084,3 +4084,93 @@ mod flora_window_tests {
         }
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod tab_curve_pixel_tests {
+    //! The curves of flora's selected ribbon tab and application button as
+    //! the GPU draws them, held to the CPU renderer's frame. Each curve is a
+    //! stone and a band of metal, both cut by an SVG mask; a mask, clip or
+    //! border slice that WebRender is handed wrong shows inside the curve's
+    //! box as a block, a seam or a bar, where the two frames then part.
+
+    use azul_core::dom::Dom;
+    use azul_css::AzString;
+    use azul_layout::{
+        solver3::display_list::DisplayListItem,
+        widgets::{
+            ribbon::{Ribbon, RibbonAppButton, RibbonTab, RibbonTabVec},
+            themes::UiTheme,
+            titlebar::TabsInTitlebar,
+        },
+    };
+
+    use crate::desktop::shell2::macos::headless_gpu::{draw_both, keep, pixels_differing};
+
+    /// AzDrive's ribbon: the application button and the second tab
+    /// selected, the strip in the titlebar or below it.
+    fn ribbon(in_titlebar: bool) -> Dom {
+        let tabs = RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("Computer")),
+            RibbonTab::new(AzString::from("Ansicht")),
+        ]);
+        let mut ribbon = Ribbon::new(tabs)
+            .with_theme(UiTheme::Flora)
+            .with_app_button(RibbonAppButton::new(AzString::from("Datei")))
+            .with_active_tab(1);
+        if in_titlebar {
+            ribbon = ribbon.with_tabs_in_titlebar(TabsInTitlebar::platform());
+        }
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(ribbon.dom_desktop())
+    }
+
+    /// Inside every curve's box at most one pixel in fifty differs from the
+    /// CPU's frame by more than an edge's antialiasing (32 in a channel): a
+    /// bar three pixels wide down a curve is fifteen in a hundred.
+    #[test]
+    fn the_ribbons_tab_curves_are_drawn_on_the_gpu_as_on_the_cpu() {
+        const DPI: f32 = 2.0;
+        for in_titlebar in [false, true] {
+            let Some(frames) = draw_both(ribbon(in_titlebar), 500.0, 140.0, DPI) else {
+                return;
+            };
+            keep(&format!("ribbon-curves-titlebar-{in_titlebar}"), &frames);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let curves: Vec<(u32, u32, u32, u32)> = frames
+                .display_list
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    DisplayListItem::PushImageMaskClip { mask_rect, .. } => {
+                        let r = mask_rect.inner();
+                        let (x0, y0) = ((r.origin.x * DPI).floor(), (r.origin.y * DPI).floor());
+                        let x1 = ((r.origin.x + r.size.width) * DPI).ceil();
+                        let y1 = ((r.origin.y + r.size.height) * DPI).ceil();
+                        (x0 >= 0.0 && y0 >= 0.0 && x1 > x0 && y1 > y0).then(|| {
+                            (x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32)
+                        })
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                curves.len() >= 8,
+                "the application button's and the selected tab's curves are masked \
+                 ({} masks, titlebar {in_titlebar})",
+                curves.len()
+            );
+            for curve in curves {
+                let (differing, worst) = pixels_differing(&frames.gpu, &frames.cpu, curve, 32);
+                assert!(
+                    differing * 50 <= curve.2 * curve.3,
+                    "{differing} of the {} pixels of the curve at {curve:?} differ from the \
+                     CPU's (titlebar {in_titlebar}), the worst by {} at {:?}",
+                    curve.2 * curve.3,
+                    worst.0,
+                    worst.1
+                );
+            }
+        }
+    }
+}
