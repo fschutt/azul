@@ -100,12 +100,11 @@ pub struct VideoWidgetState {
     /// `AfterMount` spawns it on a background `Thread` instead of the replay /
     /// test-pattern workers, so the VK decode runs off the main thread.
     pub decode_callback: Option<ThreadCallback>,
-    /// The latest decoded frame to display, as a CPU `ImageRef` (RGBA8). The
-    /// `VirtualView` render callback ([`video_widget_render`]) reads this on each
-    /// re-render; [`video_writeback`] stores it and triggers an in-place
-    /// `VirtualView` re-render - so the frame renders on cpurender AND webrender,
-    /// exactly like the map widget's tile cache. (Replaces the GL `present_frame`
-    /// path for video; camera/screencap still use `present_frame`.)
+    /// The latest decoded frame to display, as a CPU `ImageRef`. The
+    /// `VirtualView` render callback ([`video_widget_render`]) builds its
+    /// picture from it; [`video_writeback`] stores every frame here and swaps
+    /// it into the shown picture, so a later render of the view (a resize)
+    /// shows the newest frame too.
     pub current_frame: Option<ImageRef>,
     /// The decode worker's `ThreadId` (set by `AfterMount`). Lets the resize callback
     /// message the running worker (`info.get_thread(id).sender.send(..)`) so it can
@@ -354,12 +353,13 @@ impl VideoWidget {
         let vv_data = dataset.clone();
 
         // The body is a VirtualView (exactly like the map widget): its render
-        // callback re-reads `current_frame` from the dataset each re-render and
-        // builds the `<img>`, so streamed frames render on BOTH cpurender and
-        // webrender. The background decode worker is started on AfterMount and
-        // `WriteBack`s frames into `current_frame` + triggers a VirtualView
-        // re-render in place (no DOM rebuild) — see `video_writeback`. The caller
-        // sizes the outer node via `.with_css(...)` on the returned Dom.
+        // callback reads `current_frame` from the dataset and builds the
+        // `<img>` (or the poster). The background decode worker is started on
+        // AfterMount and `WriteBack`s frames: each is swapped into the shown
+        // `<img>` as an image update, the view is only rendered again while it
+        // shows the poster (no DOM rebuild either way) - see `video_writeback`.
+        // The caller sizes the outer node via `.with_css(...)` on the returned
+        // Dom.
         Dom::create_div()
             .with_ids_and_classes(azul_core::dom::IdOrClassVec::from_vec(alloc::vec![
                 style_kit::marker(theme)
@@ -429,10 +429,9 @@ fn frame_image(img: ImageRef, marker: AzString) -> Dom {
 }
 
 /// `VirtualView` render callback (mirrors `map_widget_render`): build the `<img>`
-/// for the latest decoded frame, re-read from the widget's dataset on every
-/// re-render. The decode worker stores frames into `current_frame` and triggers
-/// the re-render in place (see [`video_writeback`]), so this renders on both the
-/// CPU and GPU renderers with no DOM rebuild.
+/// for the latest decoded frame, read from the widget's dataset, or the poster
+/// while there is none. Frames after the first reach the `<img>` as image
+/// swaps without a render (see [`video_writeback`]).
 extern "C" fn video_widget_render(
     mut data: RefAny,
     info: VirtualViewCallbackInfo,
@@ -782,57 +781,76 @@ extern "C" fn video_replay_worker(
 }
 
 #[must_use]
-/// Writeback (main thread): store the decoded frame as the widget's
-/// `current_frame` (a CPU `ImageRef`) and re-render the `VirtualView` in place so it
-/// re-reads it - exactly like `map_tile_writeback`.
+/// Writeback (main thread): show a decoded frame.
 ///
-/// Renders on cpurender AND
-/// webrender (no GL `present_frame`, no DOM rebuild).
+/// The frame becomes the widget's `current_frame` (a CPU `ImageRef`, what the
+/// view renders from). While the view shows a picture, the frame is swapped
+/// into that `<img>` (found by `frame_marker`) through the content chokepoint,
+/// which patches the display list in place on the CPU and the GPU renderer
+/// alike - an image update, as for a camera tile. Only while the view still
+/// shows the poster is it rendered again, so its next render builds the
+/// picture.
 pub extern "C" fn video_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let hook = writeback_data
+    let (hook, marker) = writeback_data
         .downcast_ref::<VideoWidgetState>()
-        .map_or_else(|| OptionOnVideoFrame::None, |s| s.on_frame.clone());
-    let mut user_update = Update::DoNothing;
-    match frame_data.downcast_ref::<VideoFrame>() {
-        Some(frame) => {
-            // Guard against dimensions whose RGBA byte count overflows `usize`
-            // before `ImageRef::new_rawimage` validates it against the buffer:
-            // `width * height * 4` wraps in release (e.g. 2^31 x 2^31 -> 0) so an
-            // empty buffer would spuriously "match" and store a bogus frame. A
-            // `checked_mul` that overflows drops the frame — the hook is still
-            // notified below, exactly as for a byte-count mismatch.
-            // `expected_len` is `None` on overflow and for a format frames
-            // do not use.
-            let fits = frame.expected_len().is_some();
-            if fits {
-                // A decoded frame is opaque, for which straight ==
-                // premultiplied: no per-pixel multiply. It is shown in the
-                // format it was decoded in (NV12 / BGRA8 / RGBA8).
-                if let Some(img) = ImageRef::new_rawimage(RawImage {
-                    pixels: RawImageData::U8(frame.bytes.clone()),
-                    width: frame.width as usize,
-                    height: frame.height as usize,
-                    premultiplied_alpha: true,
-                    data_format: frame.format,
-                    tag: b"azul-video-frame".to_vec().into(),
-                }) {
-                    if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
-                        s.current_frame = Some(img);
-                    }
-                }
-            }
-            user_update = invoke_on_frame(&hook, &mut info, &frame);
+        .map_or_else(
+            || (OptionOnVideoFrame::None, None),
+            |s| (s.on_frame.clone(), Some(s.frame_marker.clone())),
+        );
+    let Some(frame) = frame_data.downcast_ref::<VideoFrame>() else {
+        return Update::DoNothing;
+    };
+    // Guard against dimensions whose RGBA byte count overflows `usize` before
+    // `ImageRef::new_rawimage` validates it against the buffer: `width *
+    // height * 4` wraps in release (e.g. 2^31 x 2^31 -> 0) so an empty buffer
+    // would spuriously "match" and store a bogus frame. A `checked_mul` that
+    // overflows drops the frame - the hook is still notified below, exactly
+    // as for a byte-count mismatch. `expected_len` is `None` on overflow and
+    // for a format frames do not use.
+    let image = frame.expected_len().and_then(|_| {
+        // A decoded frame is opaque, for which straight == premultiplied:
+        // no per-pixel multiply. It is shown in the format it was decoded
+        // in (NV12 / BGRA8 / RGBA8).
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(frame.bytes.clone()),
+            width: frame.width as usize,
+            height: frame.height as usize,
+            premultiplied_alpha: true,
+            data_format: frame.format,
+            tag: b"azul-video-frame".to_vec().into(),
+        })
+    });
+    let mut needs_view = false;
+    if let Some(img) = image {
+        if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
+            s.current_frame = Some(img.clone());
         }
-        None => return Update::DoNothing,
+        let shown = marker
+            .and_then(|m| info.get_node_id_by_marker(m))
+            .and_then(|node| Some((node.dom, node.node.into_crate_internal()?)));
+        match shown {
+            Some((dom, node)) => {
+                info.change_node_image(
+                    dom,
+                    node,
+                    img,
+                    azul_core::resources::UpdateImageType::Content,
+                );
+            }
+            None => needs_view = true,
+        }
     }
-    // Re-render the VirtualView(s) in place so the content callback re-reads the
-    // freshly-stored `current_frame` (NOT RefreshDom — that would rebuild the DOM
-    // and orphan the worker's dataset clone). Same trick as `map_tile_writeback`.
-    info.trigger_all_virtual_view_rerender();
+    let user_update = invoke_on_frame(&hook, &mut info, &frame);
+    // The view still shows the poster: render it again in place so it builds
+    // the picture (NOT RefreshDom - that would rebuild the DOM and orphan the
+    // worker's dataset clone). Same trick as `map_tile_writeback`.
+    if needs_view {
+        info.trigger_all_virtual_view_rerender();
+    }
     user_update
 }
 
@@ -3130,8 +3148,8 @@ mod autotest_generated {
             assert_eq!(update, Update::DoNothing);
             assert_eq!(
                 count_virtual_view_rerenders(&changes),
-                1,
-                "a rejected frame still costs a re-render"
+                0,
+                "a rejected frame changes nothing on screen: no view is rendered again"
             );
             assert_eq!(
                 read_state(&mut data).current_frame_id,
