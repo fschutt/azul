@@ -4166,7 +4166,7 @@ mod theme_tests {
     fn the_flora_selected_tab_is_the_stone_cut_from_the_rolled_metal_and_open_at_its_foot() {
         let dom = bar(UiTheme::Flora);
         let active = child(&dom, 2);
-        let face = flora::australis_face(flora::STONE_STREAK);
+        let face = flora::australis_face(flora::TAB_STREAK);
         let mut cut = vec![tc::flora_css_rolled_tab()];
         cut.extend(face.iter().cloned());
         let mut boxes = vec![StyleBackgroundClip::BorderBox];

@@ -3528,8 +3528,8 @@ mod gradient_tests {
         let dom = flora_button("more", ButtonType::Link).dom();
         assert_eq!(
             state_background(&dom, PseudoStateType::Active, false),
-            None,
-            "a quiet note does not press in"
+            Some(vec![StyleBackgroundContent::Color(DIALOG_QUIET_WASH_LIGHT)]),
+            "pressed, a quiet note takes its quiet wash, not a sunken stone"
         );
     }
 

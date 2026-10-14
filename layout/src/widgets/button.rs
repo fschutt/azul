@@ -2255,20 +2255,23 @@ mod autotest_generated {
             // part of what the widget declared. Two resting declarations ARE
             // the theme's, after the style the button owns (a caller's own
             // style gets neither): the neutral face's Office 2010 raised
-            // gradient (white over silver), and the face's pointer fade
-            // (`decl::state_fade`, its unconditional half, d5cebf5a7) - a link
-            // only underlines and has none.
+            // gradient (white over silver), and the pointer fade
+            // (`decl::state_fade`, its unconditional half) - of the face, or
+            // for a link, which has no face, of its opacity: it dims while
+            // pressed.
             let mut expected = container;
             {
                 use crate::widgets::themes::{decl, flat};
                 if ty.surface() == ButtonSurface::Neutral {
                     expected.push(decl::layers(vec![decl::face(flat::LIGHT_RT, flat::LIGHT_RB)]));
                 }
-                if ty != ButtonType::Link {
-                    let [fade, _pressed] =
-                        decl::state_fade(decl::BUTTON_FACE, decl::BUTTON_FADE_MS);
-                    expected.push(fade.property);
-                }
+                let faded: &[&'static str] = if ty == ButtonType::Link {
+                    &["opacity"]
+                } else {
+                    decl::BUTTON_FACE
+                };
+                let [fade, _pressed] = decl::state_fade(faded, decl::BUTTON_FADE_MS);
+                expected.push(fade.property);
             }
             assert_eq!(
                 theme_probe::unconditional(&dom),

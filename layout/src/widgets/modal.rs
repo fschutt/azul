@@ -545,11 +545,12 @@ mod tests {
         );
     }
 
-    /// The modal is a modal dialog: a window over the whole parent whose
-    /// root is the backdrop, the panel named by the title, with the modal's
-    /// historical classes on its parts.
+    /// The modal is a modal dialog: a dialog window of its own, centred over
+    /// its parent, with no dimmed backdrop. Its panel is named by the title
+    /// and holds only the content: the title is in the window's title bar
+    /// and the close box is the system's.
     #[test]
-    fn the_modal_is_a_viewport_window_with_a_named_panel() {
+    fn the_modal_is_a_dialog_window_with_a_named_panel() {
         for open in [false, true] {
             let dom = Modal::create(Dom::create_p_with_text("body"))
                 .with_title("Example dialog".into())
@@ -567,11 +568,14 @@ mod tests {
                 TransientDismiss::None,
                 "Escape is the modal's own"
             );
-            assert!(window
-                .root
-                .style
-                .iter_inline_properties()
-                .any(|(p, _)| matches!(p, CssProperty::BackgroundContent(_))));
+            assert!(
+                !window
+                    .root
+                    .style
+                    .iter_inline_properties()
+                    .any(|(p, _)| matches!(p, CssProperty::BackgroundContent(_))),
+                "no dimmed backdrop: the parent stays as it is beside the dialog's window"
+            );
             let panel = &window.children.as_ref()[0];
             assert!(has_class(panel, "__azul-native-modal-panel"));
             let info = panel.root.get_accessibility_info().expect("a role");
@@ -581,9 +585,8 @@ mod tests {
                 Some("Example dialog")
             );
             let kids = panel.children.as_ref();
-            assert!(has_class(&kids[0], "__azul-native-modal-title"));
-            assert!(has_class(&kids[1], "__azul-native-modal-content"));
-            assert!(has_class(&kids[2], "__azul-native-modal-close"));
+            assert_eq!(kids.len(), 1, "no title row and no close button in the panel");
+            assert!(has_class(&kids[0], "__azul-native-modal-content"));
         }
     }
 

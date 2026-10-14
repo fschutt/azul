@@ -2054,12 +2054,13 @@ mod tests {
     }
 
     /// The "×" is HTML `close()`: no `cancel`, the return value unchanged.
+    /// (A non-modal dialog draws it; a modal one has the system's close box.)
     #[test]
     fn the_close_button_closes_without_a_cancel() {
         let log = RefAny::new(Log::default());
         let (styled, data) = rendered(logged(
             Dialog::create(body())
-                .show_modal()
+                .show()
                 .with_return_value("kept".into()),
             &log,
         ));
@@ -2221,6 +2222,13 @@ mod theme_tests {
         }
     }
 
+    /// [`titled`] shown NON-modally: only such a dialog draws its own title
+    /// row and "x". A modal one is a window whose title bar and close box are
+    /// the system's.
+    fn titled_popup(theme: Option<UiTheme>) -> Dialog {
+        titled(theme).show()
+    }
+
     fn panel_of(dom: &Dom) -> &Dom {
         tc::find(dom, PANEL).expect("the dialog has a panel")
     }
@@ -2287,7 +2295,7 @@ mod theme_tests {
 
     #[test]
     fn a_flora_dialog_title_is_set_in_capitals_on_the_header_band() {
-        let dom = titled(Some(UiTheme::Flora)).dom();
+        let dom = titled_popup(Some(UiTheme::Flora)).dom();
         let title = tc::find(&dom, TITLE).expect("a titled dialog has a title row");
         for dark in [false, true] {
             let band = tc::background(title, dark).map(|p| tc::bg_layers(&p));
@@ -2311,7 +2319,7 @@ mod theme_tests {
 
     #[test]
     fn a_flora_dialog_close_button_sits_on_the_band_in_the_paper_ink() {
-        let dom = titled(Some(UiTheme::Flora)).dom();
+        let dom = titled_popup(Some(UiTheme::Flora)).dom();
         let close = tc::find(&dom, CLOSE).expect("the dialog has a close button");
         assert_eq!(tc::text_color(close, false), Some(flora::LIGHT_ON_ACC));
         assert_eq!(tc::text_color(close, true), Some(flora::LIGHT_ON_ACC));
@@ -2320,7 +2328,7 @@ mod theme_tests {
     #[test]
     fn the_dialog_close_button_shows_a_focus_ring_in_every_theme_and_mode() {
         for theme in [UiTheme::Flat, UiTheme::Flora] {
-            let dom = titled(Some(theme)).dom();
+            let dom = titled_popup(Some(theme)).dom();
             let close = tc::find(&dom, CLOSE).expect("the dialog has a close button");
             assert!(tc::has_focus_ring(close, false), "{theme:?}: no light focus ring");
             assert!(tc::has_focus_ring(close, true), "{theme:?}: no dark focus ring");
@@ -2330,7 +2338,7 @@ mod theme_tests {
 
     #[test]
     fn a_flora_focus_ring_lifts_to_the_glow_in_the_dark() {
-        let dom = titled(Some(UiTheme::Flora)).dom();
+        let dom = titled_popup(Some(UiTheme::Flora)).dom();
         let close = tc::find(&dom, CLOSE).expect("the dialog has a close button");
         let focus = Some(PseudoStateType::Focus);
         // On the band the ring is the stone's glow by day too: the accent

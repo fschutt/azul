@@ -8922,7 +8922,7 @@ mod flora_tests {
             (true, flora::DARK_SOFT1, flora::HOVER_FACE_DARK),
         ] {
             let mut cut = vec![tc::flora_css_rolled_tab()];
-            cut.extend(flora::australis_face(flora::STONE_STREAK));
+            cut.extend(flora::australis_face(flora::TAB_STREAK));
             assert_eq!(
                 face(active, dark, None),
                 cut,
