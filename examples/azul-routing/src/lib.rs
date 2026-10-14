@@ -19,7 +19,8 @@
 //! [`route`] runs all four and reports its progress; the `routing-tiles`
 //! binary cuts an OpenStreetMap extract into the tiles ([`generate`]).
 //! [`source`] has the tile sources: a folder, a cache in memory and on disk,
-//! and (feature `http`) a download from any static file hosting.
+//! and (feature `http`) a download from any static file hosting. Where no
+//! tiles are at hand, [`online`] asks a Valhalla server for the route.
 
 pub mod astar;
 pub mod corridor;
@@ -27,6 +28,7 @@ pub mod format;
 pub mod generate;
 pub mod graph;
 pub mod mode;
+pub mod online;
 pub mod pbf;
 pub mod router;
 pub mod source;

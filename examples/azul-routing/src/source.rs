@@ -172,6 +172,24 @@ impl<S: TileSource> TileSource for CachedTiles<S> {
     }
 }
 
+/// The connection pool every download of this crate uses: rustls with the
+/// pure-Rust crypto provider and the Mozilla roots, an HTTP error status
+/// handed back as a response, 30 s at most per request.
+#[cfg(feature = "http")]
+pub(crate) fn http_agent() -> ureq::Agent {
+    let tls = ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::Rustls)
+        .unversioned_rustls_crypto_provider(Arc::new(rustls_rustcrypto::provider()))
+        .root_certs(ureq::tls::RootCerts::WebPki)
+        .build();
+    let config = ureq::Agent::config_builder()
+        .tls_config(tls)
+        .http_status_as_error(false)
+        .timeout_global(Some(std::time::Duration::from_secs(30)))
+        .build();
+    ureq::Agent::new_with_config(config)
+}
+
 /// Tiles downloaded from a URL template (`{z}`, `{x}`, `{y}`), e.g.
 /// `https://example.org/routing/2026-10/{z}/{x}/{y}.json.gz`. A 404 is a
 /// tile without roads.
@@ -194,20 +212,10 @@ impl HttpTiles {
     /// Downloads from `template`, naming itself `user_agent`.
     #[must_use]
     pub fn new(template: impl Into<String>, user_agent: impl Into<String>) -> Self {
-        let tls = ureq::tls::TlsConfig::builder()
-            .provider(ureq::tls::TlsProvider::Rustls)
-            .unversioned_rustls_crypto_provider(Arc::new(rustls_rustcrypto::provider()))
-            .root_certs(ureq::tls::RootCerts::WebPki)
-            .build();
-        let config = ureq::Agent::config_builder()
-            .tls_config(tls)
-            .http_status_as_error(false)
-            .timeout_global(Some(std::time::Duration::from_secs(30)))
-            .build();
         Self {
             template: template.into(),
             user_agent: user_agent.into(),
-            agent: ureq::Agent::new_with_config(config),
+            agent: http_agent(),
         }
     }
 
