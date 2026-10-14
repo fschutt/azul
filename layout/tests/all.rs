@@ -1099,3 +1099,5 @@ mod calmet_ui_falls_back_per_code_point;
 mod opentype_features_reach_the_shaper;
 #[path = "small_capitals_are_synthesized_like_chrome.rs"]
 mod small_capitals_are_synthesized_like_chrome;
+#[path = "a_tracked_label_centres_once_its_last_tracking_is_given_back.rs"]
+mod a_tracked_label_centres_once_its_last_tracking_is_given_back;
