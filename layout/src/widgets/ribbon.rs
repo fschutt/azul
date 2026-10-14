@@ -102,7 +102,7 @@ use super::{
 };
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::tab_reveal::{RevealEvent, RevealMachine, RevealOwner, TabReveal},
+    widgets::tab_reveal::{RevealMachine, RevealOwner, TabReveal},
 };
 
 // -- Callbacks --
@@ -3991,26 +3991,7 @@ impl Ribbon {
             if let Some(reveal) = view.reveal.as_ref() {
                 // The reveal hears the pointer and the clicks, and tells the
                 // app of a tab the content switched to.
-                let data = RefAny::new(RevealTabData {
-                    tab: idx,
-                    reveal: reveal.clone(),
-                    owner: owner.clone(),
-                });
-                for (event, cb) in [
-                    (HoverEventFilter::Click, on_reveal_tab_click as usize),
-                    (HoverEventFilter::DoubleClick, on_reveal_tab_double_click as usize),
-                    (HoverEventFilter::MouseEnter, on_reveal_tab_enter as usize),
-                    (HoverEventFilter::MouseLeave, on_reveal_tab_leave as usize),
-                ] {
-                    cbs.push(CoreCallbackData {
-                        event: EventFilter::Hover(event),
-                        callback: CoreCallback {
-                            cb,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                        refany: data.clone(),
-                    });
-                }
+                cbs.extend(crate::widgets::tab_reveal::tab_callbacks(idx, reveal, &owner, false));
             } else if has_callback {
                 cbs.push(CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Click),
@@ -4089,19 +4070,7 @@ impl Ribbon {
                     ..Default::default()
                 });
             chevron = chevron.with_callbacks(
-                vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::Click),
-                    callback: CoreCallback {
-                        cb: on_reveal_chevron as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: RefAny::new(RevealTabData {
-                        tab: active_tab,
-                        reveal: reveal.clone(),
-                        owner: owner.clone(),
-                    }),
-                }]
-                .into(),
+                vec![crate::widgets::tab_reveal::chevron_callback(reveal, &owner)].into(),
             );
             end.push(chevron);
         }
@@ -4315,17 +4284,7 @@ impl Ribbon {
             if view.closes {
                 // The content opens and closes by its height, the golden
                 // line and everything under the ribbon moving with it.
-                content_style.push(Cond::simple(P::const_overflow_y(LayoutOverflow::Hidden)));
-                content_style.push(height_motion());
-                if !view.open {
-                    content_style.push(Cond::simple(P::const_height(LayoutHeight::const_px(0))));
-                    content_style.push(Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))));
-                    content_style.push(Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(0))));
-                    content_style.push(Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(0))));
-                    content_style.push(Cond::simple(P::const_border_bottom_width(
-                        LayoutBorderBottomWidth::const_px(0),
-                    )));
-                }
+                content_style.extend(crate::widgets::tab_reveal::content_motion(view.open));
             }
             // The groups in one body keyed by its tab: a switch makes a new
             // body that slides in from the side the switch leaves while the
@@ -4444,25 +4403,8 @@ impl Ribbon {
         if let Some(reveal) = view.reveal.as_ref() {
             // The tabs and the content are one hover area: leaving it (for
             // `LEAVE_CLOSE_MS`) closes the content, coming back cancels.
-            let data = RefAny::new(RevealTabData {
-                tab: active_tab,
-                reveal: reveal.clone(),
-                owner,
-            });
             let mut cbs = container.root.get_callbacks().as_ref().to_vec();
-            for (event, cb) in [
-                (HoverEventFilter::MouseEnter, on_reveal_area_enter as usize),
-                (HoverEventFilter::MouseLeave, on_reveal_area_leave as usize),
-            ] {
-                cbs.push(CoreCallbackData {
-                    event: EventFilter::Hover(event),
-                    callback: CoreCallback {
-                        cb,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: data.clone(),
-                });
-            }
+            cbs.extend(crate::widgets::tab_reveal::area_callbacks(reveal, &owner));
             container.root.set_callbacks(cbs.into());
         }
         if behavior.collapsible || behavior.peek_on_hover {
@@ -4548,71 +4490,6 @@ impl RevealView {
             built_before,
         }
     }
-}
-
-/// What a reveal callback carries: the tab it sits on (the active one for
-/// the area and the chevron), the reveal and who hears of a switch.
-struct RevealTabData {
-    tab: usize,
-    reveal: TabReveal,
-    owner: RevealOwner,
-}
-
-/// Feeds the event `event` makes of the callback's tab.
-fn feed_reveal(data: &mut RefAny, info: &mut CallbackInfo, event: fn(usize) -> RevealEvent) -> Update {
-    let Some((tab, reveal, owner)) = data
-        .downcast_ref::<RevealTabData>()
-        .map(|d| (d.tab, d.reveal.clone(), d.owner.clone()))
-    else {
-        return Update::DoNothing;
-    };
-    reveal.feed(info, &owner, event(tab))
-}
-
-extern "C" fn on_reveal_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    feed_reveal(&mut data, &mut info, RevealEvent::Click)
-}
-
-extern "C" fn on_reveal_tab_double_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    feed_reveal(&mut data, &mut info, RevealEvent::DoubleClick)
-}
-
-extern "C" fn on_reveal_tab_enter(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    feed_reveal(&mut data, &mut info, RevealEvent::EnterTab)
-}
-
-extern "C" fn on_reveal_tab_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    feed_reveal(&mut data, &mut info, RevealEvent::LeaveTab)
-}
-
-extern "C" fn on_reveal_area_enter(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    feed_reveal(&mut data, &mut info, |_| RevealEvent::EnterArea)
-}
-
-extern "C" fn on_reveal_area_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    feed_reveal(&mut data, &mut info, |_| RevealEvent::LeaveArea)
-}
-
-extern "C" fn on_reveal_chevron(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    feed_reveal(&mut data, &mut info, |_| RevealEvent::Chevron)
-}
-
-/// The content band's height changes over `CONTENT_MOTION_MS` on the house
-/// curve (the reveal opens and closes it).
-fn height_motion() -> Cond {
-    use azul_css::props::basic::animation::{AnimationIterationCount, StyleAnimation, StyleAnimationVec};
-    Cond::simple(P::Animation(props::property::StyleAnimationVecValue::Exact(
-        StyleAnimationVec::from_vec(vec![StyleAnimation {
-            name: AzString::from_const_str("height"),
-            duration: props::basic::time::CssDuration::from_millis(
-                crate::widgets::tab_reveal::CONTENT_MOTION_MS,
-            ),
-            delay: props::basic::time::CssDuration::from_millis(0),
-            iterations: AnimationIterationCount::Count(1),
-            timing: crate::widgets::themes::flora::FL_EASE,
-            clip: true,
-        }]),
-    )))
 }
 
 /// `s` with its tab row made of `theme`'s buttons (`TabStyle::Pills`) and

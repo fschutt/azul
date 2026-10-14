@@ -1571,6 +1571,9 @@ pub struct TabHeader {
     pub theme: crate::widgets::themes::OptionUiTheme,
     /// The shape of the tabs (`with_style`); `Auto` takes the theme's own.
     pub style: TabStyle,
+    /// How the panel opens and closes (`with_reveal`), kept by the app
+    /// between rebuilds; `None` keeps the active tab's panel always shown.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
 }
 
 impl Default for TabHeader {
@@ -1581,6 +1584,7 @@ impl Default for TabHeader {
             on_click: None.into(),
             theme: crate::widgets::themes::OptionUiTheme::None,
             style: TabStyle::Auto,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
         }
     }
 }
@@ -1625,7 +1629,25 @@ impl TabHeader {
             on_click: None.into(),
             theme: crate::widgets::themes::OptionUiTheme::None,
             style: TabStyle::Auto,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
         }
+    }
+
+    /// How the panel opens and closes: the app makes `reveal` once
+    /// (`TabReveal::create`, with its `TabClickBehaviour`), hands the same
+    /// one to every build of this bar and of its `TabContent`, and builds
+    /// the panel for the tab `on_click` reports. The bar feeds it the
+    /// pointer, the clicks and Enter / Space (Shift+Enter, or a double
+    /// Enter, locks), and draws no tab selected while the panel is closed.
+    pub fn set_reveal(&mut self, reveal: crate::widgets::tab_reveal::TabReveal) {
+        self.reveal = crate::widgets::tab_reveal::OptionTabReveal::Some(reveal);
+    }
+
+    /// [`Self::set_reveal`] for the builder chain.
+    #[must_use]
+    pub fn with_reveal(mut self, reveal: crate::widgets::tab_reveal::TabReveal) -> Self {
+        self.set_reveal(reveal);
+        self
     }
 
     /// The shape of the tabs: Aurora's curves, square tabs or pills.
@@ -1737,9 +1759,19 @@ impl TabHeader {
         let look = TabHeaderLook::of(self.theme, self.style);
         let tab_count = self.tabs.as_ref().len();
         // An index past the last tab selects none: no tab is drawn selected,
-        // and no neighbour of a missing selection gets its seam.
-        let active = (self.active_tab < tab_count).then_some(self.active_tab);
-        let on_click_is_some = self.on_click.is_some();
+        // and no neighbour of a missing selection gets its seam. A reveal
+        // draws the shown tab selected while its panel is open, none while
+        // it is closed.
+        let active = match self.reveal.as_ref() {
+            Some(reveal) => {
+                reveal.begin_build(self.active_tab);
+                reveal.get_selected().into_option().filter(|t| *t < tab_count)
+            }
+            None => (self.active_tab < tab_count).then_some(self.active_tab),
+        };
+        let reveal = self.reveal.clone().into_option();
+        let owner = crate::widgets::tab_reveal::RevealOwner::Header(self.on_click.clone());
+        let on_click_is_some = self.on_click.is_some() || reveal.is_some();
         // WAI-ARIA APG: an interactive tab list is ONE Tab stop - the active
         // tab, or the first when the index is out of range. The arrow keys
         // move (and activate) within it. A header nobody can activate stays
@@ -1806,9 +1838,28 @@ impl TabHeader {
                     dataset.tab_idx = tab_idx;
                     let dataset = RefAny::new(dataset);
 
+                    let arrows = CoreCallbackData {
+                        event: EventFilter::Focus(
+                            azul_core::events::FocusEventFilter::VirtualKeyDown,
+                        ),
+                        callback: CoreCallback {
+                            cb: on_tab_key as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: dataset.clone(),
+                    };
                     let mut tab_dom = crate::widgets::widget_p_with_text(tab.clone())
-                        .with_callbacks(if on_click_is_some {
-                            vec![
+                        .with_callbacks(match reveal.as_ref() {
+                            // The reveal hears the pointer, the clicks and
+                            // Enter; the arrows still move the Tab stop.
+                            Some(reveal) => {
+                                let mut v = crate::widgets::tab_reveal::tab_callbacks(
+                                    tab_idx, reveal, &owner, true,
+                                );
+                                v.push(arrows);
+                                v.into()
+                            }
+                            None if on_click_is_some => vec![
                                 CoreCallbackData {
                                     event: EventFilter::Hover(HoverEventFilter::Click),
                                     callback: CoreCallback {
@@ -1817,20 +1868,10 @@ impl TabHeader {
                                     },
                                     refany: dataset.clone(),
                                 },
-                                CoreCallbackData {
-                                    event: EventFilter::Focus(
-                                        azul_core::events::FocusEventFilter::VirtualKeyDown,
-                                    ),
-                                    callback: CoreCallback {
-                                        cb: on_tab_key as usize,
-                                        ctx: azul_core::refany::OptionRefAny::None,
-                                    },
-                                    refany: dataset.clone(),
-                                },
+                                arrows,
                             ]
-                            .into()
-                        } else {
-                            CoreCallbackDataVec::from_const_slice(&[])
+                            .into(),
+                            None => CoreCallbackDataVec::from_const_slice(&[]),
                         })
                         .with_dataset(Some(dataset).into())
                         .with_css_props(css_props)
@@ -1899,6 +1940,12 @@ impl TabHeader {
         // tint), after its style: `with_css_props` replaces a node's style.
         if !look.header_css.is_empty() {
             header.root.set_css(look.header_css);
+        }
+        // The bar is half of the reveal's hover area; the panel the other.
+        if let Some(reveal) = reveal.as_ref() {
+            header = header.with_callbacks(
+                crate::widgets::tab_reveal::area_callbacks(reveal, &owner).into(),
+            );
         }
         header
     }
@@ -2259,6 +2306,9 @@ pub struct TabContent {
     /// fades out, the new one slides in) while a rebuild for the same tab
     /// keeps it still.
     pub tab: usize,
+    /// The reveal its `TabHeader` was built with (`with_reveal`): the panel
+    /// is the other half of its hover area, and it closes to no height.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
 }
 
 impl Default for TabContent {
@@ -2269,6 +2319,7 @@ impl Default for TabContent {
             theme: crate::widgets::themes::OptionUiTheme::None,
             slide: TabSlide::None,
             tab: 0,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
         }
     }
 }
@@ -2407,7 +2458,21 @@ impl TabContent {
             theme: crate::widgets::themes::OptionUiTheme::None,
             slide: TabSlide::None,
             tab: 0,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
         }
+    }
+
+    /// The reveal its `TabHeader` was built with: the panel opens and closes
+    /// by its height as the reveal says, and the pointer on it keeps it open.
+    pub fn set_reveal(&mut self, reveal: crate::widgets::tab_reveal::TabReveal) {
+        self.reveal = crate::widgets::tab_reveal::OptionTabReveal::Some(reveal);
+    }
+
+    /// [`Self::set_reveal`] for the builder chain.
+    #[must_use]
+    pub fn with_reveal(mut self, reveal: crate::widgets::tab_reveal::TabReveal) -> Self {
+        self.set_reveal(reveal);
+        self
     }
 
     /// The tab bar switched from tab `from` to tab `to` and this panel now
@@ -2476,7 +2541,25 @@ impl TabContent {
         } else {
             look.unpadded
         };
-        let panel = Dom::create_div().with_css_props(tab_content_css_style);
+        let panel = match self.reveal.as_ref() {
+            Some(reveal) => {
+                let mut style = tab_content_css_style.into_library_owned_vec();
+                if reveal.get_behaviour()
+                    != crate::widgets::tab_reveal::TabClickBehaviour::AlwaysOpen
+                {
+                    style.extend(crate::widgets::tab_reveal::content_motion(reveal.is_open()));
+                }
+                let owner = crate::widgets::tab_reveal::RevealOwner::Header(
+                    OptionTabOnClick::None,
+                );
+                Dom::create_div()
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+                    .with_callbacks(
+                        crate::widgets::tab_reveal::area_callbacks(reveal, &owner).into(),
+                    )
+            }
+            None => Dom::create_div().with_css_props(tab_content_css_style),
+        };
         let panel = match look.marker {
             None => panel,
             Some(marker) => panel.with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(

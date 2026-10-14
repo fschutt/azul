@@ -562,6 +562,207 @@ impl TabReveal {
     }
 }
 
+// ---- the callbacks a widget hangs on its tabs, its area and its chevron ----
+
+/// What a reveal callback carries: the tab it sits on (the shown one for
+/// the area and the chevron), the reveal and who hears of a switch.
+pub(crate) struct RevealTabData {
+    tab: usize,
+    reveal: TabReveal,
+    owner: RevealOwner,
+}
+
+/// Feeds the event `event` makes of the callback's tab.
+fn feed_from(data: &mut RefAny, info: &mut CallbackInfo, event: fn(usize) -> RevealEvent) -> Update {
+    let Some((tab, reveal, owner)) = data
+        .downcast_ref::<RevealTabData>()
+        .map(|d| (d.tab, d.reveal.clone(), d.owner.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    reveal.feed(info, &owner, event(tab))
+}
+
+extern "C" fn on_reveal_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    feed_from(&mut data, &mut info, RevealEvent::Click)
+}
+
+extern "C" fn on_reveal_tab_double_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    feed_from(&mut data, &mut info, RevealEvent::DoubleClick)
+}
+
+extern "C" fn on_reveal_tab_enter(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    feed_from(&mut data, &mut info, RevealEvent::EnterTab)
+}
+
+extern "C" fn on_reveal_tab_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    feed_from(&mut data, &mut info, RevealEvent::LeaveTab)
+}
+
+extern "C" fn on_reveal_area_enter(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    feed_from(&mut data, &mut info, |_| RevealEvent::EnterArea)
+}
+
+extern "C" fn on_reveal_area_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    feed_from(&mut data, &mut info, |_| RevealEvent::LeaveArea)
+}
+
+extern "C" fn on_reveal_chevron(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    feed_from(&mut data, &mut info, |_| RevealEvent::Chevron)
+}
+
+/// Enter or Space on a focused tab is a click; Shift+Enter, or a second
+/// Enter soon after the first, the lock.
+extern "C" fn on_reveal_tab_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+    let keys = info.get_current_keyboard_state();
+    if keys.ctrl_down() || keys.alt_down() || keys.super_down() {
+        return Update::DoNothing;
+    }
+    let shift = keys.shift_down();
+    match keys.current_virtual_keycode.into_option() {
+        Some(K::Return) => {}
+        Some(K::Space) if !shift => {}
+        _ => return Update::DoNothing,
+    }
+    let Some((tab, reveal, owner)) = data
+        .downcast_ref::<RevealTabData>()
+        .map(|d| (d.tab, d.reveal.clone(), d.owner.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    reveal.feed(&mut info, &owner, RevealEvent::Key { tab, shift })
+}
+
+/// One callback on `event` carrying `data`.
+fn callback(
+    event: azul_core::dom::EventFilter,
+    cb: usize,
+    data: &RefAny,
+) -> azul_core::callbacks::CoreCallbackData {
+    azul_core::callbacks::CoreCallbackData {
+        event,
+        callback: azul_core::callbacks::CoreCallback {
+            cb,
+            ctx: azul_core::refany::OptionRefAny::None,
+        },
+        refany: data.clone(),
+    }
+}
+
+/// The callbacks a tab hangs so `reveal` hears the pointer, the clicks
+/// and the keys on it (`keys`: the tab is focusable).
+pub(crate) fn tab_callbacks(
+    tab: usize,
+    reveal: &TabReveal,
+    owner: &RevealOwner,
+    keys: bool,
+) -> Vec<azul_core::callbacks::CoreCallbackData> {
+    use azul_core::{
+        dom::{EventFilter as E, HoverEventFilter as H},
+        events::FocusEventFilter,
+    };
+    let data = RefAny::new(RevealTabData {
+        tab,
+        reveal: reveal.clone(),
+        owner: owner.clone(),
+    });
+    let mut v = alloc::vec![
+        callback(E::Hover(H::Click), on_reveal_tab_click as usize, &data),
+        callback(E::Hover(H::DoubleClick), on_reveal_tab_double_click as usize, &data),
+        callback(E::Hover(H::MouseEnter), on_reveal_tab_enter as usize, &data),
+        callback(E::Hover(H::MouseLeave), on_reveal_tab_leave as usize, &data),
+    ];
+    if keys {
+        v.push(callback(
+            E::Focus(FocusEventFilter::VirtualKeyDown),
+            on_reveal_tab_key as usize,
+            &data,
+        ));
+    }
+    v
+}
+
+/// The callbacks that make a node part of `reveal`'s hover area (the tab
+/// row and the content are one area: leaving it starts the close, coming
+/// back cancels it).
+pub(crate) fn area_callbacks(
+    reveal: &TabReveal,
+    owner: &RevealOwner,
+) -> Vec<azul_core::callbacks::CoreCallbackData> {
+    use azul_core::dom::{EventFilter as E, HoverEventFilter as H};
+    let data = RefAny::new(RevealTabData {
+        tab: 0,
+        reveal: reveal.clone(),
+        owner: owner.clone(),
+    });
+    alloc::vec![
+        callback(E::Hover(H::MouseEnter), on_reveal_area_enter as usize, &data),
+        callback(E::Hover(H::MouseLeave), on_reveal_area_leave as usize, &data),
+    ]
+}
+
+/// The click of the chevron that locks the content open or closes it.
+pub(crate) fn chevron_callback(
+    reveal: &TabReveal,
+    owner: &RevealOwner,
+) -> azul_core::callbacks::CoreCallbackData {
+    use azul_core::dom::{EventFilter as E, HoverEventFilter as H};
+    let data = RefAny::new(RevealTabData {
+        tab: 0,
+        reveal: reveal.clone(),
+        owner: owner.clone(),
+    });
+    callback(E::Hover(H::Click), on_reveal_chevron as usize, &data)
+}
+
+/// What a revealing content panel declares after its own style: it opens
+/// and closes by its height (over [`CONTENT_MOTION_MS`] on the house
+/// curve, so whatever lies under it moves with it), and while closed it
+/// has none.
+pub(crate) fn content_motion(open: bool) -> Vec<azul_css::dynamic_selector::CssPropertyWithConditions> {
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions as C,
+        props::{
+            basic::{
+                animation::{AnimationIterationCount, StyleAnimation, StyleAnimationVec},
+                time::CssDuration,
+            },
+            layout::{
+                LayoutHeight, LayoutMinHeight, LayoutOverflow, LayoutPaddingBottom,
+                LayoutPaddingTop,
+            },
+            property::{CssProperty as P, StyleAnimationVecValue},
+            style::LayoutBorderBottomWidth,
+        },
+        AzString,
+    };
+    let mut v = alloc::vec![
+        C::simple(P::const_overflow_y(LayoutOverflow::Hidden)),
+        C::simple(P::Animation(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
+            alloc::vec![StyleAnimation {
+                name: AzString::from_const_str("height"),
+                duration: CssDuration::from_millis(CONTENT_MOTION_MS),
+                delay: CssDuration::from_millis(0),
+                iterations: AnimationIterationCount::Count(1),
+                timing: crate::widgets::themes::flora::FL_EASE,
+                clip: true,
+            }],
+        )))),
+    ];
+    if !open {
+        v.extend([
+            C::simple(P::const_height(LayoutHeight::const_px(0))),
+            C::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
+            C::simple(P::const_padding_top(LayoutPaddingTop::const_px(0))),
+            C::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(0))),
+            C::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))),
+        ]);
+    }
+    v
+}
+
 /// A reveal's deadline came: the machine ticks (and the timer ends; a new
 /// one is set for the next deadline, if any).
 extern "C" fn on_reveal_deadline(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
