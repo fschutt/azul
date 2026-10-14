@@ -3136,3 +3136,83 @@ mod autotest_generated {
         assert_eq!(px(&p, 7, 10), RED_PX, "and the dash follows");
     }
 }
+
+/// `<text>`: an SVG's text is drawn like its shapes, in the font its
+/// `@font-face` embeds (the SVG of a PDF page carries its fonts that way),
+/// else in the installed family it names.
+#[cfg(all(
+    test,
+    feature = "std",
+    feature = "xml",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
+mod svg_text_tests {
+    use base64::Engine as _;
+
+    /// A page as printpdf writes it: the font embedded by a `data:` URI, one
+    /// `<text>` at the origin, placed by its transform (baseline at y 60).
+    fn page_with_text(text: &str) -> String {
+        let font = base64::engine::general_purpose::STANDARD
+            .encode(crate::text3::mock_fonts::MOCK_MONO_TTF);
+        format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200px\" height=\"100px\" \
+             viewBox=\"0 0 200 100\">\n<style>\n@font-face {{ font-family: \"F1\"; src: \
+             url(\"data:font/otf;charset=utf-8;base64,{font}\"); }}</style>\n<text x=\"0\" \
+             y=\"0\" font-family=\"F1\" font-size=\"40\" font-weight=\"normal\" \
+             font-style=\"normal\" fill=\"rgb(0, 0, 0)\" stroke=\"none\" stroke-width=\"1\" \
+             transform=\"matrix(1 -0 -0 1 10 60)\">{text}</text></svg>"
+        )
+    }
+
+    /// The box around the dark pixels of `svg` drawn `w` x `h` on white:
+    /// `(min_x, min_y, max_x, max_y)`, `None` when nothing dark was drawn.
+    fn ink(svg: &str, w: u32, h: u32) -> Option<(usize, usize, usize, usize)> {
+        let image =
+            super::render_svg_to_raw_image_over(svg.as_bytes(), w, h, Some((255, 255, 255, 255)))
+                .expect("the page renders");
+        let azul_core::resources::RawImageData::U8(pixels) = &image.pixels else {
+            panic!("RGBA8 pixels");
+        };
+        let pixels = pixels.as_ref();
+        let mut found: Option<(usize, usize, usize, usize)> = None;
+        for y in 0..image.height {
+            for x in 0..image.width {
+                let i = (y * image.width + x) * 4;
+                if pixels[i] < 128 && pixels[i + 1] < 128 && pixels[i + 2] < 128 {
+                    found = Some(match found {
+                        None => (x, y, x, y),
+                        Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+                    });
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn an_svg_text_is_drawn_in_the_font_its_font_face_embeds() {
+        let (x0, y0, x1, y1) =
+            ink(&page_with_text("MMMM"), 200, 100).expect("the text draws ink");
+        // Four glyphs of half an em at 40 px from x 10: 80 px wide, on the
+        // baseline at y 60 and at most an em above it.
+        assert!(x0 >= 9 && x1 <= 92, "the text spans x {x0}..{x1}, not 10..90");
+        assert!(y0 >= 18 && y1 <= 70, "the text spans y {y0}..{y1}, not about 20..60");
+        assert!(x1 > 60, "four glyphs, not one: the ink ends at x {x1}");
+    }
+
+    #[test]
+    fn an_svg_text_is_scaled_with_the_page() {
+        // The page drawn at half its size: the text at half its size too, as
+        // a thumbnail draws it.
+        let (x0, _, x1, y1) =
+            ink(&page_with_text("MMMM"), 100, 50).expect("the small page draws its text");
+        assert!(x0 >= 4 && x1 <= 47, "the text spans x {x0}..{x1}, not 5..45");
+        assert!(y1 <= 35, "the text ends at y {y1}, above 35");
+    }
+
+    #[test]
+    fn the_style_block_of_an_svg_draws_nothing() {
+        assert_eq!(ink(&page_with_text(""), 200, 100), None);
+    }
+}
