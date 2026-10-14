@@ -6820,20 +6820,19 @@ pub trait PlatformWindow {
                 // write that changed nothing — and produced no damage, so
                 // nothing could ever observe the waste. (Unless the user typed
                 // there: then the DOM agrees and the screen does not.)
+                //
+                // NO cache reset: the relayout's reconcile fingerprints each
+                // node's CONTENT, so the changed text misses its cached
+                // shaping and only its paragraph is shaped again; the warm
+                // layout and the display list survive, and the list is
+                // patched where the text changed (the E2E runner's arm does
+                // the same). A reset here would lay the whole window out cold
+                // for every label update - a clock, a video's time four times
+                // a second.
                 if let Some(lw) = self.get_layout_window_mut() {
                     if !lw.set_node_text(dom_id, internal_node_id, text) {
                         return ProcessEventResult::DoNothing;
                     }
-                    // The incremental layout cache keys its shaped-text runs on
-                    // the DOM pointer, which a text mutation does not change — so
-                    // the next relayout happily reused the OLD glyph runs and the
-                    // screen kept showing the previous text (damage was reported,
-                    // yet not one pixel differed). Drop the incremental cache so
-                    // the text is re-shaped…
-                    lw.layout_cache.reset_incremental();
-                    // …and rebuild the display list, which otherwise still carries
-                    // the old glyph run (same reasoning as ChangeNodeImage below).
-                    lw.regenerate_display_list_for_dom(dom_id);
                 }
                 ProcessEventResult::ShouldIncrementalRelayout
             }

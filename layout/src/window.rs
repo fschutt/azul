@@ -22849,6 +22849,10 @@ impl LayoutWindow {
         if unchanged && typed_over.is_none() {
             return false;
         }
+        // The next pass must reconcile to find the new text: a latch a tween
+        // tick armed (`LayoutCache::overrides_only_hint`) would hand it the
+        // retained tree, and its stamp cannot see a text change.
+        self.layout_cache.overrides_only_hint = None;
         if !unchanged {
             if let Some(lr) = self.layout_results.get_mut(&dom_id) {
                 let mut nodes = lr.styled_dom.node_data.as_container_mut();
