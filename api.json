@@ -28505,6 +28505,24 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.with_fluent_args(args)"
+                            },
+                            "with_part_of_parent": {
+                                "doc": [
+                                    "Draws this node as part of its parent: it takes the parent's hover,",
+                                    "press and focus (see [`NodeData::set_part_of_parent`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "part": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_part_of_parent(part)"
                             }
                         },
                         "repr": "C"
@@ -63429,6 +63447,9 @@
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
+                                },
+                                "style": {
+                                    "type": "TabStyle"
                                 }
                             }
                         ],
@@ -63555,6 +63576,38 @@
                                     "type": "TabHeader"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_style": {
+                                "doc": [
+                                    "The shape of the tabs: Aurora's curves, square tabs or pills.",
+                                    "`Auto` (the default) takes the theme's own."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "style": "TabStyle"
+                                    }
+                                ],
+                                "fn_body": "object.set_style(style)"
+                            },
+                            "with_style": {
+                                "doc": [
+                                    "[`Self::set_style`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "TabStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabHeader"
+                                },
+                                "fn_body": "object.with_style(style)"
                             }
                         },
                         "repr": "C"
@@ -110934,6 +110987,233 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "TabStyle": {
+                        "external": "azul_layout::widgets::tabs::TabStyle",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Aurora": {},
+                                "Rectangular": {},
+                                "Pills": {}
+                            }
+                        ],
+                        "functions": {
+                            "resolved": {
+                                "doc": [
+                                    "This style under `theme`, with `Auto` answered by the theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabStyle"
+                                },
+                                "fn_body": "object.resolved(theme)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TabContent": {
+                        "external": "azul_layout::widgets::tabs::TabContent",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "content": {
+                                    "type": "Dom"
+                                },
+                                "has_padding": {
+                                    "type": "bool"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                },
+                                "slide": {
+                                    "type": "TabSlide"
+                                },
+                                "tab": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "fn_args": [
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tabs::TabContent::new(content)"
+                            }
+                        },
+                        "functions": {
+                            "set_switch": {
+                                "doc": [
+                                    "The tab bar switched from tab `from` to tab `to` and this panel now",
+                                    "shows `to`: its content slides in from the side the switch leaves -",
+                                    "right into place for a tab on the right, left for one on the left -",
+                                    "as it fades in, and the content it replaces fades out. Keep passing",
+                                    "the last switch on every rebuild: the same switch again keeps the",
+                                    "content still; `from == to` is no switch."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "from": "usize"
+                                    },
+                                    {
+                                        "to": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_switch(from, to)"
+                            },
+                            "with_switch": {
+                                "doc": [
+                                    "[`Self::set_switch`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "from": "usize"
+                                    },
+                                    {
+                                        "to": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabContent"
+                                },
+                                "fn_body": "object.with_switch(from, to)"
+                            },
+                            "dom": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "with_padding": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "padding": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabContent"
+                                },
+                                "fn_body": "object.with_padding(padding)"
+                            },
+                            "set_padding": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "padding": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_padding(padding)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme: the panel keeps this look whatever the app",
+                                    "theme is. Unset (`None`), it follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabContent"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabContent"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TabSlide": {
+                        "external": "azul_layout::widgets::tabs::TabSlide",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Left": {},
+                                "Right": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -126828,7 +127108,8 @@
                                 "Dragging": {},
                                 "DragOver": {},
                                 "Root": {},
-                                "Placeholder": {}
+                                "Placeholder": {},
+                                "FocusVisible": {}
                             }
                         ],
                         "repr": "C, u8"
