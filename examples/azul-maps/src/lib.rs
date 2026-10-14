@@ -84,17 +84,18 @@ use azul::{
         TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
     css::{ColorU, SystemColorRef},
-    dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
+    dom::{DomId, GeolocationProbeConfig, MapMountCallback, VirtualKeyCode},
+    option::OptionRefAny,
     prelude::*,
     sensor::SensorKind,
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     task::{TerminateTimer, Thread, ThreadId},
     time::{Duration, SystemTimeDiff},
-    vec::{MapLatLonVec, MapOverlayVec},
+    vec::{MapLatLonVec, MapOverlayVec, U8Vec},
     widgets::{
-        Button, ButtonType, MapLatLon, MapMarker, MapOverlay, MapPolyline, MapTileLayer,
-        MapViewport, MapWidget, OnTextInputReturn, TextInputState, TextInputValid,
+        Button, ButtonType, MapLatLon, MapMarker, MapOverlay, MapPolyline, MapSetup, MapTileId,
+        MapTileLayer, MapViewport, MapWidget, OnTextInputReturn, TextInputState, TextInputValid,
     },
 };
 use azul_appkit::{
@@ -1099,6 +1100,50 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
     out
 }
 
+/// The world at zoom 0 and 1, as OpenFreeMap serves it for the widget's own
+/// layer (`scripts/fetch_map_seed_tiles.py` fetches them; data (c)
+/// OpenStreetMap contributors, ODbL, in the OpenMapTiles schema, CC BY 4.0 -
+/// the attribution line over the map credits them, `assets/seed/ATTRIBUTION.txt`
+/// says so). Shipped so the map shows the world before its first download and
+/// on a first start without a network; one set serves the light and the dark
+/// look, a vector tile carries no colours.
+const SEED_TILES: [(u8, u32, u32, &[u8]); 5] = [
+    (0, 0, 0, include_bytes!("../assets/seed/0-0-0.pbf")),
+    (1, 0, 0, include_bytes!("../assets/seed/1-0-0.pbf")),
+    (1, 1, 0, include_bytes!("../assets/seed/1-1-0.pbf")),
+    (1, 0, 1, include_bytes!("../assets/seed/1-0-1.pbf")),
+    (1, 1, 1, include_bytes!("../assets/seed/1-1-1.pbf")),
+];
+
+/// What the map's tile fetches run with: the tiles kept in the data folder
+/// (`maps/tiles/`, the widget's default cap) so a pan back or a restart shows
+/// them without a download, and the shipped world tiles when the map shows the
+/// server they came from. Without a data folder the tiles stay in memory.
+fn map_setup(data_root: &std::path::Path, layer: &MapTileLayer, setup: MapSetup) -> MapSetup {
+    let mut setup = setup;
+    if !data_root.as_os_str().is_empty() {
+        let folder = data_root.join("maps").join("tiles");
+        setup = setup.with_disk_cache(AzString::from(folder.to_string_lossy().into_owned()), 0);
+    }
+    if layer.url_template == MapTileLayer::default().url_template {
+        for (z, x, y, bytes) in SEED_TILES {
+            setup = setup.with_seed_tile(MapTileId { z, x, y }, U8Vec::from(bytes.to_vec()));
+        }
+    }
+    setup
+}
+
+/// The map is in the tree: its fetches run with [`map_setup`].
+extern "C" fn on_map_mount(mut data: RefAny, _: CallbackInfo, setup: MapSetup) -> MapSetup {
+    let Some((root, layer)) = data
+        .downcast_ref::<MapState>()
+        .map(|s| (s.data_root.clone(), s.layer.clone()))
+    else {
+        return setup;
+    };
+    map_setup(&root, &layer, setup)
+}
+
 /// The map: the whole window - the tiles and AzMaps' overlays on them
 /// ([`map_overlays`]), the compass. The map draws the overlays in its own
 /// view and moves them with every pan, pinch, turn and tilt: a pan rebuilds
@@ -1110,6 +1155,13 @@ fn map_area(s: &MapState, app: &RefAny) -> Dom {
         .with_on_viewport_changed(app.clone(), on_viewport_changed)
         .with_on_pin_tap(app.clone(), on_pin_tap)
         .with_on_marker_tap(app.clone(), on_marker_tap)
+        .with_on_mount(
+            app.clone(),
+            MapMountCallback {
+                cb: on_map_mount,
+                callable: OptionRefAny::None,
+            },
+        )
         .dom();
     let mut area = Dom::create_div()
         .with_css(MAP_AREA)
