@@ -402,6 +402,12 @@ pub struct CursorLocation {
     /// preedit travels in the display-list context instead.
     pub preedit_bytes: u32,
     pub preedit_chars: u32,
+    /// The caret is the moving end of a selected range, not a bare caret.
+    /// The painter draws no caret for it, as Chrome and native text fields
+    /// hide the caret while text is selected. The location stays in the list:
+    /// the scroll registration still reserves the caret's gutter in its box,
+    /// and the reveal still follows it.
+    pub ends_a_selection: bool,
 }
 
 /// A seat's composition phase waiting to be reported (9b-ii-a-i-d-ii-c-i).
@@ -1321,10 +1327,13 @@ impl TextEditManager {
     pub fn build_cursor_locations(&self) -> Vec<CursorLocation> {
         let mut out: Vec<CursorLocation> = Vec::new();
         if let Some(ref mc) = self.multi_cursor {
+            // A selection across blocks is a range wherever the session's own
+            // caret was left: it stood inside the highlight.
+            let across_blocks = self.cross_block.is_some();
             out.extend(mc.selections.iter().map(|s| {
-                let cursor = match &s.selection {
-                    Selection::Cursor(c) => *c,
-                    Selection::Range(r) => r.end,
+                let (cursor, is_range) = match &s.selection {
+                    Selection::Cursor(c) => (*c, false),
+                    Selection::Range(r) => (r.end, r.start != r.end),
                 };
                 CursorLocation {
                     block: mc.block,
@@ -1332,6 +1341,7 @@ impl TextEditManager {
                     owner: s.owner,
                     preedit_bytes: 0,
                     preedit_chars: 0,
+                    ends_a_selection: is_range || across_blocks,
                 }
             }));
         }
@@ -1347,6 +1357,7 @@ impl TextEditManager {
                 owner: azul_core::selection::SelectionOwner::seat(*seat),
                 preedit_bytes,
                 preedit_chars,
+                ends_a_selection: false,
             });
         }
         out

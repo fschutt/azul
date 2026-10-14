@@ -4984,8 +4984,8 @@ where
 
         for (i, location) in self.ctx.cursor_locations.iter().enumerate() {
             let cursor = &location.cursor;
-            // Only the carets in THIS block.
-            if location.block != block {
+            // Only the carets in THIS block, and none over selected text.
+            if location.block != block || location.ends_a_selection {
                 continue;
             }
             let element = caret_element(cursor);
