@@ -2168,3 +2168,69 @@ mod autotest_generated {
         );
     }
 }
+
+#[cfg(test)]
+mod declared_lookup_tests {
+    use azul_css::props::property::CssPropertyType;
+
+    use crate::{
+        dom::{Dom, NodeId},
+        styled_dom::{StyledDom, StyledNodeState},
+    };
+
+    /// A body holding a node with an inline `animation`, one whose
+    /// stylesheet rule declares it, one that only inherits a colour, and a
+    /// bare one; a `*` rule gives every node a cursor.
+    fn page() -> StyledDom {
+        let css = azul_css::parser2::new_from_str(
+            ".faded { animation: background 120ms ease-out; } * { cursor: pointer; } \
+             body { color: #102030; }",
+        )
+        .0;
+        let mut dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("animation: opacity 200ms linear;"))
+            .with_child(Dom::create_div().with_class("faded".into()))
+            .with_child(Dom::create_p().with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("ink"),
+            ))
+            .with_child(Dom::create_div());
+        StyledDom::create(&mut dom, css)
+    }
+
+    /// For every node, state and property type, the declared-only lookup
+    /// answers what the full cascade walk answers: it only skips the walk
+    /// for a type the node declares nowhere.
+    #[test]
+    fn a_lookup_that_skips_undeclared_types_answers_what_the_cascade_answers() {
+        let sd = page();
+        let cache = sd.get_css_property_cache();
+        let nodes = sd.node_data.as_container();
+        let hovered = StyledNodeState {
+            hover: true,
+            ..StyledNodeState::new()
+        };
+        for i in 0..nodes.len() {
+            let n = NodeId::new(i);
+            for state in [StyledNodeState::new(), hovered] {
+                for ty in [
+                    CssPropertyType::Animation,
+                    CssPropertyType::Cursor,
+                    CssPropertyType::TextColor,
+                    CssPropertyType::Display,
+                    CssPropertyType::BackgroundContent,
+                ] {
+                    assert_eq!(
+                        cache.get_property_if_declared(&nodes[n], &n, &state, &ty),
+                        cache.get_property(&nodes[n], &n, &state, &ty),
+                        "node {i} {ty:?} hovered={}",
+                        state.hover
+                    );
+                }
+            }
+        }
+        // The premise: the page holds both kinds of node.
+        let declares = |i: usize| cache.declares(&nodes[NodeId::new(i)], i, CssPropertyType::Animation);
+        assert!(declares(1) && declares(2), "the inline and the stylesheet animation");
+        assert!(!declares(5), "the bare div declares none");
+    }
+}
