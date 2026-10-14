@@ -10,8 +10,9 @@
 //!   The selected pill wears the submit button's face.
 //! - With no tab selected (an index past the last tab) no tab looks
 //!   selected: no active class, no seam, no curves of a selected tab.
-//! - A panel switched to a tab on the right fades out and slides right, and
-//!   the new one slides in from the left; to a tab on the left, mirrored.
+//! - A panel switched to a tab on the right slides right into place as it
+//!   fades in, the one it replaces fading out; to a tab on the left,
+//!   mirrored.
 //!
 //! Not compiled by the author (house rule).
 
@@ -460,27 +461,33 @@ fn motion(dom: &Dom, name: &str) -> ((f32, f32), (f32, f32)) {
     (ends(&track.translate_x), ends(&track.opacity))
 }
 
+/// The panel that leaves fades where it is: its exit is the style it was
+/// built with (the engine runs a departing node's `-azul-animation-out`
+/// from the old cascade), so it cannot know which way the next switch goes.
+/// The panel that comes in carries the direction: to a tab on the right it
+/// slides right into place (in from the left) as it fades in, to a tab on
+/// the left it slides left.
 #[test]
 fn a_panel_switched_to_a_tab_on_the_right_slides_right_and_fades() {
     let panel = TabContent::new(Dom::create_div()).with_switch(0, 2).dom();
     let group = find(&panel, "__azul-native-tabs-content").expect("the content group");
     let enter = animation_name(group, CssPropertyType::AnimationIn).expect("it slides in");
-    let leave = animation_name(group, CssPropertyType::AnimationOut).expect("it slides out");
+    let leave = animation_name(group, CssPropertyType::AnimationOut).expect("it fades out");
     let ((in_from, in_to), (in_o0, in_o1)) = motion(&panel, &enter);
     assert!(in_from < 0.0 && in_to.abs() < 0.01, "in from the left: {in_from} -> {in_to}");
     assert!(in_o0 < in_o1, "fading in: {in_o0} -> {in_o1}");
     let ((out_from, out_to), (out_o0, out_o1)) = motion(&panel, &leave);
-    assert!(out_from.abs() < 0.01 && out_to > 0.0, "out to the right: {out_from} -> {out_to}");
+    assert!(out_from.abs() < 0.01 && out_to.abs() < 0.01, "it leaves in place");
     assert!(out_o0 > out_o1, "fading out: {out_o0} -> {out_o1}");
 
     let back = TabContent::new(Dom::create_div()).with_switch(2, 0).dom();
     let group = find(&back, "__azul-native-tabs-content").expect("the content group");
     let enter = animation_name(group, CssPropertyType::AnimationIn).expect("it slides in");
-    let leave = animation_name(group, CssPropertyType::AnimationOut).expect("it slides out");
-    let ((in_from, _), _) = motion(&back, &enter);
-    let ((_, out_to), _) = motion(&back, &leave);
-    assert!(in_from > 0.0, "to a tab on the left it comes in from the right: {in_from}");
-    assert!(out_to < 0.0, "and leaves to the left: {out_to}");
+    let ((in_from, in_to), _) = motion(&back, &enter);
+    assert!(
+        in_from > 0.0 && in_to.abs() < 0.01,
+        "to a tab on the left it comes in from the right: {in_from} -> {in_to}"
+    );
 
     let still = TabContent::new(Dom::create_div()).dom();
     let group = find(&still, "__azul-native-tabs-content").expect("the content group");
