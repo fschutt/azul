@@ -73,6 +73,8 @@ pub mod navigate;
 pub mod places;
 pub mod route;
 pub mod saved;
+pub mod services;
+pub mod voice;
 
 use std::{
     cell::Cell,
