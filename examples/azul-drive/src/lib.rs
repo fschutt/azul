@@ -1,26 +1,31 @@
 //! AzDrive: a file manager on the public azul API that looks and works like
 //! Windows 8's File Explorer, with a Finder window for its body.
 //!
-//! The window is the S5 `BrowserShell` without a title row: Windows 8's
-//! ribbon (`ui_ribbon`: File - a mini backstage in a popup under its tab -,
-//! Home, Share, View; Computer at This PC) whose tab strip is the window's
-//! title bar, over Explorer's address row (round Back / Forward, Recent
-//! locations, Up, the breadcrumb box - a chevron per crumb dropping its
-//! folders, the first crumbs folded into « when the path is long, a click on
-//! its empty part for the typed path - with Refresh at its end, "Search
-//! <folder>"). The window's title is the open place's path. Under it the body
-//! is a Finder window in the app theme (`look`: flora's linen, leaves and
-//! Garamond capitals; Office 2010's silver in flat): the navigation pane is
-//! Finder's source list (`ui_sidebar`: FAVORITES - Quick access, the standard
-//! folders, the pins -, LOCATIONS - This PC and the drives on this computer,
-//! their folders listed when a row opens -, CLOUD - the S3 drives with their
-//! state -, the transfers' activity, + and the actions); the content is a leaf
-//! on the page (This PC's drive tiles, Quick access's pinned folders, or a
-//! folder in one of Explorer's eight layouts - Details by default, the icon
-//! layouts on azul's IconGrid - grouped or not, with check boxes or not) with
-//! Finder's path bar and status line ("N items, N selected, X available") at
-//! its foot; the preview pane OR the details pane at the right, a leaf too.
-//! The Options and About are the backstage (View > Options, File > Help).
+//! The window is the S5 `BrowserShell` without a title row: the ribbon (`ui_ribbon`: File - a
+//! mini backstage in a popup under its tab -, Home, Share, View; Computer at This PC) whose tab
+//! strip is the window's title bar - its tabs are buttons on the leather whose content opens
+//! while a tab is hovered and locks on a double click, and its right end holds the location
+//! tabs' button -, over the address row (round Back / Forward, Recent locations, Up, the
+//! breadcrumb box - a chevron per crumb dropping its folders, the first crumbs folded into «
+//! when the path is long, a click on its empty part for the typed path -, Refresh, "Search
+//! <folder>"). The strip shows no title; the window's title (the open place's path) is what the
+//! system's window list names it by. Under it the body is a Finder window in the app theme
+//! (`look`: flora's linen, leaves and Calmet UI's capitals; Office 2010's silver in flat): the
+//! navigation pane is Finder's source list (`ui_sidebar`: FAVORITES - Quick access, the
+//! standard folders, the pins -, LOCATIONS - This PC and the drives on this computer, their
+//! folders listed when a row opens -, CLOUD - the S3 drives with their state -, and its foot:
+//! + and the gear, and two pies for the sync and the drive's space, `ui_pies`); the content is
+//! a leaf on the page (This PC's drive tiles, Quick access's pinned folders, or a folder in one
+//! of Explorer's eight layouts - Details by default, the icon layouts on azul's IconGrid -
+//! grouped or not, with check boxes or not); the preview pane OR the details pane at the
+//! right, a leaf too. There is no status bar: no path bar, no status line, no item count or
+//! free space anywhere; the pies' popover has the numbers. The Options and About are the
+//! backstage (File > Options, File > About).
+//!
+//! The window has location tabs (`location_tabs`, `ui_tabs`): Ctrl+T opens one on the folder
+//! in view, Ctrl+W closes one, Ctrl+Tab and Ctrl+1..9 switch, the strip's tab button (or
+//! Ctrl+Shift+A) lists them over a scrim. Each keeps its place, history, selection, layout,
+//! search and scroll.
 //!
 //! A folder of any size opens at once (`listing`, `jobs`): its scan reads the
 //! names and kinds with one `read_dir` - no stat per entry - and streams them
@@ -30,13 +35,15 @@
 //! folders among them their item counts (one `read_dir` each) and the pictures
 //! their thumbnails, nothing else.
 //!
-//! The search box searches the open folder and every folder below it (`find`, on azul-search:
-//! ripgrep's parallel walker and searcher, AzCode's find in files' engine too): the names first,
-//! then - the Search tab's "File contents" - the files whose lines hold the text. The results
-//! stream into the view as rows (Details, with their folder and the line they matched on) and
-//! the status line counts them ("Searching... 1,234 found"); every key starts the search again
-//! (the one running stops within milliseconds), Escape closes it. A cloud drive is searched by
-//! name over a recursive listing - slower, and its files are not read.
+//! The search box turns the leaf into the search view (`find`, `rank`, `ui_find`, on
+//! azul-search: ripgrep's parallel walker and searcher, AzCode's find in files' engine too):
+//! where its scope says (this folder, this drive - the default -, all drives) the names first,
+//! then - "File contents", on by default - the files whose lines hold the text. The results
+//! stream in, ranked by BM25 and grouped by their folder, the best folder first, each row with
+//! its name and two lines of its text, the terms marked; the search's bar counts them
+//! ("Searching... 1,234 found"); every key starts the search again (the one running stops
+//! within milliseconds); Escape clears the box, then closes the view. A cloud drive is searched
+//! by name over a recursive listing - slower, and its files are not read.
 //!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
 //! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
@@ -86,7 +93,10 @@
 //! node's HeadBucket count of stored bytes, `-` what it did not say),
 //! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
 //! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
-//! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
+//! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLEARED` (Escape emptied
+//! the box; the search view stays), `AZDRIVE_SEARCH_CLOSED`, `AZDRIVE_SEARCH_SCOPE
+//! Folder|Drive|AllDrives`, `AZDRIVE_TABS <count> <index of the tab showing>`,
+//! `AZDRIVE_TAB_OVERVIEW open|closed`, `AZDRIVE_PIE_ACTION <action>`. Keys,
 //! passwords, tokens and payment pages are never printed.
 //!
 //! Add drive (Home > Add drive, Computer > Add drive, the source list's "Add drive...", the
@@ -111,8 +121,9 @@
 //! Home), the folder's files carry their state (cloud only, downloading, on this device,
 //! pinned, a conflict, an error), cloud-only files are listed and come down when opened,
 //! Share > Sync has Sync now, "Always keep on this device" and "Free up space", the drive's
-//! status line ("Up to date", "Syncing 12 files (340 MB)", "Paused", "Read-only (payment
-//! due)") is in the status bar and on its row in the source list, a conflict asks keep mine /
+//! status ("Up to date", "Syncing 12 files (340 MB)", "Paused", "Read-only (payment due)") is
+//! the sync pie's (its colour, its words, its popover) and on its row in the source list, a
+//! conflict asks keep mine /
 //! take theirs / keep both, Options > Drives > Sync has each drive's settings. A timer polls
 //! every synced drive every `$AZDRIVE_SYNC_POLL` seconds (30 by default). Markers:
 //! `AZDRIVE_SYNC_PAIRED <drive id> <folder>`, `AZDRIVE_SYNC_STARTED <drive id>`,
@@ -2363,7 +2374,7 @@ fn scanned(
     }
     s.listing_done = true;
     s.loading = false;
-    // The drive answered: its problem leaves the status line.
+    // The drive answered: its problem leaves the sync pie and its popover.
     problems::drive_answered(s);
     if let Some(mut fresh) = s.refreshing.take() {
         // The rows read again show the old sizes and dates until their own stats are in.
@@ -2932,8 +2943,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         s.window_width
     };
 
-    // Finder's body under Explorer's ribbon: the source list, the content as a leaf on the
-    // page (its path bar and status line at its foot), the right pane a leaf too.
+    // Finder's body under the ribbon: the source list, the content as a leaf on the page, the
+    // right pane a leaf too.
     let backstage = s.backstage_shown();
     let mut browser = BrowserShell::create(
         chrome(s, &app, width),
@@ -2960,8 +2971,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         );
     }
     // No title row while the ribbon shows - its tabs are the title bar; the backstage (the
-    // Options, About), which has no ribbon, keeps azul's title row to move the window by. The
-    // counts are the leaf's status line (no status bar).
+    // Options, About), which has no ribbon, keeps azul's title row to move the window by. There
+    // is no status bar: the navigation pane's pies say the sync and the space.
     let mut shell =
         shell.with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
     if let Some(page) = backstage {

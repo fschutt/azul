@@ -3,8 +3,9 @@
 //! amber paused or held back, red for a conflict or an error) and the drive's space (how full
 //! it is: the accent, amber past 85 %, red past 97 %). Their words are their accessible names;
 //! the numbers are in the sync popover a click on either opens: the sync's state and progress,
-//! the drive's usage with its meter, a warning near full, this computer's health line, the
-//! transfers running, and the actions (Sync now, Pause / Resume, Show transfers).
+//! the drive in view's storage problem (which also turns the sync pie red), the drive's usage
+//! with its meter, a warning near full, this computer's health line, the transfers running, and
+//! the actions (Sync now, Pause / Resume, Show transfers).
 
 use azul::{
     callbacks::ButtonOnClickCallbackType,
@@ -231,7 +232,21 @@ pub(crate) fn pies(s: &DriveState, app: &RefAny) -> Dom {
             .as_deref(),
         progress(s, drive.as_deref()),
     );
-    let sync_words = sync_words(s, drive.as_deref(), &sync);
+    let mut sync_words = sync_words(s, drive.as_deref(), &sync);
+    // A storage problem of the drive in view (in the error table's words, with its error ID)
+    // turns the sync pie red; the popover says it in full.
+    let problem = crate::problems::status_of(s).map(|text| t_text(&text));
+    let sync = match &problem {
+        Some(words) => {
+            sync_words = words.clone();
+            Pie {
+                fraction: 1.0,
+                tone: PieTone::Bad,
+                breathing: false,
+            }
+        }
+        None => sync,
+    };
     let mut row = Dom::create_div().with_css(look::PIES);
     row.add_child(popover(s, app, pie_dom(ids::SYNC_PIE, sync, &sync_words)));
     if let Some(space) = space_drive(s) {
@@ -322,6 +337,9 @@ fn popover_content(s: &DriveState, app: &RefAny) -> Dom {
             &t_args("azdrive-status-transfers-failed", &[("count", Arg::from(failed))]),
             look::POPOVER_WARNING,
         ));
+    }
+    if let Some(problem) = crate::problems::status_of(s) {
+        panel.add_child(line(&t_text(&problem), look::POPOVER_WARNING));
     }
     if let Some(space) = space_drive(s) {
         panel.add_child(line(&space_words(s, &space), look::POPOVER_DRIVE));
