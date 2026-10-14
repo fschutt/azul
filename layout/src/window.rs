@@ -24689,11 +24689,10 @@ impl LayoutWindow {
             text3::selection::{select_paragraph_at_cursor, select_word_at_cursor},
         };
 
-        // found_selection stores: (dom_id, text block, selection_range, local_pos)
+        // found_selection stores: (dom_id, text block, selection_range)
         // IMPORTANT: We always store the text BLOCK, never the hit text node,
         // because selections are rendered via inline_layout_result which lives on the IFC root.
-        let mut found_selection: Option<(DomId, TextBlock, SelectionRange, ScrolledContentPoint)> =
-            None;
+        let mut found_selection: Option<(DomId, TextBlock, SelectionRange)> = None;
 
         // The box painted on top under the pointer. A press starts a selection
         // only in it or in a box it sits in, as a browser's does: text that
@@ -24832,7 +24831,6 @@ impl LayoutWindow {
                                 start: cursor,
                                 end: cursor,
                             },
-                            local_pos,
                         ));
                         break;
                     }
@@ -24929,7 +24927,6 @@ impl LayoutWindow {
                                 start: cursor,
                                 end: cursor,
                             },
-                            local_pos,
                         ));
                         break;
                     }
@@ -24949,7 +24946,32 @@ impl LayoutWindow {
         // on the title, then every stroke on the canvas dragged a selection
         // through the title (`TextSelectionDrag` is armed whenever
         // `left_down && has_active_editing()`).
-        let Some((dom_id, block, initial_range, _local_pos)) = found_selection else {
+        // A press beside text - in a box's padding, below the last line, in
+        // the gap between paragraphs - selects from the character nearest to
+        // it, among the text inside the box painted on top under the pointer
+        // (Chrome's `PositionForPoint` on the hit node). Text outside that
+        // box stays out of reach: a press on an empty toolbar, or on a
+        // drawing surface laid over text, selects nothing.
+        if found_selection.is_none() {
+            if let Some(top) = topmost {
+                let within = crate::text_block::BlockFilter {
+                    within: Some(top),
+                    ..crate::text_block::BlockFilter::SELECTABLE
+                };
+                if let Some((block, cursor)) = self.hittest_text_block(top.dom, position, within) {
+                    found_selection = Some((
+                        top.dom,
+                        block,
+                        SelectionRange {
+                            start: cursor,
+                            end: cursor,
+                        },
+                    ));
+                }
+            }
+        }
+
+        let Some((dom_id, block, initial_range)) = found_selection else {
             let pressed_an_editable = self
                 .hover_manager
                 .get_current(&InputPointId::Mouse)
