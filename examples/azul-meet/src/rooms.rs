@@ -779,6 +779,37 @@ mod tests {
         }
     }
 
+    /// Azlin's connection server is named by an iroh address; its meeting API is HTTPS on the
+    /// same host, port and path, so every request goes to `https://` there.
+    #[test]
+    fn an_iroh_address_names_a_connection_server_whose_api_is_https_on_the_same_host() {
+        assert_eq!(
+            normalize_server(" iroh://connect.azlin.io/ "),
+            Some(String::from("iroh://connect.azlin.io"))
+        );
+        assert_eq!(api_base("iroh://connect.azlin.io"), "https://connect.azlin.io");
+        assert_eq!(
+            api_base("IROH://connect.azlin.io:8443/meet"),
+            "https://connect.azlin.io:8443/meet"
+        );
+        assert_eq!(api_base("http://127.0.0.1:8790"), "http://127.0.0.1:8790");
+        assert_eq!(api_base("https://meet.example.com"), "https://meet.example.com");
+        for bad in ["iroh://", "iroh:///rooms", "iroh://:443", "iroh://connect azlin.io"] {
+            assert_eq!(normalize_server(bad), None, "{bad}");
+        }
+    }
+
+    /// Nothing named anywhere, AzMeet talks to Azlin's own connection server.
+    #[test]
+    fn the_built_in_connection_server_is_azlins() {
+        assert_eq!(DEFAULT_SERVER, "iroh://connect.azlin.io");
+        assert_eq!(normalize_server(DEFAULT_SERVER).as_deref(), Some(DEFAULT_SERVER));
+        assert_eq!(
+            server_prefill(None, None, DEFAULT_SERVER),
+            (String::from(DEFAULT_SERVER), ServerSource::BuiltIn)
+        );
+    }
+
     /// `--worker` is this run's meeting server even over the saved one (a script's worker is
     /// not lost to what an earlier run saved); one that is no address is passed over.
     #[test]

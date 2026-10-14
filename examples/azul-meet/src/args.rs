@@ -565,6 +565,18 @@ mod tests {
         assert_eq!(args.switch("AZMEET_JOIN"), None, "only the environment named it");
     }
 
+    /// The connection server may be Azlin's iroh address; a relay stays an http(s) address.
+    #[test]
+    fn the_worker_switch_takes_an_iroh_address_too() {
+        assert_eq!(
+            parse(["--worker", "iroh://connect.azlin.io"])
+                .map(|a| a.switches.get("AZMEET_WORKER").cloned()),
+            Ok(Some(String::from("iroh://connect.azlin.io")))
+        );
+        assert!(parse(["--worker", "iroh://"]).unwrap_err().contains("--worker"));
+        assert!(parse(["--relay", "iroh://connect.azlin.io"]).is_err());
+    }
+
     #[test]
     fn a_switch_with_a_wrong_value_or_none_says_which() {
         assert!(parse(["--relay", "nowhere"]).unwrap_err().contains("--relay"));

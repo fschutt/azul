@@ -1813,6 +1813,51 @@ mod tests {
         assert_eq!(waiting_button_label(false, Some(true)), "Waiting to be let in...");
     }
 
+    /// The sound check's buttons say what runs now; the line under them how the last one ended.
+    #[test]
+    fn the_sound_check_buttons_say_what_is_happening() {
+        use crate::soundcheck::Outcome;
+        crate::l10n::in_english();
+        assert_eq!(record_label(SoundCheckState::Idle), "Record a test clip");
+        assert_eq!(record_label(SoundCheckState::Recording { seconds_left: 2 }), "Recording... 2 s");
+        assert_eq!(record_label(SoundCheckState::PlayingClip), "Playing it back...");
+        assert_eq!(speakers_label(SoundCheckState::Idle), "Test speakers");
+        assert_eq!(speakers_label(SoundCheckState::PlayingChime), "Playing a sound...");
+        assert_eq!(sound_check_note(Outcome::None), "");
+        assert_eq!(sound_check_note(Outcome::PlayedClip), "That is how the others hear you.");
+        assert!(sound_check_note(Outcome::Quiet).starts_with("The microphone gave only silence"));
+        assert!(sound_check_note(Outcome::NoMicrophone).starts_with("No sound came from the microphone"));
+        assert!(sound_check_note(Outcome::PlayedChime).starts_with("Did you hear the sound?"));
+    }
+
+    fn lobby(server_ok: bool, server_unset: bool) -> LobbyView {
+        LobbyView {
+            opening: false,
+            server_text: String::from("iroh://connect.azlin.io"),
+            server_status: String::from("The meeting server at iroh://connect.azlin.io does not answer."),
+            server_ok,
+            server_unset,
+            join_text: String::new(),
+            schedule_start: String::new(),
+            schedule_minutes: String::new(),
+            rooms: Vec::new(),
+            identity_ready: true,
+        }
+    }
+
+    /// The start screen keeps the connection details in the settings: it names no address, it
+    /// only says when the connection server cannot be used.
+    #[test]
+    fn the_start_screen_only_says_when_the_connection_server_cannot_be_used() {
+        crate::l10n::in_english();
+        assert_eq!(server_problem(&lobby(true, false)), None);
+        let silent = server_problem(&lobby(false, false)).expect("a silent server is said");
+        assert_eq!(silent, "The connection server does not answer.");
+        let unset = server_problem(&lobby(false, true)).expect("a missing server is said");
+        assert_eq!(unset, "No connection server is set.");
+        assert!(!silent.contains("connect.azlin.io") && !unset.contains("://"));
+    }
+
     /// A row's buttons carry the start of its key: the scripts find "Admit" by the device id.
     #[test]
     fn a_rows_button_id_carries_the_start_of_its_key() {

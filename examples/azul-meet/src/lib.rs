@@ -174,6 +174,7 @@ mod roomlist;
 mod rooms;
 mod routes;
 mod speaker;
+mod soundcheck;
 mod store;
 mod tiles;
 mod times;
