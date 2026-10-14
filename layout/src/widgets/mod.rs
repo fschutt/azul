@@ -371,6 +371,13 @@ pub mod stepper;
 pub mod switch;
 /// Tab container widgets
 pub mod tabs;
+/// How a tab strip shows its content.
+///
+/// `TabClickBehaviour` (hover reveal with a double-click lock, open on a
+/// click, always open), its state machine and `TabReveal`, the handle an
+/// app keeps between rebuilds so the content shows as it did; see
+/// `tab_reveal.rs`.
+pub mod tab_reveal;
 /// Multi-line text input (text area) widget.
 ///
 /// See `text_area.rs`.
