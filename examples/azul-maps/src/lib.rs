@@ -2034,6 +2034,44 @@ mod travel_line_tests {
 }
 
 #[cfg(test)]
+mod map_setup_tests {
+    use super::*;
+
+    #[test]
+    fn the_map_keeps_its_tiles_in_the_data_folder_and_ships_the_world() {
+        let root = PathBuf::from("/data/azmaps");
+        let setup = map_setup(&root, &MapTileLayer::default(), MapSetup::create());
+        assert_eq!(
+            PathBuf::from(setup.disk_cache_dir.as_str()),
+            root.join("maps").join("tiles"),
+            "downloaded tiles are kept in the data folder across restarts"
+        );
+        assert_eq!(setup.seed_tiles.len(), 5, "the world at zoom 0 and 1 is shipped");
+    }
+
+    #[test]
+    fn another_tile_server_gets_no_shipped_tiles_and_no_data_folder_no_disk_cache() {
+        let mut layer = MapTileLayer::default();
+        layer.url_template = AzString::from("http://localhost:8080/{z}/{x}/{y}.pbf");
+        let setup = map_setup(&PathBuf::from("/data/azmaps"), &layer, MapSetup::create());
+        assert_eq!(setup.seed_tiles.len(), 0, "the seeds are OpenFreeMap's tiles only");
+        let setup = map_setup(&PathBuf::new(), &MapTileLayer::default(), MapSetup::create());
+        assert!(setup.disk_cache_dir.as_str().is_empty(), "no data folder: memory only");
+    }
+
+    #[test]
+    fn the_shipped_tiles_are_the_vector_tiles_of_zoom_0_and_1() {
+        let mut ids: Vec<(u8, u32, u32)> = SEED_TILES.iter().map(|(z, x, y, _)| (*z, *x, *y)).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![(0, 0, 0), (1, 0, 0), (1, 0, 1), (1, 1, 0), (1, 1, 1)]);
+        for (z, x, y, bytes) in SEED_TILES {
+            assert!(bytes.len() > 1000, "{z}/{x}/{y}: {} bytes", bytes.len());
+            assert_eq!(bytes[0], 0x1a, "{z}/{x}/{y} starts with a layer: a vector tile");
+        }
+    }
+}
+
+#[cfg(test)]
 mod engine_feature_tests {
     const MANIFEST: &str = include_str!("../Cargo.toml");
 
