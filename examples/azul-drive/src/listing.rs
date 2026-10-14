@@ -12,7 +12,12 @@
 //! modified needs every item's stat: then all of them are asked for ([`unknown_keys`]) and the
 //! rows sorted again once they are in.
 
-use std::{cmp::Ordering, collections::HashSet, ops::Range};
+use std::{
+    cmp::Ordering,
+    collections::HashSet,
+    ops::Range,
+    time::{Duration, Instant},
+};
 
 use crate::browse::{self, Column, Entry, Sort};
 
@@ -23,6 +28,21 @@ pub const FIRST_BATCH: usize = 256;
 /// After the first batch, a scan gathers this long before it hands over the next one: every
 /// batch rebuilds the window, so a folder of 100,000 names arrives in a handful of batches.
 pub const BATCH_MS: u64 = 120;
+
+/// While the rows scroll, what the rows coming into view lack (sizes, counts, thumbnails) is
+/// asked for at most this often: the pictures stream in during a long scroll instead of after
+/// it, and the dozens of scroll events a second do not each look the rows in view up.
+pub const SCROLL_WORK_MS: u64 = 100;
+
+/// Whether a scroll event at `now` asks for the work of the rows in view, the last one having
+/// asked at `last`: the first event of a scroll, then one every [`SCROLL_WORK_MS`]. The end of
+/// the scroll asks whatever this says.
+#[must_use]
+pub fn scroll_work_due(last: Option<Instant>, now: Instant) -> bool {
+    last.is_none_or(|last| {
+        now.saturating_duration_since(last) >= Duration::from_millis(SCROLL_WORK_MS)
+    })
+}
 
 /// The most items one stat job looks up (the rows in view, a screen either side, are far
 /// fewer; a sort by size asks for the rest in jobs of this size).

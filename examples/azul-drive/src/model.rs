@@ -91,6 +91,14 @@ impl ViewLayout {
         }
     }
 
+    /// Whether a picture's row or cell shows the picture itself (its thumbnail) in place of the
+    /// file type's icon: every layout but Tiles, whose Tile draws its icon as a glyph. The
+    /// small rows show it at their icon's size, as Finder's list does.
+    #[must_use]
+    pub fn shows_thumbnails(self) -> bool {
+        self != ViewLayout::Tiles
+    }
+
     /// The size of an item's icon, in px.
     #[must_use]
     pub fn icon_px(self) -> f32 {

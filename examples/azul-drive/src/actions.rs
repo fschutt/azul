@@ -3099,19 +3099,16 @@ pub(crate) fn request_sort_stats(info: &mut CallbackInfo, app: &RefAny, s: &mut 
     spawn(info, app, s, Job::Stat { root, keys, serial });
 }
 
-/// The icon layouts show pictures as thumbnails: the pictures in view (up to 8 MB) that have
-/// none yet are fetched, decoded and scaled down on ONE thread, one answer per picture.
+/// The layouts show pictures as thumbnails (`ViewLayout::shows_thumbnails`): the pictures in
+/// view (up to 8 MB) that have none yet are fetched, decoded and scaled down on ONE thread, one
+/// answer per picture. One size serves every layout: a switch of layout shows them at once.
 fn request_thumbnails_in(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     range: std::ops::Range<usize>,
 ) -> bool {
-    let wanted = matches!(
-        s.view_layout(),
-        ViewLayout::MediumIcons | ViewLayout::LargeIcons | ViewLayout::ExtraLargeIcons
-    );
-    if !wanted || s.current_drive().is_none() {
+    if !s.view_layout().shows_thumbnails() || s.current_drive().is_none() {
         return false;
     }
     let items: Vec<(String, Option<u64>)> = {

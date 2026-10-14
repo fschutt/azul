@@ -777,10 +777,24 @@ extern "C" fn on_rename_mounted(_data: RefAny, mut info: CallbackInfo) -> Update
 
 /// An item's icon and name (or the rename field), in a row.
 pub(crate) fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f32) -> Dom {
-    let icon = Dom::create_icon(AzString::from(icon_for(entry))).with_css(format!(
-        "font-size: {icon_px}px; margin-right: 6px; flex-shrink: 0; {}",
-        icon_colour(entry)
-    ));
+    let icon = match s.thumbnails.get(&entry.key) {
+        // A picture shows itself in its icon's place, at the icon's size (Finder's list).
+        Some(Some(image)) if s.view_layout().shows_thumbnails() => Dom::create_div()
+            .with_css(format!(
+                "display: flex; flex-direction: row; align-items: center; justify-content: \
+                 center; width: {icon_px}px; height: {icon_px}px; margin-right: 6px; \
+                 flex-shrink: 0;"
+            ))
+            .with_child(
+                Dom::create_image(image.clone())
+                    .with_class(ids::THUMBNAIL_CLASS)
+                    .with_css(format!("max-width: {icon_px}px; max-height: {icon_px}px;")),
+            ),
+        _ => Dom::create_icon(AzString::from(icon_for(entry))).with_css(format!(
+            "font-size: {icon_px}px; margin-right: 6px; flex-shrink: 0; {}",
+            icon_colour(entry)
+        )),
+    };
     let renaming = s.renaming.as_ref().is_some_and(|r| r.key == entry.key);
     let label = if renaming {
         rename_field(s, app)
@@ -1519,9 +1533,21 @@ extern "C" fn on_group_header_click(mut data: RefAny, mut info: CallbackInfo) ->
     })
 }
 
+/// The view scrolls: every [`listing::SCROLL_WORK_MS`] of it, the rows that came into view get
+/// their stats, counts and thumbnails, so the pictures stream in during a long scroll.
+extern "C" fn on_view_scrolling(data: RefAny, info: CallbackInfo) -> Update {
+    view_scrolled(data, info, false)
+}
+
 /// The view's scroll settled: where it is now decides which rows get their stats, counts and
 /// thumbnails (the rows already drawn follow the scroll by themselves).
-extern "C" fn on_view_scrolled(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_view_scrolled(data: RefAny, info: CallbackInfo) -> Update {
+    view_scrolled(data, info, true)
+}
+
+/// A scroll of the folder view, while it runs (`ended`: false, asked at most every
+/// [`listing::SCROLL_WORK_MS`]) or at its end (always asked).
+fn view_scrolled(mut data: RefAny, mut info: CallbackInfo, ended: bool) -> Update {
     let Some(mut app) = data
         .downcast_ref::<FolderRowsRef>()
         .map(|r| r.app.clone())
@@ -1543,10 +1569,32 @@ extern "C" fn on_view_scrolled(mut data: RefAny, mut info: CallbackInfo) -> Upda
     };
     let s = &mut *guard;
     s.view_scroll = (offset, height);
+    let now = std::time::Instant::now();
+    if ended {
+        s.scroll_work_at = None;
+    } else if listing::scroll_work_due(s.scroll_work_at, now) {
+        s.scroll_work_at = Some(now);
+    } else {
+        return Update::DoNothing;
+    }
     // The rows in view already show; what they lack (sizes, counts, thumbnails) is fetched on a
     // worker thread and rebuilds the window when it is in - a scroll itself rebuilds nothing.
     actions::request_view_work(&mut info, &handle, s);
     Update::DoNothing
+}
+
+/// Draws the folder's rows again in place - their virtual view reads the state when it draws -
+/// without a new window DOM: what a picture's thumbnail arriving needs, so the thumbnails of a
+/// scroll stream in without a rebuild of the window per picture. `false` when no rows are
+/// shown (the icon grid, an empty folder).
+pub(crate) fn redraw_rows(info: &mut CallbackInfo) -> bool {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, ids::FOLDER_ROWS);
+    let Some(raw) = node.into_raw().checked_sub(1) else {
+        return false;
+    };
+    info.trigger_virtual_view_rerender(dom, NodeId { inner: raw });
+    true
 }
 
 /// Scrolls the folder's rows back to their top (a new folder opens at its top): the view node,
@@ -1680,6 +1728,11 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
             .with_id(ids::FOLDER_ROWS)
             .with_accessibility_name(s.place_name().as_str())
             .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::Scroll),
+                rows.clone(),
+                on_view_scrolling,
+            )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::ScrollEnd),
                 rows,

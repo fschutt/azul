@@ -801,6 +801,9 @@ pub(crate) struct DriveState {
     /// Where the folder view's last scroll left it: its offset and its height (px; the
     /// height as the view last drew, 0 before it has).
     pub view_scroll: (f32, f32),
+    /// When a scroll of the folder view last asked for the work of the rows in view (`None`:
+    /// not during this scroll): a scroll asks every `listing::SCROLL_WORK_MS`, its end always.
+    pub scroll_work_at: Option<std::time::Instant>,
     /// The folder view's width as it last drew (its virtual view records it; 0 before it has):
     /// the rows in view are counted in the columns the view draws.
     pub view_width: f32,
@@ -2673,6 +2676,11 @@ pub(crate) extern "C" fn on_job_done(
                     println!("AZDRIVE_THUMBNAIL {key}");
                 }
                 s.thumbnails.insert(key, image);
+                // A picture of the rows: the rows alone draw again. The icon grid is built with
+                // the window, so it takes the window's rebuild below.
+                if !crate::ui_view::uses_icon_grid(s) && crate::ui_view::redraw_rows(&mut info) {
+                    return Update::DoNothing;
+                }
             }
         }
         Outcome::ThumbnailsDone => {}
@@ -3261,6 +3269,7 @@ pub fn start() {
         counts: HashMap::new(),
         counts_asked: HashSet::new(),
         view_scroll: (0.0, 0.0),
+        scroll_work_at: None,
         view_width: 0.0,
         selection: Selection::default(),
         selected_drive: None,
