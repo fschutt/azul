@@ -138,6 +138,7 @@ azdrive-why-select = Select one or more items first.
 azdrive-why-pin-folder = Open a folder to pin it to Quick access.
 azdrive-why-nothing-to-paste = Nothing to paste: copy or cut something first.
 azdrive-why-rename-one = Select exactly one item to rename.
+azdrive-why-one-folder = Select one folder to open it in a new tab.
 azdrive-why-open-result = Select a result to open.
 azdrive-why-open-drive = Select a drive to open.
 azdrive-why-open-pin = Select a pinned folder to open.
@@ -1820,3 +1821,28 @@ azdrive-meta-engine = Engine
 azdrive-meta-table = Table
 azdrive-meta-yes = Yes
 azdrive-meta-no = No
+
+## The navigation pane's pies (no status bar) and the sync popover
+
+azdrive-pie-no-sync = Nothing syncs here
+azdrive-pie-space-unknown = space not known yet
+azdrive-pie-space-nearly-full = The drive is nearly full.
+azdrive-pie-space-full = The drive is full.
+azdrive-pie-show-transfers = Transfers
+azdrive-sync-detail-up-to-date = Every file of the drive is the same here and in the cloud.
+azdrive-sync-detail-syncing = Uploading the changes made on this computer.
+
+## Location tabs (Ctrl+T, Ctrl+W, Ctrl+Tab, Ctrl+1 to Ctrl+9, the tab overview)
+
+azdrive-loctabs-title = Tabs
+azdrive-loctab-new = New tab
+azdrive-loctab-close = Close tab
+azdrive-loctab-opened = New tab: { $place }
+azdrive-loctab-last = This is the only tab.
+azdrive-loctab-search = Search: { $text }
+azdrive-loctabs-hint = ⌃T new tab · ⌃W close · ⌃Tab next · ⌃1-9 jump
+azdrive-loctabs-count = { $count ->
+        [one] One tab
+       *[other] { $count } tabs
+    }
+azdrive-menu-open-in-new-tab = Open in new tab

@@ -233,6 +233,8 @@ mod ui_panes;
 mod ui_pies;
 /// Windows 8's ribbon and its File menu.
 mod ui_ribbon;
+/// The location tabs in the window: the keys' commands, the tab overview.
+mod ui_tabs;
 /// The navigation pane: Finder's source list.
 mod sync_lookup;
 mod ui_sidebar;

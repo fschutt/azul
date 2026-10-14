@@ -234,7 +234,7 @@ pub(crate) const ACTIVITY_ERROR: &str = themed!(
 
 /// The bar under the list: + and the actions.
 pub(crate) const SIDEBAR_FOOT: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 24px;",
+    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 26px;",
     "border-top: 1px solid #C2C9D2; background: linear-gradient(to bottom, #F7F9FB, #E4E9EF);",
     "border-top: 1px solid #575757; background: linear-gradient(to bottom, #3C3C3C, #313131);",
     "border-top: 1px solid #C6C3BB; background: linear-gradient(to bottom, #FAF9F5, #ECEAE4);",
@@ -244,7 +244,7 @@ pub(crate) const SIDEBAR_FOOT: &str = themed!(
 /// One of the small buttons in that bar.
 pub(crate) const SMALL_BUTTON: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-     width: 30px; height: 24px; font-size: 15px; cursor: pointer;",
+     width: 32px; height: 26px; font-size: 15px; cursor: pointer;",
     "border-right: 1px solid #D3D9E0; color: #3D5574; :hover { background: #DDE4EC; } \
      :focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
     "border-right: 1px solid #4D4D4D; color: #DADADA; :hover { background: #474747; } \
@@ -253,6 +253,62 @@ pub(crate) const SMALL_BUTTON: &str = themed!(
      :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
     "border-right: 1px solid #383838; color: #BEBEBE; :hover { background: #3A3A3A; }",
 );
+
+/// The two pies at the right of the foot.
+pub(crate) const PIES: &str =
+    "display: flex; flex-direction: row; align-items: center; margin-left: auto; \
+     padding-right: 4px; height: 26px;";
+
+/// A pie's hit area: 15 x 25 px around its 11 px disc, the hover face behind it.
+pub(crate) const PIE_HIT: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; justify-content: center; \
+     width: 15px; height: 25px; padding: 0px 2px; border-radius: 3px; cursor: default;",
+    ":hover { background: #DDE4EC; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
+    ":hover { background: #474747; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
+    ":hover { background: #F1EFE9; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
+    ":hover { background: #333333; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
+);
+
+/// The sync popover's content: 330 px of field paper.
+pub(crate) const SYNC_POPOVER: &str = themed!(
+    "display: flex; flex-direction: column; width: 330px; box-sizing: border-box; \
+     padding: 12px 14px;",
+    "color: #1E1E1E;",
+    "color: #F2F2F2;",
+    "color: #262521;",
+    "color: #E7E7E7;",
+);
+
+/// The popover's first line: the sync's state.
+pub(crate) const POPOVER_HEAD: &str = "font-weight: 600; margin-bottom: 4px;";
+
+/// A sentence of the popover.
+pub(crate) const POPOVER_TEXT: &str = "margin: 2px 0px;";
+
+/// A small line of the popover (the transfers, this computer's health).
+pub(crate) const POPOVER_SMALL: &str = themed!(
+    "font-size: 12px; margin: 4px 0px 2px 0px;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// The drive's usage line.
+pub(crate) const POPOVER_DRIVE: &str = "margin-top: 10px;";
+
+/// A warning of the popover (near full, failed transfers).
+pub(crate) const POPOVER_WARNING: &str = themed!(
+    "font-size: 12.5px; margin: 4px 0px;",
+    "color: #B04032;",
+    "color: #E08070;",
+    "color: #B04032;",
+    "color: #E08070;",
+);
+
+/// The popover's buttons, at its foot on the right.
+pub(crate) const POPOVER_ACTIONS: &str =
+    "display: flex; flex-direction: row; justify-content: flex-end; margin-top: 12px;";
 
 // ==== The content: a leaf filling its pane ====
 

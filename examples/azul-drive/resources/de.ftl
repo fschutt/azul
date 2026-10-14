@@ -136,6 +136,7 @@ azdrive-why-select = Wähle zuerst ein oder mehrere Elemente aus.
 azdrive-why-pin-folder = Öffne einen Ordner, um ihn an den Schnellzugriff anzuheften.
 azdrive-why-nothing-to-paste = Nichts zum Einfügen: Kopiere oder schneide zuerst etwas aus.
 azdrive-why-rename-one = Wähle genau ein Element zum Umbenennen aus.
+azdrive-why-one-folder = Wähle einen Ordner, um ihn in einem neuen Tab zu öffnen.
 azdrive-why-open-result = Wähle ein Ergebnis zum Öffnen aus.
 azdrive-why-open-drive = Wähle ein Laufwerk zum Öffnen aus.
 azdrive-why-open-pin = Wähle einen angehefteten Ordner zum Öffnen aus.
@@ -1818,3 +1819,28 @@ azdrive-meta-engine = Datenbanksystem
 azdrive-meta-table = Tabelle
 azdrive-meta-yes = Ja
 azdrive-meta-no = Nein
+
+## The navigation pane's pies (no status bar) and the sync popover
+
+azdrive-pie-no-sync = Hier wird nichts synchronisiert
+azdrive-pie-space-unknown = Platz noch unbekannt
+azdrive-pie-space-nearly-full = Das Laufwerk ist fast voll.
+azdrive-pie-space-full = Das Laufwerk ist voll.
+azdrive-pie-show-transfers = Übertragungen
+azdrive-sync-detail-up-to-date = Jede Datei des Laufwerks ist hier und in der Cloud gleich.
+azdrive-sync-detail-syncing = Die Änderungen dieses Computers werden hochgeladen.
+
+## Location tabs (Ctrl+T, Ctrl+W, Ctrl+Tab, Ctrl+1 to Ctrl+9, the tab overview)
+
+azdrive-loctabs-title = Tabs
+azdrive-loctab-new = Neuer Tab
+azdrive-loctab-close = Tab schließen
+azdrive-loctab-opened = Neuer Tab: { $place }
+azdrive-loctab-last = Das ist der einzige Tab.
+azdrive-loctab-search = Suche: { $text }
+azdrive-loctabs-hint = ⌃T neuer Tab · ⌃W schließen · ⌃Tab nächster · ⌃1-9 springen
+azdrive-loctabs-count = { $count ->
+        [one] Ein Tab
+       *[other] { $count } Tabs
+    }
+azdrive-menu-open-in-new-tab = In neuem Tab öffnen
