@@ -1,48 +1,50 @@
-//! AzMaps' road routing, worked out on the client from static tiles
-//! (`examples/azul-maps/ROUTING.md`). No azul types: the app drives it on a
-//! worker thread and hands it a [`TileSource`] that downloads and caches.
+//! AzMaps' road routing, worked out on the client from static tiles. No
+//! azul types: the app drives it on a worker thread and hands it a
+//! [`TileSource`] that downloads and caches.
 //!
-//! One route, start to destination:
+//! The tiles are Valhalla's road graph, cut into the map's XYZ tiles at zoom
+//! 8, 11 and 14 and served as gzipped protobuf next to a `manifest.json`
+//! (the azul-routing-tiles project builds and publishes them):
 //!
-//! 1. [`corridor`] names the tiles along the straight line: zoom 14 (every
-//!    road) near the ends, zoom 11 (secondary roads and up) further out,
-//!    zoom 8 (motorway, trunk, primary) in the middle of a long trip;
-//! 2. the [`TileSource`] fetches the ones not loaded yet, in parallel
-//!    ([`fetch_parallel`]), and each is read ([`format::parse_tile`]) into one
-//!    [`Graph`] for the travel mode - a road shared by two levels meets itself
-//!    at the same OSM node ids, which is how A* changes level;
-//! 3. both ends snap to the nearest usable road and [`astar`] searches the
-//!    graph for the fastest way, in milliseconds of travel time;
-//! 4. without a way the corridor widens and only the new tiles are fetched,
-//!    twice, before the route is given up.
+//! - [`manifest`] reads the manifest: coverage, tile URL, licence, keep times;
+//! - [`format`] reads one tile, with [`wire`] as its protobuf reader;
+//! - [`graph`] joins the tiles into one graph, by keys every build agrees on;
+//! - [`router`] finds a route with an edge-based A* that reads tiles as the
+//!   search reaches them, after fetching the likely ones ([`corridor`]) in
+//!   parallel; [`mode`] says how a car, a bicycle or a walker uses each edge;
+//! - [`source`] has the tile sources: a folder, a download (feature `http`),
+//!   and a cache in memory and on disk that keeps each zoom for weeks and
+//!   serves old tiles when the network is gone;
+//! - [`offline`] plans, downloads and pins the tiles of an area ahead.
 //!
-//! [`route`] runs all four and reports its progress; the `routing-tiles`
-//! binary cuts an OpenStreetMap extract into the tiles ([`generate`]).
-//! [`source`] has the tile sources: a folder, a cache in memory and on disk,
-//! and (feature `http`) a download from any static file hosting. Where no
-//! tiles are at hand, [`online`] asks a Valhalla server for the route.
+//! The `routing-tiles` binary cuts an OpenStreetMap extract into the same
+//! tiles where no Valhalla build exists ([`generate`], [`build`], [`pbf`]).
+//! Where no tiles are at hand, [`online`] asks a Valhalla server for the route.
 
-pub mod astar;
+pub mod build;
 pub mod corridor;
 pub mod format;
 pub mod generate;
 pub mod graph;
+pub mod manifest;
 pub mod mode;
+pub mod offline;
 pub mod online;
 pub mod pbf;
 pub mod router;
 pub mod source;
 pub mod tile;
+pub mod wire;
 
 #[cfg(test)]
 mod tests;
 
-pub use astar::astar;
-pub use generate::generate;
 pub use corridor::corridor;
+pub use generate::generate;
 pub use graph::Graph;
+pub use manifest::Manifest;
 pub use mode::Mode;
-pub use router::{fetch_parallel, route, Progress, Route, RouteError, Stage, TileSource};
+pub use router::{fetch_parallel, route, route_with, Options, Progress, Route, RouteError, Stage, TileSource};
 pub use tile::TileId;
 
 /// The great-circle distance between two places `(lat, lon)`, in metres.

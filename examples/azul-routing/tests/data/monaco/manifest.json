@@ -1,0 +1,62 @@
+{
+  "attribution": {
+    "text": "© OpenStreetMap contributors",
+    "url": "https://www.openstreetmap.org/copyright"
+  },
+  "bbox": [
+    7.4064366999999995,
+    43.7232244,
+    7.4447259,
+    43.7543687
+  ],
+  "build": "2026-10-14-monaco",
+  "built_at": "2026-10-14T20:46:34Z",
+  "encoding": "gzip",
+  "format": "azul-routing-tiles",
+  "generator": {
+    "image": "pyvalhalla==3.9.1",
+    "valhalla": "3.9.1"
+  },
+  "index": "tiles.txt",
+  "keep_days": {
+    "11": 28,
+    "14": 14,
+    "8": 56
+  },
+  "levels": [
+    {
+      "bytes": 7278,
+      "tiles": 1,
+      "z": 8
+    },
+    {
+      "bytes": 32173,
+      "tiles": 1,
+      "z": 11
+    },
+    {
+      "bytes": 204759,
+      "tiles": 5,
+      "z": 14
+    }
+  ],
+  "license": {
+    "id": "ODbL-1.0",
+    "url": "https://opendatacommons.org/licenses/odbl/1-0/"
+  },
+  "regions": [
+    {
+      "bbox": [
+        7.4064366999999995,
+        43.7232244,
+        7.4447259,
+        43.7543687
+      ],
+      "id": "monaco",
+      "osm_timestamp": "2026-10-13T20:21:31Z",
+      "source": "https://download.geofabrik.de/europe/monaco-latest.osm.pbf"
+    }
+  ],
+  "tiles": "tiles/{z}/{x}/{y}.pbf",
+  "version": 1
+}

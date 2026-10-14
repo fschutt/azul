@@ -1,17 +1,26 @@
 //! Web Mercator tiles: the XYZ scheme of the map's vector tiles (origin at
 //! the top-left, `x` east, `y` south), at the routing levels 8, 11 and 14.
+//!
+//! Zoom 14 holds every road, zoom 11 the arterial roads and up, zoom 8 the
+//! highways (motorway, trunk, primary). These are Valhalla's three
+//! hierarchy levels by road class; only the grid is the map's, so a router
+//! can read fine tiles near the ends of a trip and coarse ones between.
 
 use std::f64::consts::PI;
 
 /// The routing levels, coarse to fine: zoom 8 holds motorway, trunk and
-/// primary roads, zoom 11 secondary roads and up, zoom 14 every road.
+/// primary roads, zoom 11 secondary and tertiary roads and up, zoom 14
+/// every road.
 pub const LEVELS: [u8; 3] = [8, 11, 14];
 
 /// One tile: its zoom level, column and row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TileId {
+    /// The zoom level: 8, 11 or 14 for routing tiles.
     pub z: u8,
+    /// The column, from the antimeridian eastwards.
     pub x: u32,
+    /// The row, from the north southwards.
     pub y: u32,
 }
 
@@ -33,6 +42,27 @@ impl TileId {
     pub fn centre(&self) -> (f64, f64) {
         let n = f64::from(1u32 << self.z);
         latlon_at(f64::from(self.x) + 0.5, f64::from(self.y) + 0.5, n)
+    }
+
+    /// The tile's corners as `(south, west, north, east)` in degrees.
+    #[must_use]
+    pub fn bounds(&self) -> (f64, f64, f64, f64) {
+        let n = f64::from(1u32 << self.z);
+        let (north, west) = latlon_at(f64::from(self.x), f64::from(self.y), n);
+        let (south, east) = latlon_at(f64::from(self.x) + 1.0, f64::from(self.y) + 1.0, n);
+        (south, west, north, east)
+    }
+}
+
+/// The coarsest zoom a road of Valhalla classification `class` is in:
+/// 8 for motorway, trunk and primary (0 to 2), 11 for secondary and
+/// tertiary (3, 4), 14 for the rest. A road is in every finer zoom too.
+#[must_use]
+pub const fn zoom_of_class(class: u8) -> u8 {
+    match class {
+        0..=2 => 8,
+        3 | 4 => 11,
+        _ => 14,
     }
 }
 
