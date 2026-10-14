@@ -12603,11 +12603,11 @@ pub(crate) fn apply_clip_path(
 mod svg_mask_memo {
     use std::{
         cell::RefCell,
-        collections::HashMap,
         hash::{Hash, Hasher},
     };
 
     use super::{ImageRef, LogicalRect};
+    use crate::image_memo::ImageMemo;
 
     /// At most this many masks ...
     const MAX_ENTRIES: usize = 256;
@@ -12636,21 +12636,9 @@ mod svg_mask_memo {
         width: u32,
     }
 
-    struct Entry {
-        image: ImageRef,
-        bytes: usize,
-        last_used: u64,
-    }
-
-    #[derive(Default)]
-    struct Memo {
-        entries: HashMap<Key, Entry>,
-        bytes: usize,
-        clock: u64,
-    }
-
     thread_local! {
-        static MEMO: RefCell<Memo> = RefCell::new(Memo::default());
+        static MEMO: RefCell<ImageMemo<Key, ImageRef>> =
+            RefCell::new(ImageMemo::new(MAX_ENTRIES, MAX_BYTES));
     }
 
     /// A 64-bit hash of every coordinate of `path`, by element.
@@ -12722,52 +12710,13 @@ mod svg_mask_memo {
             view_box: view_box.map(|(x, y, w, h)| [x.to_bits(), y.to_bits(), w.to_bits(), h.to_bits()]),
             width: width.to_bits(),
         };
-        let hit = MEMO.with(|memo| {
-            let mut memo = memo.borrow_mut();
-            memo.clock += 1;
-            let clock = memo.clock;
-            memo.entries.get_mut(&key).map(|e| {
-                e.last_used = clock;
-                e.image.clone()
-            })
-        });
-        if hit.is_some() {
-            return hit;
+        if let Some(hit) = MEMO.with(|memo| memo.borrow_mut().get(&key)) {
+            return Some(hit);
         }
         let image = rasterise()?;
         let size = image.get_size();
         let bytes = (size.width.max(0.0) * size.height.max(0.0)) as usize;
-        if bytes > MAX_BYTES {
-            return Some(image);
-        }
-        MEMO.with(|memo| {
-            let mut memo = memo.borrow_mut();
-            while !memo.entries.is_empty()
-                && (memo.entries.len() >= MAX_ENTRIES || memo.bytes + bytes > MAX_BYTES)
-            {
-                let Some(oldest) = memo
-                    .entries
-                    .iter()
-                    .min_by_key(|(_, e)| e.last_used)
-                    .map(|(k, _)| *k)
-                else {
-                    break;
-                };
-                if let Some(gone) = memo.entries.remove(&oldest) {
-                    memo.bytes -= gone.bytes;
-                }
-            }
-            let last_used = memo.clock;
-            memo.bytes += bytes;
-            memo.entries.insert(
-                key,
-                Entry {
-                    image: image.clone(),
-                    bytes,
-                    last_used,
-                },
-            );
-        });
+        MEMO.with(|memo| memo.borrow_mut().insert(key, image.clone(), bytes));
         Some(image)
     }
 }

@@ -26,6 +26,7 @@ use azul_css::props::{
     style::border_radius::StyleBorderRadius,
 };
 use azul_layout::{
+    cpurender::{text_halos, TextHalo},
     solver3::display_list::{BorderRadius, DisplayList},
     window::DomLayoutResult,
 };
@@ -277,8 +278,19 @@ pub fn translate_displaylist_to_wr(
         };
     }
 
+    // The text shadows drawn as kept pictures (`text_halos`; their images
+    // were drawn and registered with the frame's resources), by the index of
+    // their PushTextShadow. Every other shadow goes to WebRender's own.
+    let halos: BTreeMap<usize, TextHalo> = text_halos(&display_list.items, dpi_scale, None)
+        .into_iter()
+        .map(|halo| (halo.push, halo))
+        .collect();
+    // One entry per open PushTextShadow: whether it went to WebRender's
+    // shadow stack, which its PopTextShadow has to pop.
+    let mut wr_shadows: Vec<bool> = Vec::new();
+
     // Translate display list items to WebRender
-    for item in &display_list.items {
+    for (item_index, item) in display_list.items.iter().enumerate() {
         match item {
             DisplayListItem::Rect {
                 bounds,
@@ -2196,6 +2208,37 @@ pub fn translate_displaylist_to_wr(
                     "[compositor2] PushTextShadow: {:?}",
                     shadow
                 );
+                // A kept halo is painted as an image tinted with the shadow's
+                // colour, below the text that follows, as WebRender paints
+                // its own shadow: no surface and no blur pass this frame.
+                let halo = halos.get(&item_index).and_then(|halo| {
+                    renderer_resources
+                        .get_image(&halo.image.get_hash())
+                        .map(|resolved| (halo, resolved.key))
+                });
+                if let Some((halo, key)) = halo {
+                    let offset = current_offset!();
+                    let rect = LayoutRect::from_origin_and_size(
+                        LayoutPoint::new(halo.origin.0 - offset.0, halo.origin.1 - offset.1),
+                        LayoutSize::new(halo.width as f32, halo.height as f32),
+                    );
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: current_clip!(),
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_image(
+                        &info,
+                        rect,
+                        webrender::api::ImageRendering::Auto,
+                        WrAlphaType::PremultipliedAlpha,
+                        translate_image_key(key),
+                        color_u_to_wr(&halo.color),
+                    );
+                    wr_shadows.push(false);
+                    continue;
+                }
                 let current_spatial_id = current_spatial!();
                 let current_clip_chain = current_clip!();
                 let offset_x = shadow.offset_x.inner.to_pixels_internal(
@@ -2223,10 +2266,13 @@ pub fn translate_displaylist_to_wr(
                     clip_chain_id: current_clip_chain,
                 };
                 builder.push_shadow(&space_and_clip, wr_shadow, true);
+                wr_shadows.push(true);
             }
             DisplayListItem::PopTextShadow => {
                 log_debug!(LogCategory::DisplayList, "[compositor2] PopTextShadow");
-                builder.pop_all_shadows();
+                if wr_shadows.pop() == Some(true) {
+                    builder.pop_all_shadows();
+                }
             }
 
             // A STROKED PATH. WebRender has no vector rasteriser, so the
@@ -3754,6 +3800,67 @@ mod text_halo_tests {
             shadows_and_images(&moved),
             (0, halos),
             "the labels moved, their halos did not change: the same pictures"
+        );
+    }
+
+    /// A halo tinted with its colour is the CPU renderer's text shadow, so the
+    /// GPU paints what the CPU paints. Upright labels in all but clear ink -
+    /// their shadows are what paints; clear text is not drawn at all, nor its
+    /// shadow - and black halos on white: each picture laid over
+    /// white where it lands holds the CPU frame's pixels.
+    #[test]
+    fn a_halo_tinted_with_its_colour_is_the_cpu_renderers_text_shadow() {
+        use azul_layout::{
+            cpurender::{render, text_halos, RenderOptions},
+            glyph_cache::GlyphCache,
+        };
+
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let _ = frame(&mut window, labels(0.0, FAINT_INK, "#000000", false));
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let cpu = render(
+            &list,
+            &window.renderer_resources,
+            &window.font_manager,
+            RenderOptions {
+                width: 600.0,
+                height: 200.0,
+                dpi_factor: 2.0,
+            },
+            &mut GlyphCache::new(),
+        )
+        .expect("the CPU renderer draws the frame");
+        let halos = text_halos(&list.items, 2.0, None);
+        assert_eq!(halos.len(), LABELS, "every label's halo is kept");
+        let mut worst = (0u8, (0, 0));
+        for halo in &halos {
+            let picture = halo.image.get_bytes().expect("a halo is a picture in memory");
+            let (x0, y0) = (halo.origin.0 as i64, halo.origin.1 as i64);
+            for y in 0..i64::from(halo.height) {
+                for x in 0..i64::from(halo.width) {
+                    let (px, py) = (x0 + x, y0 + y);
+                    if px < 0 || py < 0 || px >= i64::from(cpu.width) || py >= i64::from(cpu.height) {
+                        continue;
+                    }
+                    let coverage = picture[((y * i64::from(halo.width) + x) * 4 + 3) as usize];
+                    let over_white = 255 - coverage;
+                    let at = ((py * i64::from(cpu.width) + px) * 4) as usize;
+                    let difference = cpu.data()[at].abs_diff(over_white);
+                    if difference > worst.0 {
+                        worst = (difference, (px, py));
+                    }
+                }
+            }
+        }
+        assert!(
+            worst.0 <= 24,
+            "a halo laid over white differs from the CPU's shadow by {} at {:?}",
+            worst.0,
+            worst.1
         );
     }
 
