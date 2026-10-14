@@ -1172,14 +1172,25 @@ mod tests {
         assert_eq!(config_path(None, None), None);
     }
 
-    /// The relay may name Azlin's own with a word, as AzMeet's settings do; the meeting server
-    /// stays an http(s) address.
+    /// The relay may name Azlin's own with a word, as AzMeet's settings do: it reads as Azlin's
+    /// relay's address, so every client that takes an address takes it. The meeting server stays
+    /// an http(s) address.
     #[test]
     fn the_relay_may_be_azlins_by_name_and_the_meeting_server_is_an_http_address() {
-        assert_eq!(normalize_endpoint(Endpoint::Relay, " Azlin ").as_deref(), Ok("azlin"));
+        assert_eq!(AZLIN_RELAY, "https://connect.azlin.io");
+        assert_eq!(normalize_endpoint(Endpoint::Relay, " Azlin ").as_deref(), Ok(AZLIN_RELAY));
         assert_eq!(normalize_endpoint(Endpoint::Relay, "default").as_deref(), Ok("default"));
         assert!(normalize_endpoint(Endpoint::Meet, "iroh://connect.azlin.io").is_err());
         assert!(normalize_endpoint(Endpoint::Meet, "azlin").is_err());
+    }
+
+    /// Azlin's customers (the trial and the production profile) relay through Azlin's relay;
+    /// everyone else, and a local stack, through n0's public relays.
+    #[test]
+    fn azlins_profiles_relay_through_azlins_relay_and_every_other_through_n0s() {
+        assert_eq!(Profile::Production.default_for(Endpoint::Relay), Some(AZLIN_RELAY));
+        assert_eq!(Profile::Trial.default_for(Endpoint::Relay), Some(AZLIN_RELAY));
+        assert_eq!(Profile::Local.default_for(Endpoint::Relay), Some("default"));
     }
 
     #[test]
@@ -1244,7 +1255,7 @@ mod tests {
         assert_eq!(
             e.url(Endpoint::Relay),
             Some("default"),
-            "every profile relays through the public iroh relays unless a relay is named"
+            "the local profile relays through n0's public relays unless a relay is named"
         );
         assert_eq!(
             e.url(Endpoint::S3),
@@ -1336,7 +1347,7 @@ mod tests {
         assert_eq!(e.profile, Profile::Production);
         assert_eq!(e.profile_setting.source, Source::Env(PROFILE_VAR));
         assert_eq!(e.url(Endpoint::Token), Some("https://token.azlin.io"));
-        assert_eq!(e.url(Endpoint::Relay), Some("default"));
+        assert_eq!(e.url(Endpoint::Relay), Some(AZLIN_RELAY), "Azlin's customers use Azlin's relay");
         assert_eq!(e.url(Endpoint::Meet), None, "no meeting server is deployed");
 
         // The file's own address stays over any profile's.

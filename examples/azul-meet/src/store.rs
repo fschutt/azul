@@ -639,6 +639,13 @@ mod tests {
         assert_eq!(settings.get(QUALITY), Some("automatic"));
     }
 
+    /// AzMeet's rooms (compiled without the kit too) and the shared config name the same Azlin
+    /// relay.
+    #[test]
+    fn azmeet_and_the_shared_config_name_the_same_azlin_relay() {
+        assert_eq!(crate::rooms::AZLIN_RELAY, azul_appkit::azlin_config::AZLIN_RELAY);
+    }
+
     /// The relay picked in the settings is a line of the settings file; none, no line.
     #[test]
     fn the_relay_is_remembered_in_the_settings_file() {

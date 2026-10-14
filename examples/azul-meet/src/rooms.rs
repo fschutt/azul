@@ -788,6 +788,18 @@ mod tests {
         assert_eq!(RelayChoice::ALL.len(), 3);
     }
 
+    /// A relay the shared config names counts; a profile's counts unless it is n0's default,
+    /// which the rule picks anyway away from this computer (and a local test reaches no public
+    /// relay). Azlin's profiles name Azlin's relay, which counts.
+    #[test]
+    fn a_profiles_relay_counts_unless_it_is_n0s_default() {
+        assert_eq!(shared_relay(Some(AZLIN_RELAY), true), Some(AZLIN_RELAY));
+        assert_eq!(shared_relay(Some("default"), true), None);
+        assert_eq!(shared_relay(Some("default"), false), Some("default"));
+        assert_eq!(shared_relay(Some("https://relay.corp.example"), false), Some("https://relay.corp.example"));
+        assert_eq!(shared_relay(None, false), None);
+    }
+
     /// The relay set in the settings counts over the shared config; `--relay` over both.
     #[test]
     fn the_relay_switch_wins_over_the_saved_relay_and_the_saved_one_over_the_shared_config() {
