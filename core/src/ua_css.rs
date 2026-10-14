@@ -1049,6 +1049,9 @@ pub fn get_ua_property(
         (NT::Form, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        // As in every browser's UA sheet: a button's width and height size its border box, so a
+        // padded `width: 100%` button is exactly as wide as its column.
+        (NT::Button, PT::BoxSizing) => Some(&BOX_SIZING_BORDER_BOX),
         (NT::Button, PT::Cursor) => Some(&CURSOR_POINTER),
         (NT::Button, PT::FontSize) => Some(&FONT_SIZE_13PX),
         (NT::Button, PT::PaddingTop) => Some(&PADDING_TOP_5PX),
