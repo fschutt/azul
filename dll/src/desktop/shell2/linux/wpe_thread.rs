@@ -106,6 +106,11 @@ static DRAIN_QUEUED: AtomicBool = AtomicBool::new(false);
 /// Whether the thread runs - or why not.
 static STARTED: OnceLock<Result<(), String>> = OnceLock::new();
 
+/// How long the window that opens the first web view waits for WPE to be set up. The wait
+/// runs on the UI thread, so it has an end: a thread stuck in its setup fails the web views
+/// instead of freezing the window.
+const SETUP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Start the thread (once per process) and wait until WPE is set up on it:
 /// `Err(reason)` - for every web view of the process - when it cannot be.
 pub(super) fn start() -> Result<(), String> {
@@ -116,9 +121,16 @@ pub(super) fn start() -> Result<(), String> {
                 .name("azul-webview".to_string())
                 .spawn(move || run(&ready));
             match spawned {
-                Ok(_) => wait
-                    .recv()
-                    .unwrap_or_else(|_| Err("the web view thread ended at its start".to_string())),
+                Ok(_) => wait.recv_timeout(SETUP_DEADLINE).unwrap_or_else(|e| {
+                    Err(match e {
+                        mpsc::RecvTimeoutError::Timeout => {
+                            "the web view thread did not set WPE up in time".to_string()
+                        }
+                        mpsc::RecvTimeoutError::Disconnected => {
+                            "the web view thread ended at its start".to_string()
+                        }
+                    })
+                }),
                 Err(e) => Err(format!("the web view thread did not start: {e}")),
             }
         })
