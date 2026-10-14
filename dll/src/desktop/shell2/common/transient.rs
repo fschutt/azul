@@ -1627,10 +1627,10 @@ mod tests {
         use azul_core::window::{DarkLightMode, OptionDarkLightMode};
         let mut parent = FullWindowState::default();
         parent.mode = DarkLightMode::Dark;
-        let light_desktop = azul_css::system::SystemStyle {
-            mode: azul_css::system::DarkLightMode::Light,
-            ..Default::default()
-        };
+        // SystemStyle implements Drop, so it is built and then set, not
+        // filled in from a default with `..`.
+        let mut light_desktop = azul_css::system::SystemStyle::default();
+        light_desktop.mode = azul_css::system::DarkLightMode::Light;
         let w = open_window(0);
         let (mut opts, _mailbox) =
             popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false);
