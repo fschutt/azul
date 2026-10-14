@@ -1210,6 +1210,17 @@ impl std::fmt::Debug for RemoteContents {
 /// The longest name a saved search takes from its text (characters, the ellipsis included).
 const SAVED_NAME_CHARS: usize = 40;
 
+/// What the search box searches (the find bar's scope chips): the open folder and every folder
+/// below it, the drive it is on from its root, or every drive on this computer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchScope {
+    Folder,
+    #[default]
+    Drive,
+    AllDrives,
+}
+
 /// A search kept in AzDrive's settings (Save search): its name, the search box's text, the
 /// Search tab's choices and the place it searched; Saved searches runs it again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

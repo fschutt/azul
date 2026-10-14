@@ -726,6 +726,32 @@ impl ColumnLayout {
     }
 }
 
+// ==== Density ====
+
+/// How tight the lists are: the folder view's rows and the navigation pane's rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Density {
+    Compact,
+    #[default]
+    Normal,
+    Comfortable,
+}
+
+impl Density {
+    /// The height of a row of the folder view (Details, List, Small icons), px.
+    #[must_use]
+    pub fn row_px(self) -> f32 {
+        todo!()
+    }
+
+    /// The height of a row of the navigation pane, px.
+    #[must_use]
+    pub fn nav_row_px(self) -> f32 {
+        todo!()
+    }
+}
+
 // ==== Settings ====
 
 /// A pinned folder of Quick access.
@@ -791,6 +817,10 @@ pub struct Settings {
     /// Each encrypted drive's recovery (the code's checks, the drills, the trusted contacts)
     /// and the shares this computer holds for others.
     pub recovery: crate::recovery_health::RecoverySettings,
+    /// What the search box searches: the open folder, its drive (the default) or every drive.
+    pub search_scope: crate::find::SearchScope,
+    /// The rows' heights of the folder view and the navigation pane.
+    pub density: Density,
 }
 
 impl Default for Settings {
@@ -819,6 +849,8 @@ impl Default for Settings {
             index_download_cap_mb: 25,
             synced: Vec::new(),
             recovery: crate::recovery_health::RecoverySettings::default(),
+            search_scope: crate::find::SearchScope::Folder,
+            density: Density::Normal,
         }
     }
 }
@@ -1011,6 +1043,54 @@ mod tests {
         assert_eq!(type_ahead_match(&names, "zz", Some(0)), None);
     }
 
+    /// The letters typed build one search until a pause of more than 800 ms.
+    #[test]
+    fn type_ahead_starts_again_after_a_pause_of_more_than_800_ms() {
+        let mut ta = TypeAhead::default();
+        assert_eq!(ta.push('r', 10_000), "r");
+        assert_eq!(ta.push('e', 10_700), "re", "700 ms later: the same search");
+        assert_eq!(ta.push('p', 11_500), "rep", "800 ms later: still the same");
+        assert_eq!(ta.push('x', 12_400), "x", "900 ms later: a new search");
+    }
+
+    /// The defaults are the user's settings of the design: the navigation and preview panes
+    /// (the details pane shares the preview's side and is off), File contents on, and the
+    /// search over the open folder's drive.
+    #[test]
+    fn the_defaults_are_the_users_final_settings() {
+        let settings = Settings::default();
+        assert!(settings.navigation_pane);
+        assert!(settings.preview_pane);
+        assert!(!settings.details_pane);
+        assert!(settings.search_contents, "File contents is on");
+        assert_eq!(settings.search_scope, crate::find::SearchScope::Drive);
+        assert_eq!(settings.density, Density::Normal);
+        assert_eq!(settings.layout, ViewLayout::Details);
+    }
+
+    /// A settings file of an older AzDrive that had a status bar still reads: the switch is
+    /// gone (there is no status bar any more) and the rest of the file counts.
+    #[test]
+    fn an_older_settings_file_with_a_status_bar_still_reads() {
+        let read = Settings::from_json(r#"{"status_bar":true,"layout":"list"}"#);
+        assert_eq!(read.layout, ViewLayout::List);
+        assert!(!read.to_json().contains("status_bar"), "the switch is not written back");
+    }
+
+    /// Compact, normal and comfortable rows: 21, 25 and 31 px in the folder view, 22, 25 and
+    /// 30 px in the navigation pane.
+    #[test]
+    fn the_density_sets_the_rows_heights() {
+        assert_eq!(Density::Compact.row_px(), 21.0);
+        assert_eq!(Density::Normal.row_px(), 25.0);
+        assert_eq!(Density::Comfortable.row_px(), 31.0);
+        assert_eq!(Density::Compact.nav_row_px(), 22.0);
+        assert_eq!(Density::Normal.nav_row_px(), 25.0);
+        assert_eq!(Density::Comfortable.nav_row_px(), 30.0);
+        let read = Settings::from_json(r#"{"density":"compact"}"#);
+        assert_eq!(read.density, Density::Compact);
+    }
+
     #[test]
     fn group_by_name_size_type_and_date_puts_items_into_explorers_groups() {
         crate::l10n::in_english();
@@ -1127,8 +1207,7 @@ mod tests {
     fn settings_round_trip_through_json_and_unknown_fields_fall_back_to_defaults() {
         let mut settings = Settings::default();
         assert_eq!(settings.layout, ViewLayout::Details);
-        assert!(settings.navigation_pane && !settings.preview_pane);
-        assert!(!settings.status_bar, "no status bar until View > Status bar");
+        assert!(settings.navigation_pane && settings.preview_pane && !settings.details_pane);
         settings.layout = ViewLayout::LargeIcons;
         settings.group_by = GroupBy::Type;
         settings.sort = Sort {
