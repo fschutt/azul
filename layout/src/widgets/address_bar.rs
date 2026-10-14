@@ -277,6 +277,10 @@ pub(crate) struct AddressBarLook {
     pub refresh_icon: Vec<Cond>,
     /// The box around the search input.
     pub search: Vec<Cond>,
+    /// Laid on the search input's own field (its frame) after its style:
+    /// the bar's corners where the theme gives the search box the crumbs
+    /// field's; empty leaves the field as the input draws it.
+    pub search_field: Vec<Cond>,
     /// The theme's marker class on the bar, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -1114,10 +1118,28 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
         .with_placeholder(search_placeholder)
         .with_on_text_input(shared.clone(), on_search)
         .with_theme(look.theme);
+    let mut search_dom = search_input.dom();
+    // The search row is the field, then its clear button: the field's
+    // frame takes the bar's corners.
+    if let Some(field) = search_dom.children.as_mut().first_mut() {
+        if !look.search_field.is_empty() {
+            let mut v: Vec<Cond> = field
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(property, apply_if)| Cond {
+                    property: property.clone(),
+                    apply_if: apply_if.clone(),
+                })
+                .collect();
+            v.extend(look.search_field.iter().cloned());
+            field.root.set_css_props(CssPropertyWithConditionsVec::from_vec(v));
+        }
+    }
     let search_box = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SEARCH_CLASS))
         .with_css_props(part(ADDRESS_BAR_SEARCH_BASE, &look.search))
-        .with_child(search_input.dom());
+        .with_child(search_dom);
 
     let mut parts = alloc::vec![
         nav(

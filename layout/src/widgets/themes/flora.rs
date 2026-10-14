@@ -8645,7 +8645,8 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
     field_box.extend(decl::margin(0, 8, 0, 6));
     field_box.extend(decl::border(1));
     field_box.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
-    field_box.extend(decl::radius(3));
+    // The field's corners, which the search box shares.
+    field_box.extend(decl::radius(ADDRESS_FIELD_RADIUS));
     field_box.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
     field_box.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
 
@@ -8707,9 +8708,14 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
         refresh,
         refresh_icon,
         search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
+        search_field: decl::radius(ADDRESS_FIELD_RADIUS).to_vec(),
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+
+/// The corners of the address bar's crumbs field and of its search box, in
+/// px: one shape for the two fields of the row.
+const ADDRESS_FIELD_RADIUS: isize = 4;
 
 /// The flora address bar.
 #[must_use]

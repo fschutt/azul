@@ -5160,6 +5160,7 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
         refresh,
         refresh_icon,
         search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
+        search_field: Vec::new(),
         marker: None,
     }
 }
