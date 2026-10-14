@@ -107,9 +107,20 @@ impl Navigation {
         self.started.elapsed().as_secs_f64()
     }
 
-    /// The simulated car's fix at `now_s`, when a simulated drive drives.
+    /// The simulated car's fix at `now_s`, when a simulated drive drives. Past the end of its
+    /// route the car stands at the destination: a fast car whose last fix fell short of it
+    /// still arrives.
     pub fn simulated_fix(&mut self, now_s: f64) -> Option<Fix> {
-        self.drive.as_mut()?.fix(now_s)
+        let moving = self.drive.as_mut()?.fix(now_s);
+        moving.or_else(|| {
+            self.guidance.destination().map(|at| Fix {
+                at,
+                time_s: now_s,
+                accuracy_m: Some(5.0),
+                heading_deg: None,
+                speed_mps: Some(0.0),
+            })
+        })
     }
 
     /// Takes the fix of `now_s` and says what to do.

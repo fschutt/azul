@@ -115,7 +115,7 @@ def transit(args, logs, out):
 def simulate(args, logs, out):
     speech_log = os.path.join(logs, "speech.log")
     app = start(args, logs, "simulate", os.path.join(logs, "simulate-data"),
-                ["--simulate-route", "--simulate-speed", "180", "--navigate"],
+                ["--simulate-route", "--simulate-speed", "250", "--navigate"],
                 env={"AZ_SPEECH_LOG": speech_log})
     try:
         type_ends(app, DRIVE_FROM, DRIVE_TO)

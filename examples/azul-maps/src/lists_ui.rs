@@ -683,7 +683,8 @@ extern "C" fn on_imported(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo)
         }
         Ok(imported) => {
             let lists = imported.lists.len();
-            let places = imported.places();
+            // Every place the import read: in its list, or waiting in the review.
+            let places = imported.places() + reply.review.len();
             for list in imported.lists {
                 merge_list(&mut s, list);
             }
