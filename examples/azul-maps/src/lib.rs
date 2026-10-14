@@ -83,7 +83,7 @@ use azul::{
         ButtonOnClickCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
-    css::{ColorU, SystemColorRef},
+    css::{ColorU, CssProperty, CssPropertyWithConditions, LayoutWidth, PixelValue, SystemColorRef},
     dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
     prelude::*,
     sensor::SensorKind,
@@ -261,9 +261,11 @@ const DISTANCE: &str = "flex-grow: 1; text-align: right; font-size: 13px; color:
 const PRIVACY_NOTE: &str = "font-size: 11px; color: system:secondary-text; white-space: normal;";
 /// The turn-by-turn steps: their own scrolling box, so the panel keeps its
 /// controls in sight in a small window.
-const STEPS: &str = "display: flex; flex-direction: column; gap: 2px; max-height: 220px; \
-                     overflow-y: auto; min-height: 0px;";
-const STEP_ROW: &str = "justify-content: flex-start; text-align: left; white-space: normal;";
+const STEPS: &str = "display: flex; flex-direction: column; align-items: stretch; gap: 2px; \
+                     max-height: 220px; overflow-x: hidden; overflow-y: auto; min-height: 0px;";
+/// A step's row: as wide as the list, its words wrapping inside it.
+const STEP_ROW: &str = "min-width: 0px; height: auto; justify-content: flex-start; text-align: \
+                        left; white-space: normal;";
 /// The zoom a picked step is shown at, at least: its turn in sight.
 const STEP_ZOOM: f32 = 15.0;
 const RECENTS_SECTION: &str =
@@ -959,7 +961,11 @@ fn step_list(reply: &RouteReply, selected: Option<usize>, app: &RefAny) -> Dom {
                 )
                 .dom()
                 .with_id(ids::route_step(index))
-                .with_css(STEP_ROW),
+                .with_css(STEP_ROW)
+                // The row's own width, not its parts': the label shrinks and wraps.
+                .with_css_property(CssPropertyWithConditions::simple(CssProperty::width(
+                    LayoutWidth::px(PixelValue::percent(100.0)),
+                ))),
         );
     }
     rows
