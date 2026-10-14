@@ -48,11 +48,15 @@ use azul_storage::{
 use crate::{
     account::{Account, JoinCode},
     error::{fail, CloudResult},
+    failover::{Failover, Node},
 };
 
 impl Account {
     /// The drive's bucket as a plain S3 drive with the current credentials (no refresh: call
-    /// [`Account::ensure_fresh`] first) - what the keys live in, below the encryption.
+    /// [`Account::ensure_fresh`] first) - what the keys live in, below the encryption. Its
+    /// requests go through the same failover as the drive's files: the nodes of the last
+    /// refresh when the block endpoint does not answer, and their addresses when its name does
+    /// not resolve, so a key listing works wherever the files do.
     ///
     /// # Errors
     ///
@@ -65,11 +69,15 @@ impl Account {
             bucket: record.bucket.clone(),
             path_style: record.path_style,
         };
+        let failover = Arc::new(Failover::new(&config.endpoint));
+        failover.set_nodes(Node::list(&record.nodes));
+        failover.add_alternatives(record.failover.clone());
         Ok(S3Drive::new(
             config,
             self.credentials()?,
             (self.transports())(),
-        )?)
+        )?
+        .with_router(failover))
     }
 
     /// Turns encryption on for this drive from this device: a new drive key and recovery code,
