@@ -7153,6 +7153,22 @@ fn australis_curve_face(raised: bool, left: bool) -> Vec<StyleBackgroundContent>
     v
 }
 
+/// The face inside a curve of the application button held down: the
+/// middle's pressed stone ([`sunken_stone_face`] in the deep) and the
+/// sunken rig's vertical layers, its bottom band included, so the band runs
+/// on under the curves to the button's feet.
+fn australis_curve_face_held(left: bool) -> Vec<StyleBackgroundContent> {
+    let mut v = vec![
+        StyleBackgroundContent::Color(LIGHT_DEEP),
+        SUNKEN_RIG_TOP,
+        SUNKEN_RIG_BOTTOM,
+    ];
+    if left {
+        v.push(TAB_LEFT_SHADE);
+    }
+    v
+}
+
 /// The curves of a stone flora cuts as an Australis tab - the selected tab,
 /// or the `raised` application button: the stone inside each S, the S cut
 /// from the rolled metal its head is cut from (the band of metal at the
@@ -7168,13 +7184,22 @@ pub(crate) fn tab_curves(raised: bool) -> crate::widgets::tabs::TabCurveLook {
     type P = CssPropertyWithConditions;
     let part = CssPropertyWithConditionsVec::from_vec;
     let fill = |left: bool| {
-        part(vec![
+        let mut v = vec![
             P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(TAB_GAUGE))),
             P::simple(CssProperty::background_clip(StyleBackgroundClipVec::from_vec(
                 alloc::vec![StyleBackgroundClip::ContentBox],
             ))),
             P::simple(decl::layers(australis_curve_face(raised, left))),
-        ])
+        ];
+        if raised {
+            // The application button sinks when held; its curves take its
+            // press (they are drawn as part of it) and sink with the middle,
+            // at the middle's pace.
+            let held = australis_curve_face_held(left);
+            v.extend(decl::active_layers(held.clone(), held));
+            v.extend(flora_fade(&["background"], FL_DUR_SLOW_MS));
+        }
+        part(v)
     };
     let paint = |layer: StyleBackgroundContent| part(vec![P::simple(decl::layers(vec![layer]))]);
     crate::widgets::tabs::TabCurveLook {

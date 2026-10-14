@@ -9504,6 +9504,11 @@ impl LayoutWindow {
         let Some(result) = self.layout_results.get(&dom_id) else {
             return Vec::new();
         };
+        // A node's parts change state with it (`NodeData::is_part_of_parent`),
+        // so their faces fade with it too.
+        let count = result.styled_dom.node_count();
+        let nodes: Vec<NodeId> = nodes.into_iter().filter(|n| n.index() < count).collect();
+        let nodes = result.styled_dom.with_parts(nodes);
         let states = result.styled_dom.styled_nodes.as_container();
         nodes
             .into_iter()

@@ -287,7 +287,10 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
         v.extend(own.as_ref().iter().cloned());
         CssPropertyWithConditionsVec::from_vec(v)
     };
+    // The curve, its fill and its metal are drawn as part of the tab: they
+    // take its hover and press, so a pressed stone sinks to its feet.
     let fill = Dom::create_div()
+        .with_part_of_parent(true)
         .with_ids_and_classes(decl::classes(&[CURVE_FILL_CLASS]))
         .with_css_props(over(if left {
             &look.left_fill
@@ -296,6 +299,7 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
         }))
         .with_svg_data(shape(curve_fill(s, w, h, left)));
     let metal = Dom::create_div()
+        .with_part_of_parent(true)
         .with_ids_and_classes(decl::classes(&[CURVE_STROKE_CLASS]))
         .with_css_props(over(&look.metal))
         .with_svg_data(shape(curve_band(s, look.gauge)));
@@ -305,6 +309,7 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
         decl::simple(CssProperty::const_right(LayoutRight::px(-w)))
     };
     Dom::create_div()
+        .with_part_of_parent(true)
         .with_ids_and_classes(decl::classes(&[if left {
             CURVE_LEFT_CLASS
         } else {
@@ -351,6 +356,7 @@ fn runout(look: &TabCurveLook, left: bool) -> Dom {
     };
     style.extend(paint.as_ref().iter().cloned());
     Dom::create_div()
+        .with_part_of_parent(true)
         .with_ids_and_classes(decl::classes(&[if left {
             RUNOUT_LEFT_CLASS
         } else {
