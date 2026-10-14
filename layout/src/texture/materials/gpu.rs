@@ -15,7 +15,10 @@
 //! without what it needs) answers `None` once and for good, and the caller
 //! draws on the CPU.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::{Rc, Weak},
+};
 
 use azul_core::{
     geom::PhysicalSize,
@@ -42,8 +45,11 @@ void main() {
 
 /// What one GL context keeps for the materials.
 struct ContextState {
-    /// The context's identity (its loader's address).
-    context: usize,
+    /// The context this state belongs to. Weak: it does not keep a closed
+    /// window's context alive, and while it exists no other context can be
+    /// made at the same address, so a state is never taken for another
+    /// context's.
+    context: Weak<GenericGlContext>,
     /// The linked program, or 0 when it does not compile here.
     program: u32,
     /// An empty vertex array (core profiles draw nothing without one).
@@ -85,16 +91,9 @@ pub(crate) fn render_material_gl(
         return None;
     }
     let gl: Rc<GenericGlContext> = gl_ptr.get().clone();
-    let context = Rc::as_ptr(&gl) as usize;
     STATES.with(|states| {
         let mut states = states.borrow_mut();
-        let index = match states.iter().position(|s| s.context == context) {
-            Some(i) => i,
-            None => {
-                states.push(ContextState::new(&gl, context, version));
-                states.len() - 1
-            }
-        };
+        let index = state_index(&mut states, &gl, version);
         let state = &mut states[index];
         if state.program == 0 {
             return None;
@@ -113,17 +112,25 @@ pub fn material_shader_compiles(gl_ptr: &GlContextPtr) -> bool {
         return false;
     }
     let gl = gl_ptr.get().clone();
-    let context = Rc::as_ptr(&gl) as usize;
     STATES.with(|states| {
         let mut states = states.borrow_mut();
-        if let Some(s) = states.iter().find(|s| s.context == context) {
-            return s.program != 0;
-        }
-        let state = ContextState::new(&gl, context, version);
-        let ok = state.program != 0;
-        states.push(state);
-        ok
+        let index = state_index(&mut states, &gl, version);
+        states[index].program != 0
     })
+}
+
+/// The index of `gl`'s state, made now if it has none; states of contexts
+/// that are gone are dropped first (their GL objects went with them).
+fn state_index(states: &mut Vec<ContextState>, gl: &Rc<GenericGlContext>, version: &str) -> usize {
+    states.retain(|s| s.context.strong_count() > 0);
+    if let Some(i) = states
+        .iter()
+        .position(|s| s.context.upgrade().is_some_and(|c| Rc::ptr_eq(&c, gl)))
+    {
+        return i;
+    }
+    states.push(ContextState::new(gl, version));
+    states.len() - 1
 }
 
 /// `src` with its first line swapped for `#version <version>`.
@@ -207,7 +214,7 @@ fn upload(gl: &GenericGlContext, width: usize, height: usize, rgba: &[u8], repea
 }
 
 impl ContextState {
-    fn new(gl: &GenericGlContext, context: usize, version: &str) -> Self {
+    fn new(gl: &Rc<GenericGlContext>, version: &str) -> Self {
         let program = match link(gl, version) {
             Ok(p) => p,
             Err(log) => {
@@ -229,7 +236,7 @@ impl ContextState {
             0
         };
         Self {
-            context,
+            context: Rc::downgrade(gl),
             program,
             vao,
             tiles: [0; 4],
