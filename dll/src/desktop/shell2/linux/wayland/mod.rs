@@ -6219,6 +6219,10 @@ impl WaylandWindow {
             .update_unsynced_state(|ws| ws.window_focused = true);
         self.common.note_focus_gained();
         self.dynamic_selector_context.window_focused = true;
+        // A changed wallpaper is read again for the metals.
+        if crate::desktop::wallpaper::refresh() {
+            self.request_redraw();
+        }
 
         let xkb_state = self.keyboard_state.state;
         for &scancode in held_scancodes {

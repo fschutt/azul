@@ -6231,6 +6231,13 @@ unsafe extern "system" fn window_proc(
             );
             window.common.note_focus_gained();
             window.dynamic_selector_context.window_focused = true;
+            // The user may have changed the wallpaper while away: the metals
+            // read it again (one `stat` when it is the same).
+            if crate::desktop::wallpaper::refresh() {
+                unsafe {
+                    (window.win32.user32.InvalidateRect)(window.hwnd, ptr::null(), 0);
+                }
+            }
 
             // Re-read the pressed-key set: the releases that happened while
             // another window had the focus never reached us (Alt+Tab's LAlt

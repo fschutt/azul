@@ -5481,6 +5481,10 @@ impl X11Window {
                         .update_unsynced_state(|ws| ws.window_focused = true);
                     self.common.note_focus_gained();
                     self.dynamic_selector_context.window_focused = true;
+                    // A changed wallpaper is read again for the metals.
+                    if crate::desktop::wallpaper::refresh() {
+                        self.request_redraw();
+                    }
                     // The keyboard state is a guess again: everything released
                     // while another window had focus was delivered THERE. The
                     // KeymapNotify that follows this event replaces the guess
