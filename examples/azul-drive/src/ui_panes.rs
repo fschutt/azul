@@ -1,6 +1,7 @@
-//! The panes around the content: the navigation row (the address bar), the
-//! path bar and the status line at the foot of the content's leaf, the preview
-//! pane and the details pane. (The navigation pane is `ui_sidebar`'s.)
+//! The panes around the content: the navigation row (the address bar), the preview pane and the
+//! details pane. (The navigation pane is `ui_sidebar`'s.) The leaf has no path bar and no
+//! status line at its foot: the address row says where the window is, and the sync and the
+//! drive's space are the navigation pane's pies.
 
 use azul::{
     audio::{AudioConfig, AudioFrame, AudioSink},
@@ -13,15 +14,15 @@ use azul::{
     video::{VideoConfig, VideoSource},
     widgets::{AddressBar, AddressBarEvent, AddressBarEventKind, DetailsPane, VideoWidget},
 };
-use azul_appkit::l10n::{grouped, label, t, t_args, t_phrase, t_text, Arg, Phrase, Text};
+use azul_appkit::l10n::{grouped, label, t, t_args, t_text, Arg, Phrase, Text};
 use azul_storage::{config::DriveLocation, key};
 
 use crate::{
-    actions::{self, action_ref, menu_item, on_action, Action},
+    actions::{self, menu_item, Action},
     browse::{self, Place},
     go, ids,
     jobs::PreviewContent,
-    listing, look, place_up, start_tree_listing, ui_view, with_state, DriveState,
+    look, place_up, start_tree_listing, ui_view, with_state, DriveState,
 };
 
 // ==== The address bar ====
@@ -171,20 +172,7 @@ extern "C" fn on_address(
     })
 }
 
-// ==== The path bar and the status line (the leaf's foot) ====
-
-/// What a step of the path bar carries: the app and the step's place.
-struct CrumbRef {
-    app: RefAny,
-    place: Place,
-}
-
-fn crumb_parts(data: &mut RefAny) -> Option<(RefAny, Place)> {
-    data.downcast_ref::<CrumbRef>()
-        .map(|c| (c.app.clone(), c.place.clone()))
-}
-
-/// The icon of a step of the path bar: This PC's, a drive's own, a folder.
+/// The icon of a place in the address bar: This PC's, a drive's own, a folder.
 fn crumb_icon(s: &DriveState, place: &Place) -> &'static str {
     match place {
         Place::QuickAccess => "star",
@@ -194,242 +182,6 @@ fn crumb_icon(s: &DriveState, place: &Place) -> &'static str {
             .map_or("storage", |i| s.slots[i].icon()),
         Place::Folder { .. } => "folder",
     }
-}
-
-/// Finder's path bar at the foot of the leaf: the open place's trail (This PC, the drive, its
-/// folders), each step its icon and its name, the open place's own in bold. A click goes there;
-/// items dragged in the window and dropped on a step move there (Ctrl copies).
-pub(crate) fn path_bar(s: &DriveState, app: &RefAny) -> Dom {
-    let drive_name = s.drive_name(&s.place);
-    let crumbs = browse::crumbs_of(&s.place, &drive_name);
-    let last = crumbs.len().saturating_sub(1);
-    let mut bar = Dom::create_div()
-        .with_id(ids::PATH_BAR)
-        .with_css(look::PATH_BAR)
-        .with_accessibility_name(label("azdrive-path-bar"));
-    for (i, (label, place)) in crumbs.into_iter().enumerate() {
-        if i > 0 {
-            bar.add_child(Dom::create_icon("chevron_right").with_css(look::CRUMB_SEPARATOR));
-        }
-        let data = || {
-            RefAny::new(CrumbRef {
-                app: app.clone(),
-                place: place.clone(),
-            })
-        };
-        let mut crumb = Dom::create_div()
-            .with_class(ids::CRUMB_CLASS)
-            .with_css(format!(
-                "{} {}",
-                look::CRUMB,
-                if i == last { look::CRUMB_LAST } else { "" }
-            ))
-            .with_accessibility_name(label.as_str())
-            .with_child(Dom::create_icon(crumb_icon(s, &place)).with_css(look::CRUMB_ICON))
-            .with_child(
-                Dom::create_div()
-                    .with_css(
-                        "min-width: 0px; overflow: hidden; white-space: nowrap; \
-                         text-overflow: ellipsis;",
-                    )
-                    .with_child(Dom::create_span_with_text(AzString::from(label.as_str()))),
-            )
-            .with_callback(EventFilter::Hover(HoverEventFilter::Click), data(), on_crumb);
-        if matches!(place, Place::Folder { .. }) {
-            crumb = crumb
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::DragOver),
-                    data(),
-                    on_crumb_drag_over,
-                )
-                .with_callback(EventFilter::Hover(HoverEventFilter::Drop), data(), on_crumb_drop);
-        }
-        bar.add_child(crumb);
-    }
-    bar
-}
-
-/// A step of the path bar was clicked: the window goes there.
-extern "C" fn on_crumb(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, place)) = crumb_parts(&mut data) else {
-        return Update::DoNothing;
-    };
-    with_state(&mut app, &mut info, |info, app, s| {
-        if place != s.place {
-            go(info, app, s, place, true);
-        }
-    })
-}
-
-extern "C" fn on_crumb_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
-    info.accept_drop();
-    Update::DoNothing
-}
-
-/// Items dragged in the window, dropped on a step: into its folder (Ctrl copies).
-extern "C" fn on_crumb_drop(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, place)) = crumb_parts(&mut data) else {
-        return Update::DoNothing;
-    };
-    info.stop_propagation();
-    let copy = info.get_key_modifiers().primary_down();
-    with_state(&mut app, &mut info, |info, app, s| {
-        actions::drop_on_place(info, app, s, place, copy);
-    })
-}
-
-/// The status line's text: how many items (drives, pinned folders) and how many of them are
-/// selected (their size), what the clipboard holds, the space the drive has left - Finder's
-/// "3 of 12 selected (1.5 MB), 45.3 GB available".
-pub(crate) fn status_text(s: &DriveState) -> String {
-    let mut parts = Vec::new();
-    // The drive in view's storage problem first, in the table's words with its error ID.
-    if let Some(problem) = crate::problems::status_of(s) {
-        parts.push(t_text(&problem));
-    }
-    if let Some(find) = &s.find {
-        // The search's own line: "Searching... 1,234 found", then the count; the refine.
-        parts.push(t_phrase(&find.status_text()));
-        if !s.refines.is_any() {
-            parts.push(t_text(&s.refines.label()));
-        }
-        // The drive's index, when it has one: how far its update got, what it holds.
-        if let Some(drive_id) = s
-            .current_drive_id()
-            .filter(|id| s.settings.indexed_drives.contains(id))
-        {
-            parts.push(s.indexes.get(&drive_id).map_or_else(
-                || t("azdrive-index-status-never"),
-                |info| t_phrase(&info.status_text()),
-            ));
-        }
-        let selected = s.selection.len();
-        if selected > 0 {
-            parts.push(t_args(
-                "azdrive-status-selected",
-                &[
-                    ("count", Arg::from(selected)),
-                    ("n", Arg::from(grouped(selected as u64))),
-                ],
-            ));
-        }
-        if let Some(clip) = &s.clipboard {
-            parts.push(clipboard_text(clip.items.len()));
-        }
-        return parts.join(", ");
-    }
-    match &s.place {
-        Place::ThisPc => {
-            let drives = t_args("azdrive-status-drives", &[("count", Arg::from(s.slots.len()))]);
-            parts.push(match s.selected_drive.and_then(|i| s.slots.get(i)) {
-                Some(slot) => t_args(
-                    "azdrive-status-drive-selected",
-                    &[
-                        ("name", Arg::from(slot.name())),
-                        ("drives", Arg::from(drives)),
-                    ],
-                ),
-                None => drives,
-            });
-        }
-        Place::QuickAccess => parts.push(t_args(
-            "azdrive-status-pins",
-            &[("count", Arg::from(s.settings.pinned.len()))],
-        )),
-        Place::Folder { .. } if s.loading => parts.push(t("azdrive-status-loading")),
-        Place::Folder { drive, .. } => {
-            let shown = s.visible_entries().len();
-            let selected = s.selected_entries();
-            if selected.is_empty() {
-                // While the scan still runs, the count says so ("12,345 items so far").
-                parts.push(t_phrase(&listing::count_text(shown, s.listing_done)));
-            } else {
-                let bytes: u64 = selected.iter().filter_map(|e| e.size).sum();
-                let more = if s.listing_done { "" } else { "+" };
-                let mut text = t_args(
-                    "azdrive-status-selected-of",
-                    &[
-                        ("n", Arg::from(grouped(selected.len() as u64))),
-                        ("shown", Arg::from(format!("{}{more}", grouped(shown as u64)))),
-                    ],
-                );
-                if bytes > 0 {
-                    text.push_str(&format!(" ({})", browse::format_size(Some(bytes))));
-                }
-                parts.push(text);
-            }
-            if let Some((_, free)) = s.disk.get(drive) {
-                parts.push(t_args(
-                    "azdrive-status-available",
-                    &[("size", Arg::from(browse::format_size(Some(*free))))],
-                ));
-            } else if let Some(available) =
-                crate::usage_view::usage_of_slot(s, drive).and_then(crate::usage_view::available_part)
-            {
-                // An Azlin drive: its quota less its stored (compressed) bytes.
-                parts.push(available);
-            }
-            // A synced folder: its drive's sync ("Up to date", "Syncing 12 files (340 MB)").
-            if let Some(sync) = crate::sync_view::status_for_place(s) {
-                parts.push(sync);
-            }
-        }
-    }
-    if let Some(clip) = &s.clipboard {
-        parts.push(clipboard_text(clip.items.len()));
-    }
-    parts.join(", ")
-}
-
-/// "3 on the clipboard".
-fn clipboard_text(count: usize) -> String {
-    t_args("azdrive-status-clipboard", &[("count", Arg::from(count))])
-}
-
-/// Finder's status line under the path bar ([`status_text`]); while the source list is hidden
-/// (its activity area with it), the running transfer and the failed ones as chips that open the
-/// transfers.
-pub(crate) fn status_line(s: &DriveState, app: &RefAny) -> Dom {
-    let mut line = Dom::create_div()
-        .with_id(ids::STATUS_LINE)
-        .with_css(look::STATUS_LINE)
-        .with_child(
-            Dom::create_div()
-                .with_css(
-                    "min-width: 0px; overflow: hidden; white-space: nowrap; \
-                     text-overflow: ellipsis;",
-                )
-                .with_child(Dom::create_span_with_text(AzString::from(status_text(s)))),
-        );
-    if !s.settings.navigation_pane {
-        let chip = |icon: &str, label: String| {
-            Dom::create_div()
-                .with_css(look::STATUS_CHIP)
-                .with_accessibility_name(label.as_str())
-                .with_child(
-                    Dom::create_icon(AzString::from(icon))
-                        .with_css("font-size: 12px; margin-right: 4px;"),
-                )
-                .with_child(Dom::create_span_with_text(AzString::from(label)))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::Click),
-                    action_ref(app, Action::ShowTransfers),
-                    on_action,
-                )
-        };
-        let transfer = t_text(&s.queue.status_text());
-        if !transfer.is_empty() {
-            line.add_child(chip("sync", transfer));
-        }
-        let failed = s.queue.failed().len();
-        if failed > 0 {
-            line.add_child(chip(
-                "error",
-                t_args("azdrive-status-transfers-failed", &[("count", Arg::from(failed))]),
-            ));
-        }
-    }
-    line
 }
 
 // ==== The preview pane ====

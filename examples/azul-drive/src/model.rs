@@ -374,7 +374,7 @@ pub struct TypeAhead {
 
 impl TypeAhead {
     /// A pause longer than this starts a new search.
-    pub const RESET_MS: u64 = 1000;
+    pub const RESET_MS: u64 = 800;
 
     /// Adds `c` typed at `now_ms`; returns what to search for.
     pub fn push(&mut self, c: char, now_ms: u64) -> String {
@@ -742,13 +742,21 @@ impl Density {
     /// The height of a row of the folder view (Details, List, Small icons), px.
     #[must_use]
     pub fn row_px(self) -> f32 {
-        todo!()
+        match self {
+            Density::Compact => 21.0,
+            Density::Normal => 25.0,
+            Density::Comfortable => 31.0,
+        }
     }
 
     /// The height of a row of the navigation pane, px.
     #[must_use]
     pub fn nav_row_px(self) -> f32 {
-        todo!()
+        match self {
+            Density::Compact => 22.0,
+            Density::Normal => 25.0,
+            Density::Comfortable => 30.0,
+        }
     }
 }
 
@@ -784,9 +792,6 @@ pub struct Settings {
     pub navigation_pane: bool,
     pub preview_pane: bool,
     pub details_pane: bool,
-    /// Finder's path bar and status line at the foot of the content (View > Status bar). Off
-    /// by default: the address row says where the window is, and the counts are rarely read.
-    pub status_bar: bool,
     pub columns: ColumnLayout,
     pub pinned: Vec<Pinned>,
     /// Ask before a delete that cannot be undone (a cloud drive, Shift+Delete).
@@ -833,14 +838,13 @@ impl Default for Settings {
             show_extensions: true,
             item_checkboxes: false,
             navigation_pane: true,
-            preview_pane: false,
-            details_pane: true,
-            status_bar: false,
+            preview_pane: true,
+            details_pane: false,
             columns: ColumnLayout::default(),
             pinned: Vec::new(),
             confirm_delete: true,
             start: StartPlace::ThisPc,
-            search_contents: false,
+            search_contents: true,
             search_ignore_files: true,
             search_subfolders: true,
             indexed_drives: Vec::new(),
@@ -849,7 +853,7 @@ impl Default for Settings {
             index_download_cap_mb: 25,
             synced: Vec::new(),
             recovery: crate::recovery_health::RecoverySettings::default(),
-            search_scope: crate::find::SearchScope::Folder,
+            search_scope: crate::find::SearchScope::Drive,
             density: Density::Normal,
         }
     }

@@ -46,7 +46,7 @@ use crate::{
     look,
     model::{self, ViewLayout},
     preview::{self, PreviewKind},
-    save_settings, ui_find, ui_panes, with_state, ColumnDrag, DriveState, Message,
+    save_settings, ui_find, with_state, ColumnDrag, DriveState, Message,
 };
 
 // ==== Shared pieces ====
@@ -239,10 +239,6 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         background,
         on_background_drop,
     ));
-    if s.settings.status_bar {
-        area.add_child(ui_panes::path_bar(s, app));
-        area.add_child(ui_panes::status_line(s, app));
-    }
     Dom::create_div()
         .with_id(ids::CONTENT)
         .with_css(look::PAGE)

@@ -303,9 +303,8 @@ pub(crate) type TreeKey = (String, String);
 
 /// The content's leaf frame across: the page's padding either side and the leaf's rule.
 const LEAF_FRAME_X: f32 = 2.0 * 8.0 + 2.0;
-/// ... and down, with the leaf's foot: the page's padding, the rule, the path bar (24 px and its
-/// rule) and the status line (22 px and its rule).
-const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0 + 25.0 + 23.0;
+/// ... and down: the page's padding and the rule (the leaf has no foot).
+const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0;
 
 // ==== Drives ====
 

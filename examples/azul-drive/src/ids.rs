@@ -110,13 +110,10 @@ pub fn side_sync_state(drive_id: &str) -> AzString {
     AzString::from(format!("__azdrive_side_sync_{}", id_part(drive_id)))
 }
 
-// ==== The content's leaf and its foot ====
+// ==== The content's leaf ====
 
-/// The leaf the view lies on (the InfoBar, the view, the path bar, the status line).
+/// The leaf the view lies on (the InfoBar, the view).
 pub const LEAF: AzString = AzString::from_const_str("__azdrive_leaf");
-/// Finder's path bar at the foot of the leaf, and the status line under it.
-pub const PATH_BAR: AzString = AzString::from_const_str("__azdrive_path_bar");
-pub const STATUS_LINE: AzString = AzString::from_const_str("__azdrive_status_line");
 
 /// The "Add drive" dialog (ui_add_drive.rs): its content on every page, the pages, their
 /// controls. A source's row is `__azdrive_add_service_<source id>`, a form's field
@@ -361,8 +358,6 @@ pub const SIDE_ROW_CLASS: AzString = AzString::from_const_str("__azdrive_side_ro
 pub const SIDE_SECTION_CLASS: AzString = AzString::from_const_str("__azdrive_side_section");
 /// The row of the place the window shows.
 pub const SIDE_SELECTED_CLASS: AzString = AzString::from_const_str("__azdrive_side_selected");
-/// A step of the path bar.
-pub const CRUMB_CLASS: AzString = AzString::from_const_str("__azdrive_crumb");
 /// A search result's Folder cell (where it is).
 pub const FIND_FOLDER_CLASS: AzString = AzString::from_const_str("__azdrive_find_folder");
 /// A search result's Match cell (the line its contents matched on).

@@ -12,7 +12,7 @@
 //! Share: Send      [Email][Zip] Print / Burn to disc / Fax
 //!        Cloud     [Upload][Download][Copy link]
 //!        Share with [Advanced security]
-//! View:  Panes     [Navigation pane] Preview pane / Details pane
+//! View:  Panes     [Navigation pane] Preview pane / Details pane (no status bar: none)
 //!        Layout    the eight layouts (a gallery)
 //!        Current view [Sort by v] Group by v / Add columns v / Size all columns to fit
 //!        Show/hide Item check boxes / File name extensions / Hidden items [Hide selected items]
@@ -486,13 +486,6 @@ fn view_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                     "azdrive-ribbon-details-pane",
                     Toggle::DetailsPane,
                     settings.details_pane,
-                )),
-                small(toggle_button(
-                    app,
-                    "call_to_action",
-                    "azdrive-ribbon-status-bar",
-                    Toggle::StatusBar,
-                    settings.status_bar,
                 )),
             ],
         ))

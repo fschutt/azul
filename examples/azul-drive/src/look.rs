@@ -1,6 +1,5 @@
 //! AzDrive's body in each app theme and mode - the source list, the content leaf, the Details
-//! list, the icon cells, the path bar and the status line (View > Status bar) - one inline style
-//! per part.
+//! list, the icon cells - one inline style per part.
 //!
 //! FLORA (the website's look, `doc/templates/flora.css`): the content is a LEAF of field paper
 //! (`--fl-fld`) filling its pane, over the linen page (`--fl-pg` and its two hairline rasters,
@@ -423,67 +422,6 @@ pub(crate) const TILE_SELECTED: &str = themed!(
     "box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.60);",
     "box-shadow: 0px 1px 2px rgba(48, 45, 38, 0.14), 0px 6px 16px rgba(48, 45, 38, 0.16);",
     "box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.55), 0px 6px 16px rgba(0, 0, 0, 0.45);",
-);
-
-// ==== The path bar and the status line, at the foot of the leaf ====
-
-/// Finder's path bar: the open place's trail, each step an icon and its name.
-pub(crate) const PATH_BAR: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 24px; \
-     padding: 0px 6px; font-size: 12px; overflow: hidden;",
-    "border-top: 1px solid #D3D9E0; background: linear-gradient(to bottom, #F8FAFC, #EDF1F5);",
-    "border-top: 1px solid #3D3D3D; background: linear-gradient(to bottom, #303030, #292929);",
-    "border-top: 1px solid #D8D5CE; background: linear-gradient(to bottom, #F7F6F2, #EEECE7);",
-    "border-top: 1px solid #383838; background: linear-gradient(to bottom, #272727, #212121);",
-);
-
-/// A step of the path bar (a click goes there; items dropped on it move there).
-pub(crate) const CRUMB: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 1; min-width: 0px; \
-     height: 20px; padding: 0px 5px; border-radius: 4px; cursor: pointer;",
-    ":hover { background: #E2EBF6; } :drag-over { background: #C1DCFC; }",
-    ":hover { background: #3A3A3A; } :drag-over { background: #2E4A6E; }",
-    ":hover { background: #E6E8EE; } :drag-over { background: #E0E4EE; }",
-    ":hover { background: #2E2E2E; } :drag-over { background: #1E3260; }",
-);
-
-/// The open place's own step: in full, bold.
-pub(crate) const CRUMB_LAST: &str = "flex-shrink: 0; font-weight: 600;";
-
-/// A step's icon: tinted as [`ICON_TINT`].
-pub(crate) const CRUMB_ICON: &str = themed!(
-    "font-size: 14px; margin-right: 4px; flex-shrink: 0;",
-    "color: #3D6AA8;",
-    "color: #7AA7E0;",
-    "color: system:icon;",
-    "color: system:icon;",
-);
-
-/// The chevron between two steps.
-pub(crate) const CRUMB_SEPARATOR: &str =
-    "font-size: 14px; flex-shrink: 0; margin: 0px 1px; opacity: 0.45;";
-
-/// Finder's status line: how many items, how many selected, the space left.
-pub(crate) const STATUS_LINE: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-     flex-shrink: 0; height: 22px; padding: 0px 10px; font-size: 11px; overflow: hidden; \
-     border-radius: 0px 0px 2px 2px;",
-    "border-top: 1px solid #E2E6EB; background: #EDF1F5; color: #626A76;",
-    "border-top: 1px solid #333333; background: #292929; color: #9E9E9E;",
-    "border-top: 1px solid #E0DDD7; background: #EEECE7; color: #66645C; \
-     border-radius: 0px 0px 4px 4px;",
-    "border-top: 1px solid #2E2E2E; background: #212121; color: #A8A8A8;",
-);
-
-/// A transfer (or a failure) in the status line, while the source list is hidden: a chip that
-/// opens the transfers.
-pub(crate) const STATUS_CHIP: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 16px; \
-     margin-left: 10px; padding: 0px 7px; border-radius: 8px; cursor: pointer;",
-    "background: #DCE6F2; color: #1E4F99;",
-    "background: #3A4556; color: #DCE6F2;",
-    "background: #E0E4EE; color: #1E3260;",
-    "background: #1E3260; color: #DCE3F2;",
 );
 
 // ==== Buy storage's payment popover ====
