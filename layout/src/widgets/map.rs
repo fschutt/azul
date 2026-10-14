@@ -362,6 +362,27 @@ impl MapTileLayer {
     }
 }
 
+/// The ground under a map's tiles as CSS: the land colour (`canvas`) of the
+/// layer's light look, and of its dark look under `prefers-color-scheme:
+/// dark`, so it switches with the window as every other node does. It shows
+/// before the first tile arrives, under a tile still loading and beyond the
+/// poles.
+#[must_use]
+pub fn map_ground_css(layer: &MapTileLayer) -> String {
+    let ground = |scheme: MapColorScheme| {
+        let sheet = layer.effective_style_css_for(layer.theme.look(scheme));
+        let rgb = super::map_themes::canvas_fill(sheet.as_str())
+            .or_else(|| super::map_themes::parse_hex_rgb(super::map_themes::DEFAULT_CANVAS))
+            .unwrap_or([0xd6, 0xd8, 0xdb]);
+        alloc::format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2])
+    };
+    alloc::format!(
+        "background: {}; @media (prefers-color-scheme: dark) {{ background: {}; }}",
+        ground(MapColorScheme::Light),
+        ground(MapColorScheme::Dark)
+    )
+}
+
 impl Default for MapTileLayer {
     fn default() -> Self {
         Self {
@@ -740,7 +761,14 @@ impl MapWidget {
             // instead sizes against the container's final, finite content box. The
             // container MUST be a positioned box (the demo's `position: relative`);
             // a non-empty `container_style` (via `with_container_style`) overrides.
-            .with_css("position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;")
+            .with_css(
+                alloc::format!(
+                    "position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; \
+                     {}",
+                    map_ground_css(&self.layer)
+                )
+                .as_str(),
+            )
             // The widget as a whole; the tile grid inside it is the part a
             // screen reader describes (see map_widget_render).
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo::named(
@@ -4030,8 +4058,14 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // view bubbles to them - the tiles in the grid, and the markers over it
     // unless a marker keeps its press. `data` is the shared cache the
     // handlers mutate; the in-place re-render they trigger re-reads it.
+    // The view stands on the ground of the map's look: what a tile still
+    // loading lets through, and what lies beyond the poles.
     let mut view_root = Dom::create_div().with_css(
-        "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;",
+        alloc::format!(
+            "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; {}",
+            map_ground_css(&layer)
+        )
+        .as_str(),
     );
     {
         use azul_core::dom::{EventFilter, HoverEventFilter};
@@ -4166,23 +4200,15 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                 .saturating_sub(screen_y)
                 .max(1);
 
-            // Placeholder (still-loading) tiles show the loading grid — a grey
-            // background + 1px border — so fetch state is visible. A LOADED tile
-            // drops that chrome entirely: the drawing covers the tile, and
-            // keeping the per-tile border would draw a grey seam-grid over the
-            // whole map (user-reported "small grey borders around the tiles").
-            let (is_ready, clips) = match states.get(&id) {
-                Some(TileDisplay::Stack { pieces, own }) => {
-                    (true, !*own || pieces.len() > 1)
-                }
-                _ => (false, false),
-            };
-            let chrome = match (is_ready, clips) {
-                // A stand-in is larger than the box: show its part of it.
-                (true, true) => "overflow: hidden;",
-                (true, false) => "",
-                (false, _) => "background: #e7e9ec; border: 1px solid #d0d4d9;",
-            };
+            // A tile with nothing to show yet paints nothing: the view's
+            // ground shows through, in the look's land colour, light or dark.
+            // A tile shown by a stand-in clips it: the stand-in is larger
+            // than the box.
+            let clips = matches!(
+                states.get(&id),
+                Some(TileDisplay::Stack { pieces, own }) if !*own || pieces.len() > 1
+            );
+            let chrome = if clips { "overflow: hidden;" } else { "" };
             let style = alloc::format!(
                 "position: absolute; left: {screen_x}px; top: {screen_y}px; width: {size_w}px; \
                  height: {size_h}px; {chrome}"
@@ -4207,8 +4233,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             });
 
             // A drawn tile is its image (the worker's, shared - not drawn
-            // again); everything else shows a state glyph + tile id so the
-            // grid math + fetch state stay observable.
+            // again), over whatever stands in for it while it fades in.
             match states.get(&id) {
                 Some(TileDisplay::Stack { pieces, own }) => {
                     let last = pieces.len().saturating_sub(1);
@@ -4269,7 +4294,9 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                         });
                     }
                 }
-                other => {
+                // The fetch state, as text over the tile, only for the debug
+                // log's reader (`AZ_MAP_DEBUG`): the map shows its ground.
+                other if map_debug() => {
                     let state_tag = match other {
                         Some(TileDisplay::Glyph(g)) => *g,
                         _ => "",
@@ -4284,6 +4311,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                         ),
                     );
                 }
+                _ => {}
             }
 
             grid = grid.with_child(tile_div);
