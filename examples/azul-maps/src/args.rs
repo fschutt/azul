@@ -59,8 +59,13 @@ pub const SIMULATED_KMH: f64 = 50.0;
 /// Transitous; `off` (or `none`) plans no journeys.
 #[must_use]
 pub fn transit_server(flag: Option<&str>, env: Option<&str>) -> Option<String> {
-    let _ = (flag, env);
-    None
+    let chosen = [flag, env]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|t| !t.is_empty())
+        .unwrap_or(azul_routing::transit::transitous::TRANSITOUS);
+    (!matches!(chosen.to_ascii_lowercase().as_str(), "off" | "none")).then(|| chosen.to_string())
 }
 
 /// The routing server's `/route` URL: `--routing-online`, else [`ROUTING_ONLINE_VAR`], else
@@ -109,9 +114,28 @@ pub fn usage() -> String {
          endpoints.tiles of the shared Azlin config,\n                             else \
          OpenFreeMap's public tiles\n    --routing <URL|DIR>      The routing tiles ({z}/{x}/{y}.json.gz, or a folder\n                             azul-routing's routing-tiles wrote); else \
          AZMAPS_ROUTING, else\n                             endpoints.routing of the shared Azlin \
-         config. Without them a\n                             route is asked of the routing server\n    --routing-online <URL|off>  The routing server (a Valhalla /route URL) asked\n                             without routing tiles; else AZMAPS_ROUTING_ONLINE,\n                             else FOSSGIS's public server. off: the straight-line\n                             estimate\n",
+         config. Without them a\n                             route is asked of the routing server\n    --routing-online <URL|off>  The routing server (a Valhalla /route URL) asked\n                             without routing tiles; else AZMAPS_ROUTING_ONLINE,\n                             else FOSSGIS's public server. off: the straight-line\n                             estimate\n    --transit <URL|off>      The public transport server (MOTIS); else\n                             AZMAPS_TRANSIT, else Transitous. off: no journeys\n    --offline                Send nothing: routes, journeys and places come from the\n                             cache, marked offline\n    --simulate-route         Navigation drives a simulated car along the route (one\n                             wrong turn on the way); --simulate-speed <km/h> (50)\n    --gps <SOURCE>           Where the position comes from: platform, gpsd,\n                             gpsd:<host:port>, nmea:<device>, replay:<file.nmea>\n    --import <FILE|DIR>      Import places (GPX, KML, KMZ, GeoJSON, CSV, a Google\n                             Takeout folder) at the start\n    --navigate               Start navigating as soon as the road route is there\n",
     );
     text
+}
+
+/// A switch of `names` with its value (`--name value` or `--name=value`): the name and the
+/// value; `None` for any other argument.
+fn valued<'n>(
+    arg: &str,
+    rest: &mut impl Iterator<Item = String>,
+    names: &[&'n str],
+) -> Result<Option<(&'n str, String)>, String> {
+    for name in names {
+        if arg == *name {
+            let value = rest.next().ok_or_else(|| format!("{name} needs a value"))?;
+            return Ok(Some((*name, value)));
+        }
+        if let Some(value) = arg.strip_prefix(name).and_then(|v| v.strip_prefix('=')) {
+            return Ok(Some((*name, value.to_string())));
+        }
+    }
+    Ok(None)
 }
 
 /// Reads `argv` (without the program name); `env_stats` is whether
@@ -136,6 +160,13 @@ where
     let mut tiles = None;
     let mut routing = None;
     let mut routing_online = None;
+    let mut transit = None;
+    let mut offline = false;
+    let mut simulate = false;
+    let mut simulate_kmh = None;
+    let mut gps = None;
+    let mut import = None;
+    let mut navigate = false;
     let mut rest = Vec::with_capacity(argv.len());
     let mut argv = argv.into_iter();
     while let Some(arg) = argv.next() {
@@ -164,6 +195,28 @@ where
             routing_online = Some(url.to_string());
         } else if let Some(template) = arg.strip_prefix("--routing=") {
             routing = Some(template.to_string());
+        } else if arg == "--offline" {
+            offline = true;
+        } else if arg == "--simulate-route" {
+            simulate = true;
+        } else if arg == "--navigate" {
+            navigate = true;
+        } else if let Some((name, value)) = valued(&arg, &mut argv, &["--transit", "--simulate-speed", "--gps", "--import"])? {
+            match name {
+                "--transit" => transit = Some(value),
+                "--simulate-speed" => {
+                    let kmh: f64 = value
+                        .trim()
+                        .parse()
+                        .map_err(|_| format!("--simulate-speed needs km/h, not {value}"))?;
+                    if !(kmh.is_finite() && kmh > 0.0) {
+                        return Err(format!("--simulate-speed needs a speed above zero, not {value}"));
+                    }
+                    simulate_kmh = Some(kmh);
+                }
+                "--gps" => gps = Some(value),
+                _ => import = Some(value),
+            }
         } else {
             rest.push(arg);
         }
@@ -173,13 +226,13 @@ where
         tiles,
         routing,
         routing_online,
-        transit: None,
-        offline: false,
-        simulate: false,
-        simulate_kmh: None,
-        gps: None,
-        import: None,
-        navigate: false,
+        transit,
+        offline,
+        simulate,
+        simulate_kmh,
+        gps,
+        import,
+        navigate,
         help: false,
         kit: AppArgs::parse(&crate::SPEC, rest)?,
     })
