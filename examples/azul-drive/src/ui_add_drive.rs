@@ -925,7 +925,7 @@ fn card_art(d: &AddDialog, page: &Page) -> Dom {
                 .with_child(
                     Dom::create_span_with_text(AzString::from(brand))
                         .with_id(ids::PAY_BRAND)
-                        .with_css("font-weight: bold; font-style: italic;"),
+                        .with_css("font-weight: bold;"),
                 ),
         )
         .with_child(
