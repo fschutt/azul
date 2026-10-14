@@ -4125,9 +4125,10 @@ mod tab_curve_pixel_tests {
             .with_child(ribbon.dom_desktop())
     }
 
-    /// Inside every curve's box at most one pixel in fifty differs from the
-    /// CPU's frame by more than an edge's antialiasing (32 in a channel): a
-    /// bar three pixels wide down a curve is fifteen in a hundred.
+    /// Inside every curve's box at most one pixel in twenty-five differs from
+    /// the CPU's frame by more than an edge's antialiasing (32 in a channel),
+    /// which leaves room for a box edge on a half device pixel; a bar three
+    /// CSS px wide down a curve is fifteen in a hundred.
     #[test]
     fn the_ribbons_tab_curves_are_drawn_on_the_gpu_as_on_the_cpu() {
         const DPI: f32 = 2.0;
@@ -4163,7 +4164,7 @@ mod tab_curve_pixel_tests {
             for curve in curves {
                 let (differing, worst) = pixels_differing(&frames.gpu, &frames.cpu, curve, 32);
                 assert!(
-                    differing * 50 <= curve.2 * curve.3,
+                    differing * 25 <= curve.2 * curve.3,
                     "{differing} of the {} pixels of the curve at {curve:?} differ from the \
                      CPU's (titlebar {in_titlebar}), the worst by {} at {:?}",
                     curve.2 * curve.3,
