@@ -349,7 +349,7 @@ fn glyph_xs(lw: &LayoutWindow) -> Vec<(f32, f32)> {
         .collect()
 }
 
-/// A flora tab is as wide as its capitals and its 12px sides, no wider,
+/// A flora tab is as wide as its capitals and its 8px sides, no wider,
 /// and no curve hangs over a neighbour's label.
 #[test]
 fn a_flora_aurora_tab_is_as_wide_as_its_capitals_and_no_curve_covers_a_neighbour() {
@@ -374,12 +374,12 @@ fn a_flora_aurora_tab_is_as_wide_as_its_capitals_and_no_curve_covers_a_neighbour
         let last = mine.iter().map(|g| g.0).fold(f32::NEG_INFINITY, f32::max);
         let em = mine[0].1;
         assert!(
-            first - tab.origin.x <= 12.0 + 1.5,
-            "the label starts 12px in, at {first:.1} in {tab:?}"
+            first - tab.origin.x <= 8.0 + 1.5,
+            "the label starts 8px in, at {first:.1} in {tab:?}"
         );
         assert!(
-            tab.origin.x + tab.size.width - last <= 12.0 + 1.2 * em,
-            "the tab ends 12px after its last capital (at {last:.1}): {tab:?}"
+            tab.origin.x + tab.size.width - last <= 8.0 + 1.2 * em,
+            "the tab ends 8px after its last capital (at {last:.1}): {tab:?}"
         );
     }
     let mut curves = rects_of(&lw, CURVES[0]);

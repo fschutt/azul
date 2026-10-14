@@ -4517,14 +4517,13 @@ pub(crate) fn tab_header_look_in(
 /// The selected Aurora tab's border box, in px; an unselected one is a
 /// hairline shorter, standing on the rule.
 const AURORA_TAB_HEIGHT: isize = 26;
-/// The space between two Aurora tabs, in px: with `AURORA_TAB_SIDE` it
-/// keeps a curve off its neighbour's label.
-const AURORA_TAB_GAP: isize = 8;
+/// The space between two Aurora tabs, in px: a curve's width, so every S
+/// lies in the gap, shared by the two tabs beside it, and keeps
+/// `AURORA_TAB_SIDE` off both labels.
+const AURORA_TAB_GAP: isize = crate::widgets::tabs::CURVE_WIDTH as isize;
 /// An Aurora tab's room beside its label, in px.
-const AURORA_TAB_SIDE: isize = 12;
-const _: () = assert!(
-    AURORA_TAB_GAP + AURORA_TAB_SIDE >= crate::widgets::tabs::CURVE_WIDTH as isize
-);
+const AURORA_TAB_SIDE: isize = 8;
+const _: () = assert!(AURORA_TAB_GAP >= crate::widgets::tabs::CURVE_WIDTH as isize);
 
 /// A face as one background layer.
 fn layer(color: ColorU) -> Vec<StyleBackgroundContent> {
@@ -4656,11 +4655,12 @@ fn aurora_tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
     header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
     header.extend(decl::border_bottom(1));
     header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
-    // The first tab's left curve lands a curve's width in.
+    // The first tab stands a curve's width in, where its left curve lands:
+    // the spacer is as wide as the lead less the gap after it.
     #[allow(clippy::cast_possible_truncation)]
     let before = alloc::vec![
         P::simple(CssProperty::const_width(LayoutWidth::const_px(
-            t::CURVE_WIDTH as isize - AURORA_TAB_GAP
+            (t::CURVE_WIDTH as isize - AURORA_TAB_GAP).max(0)
         ))),
         P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];

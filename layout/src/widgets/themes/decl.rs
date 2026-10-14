@@ -813,6 +813,27 @@ pub(crate) fn px_bottom(px: f32) -> CssPropertyWithConditions {
     simple(CssProperty::const_bottom(LayoutInsetBottom::px(px)))
 }
 
+/// `padding-right: <px>px`, fractional.
+#[must_use]
+pub(crate) fn px_padding_right(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_padding_right(LayoutPaddingRight::px(px)))
+}
+
+/// `margin-right: <px>px`, fractional (negative pulls the next box closer).
+#[must_use]
+pub(crate) fn px_margin_right(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_margin_right(LayoutMarginRight::px(px)))
+}
+
+/// The tracking `em` adds after the last glyph of a label set at `font_px`,
+/// in px. The text tracks every glyph, the last one too (as Chrome does), so
+/// a tracked label sits that much left of its box's centre unless its box
+/// takes it back on the right (the demo's `margin-right: -tracking`).
+#[must_use]
+pub(crate) fn trailing_tracking_px(font_px: f32, em: f32) -> f32 {
+    font_px * em
+}
+
 // ==== from style_kit: the builders that had no twin here (DEDUP_WIDGETS_API F4) ====
 
 /// `border-radius` per corner: top-left, top-right, bottom-right, bottom-left.

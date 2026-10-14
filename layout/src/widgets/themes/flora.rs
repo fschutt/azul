@@ -6257,9 +6257,11 @@ pub(crate) fn ribbon_style(
     let e = s.resolved_app_button_style();
     chrome_part(&mut s.app_button_style, &e, australis::app_button);
     let e = s.resolved_tab_style();
-    chrome_part(&mut s.tab_style, &e, |v| australis::tab(v, true));
+    chrome_part(&mut s.tab_style, &e, |v| australis::tab(v, true, CURVED_TABS));
     let e = s.resolved_tab_active_style();
-    chrome_part(&mut s.tab_active_style, &e, |v| australis::selected(v, true));
+    chrome_part(&mut s.tab_active_style, &e, |v| {
+        australis::selected(v, true, CURVED_TABS);
+    });
     // The rule is the strip's own (an inset line under every tab): the
     // filler draws no foot of its own.
     let e = s.resolved_tab_filler_style();
@@ -6975,23 +6977,47 @@ pub const TAB_HEIGHT: isize = 28;
 pub const TAB_GAUGE: isize = 2;
 /// The air above the tabs in a flora tab row, in px.
 pub const TAB_AIR: isize = 4;
-/// A tab's room beside its label, its 1px hairline included: flora.css's
-/// `.nav-links a { padding: 3px 12px 4px }`.
-pub const TAB_SIDE: isize = 12;
-/// The space between two tabs, flora.css's `.nav-links { gap: 8px }`. A
-/// selected tab's curve hangs a curve's width past its box, over the gap and
-/// the neighbour's side: the two hold its foot off the neighbour's label.
-pub const TAB_GAP: isize = 8;
 /// How far a selected tab's curve hangs past its box, in px.
 const TAB_CURVE: isize = crate::widgets::tabs::CURVE_WIDTH as isize;
-const _: () = assert!(TAB_GAP + TAB_SIDE >= TAB_CURVE);
 
-/// `column-gap: TAB_GAP`, on the row that holds the tabs.
-fn tab_gap() -> CssPropertyWithConditions {
+/// How a tab row is spaced, in px: the room beside each label (a tab's 1px
+/// hairline included), the gap between two tabs and the room before the
+/// first one. Each shape has its own, because only a row that hangs curves
+/// needs room for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TabSpacing {
+    /// Between a tab's edge and its label.
+    pub(crate) side: isize,
+    /// Between one tab and the next.
+    pub(crate) gap: isize,
+    /// Before the first tab, where its left curve lands.
+    pub(crate) lead: isize,
+}
+
+/// A row whose tabs hang S curves (Aurora, the ribbon's row): every S lies
+/// in a gap of its own width, which the two tabs beside it share as
+/// Firefox's tabs overlap, and keeps 8px off the labels on both sides.
+pub(crate) const CURVED_TABS: TabSpacing = TabSpacing {
+    side: 8,
+    gap: TAB_CURVE,
+    lead: TAB_CURVE,
+};
+const _: () = assert!(CURVED_TABS.gap >= TAB_CURVE && CURVED_TABS.lead >= TAB_CURVE);
+
+/// A row of square tabs: nothing hangs past a tab, so the tabs stand close
+/// and the first one at the strip's edge.
+pub(crate) const SQUARE_TABS: TabSpacing = TabSpacing {
+    side: 12,
+    gap: 2,
+    lead: 0,
+};
+
+/// `column-gap: <gap>px`, on the row that holds the tabs.
+fn tab_gap(gap: isize) -> CssPropertyWithConditions {
     CssPropertyWithConditions::simple(CssProperty::ColumnGap(
         azul_css::props::property::LayoutColumnGapValue::Exact(
             azul_css::props::layout::LayoutColumnGap {
-                inner: PixelValue::const_px(TAB_GAP),
+                inner: PixelValue::const_px(gap),
             },
         ),
     ))
@@ -7048,23 +7074,29 @@ pub const TAB_STREAK_HOVER: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(TAB_STREAK_HOVER_STOPS),
     });
 
+/// The size of a tab label's capitals, in px.
+const TAB_CAPS_PX: isize = 12;
+/// How far a tab label's capitals are tracked out, in em.
+const TAB_CAPS_TRACK: f32 = 0.08;
+
 /// A tab's label in flora: the UI hand's capitals, tracked out - flora.css's
 /// `.nav-links a` (17px all-small-caps at 700, 0.07em) set as true capitals of
 /// the same height.
 fn tab_caps(v: &mut Vec<CssPropertyWithConditions>) {
     use super::decl;
     v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)));
-    v.push(decl::font_size(12));
+    v.push(decl::font_size(TAB_CAPS_PX));
     v.push(decl::semibold());
-    v.push(decl::letter_spacing_em(0.08));
+    v.push(decl::letter_spacing_em(TAB_CAPS_TRACK));
     v.push(CssPropertyWithConditions::simple(CssProperty::TextTransform(
         StyleTextTransformValue::Exact(StyleTextTransform::Uppercase),
     )));
 }
 
-/// A tab's box in a flora tab row: `TAB_SIDE` beside the label and no
-/// margins but the selected tab's foot (the row spaces its tabs by
-/// `TAB_GAP`). The SELECTED tab is the full
+/// A tab's box in a flora tab row: `spacing.side` beside the label (on the
+/// right less the tracking the capitals carry after their last letter) and
+/// no margins but the selected tab's foot (the row spaces its tabs by
+/// `spacing.gap`). The SELECTED tab is the full
 /// `TAB_HEIGHT`, a transparent `--fl-metal` head the rolled metal shows
 /// through and no other border (`position: relative` carries its curves,
 /// `z-index` keeps a neighbour's hover face off them); it reaches a gauge
@@ -7078,7 +7110,12 @@ fn tab_caps(v: &mut Vec<CssPropertyWithConditions>) {
 /// box's height, so it is centred in either box model; `border_box` says
 /// which one the tab's base declares (the ribbon's tabs size their border
 /// box, the tab bar's their content).
-fn australis_tab_box(v: &mut Vec<CssPropertyWithConditions>, selected: bool, border_box: bool) {
+fn australis_tab_box(
+    v: &mut Vec<CssPropertyWithConditions>,
+    selected: bool,
+    border_box: bool,
+    spacing: TabSpacing,
+) {
     use super::decl;
     type P = CssPropertyWithConditions;
     let g = TAB_GAUGE;
@@ -7095,7 +7132,12 @@ fn australis_tab_box(v: &mut Vec<CssPropertyWithConditions>, selected: bool, bor
         PixelValue::const_px(line),
     ))));
     v.extend(decl::margin(0, 0, foot, 0));
-    v.extend(decl::padding(pad_top, TAB_SIDE - side, pad_bottom, TAB_SIDE - side));
+    v.extend(decl::padding(pad_top, spacing.side - side, pad_bottom, spacing.side - side));
+    #[allow(clippy::cast_precision_loss)] // a few px
+    let right = (spacing.side - side) as f32;
+    #[allow(clippy::cast_precision_loss)]
+    let tracking = decl::trailing_tracking_px(TAB_CAPS_PX as f32, TAB_CAPS_TRACK);
+    v.push(decl::px_padding_right(right - tracking));
     v.extend([
         P::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(head))),
         P::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(side))),
@@ -7288,16 +7330,18 @@ pub(crate) fn unselected_tab_curves() -> crate::widgets::tabs::TabCurveLook {
 /// the Australis metrics and paint laid on it. Shared by the ribbon's tab row
 /// and the tab bar.
 pub(crate) mod australis {
-    use super::{CssPropertyWithConditions, TAB_AIR, TAB_CURVE, tab_gap, TAB_STREAK, TAB_STREAK_HOVER, CssProperty, LayoutHeight, TAB_HEIGHT, tab_rule_foot, over_metal, RULE_METAL, StyleBackgroundContent, LIGHT_STRIP, DARK_STRIP, over_metal_clips, australis_tab_box, tab_caps, LIGHT_SOFT1, DARK_SOFT1, ColorU, HOVER_FACE_LIGHT, HOVER_FACE_DARK, LIGHT_INK, DARK_INK, LIGHT_BD, DARK_BD, PRESSED_FACE_LIGHT, PRESSED_FACE_DARK, LIGHT_BD3, DARK_BD3, shadow_in, ShadowSlot, TAB_PRESS_SHADOW, flora_fade, FLORA_FACE, FL_DUR_MS, australis_face, ROLLED_TAB, LIGHT_ON_ACC, StyleBorderTopColor, stone_light_fade, stone_face, LIGHT_ACC, sunken_stone_face, LIGHT_DEEP, FL_DUR_SLOW_MS};
+    use super::{CssPropertyWithConditions, TAB_AIR, CURVED_TABS, TabSpacing, tab_gap, TAB_STREAK, TAB_STREAK_HOVER, CssProperty, LayoutHeight, TAB_HEIGHT, tab_rule_foot, over_metal, RULE_METAL, StyleBackgroundContent, LIGHT_STRIP, DARK_STRIP, over_metal_clips, australis_tab_box, tab_caps, LIGHT_SOFT1, DARK_SOFT1, ColorU, HOVER_FACE_LIGHT, HOVER_FACE_DARK, LIGHT_INK, DARK_INK, LIGHT_BD, DARK_BD, PRESSED_FACE_LIGHT, PRESSED_FACE_DARK, LIGHT_BD3, DARK_BD3, shadow_in, ShadowSlot, TAB_PRESS_SHADOW, flora_fade, FLORA_FACE, FL_DUR_MS, australis_face, ROLLED_TAB, LIGHT_ON_ACC, StyleBorderTopColor, stone_light_fade, stone_face, LIGHT_ACC, sunken_stone_face, LIGHT_DEEP, FL_DUR_SLOW_MS};
 
     /// The strip: air above the tabs, room before the first one for its
-    /// curve and `TAB_GAP` between them, the strip's paper on its padding
-    /// box, and the rule - the website's travelling metal, along the whole
-    /// strip - through its transparent foot.
+    /// curve and a curve's width between them (the ribbon's application
+    /// button and selected tab hang curves, so its row is spaced as Aurora),
+    /// the strip's paper on its padding box, and the rule - the website's
+    /// travelling metal, along the whole strip - through its transparent
+    /// foot.
     pub(crate) fn strip(v: &mut Vec<CssPropertyWithConditions>) {
         use super::super::decl;
-        v.extend(decl::padding(TAB_AIR, 0, 0, TAB_CURVE));
-        v.push(tab_gap());
+        v.extend(decl::padding(TAB_AIR, 0, 0, CURVED_TABS.lead));
+        v.push(tab_gap(CURVED_TABS.gap));
         v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
             LayoutHeight::const_px(TAB_AIR + TAB_HEIGHT),
         )));
@@ -7314,10 +7358,10 @@ pub(crate) mod australis {
     /// hairline and the house ink, held the pressed face in a `--fl-bd3`
     /// hairline over its well (`.nav-links a:hover` / `:active`) - every
     /// change over `--fl-dur` on `--fl-ease`, a press in `--fl-dur-fast`.
-    pub(crate) fn tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
+    pub(crate) fn tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool, spacing: TabSpacing) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
-        australis_tab_box(v, false, border_box);
+        australis_tab_box(v, false, border_box, spacing);
         tab_caps(v);
         v.extend(decl::radius_corners(4, 4, 0, 0));
         v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
@@ -7355,7 +7399,7 @@ pub(crate) mod australis {
     pub(crate) fn aurora_tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
-        australis_tab_box(v, false, border_box);
+        australis_tab_box(v, false, border_box, CURVED_TABS);
         tab_caps(v);
         // The curves hang off its box, and stand under the selected tab's.
         v.push(decl::position(azul_css::props::layout::LayoutPosition::Relative));
@@ -7393,10 +7437,14 @@ pub(crate) mod australis {
     /// transparent head (its sides are its curves, `tab_curves`) - and the
     /// light moving across the stone under the pointer at the shafts' pace.
     /// Its own colour in both modes.
-    pub(crate) fn selected(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
+    pub(crate) fn selected(
+        v: &mut Vec<CssPropertyWithConditions>,
+        border_box: bool,
+        spacing: TabSpacing,
+    ) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
-        australis_tab_box(v, true, border_box);
+        australis_tab_box(v, true, border_box, spacing);
         tab_caps(v);
         v.extend(decl::radius(0));
         let face = australis_face(TAB_STREAK);
@@ -7421,7 +7469,7 @@ pub(crate) mod australis {
     pub(crate) fn app_button(v: &mut Vec<CssPropertyWithConditions>) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
-        australis_tab_box(v, true, true);
+        australis_tab_box(v, true, true, CURVED_TABS);
         tab_caps(v);
         v.extend(decl::radius(0));
         let face = stone_face(LIGHT_ACC, TAB_STREAK);
@@ -7453,16 +7501,20 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
     use super::decl;
     type P = CssPropertyWithConditions;
     let part = CssPropertyWithConditionsVec::from_vec;
+    let spacing = match shape {
+        TabShape::Aurora => CURVED_TABS,
+        TabShape::Rectangular => SQUARE_TABS,
+    };
 
     // Every part is the widget's base (`tabs::HEADER_BASE`, `AFTER_BASE`,
     // `TAB_BASE`: its structure), then flora's skin.
     let mut header = crate::widgets::tabs::HEADER_BASE.to_vec();
     header.extend([
-        // Flora's own layout: the tabs stand on the strip's foot, `TAB_GAP`
+        // Flora's own layout: the tabs stand on the strip's foot, a gap
         // apart. Flat's native tabs hang from the top of the bar (its
         // default).
         P::simple(CssProperty::const_align_items(LayoutAlignItems::End)),
-        tab_gap(),
+        tab_gap(spacing.gap),
         P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
         decl::font_size(13),
         P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(TAB_AIR))),
@@ -7476,12 +7528,19 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
     ));
     header.push(over_metal_clips(1));
 
-    // The tabs start a curve's width in, where the first tab's foot lands
-    // when it is selected: a fixed spacer (flat's grows) and the gap after it.
-    let before = vec![
-        P::simple(CssProperty::const_width(LayoutWidth::const_px(TAB_CURVE - TAB_GAP))),
+    // The first tab starts `lead` in: a fixed spacer (flat's grows) and the
+    // gap after it. Aurora's lead is a curve's width, where the first tab's
+    // foot lands; square tabs need none, so their spacer leaves the row and
+    // takes its gap with it.
+    let mut before = vec![
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(
+            (spacing.lead - spacing.gap).max(0),
+        ))),
         P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];
+    if spacing.lead == 0 {
+        before.push(P::simple(CssProperty::const_display(LayoutDisplay::None)));
+    }
     let after = crate::widgets::tabs::AFTER_BASE.to_vec();
 
     // A tab: the widget's tab base (its content box sized, the pointer
@@ -7496,12 +7555,12 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
     let mut tab = tab_box();
     match shape {
         TabShape::Aurora => australis::aurora_tab(&mut tab, false),
-        TabShape::Rectangular => australis::tab(&mut tab, false),
+        TabShape::Rectangular => australis::tab(&mut tab, false, spacing),
     }
     tab.extend(decl::focus_halo_inset_stacked(LIGHT_ACC, DARK_GLOW));
 
     let mut active = tab_box();
-    australis::selected(&mut active, false);
+    australis::selected(&mut active, false, spacing);
     if shape == TabShape::Rectangular {
         // Square, its top corners eased like an unselected tab's.
         active.extend(decl::radius_corners(4, 4, 0, 0));
@@ -10901,9 +10960,10 @@ mod flora16_look_tests {
 
 #[cfg(test)]
 mod australis_tab_tests {
-    //! The Australis tab row against flora.css, the design it transcribes:
-    //! `.nav-links { gap: 8px }` and `.nav-links a { padding: 3px 12px 4px }`
-    //! with a 1px hairline, and the light raked across a selected stone.
+    //! The Australis tab row: its spacing per shape (a curved row leaves a
+    //! curve's width between its tabs, a square one 2px, as flora.css's
+    //! `.nav-links a { padding: 3px 12px 4px }` with a 1px hairline) and the
+    //! light raked across a selected stone.
 
     use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
@@ -10952,45 +11012,48 @@ mod australis_tab_tests {
         })
     }
 
-    #[test]
-    fn a_flora_tab_holds_its_label_12px_from_its_edges_as_flora_css_does() {
-        let mut selected = Vec::new();
-        australis::selected(&mut selected, true);
-        let mut tab = Vec::new();
-        australis::tab(&mut tab, true);
-        let mut app = Vec::new();
-        australis::app_button(&mut app);
-        for (name, v) in [
-            ("selected", &selected),
-            ("unselected", &tab),
-            ("app button", &app),
-        ] {
-            assert_eq!(label_inset(v), (12.0, 12.0), "{name}");
-        }
+    /// The tracking a tab's capitals carry after their last letter, which
+    /// its right side takes back.
+    fn trailing() -> f32 {
+        super::super::decl::trailing_tracking_px(TAB_CAPS_PX as f32, TAB_CAPS_TRACK)
     }
 
-    /// The selected tab's curve hangs a curve's width past its box: the gap
-    /// and the neighbour's inset hold it off the neighbour's label.
+    /// A curved row holds every label 8px from its tab's edges, a square one
+    /// 12px (flora.css's `.nav-links a { padding: 3px 12px 4px }`), the right
+    /// side less the trailing tracking.
     #[test]
-    fn a_flora_tab_row_leaves_8px_between_its_tabs_and_a_curve_clear_of_every_label() {
+    fn a_flora_tab_holds_its_label_8px_in_a_curved_row_and_12px_in_a_square_one() {
+        for (spacing, side) in [(CURVED_TABS, 8.0), (SQUARE_TABS, 12.0)] {
+            let mut selected = Vec::new();
+            australis::selected(&mut selected, true, spacing);
+            let mut tab = Vec::new();
+            australis::tab(&mut tab, true, spacing);
+            for (name, v) in [("selected", &selected), ("unselected", &tab)] {
+                let (left, right) = label_inset(v);
+                assert_eq!(left, side, "{name} {spacing:?}");
+                assert!((right - (side - trailing())).abs() < 0.01, "{name} {spacing:?}: {right}");
+            }
+        }
+        let mut app = Vec::new();
+        australis::app_button(&mut app);
+        let (left, right) = label_inset(&app);
+        assert_eq!(left, 8.0, "the app button stands in the curved row");
+        assert!((right - (8.0 - trailing())).abs() < 0.01, "app button: {right}");
+    }
+
+    /// A selected tab's curve hangs a curve's width past its box: in a
+    /// curved row the gap is that wide, so the S lies in it and clear of
+    /// both labels; a square row hangs none and keeps its tabs 2px apart.
+    #[test]
+    fn a_curved_flora_row_is_a_curve_wide_between_tabs_and_a_square_one_2px() {
         let mut strip = Vec::new();
         australis::strip(&mut strip);
-        let header = tab_header_look().header;
-        let mut tab = Vec::new();
-        australis::tab(&mut tab, true);
-        let neighbour = label_inset(&tab).0;
-        for (name, v) in [
-            ("ribbon strip", strip.as_slice()),
-            ("tab bar", header.as_ref()),
-        ] {
-            let gap = column_gap(v);
-            assert_eq!(gap, 8.0, "{name}");
-            assert!(
-                gap + neighbour >= crate::widgets::tabs::CURVE_WIDTH,
-                "{name}: a curve of {} reaches past {gap} + {neighbour}",
-                crate::widgets::tabs::CURVE_WIDTH
-            );
+        let aurora = tab_header_look_in(crate::widgets::tabs::TabStyle::Aurora).header;
+        let square = tab_header_look_in(crate::widgets::tabs::TabStyle::Rectangular).header;
+        for (name, v) in [("ribbon strip", strip.as_slice()), ("tab bar", aurora.as_ref())] {
+            assert_eq!(column_gap(v), crate::widgets::tabs::CURVE_WIDTH, "{name}");
         }
+        assert_eq!(column_gap(square.as_ref()), 2.0, "square tabs");
     }
 
     /// The alpha a linear gradient of concrete colours paints at (x, y) of
@@ -11054,7 +11117,7 @@ mod australis_tab_tests {
     #[test]
     fn the_light_on_a_selected_stone_does_not_end_at_the_edge_of_its_middle() {
         let mut selected = Vec::new();
-        australis::selected(&mut selected, true);
+        australis::selected(&mut selected, true, CURVED_TABS);
         let mut app = Vec::new();
         australis::app_button(&mut app);
         let face_height = (TAB_HEIGHT - TAB_GAUGE) as f32;
