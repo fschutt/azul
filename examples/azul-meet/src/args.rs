@@ -73,7 +73,7 @@ pub const SWITCHES: &[Switch] = &[
         flag: "--worker",
         var: "AZMEET_WORKER",
         takes: Takes::Url("<URL>", &[]),
-        help: "the meeting server, over the one saved last time",
+        help: "the meetings service, over the one saved in the settings",
     },
     Switch {
         flag: "--join",
@@ -126,8 +126,8 @@ pub const SWITCHES: &[Switch] = &[
     Switch {
         flag: "--relay",
         var: "AZMEET_RELAY",
-        takes: Takes::Url("<URL>", &["off", "default"]),
-        help: "the iroh relays (else the Azlin config's; else off for a local meeting server)",
+        takes: Takes::Url("<URL>", &["off", "default", "azlin"]),
+        help: "the iroh relays (else the settings', else the Azlin config's; else off for a local meeting server)",
     },
     Switch {
         flag: "--relay-only",
@@ -248,7 +248,7 @@ impl Args {
 }
 
 impl Takes {
-    /// What `--help` shows after the flag (`<off|default|URL>`); empty when nothing.
+    /// What `--help` shows after the flag (`<off|default|azlin|URL>`); empty when nothing.
     #[must_use]
     pub fn shown(&self) -> String {
         match self {
@@ -565,10 +565,20 @@ mod tests {
         assert_eq!(args.switch("AZMEET_JOIN"), None, "only the environment named it");
     }
 
+    /// `--relay azlin` picks Azlin's own relay, as the settings' choice does.
+    #[test]
+    fn the_relay_switch_takes_azlin_as_a_word() {
+        assert_eq!(
+            parse(["--relay", "Azlin"]).map(|a| a.switches.get("AZMEET_RELAY").cloned()),
+            Ok(Some(String::from("azlin")))
+        );
+        assert!(parse(["--worker", "iroh://connect.azlin.io"]).is_err(), "a meetings service is http(s)");
+    }
+
     #[test]
     fn a_switch_with_a_wrong_value_or_none_says_which() {
         assert!(parse(["--relay", "nowhere"]).unwrap_err().contains("--relay"));
-        assert!(parse(["--relay=ftp://x"]).unwrap_err().contains("off|default|URL"));
+        assert!(parse(["--relay=ftp://x"]).unwrap_err().contains("off|default|azlin|URL"));
         assert_eq!(
             parse(["--relay", "Off"]).map(|a| a.switches.get("AZMEET_RELAY").cloned()),
             Ok(Some(String::from("off")))

@@ -32,9 +32,8 @@ pub const COPY_LINK: AzString = AzString::from_const_str("__azmeet_copy_link");
 
 // ==== The start screen ====
 
-pub const SERVER: AzString = AzString::from_const_str("__azmeet_server");
-/// "Retry" beside a meeting server that does not answer.
-pub const RETRY: AzString = AzString::from_const_str("__azmeet_retry");
+/// "Connection settings" under a meetings service that cannot be used: Settings > Meetings.
+pub const CONNECTION_SETTINGS: AzString = AzString::from_const_str("__azmeet_connection_settings");
 pub const JOIN_FIELD: AzString = AzString::from_const_str("__azmeet_join_field");
 pub const NEW_MEETING: AzString = AzString::from_const_str("__azmeet_new");
 pub const NEW_CHAT_ROOM: AzString = AzString::from_const_str("__azmeet_new_chat_room");
@@ -89,6 +88,20 @@ pub const WAITING_BACK: AzString = AzString::from_const_str("__azmeet_waiting_ba
 pub const MIRROR: AzString = AzString::from_const_str("__azmeet_mirror");
 pub const JOIN_MUTED: AzString = AzString::from_const_str("__azmeet_join_muted");
 pub const JOIN_CAMERA_OFF: AzString = AzString::from_const_str("__azmeet_join_camera_off");
+
+// ==== The settings ====
+
+/// The meetings service field (Settings > Meetings).
+pub const SERVER: AzString = AzString::from_const_str("__azmeet_server");
+/// "Retry" beside a meetings service that does not answer.
+pub const RETRY: AzString = AzString::from_const_str("__azmeet_retry");
+/// The custom relay's field (Settings > Meetings, with "Custom" picked).
+pub const RELAY_FIELD: AzString = AzString::from_const_str("__azmeet_relay_field");
+
+// ==== The sound check (the waiting room, Settings > Audio & Video) ====
+
+pub const TEST_SPEAKERS: AzString = AzString::from_const_str("__azmeet_test_speakers");
+pub const TEST_MIC: AzString = AzString::from_const_str("__azmeet_test_mic");
 
 // ==== The tiles ====
 

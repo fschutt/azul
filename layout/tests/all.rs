@@ -1091,3 +1091,5 @@ mod a_tab_bar_takes_the_style_it_is_given;
 mod a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout;
 #[path = "a_marker_stands_where_the_ground_shows_its_place.rs"]
 mod a_marker_stands_where_the_ground_shows_its_place;
+#[path = "a_closing_window_hands_its_app_threads_to_a_window_that_stays_open.rs"]
+mod a_closing_window_hands_its_app_threads_to_a_window_that_stays_open;

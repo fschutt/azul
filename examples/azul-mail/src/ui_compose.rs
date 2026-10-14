@@ -455,6 +455,14 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
             compose_ref(&app, id),
             on_compose_close_requested,
         )
+        // A keyring answer the main window waited for arrives here once the main window closed
+        // (the engine hands its ops in flight to a window that stays open): the app's one
+        // keyring queue goes on, so a later Send / Receive can still read its password.
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::KeyringResult),
+            app,
+            crate::on_keyring_result,
+        )
 }
 
 /// What a ribbon button or a key does in the compose window.

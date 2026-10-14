@@ -66,6 +66,61 @@ const TRAFFIC_LIGHTS_INSET: &str = "padding: 0px 8px;";
 /// A control in a top strip keeps its clicks.
 const NO_DRAG: &str = "-azul-app-region: no-drag;";
 
+/// Where the window's top strip (the window moves by it; New note, New notebook and Settings
+/// at its right end) is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TopStrip {
+    /// At the top of the folder list, its traffic-light room at the list's left end.
+    InFolderList,
+    /// Across the whole window, over the three panes. The collapsed folder list is a 40 px
+    /// strip, narrower than the traffic lights, so they would sit on its expand button and on
+    /// the note list's search field; this strip takes them, and the panes start under it.
+    AcrossTheWindow,
+}
+
+/// The top strip's place while the folder list is open or `collapsed`.
+pub(crate) fn top_strip(collapsed: bool) -> TopStrip {
+    if collapsed {
+        TopStrip::AcrossTheWindow
+    } else {
+        TopStrip::InFolderList
+    }
+}
+
+/// The top strip: the room for the traffic lights at its left end, the window moves by it,
+/// Apple Notes' buttons at its right end.
+fn top_strip_dom(app: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css(format!("{TOP_STRIP} {TRAFFIC_LIGHTS_INSET} justify-content: flex-end;"))
+        .with_child(
+            Button::create("")
+                .with_icon("note_add")
+                .with_on_click(app.clone(), on_new_note as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::NEW_NOTE)
+                .with_accessibility_name(label("aznotes-new-note"))
+                .with_css(format!("margin-right: 4px; {NO_DRAG}")),
+        )
+        .with_child(
+            Button::create("")
+                .with_icon("create_new_folder")
+                .with_on_click(app.clone(), on_new_notebook as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::NEW_NOTEBOOK)
+                .with_accessibility_name(label("aznotes-new-notebook"))
+                .with_css(NO_DRAG),
+        )
+        .with_child(
+            Button::create("")
+                .with_icon("settings")
+                .with_on_click(app.clone(), on_open_settings as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::OPEN_SETTINGS)
+                .with_accessibility_name(label("aznotes-settings"))
+                .with_css(format!("margin-left: 4px; {NO_DRAG}")),
+        )
+}
+
 fn strs(items: &[&str]) -> StringVec {
     azul_appkit::l10n::labels(items)
 }
@@ -149,14 +204,21 @@ fn notes_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             .with_detail(s.root.display().to_string())
             .dom();
     }
-    PimShell::create(navigation_pane(s, app), note_list(s, app), reading_pane(s, app, look))
+    let shell = PimShell::create(navigation_pane(s, app), note_list(s, app), reading_pane(s, app, look))
         .with_list_label(label("aznotes-notes"))
         .with_navigation_ratio(s.nav.navigation_ratio)
         .with_list_ratio(s.nav.list_ratio)
         .office_shell()
         .with_status_bar(status_bar(s))
         .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType)
-        .dom()
+        .dom();
+    match top_strip(s.nav.collapsed) {
+        TopStrip::InFolderList => shell,
+        TopStrip::AcrossTheWindow => Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+            .with_child(top_strip_dom(app))
+            .with_child(shell),
+    }
 }
 
 /// The status bar: how many notes, the open note's words, the save state.
@@ -365,40 +427,12 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
                 .with_selected(selected),
         );
     }
-    // The folder list's top strip: the traffic lights at its left end on
-    // macOS (the window has no title row), the window moves by it, Apple
-    // Notes' buttons at its right end.
-    let header = Dom::create_div()
-        .with_css(format!("{TOP_STRIP} {TRAFFIC_LIGHTS_INSET} justify-content: flex-end;"))
-        .with_child(
-            Button::create("")
-                .with_icon("note_add")
-                .with_on_click(app.clone(), on_new_note as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::NEW_NOTE)
-                .with_accessibility_name(label("aznotes-new-note"))
-                .with_css(format!("margin-right: 4px; {NO_DRAG}")),
-        )
-        .with_child(
-            Button::create("")
-                .with_icon("create_new_folder")
-                .with_on_click(app.clone(), on_new_notebook as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::NEW_NOTEBOOK)
-                .with_accessibility_name(label("aznotes-new-notebook"))
-                .with_css(NO_DRAG),
-        )
-        .with_child(
-            Button::create("")
-                .with_icon("settings")
-                .with_on_click(app.clone(), on_open_settings as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::OPEN_SETTINGS)
-                .with_accessibility_name(label("aznotes-settings"))
-                .with_css(format!("margin-left: 4px; {NO_DRAG}")),
-        );
-    ShellNavigationPane::create()
-        .with_header(header)
+    let mut pane = ShellNavigationPane::create();
+    // A collapsed pane shows no header: its strip is then across the window (`notes_screen`).
+    if top_strip(s.nav.collapsed) == TopStrip::InFolderList {
+        pane = pane.with_header(top_strip_dom(app));
+    }
+    pane
         .with_group(
             ShellNavigationGroup::create(label("aznotes-library"), library)
                 .with_count(counts.all)
@@ -2069,4 +2103,30 @@ extern "C" fn on_restore_version(mut data: RefAny, mut info: CallbackInfo) -> Up
         jobs::save_note(info, app, s, &id, false);
         Update::RefreshDom
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The window has no title row, so on macOS the traffic lights sit on whatever is at its
+    /// top left. With the folder list open that is the list's top strip, which leaves them
+    /// room; collapsed, the strip goes across the whole window, so they sit on it and not on the
+    /// collapsed strip's expand button or the note list's search field.
+    #[test]
+    fn the_top_strip_goes_across_the_window_while_the_folder_list_is_collapsed() {
+        assert_eq!(top_strip(false), TopStrip::InFolderList);
+        assert_eq!(top_strip(true), TopStrip::AcrossTheWindow);
+    }
+
+    /// The strip keeps room for the traffic lights at its left end on macOS only, and the
+    /// collapsed folder list leaves none of it to the note list.
+    #[test]
+    fn the_strip_leaves_room_for_the_traffic_lights_on_macos() {
+        if cfg!(target_os = "macos") {
+            assert!(TRAFFIC_LIGHTS_INSET.contains("76px"), "{TRAFFIC_LIGHTS_INSET}");
+        } else {
+            assert!(!TRAFFIC_LIGHTS_INSET.contains("76px"), "{TRAFFIC_LIGHTS_INSET}");
+        }
+    }
 }

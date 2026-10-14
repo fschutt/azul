@@ -3408,6 +3408,21 @@ impl X11Window {
         self.is_open
     }
 
+    /// The session ends (a logout, a shutdown: `common::session_end`): the window is asked
+    /// as WM_DELETE_WINDOW asks it, and closes unless a callback holds it ("Save changes?").
+    pub(crate) fn ask_to_close_for_session_end(&mut self) {
+        let window_type = self.common.current_window_state().flags.window_type;
+        if !self.is_open || !super::super::common::session_end::asks_before_session_end(window_type) {
+            return;
+        }
+        let outcome = self.run_close_protocol("x11.session_end");
+        if outcome.confirmed {
+            PlatformWindow::close_transient_windows(self);
+            self.is_open = false;
+        }
+        self.apply_event_result(outcome.result);
+    }
+
     /// Returns `true` if a callback set `flags.close_requested` (e.g. a menu item
     /// click closing the menu, or a CSD close button). The run loop turns this into
     /// a `close()` — X11 has no native close-flag path.

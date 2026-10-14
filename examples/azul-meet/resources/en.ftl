@@ -64,7 +64,7 @@ azmeet-schedule = Schedule
 azmeet-join-with = Join with a link or a code
 azmeet-join = Join
 azmeet-schedule-label = Schedule a meeting (your time, minutes)
-azmeet-meeting-server = Meeting server
+azmeet-meeting-server = Meetings service
 azmeet-loading-key = Loading this device's key...
 azmeet-your-rooms = Your rooms
 azmeet-none-yet = None yet.
@@ -100,7 +100,7 @@ azmeet-devices-note = The microphone and the speaker are the system's for now; t
 azmeet-join-muted = Join with the microphone off
 azmeet-join-camera-off = Join with the camera off
 azmeet-device-safety-code = This device's safety code
-azmeet-waiting-room-note = The waiting room starts with the microphone and the camera as set here; switch them there before you join. The meeting server is changed on the start screen.
+azmeet-waiting-room-note = The waiting room starts with the microphone and the camera as set here; switch them there before you join.
 azmeet-encryption-note = Rooms and their chats are end-to-end encrypted with this device's key: the meeting server keeps only what it cannot read. Compare safety codes with the others (a room's members list shows them) to be sure nobody stands in between.
 azmeet-recordings-go-to = Recordings go to
 azmeet-recording-note = Recording, a transcript made on this computer and a summary sent by mail are on the way. A recording will be kept in its meeting's folder, next to the meeting's chat and record, and travel with your Azlin storage.
@@ -166,10 +166,10 @@ azmeet-meeting-not-encrypted = This meeting was made by an older AzMeet and is n
 azmeet-secret-damaged = That link's secret is damaged: ask for the link again.
 azmeet-room-mismatch = The meeting server sent a room that does not match this link.
 azmeet-answer-unreadable = The meeting server sent an answer AzMeet cannot read.
-azmeet-not-server-address = That is no meeting server address: it starts with http:// or https://.
+azmeet-not-server-address = That is no meetings service address: it starts with https:// or http://.
 azmeet-asking-server = Asking { $server } ...
 azmeet-server-answers = The meeting server answers.
-azmeet-no-server = No meeting server is set: type its address under Meeting server and press Enter, or start AzMeet with --worker <url>.
+azmeet-no-server = No meetings service is set: type its address in Settings > Meetings and press Enter, or start AzMeet with --worker <url>.
 azmeet-left-room = You left the room.
 azmeet-key-not-loaded = This device's key is not loaded yet: a moment, please.
 azmeet-no-random = The system's random source failed: no room can be made.
@@ -179,7 +179,7 @@ azmeet-not-a-link = That is not a meeting link. Paste an azlin://meet/... link, 
 azmeet-looking-up = Looking up the meeting...
 azmeet-schedule-bad-start = Type the start as 2026-10-09 14:00 (your time).
 azmeet-schedule-bad-length = Type how long the meeting lasts, in minutes (1 to 10080).
-azmeet-preview-cannot-join = This waiting room is a preview: no meeting server answers at { $server }. Start one (the meet Worker's dev server) or pick another on the start screen to meet people.
+azmeet-preview-cannot-join = This waiting room is a preview: no meetings service answers at { $server }. Start one (the meet Worker's dev server) or pick another in Settings > Meetings to meet people.
 azmeet-asked-to-join = Asked to join: someone in the meeting lets you in. Compare your safety code with theirs.
 azmeet-preview-no-server = A preview of the waiting room: no meeting server is set.
 azmeet-preview-silent-server = A preview of the waiting room: no meeting server answers at { $server }.
@@ -201,9 +201,9 @@ azmeet-leaving-room = Leaving the room...
 azmeet-members-only-call = Only a member of the room joins its call.
 azmeet-left-meeting = You left the meeting.
 azmeet-not-http = not an http(s) address
-azmeet-server-saved = saved on the start screen
+azmeet-server-saved = saved in the settings
 azmeet-server-built-in = built in (AZMEET_DEFAULT_WORKER)
-azmeet-server-silent = The meeting server at { $server } ({ $from }) does not answer ({ $why }). AzMeet asks again every { $seconds } seconds; Retry asks now, or type another one and press Enter.
+azmeet-server-silent = The meetings service at { $server } ({ $from }) does not answer ({ $why }). AzMeet asks again every { $seconds } seconds; Retry asks now, or type another one and press Enter.
 azmeet-no-network = No network link, so nobody can be reached: { $why }
 
 ## AzMeet: rooms, identity, times
@@ -235,3 +235,34 @@ azmeet-shortcuts-call = Call
 azmeet-shortcut-mic = Mute or unmute the microphone
 azmeet-shortcut-camera = Start or stop the camera
 azmeet-room-old = This room was made by an older AzMeet and is not end-to-end encrypted, so this AzMeet does not use it.
+
+## The meetings service and the relay, on the start screen and in the settings
+
+azmeet-lobby-no-server = No meetings service is set.
+azmeet-lobby-server-silent = The meetings service does not answer.
+azmeet-connection-settings = Connection settings
+azmeet-server-locked = The meetings service and the relay can be changed outside a meeting or a room.
+
+## The sound check (the waiting room, Settings > Audio & Video)
+
+azmeet-sound-check = Sound check
+azmeet-test-speakers = Test speakers
+azmeet-test-speakers-playing = Playing a sound...
+azmeet-test-speakers-done = Did you hear the sound? If not, check the speaker and its volume.
+azmeet-test-mic = Record a test clip
+azmeet-test-mic-recording = Recording... { $seconds } s
+azmeet-test-mic-playing = Playing it back...
+azmeet-test-mic-done = That is how the others hear you.
+azmeet-test-mic-quiet = The microphone gave only silence: check that it is plugged in and not muted, and that AzMeet may use it.
+azmeet-test-mic-none = No sound came from the microphone: check that it is plugged in and that AzMeet may use it.
+
+## The iroh relay (Settings > Meetings)
+
+azmeet-relay = iroh relay
+azmeet-relay-default = Default (n0's public relays)
+azmeet-relay-azlin = Azlin (connect.azlin.io)
+azmeet-relay-custom = Custom
+azmeet-relay-none = None (direct connections only)
+azmeet-relay-off = No relay this run (--relay off, or a meetings service on this computer): the peers connect directly.
+azmeet-relay-not-address = That is no relay address: it starts with https:// or http://.
+azmeet-relay-note = The relay carries a connection only when two peers cannot reach each other directly. It forwards encrypted packets it cannot read. A company can run its own and enter its address under Custom.

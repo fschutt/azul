@@ -11456,6 +11456,41 @@ impl LayoutWindow {
         self.threads.remove(thread_id)
     }
 
+    /// Takes the app's threads out of this window, which is closing while another window stays
+    /// open: the shell hands them to that window ([`Self::adopt_threads`]), so a Send / Receive
+    /// or a download started here goes on. The threads of this window's nodes (a camera, a
+    /// video decoder) and the orphans already told to stop stay here and stop with the window.
+    pub fn take_app_threads(&mut self) -> BTreeMap<ThreadId, Thread> {
+        let app_ids: Vec<ThreadId> = self
+            .threads
+            .keys()
+            .copied()
+            .filter(|id| {
+                self.thread_owners.owner(id).is_none() && self.thread_owners.orphaned(id).is_none()
+            })
+            .collect();
+        let mut taken = BTreeMap::new();
+        for id in app_ids {
+            if let Some(thread) = self.threads.remove(&id) {
+                self.thread_owners.forget(&id);
+                taken.insert(id, thread);
+            }
+        }
+        taken
+    }
+
+    /// The app's threads of a window that closed ([`Self::take_app_threads`]): this window runs
+    /// their write-backs from now on. Returns whether any came, so the shell starts polling.
+    /// Thread ids are unique in the process, so none is taken here already; if one were, this
+    /// window keeps its own and the newcomer stops as it would have with its closed window.
+    pub fn adopt_threads(&mut self, threads: BTreeMap<ThreadId, Thread>) -> bool {
+        let any = !threads.is_empty();
+        for (id, thread) in threads {
+            self.threads.entry(id).or_insert(thread);
+        }
+        any
+    }
+
     /// Get a reference to a thread
     pub fn get_thread(&self, thread_id: &ThreadId) -> Option<&Thread> {
         self.threads.get(thread_id)

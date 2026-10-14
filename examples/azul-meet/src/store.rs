@@ -40,6 +40,8 @@ use crate::{chatroom::RoomMessage, roomlist::RoomIndex};
 pub const APP_FOLDER: &str = "meet";
 /// The settings values AzMeet keeps besides the theme and the mode.
 pub const SERVER: &str = "server";
+/// The iroh relay picked in the settings: `default`, `azlin` or a relay's address.
+pub const RELAY: &str = "relay";
 pub const NAME: &str = "name";
 pub const QUALITY: &str = "quality";
 pub const MICROPHONE: &str = "microphone";
@@ -62,6 +64,9 @@ pub const CAMERA_NAMES: [&str; 3] = ["front", "back", "external"];
 pub struct Prefs {
     /// The meeting server that answered last.
     pub server: Option<String>,
+    /// The iroh relay picked in Settings > Meetings (`rooms::relay_setting`); `None` leaves it
+    /// to the shared config. Read at start and when the meetings service changes (`relay_for`).
+    pub relay: Option<String>,
     /// The name others see, as typed in the waiting room or the settings.
     pub name: Option<String>,
     /// The video quality: an index into [`QUALITY_NAMES`].
@@ -86,6 +91,7 @@ impl Default for Prefs {
     fn default() -> Self {
         Prefs {
             server: None,
+            relay: None,
             name: None,
             quality: 0,
             microphone: None,
@@ -120,6 +126,7 @@ impl Prefs {
         let defaults = Prefs::default();
         Prefs {
             server: text(SERVER),
+            relay: text(RELAY),
             name: text(NAME),
             quality: index_of(settings.get(QUALITY), &QUALITY_NAMES),
             microphone: text(MICROPHONE),
@@ -131,10 +138,11 @@ impl Prefs {
         }
     }
 
-    /// Writes these into `settings` (a missing server, name or device is removed).
+    /// Writes these into `settings` (a missing server, relay, name or device is removed).
     pub fn write(&self, settings: &mut AppSettings) {
         for (key, value) in [
             (SERVER, &self.server),
+            (RELAY, &self.relay),
             (NAME, &self.name),
             (MICROPHONE, &self.microphone),
             (SPEAKER, &self.speaker),
@@ -629,6 +637,29 @@ mod tests {
         Prefs::default().write(&mut settings);
         assert_eq!(settings.get(SERVER), None, "no server, no line");
         assert_eq!(settings.get(QUALITY), Some("automatic"));
+    }
+
+    /// AzMeet's rooms (compiled without the kit too) and the shared config name the same Azlin
+    /// relay.
+    #[test]
+    fn azmeet_and_the_shared_config_name_the_same_azlin_relay() {
+        assert_eq!(crate::rooms::AZLIN_RELAY, azul_appkit::azlin_config::AZLIN_RELAY);
+    }
+
+    /// The relay picked in the settings is a line of the settings file; none, no line.
+    #[test]
+    fn the_relay_is_remembered_in_the_settings_file() {
+        let mut settings = AppSettings::default();
+        let prefs = Prefs {
+            relay: Some(String::from("azlin")),
+            ..Prefs::default()
+        };
+        prefs.write(&mut settings);
+        assert_eq!(settings.get(RELAY), Some("azlin"));
+        let (back, _) = AppSettings::parse(&settings.to_json());
+        assert_eq!(Prefs::read(&back), prefs, "through the file and back");
+        Prefs::default().write(&mut settings);
+        assert_eq!(settings.get(RELAY), None);
     }
 
     #[test]

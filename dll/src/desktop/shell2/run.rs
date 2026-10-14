@@ -2467,6 +2467,10 @@ fn run_linux_windows(
         );
     }
 
+    // A logout or a shutdown (SIGTERM, SIGHUP) asks every window to close, as macOS's quit
+    // and Windows' WM_QUERYENDSESSION do (`common::session_end`).
+    super::common::session_end::install_quit_signal_handlers();
+
     // Main event loop with multi-window support
     loop {
         // Get all active window IDs
@@ -2478,6 +2482,20 @@ fn run_linux_windows(
                 "[Linux] All windows closed, exiting event loop"
             );
             break;
+        }
+
+        // The session ends: every window is asked; the ones that agree close in this turn's
+        // close check below, the others stay with their question.
+        if super::common::session_end::take_quit_request() {
+            log_info!(
+                debug_server::LogCategory::EventLoop,
+                "[Linux] quit signal: asking every window to close"
+            );
+            for wid in &window_ids {
+                if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
+                    unsafe { (*win_ptr).ask_to_close_for_session_end() };
+                }
+            }
         }
 
         // App-level events: the tray (the panel's property reads are answered
@@ -2559,9 +2577,11 @@ fn run_linux_windows(
                         "[Linux] Window {} closed, unregistering",
                         wid
                     );
-                    // Unregister and drop the window
+                    // Unregister and drop the window; the app's threads go on in
+                    // a window that stays open, not stopped with this one.
                     if let Some(win_ptr) = registry::unregister_window(*wid) {
                         unsafe {
+                            super::linux::hand_over_background_work(&mut *win_ptr);
                             drop(Box::from_raw(win_ptr));
                         }
                     }

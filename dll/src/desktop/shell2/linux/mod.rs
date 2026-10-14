@@ -91,8 +91,54 @@ pub enum LinuxEvent {
     Wayland(wayland::WaylandEvent),
 }
 
+/// Hands the app threads and the keyring ops of `closing` (already out of the registry) to the
+/// first registered window that may take them (`common::thread_handover`).
+///
+/// # Safety
+///
+/// Every pointer in the registry is a live window, and `closing` is not one of them.
+pub(crate) unsafe fn hand_over_background_work(closing: &mut LinuxWindow) {
+    use super::common::{event::PlatformWindow, thread_handover};
+
+    fn hand_to<H: PlatformWindow>(closing: &mut LinuxWindow, heir: &mut H) -> bool {
+        match closing {
+            LinuxWindow::X11(w) => thread_handover::hand_over_background_work(w, heir),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(w) => thread_handover::hand_over_background_work(w, heir),
+        }
+    }
+
+    for wid in registry::get_all_window_ids() {
+        let Some(heir) = (unsafe { registry::get_window(wid) }) else {
+            continue;
+        };
+        if core::ptr::eq(heir.cast_const(), &*closing as *const LinuxWindow) {
+            continue;
+        }
+        // SAFETY: a registered pointer is a live window, and not `closing`.
+        let heir = unsafe { &mut *heir };
+        let handed = match heir {
+            LinuxWindow::X11(h) => hand_to(closing, h),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(h) => hand_to(closing, h),
+        };
+        if handed {
+            return;
+        }
+    }
+}
+
 // Lifecycle methods (formerly on PlatformWindow V1 trait)
 impl LinuxWindow {
+    /// The session ends: the window is asked to close (`common::session_end`).
+    pub(crate) fn ask_to_close_for_session_end(&mut self) {
+        match self {
+            LinuxWindow::X11(w) => w.ask_to_close_for_session_end(),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(w) => w.ask_to_close_for_session_end(),
+        }
+    }
+
     pub fn poll_event(&mut self) -> Option<LinuxEvent> {
         match self {
             LinuxWindow::X11(w) => w.poll_event().map(LinuxEvent::X11),

@@ -2472,13 +2472,33 @@ impl HeadlessWindow {
         }
         let mut opened_by_children = Vec::new();
         let mut a_menu_closed = false;
+        // The app's threads of a child that closed go on in this window, as every shell hands
+        // them to a window that stays open (`common::thread_handover`).
+        let mut inherited = std::collections::BTreeMap::new();
+        let mut inherited_keyring_ops = 0_u32;
         self.children.retain_mut(|child| {
             child.pump_once(false);
             opened_by_children.append(&mut child.pending_window_creates);
             let open = child.is_open();
             a_menu_closed |= !open && child.is_menu_window();
+            if !open {
+                if let Some(lw) = child.common.layout_window.as_mut() {
+                    inherited.append(&mut lw.take_app_threads());
+                    inherited_keyring_ops += core::mem::take(&mut lw.keyring_manager.in_flight);
+                }
+            }
             open
         });
+        let adopted = self.common.layout_window.as_mut().is_some_and(|lw| {
+            lw.keyring_manager.mark_requests_dispatched(inherited_keyring_ops);
+            lw.adopt_threads(inherited)
+        });
+        if adopted {
+            PlatformWindow::start_thread_poll_timer(self);
+        }
+        if inherited_keyring_ops > 0 {
+            PlatformWindow::sync_capability_pump_timer(self);
+        }
         // A menu that closed takes its chain with it (X11's
         // `dismiss_chain_if_menu`): an item picked in a submenu, or an Escape
         // in it, leaves the menu it hangs off too. Every menu of this window

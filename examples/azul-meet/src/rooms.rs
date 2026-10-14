@@ -245,16 +245,94 @@ pub enum Relay {
     Custom(String),
 }
 
-/// The relay setting from `AZMEET_RELAY` ("off", "default" or a relay URL). Unset, a meeting
-/// server on this machine means a local test, so no relays; any other means the public relays,
-/// since the participants are on different networks.
+/// Azlin's own iroh relay: the "Azlin" choice of the relay setting (the word `azlin`).
+pub const AZLIN_RELAY: &str = "https://connect.azlin.io";
+
+/// The relay setting ("off", "default", "azlin" or a relay URL: `--relay`, the settings, the
+/// shared config). Unset, a meeting server on this machine means a local test, so no relays; any
+/// other means the public relays, since the participants are on different networks.
 pub fn relay_choice(setting: Option<&str>, worker_host: &str) -> Relay {
     match setting.map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) if s.eq_ignore_ascii_case("off") || s == "0" => Relay::Off,
         Some(s) if s.eq_ignore_ascii_case("default") || s == "1" => Relay::Default,
+        Some(s) if s.eq_ignore_ascii_case("azlin") => Relay::Custom(AZLIN_RELAY.to_string()),
         Some(url) => Relay::Custom(url.to_string()),
         None if is_loopback_host(worker_host) => Relay::Off,
         None => Relay::Default,
+    }
+}
+
+/// The relay setting that counts: `--relay` (`flag`, this run only), else the one picked in the
+/// settings (`saved`), else the shared config's (`shared`: `AZMEET_RELAY`, `endpoints.relay`).
+/// Blank counts as unset.
+pub fn relay_setting_of<'a>(
+    flag: Option<&'a str>,
+    saved: Option<&'a str>,
+    shared: Option<&'a str>,
+) -> Option<&'a str> {
+    [flag, saved, shared]
+        .into_iter()
+        .flatten()
+        .find(|value| !value.trim().is_empty())
+}
+
+/// The shared config's relay as AzMeet takes it: one the environment or the config file names
+/// always counts; a profile's (`from_profile`) only when it is not n0's `default`, which
+/// [`relay_choice`] picks anyway for a meetings service elsewhere, while a meetings service on
+/// this computer is a local test that reaches no public relay. Azlin's profiles name Azlin's
+/// relay, which counts.
+#[must_use]
+pub fn shared_relay(value: Option<&str>, from_profile: bool) -> Option<&str> {
+    let value = value?;
+    if from_profile && value.trim().eq_ignore_ascii_case("default") {
+        return None;
+    }
+    Some(value)
+}
+
+/// What the settings offer for the relay, in their order ([`RelayChoice::ALL`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelayChoice {
+    /// n0's public relays.
+    Default,
+    /// Azlin's own ([`AZLIN_RELAY`]).
+    Azlin,
+    /// A company's own relay, by its address.
+    Custom,
+}
+
+impl RelayChoice {
+    pub const ALL: [RelayChoice; 3] = [RelayChoice::Default, RelayChoice::Azlin, RelayChoice::Custom];
+
+    /// The choice `relay` is; `None` for no relay (`--relay off`, or a meetings service on this
+    /// computer), which the settings do not offer.
+    #[must_use]
+    pub fn of(relay: &Relay) -> Option<RelayChoice> {
+        match relay {
+            Relay::Off => None,
+            Relay::Default => Some(RelayChoice::Default),
+            Relay::Custom(url) if url.trim_end_matches('/').eq_ignore_ascii_case(AZLIN_RELAY) => {
+                Some(RelayChoice::Azlin)
+            }
+            Relay::Custom(_) => Some(RelayChoice::Custom),
+        }
+    }
+
+    /// Its place in [`RelayChoice::ALL`].
+    #[must_use]
+    pub fn index(self) -> usize {
+        RelayChoice::ALL.iter().position(|c| *c == self).unwrap_or(0)
+    }
+}
+
+/// The value the settings file keeps for `choice`: a word, or for [`RelayChoice::Custom`] the
+/// relay's address as typed in `custom` (`None` while that is no address).
+#[must_use]
+pub fn relay_setting(choice: RelayChoice, custom: &str) -> Option<String> {
+    match choice {
+        RelayChoice::Default => Some(String::from("default")),
+        RelayChoice::Azlin => Some(String::from("azlin")),
+        RelayChoice::Custom => normalize_server(custom),
     }
 }
 
@@ -276,9 +354,11 @@ pub fn transport_label(relay: &Relay, relay_only: bool) -> String {
     }
 }
 
-/// What the meeting server field shows while it is empty: an example, never an address AzMeet
+/// What the meetings service field shows while it is empty: an example, never an address AzMeet
 /// would use by itself.
 pub const SERVER_PLACEHOLDER: &str = "https://meet.example.com";
+/// What the custom relay field shows while it is empty.
+pub const RELAY_PLACEHOLDER: &str = "https://relay.example.com";
 /// The longest meeting server address taken.
 const MAX_SERVER_CHARS: usize = 2048;
 
@@ -287,20 +367,20 @@ const MAX_SERVER_CHARS: usize = 2048;
 pub enum ServerSource {
     /// The command line's `--worker`: this run only, over the saved one.
     CommandLine,
-    /// Saved the last time it answered (the start screen's field).
+    /// Saved the last time it answered (the field in Settings > Meetings).
     Saved,
     /// `AZMEET_WORKER`, or what the shared Azlin config names (AzMeet passes its resolved
     /// address as the `env` layer: the variable, the config file, the profile).
     Environment,
     /// Built in: `PRODUCTION_WORKER` (`AZMEET_DEFAULT_WORKER` at build time).
     BuiltIn,
-    /// None anywhere: the start screen asks for one. AzMeet never guesses an address.
+    /// None anywhere: the settings ask for one. AzMeet never guesses an address.
     Unset,
 }
 
 /// A meeting server address as typed: trimmed, without trailing slashes. `None` unless it is an
 /// http or https address with a host, printable ASCII without spaces, a query or a fragment, and at
-/// most 2048 characters.
+/// most 2048 characters. A custom relay's address follows the same rules.
 pub fn normalize_server(input: &str) -> Option<String> {
     let s = input.trim().trim_end_matches('/');
     if s.is_empty() || s.len() > MAX_SERVER_CHARS || !s.bytes().all(|b| b.is_ascii_graphic()) {
@@ -318,7 +398,7 @@ pub fn normalize_server(input: &str) -> Option<String> {
     Some(s.to_string())
 }
 
-/// The meeting server the start screen's field shows at start, and where it came from: the one
+/// The meeting server the settings' field shows at start, and where it came from: the one
 /// saved last time, else `AZMEET_WORKER`, else `built_in`, else none ([`ServerSource::Unset`],
 /// an empty address). A candidate that is no meeting server address is passed over.
 pub fn server_prefill(
@@ -690,6 +770,57 @@ mod tests {
             relay_choice(Some("https://relay.example.com"), "127.0.0.1"),
             Relay::Custom("https://relay.example.com".to_string())
         );
+    }
+
+    /// The relay is n0's public ones, Azlin's own, or a company's: one setting, three choices.
+    #[test]
+    fn the_relay_is_n0s_public_ones_azlins_own_or_a_companys() {
+        assert_eq!(relay_choice(Some("azlin"), "meet.example.com"), Relay::Custom(AZLIN_RELAY.to_string()));
+        assert_eq!(relay_choice(Some(" Azlin "), "127.0.0.1"), Relay::Custom(AZLIN_RELAY.to_string()));
+        assert_eq!(AZLIN_RELAY, "https://connect.azlin.io");
+        assert_eq!(RelayChoice::of(&Relay::Default), Some(RelayChoice::Default));
+        assert_eq!(RelayChoice::of(&Relay::Custom(AZLIN_RELAY.to_string())), Some(RelayChoice::Azlin));
+        assert_eq!(
+            RelayChoice::of(&Relay::Custom(String::from("https://relay.corp.example"))),
+            Some(RelayChoice::Custom)
+        );
+        assert_eq!(RelayChoice::of(&Relay::Off), None, "no relay is none of the three");
+    }
+
+    /// The settings file keeps the choice as a word, or a company relay's address.
+    #[test]
+    fn a_relay_choice_is_kept_as_a_word_or_the_custom_relays_address() {
+        assert_eq!(relay_setting(RelayChoice::Default, "").as_deref(), Some("default"));
+        assert_eq!(relay_setting(RelayChoice::Azlin, "ignored").as_deref(), Some("azlin"));
+        assert_eq!(
+            relay_setting(RelayChoice::Custom, " https://relay.corp.example/ ").as_deref(),
+            Some("https://relay.corp.example")
+        );
+        for bad in ["", "relay.corp.example", "ftp://relay.corp.example", "https://"] {
+            assert_eq!(relay_setting(RelayChoice::Custom, bad), None, "{bad}");
+        }
+        assert_eq!(RelayChoice::ALL.len(), 3);
+    }
+
+    /// A relay the shared config names counts; a profile's counts unless it is n0's default,
+    /// which the rule picks anyway away from this computer (and a local test reaches no public
+    /// relay). Azlin's profiles name Azlin's relay, which counts.
+    #[test]
+    fn a_profiles_relay_counts_unless_it_is_n0s_default() {
+        assert_eq!(shared_relay(Some(AZLIN_RELAY), true), Some(AZLIN_RELAY));
+        assert_eq!(shared_relay(Some("default"), true), None);
+        assert_eq!(shared_relay(Some("default"), false), Some("default"));
+        assert_eq!(shared_relay(Some("https://relay.corp.example"), false), Some("https://relay.corp.example"));
+        assert_eq!(shared_relay(None, false), None);
+    }
+
+    /// The relay set in the settings counts over the shared config; `--relay` over both.
+    #[test]
+    fn the_relay_switch_wins_over_the_saved_relay_and_the_saved_one_over_the_shared_config() {
+        assert_eq!(relay_setting_of(Some("off"), Some("azlin"), Some("default")), Some("off"));
+        assert_eq!(relay_setting_of(None, Some("azlin"), Some("default")), Some("azlin"));
+        assert_eq!(relay_setting_of(None, Some("  "), Some("default")), Some("default"));
+        assert_eq!(relay_setting_of(None, None, None), None);
     }
 
     /// The E2E's relay phase reads `AZMEET_TRANSPORT relay-only http://127.0.0.1:<port>`.
