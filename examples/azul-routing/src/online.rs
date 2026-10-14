@@ -34,8 +34,16 @@ pub const ROUTE_TTL_S: u64 = 7 * 24 * 3600;
 /// it: a route kept from one server answers offline when another is named.
 #[must_use]
 pub fn route_key(places: &[(f64, f64)], mode: Mode, language: &str) -> String {
-    let _ = (places, mode, language);
-    String::new()
+    let places: Vec<String> = places
+        .iter()
+        .map(|&p| crate::cache::place_key(p, 4))
+        .collect();
+    format!(
+        "valhalla {} {} {}",
+        costing(mode),
+        language_tag(language),
+        places.join(" ")
+    )
 }
 
 /// A route the server worked out.
@@ -315,8 +323,10 @@ fn error_of(doc: &Value) -> OnlineError {
 }
 
 /// A Valhalla server, as the route workers of a session share it: one
-/// connection pool, requests at least [`MIN_GAP`] apart, and the routes of
-/// the session in memory so a repeated one sends nothing.
+/// connection pool, requests at least [`MIN_GAP`] apart, a pause after
+/// failures, and the routes kept ([`crate::cache`]) so a repeated or nearby
+/// route sends nothing and a kept one answers, marked offline, when the
+/// server cannot be reached.
 #[cfg(feature = "http")]
 pub struct Valhalla {
     /// The server's `/route` URL.
@@ -324,32 +334,24 @@ pub struct Valhalla {
     /// What the requests name themselves: the app and its version, nothing
     /// about the user.
     pub user_agent: String,
-    agent: ureq::Agent,
-    /// When the last request went out: the next waits until [`MIN_GAP`]
-    /// later.
-    last_sent: std::sync::Mutex<Option<std::time::Instant>>,
-    /// The latest routes by their request body, newest last.
-    answered: std::sync::Mutex<std::collections::VecDeque<(String, OnlineRoute)>>,
+    /// The connection pool, the gate and the cache the requests go through.
+    fetcher: crate::fetch::Fetcher,
 }
 
 #[cfg(feature = "http")]
 impl Valhalla {
-    /// How many routes it remembers.
+    /// How many routes a server without a cache of its own remembers.
     const REMEMBERED: usize = 32;
-    /// The largest answer it reads, bytes: a cross-continent route with its
-    /// steps is well under.
-    const MAX_ANSWER: u64 = 16 * 1024 * 1024;
 
-    /// The server at `url`, asked under the name `user_agent`.
+    /// The server at `url`, asked under the name `user_agent`, its routes
+    /// remembered for the session.
     #[must_use]
     pub fn new(url: impl Into<String>, user_agent: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            user_agent: user_agent.into(),
-            agent: crate::source::http_agent(),
-            last_sent: std::sync::Mutex::new(None),
-            answered: std::sync::Mutex::new(std::collections::VecDeque::new()),
-        }
+        Self::with_cache(
+            url,
+            user_agent,
+            std::sync::Arc::new(crate::cache::ResponseCache::in_memory(Self::REMEMBERED)),
+        )
     }
 
     /// The server at `url`, its routes kept in `cache` (in memory and, with a folder, on disk
@@ -360,8 +362,37 @@ impl Valhalla {
         user_agent: impl Into<String>,
         cache: std::sync::Arc<crate::cache::ResponseCache>,
     ) -> Self {
-        let _ = cache;
-        Self::new(url, user_agent)
+        let user_agent = user_agent.into();
+        Self {
+            url: url.into(),
+            fetcher: crate::fetch::Fetcher::new(user_agent.clone(), MIN_GAP, cache),
+            user_agent,
+        }
+    }
+
+    /// The fetcher the requests go through (offline by choice is set there).
+    #[must_use]
+    pub fn fetcher(&self) -> &crate::fetch::Fetcher {
+        &self.fetcher
+    }
+
+    /// The route through `places` for `mode`, its steps in `language`.
+    /// Waits for its turn after the last request ([`MIN_GAP`]), asking
+    /// `stop` meanwhile; a route asked for before is answered from the cache.
+    ///
+    /// # Errors
+    ///
+    /// [`OnlineError`]; `Ok(None)` when `stop` said to give up first.
+    pub fn route(
+        &self,
+        places: &[(f64, f64)],
+        mode: Mode,
+        language: &str,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<OnlineRoute>, OnlineError> {
+        Ok(self
+            .route_with_origin(places, mode, language, stop)?
+            .map(|(route, _)| route))
     }
 
     /// [`Valhalla::route`], and where the route came from: the server, the cache, or - the
@@ -377,81 +408,20 @@ impl Valhalla {
         language: &str,
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<Option<(OnlineRoute, crate::fetch::Origin)>, OnlineError> {
-        Ok(self
-            .route(places, mode, language, stop)?
-            .map(|route| (route, crate::fetch::Origin::Network)))
-    }
-
-    /// The route through `places` for `mode`, its steps in `language`.
-    /// Waits for its turn after the last request ([`MIN_GAP`]), asking
-    /// `stop` meanwhile; a route asked for before is answered from memory.
-    ///
-    /// # Errors
-    ///
-    /// [`OnlineError`]; `Ok(None)` when `stop` said to give up first.
-    pub fn route(
-        &self,
-        places: &[(f64, f64)],
-        mode: Mode,
-        language: &str,
-        stop: &mut dyn FnMut() -> bool,
-    ) -> Result<Option<OnlineRoute>, OnlineError> {
+        use crate::fetch::{FetchError, Request};
         let body = request_body(places, mode, language);
-        if let Some(known) = self.remembered(&body) {
-            return Ok(Some(known));
+        let request = Request::PostJson {
+            url: &self.url,
+            body: &body,
+        };
+        let key = route_key(places, mode, language);
+        match self.fetcher.fetch(&request, &key, ROUTE_TTL_S, stop) {
+            Ok(None) => Ok(None),
+            Ok(Some(fetched)) => Ok(Some((parse_route(&fetched.body)?, fetched.origin))),
+            Err(FetchError::Offline(why)) => Err(OnlineError::Offline(why)),
+            Err(FetchError::Busy) => Err(OnlineError::Busy),
+            Err(FetchError::Refused(status, body)) => Err(parse_error(status, &body)),
         }
-        loop {
-            if stop() {
-                return Ok(None);
-            }
-            let wait = self
-                .last_sent
-                .lock()
-                .ok()
-                .and_then(|last| *last)
-                .map_or(std::time::Duration::ZERO, |at| MIN_GAP.saturating_sub(at.elapsed()));
-            if wait.is_zero() {
-                break;
-            }
-            std::thread::sleep(wait.min(std::time::Duration::from_millis(50)));
-        }
-        if let Ok(mut last) = self.last_sent.lock() {
-            *last = Some(std::time::Instant::now());
-        }
-        let response = self
-            .agent
-            .post(&self.url)
-            .header("User-Agent", self.user_agent.as_str())
-            .header("Content-Type", "application/json")
-            .send(body.as_str())
-            .map_err(|e| OnlineError::Offline(e.to_string()))?;
-        let status = response.status().as_u16();
-        let text = response
-            .into_body()
-            .into_with_config()
-            .limit(Self::MAX_ANSWER)
-            .read_to_string()
-            .map_err(|e| OnlineError::Offline(e.to_string()))?;
-        if status != 200 {
-            return Err(parse_error(status, &text));
-        }
-        let route = parse_route(&text)?;
-        if let Ok(mut answered) = self.answered.lock() {
-            if answered.len() >= Self::REMEMBERED {
-                answered.pop_front();
-            }
-            answered.push_back((body, route.clone()));
-        }
-        Ok(Some(route))
-    }
-
-    fn remembered(&self, body: &str) -> Option<OnlineRoute> {
-        let answered = self.answered.lock().ok()?;
-        answered
-            .iter()
-            .rev()
-            .find(|(asked, _)| asked == body)
-            .map(|(_, route)| route.clone())
     }
 }
 
