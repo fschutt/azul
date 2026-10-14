@@ -298,6 +298,9 @@ pub mod callbacks;
 /// is being built for.
 ///
 pub mod app_theme;
+/// The app's one light: the sun or a point light in desktop space, read by
+/// the materials, their bevels and sheen, and light-following shadows.
+pub mod light;
 /// Host-language callback invoker registry.
 ///
 /// The C-ABI surface managed-FFI bindings (Lua, Ruby, …) use to register one
