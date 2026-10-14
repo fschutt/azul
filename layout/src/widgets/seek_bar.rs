@@ -813,6 +813,7 @@ pub(crate) struct SeekBarLook {
 #[cfg(test)]
 mod seek_bar_tests {
     use azul_core::{dom::NodeType, window::VirtualKeyCode as K};
+    use azul_css::props::style::StyleTransform;
 
     use super::*;
     use crate::widgets::themes::{theme_blocks::checks, theme_checks};
