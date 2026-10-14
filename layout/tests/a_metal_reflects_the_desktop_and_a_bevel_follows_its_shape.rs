@@ -73,9 +73,10 @@ fn a_metal_reflects_the_wallpaper_behind_it_and_else_the_highlight_colour() {
 
 #[test]
 fn the_distance_field_of_a_shape_is_its_euclidean_distance() {
-    // A disc of radius 30 around (50, 50) in a 100 x 100 box at 2x.
+    // A disc of radius 30 around (50, 50) in a 100 x 100 box at 2x, its
+    // distances kept 40 px each way.
     let (cx, cy, radius) = (50.0_f32, 50.0_f32, 30.0_f32);
-    let field = ShapeField::from_mask(200, 200, 2.0, |x, y| {
+    let field = ShapeField::from_mask_with_range(200, 200, 2.0, 40.0, |x, y| {
         let (px, py) = ((x as f32 + 0.5) / 2.0, (y as f32 + 0.5) / 2.0);
         (px - cx).hypot(py - cy) < radius
     });
