@@ -25,6 +25,7 @@
 //! Every online answer goes through [`fetch`]: the [`cache`] in memory and on disk answers a
 //! repeated question without the network (and a stale answer when the network is gone, marked
 //! offline), and [`polite`] keeps the requests to one service apart and pauses after failures.
+//! [`transit`] plans public transport journeys (Transitous by default) and finds places by name.
 
 pub mod astar;
 pub mod cache;
@@ -40,6 +41,7 @@ pub mod polite;
 pub mod router;
 pub mod source;
 pub mod tile;
+pub mod transit;
 
 #[cfg(test)]
 mod test_server;
