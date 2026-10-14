@@ -169,21 +169,21 @@ mod tests {
             .expect("an RGB bitmap takes the sRGB colour space")
     }
 
-    /// The pixel at column `x` of the first row, as sRGB bytes.
+    /// The pixel at column `x` of the first row of `bitmap`, an sRGB surface
+    /// from [`srgb_surface`]: its own bytes, which are sRGB values because
+    /// the surface is tagged sRGB. `colorAtX:y:` cannot read them: it builds
+    /// the colour from the bitmap's colour space NAME, which a retagged
+    /// bitmap keeps from before (the generic space), so every pixel came
+    /// back converted from gamma 1.8 (#0d6efd as #0187fe).
     fn srgb_bytes_at(bitmap: &NSBitmapImageRep, x: usize) -> [u8; 3] {
-        let colour = bitmap
-            .colorAtX_y(x as isize, 0)
-            .expect("a pixel inside the bitmap");
-        let srgb = colour
-            .colorUsingColorSpace(&NSColorSpace::sRGBColorSpace())
-            .expect("an RGB colour converts to sRGB");
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let byte = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-        [
-            byte(srgb.redComponent()),
-            byte(srgb.greenComponent()),
-            byte(srgb.blueComponent()),
-        ]
+        let row = bitmap.bitmapData();
+        assert!(!row.is_null(), "the surface has a pixel buffer");
+        assert!(x < bitmap.pixelsWide() as usize, "a pixel inside the surface");
+        let mut pixel = [0_u8; 4];
+        // SAFETY: the surface is one row of `pixelsWide` 4-byte RGBA pixels
+        // (`srgb_surface`), and `x` is inside it.
+        unsafe { std::ptr::copy_nonoverlapping(row.add(x * 4), pixel.as_mut_ptr(), 4) };
+        [pixel[0], pixel[1], pixel[2]]
     }
 
     #[test]
