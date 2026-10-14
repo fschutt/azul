@@ -117,7 +117,7 @@ pub fn usage() -> String {
          endpoints.tiles of the shared Azlin config,\n                             else \
          OpenFreeMap's public tiles\n    --routing <URL|DIR>      The routing tiles ({z}/{x}/{y}.json.gz, or a folder\n                             azul-routing's routing-tiles wrote); else \
          AZMAPS_ROUTING, else\n                             endpoints.routing of the shared Azlin \
-         config. Without them a\n                             route is asked of the routing server\n    --routing-online <URL|off>  The routing server (a Valhalla /route URL) asked\n                             without routing tiles; else AZMAPS_ROUTING_ONLINE,\n                             else FOSSGIS's public server. off: the straight-line\n                             estimate\n    --transit <URL|off>      The public transport server (MOTIS); else\n                             AZMAPS_TRANSIT, else Transitous. off: no journeys\n    --offline                Send nothing: routes, journeys and places come from the\n                             cache, marked offline\n    --simulate-route         Navigation drives a simulated car along the route (one\n                             wrong turn on the way); --simulate-speed <km/h> (50)\n    --gps <SOURCE>           Where the position comes from: platform, gpsd,\n                             gpsd:<host:port>, nmea:<device>, replay:<file.nmea>\n    --import <FILE|DIR>      Import places (GPX, KML, KMZ, GeoJSON, CSV, a Google\n                             Takeout folder) at the start\n    --navigate               Start navigating as soon as the road route is there\n",
+         config. Without them a\n                             route is asked of the routing server\n    --routing-online <URL|off>  The routing server (a Valhalla /route URL) asked\n                             without routing tiles; else AZMAPS_ROUTING_ONLINE,\n                             else FOSSGIS's public server. off: the straight-line\n                             estimate\n    --transit <URL|off>      The public transport server (MOTIS); else\n                             AZMAPS_TRANSIT, else Transitous. off: no journeys\n    --offline                Send nothing: routes, journeys and places come from the\n                             cache, marked offline\n    --simulate-route         Navigation drives a simulated car along the route (one\n                             wrong turn on the way); --simulate-speed <km/h> (50)\n    --gps <SOURCE>           Where the position comes from: platform, gpsd,\n                             gpsd:<host:port>, nmea:<device>, replay:<file.nmea>\n    --replay-speed <N>       How much faster a replay runs than it was recorded (1)\n    --import <FILE|DIR>      Import places (GPX, KML, KMZ, GeoJSON, CSV, a Google\n                             Takeout folder) at the start\n    --navigate               Start navigating as soon as the road route is there\n",
     );
     text
 }
@@ -168,6 +168,7 @@ where
     let mut simulate = false;
     let mut simulate_kmh = None;
     let mut gps = None;
+    let mut replay_speed = None;
     let mut import = None;
     let mut navigate = false;
     let mut rest = Vec::with_capacity(argv.len());
@@ -204,7 +205,7 @@ where
             simulate = true;
         } else if arg == "--navigate" {
             navigate = true;
-        } else if let Some((name, value)) = valued(&arg, &mut argv, &["--transit", "--simulate-speed", "--gps", "--import"])? {
+        } else if let Some((name, value)) = valued(&arg, &mut argv, &["--transit", "--simulate-speed", "--replay-speed", "--gps", "--import"])? {
             match name {
                 "--transit" => transit = Some(value),
                 "--simulate-speed" => {
@@ -216,6 +217,16 @@ where
                         return Err(format!("--simulate-speed needs a speed above zero, not {value}"));
                     }
                     simulate_kmh = Some(kmh);
+                }
+                "--replay-speed" => {
+                    let factor: f64 = value
+                        .trim()
+                        .parse()
+                        .map_err(|_| format!("--replay-speed needs a factor, not {value}"))?;
+                    if !(factor.is_finite() && factor > 0.0) {
+                        return Err(format!("--replay-speed needs a factor above zero, not {value}"));
+                    }
+                    replay_speed = Some(factor);
                 }
                 "--gps" => gps = Some(value),
                 _ => import = Some(value),
@@ -234,7 +245,7 @@ where
         simulate,
         simulate_kmh,
         gps,
-        replay_speed: None,
+        replay_speed,
         import,
         navigate,
         help: false,
