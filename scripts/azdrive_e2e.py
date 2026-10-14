@@ -74,6 +74,9 @@ node layout, AzDrive's stdout markers and the files on disk:
         Details, Ctrl+2 to the second; its search comes back with it; Ctrl+Shift+A the overview
         (its rows, their Ctrl digits, New tab), Escape; Ctrl+W closes the tab showing, the last
         tab stays;
+    23c. Quick Look (Space: the text of notes.txt, Down steps on, Escape) and the command
+        palette (Cmd+K: its commands at rest, "notes" finds the file, Return shows it in Quick
+        Look, Escape);
     24. a cloud drive's index (AzDrive restarted with an S3 drive of the mock stack in its drives
         file, its key in the run's keyring file): a word only a file's text holds finds nothing
         by name; "Index files in the cloud" and "Index this drive" download each file within
@@ -1361,6 +1364,42 @@ def run(args, logs):
             "Large icons in the second, Ctrl+Tab back to Documents with notes.txt selected in "
             "Details, Ctrl+2, the second tab's search run again, Ctrl+Shift+A the overview, "
             "Ctrl+W closed the second, the last tab stayed")
+
+        # 23c. Quick Look (Space) and the command palette (Cmd+K), over the window on a scrim.
+        app.after("notes.txt selected", "AZDRIVE_SELECTED", r"1 Documents/notes\.txt",
+                  lambda: select_item(app, "notes.txt"))
+        app.after("Space: Quick Look", "AZDRIVE_QUICK_LOOK", r"open Documents/notes\.txt",
+                  lambda: app.key("space"))
+        app.until("Quick Look laid out", lambda: app.has("#" + I("quick-look")))
+        app.until("the text in it", lambda: app.has("#" + I("preview-text")))
+        app.screenshot(os.path.join(out, "23c-quick-look.png"))
+        before = app.last("AZDRIVE_SELECTED")
+        app.key("down")
+        app.until("Down: the next item in Quick Look",
+                  lambda: app.last("AZDRIVE_SELECTED") != before)
+        app.after("Escape closes Quick Look", "AZDRIVE_QUICK_LOOK", r"closed",
+                  lambda: app.key("escape"))
+        app.until("Quick Look gone", lambda: not app.has("#" + I("quick-look")))
+        app.after("Cmd+K: the palette", "AZDRIVE_PALETTE", r"open",
+                  lambda: app.key("k", primary=True))
+        app.until("the palette laid out", lambda: app.has("#" + I("palette")))
+        app.until("its commands at rest",
+                  lambda: "Commands" in [norm(t) for t in app.texts_within("#" + I("palette"))])
+        app.must("text_input", text="notes")
+        app.frame(3)
+        app.until("the file it finds",
+                  lambda: "Files" in [norm(t) for t in app.texts_within("#" + I("palette"))])
+        app.after("Return: the file in Quick Look", "AZDRIVE_QUICK_LOOK",
+                  r"open Documents/notes\.txt", lambda: app.key("enter"))
+        app.until("the palette closed", lambda: app.printed("AZDRIVE_PALETTE", r"closed"))
+        app.after("Escape closes Quick Look", "AZDRIVE_QUICK_LOOK", r"closed",
+                  lambda: app.key("escape"))
+        app.after("Cmd+K again", "AZDRIVE_PALETTE", r"open", lambda: app.key("k", primary=True))
+        app.after("Escape closes the palette", "AZDRIVE_PALETTE", r"closed",
+                  lambda: app.key("escape"))
+        log("23c. Space opened Quick Look on notes.txt (its text), Down stepped on, Escape "
+            "closed it; Cmd+K opened the palette (its commands), \"notes\" found the file, "
+            "Return showed it in Quick Look; Escape closed both")
 
         # 24. A cloud drive's index: the mock stack's S3 bucket as a drive of AzDrive (restarted
         # with it in the drives file and its key in the run's keyring file).
