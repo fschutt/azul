@@ -10955,3 +10955,75 @@ mod font_variant_numeric_tests {
         }
     }
 }
+
+/// `font-feature-settings` (CSS Fonts 4 s6.12): `normal | <feature-tag-value>#`
+/// where `<feature-tag-value> = <opentype-tag> [ <integer [0,inf]> | on | off ]?`,
+/// inherited. The tag is a quoted string of four printable ASCII characters,
+/// case-sensitive; a missing value means 1, `on` 1 and `off` 0; a tag given
+/// twice takes its last value. AzDrive asks for `tnum` (the size and date
+/// columns), `dlig` and `ss01` this way.
+#[cfg(test)]
+mod font_feature_settings_tests {
+    use super::*;
+
+    fn property_type() -> CssPropertyType {
+        CssPropertyType::from_str("font-feature-settings", &CssKeyMap::get())
+            .expect("font-feature-settings is a CSS property")
+    }
+
+    #[test]
+    fn font_feature_settings_is_an_inherited_property() {
+        let ty = property_type();
+        assert_eq!(ty.to_str(), "font-feature-settings");
+        assert!(ty.is_inheritable(), "font-feature-settings is inherited");
+    }
+
+    #[test]
+    fn font_feature_settings_parses_tags_with_their_values_and_prints_them_back() {
+        let ty = property_type();
+        for (input, printed) in [
+            ("normal", "normal"),
+            ("  NORMAL  ", "normal"),
+            ("\"tnum\"", "\"tnum\""),
+            ("'tnum'", "\"tnum\""),
+            ("\"tnum\" 1", "\"tnum\""),
+            ("\"tnum\" on", "\"tnum\""),
+            ("\"liga\" 0", "\"liga\" 0"),
+            ("\"liga\" OFF", "\"liga\" 0"),
+            ("\"salt\" 2", "\"salt\" 2"),
+            ("\"ss01\", \"dlig\"", "\"ss01\", \"dlig\""),
+            ("\"tnum\",\"liga\" 0", "\"tnum\", \"liga\" 0"),
+            // A tag given twice takes its last value, where it last stands.
+            ("\"liga\" 0, \"tnum\", \"liga\"", "\"tnum\", \"liga\""),
+        ] {
+            let prop = parse_css_property(ty, input)
+                .unwrap_or_else(|e| panic!("`{input}` must parse: {e:?}"));
+            assert_eq!(prop.get_type(), ty, "`{input}`");
+            assert_eq!(prop.value(), printed, "`{input}`");
+        }
+    }
+
+    #[test]
+    fn font_feature_settings_rejects_what_is_not_a_list_of_four_letter_tags() {
+        let ty = property_type();
+        for bad in [
+            "tnum",
+            "\"tnu\"",
+            "\"tnums\"",
+            "\"t\u{e9}st\"",
+            "\"tnum\" -1",
+            "\"tnum\" 1.5",
+            "\"tnum\" yes",
+            "\"tnum\" 1 2",
+            "normal, \"tnum\"",
+            "\"tnum\",",
+            ", \"tnum\"",
+            "",
+        ] {
+            assert!(
+                parse_css_property(ty, bad).is_err(),
+                "`{bad}` is not a font-feature-settings value"
+            );
+        }
+    }
+}
