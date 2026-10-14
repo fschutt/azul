@@ -364,3 +364,47 @@ fn an_azlin_drive_with_an_iroh_dialer_goes_over_iroh_to_the_nodes_its_refresh_na
         "only the refresh went over https"
     );
 }
+
+/// A small file an encrypted drive packed with others comes back over the iroh lane as ONE
+/// ranged GET of its own segments, never over HTTPS.
+#[cfg(feature = "encryption")]
+#[test]
+fn a_packed_file_is_read_over_the_iroh_lane_with_one_ranged_get() {
+    use azul_storage::{
+        crypto::DriveKey,
+        encrypted::{EncryptedDrive, MemoryIndex},
+        packing::PackOptions,
+        BatchPut, Drive,
+    };
+    let s3 = FakeS3::new();
+    let (https, n1) = (through(&s3), through(&s3));
+    let dialer = Dialer::to(&[("aa", &n1)]);
+    let nodes = vec![iroh_node("n1", Some("aa"), &["192.0.2.1:7001"], true)];
+    let (bucket, _lane) = lane_bucket(&https, &nodes, &dialer, &clock());
+    let drive = EncryptedDrive::new(
+        bucket.drive(),
+        DriveKey::generate().unwrap(),
+        Arc::new(MemoryIndex::new()),
+    )
+    .with_packing(PackOptions::default());
+    let files: Vec<(String, Vec<u8>)> = (0..20)
+        .map(|i| (format!("{i}.bin"), vec![b'a' + i as u8; 10_000]))
+        .collect();
+    let items: Vec<BatchPut<'_>> = files.iter().map(|(k, b)| BatchPut::new(k, b)).collect();
+    for result in drive.put_many(&items) {
+        result.unwrap();
+    }
+    let before = n1.calls().len();
+    assert_eq!(drive.get("7.bin").unwrap(), files[7].1);
+    let calls = n1.calls();
+    assert_eq!(calls.len(), before + 1, "one request over iroh");
+    let call = &calls[before];
+    assert_eq!(call.method, Method::Get);
+    let range = call
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("range"))
+        .map(|(_, value)| value.clone());
+    assert!(range.is_some_and(|r| r.starts_with("bytes=")), "{call:?}");
+    assert!(https.calls().is_empty(), "nothing over https");
+}

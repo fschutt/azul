@@ -17,6 +17,9 @@ mod fake_s3;
 mod lane;
 mod lock;
 mod lockdown;
+/// Small files packed by an encrypted drive, through the sync (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod packing;
 mod pending;
 mod period;
 mod recovery;

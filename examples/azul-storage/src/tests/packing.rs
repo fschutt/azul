@@ -678,3 +678,82 @@ fn the_drive_index_provider_packs_when_asked_and_keeps_its_journal_in_the_drive_
     assert!(unpacked.packing().is_none());
     assert_eq!(&unpacked.get("notes/0003.txt").unwrap(), &files[3].1, "packed files read anyway");
 }
+
+/// An index that keeps the history (as the drive's metadata repository does): nothing it drops
+/// is released, so a pack whose every file went stays in the bucket until the packs' upkeep.
+struct KeepsHistory(MemoryIndex);
+
+impl NameIndex for KeepsHistory {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.0.get(path)
+    }
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.0.list(request)
+    }
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<ObjectId>, DriveError> {
+        self.0.apply(changes).map(|_| Vec::new())
+    }
+}
+
+#[test]
+fn a_pack_whose_every_file_went_is_retired_and_collected_after_a_restart_too() {
+    let dir = TempDir::new("pack-emptied");
+    let bucket = Arc::new(MemBucket::new());
+    let index: Arc<dyn NameIndex> = Arc::new(KeepsHistory(MemoryIndex::new()));
+    let key = DriveKey::generate().unwrap();
+    let mut options = PackOptions::default().with_journal(dir.path().join("packs"));
+    options.retired_grace_secs = 10;
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), Arc::clone(&index))
+        .with_packing(options.clone());
+    let gone = small_files(10, 800);
+    let kept: Vec<(String, Vec<u8>)> = noise_files(10, 800);
+    put_all(&drive, &gone);
+    put_all(&drive, &kept);
+    let emptied = drive
+        .entry(&gone[0].0)
+        .unwrap()
+        .object
+        .unwrap()
+        .bucket_object()
+        .bucket_key();
+    for (path, _) in &gone {
+        drive.delete(path).unwrap();
+    }
+    assert!(bucket.object(&emptied).is_some(), "the history keeps it for now");
+    drop(drive);
+
+    // Another start of the app: the journal remembers the packs this device wrote.
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key, index).with_packing(options);
+    let now = now_unix();
+    let report = drive.repack(now).unwrap();
+    assert_eq!(report.packs_emptied, 1, "{report:?}");
+    assert_eq!(report.files_moved, 0, "{report:?}");
+    assert_eq!(drive.collect_retired(now + 5).unwrap(), 0);
+    assert_eq!(drive.collect_retired(now + 11).unwrap(), 1);
+    assert!(bucket.object(&emptied).is_none());
+    for (path, bytes) in &kept {
+        assert_eq!(&drive.get(path).unwrap(), bytes);
+    }
+}
+
+#[test]
+fn a_packed_ten_kilobyte_file_is_one_read_of_one_data_shard() {
+    let drive = packing_drive(None);
+    // Enough small files for a pack of a few MiB: its files are placed on the data shards.
+    let files = noise_files(300, 10_000);
+    put_all(&drive, &files);
+    let mut seen = 0;
+    for (path, _) in &files {
+        let object = drive.entry(path).unwrap().object.unwrap();
+        let packed = object.packed.unwrap();
+        if packed.pack.object_len < crate::packing::ALIGN_FROM {
+            continue;
+        }
+        seen += 1;
+        let (start, len) = packed.span();
+        let reads = crate::shards::shard_reads(packed.pack.object_len, start, len);
+        assert_eq!(reads.len(), 1, "{path}: {reads:?}");
+        assert_eq!(reads[0].len, len);
+    }
+    assert!(seen >= 250, "{seen} files in packs of a MiB and more");
+}

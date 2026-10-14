@@ -632,6 +632,52 @@ mod encrypted_copies {
             Some(FileState::CloudOnly)
         );
     }
+
+    /// Small files an encrypted drive packed together: the copy kept here is their pack, and
+    /// each of them opens from it without a download.
+    #[test]
+    fn a_packed_files_local_copy_is_its_pack_and_opens_without_a_download() {
+        use azul_storage::{packing::PackOptions, BatchPut};
+        let bucket = FakeS3::new();
+        let plain: Arc<dyn Drive> = s3_drive(&bucket);
+        let cache_dir = TempDir::new("azcloud-objects-packed");
+        let objects = Arc::new(ObjectCache::new(plain, cache_dir.path().to_path_buf()));
+        let below: Arc<dyn Drive> = objects.clone();
+        let drive: Arc<dyn Drive> = Arc::new(
+            EncryptedDrive::new(below, DriveKey::generate().unwrap(), Arc::new(MemoryIndex::new()))
+                .with_packing(PackOptions::default()),
+        );
+        let secret = b"the diary of a very private person";
+        let items = [
+            BatchPut::new("Documents/diary.txt", secret),
+            BatchPut::new("Documents/list.txt", b"milk, bread, stamps"),
+        ];
+        for result in drive.put_many(&items) {
+            result.unwrap();
+        }
+        let folder = TempDir::new("azcloud-objects-packed-folder");
+        let state = TempDir::new("azcloud-objects-packed-state");
+        let mut setup = SyncSetup::new("d_test", "Documents/", folder.path());
+        setup.local_copies = LocalCopies::Encrypted;
+        setup.auto_download = AutoDownload::NewUnder(1);
+        let session = SyncSession::encrypted_copies(
+            setup,
+            state.path().to_path_buf(),
+            "dev-a",
+            drive.clone(),
+            objects.clone(),
+        );
+        let pass = session.pass(&AtomicBool::new(false), &mut |_| {}).unwrap();
+        assert_eq!(pass.states.state_of("diary.txt"), Some(FileState::OnDeviceEncrypted));
+        assert_eq!(pass.states.state_of("list.txt"), Some(FileState::OnDeviceEncrypted));
+        assert_eq!(objects.cached().len(), 1, "one pack kept for both files");
+        bucket.clear_log();
+        let path = session.open("diary.txt").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), secret);
+        let path = session.open("list.txt").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"milk, bread, stamps");
+        assert_eq!(bucket.count("GET"), 0, "decrypted from the pack on this device");
+    }
 }
 
 /// Deleting through the session (a synced folder's file kept in the cloud only; a file of a
