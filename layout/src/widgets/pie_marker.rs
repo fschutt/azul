@@ -147,8 +147,13 @@ impl PieTone {
     /// 85%, red above 97%.
     #[must_use]
     pub fn of_space(used: f32) -> Self {
-        let _ = used;
-        Self::Accent
+        if used > SPACE_DANGER {
+            Self::Danger
+        } else if used > SPACE_WARNING {
+            Self::Warning
+        } else {
+            Self::Accent
+        }
     }
 }
 
@@ -203,8 +208,100 @@ impl PieMarker {
     /// The marker: the hit area holding the disc, its ring and its wedge.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let _ = self;
-        Dom::create_div()
+        let fraction = if self.fraction.is_finite() {
+            self.fraction.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let mut parts = alloc::vec![
+            layer(GROUND, &disc_shape(DISC_R)),
+            layer(RING_INK, &ring_shape(RING.0, RING.1)),
+        ];
+        if let Some(wedge) = wedge_shape(fraction) {
+            parts.push(layer(self.tone.colors(), &wedge).with_ids_and_classes(
+                IdOrClassVec::from_vec(alloc::vec![Class(AzString::from_const_str(
+                    PIE_MARKER_WEDGE_CLASS
+                ))]),
+            ));
+        }
+        let mut disc_style = alloc::vec![
+            decl::position(LayoutPosition::Relative),
+            decl::px_width(PIE_SIZE),
+            decl::px_height(PIE_SIZE),
+            decl::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+                inner: FloatValue::const_new(0),
+            })),
+        ];
+        let busy = self.tone == PieTone::Busy;
+        if busy {
+            disc_style.push(CssPropertyWithConditions::with_single_condition(
+                CssProperty::AnimationIn(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
+                    alloc::vec![StyleAnimation {
+                        name: AzString::from_const_str(BREATH_TRACK),
+                        duration: CssDuration::from_millis(PIE_BREATH_MS),
+                        delay: CssDuration::from_millis(0),
+                        iterations: AnimationIterationCount::Infinite,
+                        timing: flora::FL_EASE,
+                        clip: true,
+                    }],
+                ))),
+                NO_REDUCED_MOTION,
+            ));
+        }
+        let mut disc = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(
+                AzString::from_const_str(PIE_MARKER_DISC_CLASS)
+            )]))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(disc_style))
+            .with_children(parts.into());
+        if busy {
+            disc = disc.with_component_css(breath());
+        }
+
+        let mut hit = alloc::vec![
+            decl::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+            decl::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+            decl::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+            decl::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+            decl::simple(CssProperty::const_width(LayoutWidth::const_px(PIE_HIT_WIDTH))),
+            decl::simple(CssProperty::const_height(LayoutHeight::const_px(PIE_HIT_HEIGHT))),
+            decl::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+                inner: FloatValue::const_new(0),
+            })),
+            decl::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        ];
+        hit.extend(decl::radius(3));
+        hit.extend(decl::hover_fill(flora::LIGHT_HB, flora::DARK_HB));
+        hit.extend(decl::focus_halo_inset(flora::LIGHT_ACC, flora::DARK_GLOW));
+        let mut a11y = azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::PushButton,
+            ..Default::default()
+        };
+        if !self.label.as_str().is_empty() {
+            a11y.accessibility_name = azul_css::OptionString::Some(self.label);
+        }
+        let mut marker = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(
+                AzString::from_const_str(PIE_MARKER_CLASS)
+            )]))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(hit))
+            .with_accessibility_info(a11y)
+            .with_tab_index(TabIndex::Auto)
+            .with_child(disc);
+        if let Some(click) = self.on_click.into_option() {
+            marker = marker.with_callbacks(
+                alloc::vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Click),
+                    callback: CoreCallback {
+                        cb: click.callback.cb as *const () as usize,
+                        ctx: click.callback.ctx,
+                    },
+                    refany: click.refany,
+                }]
+                .into(),
+            );
+        }
+        marker
     }
 }
 
@@ -266,9 +363,31 @@ pub(crate) fn ring_shape(inner: f32, outer: f32) -> SvgMultiPolygon {
 /// clockwise round by the fraction of a turn. `None` for an empty pie; a
 /// full one is the whole disc.
 pub(crate) fn wedge_shape(fraction: f32) -> Option<SvgMultiPolygon> {
-        let _ = fraction;
-        None
+    if fraction <= 0.0 {
+        return None;
     }
+    if fraction >= 1.0 {
+        return Some(disc_shape(WEDGE_R));
+    }
+    let sweep = 360.0 * fraction;
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )] // at most 72 steps
+    let steps = ((CIRCLE_STEPS as f32 * fraction).ceil() as usize).max(1);
+    let mut points = Vec::with_capacity(steps + 2);
+    points.push(SvgPoint {
+        x: CENTRE,
+        y: CENTRE,
+    });
+    for i in 0..=steps {
+        #[allow(clippy::cast_precision_loss)]
+        let deg = sweep * i as f32 / steps as f32;
+        points.push(polar(CENTRE, WEDGE_R, deg));
+    }
+    Some(SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&points)])))
+}
 
 /// A busy pie's breath: opacity 1 -> .72 at half time -> 1.
 fn breath() -> Css {
