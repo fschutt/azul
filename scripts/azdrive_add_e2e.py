@@ -96,6 +96,9 @@ sheet of `--dialogs inline`:
        file and keyring) "Pick up a paid drive with a claim code" takes the code as typed (lower
        case, blanks) and the drive arrives there too - as a device of its own: it claimed a token
        family with the sealed sign-up's ticket (POST /v1/drives/<id>/claim), never the buyer's.
+       The buyer's computer encrypted the drive as it arrived (its recovery sheet done), so the
+       second one does not set it up again (AZDRIVE_ENCRYPTED_ELSEWHERE, the pick-up dialog
+       stays) and opens it with that recovery code.
    15. A ban with a grace period (ban contract v1) on step 14's drive: the mock bans it for 48
        hours; the next look shows the banner with its hours, a paste into it and a new folder
        are refused with the reason (nothing reaches its bucket), "Copy everything to this
@@ -1041,8 +1044,10 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
               lambda: not app.has("#__azdrive_side_cash_0_line"))
     app.until("the checkout off the keyring's list",
               lambda: checkout not in pending_checkouts(keyring_file))
-    log("14. The operator activated %s at the mock; the next daily look claimed %s" %
-        (checkout, drive_id))
+    # "We always encrypt": the buyer's computer made the drive's keys as it arrived.
+    recovery = new_drive_encrypted(app, drive_id)
+    log("14. The operator activated %s at the mock; the next daily look claimed %s, encrypted "
+        "as it arrived (its recovery sheet done)" % (checkout, drive_id))
 
     # Another computer picks the drive up with the claim code.
     other_switches, other_env = other_profile(logs, "cash-other", switches, env)
@@ -1078,16 +1083,28 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
         claims = (stack.token.state.drives[drive_id].get("claim") or {}).get("claims")
         if claims != 1:
             raise Failure("the mock counted %r pick-ups of %s, not 1" % (claims, drive_id))
+        # The buyer's computer encrypted the drive first: this one does not make new keys, says
+        # so on the status line, and the pick-up dialog stays as it was.
+        second.until("the drive encrypted elsewhere", lambda: second.printed(
+            "AZDRIVE_ENCRYPTED_ELSEWHERE", re.escape(drive_id)))
+        if second.printed("AZDRIVE_ENCRYPTED_NEW_DRIVE", re.escape(drive_id)):
+            raise Failure("the second computer set the bought drive up again")
         picker.click("cancel")
         wait_closed(second)
-        second.after("the picked-up drive's bucket", "AZDRIVE_LISTED",
+        # It opens here with the recovery code of the buyer's sheet.
+        drive_menu(second, drive_id, "Unlock with the recovery code…")
+        popup = e2e.modal_window(second)
+        popup.until("the code's box", lambda: popup.has("#__azdrive_unlock_code"))
+        popup.text_input("#__azdrive_unlock_code", recovery)
+        second.after("the picked-up drive unlocked and listed", "AZDRIVE_LISTED",
                      r"%s / \d+" % re.escape(drive_id),
-                     lambda: second.click(selector=side_drive(drive_id)))
+                     lambda: popup.click_exact("Unlock"))
         second.screenshot(os.path.join(out, "14-picked-up.png"))
     finally:
         second.stop()
     log("14. A second profile picked %s up with the claim code typed in lower case with "
-        "blanks: AZDRIVE_CLAIMED there, its bucket listed" % drive_id)
+        "blanks: AZDRIVE_CLAIMED there, not set up again (the buyer's computer had encrypted "
+        "it), opened with the recovery code and its bucket listed" % drive_id)
     return drive_id
 
 

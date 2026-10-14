@@ -1318,6 +1318,7 @@ azdrive-enc-new-drive-ready = "{ $name }" is ready: encrypted on this computer, 
 azdrive-enc-err-keeps-previous-code = the token server keeps the drive's previous recovery code: it takes a new one only signed with the current one (type it under "I was hacked: new keys")
 azdrive-enc-not-current-code = That is not this drive's current recovery code (an older code opens nothing any more).
 azdrive-enc-new-drive-not-encrypted = { $why }. The drive was made, but it is not encrypted yet: "Encrypt this drive…" in its menu does it before anything goes into it.
+azdrive-enc-new-drive-encrypted-elsewhere = { $name } was encrypted on the computer it was bought on. Open it here with an invite from that computer, or with its recovery code: "Unlock with the recovery code…" in its menu.
 azdrive-enc-no-token-server-here = The drive's token server is not known here.
 azdrive-enc-cancelling-title = Cancelling the lockdown
 azdrive-enc-cancelling = Signing the cancel with the recovery code…

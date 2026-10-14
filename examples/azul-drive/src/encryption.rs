@@ -1098,6 +1098,19 @@ pub(crate) fn sheet_shows_now(popup: Option<&Popup>) -> bool {
     matches!(popup, None | Some(Popup::Encryption(Dialog::Busy { .. })))
 }
 
+/// The set-up's answer for a new drive that holds key files already: another computer made its
+/// keys first (a paid drive picked up with its claim code after the computer it was bought on
+/// set it up). It is not set up again; it opens here with an invite from that computer or with
+/// its recovery code. Also the l10n key of what the status line says then.
+pub(crate) const ENCRYPTED_ELSEWHERE: &str = "azdrive-enc-new-drive-encrypted-elsewhere";
+
+/// Whether a failed set-up is told in a dialog of its own: not for a drive another computer
+/// encrypted first (the status line says it), and never in place of another open dialog (the
+/// Add drive dialog the drive was picked up in stays; the status line says why).
+pub(crate) fn set_up_failure_shows_as_dialog(why: &str, popup: Option<&Popup>) -> bool {
+    why != ENCRYPTED_ELSEWHERE && sheet_shows_now(popup)
+}
+
 /// Shows the first recovery sheet that waited for another dialog, once none is open.
 pub(crate) fn show_pending_sheet(s: &mut DriveState) {
     if s.popup.is_none() && !s.pending_sheets.is_empty() {
@@ -1630,6 +1643,14 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 if index_provider().is_none() {
                     return Err(String::from("azdrive-enc-err-no-index"));
                 }
+                // A drive that arrived with key files was set up by the computer it was
+                // bought on: this one joins it (an invite, the recovery code), it does not
+                // make new keys.
+                if new_drive
+                    && device::is_encrypted(auto.bucket().as_ref()).map_err(|e| e.to_string())?
+                {
+                    return Err(String::from(ENCRYPTED_ELSEWHERE));
+                }
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 let (_, code) =
                     device::setup_new_drive(auto.bucket().as_ref(), &keyring, auto.drive(), kdf)
@@ -2133,16 +2154,30 @@ pub(crate) fn on_outcome(
                 }
             }
             Err(why) => {
-                let why = t_label(&why);
-                let text = if new_drive {
-                    t_args("azdrive-enc-new-drive-not-encrypted", &[("why", Arg::from(why))])
+                if matches!(s.popup, Some(Popup::Encryption(Dialog::Busy { .. }))) {
+                    s.popup = None;
+                }
+                if why == ENCRYPTED_ELSEWHERE {
+                    println!("AZDRIVE_ENCRYPTED_ELSEWHERE {drive_id}");
+                    let name = drive_name(s, &drive_id);
+                    s.info(Phrase::new(ENCRYPTED_ELSEWHERE).arg("name", name));
                 } else {
-                    why
-                };
-                s.popup = Some(Popup::Encryption(Dialog::Message {
-                    title: t("azdrive-enc-not-encrypted"),
-                    text,
-                }));
+                    let shows_as_dialog = set_up_failure_shows_as_dialog(&why, s.popup.as_ref());
+                    let why = t_label(&why);
+                    let text = if new_drive {
+                        t_args("azdrive-enc-new-drive-not-encrypted", &[("why", Arg::from(why))])
+                    } else {
+                        why
+                    };
+                    if shows_as_dialog {
+                        s.popup = Some(Popup::Encryption(Dialog::Message {
+                            title: t("azdrive-enc-not-encrypted"),
+                            text,
+                        }));
+                    } else {
+                        s.warn(text);
+                    }
+                }
             }
         },
         EncryptionOutcome::Recovered { drive_id, result } => match result {

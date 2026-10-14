@@ -1316,6 +1316,7 @@ azdrive-enc-new-drive-ready = „{ $name }“ ist bereit: auf diesem Computer ve
 azdrive-enc-err-keeps-previous-code = der Tokenserver behält den bisherigen Wiederherstellungscode des Laufwerks: Er nimmt einen neuen nur mit der Signatur des aktuellen an (tippe ihn unter „Ich wurde gehackt: neue Schlüssel“ ein)
 azdrive-enc-not-current-code = Das ist nicht der aktuelle Wiederherstellungscode dieses Laufwerks (ein älterer Code öffnet nichts mehr).
 azdrive-enc-new-drive-not-encrypted = { $why }. Das Laufwerk wurde erstellt, ist aber noch nicht verschlüsselt: „Dieses Laufwerk verschlüsseln…“ in seinem Menü erledigt das, bevor etwas hineinkommt.
+azdrive-enc-new-drive-encrypted-elsewhere = { $name } wurde auf dem Computer verschlüsselt, auf dem es gekauft wurde. Öffnen Sie es hier mit einer Einladung von diesem Computer oder mit seinem Wiederherstellungscode: „Mit dem Wiederherstellungscode entsperren…“ in seinem Menü.
 azdrive-enc-no-token-server-here = Der Tokenserver des Laufwerks ist hier nicht bekannt.
 azdrive-enc-cancelling-title = Die Sperrung wird abgebrochen
 azdrive-enc-cancelling = Der Abbruch wird mit dem Wiederherstellungscode signiert…
