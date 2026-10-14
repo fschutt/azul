@@ -34594,4 +34594,71 @@ mod hover_tooltip_tests {
             "the tooltip is the title, not the aria-label beside it"
         );
     }
+
+    /// `body > div title="Advice" > [p > "Label", div]` with the pointer at
+    /// [`CURSOR`]: the titled div is node 2, its label node 3 (its text 4),
+    /// its other child node 5.
+    fn titled_button() -> (LayoutWindow, FullWindowState) {
+        let mut dom = Dom::create_html().with_child(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("height: 40px;")
+                    .with_attribute(AttributeType::Title(AzString::from("Advice")))
+                    .with_child(Dom::create_p().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("Label"),
+                    ))
+                    .with_child(Dom::create_div().with_css("height: 10px;")),
+            ),
+        );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        ws.mouse_state.cursor_position = CursorPosition::InWindow(CURSOR);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut None)
+            .expect("the layout");
+        (lw, ws)
+    }
+
+    /// As in a browser, a title holds for everything inside its element: the
+    /// pointer on a titled button's label shows the button's title.
+    #[test]
+    fn the_pointer_on_a_titled_control_s_label_shows_the_control_s_title() {
+        let (mut lw, ws) = titled_button();
+        hover(&mut lw, 4);
+        let TooltipTimerAction::Start(timer) = lw.handle_hover_change_for_tooltip(0) else {
+            panic!("the label is inside the titled control: its title shows after the delay");
+        };
+        let shown = tooltips(&run(&mut lw, &ws, timer));
+        assert_eq!(
+            shown.iter().map(|(text, _)| text.as_str()).collect::<Vec<_>>(),
+            vec!["Advice"]
+        );
+    }
+
+    /// Moving between the parts of one titled control keeps its tooltip: the
+    /// owner of the title did not change, so the delay is not restarted and
+    /// the tip shown is not hidden. Leaving the control stops it.
+    #[test]
+    fn a_tooltip_holds_while_the_pointer_moves_inside_its_control() {
+        let (mut lw, _ws) = titled_button();
+        hover(&mut lw, 2);
+        assert!(matches!(lw.handle_hover_change_for_tooltip(0), TooltipTimerAction::Start(_)));
+        for part in [4, 5, 3, 2] {
+            hover(&mut lw, part);
+            assert!(
+                matches!(lw.handle_hover_change_for_tooltip(0), TooltipTimerAction::NoChange),
+                "the pointer moved onto node {part}, still inside the titled control: the \
+                 tooltip flickered off and on"
+            );
+        }
+        hover(&mut lw, 1);
+        assert!(
+            matches!(lw.handle_hover_change_for_tooltip(0), TooltipTimerAction::Stop),
+            "off the control, the tooltip goes"
+        );
+    }
 }
