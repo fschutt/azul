@@ -36,9 +36,10 @@
 //! - The iroh relay, which carries a connection only when two peers cannot reach each other
 //!   directly: "Default" (n0's public relays), "Azlin" (`rooms::AZLIN_RELAY`) or "Custom" (a
 //!   company's own, by its address). `--relay` (this run only), else the one picked in the
-//!   settings, else the shared config's (`AZMEET_RELAY`, `endpoints.relay`), else none for a
-//!   meetings service on this computer and n0's for any other. A new relay binds the iroh
-//!   endpoint anew.
+//!   settings, else the shared config's (`AZMEET_RELAY`, `endpoints.relay`; Azlin's relay for
+//!   Azlin's trial and production profiles), else none for a meetings service on this computer
+//!   and n0's for any other. "No relay" is not offered: `--relay off` is for tests. A new relay
+//!   binds the iroh endpoint anew.
 //!
 //! The sound check (`soundcheck.rs`), in the waiting room and in Settings > Audio & Video: "Test
 //! speakers" plays a short chime, "Record a test clip" records three seconds of the microphone
@@ -127,8 +128,9 @@
 //!   waiting room (stdout `AZMEET_WAITING <link>`) until "Join now" / "Start meeting" is clicked.
 //! - `--relay <off|default|azlin|url>` (`AZMEET_RELAY`): this run's relay, over the one picked in
 //!   the settings and the shared config file's `endpoints.relay` (the local stack names its
-//!   `iroh-relay --dev` there); with none of them, off for a meetings service on this machine and
-//!   the public iroh relays otherwise (every profile's built-in relay is the public one).
+//!   `iroh-relay --dev` there; Azlin's trial and production profiles name Azlin's relay); with
+//!   none of them, off for a meetings service on this machine and the public iroh relays
+//!   otherwise. `off` is for tests: the settings do not offer it.
 //! - `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path - no UDP socket, no hole
 //!   punching, every packet through the relay (`IrohConfig::with_relay_only`); stderr says
 //!   `relay only` with the endpoint, the statistics say `relayed` per peer.
@@ -7964,18 +7966,21 @@ pub fn start() {
 
 /// The relays for a meetings service at `worker`: `--relay` (this run only), else `saved` (the
 /// one picked in the settings), else the shared Azlin config's (`AZMEET_RELAY`, its file's
-/// `endpoints.relay`), else none for a meetings service on this machine and the public iroh
-/// relays for any other (`rooms::relay_setting_of`, `rooms::relay_choice`).
+/// `endpoints.relay`, Azlin's relay for Azlin's profiles), else none for a meetings service on
+/// this machine and the public iroh relays for any other (`rooms::relay_setting_of`,
+/// `rooms::relay_choice`).
 fn relay_for(worker: &str, saved: Option<&str>) -> Relay {
     let host = server_address(worker)
         .map(|(host, _)| host)
         .unwrap_or_default();
-    // A relay someone named (the environment, the config file); a profile's built-in one is the
-    // public relays, which the rule below picks anyway for a meetings service elsewhere - and a
-    // meetings service on this machine is a local test, which reaches no public relay.
+    // A relay the environment or the config file names, or the profile's unless that is n0's
+    // default (Azlin's profiles name Azlin's relay): `rooms::shared_relay`.
     let resolved = azlin_endpoints().get(azlin_config::Endpoint::Relay);
     let shared = match resolved.source {
-        azlin_config::Source::Env(_) | azlin_config::Source::File(_) => resolved.value.as_deref(),
+        azlin_config::Source::Env(_) | azlin_config::Source::File(_) => {
+            rooms::shared_relay(resolved.value.as_deref(), false)
+        }
+        azlin_config::Source::Profile(_) => rooms::shared_relay(resolved.value.as_deref(), true),
         _ => None,
     };
     let setting = rooms::relay_setting_of(launch_args().switch("AZMEET_RELAY"), saved, shared);

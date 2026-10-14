@@ -276,6 +276,20 @@ pub fn relay_setting_of<'a>(
         .find(|value| !value.trim().is_empty())
 }
 
+/// The shared config's relay as AzMeet takes it: one the environment or the config file names
+/// always counts; a profile's (`from_profile`) only when it is not n0's `default`, which
+/// [`relay_choice`] picks anyway for a meetings service elsewhere, while a meetings service on
+/// this computer is a local test that reaches no public relay. Azlin's profiles name Azlin's
+/// relay, which counts.
+#[must_use]
+pub fn shared_relay(value: Option<&str>, from_profile: bool) -> Option<&str> {
+    let value = value?;
+    if from_profile && value.trim().eq_ignore_ascii_case("default") {
+        return None;
+    }
+    Some(value)
+}
+
 /// What the settings offer for the relay, in their order ([`RelayChoice::ALL`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelayChoice {
