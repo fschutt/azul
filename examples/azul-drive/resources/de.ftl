@@ -1861,3 +1861,17 @@ azdrive-find-group-count = { $count ->
         [one] ein Element
        *[other] { $count } Elemente
     }
+
+## Quick Look and the command palette (Cmd+K)
+
+azdrive-palette-placeholder = Zu einer Datei oder einem Ordner, oder einen Befehl ausführen…
+azdrive-palette-recent-searches = Letzte Suchen
+azdrive-palette-recent-places = Zuletzt besucht
+azdrive-palette-folders = Ordner
+azdrive-palette-files = Dateien
+azdrive-palette-commands = Befehle
+azdrive-palette-search = Suche
+azdrive-palette-search-all = Alle Laufwerke durchsuchen: „{ $text }“
+azdrive-palette-keys = ↑ ↓ wählen · ↩ öffnen · ⌘↩ im Ordner zeigen · esc schließen
+azdrive-shortcut-quick-look = Übersicht
+azdrive-shortcut-palette = Die Befehlspalette

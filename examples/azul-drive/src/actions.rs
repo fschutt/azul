@@ -202,6 +202,16 @@ pub(crate) enum Action {
     SearchContentsToo,
     /// "Clear the filters": the Refine back to any kind, date and size.
     ClearRefines,
+    /// The search box's text searched on every drive (the palette's last row).
+    SearchAllDrives(String),
+    // Over the window
+    /// Quick Look closes (a press on its scrim).
+    CloseQuickLook,
+    /// The command palette closes (a press on its scrim).
+    ClosePalette,
+    /// A file the palette found: its folder opens with it selected (in Quick Look when
+    /// `quick_look`, the palette's Return; Cmd+Return only selects it).
+    RevealFile { place: Place, key: String },
 }
 
 /// A button's / menu item's click data.
@@ -766,7 +776,39 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             s.refines = crate::find::Refines::default();
             refined(info, app, s);
         }
+        Action::SearchAllDrives(text) => {
+            s.settings.search_scope = crate::find::SearchScope::AllDrives;
+            save_settings(info, app, s);
+            run_action(info, app, s, Action::SearchFor(text));
+        }
+        Action::CloseQuickLook => crate::ui_overlays::close_quick_look(s),
+        Action::ClosePalette => crate::ui_overlays::close_palette(s),
+        Action::RevealFile { place, key } => reveal_file(info, app, s, place, key, false),
     }
+}
+
+/// A file found elsewhere (the palette): its folder opens, the file selected once it is listed,
+/// and with `quick_look` shown in Quick Look then.
+pub(crate) fn reveal_file(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    place: Place,
+    key: String,
+    quick_look: bool,
+) {
+    if place == s.place && s.entry(&key).is_some() {
+        s.selection.set(vec![key.clone()]);
+        s.print_selection();
+        crate::ui_view::reveal_item(info, s, &key);
+        if quick_look {
+            crate::ui_overlays::toggle_quick_look(info, app, s);
+        }
+        return;
+    }
+    go(info, app, s, place, true);
+    s.select_when_listed = Some(key);
+    s.quick_look_when_listed = quick_look;
 }
 
 /// The open search as Save search would keep it.
@@ -1267,7 +1309,9 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
                 | Command::JumpTab(_)
                 | Command::TabOverview,
             ) => true,
-            Some(Command::Escape) => s.search_open && s.search.is_empty() && !s.editing_path,
+            Some(Command::Escape) => {
+                s.search_open && s.search.is_empty() && !s.editing_path && s.palette.is_none()
+            }
             _ => false,
         };
         let Some(command) = command.filter(|_| window_key) else {
@@ -1303,6 +1347,28 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         return Update::DoNothing;
     }
     if s.renaming.is_some() {
+        return Update::DoNothing;
+    }
+    // Quick Look takes Space and Escape (it closes) and the arrows (they step through the
+    // files, the preview following); the palette has its own box's keys, Cmd+K closes it.
+    if s.quick_look {
+        match command {
+            Command::QuickLook | Command::Escape => crate::ui_overlays::close_quick_look(s),
+            Command::Move {
+                step: step @ (Step::Prev | Step::Next | Step::PrevRow | Step::NextRow),
+                ..
+            } => move_focus(&mut info, &app, s, step, false, false),
+            _ => return Update::DoNothing,
+        }
+        info.prevent_default();
+        return Update::RefreshDom;
+    }
+    if s.palette.is_some() {
+        if matches!(command, Command::Palette | Command::Escape) {
+            crate::ui_overlays::close_palette(s);
+            info.prevent_default();
+            return Update::RefreshDom;
+        }
         return Update::DoNothing;
     }
     info.prevent_default();
@@ -1458,7 +1524,8 @@ pub(crate) fn run_command(
             }
         }
         Command::TabOverview => crate::ui_tabs::toggle_overview(s),
-        Command::QuickLook | Command::Palette => {}
+        Command::QuickLook => crate::ui_overlays::toggle_quick_look(info, app, s),
+        Command::Palette => crate::ui_overlays::toggle_palette(s),
     }
 }
 
@@ -2881,7 +2948,8 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
             );
         }
     }
-    if !s.settings.preview_pane {
+    // Quick Look shows the preview too, with the preview pane closed.
+    if !s.settings.preview_pane && !s.quick_look {
         return;
     }
     if s.preview.as_ref().is_some_and(|p| p.key == entry.key) {

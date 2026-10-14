@@ -147,7 +147,7 @@ pub enum Command {
 /// table, `Mod` = Cmd on macOS, Ctrl elsewhere; the groups and actions are keys of the
 /// resources). A test checks that every one of them runs a command in [`command_for`], so the
 /// list cannot drift from the keys (DEDUP_OFFICE D13).
-pub const SHORTCUTS: [Shortcut; 41] = [
+pub const SHORTCUTS: [Shortcut; 43] = [
     Shortcut::new("azdrive-shortcut-group-open", "Enter", "azdrive-shortcut-open-selected"),
     Shortcut::new("azdrive-shortcut-group-open", "Alt+Enter", "azdrive-shortcut-properties"),
     Shortcut::new("azdrive-shortcut-group-open", "Backspace", "azdrive-shortcut-up"),
@@ -187,6 +187,8 @@ pub const SHORTCUTS: [Shortcut; 41] = [
     Shortcut::new("azdrive-shortcut-group-view", "Alt+P", "azdrive-shortcut-preview-pane"),
     Shortcut::new("azdrive-shortcut-group-view", "Alt+Shift+P", "azdrive-shortcut-details-pane"),
     Shortcut::new("azdrive-shortcut-group-view", "Mod+Alt+P", "azdrive-shortcut-preview-pane"),
+    Shortcut::new("azdrive-shortcut-group-view", "Space", "azdrive-shortcut-quick-look"),
+    Shortcut::new("azdrive-shortcut-group-view", "Mod+K", "azdrive-shortcut-palette"),
     Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+T", "azdrive-shortcut-new-tab"),
     Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+W", "azdrive-shortcut-close-tab"),
     Shortcut::new("azdrive-shortcut-group-tabs", "Ctrl+Tab", "azdrive-shortcut-next-tab"),
@@ -267,6 +269,8 @@ pub fn command_for(key: Key, mods: Mods) -> Option<Command> {
         Key::Apps => Command::ContextMenu,
         Key::F10 if shift => Command::ContextMenu,
         Key::Space if ctrl => Command::ToggleFocused,
+        Key::Space if !alt && !shift && !control => Command::QuickLook,
+        Key::Char('k') if plain_ctrl => Command::Palette,
         Key::Char('n') if ctrl && shift && !alt => Command::NewFolder,
         Key::Char(c @ '1'..='8') if ctrl && shift && !alt => Command::Layout(c as u8 - b'0'),
         Key::Char('p') if alt && !ctrl && shift => Command::DetailsPane,

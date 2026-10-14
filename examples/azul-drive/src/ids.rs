@@ -51,6 +51,12 @@ pub const FIND_START: AzString = AzString::from_const_str("__azdrive_find_start"
 pub const FIND_SUGGESTIONS: AzString = AzString::from_const_str("__azdrive_find_suggestions");
 /// The tab overview: the open location tabs over a grey scrim.
 pub const TAB_OVERVIEW: AzString = AzString::from_const_str("__azdrive_tab_overview");
+/// Quick Look's scrim (Space): the selected item's preview, large.
+pub const QUICK_LOOK: AzString = AzString::from_const_str("__azdrive_quick_look");
+/// The command palette's scrim (Cmd+K), its box, a row of it.
+pub const PALETTE: AzString = AzString::from_const_str("__azdrive_palette");
+pub const PALETTE_INPUT: AzString = AzString::from_const_str("__azdrive_palette_input");
+pub const PALETTE_ROW_CLASS: AzString = AzString::from_const_str("__azdrive_palette_row");
 
 /// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
 /// Refresh, the search box).

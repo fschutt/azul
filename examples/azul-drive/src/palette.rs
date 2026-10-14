@@ -56,15 +56,65 @@ pub fn rows<T: Clone>(
     candidates: &Candidates<'_, T>,
     search_all: impl Fn(&str) -> T,
 ) -> Vec<Row<T>> {
-    let _ = (query, candidates, search_all("").clone());
-    todo!()
+    let row = |section, label: &str, detail: &str, target: &T| Row {
+        section,
+        label: label.to_string(),
+        detail: detail.to_string(),
+        target: target.clone(),
+    };
+    let mut out = Vec::new();
+    let query = query.trim();
+    if rank::tokens(query).is_empty() {
+        out.extend(
+            candidates
+                .recent_searches
+                .iter()
+                .take(RECENT)
+                .map(|(text, target)| row(Section::RecentSearches, text, "", target)),
+        );
+        out.extend(
+            candidates
+                .recent_places
+                .iter()
+                .take(RECENT)
+                .map(|(label, detail, target)| row(Section::RecentPlaces, label, detail, target)),
+        );
+        out.extend(
+            candidates
+                .commands
+                .iter()
+                .take(COMMANDS_AT_REST)
+                .map(|(label, detail, target)| row(Section::Commands, label, detail, target)),
+        );
+        return out;
+    }
+    let matching = |list: &[(String, String, T)], section, limit| -> Vec<Row<T>> {
+        list.iter()
+            .filter(|(label, _, _)| rank::name_matches(label, query))
+            .take(limit)
+            .map(|(label, detail, target)| row(section, label, detail, target))
+            .collect()
+    };
+    out.extend(matching(candidates.folders, Section::Folders, FOLDERS));
+    out.extend(matching(candidates.files, Section::Files, FILES));
+    out.extend(matching(candidates.commands, Section::Commands, COMMANDS));
+    out.push(Row {
+        section: Section::SearchAll,
+        label: query.to_string(),
+        detail: String::new(),
+        target: search_all(query),
+    });
+    out
 }
 
 /// The hot row after an arrow (`delta` -1 or 1) among `count` rows: it holds at the ends.
 #[must_use]
 pub fn step(hot: usize, delta: isize, count: usize) -> usize {
-    let _ = (hot, delta, count, rank::fold(""));
-    todo!()
+    if count == 0 {
+        return 0;
+    }
+    let last = count as isize - 1;
+    (hot.min(count) as isize + delta).clamp(0, last) as usize
 }
 
 #[cfg(test)]

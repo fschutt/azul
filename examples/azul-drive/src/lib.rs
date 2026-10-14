@@ -248,6 +248,8 @@ mod ui_pies;
 mod ui_ribbon;
 /// The location tabs in the window: the keys' commands, the tab overview.
 mod ui_tabs;
+/// Quick Look and the command palette, over the window on a scrim.
+mod ui_overlays;
 /// The navigation pane: Finder's source list.
 mod sync_lookup;
 mod ui_sidebar;
@@ -858,6 +860,12 @@ pub(crate) struct DriveState {
     /// The search view is open: from the first key typed into the search box until Escape on
     /// an empty box (or another place). An empty query shows the recent and saved searches.
     pub search_open: bool,
+    /// Quick Look shows over the window (Space): the selected item's preview, large.
+    pub quick_look: bool,
+    /// Quick Look opens once the open folder is listed (a file the palette found).
+    pub quick_look_when_listed: bool,
+    /// The command palette, while it is open (Cmd+K): what was typed, the hot row.
+    pub palette: Option<ui_overlays::PaletteState>,
     pub editing_path: bool,
     pub renaming: Option<Renaming>,
     pub column_drag: Option<ColumnDrag>,
@@ -1884,6 +1892,7 @@ pub(crate) fn go(
         save_settings(info, app, s);
     }
     s.search_open = false;
+    ui_overlays::close_quick_look(s);
     s.recent.retain(|p| *p != place);
     s.recent.insert(0, place.clone());
     s.recent.truncate(RECENT_PLACES);
@@ -2393,12 +2402,16 @@ fn scanned(
     if let Some(y) = s.scroll_when_listed.take() {
         ui_view::scroll_view_to(info, s, y);
     }
-    // Open file location: the result the folder was opened for is selected, in view.
+    // Open file location: the result the folder was opened for is selected, in view (and in
+    // Quick Look, for a file the palette found).
     if let Some(key) = s.select_when_listed.take() {
         if s.entries.iter().any(|e| e.key == key) {
             s.selection.set(vec![key.clone()]);
             s.print_selection();
             ui_view::reveal_item(info, s, &key);
+            if std::mem::take(&mut s.quick_look_when_listed) {
+                ui_overlays::toggle_quick_look(info, app, s);
+            }
         }
     }
     if let Place::Folder { drive, prefix } = &s.place {
@@ -3033,9 +3046,16 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 ui_view::on_column_drag_end,
             );
     }
-    // The location tabs' overview over the window, while it is open.
+    // The location tabs' overview, Quick Look and the command palette over the window, while
+    // they are open.
     if let Some(overview) = ui_tabs::overview(s, &app) {
         body.add_child(overview);
+    }
+    if let Some(quick_look) = ui_overlays::quick_look(s, &app, dark) {
+        body.add_child(quick_look);
+    }
+    if let Some(palette) = ui_overlays::palette(s, &app) {
+        body.add_child(palette);
     }
     if let Some(popup) = &s.popup {
         let (title, panel) = ui_dialogs::popup_parts(popup, s, &app);
@@ -3364,6 +3384,9 @@ pub fn start() {
         tabs: location_tabs::LocationTabs::new(first_tab),
         tab_overview: false,
         search_open: false,
+        quick_look: false,
+        quick_look_when_listed: false,
+        palette: None,
         editing_path: false,
         renaming: None,
         column_drag: None,

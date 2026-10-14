@@ -586,6 +586,120 @@ pub(crate) const SNIPPET_KIND: &str = themed!(
     "color: #8C8C8C;",
 );
 
+// ==== Over the window: Quick Look, the command palette ====
+
+/// The grey scrim over the window, what lies on it centred.
+pub(crate) const SCRIM: &str = themed!(
+    "position: absolute; top: 0px; left: 0px; width: 100%; height: 100%; z-index: 50; \
+     display: flex; flex-direction: column; align-items: center; justify-content: center;",
+    "background: rgba(40, 38, 34, 0.32);",
+    "background: rgba(0, 0, 0, 0.5);",
+    "background: rgba(40, 38, 34, 0.32);",
+    "background: rgba(0, 0, 0, 0.5);",
+);
+
+/// The palette's scrim holds it near the top of the window.
+pub(crate) const SCRIM_TOP: &str = "justify-content: flex-start; padding-top: 80px; \
+                                    box-sizing: border-box;";
+
+/// Quick Look's panel: most of the window, the preview filling it.
+pub(crate) const QUICK_LOOK: &str = themed!(
+    "display: flex; flex-direction: column; width: 72%; height: 80%; border-radius: 8px; \
+     overflow: hidden;",
+    "background: #FFFFFF; box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), \
+     0px 9px 32px rgba(48, 45, 38, 0.18);",
+    "background: #1E1E1E; box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.5), \
+     0px 10px 36px rgba(0, 0, 0, 0.55);",
+    "background: #FBFAF6; box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), \
+     0px 9px 32px rgba(48, 45, 38, 0.18);",
+    "background: #1D1D1D; box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.5), \
+     0px 10px 36px rgba(0, 0, 0, 0.55);",
+);
+
+/// Quick Look's title: the item's name.
+pub(crate) const QUICK_LOOK_HEAD: &str = themed!(
+    "flex-shrink: 0; padding: 8px 14px; font-weight: 600;",
+    "border-bottom: 1px solid #E2E6EB;",
+    "border-bottom: 1px solid #333333;",
+    "border-bottom: 1px solid #E0DDD7;",
+    "border-bottom: 1px solid #2E2E2E;",
+);
+
+/// The palette: 560 px of field paper.
+pub(crate) const PALETTE_PANEL: &str = themed!(
+    "display: flex; flex-direction: column; width: 560px; max-height: 70%; border-radius: 8px; \
+     overflow: hidden;",
+    "background: #FFFFFF; box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), \
+     0px 9px 32px rgba(48, 45, 38, 0.18);",
+    "background: #252525; box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.5), \
+     0px 10px 36px rgba(0, 0, 0, 0.55);",
+    "background: #FBFAF6; box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), \
+     0px 9px 32px rgba(48, 45, 38, 0.18);",
+    "background: #1D1D1D; box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.5), \
+     0px 10px 36px rgba(0, 0, 0, 0.55);",
+);
+
+/// The palette's box row.
+pub(crate) const PALETTE_INPUT_ROW: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; \
+     padding: 10px 12px;",
+    "border-bottom: 1px solid #E2E6EB;",
+    "border-bottom: 1px solid #333333;",
+    "border-bottom: 1px solid #E0DDD7;",
+    "border-bottom: 1px solid #2E2E2E;",
+);
+
+/// The palette's rows.
+pub(crate) const PALETTE_LIST: &str =
+    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
+     padding: 4px 0px;";
+
+/// A group's title in the palette.
+pub(crate) const PALETTE_SECTION: &str = themed!(
+    "padding: 6px 14px 2px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76; letter-spacing: 0.08em;",
+    "color: #8C8C8C;",
+);
+
+/// A row of the palette.
+pub(crate) const PALETTE_ROW: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; height: 30px; \
+     padding: 0px 14px; cursor: default;",
+    ":hover { background: #EEF3F9; }",
+    ":hover { background: #333333; }",
+    ":hover { background: #EDEFF4; }",
+    ":hover { background: #2B2F37; }",
+);
+
+/// The hot row (the arrows', Return's).
+pub(crate) const PALETTE_ROW_HOT: &str = themed!(
+    "",
+    "background: #DDE8F5; :hover { background: #DDE8F5; }",
+    "background: #2E3E55; :hover { background: #2E3E55; }",
+    "background: #E0E4EE; :hover { background: #E0E4EE; }",
+    "background: #2F4A85; :hover { background: #2F4A85; }",
+);
+
+/// Where a palette row is (a place's folders, a command's keys).
+pub(crate) const PALETTE_DETAIL: &str = themed!(
+    "flex-shrink: 0; margin-left: 10px; font-size: 12px; white-space: nowrap;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76;",
+    "color: #8C8C8C;",
+);
+
+/// The keys at the palette's foot.
+pub(crate) const PALETTE_FOOT: &str = themed!(
+    "flex-shrink: 0; padding: 6px 14px; font-size: 12px;",
+    "color: #7A8594; border-top: 1px solid #E2E6EB;",
+    "color: #8C8C8C; border-top: 1px solid #333333;",
+    "color: #827F76; border-top: 1px solid #E0DDD7;",
+    "color: #8C8C8C; border-top: 1px solid #2E2E2E;",
+);
+
 // ==== Items (every layout) ====
 
 /// An item at rest: a hairline kept free for the focus, a wash under the pointer.
