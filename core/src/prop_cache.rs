@@ -126,13 +126,16 @@ use azul_css::{
 
 use crate::{
     dom::{NodeData, NodeId, TabIndex, TagId},
-    id::{NodeDataContainer, NodeDataContainerRef},
+    id::NodeDataContainerRef,
     style::CascadeInfo,
     styled_dom::{
         NodeHierarchyItem, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
         ParentWithNodeDepthVec, StyledNodeState, TagIdToNodeIdMapping,
     },
 };
+// The tests build their trees with it (they import this module's names).
+#[cfg(test)]
+use crate::id::NodeDataContainer;
 
 #[cfg(feature = "std")]
 std::thread_local! {
@@ -1661,11 +1664,12 @@ impl CssPropertyCache {
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
             css::{
+                CssDeclaration,
                 CssPathPseudoSelector::{
-                    Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, Hover, Placeholder,
-                    SeatFocus,
+                    self, Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, Hover,
+                    Placeholder, SeatFocus,
                 },
-                CssDeclaration, CssPathSelector, CssRuleBlock,
+                CssPathSelector, CssRuleBlock,
             },
             dynamic_selector::{DynamicSelector, PseudoStateType},
             props::layout::LayoutDisplay,
@@ -1848,168 +1852,131 @@ impl CssPropertyCache {
 
             // Phase 2: Match specific rules per-node (only non-global rules)
             if !specific_rules.is_empty() {
-                // Per-node "which declarations match" lists are built as
-                // `(rule_idx, decl_idx)` pairs — 4 bytes per entry instead of
-                // cloning a 140-byte `CssProperty`. The clone only happens at
-                // the final push_to step, so the transient peak is ~35× smaller.
-                //
-                // rule_idx indexes into `specific_rules` (Vec<&CssRuleBlock>),
-                // decl_idx indexes into `rule.declarations.as_slice()`. Both
-                // fit in u16 since real stylesheets have far fewer than 65k
-                // rules and declarations per rule.
-                macro_rules! filter_rules {
-                    ($expected_pseudo_selector:expr, $node_id:expr) => {{
-                        let mut out: Vec<(u16, u16)> = Vec::new();
-                        for (rule_idx, rule_block) in specific_rules.iter().enumerate() {
-                            if !rule_applies(&rule_block.conditions) {
+                // The passes, one per state a rule's subject can be in: a rule
+                // takes part in the pass of the interaction pseudo-class its
+                // path ends with, the resting pass takes every other rule. A
+                // node's entries come out pass by pass in this order, and rule
+                // by rule (cascade order) within a pass.
+                let passes: [(Option<CssPathPseudoSelector>, PseudoStateType); 10] = [
+                    (None, PseudoStateType::Normal),
+                    (Some(Hover), PseudoStateType::Hover),
+                    (Some(Active), PseudoStateType::Active),
+                    (Some(Focus), PseudoStateType::Focus),
+                    (Some(SeatFocus), PseudoStateType::SeatFocus),
+                    (Some(FocusVisible), PseudoStateType::FocusVisible),
+                    (Some(Dragging), PseudoStateType::Dragging),
+                    (Some(DragOver), PseudoStateType::DragOver),
+                    (Some(Placeholder), PseudoStateType::Placeholder),
+                    (Some(Backdrop), PseudoStateType::Backdrop),
+                ];
+                let backdrop_pass: u16 = 1 << 9;
+                // Per rule, one bit per pass it ends in; and the same bits
+                // only where its @-conditions hold under this context. Both
+                // belong to the rule, so they are answered once, not per node.
+                let ends_in: Vec<u16> = specific_rules
+                    .iter()
+                    .map(|rule| {
+                        passes
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, (pseudo, _))| {
+                                crate::style::rule_ends_with(&rule.path, pseudo.clone())
+                            })
+                            .fold(0u16, |bits, (pass, _)| bits | (1 << pass))
+                    })
+                    .collect();
+                let takes_part: Vec<u16> = specific_rules
+                    .iter()
+                    .zip(&ends_in)
+                    .map(|(rule, &bits)| {
+                        if rule_applies(&rule.conditions) {
+                            bits
+                        } else {
+                            0
+                        }
+                    })
+                    .collect();
+                // A stylesheet that mentions `:backdrop` at all gives the
+                // inheritance walk below its backdrop tier.
+                any_backdrop |= ends_in.iter().any(|bits| bits & backdrop_pass != 0);
+                let live_passes = takes_part.iter().fold(0u16, |all, bits| all | bits);
+
+                // Each node is tried only against the rules that can match it:
+                // the unscoped ones and those of the `with_css` scopes around
+                // it (`ScopedRuleIndex`), not every widget's sheet on the page.
+                let hierarchy = node_hierarchy.as_container();
+                let mut index = crate::style::ScopedRuleIndex::new(
+                    specific_rules.iter().map(|rule| &rule.path),
+                    &hierarchy,
+                );
+                let node_total = if live_passes == 0 { 0 } else { node_data.len() };
+                for node_index in 0..node_total {
+                    let node_id = NodeId::new(node_index);
+                    let candidates = index.candidates(node_index);
+                    for (pass, (pseudo, state)) in passes.iter().enumerate() {
+                        let bit = 1u16 << pass;
+                        if live_passes & bit == 0 {
+                            continue;
+                        }
+                        let state = *state;
+                        for rule_idx in candidates {
+                            if takes_part[rule_idx] & bit == 0 {
                                 continue;
                             }
-                            if !crate::style::rule_ends_with(
-                                &rule_block.path,
-                                $expected_pseudo_selector,
-                            ) {
-                                continue;
-                            }
+                            let rule_block: &CssRuleBlock = specific_rules[rule_idx];
                             if !crate::style::matches_html_element(
                                 &rule_block.path,
-                                $node_id,
-                                &node_hierarchy.as_container(),
-                                &node_data,
-                                &html_tree,
-                                $expected_pseudo_selector,
+                                node_id,
+                                &hierarchy,
+                                node_data,
+                                html_tree,
+                                pseudo.clone(),
                             ) {
                                 continue;
                             }
                             // Every declaration: properties, `env()` / `var()`
-                            // references and custom-property definitions
-                            // (the collector below sorts them out).
-                            for (decl_idx, _decl) in
-                                rule_block.declarations.as_slice().iter().enumerate()
-                            {
-                                out.push((
-                                    u16::try_from(rule_idx).unwrap_or(u16::MAX),
-                                    u16::try_from(decl_idx).unwrap_or(u16::MAX),
-                                ));
-                            }
-                        }
-                        out
-                    }};
-                }
-
-                // Pre-check which pseudo-states have any matching rules at all.
-                // This avoids iterating 50K nodes for pseudo-states with zero rules
-                // (common: most stylesheets have no :hover/:focus/:active rules).
-                let has_normal = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, None));
-                let has_hover = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Hover)));
-                let has_active = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Active)));
-                let has_focus = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Focus)));
-                let has_seat_focus = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(SeatFocus)));
-                let has_focus_visible = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(FocusVisible)));
-                let has_dragging = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Dragging)));
-                let has_drag_over = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(DragOver)));
-                let has_placeholder = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Placeholder)));
-                let has_backdrop = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Backdrop)));
-                any_backdrop |= has_backdrop;
-
-                macro_rules! collect_and_assign {
-                    ($pseudo:expr, $state:expr, $has_any:expr) => {
-                        if $has_any {
-                            let indices: NodeDataContainer<(NodeId, Vec<(u16, u16)>)> = node_data
-                                .transform_nodeid_optional(|node_id| {
-                                    let r = filter_rules!($pseudo, node_id);
-                                    if r.is_empty() {
-                                        None
-                                    } else {
-                                        Some((node_id, r))
-                                    }
-                                });
-                            for (n, pairs) in indices.internal.into_iter() {
-                                for (rule_idx, decl_idx) in pairs {
-                                    let decl = &specific_rules[rule_idx as usize]
-                                        .declarations
-                                        .as_slice()[decl_idx as usize];
-                                    if let Some(definition) = decl.custom_property() {
-                                        var_stage.define(n.index(), $state, definition);
-                                    } else if let Some(reference) = decl.var_reference() {
-                                        // A placeholder at the position the
-                                        // cascade order gives it; the
-                                        // variable pass overwrites it.
-                                        let slot = self
-                                            .css_props
-                                            .build_get(n.index())
-                                            .map_or(0, Vec::len);
-                                        self.css_props.push_to(
-                                            n.index(),
-                                            StatefulCssProperty {
-                                                state: $state,
-                                                prop_type: reference.default_value.get_type(),
-                                                property: reference.default_value.clone(),
-                                                ua_origin: false,
-                                            },
-                                        );
-                                        var_stage.pending.push(PendingVar {
-                                            node: n.index(),
-                                            slot,
-                                            state: $state,
-                                            reference: reference.clone(),
-                                        });
-                                    } else if let Some(prop) =
-                                        decl.resolve_in_cascade(dyn_ctx.as_deref())
-                                    {
-                                        self.css_props.push_to(
-                                            n.index(),
-                                            StatefulCssProperty {
-                                                state: $state,
-                                                prop_type: prop.get_type(),
-                                                property: prop,
-                                                ua_origin: false,
-                                            },
-                                        );
-                                    }
+                            // references and custom-property definitions.
+                            for decl in rule_block.declarations.as_slice() {
+                                if let Some(definition) = decl.custom_property() {
+                                    var_stage.define(node_index, state, definition);
+                                } else if let Some(reference) = decl.var_reference() {
+                                    // A placeholder at the position the
+                                    // cascade order gives it; the variable
+                                    // pass overwrites it.
+                                    let slot =
+                                        self.css_props.build_get(node_index).map_or(0, Vec::len);
+                                    self.css_props.push_to(
+                                        node_index,
+                                        StatefulCssProperty {
+                                            state,
+                                            prop_type: reference.default_value.get_type(),
+                                            property: reference.default_value.clone(),
+                                            ua_origin: false,
+                                        },
+                                    );
+                                    var_stage.pending.push(PendingVar {
+                                        node: node_index,
+                                        slot,
+                                        state,
+                                        reference: reference.clone(),
+                                    });
+                                } else if let Some(prop) =
+                                    decl.resolve_in_cascade(dyn_ctx.as_deref())
+                                {
+                                    self.css_props.push_to(
+                                        node_index,
+                                        StatefulCssProperty {
+                                            state,
+                                            prop_type: prop.get_type(),
+                                            property: prop,
+                                            ua_origin: false,
+                                        },
+                                    );
                                 }
                             }
                         }
-                    };
+                    }
                 }
-
-                collect_and_assign!(None, PseudoStateType::Normal, has_normal);
-                collect_and_assign!(Some(Hover), PseudoStateType::Hover, has_hover);
-                collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
-                collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
-                collect_and_assign!(Some(SeatFocus), PseudoStateType::SeatFocus, has_seat_focus);
-                collect_and_assign!(
-                    Some(FocusVisible),
-                    PseudoStateType::FocusVisible,
-                    has_focus_visible
-                );
-                collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
-                collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
-                collect_and_assign!(
-                    Some(Placeholder),
-                    PseudoStateType::Placeholder,
-                    has_placeholder
-                );
-                collect_and_assign!(Some(Backdrop), PseudoStateType::Backdrop, has_backdrop);
             } // end if !specific_rules.is_empty()
         }
 
@@ -2079,70 +2046,81 @@ impl CssPropertyCache {
                 &all_states[..all_states.len() - 1]
             };
 
-            for &state in states {
-                // 1. Inherit inline CSS properties from parent for this pseudo-state.
-                //
-                // A declaration belongs to the pseudo-state named in its
-                // conditions (none = Normal), and its OTHER conditions — the
-                // theme, the viewport, the OS — must hold under the dynamic
-                // context, exactly as `apply_cascade_properties` decides for
-                // the node itself. Last match wins per property, the way inline
-                // declarations resolve everywhere else. This used to keep only
-                // declarations whose every condition was a pseudo-state, so a
-                // `dark_theme(color)` twin never qualified and the child got
-                // the light value as a cascaded declaration of ITS OWN — which
-                // `compute_inherited_values` then preferred over the twin it
-                // had just inherited from the parent. Every widget label under
-                // a dark window (the button's, the tree view's, the ribbon's)
-                // was dark-on-dark on a DOM cascaded under the window's
-                // context from the start; a DOM that had the context set
-                // afterwards was recascaded after the prune and came out
-                // right by accident.
-                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = {
-                    let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
-                    // The parent's own declarations AS RESOLVED (`var()`
-                    // substituted), in cascade order (theme rank, then source
-                    // order), so the last match below is the one that won on
-                    // the parent.
-                    let mut parent_inline = Vec::new();
-                    azul_css::css::inline_in_cascade_order(
-                        self.inline_properties(&node_data[parent_id], parent_id.index()),
-                        rank,
-                        &mut parent_inline,
-                    );
-                    for &(prop, conds) in &parent_inline {
-                        let conditions = conds.as_slice();
-                        let decl_state = conditions
-                            .iter()
-                            .find_map(|c| match c {
-                                DynamicSelector::PseudoState(s) => Some(*s),
-                                _ => None,
-                            })
-                            .unwrap_or(PseudoStateType::Normal);
-                        let applies = decl_state == state
-                            && conditions.iter().all(|c| match c {
-                                DynamicSelector::PseudoState(s) => *s == state,
-                                other => condition_holds(
-                                    dyn_ctx.as_deref(),
-                                    no_context_theme.as_ref(),
-                                    other,
-                                ),
-                            });
-                        let prop_type = prop.get_type();
-                        if !applies
-                            || !prop_type.is_inheritable()
-                            || is_resolved_parent_inherited(prop_type)
-                        {
-                            continue;
+            // 1. The parent's own inheritable declarations, per state.
+            //
+            // A declaration belongs to the pseudo-state named in its
+            // conditions (none = Normal), and its OTHER conditions — the
+            // theme, the viewport, the OS — must hold under the dynamic
+            // context, exactly as `apply_cascade_properties` decides for
+            // the node itself. Last match wins per property, the way inline
+            // declarations resolve everywhere else. This used to keep only
+            // declarations whose every condition was a pseudo-state, so a
+            // `dark_theme(color)` twin never qualified and the child got
+            // the light value as a cascaded declaration of ITS OWN — which
+            // `compute_inherited_values` then preferred over the twin it
+            // had just inherited from the parent. Every widget label under
+            // a dark window (the button's, the tree view's, the ribbon's)
+            // was dark-on-dark on a DOM cascaded under the window's
+            // context from the start; a DOM that had the context set
+            // afterwards was recascaded after the prune and came out
+            // right by accident.
+            //
+            // The parent's declarations are put in cascade order once for
+            // all states: ordering them is the costly part, and it does not
+            // depend on the state.
+            let mut inline_by_state: Vec<Vec<(CssPropertyType, CssProperty)>> = {
+                // The parent's own declarations AS RESOLVED (`var()`
+                // substituted), in cascade order (theme rank, then source
+                // order), so the last match below is the one that won on
+                // the parent.
+                let mut parent_inline = Vec::new();
+                azul_css::css::inline_in_cascade_order(
+                    self.inline_properties(&node_data[parent_id], parent_id.index()),
+                    rank,
+                    &mut parent_inline,
+                );
+                states
+                    .iter()
+                    .map(|&state| {
+                        let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                        for &(prop, conds) in &parent_inline {
+                            let conditions = conds.as_slice();
+                            let decl_state = conditions
+                                .iter()
+                                .find_map(|c| match c {
+                                    DynamicSelector::PseudoState(s) => Some(*s),
+                                    _ => None,
+                                })
+                                .unwrap_or(PseudoStateType::Normal);
+                            let applies = decl_state == state
+                                && conditions.iter().all(|c| match c {
+                                    DynamicSelector::PseudoState(s) => *s == state,
+                                    other => condition_holds(
+                                        dyn_ctx.as_deref(),
+                                        no_context_theme.as_ref(),
+                                        other,
+                                    ),
+                                });
+                            let prop_type = prop.get_type();
+                            if !applies
+                                || !prop_type.is_inheritable()
+                                || is_resolved_parent_inherited(prop_type)
+                            {
+                                continue;
+                            }
+                            let value = clone_inheritable_property(prop);
+                            match picked.iter_mut().find(|(t, _)| *t == prop_type) {
+                                Some(slot) => slot.1 = value,
+                                None => picked.push((prop_type, value)),
+                            }
                         }
-                        let value = clone_inheritable_property(prop);
-                        match picked.iter_mut().find(|(t, _)| *t == prop_type) {
-                            Some(slot) => slot.1 = value,
-                            None => picked.push((prop_type, value)),
-                        }
-                    }
-                    picked
-                };
+                        picked
+                    })
+                    .collect()
+            };
+
+            for (state_index, &state) in states.iter().enumerate() {
+                let parent_inheritable_inline = core::mem::take(&mut inline_by_state[state_index]);
 
                 // 2. Inherit CSS stylesheet properties from parent for this pseudo-state.
                 //

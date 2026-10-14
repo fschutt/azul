@@ -438,6 +438,154 @@ pub fn construct_html_cascade_tree(
     NodeDataContainer { internal: nodes }
 }
 
+/// Which rules of a stylesheet a node can match, by where each rule's
+/// subject can be.
+///
+/// A rule scoped to a subtree (`Dom::with_css`, the leading
+/// [`CssPathSelector::Root`]) only matches inside that subtree, and a page of
+/// widgets carries one such sheet per widget instance: trying every node
+/// against every rule made a restyle cost nodes times rules. The index hands
+/// a node the unscoped rules and the rules of the scopes around it, in rule
+/// order, so the cascade's "the last match wins" order is unchanged.
+///
+/// The walk goes through the nodes in ascending order
+/// ([`Self::candidates`]), entering and leaving scopes as it goes.
+pub(crate) struct ScopedRuleIndex {
+    /// The rules that can match anywhere, ascending.
+    unscoped: Vec<usize>,
+    /// `(first node, last node, rule)` of every scoped rule, by first node.
+    scoped: Vec<(usize, usize, usize)>,
+    /// How many entries of `scoped` the walk has entered.
+    entered: usize,
+    /// `(last node, rule)` of the entered scopes the walk is still inside.
+    active: Vec<(usize, usize)>,
+    /// The scoped rules of the node the walk is at, ascending.
+    here: Vec<usize>,
+}
+
+impl ScopedRuleIndex {
+    /// The index of `paths`, the rules in cascade order (a rule is its
+    /// position in `paths`), over the tree `hierarchy`.
+    pub(crate) fn new<'a>(
+        paths: impl Iterator<Item = &'a CssPath>,
+        hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    ) -> Self {
+        let mut unscoped = Vec::new();
+        let mut scoped = Vec::new();
+        for (rule, path) in paths.enumerate() {
+            match subject_range(path, hierarchy) {
+                Some((first, last)) => scoped.push((first, last, rule)),
+                None => unscoped.push(rule),
+            }
+        }
+        scoped.sort_unstable();
+        Self {
+            unscoped,
+            scoped,
+            entered: 0,
+            active: Vec::new(),
+            here: Vec::new(),
+        }
+    }
+
+    /// The rules `node` can match, in rule order. Nodes must be asked for in
+    /// ascending order: a scope the walk has left is not entered again.
+    pub(crate) fn candidates(&mut self, node: usize) -> MergedRules<'_> {
+        while let Some(&(first, last, rule)) = self.scoped.get(self.entered) {
+            if first > node {
+                break;
+            }
+            self.active.push((last, rule));
+            self.entered += 1;
+        }
+        self.active.retain(|&(last, _)| last >= node);
+        self.here.clear();
+        self.here.extend(self.active.iter().map(|&(_, rule)| rule));
+        self.here.sort_unstable();
+        MergedRules {
+            a: &self.unscoped,
+            b: &self.here,
+        }
+    }
+}
+
+/// Two ascending lists of rules read as one ascending list.
+#[derive(Clone, Copy)]
+pub(crate) struct MergedRules<'a> {
+    a: &'a [usize],
+    b: &'a [usize],
+}
+
+impl Iterator for MergedRules<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        let take_a = match (self.a.first(), self.b.first()) {
+            (Some(x), Some(y)) => x <= y,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => return None,
+        };
+        if take_a {
+            let (&rule, rest) = self.a.split_first()?;
+            self.a = rest;
+            Some(rule)
+        } else {
+            let (&rule, rest) = self.b.split_first()?;
+            self.b = rest;
+            Some(rule)
+        }
+    }
+}
+
+/// The nodes a rule's subject can be, `(first, last)` inclusive, or `None`
+/// when it can be anywhere.
+///
+/// A `Root(range)` selector holds only for a node inside `range`. In the
+/// subject's own compound it bounds the subject itself. Further left, with
+/// only descendant and child combinators after it, it bounds an ancestor of
+/// the subject, so the subject lies in the subtree of the range's first node
+/// (a scope range is that node's subtree, or the node alone). A sibling
+/// combinator can lead out of the range, and a range that is not a subtree
+/// bounds nothing that is easy to state: such rules stay unscoped.
+fn subject_range(
+    path: &CssPath,
+    hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+) -> Option<(usize, usize)> {
+    let is_combinator = |s: &CssPathSelector| {
+        matches!(
+            s,
+            CssPathSelector::Children
+                | CssPathSelector::DirectChildren
+                | CssPathSelector::AdjacentSibling
+                | CssPathSelector::GeneralSibling
+        )
+    };
+    let selectors = path.selectors.as_ref();
+    let (at, range) = selectors.iter().enumerate().find_map(|(i, s)| match s {
+        CssPathSelector::Root(range) => Some((i, *range)),
+        _ => None,
+    })?;
+    if !selectors[at + 1..].iter().any(is_combinator) {
+        return Some((range.start, range.end));
+    }
+    let sibling = selectors.iter().any(|s| {
+        matches!(
+            s,
+            CssPathSelector::AdjacentSibling | CssPathSelector::GeneralSibling
+        )
+    });
+    if sibling {
+        return None;
+    }
+    if range.start >= hierarchy.len() {
+        // No node can be the ancestor the range asks for: nothing matches.
+        return Some((range.start, range.start));
+    }
+    let last = range.start + hierarchy.subtree_len(NodeId::new(range.start));
+    (range.end <= last).then_some((range.start, last))
+}
+
 /// Checks whether the last selector in `path` matches the given pseudo-selector `target`.
 ///
 /// Known limitation: this only inspects the final selector in the path, so compound
