@@ -223,6 +223,9 @@ pub(crate) struct WaitingView {
     /// Joined with only the code: `Some(false)` "Ask to join", `Some(true)` asked, waiting to be
     /// let in; `None` with the link.
     pub knock: Option<bool>,
+    /// The meeting was made here because no meetings service answered: the waiting room says
+    /// so and offers "Retry".
+    pub local: bool,
 }
 
 /// What the settings sections and the device pickers show.
@@ -377,6 +380,8 @@ pub(crate) struct Actions {
     /// The waiting room's "Join now" / "Start meeting", and its Back.
     pub join_now: ButtonOnClickCallbackType,
     pub waiting_back: ButtonOnClickCallbackType,
+    /// A meeting made here: ask the meetings service again.
+    pub preview_retry: ButtonOnClickCallbackType,
     pub mic_choice: DropDownOnChoiceChangeCallbackType,
     pub speaker_choice: DropDownOnChoiceChangeCallbackType,
     pub camera_choice: DropDownOnChoiceChangeCallbackType,
@@ -1557,6 +1562,20 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             &t("azmeet-joined-with-code"),
             "font-size: 12px; color: system:secondary-text; margin-bottom: 10px;",
         ));
+    }
+    if view.waiting.as_ref().is_some_and(|w| w.local) {
+        column = column
+            .with_child(
+                text(&t("azmeet-local-meeting"), "font-size: 12px; color: system:secondary-text; margin-bottom: 6px;")
+                    .with_id(ids::LOCAL_MEETING),
+            )
+            .with_child(
+                Button::create(label("azmeet-retry"))
+                    .with_on_click(data.clone(), actions.preview_retry)
+                    .dom()
+                    .with_id(ids::SERVICE_RETRY)
+                    .with_css(WIDE),
+            );
     }
     let join = Button::with_type(AzString::from(waiting_button_label(created, knock)), ButtonType::Primary);
     let join = if knock == Some(true) {
