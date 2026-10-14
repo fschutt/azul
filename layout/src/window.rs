@@ -578,9 +578,12 @@ pub extern "C" fn tooltip_delay_timer_callback(
     };
 
     let layout_window = info.callback_info.get_layout_window();
+    // The title of the hovered node's nearest titled ancestor, itself
+    // included (`LayoutWindow::title_owner`).
     let hover_node_id = layout_window
         .hover_manager
         .current_hover_node()
+        .and_then(|node_id| layout_window.title_owner(node_id))
         .map(|node_id| DomNodeId {
             dom: DomId { inner: 0 },
             node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -12266,26 +12269,37 @@ impl LayoutWindow {
             return TooltipTimerAction::NoChange;
         }
 
-        let dom_id = DomId { inner: 0 };
-        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+        if !self.layout_results.contains_key(&DomId::ROOT_ID) {
             return TooltipTimerAction::Stop;
-        };
-        let node_data_cont = layout_result.styled_dom.node_data.as_container();
-
-        // The tooltip timer's own test (`tooltip_delay_timer_callback`): a
-        // `title`, never the accessible label.
-        let node_has_tooltip = |node_id: NodeId| -> bool {
-            node_data_cont
-                .get(node_id)
-                .is_some_and(|n| n.get_attribute("title").is_some())
-        };
-
-        match current_hover {
-            Some(node) if node_has_tooltip(node) => {
-                TooltipTimerAction::Start(self.create_tooltip_delay_timer(hover_time_ms))
-            }
-            _ => TooltipTimerAction::Stop,
         }
+        // The tip belongs to the element whose title it shows, not to the
+        // node the pointer rests on: moving between a control's parts keeps
+        // its tooltip as it is.
+        let owner = current_hover.and_then(|n| self.title_owner(n));
+        let previous_owner = previous_hover.and_then(|n| self.title_owner(n));
+        match owner {
+            Some(o) if previous_owner == Some(o) => TooltipTimerAction::NoChange,
+            Some(_) => TooltipTimerAction::Start(self.create_tooltip_delay_timer(hover_time_ms)),
+            None => TooltipTimerAction::Stop,
+        }
+    }
+
+    /// The node whose `title` a hover over `node` of the root DOM shows:
+    /// `node` itself or its nearest ancestor with a title, as in a browser,
+    /// where a title holds for everything inside its element. Only a title
+    /// is a hover tooltip, never an accessible label.
+    pub(crate) fn title_owner(&self, node: NodeId) -> Option<NodeId> {
+        let result = self.layout_results.get(&DomId::ROOT_ID)?;
+        let nodes = result.styled_dom.node_data.as_container();
+        let hierarchy = result.styled_dom.node_hierarchy.as_container();
+        let mut cur = Some(node);
+        while let Some(n) = cur {
+            if nodes.get(n)?.get_attribute("title").is_some() {
+                return Some(n);
+            }
+            cur = hierarchy.get(n).and_then(|h| h.parent_id());
+        }
+        None
     }
 
     /// Check if a node is contenteditable (internal version using `NodeId`)
