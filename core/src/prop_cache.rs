@@ -117,6 +117,7 @@ use azul_css::{
             StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
             StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
             StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue, StyleBackgroundClipVecValue,
+            StyleFontFeatureSettingsValue, StyleFontVariantCapsValue,
             StyleFontVariantNumericValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
@@ -4323,6 +4324,18 @@ impl CssPropertyCache {
         StyleFontVariantNumericValue,
         FontVariantNumeric,
         as_font_variant_numeric
+    );
+    impl_get_prop!(
+        get_font_variant_caps,
+        StyleFontVariantCapsValue,
+        FontVariantCaps,
+        as_font_variant_caps
+    );
+    impl_get_prop!(
+        get_font_feature_settings,
+        StyleFontFeatureSettingsValue,
+        FontFeatureSettings,
+        as_font_feature_settings
     );
     impl_get_prop!(
         get_transform,

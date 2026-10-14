@@ -1940,6 +1940,24 @@ pub mod parsed {
                 .as_ref()
         }
 
+        /// Whether the GSUB table offers the feature `feature_tag` in the
+        /// default language system of `script_tag` (the `DFLT` script when
+        /// the face has no table for that script).
+        #[must_use]
+        pub fn has_gsub_feature_tag(&self, script_tag: u32, feature_tag: u32) -> bool {
+            let Some(gsub) = self.gsub() else {
+                return false;
+            };
+            let table = &gsub.layout_table;
+            let Ok(Some(script)) = table.find_script_or_default(script_tag) else {
+                return false;
+            };
+            let Ok(Some(langsys)) = script.find_langsys_or_default(None) else {
+                return false;
+            };
+            matches!(table.find_langsys_feature(langsys, feature_tag, None), Ok(Some(_)))
+        }
+
         /// Fetch the parsed GPOS cache if this font has one, parsing
         /// it from the retained `gpos_bytes` on first access. See
         /// [`ParsedFont::gsub`] for the motivation.
@@ -2852,6 +2870,13 @@ pub mod parsed {
 
         fn get_space_width(&self) -> Option<usize> {
             self.space_width
+        }
+
+        fn has_gsub_feature(&self, script: crate::font_traits::Script, tag: [u8; 4]) -> bool {
+            self.has_gsub_feature_tag(
+                crate::text3::default::to_opentype_script_tag(script),
+                u32::from_be_bytes(tag),
+            )
         }
     }
 

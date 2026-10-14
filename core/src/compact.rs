@@ -2211,6 +2211,16 @@ const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
                 *flags |= DOM_HAS_FONT_VARIANT_NUMERIC;
             }
         }
+        CssProperty::FontVariantCaps(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_FONT_VARIANT_CAPS;
+            }
+        }
+        CssProperty::FontFeatureSettings(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_FONT_FEATURE_SETTINGS;
+            }
+        }
         CssProperty::TextOverflow(v) => {
             if v.get_property().is_some() {
                 *flags |= DOM_HAS_TEXT_OVERFLOW;

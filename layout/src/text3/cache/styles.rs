@@ -380,7 +380,10 @@ pub struct StyleProperties {
     pub line_height: LineHeight,
     pub text_decoration: TextDecoration,
 
-    // Represents CSS font-feature-settings like `"liga"`, `"smcp=1"`.
+    /// The OpenType features `font-feature-settings` asks for, each `tag=value`
+    /// (`liga=0`, `tnum=1`, `salt=2`), read by the shaper's
+    /// `parse_font_feature`: 0 turns a feature off (also one the shaper turns
+    /// on by default), 1 on, more picks an alternate.
     pub font_features: Vec<String>,
 
     // Variable fonts
@@ -620,17 +623,11 @@ pub enum TextCombineUpright {
     Digits(u8), // Combine up to N digits
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
-pub enum FontVariantCaps {
-    #[default]
-    Normal,
-    SmallCaps,
-    AllSmallCaps,
-    PetiteCaps,
-    AllPetiteCaps,
-    Unicase,
-    TitlingCaps,
-}
+/// The text's `font-variant-caps` (CSS Fonts 4 s6.6), the CSS value as it is.
+/// The shaper turns on `smcp` / `c2sc` / `pcap` / `c2pc` / `unic` / `titl`,
+/// and synthesizes small capitals for a face that has none
+/// (`shaping::synthesized_small_caps`).
+pub type FontVariantCaps = azul_css::props::basic::font::StyleFontVariantCaps;
 
 /// The text's `font-variant-numeric` (CSS Fonts 4 s6.7) - the CSS value as
 /// it is: one choice per group (figures, spacing, fractions) plus `ordinal`

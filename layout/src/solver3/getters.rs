@@ -4252,6 +4252,38 @@ pub fn get_style_properties_for_state(
             .unwrap_or_default()
     };
 
+    // `font-variant-caps` and `font-feature-settings` (both inherited), each
+    // read only on a DOM that declares it somewhere, like font-variant-numeric.
+    let declared = |flag: u32| {
+        cache
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.dom_declared(flag))
+    };
+    let font_variant_caps = if declared(azul_css::compact_cache::DOM_HAS_FONT_VARIANT_CAPS) {
+        cache
+            .get_font_variant_caps(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        crate::text3::cache::FontVariantCaps::Normal
+    };
+    let font_features = if declared(azul_css::compact_cache::DOM_HAS_FONT_FEATURE_SETTINGS) {
+        cache
+            .get_font_feature_settings(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property())
+            .map(|settings| {
+                settings
+                    .features()
+                    .iter()
+                    .map(|(tag, value)| format!("{}={value}", String::from_utf8_lossy(tag)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     StyleProperties {
         font_stack,
         font_size_px: font_size,
@@ -4271,9 +4303,11 @@ pub fn get_style_properties_for_state(
         // vertical-align on inline spans had no effect.
         vertical_align: get_vertical_align_for_node(styled_dom, dom_id, viewport_size),
         font_variant_numeric,
+        font_variant_caps,
+        font_features,
         // These still use defaults - could be extended in future:
-        // font_features, font_variations, writing_mode,
-        // text_orientation, text_combine_upright, the other font_variant_*
+        // font_variations, writing_mode, text_orientation,
+        // text_combine_upright, font_variant_ligatures / _east_asian
         ..Default::default()
     }
 }

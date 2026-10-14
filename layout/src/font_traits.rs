@@ -87,6 +87,15 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     /// Returns the advance width of the space character (U+0020) in font units,
     /// or None if the font doesn't have a space glyph.
     fn get_space_width(&self) -> Option<usize>;
+
+    /// Whether the face's GSUB offers the OpenType feature `tag` (`smcp`,
+    /// `c2sc`) for `script` (its default language system). The shaper
+    /// synthesizes small capitals for a face that answers no. A backend that
+    /// cannot tell says yes: the feature is then asked for and, where the face
+    /// lacks it, the text stays as it is.
+    fn has_gsub_feature(&self, _script: Script, _tag: [u8; 4]) -> bool {
+        true
+    }
 }
 
 /// Trait for loading fonts from raw bytes.
