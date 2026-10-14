@@ -18,22 +18,30 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, font::parsed::ParsedFont,
-    solver3::display_list::DisplayListItem, text3::ui_fonts::bundled_ui_fonts,
-    window::LayoutWindow, window_state::FullWindowState,
+    solver3::display_list::DisplayListItem, window::LayoutWindow,
+    window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
+
+/// Calmet UI (the `azul-fonts-calmet` crate AzDrive links), registered the
+/// way an app registers its fonts at startup: `AppConfig::add_font` per
+/// face, then the window's font manager takes them in.
+fn register_calmet(lw: &mut LayoutWindow) {
+    let mut config = azul_core::resources::AppConfig::create();
+    for face in azul_fonts_calmet::faces() {
+        config.add_font(azul_fonts_calmet::FAMILY.into(), face.to_vec().into());
+    }
+    lw.font_manager.register_app_fonts(config.bundled_fonts.as_ref());
+}
 
 const TEXT: &str = "alpha beta gamma delta epsilon zeta eta theta";
 const WIDTH: f32 = 170.0;
 const LINE: f32 = 30.0;
 
-/// The bundled upright Calmet UI, parsed.
+/// The upright Calmet UI, parsed.
 fn calmet() -> ParsedFont {
-    let face = bundled_ui_fonts()
-        .iter()
-        .find(|f| f.family == "Calmet UI" && !f.italic)
-        .expect("Calmet UI is bundled");
-    ParsedFont::from_bytes(&face.bytes, 0, &mut Vec::new()).expect("Calmet UI parses")
+    ParsedFont::from_bytes(&azul_fonts_calmet::faces()[0], 0, &mut Vec::new())
+        .expect("Calmet UI parses")
 }
 
 /// What the clamped block shows: its height and every glyph painted
@@ -54,6 +62,7 @@ fn shown(clamp: &str) -> Shown {
             .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(TEXT)),
     );
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    register_calmet(&mut lw);
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(400.0, 300.0);
     lw.current_window_state = ws.clone();

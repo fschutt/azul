@@ -1,5 +1,5 @@
 //! The OpenType features a stylesheet asks for reach the shaper and change
-//! the glyphs, measured on the bundled Calmet UI, which has them: `tnum`
+//! the glyphs, measured on Calmet UI (registered as an app font), which has them: `tnum`
 //! (every figure on a 469-unit advance, the median digit's), `liga` (fi, fl,
 //! ff), `dlig` (the ct ligature) and `ss01` (the long s before a letter).
 //!
@@ -20,6 +20,17 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
+/// Calmet UI (the `azul-fonts-calmet` crate AzDrive links), registered the
+/// way an app registers its fonts at startup: `AppConfig::add_font` per
+/// face, then the window's font manager takes them in.
+fn register_calmet(lw: &mut LayoutWindow) {
+    let mut config = azul_core::resources::AppConfig::create();
+    for face in azul_fonts_calmet::faces() {
+        config.add_font(azul_fonts_calmet::FAMILY.into(), face.to_vec().into());
+    }
+    lw.font_manager.register_app_fonts(config.bundled_fonts.as_ref());
+}
+
 /// Calmet UI's units per em: an advance in px at 20px is units / 50.
 const UPEM: f32 = 1000.0;
 const SIZE: f32 = 20.0;
@@ -35,6 +46,7 @@ fn glyphs(css: &str, text: &str) -> Vec<(u32, f32)> {
             .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
     );
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    register_calmet(&mut lw);
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(600.0, 200.0);
     lw.current_window_state = ws.clone();

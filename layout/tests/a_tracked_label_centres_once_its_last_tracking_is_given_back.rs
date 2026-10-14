@@ -21,6 +21,17 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
+/// Calmet UI (the `azul-fonts-calmet` crate AzDrive links), registered the
+/// way an app registers its fonts at startup: `AppConfig::add_font` per
+/// face, then the window's font manager takes them in.
+fn register_calmet(lw: &mut LayoutWindow) {
+    let mut config = azul_core::resources::AppConfig::create();
+    for face in azul_fonts_calmet::faces() {
+        config.add_font(azul_fonts_calmet::FAMILY.into(), face.to_vec().into());
+    }
+    lw.font_manager.register_app_fonts(config.bundled_fonts.as_ref());
+}
+
 /// The label "ABC" in Calmet UI 20px tracked 0.08em, under `label`, in a
 /// 300px wide box whose own CSS is `container`: the label's box (where it
 /// has one of its own) and the pen x of its first capital.
@@ -40,6 +51,7 @@ fn label(container: &str, label: &str) -> (Option<LogicalRect>, f32) {
                 ),
         );
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    register_calmet(&mut lw);
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(400.0, 200.0);
     lw.current_window_state = ws.clone();

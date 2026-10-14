@@ -23,6 +23,17 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
+/// Calmet UI (the `azul-fonts-calmet` crate AzDrive links), registered the
+/// way an app registers its fonts at startup: `AppConfig::add_font` per
+/// face, then the window's font manager takes them in.
+fn register_calmet(lw: &mut LayoutWindow) {
+    let mut config = azul_core::resources::AppConfig::create();
+    for face in azul_fonts_calmet::faces() {
+        config.add_font(azul_fonts_calmet::FAMILY.into(), face.to_vec().into());
+    }
+    lw.font_manager.register_app_fonts(config.bundled_fonts.as_ref());
+}
+
 /// What a laid-out span shows: every glyph (index, the font size it is
 /// painted at) and the span's width.
 struct Shown {
@@ -43,6 +54,7 @@ fn shown(css: &str, text: &str) -> Shown {
             ),
     );
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    register_calmet(&mut lw);
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(600.0, 200.0);
     lw.current_window_state = ws.clone();

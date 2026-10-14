@@ -1270,3 +1270,44 @@ impl<T: ParsedFontTrait> FontManager<T> {
         evicted
     }
 }
+
+#[cfg(test)]
+mod app_font_tests {
+    use super::*;
+
+    /// The fonts an app registers at startup (`App::create` hands
+    /// `AppConfig::bundled_fonts` to `set_app_fonts`) are in every font
+    /// manager built after that - each window's, the PDF writer's - with the
+    /// coverage of their cmap, in the tier the bundled faces have: they stand
+    /// at their family's place in a stack, and an installed copy of the same
+    /// family wins.
+    #[test]
+    fn a_font_manager_built_after_startup_has_the_apps_fonts() {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fonts/azul-mock-prop.ttf"
+        ))
+        .expect("tests/fonts/azul-mock-prop.ttf");
+        set_app_fonts(&[azul_core::resources::NamedFont::new(
+            "Azul Startup Face".into(),
+            bytes.into(),
+        )]);
+        let fonts = FontManager::<azul_css::props::basic::FontRef>::new(FcFontCache::default())
+            .expect("font manager");
+        let faces = fonts
+            .memory_families
+            .get(&rust_fontconfig::utils::normalize_family_name("Azul Startup Face"))
+            .expect("the app's family is registered");
+        assert_eq!(faces.len(), 1, "one face");
+        assert_eq!(faces[0].tier, MemoryFontTier::Fallback);
+        assert!(
+            faces[0]
+                .font_match
+                .unicode_ranges
+                .iter()
+                .any(|r| r.start <= u32::from('a') && u32::from('a') <= r.end),
+            "with the coverage of its cmap: {:?}",
+            faces[0].font_match.unicode_ranges
+        );
+    }
+}
