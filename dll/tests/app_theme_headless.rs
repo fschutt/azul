@@ -168,8 +168,12 @@ extern "C" fn theme_moving_layout(mut data: RefAny, info: LayoutCallbackInfo) ->
     if flora || extra_row {
         body = body.with_child(Dom::create_div().with_css("height: 20px;"));
     }
+    // The box asks to slide when a rebuild moves it: only a node that
+    // declares `animation: move` ever slides.
     body.with_child(
-        Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_const_slice(BOX_STYLE)),
+        Dom::create_div()
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(BOX_STYLE))
+            .with_css("animation: move 200ms ease-out;"),
     )
 }
 
