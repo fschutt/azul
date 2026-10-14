@@ -598,6 +598,112 @@ fn a_lone_hover_rule_of_the_inputs_scoped_sheet_does_not_colour_the_widget_root_
     assert_eq!(text_colour(&styled, root, true), Some(RED), "hovered it does");
 }
 
+// ── The app's style on a replaced <button> ──────────────────────────────────
+//
+// A raw `<button>` becomes the Button widget, and the widget's look plays the
+// part of the browser's default style for the control: what the app writes on
+// the node is the author's style and wins, as in a browser. The widget's look
+// sits in `@theme(..)` blocks, which outrank an unthemed declaration whatever
+// its order, so the order of the two styles alone cannot decide it. A
+// see-through overlay built as a `<button>` is the case that shows it.
+
+/// The colour of the first background layer node `id` paints in `state`.
+fn background_colour(
+    styled: &StyledDom,
+    id: NodeId,
+    state: &azul_core::styled_dom::StyledNodeState,
+) -> Option<ColorU> {
+    let nodes = styled.node_data.as_container();
+    match styled.get_css_property_cache().get_property(
+        &nodes[id],
+        &id,
+        state,
+        &azul_css::props::property::CssPropertyType::BackgroundContent,
+    )? {
+        CssProperty::BackgroundContent(v) => match v.get_property()?.as_slice().first()? {
+            azul_css::props::style::StyleBackgroundContent::Color(c) => Some(*c),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The top-left corner radius of node `id` at rest.
+fn top_left_radius(
+    styled: &StyledDom,
+    id: NodeId,
+) -> Option<azul_css::props::basic::pixel::PixelValue> {
+    let nodes = styled.node_data.as_container();
+    match styled.get_css_property_cache().get_property(
+        &nodes[id],
+        &id,
+        &azul_core::styled_dom::StyledNodeState::default(),
+        &azul_css::props::property::CssPropertyType::BorderTopLeftRadius,
+    )? {
+        CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| r.inner),
+        _ => None,
+    }
+}
+
+fn raw_button(css: &str) -> Dom {
+    Dom::create_node(NodeType::Button)
+        .with_css(css)
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Go"))
+}
+
+const GREEN: ColorU = ColorU::rgb(0, 255, 0);
+
+#[test]
+fn a_raw_buttons_own_background_and_corners_win_over_the_button_widgets() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(raw_button(
+        "background-color: #00ff00; border-radius: 16px;",
+    )));
+    let button = one_with_class(&styled, BUTTON_CLASS);
+    let rest = azul_core::styled_dom::StyledNodeState::default();
+    assert_eq!(
+        background_colour(&styled, button, &rest),
+        Some(GREEN),
+        "the app's background, not the widget's primary blue"
+    );
+    assert_eq!(
+        top_left_radius(&styled, button),
+        Some(azul_css::props::basic::pixel::PixelValue::px(16.0)),
+        "the app's corners, not the widget's"
+    );
+}
+
+#[test]
+fn a_raw_buttons_resting_background_holds_while_it_is_hovered_and_pressed() {
+    let lw = styling_window();
+    let styled = lw.style_user_dom(page(raw_button("background: transparent;")));
+    let button = one_with_class(&styled, BUTTON_CLASS);
+    for (what, state) in [
+        ("at rest", azul_core::styled_dom::StyledNodeState::default()),
+        (
+            "hovered",
+            azul_core::styled_dom::StyledNodeState {
+                hover: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "pressed",
+            azul_core::styled_dom::StyledNodeState {
+                hover: true,
+                active: true,
+                ..Default::default()
+            },
+        ),
+    ] {
+        let colour = background_colour(&styled, button, &state);
+        assert!(
+            colour.is_none_or(|c| c.a == 0),
+            "{what}: the app's transparent background, not the widget's face {colour:?}"
+        );
+    }
+}
+
 #[test]
 fn constraint_and_form_attributes_stay_on_the_widget_root() {
     // Form validation, the soft keyboard's purpose and reset detection read
