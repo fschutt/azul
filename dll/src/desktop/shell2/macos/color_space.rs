@@ -6,16 +6,60 @@
 //! pixels are in. The same bytes read as the display's own space look too
 //! saturated on a wide-gamut (Display P3) screen, and read as the generic
 //! RGB space (gamma 1.8) they look washed out.
+//!
+//! So the window says its pixels are sRGB, the GL surface's layer says so
+//! too where it takes a colour space, and the CPU view's bitmap is tagged
+//! sRGB. AppKit converts from sRGB to the display, as a browser does, and a
+//! colour looks the same on both renderers and in Chrome.
 
-use objc2::{rc::Retained, AnyThread};
-use objc2_app_kit::NSBitmapImageRep;
+use objc2::{msg_send, rc::Retained, runtime::NSObjectProtocol, sel, AnyThread};
+use objc2_app_kit::{NSBitmapFormat, NSBitmapImageRep, NSColorSpace, NSView, NSWindow};
 use objc2_foundation::ns_string;
 
+use super::super::common::debug_server::LogCategory;
+use crate::log_warn;
+
+/// Tells AppKit that everything shown in `window` is sRGB, and reads the
+/// tags back as one line for the log.
+///
+/// The window's colour space covers the CPU view's drawing and the GL
+/// surface, whose pixels carry no tag of their own and are taken to be in
+/// the window's space. A GL surface drawn through a `CAOpenGLLayer` is not
+/// converted at all while that layer has no colour space, so the layer of
+/// `render_view` gets one too when it takes one.
+pub(super) fn tag_window_srgb(window: &NSWindow, render_view: &NSView) -> String {
+    let srgb = NSColorSpace::sRGBColorSpace();
+    window.setColorSpace(Some(&srgb));
+    let layer = match render_view.layer() {
+        None => "none".to_string(),
+        Some(layer) => {
+            let class = layer.class().name().to_string_lossy().into_owned();
+            match srgb.CGColorSpace() {
+                Some(cg) if layer.respondsToSelector(sel!(setColorspace:)) => {
+                    unsafe {
+                        let _: () = msg_send![&*layer, setColorspace: &*cg];
+                    }
+                    format!("{class}, tagged sRGB")
+                }
+                _ => format!("{class}, in the window's colour space"),
+            }
+        }
+    };
+    let window_space = window
+        .colorSpace()
+        .and_then(|space| space.localizedName())
+        .map_or_else(|| "none".to_string(), |name| name.to_string());
+    format!("colour space of the window: {window_space}; render layer: {layer}")
+}
+
 /// The bitmap the CPU view copies its framebuffer into before drawing it:
-/// `width` x `height` pixels of 8-bit RGBA, premultiplied, top row first.
-/// Its rows may be padded, so writers read `bytesPerRow` back.
+/// `width` x `height` pixels of 8-bit RGBA, premultiplied, top row first,
+/// tagged sRGB. Its rows may be padded, so writers read `bytesPerRow` back.
 pub(super) fn cpu_frame_bitmap(width: usize, height: usize) -> Option<Retained<NSBitmapImageRep>> {
-    unsafe {
+    // A new bitmap is given its colour space by name, and none of the names
+    // is sRGB, so it is made in the generic space and then retagged: the
+    // pixels stay as they are, only the tag changes.
+    let generic = unsafe {
         NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
             NSBitmapImageRep::alloc(),
             std::ptr::null_mut(),
@@ -29,7 +73,46 @@ pub(super) fn cpu_frame_bitmap(width: usize, height: usize) -> Option<Retained<N
             (width * 4) as isize,
             32,
         )
+    }?;
+    let Some(srgb) =
+        generic.bitmapImageRepByRetaggingWithColorSpace(&NSColorSpace::sRGBColorSpace())
+    else {
+        log_warn!(
+            LogCategory::Rendering,
+            "[color_space] the CPU frame could not be tagged sRGB; its colours will look washed out"
+        );
+        return Some(generic);
+    };
+    // The retagged bitmap may keep its pixels as an image until its bytes
+    // are asked for. Asking now gives it the buffer the view writes into, in
+    // the layout AppKit chose. Any layout but the renderer's RGBA would swap
+    // or skew channels, and that is worse than washed-out colours.
+    if srgb.bitmapData().is_null() || !holds_premultiplied_rgba8(&srgb) {
+        log_warn!(
+            LogCategory::Rendering,
+            "[color_space] the sRGB CPU frame came back as {:?}, {} bits per pixel; \
+             drawing it in the generic colour space instead",
+            srgb.bitmapFormat(),
+            srgb.bitsPerPixel()
+        );
+        return Some(generic);
     }
+    Some(srgb)
+}
+
+/// Whether `bitmap` lays its pixels out as the CPU renderer writes them: one
+/// plane of 8-bit red, green, blue and premultiplied alpha, in that order.
+fn holds_premultiplied_rgba8(bitmap: &NSBitmapImageRep) -> bool {
+    !bitmap.isPlanar()
+        && bitmap.samplesPerPixel() == 4
+        && bitmap.bitsPerPixel() == 32
+        && bitmap.bitsPerSample() == 8
+        && !bitmap.bitmapFormat().intersects(
+            NSBitmapFormat::AlphaFirst
+                | NSBitmapFormat::AlphaNonpremultiplied
+                | NSBitmapFormat::FloatingPointSamples
+                | NSBitmapFormat::ThirtyTwoBitLittleEndian,
+        )
 }
 
 #[cfg(test)]
