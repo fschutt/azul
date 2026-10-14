@@ -26,6 +26,7 @@
 //! repeated question without the network (and a stale answer when the network is gone, marked
 //! offline), and [`polite`] keeps the requests to one service apart and pauses after failures.
 //! [`transit`] plans public transport journeys (Transitous by default) and finds places by name.
+//! [`navigation`] guides a car along a route from position fixes; [`simulate`] drives one.
 
 pub mod astar;
 pub mod cache;
@@ -35,10 +36,12 @@ pub mod format;
 pub mod generate;
 pub mod graph;
 pub mod mode;
+pub mod navigation;
 pub mod online;
 pub mod pbf;
 pub mod polite;
 pub mod router;
+pub mod simulate;
 pub mod source;
 pub mod tile;
 pub mod transit;
