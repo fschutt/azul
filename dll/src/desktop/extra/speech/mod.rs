@@ -30,6 +30,45 @@ pub mod windows;
 #[cfg(test)]
 mod tests;
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+use self::apple as platform;
+#[cfg(target_os = "linux")]
+use self::linux as platform;
+#[cfg(target_os = "windows")]
+use self::windows as platform;
+
+/// The platforms without a speech backend yet (Android, the BSDs): nothing to say with.
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "windows"
+)))]
+mod platform {
+    use super::{HeardStatus, SpeechHeard, SpeechStatus};
+
+    pub fn say(_text: &str, _language: &str, _interrupt: bool) -> SpeechStatus {
+        SpeechStatus::Unavailable
+    }
+
+    pub fn stop() {}
+
+    pub fn is_speaking() -> bool {
+        false
+    }
+
+    pub fn is_available() -> bool {
+        false
+    }
+
+    pub fn listen(_language: &str, _timeout_ms: u32) -> SpeechHeard {
+        SpeechHeard::none(
+            HeardStatus::Unavailable,
+            "there is no speech recognition on this platform yet",
+        )
+    }
+}
+
 /// The variable naming the file a headless run appends its utterances to.
 pub const SPEECH_LOG_VAR: &str = "AZ_SPEECH_LOG";
 
@@ -186,8 +225,60 @@ fn backend_of_run() -> Backend {
 /// empty stays empty (the system's voice).
 #[must_use]
 pub fn language_tag(language: &str) -> String {
-    let _ = language;
-    String::new()
+    let tag = language.trim().replace('_', "-");
+    let mut parts = tag.split('-').filter(|p| !p.is_empty());
+    let Some(primary) = parts.next().map(str::to_ascii_lowercase) else {
+        return String::new();
+    };
+    if let Some(region) = parts.next() {
+        return format!("{primary}-{}", region.to_ascii_uppercase());
+    }
+    // The region whose voice a bare language most likely means.
+    let region = match primary.as_str() {
+        "en" => "US",
+        "de" => "DE",
+        "fr" => "FR",
+        "es" => "ES",
+        "it" => "IT",
+        "nl" => "NL",
+        "pt" => "PT",
+        "pl" => "PL",
+        "cs" => "CZ",
+        "da" => "DK",
+        "sv" => "SE",
+        "nb" | "no" => "NO",
+        "fi" => "FI",
+        "ja" => "JP",
+        "zh" => "CN",
+        "ko" => "KR",
+        "ru" => "RU",
+        "tr" => "TR",
+        "el" => "GR",
+        "uk" => "UA",
+        _ => return primary,
+    };
+    format!("{primary}-{region}")
+}
+
+/// SAPI's id of a language (a Windows LCID), for the ones it ships voices for.
+fn sapi_language_id(tag: &str) -> Option<u16> {
+    Some(match tag {
+        "en-US" => 0x409,
+        "en-GB" => 0x809,
+        "de-DE" => 0x407,
+        "de-AT" => 0xC07,
+        "de-CH" => 0x807,
+        "fr-FR" => 0x40C,
+        "es-ES" => 0xC0A,
+        "it-IT" => 0x410,
+        "nl-NL" => 0x413,
+        "pt-PT" => 0x816,
+        "pt-BR" => 0x416,
+        "pl-PL" => 0x415,
+        "ja-JP" => 0x411,
+        "zh-CN" => 0x804,
+        _ => return None,
+    })
 }
 
 /// What SAPI is given for `text` in `language`: the text in a `<lang>` element naming the
@@ -195,32 +286,54 @@ pub fn language_tag(language: &str) -> String {
 /// or one SAPI has no id for.
 #[must_use]
 pub fn sapi_text(text: &str, language: &str) -> (String, bool) {
-    let _ = language;
-    (text.to_string(), false)
+    let Some(id) = sapi_language_id(&language_tag(language)) else {
+        return (text.to_string(), false);
+    };
+    let escaped = text
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;");
+    (format!("<lang langid=\"{id:X}\">{escaped}</lang>"), true)
 }
 
 /// Says `text` on `backend`.
 pub(crate) fn say_with(backend: Backend, text: &str, language: &str, interrupt: bool) -> SpeechStatus {
-    let _ = (backend, text, language, interrupt);
-    SpeechStatus::Unavailable
+    let text = text.trim();
+    if text.is_empty() {
+        return SpeechStatus::Queued;
+    }
+    let language = language_tag(language);
+    match backend {
+        Backend::Headless => {
+            headless::say(text, &language, interrupt);
+            SpeechStatus::Queued
+        }
+        Backend::Platform => platform::say(text, &language, interrupt),
+    }
 }
 
 fn stop_with(backend: Backend) {
-    let _ = backend;
+    if backend == Backend::Platform {
+        platform::stop();
+    }
 }
 
 fn speaking_with(backend: Backend) -> bool {
-    let _ = backend;
-    false
+    backend == Backend::Platform && platform::is_speaking()
 }
 
 fn available_with(backend: Backend) -> bool {
-    let _ = backend;
-    false
+    match backend {
+        Backend::Headless => true,
+        Backend::Platform => platform::is_available(),
+    }
 }
 
 /// Listens on `backend`.
 pub(crate) fn listen_with(backend: Backend, language: &str, timeout_ms: u32) -> SpeechHeard {
-    let _ = (backend, language, timeout_ms);
-    SpeechHeard::none(HeardStatus::Unavailable, "not built")
+    match backend {
+        Backend::Headless => headless::heard(),
+        Backend::Platform => platform::listen(&language_tag(language), timeout_ms.max(1)),
+    }
 }
