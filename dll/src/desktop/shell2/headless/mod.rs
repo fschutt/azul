@@ -2837,12 +2837,24 @@ impl HeadlessWindow {
             // `repaint_only` rebuilds a dirty list first. The display-list
             // diff damages exactly the changed items.
             (self.repaint_only(), "content repaint")
-        } else {
-            // Pure repaint (request_repaint, a paint-only change): render from
-            // the existing DOM. relayout_only() re-lays-out the EXISTING
-            // StyledDom and renders — it never re-invokes the user's layout(),
+        } else if self
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.pending_css_dirty.is_some())
+        {
+            // A restyle staged its CSS dirt for a layout pass (a GPU-only
+            // restyle reports a plain repaint): re-lay-out the EXISTING
+            // StyledDom and render - it never re-invokes the user's layout(),
             // so runtime patches survive.
             (self.relayout_only(), "repaint")
+        } else {
+            // Pure repaint (a pointer move that changed nothing, a GPU-value
+            // frame of a transform tween, request_repaint): paint the layout
+            // as it stands, as the desktop frame paths do (macOS: a light
+            // transaction of scroll offsets and GPU values). A relayout here
+            // laid the whole window out for every pointer event.
+            (self.paint_laid_out(), "repaint")
         };
         if let Err(e) = res {
             log_error!(
