@@ -825,6 +825,16 @@ pub fn collect_image_resource_updates(
                 _ => {}
             }
         }
+        // The text shadows the compositor paints as kept pictures: drawn here
+        // the first time they are seen, and live while a list holds them.
+        let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+        for halo in azul_layout::cpurender::text_halos(
+            &layout_result.display_list.items,
+            dpi,
+            Some((renderer_resources, &layout_window.font_manager)),
+        ) {
+            images_in_display_list.insert(halo.image);
+        }
     }
 
     // The live set as hashes (identity), for the GC diff in the caller.
@@ -1293,7 +1303,7 @@ fn wr_translate_synthetic_italics(italics: SyntheticItalics) -> WrSyntheticItali
 ///
 /// Shared by [`generate_frame`] and [`build_webrender_transaction`], which both
 /// previously inlined this identical font+image registration block.
-fn register_frame_resources(
+pub(crate) fn register_frame_resources(
     layout_window: &mut LayoutWindow,
     txn: &mut WrTransaction,
     dpi: DpiScaleFactor,

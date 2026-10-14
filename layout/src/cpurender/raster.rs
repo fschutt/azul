@@ -3834,7 +3834,11 @@ fn text_clip_pixel_box(clip: AzRect, width: u32, height: u32) -> Option<(i32, i3
 /// a run whose `clip_rect` lay wholly outside it, so ink past a run's
 /// `clip_rect` painted on two paths and not on the third (a list marker cut
 /// by one path and painted by the other).
-fn text_run_clip(clip_rect: &LogicalRect, clip: Option<AzRect>, dpi_factor: f32) -> Option<AzRect> {
+pub(super) fn text_run_clip(
+    clip_rect: &LogicalRect,
+    clip: Option<AzRect>,
+    dpi_factor: f32,
+) -> Option<AzRect> {
     let own = logical_rect_to_az_rect(clip_rect, dpi_factor)?;
     match clip {
         Some(c) => own.clip(&c),
@@ -4682,11 +4686,11 @@ pub(super) fn render_text(
 
 /// A box of device pixels in the target pixmap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PixelBox {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
+pub(super) struct PixelBox {
+    pub(super) x: i32,
+    pub(super) y: i32,
+    pub(super) width: u32,
+    pub(super) height: u32,
 }
 
 /// Where one text shadow is drawn: `buffer` is the offscreen its glyphs are
@@ -4806,13 +4810,7 @@ fn render_text_shadow(
         .inner
         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
         .max(0.0);
-    // The blur in device pixels.
-    let blur_px = blur_logical * dpi_factor;
-    let radius = if blur_px > 0.5 {
-        (blur_px.ceil() as u32).min(254)
-    } else {
-        0
-    };
+    let radius = shadow_blur_radius(blur_logical, dpi_factor);
 
     let shadow_clip_rect = LogicalRect {
         origin: LogicalPosition {
@@ -4829,14 +4827,6 @@ fn render_text_shadow(
         return;
     };
     let buffer = boxes.buffer;
-    let Some(mut tmp) = AzulPixmap::new(buffer.width, buffer.height) else {
-        return;
-    };
-    tmp.fill(0, 0, 0, 0);
-
-    // The buffer starts at (buffer.x, buffer.y) of the target: the glyphs and
-    // their clip move by that much to land in it.
-    let (dx, dy) = (buffer.x as f32 / dpi_factor, buffer.y as f32 / dpi_factor);
     let shifted: Vec<GlyphInstance> = glyphs
         .iter()
         .map(|g| {
@@ -4846,46 +4836,26 @@ fn render_text_shadow(
             g
         })
         .collect();
-    let buffer_clip_rect = LogicalRect {
-        origin: LogicalPosition {
-            x: shadow_clip_rect.origin.x - dx,
-            y: shadow_clip_rect.origin.y - dy,
-        },
-        size: shadow_clip_rect.size,
-    };
-    let buffer_clip = AzRect::from_xywh(
-        source.x - buffer.x as f32,
-        source.y - buffer.y as f32,
-        source.width,
-        source.height,
-    );
-    if buffer_clip.is_none() {
-        return;
-    }
-    render_text(
-        &shifted,
+    let run = BufferedRun {
+        glyphs: &shifted,
         font_hash,
         font_size_px,
+        clip_rect: shadow_clip_rect,
+        clip: source,
+    };
+    let Some(tmp) = blurred_glyphs(
+        &[run],
         color,
-        &mut tmp,
-        &buffer_clip_rect,
-        buffer_clip,
+        buffer,
+        radius,
         renderer_resources,
         font_manager,
         dpi_factor,
         glyph_cache,
-        (scroll_offset.0 + dx, scroll_offset.1 + dy),
-        // Always grayscale: the shadow offscreen is transparent, so the LCD
-        // per-channel path (which assumes an opaque bg) would corrupt it.
-        true,
-    );
-
-    if radius > 0 {
-        let (w, h) = (tmp.width, tmp.height);
-        let stride = (w * 4) as i32;
-        let mut ra = unsafe { RowAccessor::new_with_buf(tmp.data.as_mut_ptr(), w, h, stride) };
-        stack_blur_rgba32(&mut ra, radius, radius);
-    }
+        scroll_offset,
+    ) else {
+        return;
+    };
 
     // Composite the (premultiplied) shadow where it lands.
     let out = boxes.out;
@@ -4901,6 +4871,91 @@ fn render_text_shadow(
         out.x,
         out.y,
     );
+}
+
+/// A shadow's blur radius in device pixels, from its CSS `blur` length:
+/// none under half a pixel, at most the stack blur's 254.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a bounded radius
+pub(super) fn shadow_blur_radius(blur_logical: f32, dpi_factor: f32) -> u32 {
+    let blur_px = blur_logical * dpi_factor;
+    if blur_px > 0.5 {
+        (blur_px.ceil() as u32).min(254)
+    } else {
+        0
+    }
+}
+
+/// One glyph run drawn into a shadow's buffer: its glyphs and clip rect in
+/// CSS px of the target, its clip in device px of the target.
+pub(super) struct BufferedRun<'a> {
+    pub(super) glyphs: &'a [GlyphInstance],
+    pub(super) font_hash: FontHash,
+    pub(super) font_size_px: f32,
+    pub(super) clip_rect: LogicalRect,
+    pub(super) clip: AzRect,
+}
+
+/// `runs` drawn in `color` into a transparent `buffer` - device px of the
+/// target, where it will land - and blurred by `radius` pixels: a text
+/// shadow before it is composited. Always grayscale coverage: the buffer is
+/// transparent, and LCD text assumes an opaque backdrop.
+#[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::too_many_arguments)]
+pub(super) fn blurred_glyphs(
+    runs: &[BufferedRun<'_>],
+    color: ColorU,
+    buffer: PixelBox,
+    radius: u32,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+) -> Option<AzulPixmap> {
+    let mut tmp = AzulPixmap::new(buffer.width, buffer.height)?;
+    tmp.fill(0, 0, 0, 0);
+    // The buffer starts at (buffer.x, buffer.y) of the target: the glyphs and
+    // their clips move by that much to land in it.
+    let (dx, dy) = (buffer.x as f32 / dpi_factor, buffer.y as f32 / dpi_factor);
+    for run in runs {
+        let clip_rect = LogicalRect {
+            origin: LogicalPosition {
+                x: run.clip_rect.origin.x - dx,
+                y: run.clip_rect.origin.y - dy,
+            },
+            size: run.clip_rect.size,
+        };
+        let clip = AzRect::from_xywh(
+            run.clip.x - buffer.x as f32,
+            run.clip.y - buffer.y as f32,
+            run.clip.width,
+            run.clip.height,
+        );
+        if clip.is_none() {
+            continue;
+        }
+        render_text(
+            run.glyphs,
+            run.font_hash,
+            run.font_size_px,
+            color,
+            &mut tmp,
+            &clip_rect,
+            clip,
+            renderer_resources,
+            font_manager,
+            dpi_factor,
+            glyph_cache,
+            (scroll_offset.0 + dx, scroll_offset.1 + dy),
+            true,
+        );
+    }
+    if radius > 0 {
+        let (w, h) = (tmp.width, tmp.height);
+        let stride = (w * 4) as i32;
+        let mut ra = unsafe { RowAccessor::new_with_buf(tmp.data.as_mut_ptr(), w, h, stride) };
+        stack_blur_rgba32(&mut ra, radius, radius);
+    }
+    Some(tmp)
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c

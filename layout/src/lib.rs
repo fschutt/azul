@@ -480,6 +480,9 @@ pub mod callbacks;
 // Scoped (was crate-wide): complex rasterizer signatures.
 #[allow(clippy::type_complexity)]
 pub mod cpurender;
+/// A bounded memo for pictures drawn again and again from the same inputs.
+#[cfg(feature = "cpurender")]
+pub mod image_memo;
 /// Which context menu a secondary click opens - the one pick every shell
 /// presents.
 #[cfg(feature = "text_layout")]

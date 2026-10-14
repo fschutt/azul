@@ -90,6 +90,8 @@ mod coregraphics;
 mod corevideo;
 mod events;
 mod gl;
+#[cfg(test)]
+pub(crate) mod headless_gpu;
 pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;
@@ -7820,8 +7822,9 @@ impl MacOSWindow {
     }
 
     /// Let the desktop show through the GL surface where the frame's alpha
-    /// is below one (`NSOpenGLCPSurfaceOpacity` 0 and a non-opaque layer),
-    /// or make it opaque again. A no-op without a GL context.
+    /// is below one (`NSOpenGLCPSurfaceOpacity` 0, a non-opaque layer and a
+    /// view that says it is not opaque), or make it opaque again. A no-op
+    /// without a GL context.
     fn set_gl_surface_see_through(&self, see_through: bool) {
         const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
         let opacity: i32 = i32::from(!see_through);
@@ -7835,6 +7838,8 @@ impl MacOSWindow {
             }
         }
         if let Some(ref gl_view) = self.gl_view {
+            // AppKit sets a layer-backed view's layer from `isOpaque` again
+            // when it updates the layer, so the view has to answer too.
             gl_view.set_transparent(see_through);
             unsafe {
                 let view_ptr = Retained::as_ptr(gl_view) as *const NSView;

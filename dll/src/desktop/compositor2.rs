@@ -26,6 +26,7 @@ use azul_css::props::{
     style::border_radius::StyleBorderRadius,
 };
 use azul_layout::{
+    cpurender::{text_halos, TextHalo},
     solver3::display_list::{BorderRadius, DisplayList},
     window::DomLayoutResult,
 };
@@ -277,8 +278,19 @@ pub fn translate_displaylist_to_wr(
         };
     }
 
+    // The text shadows drawn as kept pictures (`text_halos`; their images
+    // were drawn and registered with the frame's resources), by the index of
+    // their PushTextShadow. Every other shadow goes to WebRender's own.
+    let halos: BTreeMap<usize, TextHalo> = text_halos(&display_list.items, dpi_scale, None)
+        .into_iter()
+        .map(|halo| (halo.push, halo))
+        .collect();
+    // One entry per open PushTextShadow: whether it went to WebRender's
+    // shadow stack, which its PopTextShadow has to pop.
+    let mut wr_shadows: Vec<bool> = Vec::new();
+
     // Translate display list items to WebRender
-    for item in &display_list.items {
+    for (item_index, item) in display_list.items.iter().enumerate() {
         match item {
             DisplayListItem::Rect {
                 bounds,
@@ -2196,6 +2208,37 @@ pub fn translate_displaylist_to_wr(
                     "[compositor2] PushTextShadow: {:?}",
                     shadow
                 );
+                // A kept halo is painted as an image tinted with the shadow's
+                // colour, below the text that follows, as WebRender paints
+                // its own shadow: no surface and no blur pass this frame.
+                let halo = halos.get(&item_index).and_then(|halo| {
+                    renderer_resources
+                        .get_image(&halo.image.get_hash())
+                        .map(|resolved| (halo, resolved.key))
+                });
+                if let Some((halo, key)) = halo {
+                    let offset = current_offset!();
+                    let rect = LayoutRect::from_origin_and_size(
+                        LayoutPoint::new(halo.origin.0 - offset.0, halo.origin.1 - offset.1),
+                        LayoutSize::new(halo.width as f32, halo.height as f32),
+                    );
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: current_clip!(),
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_image(
+                        &info,
+                        rect,
+                        webrender::api::ImageRendering::Auto,
+                        WrAlphaType::PremultipliedAlpha,
+                        translate_image_key(key),
+                        color_u_to_wr(&halo.color),
+                    );
+                    wr_shadows.push(false);
+                    continue;
+                }
                 let current_spatial_id = current_spatial!();
                 let current_clip_chain = current_clip!();
                 let offset_x = shadow.offset_x.inner.to_pixels_internal(
@@ -2223,10 +2266,13 @@ pub fn translate_displaylist_to_wr(
                     clip_chain_id: current_clip_chain,
                 };
                 builder.push_shadow(&space_and_clip, wr_shadow, true);
+                wr_shadows.push(true);
             }
             DisplayListItem::PopTextShadow => {
                 log_debug!(LogCategory::DisplayList, "[compositor2] PopTextShadow");
-                builder.pop_all_shadows();
+                if wr_shadows.pop() == Some(true) {
+                    builder.pop_all_shadows();
+                }
             }
 
             // A STROKED PATH. WebRender has no vector rasteriser, so the
@@ -3622,5 +3668,510 @@ mod reference_frame_tests {
             (got.x - 270.0).abs() < 0.01 && (got.y - 50.0).abs() < 0.01,
             "{got:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod text_halo_tests {
+    //! What WebRender is handed for text under a blurred shadow, a map
+    //! label's halo. A map pans by drawing every label again where it moved,
+    //! on every frame; WebRender draws a blurred shadow as an offscreen
+    //! surface blurred in two passes, so a frame of a pan paid that for each
+    //! label. A halo is drawn once as a picture and painted as an image.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::{DpiScaleFactor, RendererResources},
+        styled_dom::StyledDom,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+    use webrender::{
+        api::{units::DeviceIntSize, BuiltDisplayList, DisplayItem, ImageKey, PipelineId},
+        render_api::Transaction,
+    };
+
+    use super::translate_displaylist_to_wr;
+    use crate::desktop::wr_translate2::register_frame_resources;
+
+    const LABELS: usize = 6;
+    /// Ink that leaves the labels' shadows as all that paints: at an alpha
+    /// of 0.01 it darkens white by three at most.
+    const FAINT_INK: &str = "rgba(0, 0, 0, 0.01)";
+
+    /// Six map labels as the map draws them (`label_dom`): absolutely placed,
+    /// each in its halo, every other one turned along its road when `turned`;
+    /// `dx` moves them all, as a pan does.
+    pub(super) fn labels(dx: f32, ink: &str, halo: &str, turned: bool) -> Dom {
+        let mut grid = Dom::create_div().with_css(
+            "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; \
+             overflow: hidden; background: #ffffff;",
+        );
+        for i in 0..LABELS {
+            let turn = if turned && i % 2 == 1 { " transform: rotate(12.00deg);" } else { "" };
+            let style = format!(
+                "position: absolute; left: {:.1}px; top: {}px; width: 80px; height: 14px; \
+                 margin: 0px; font-size: 12px; line-height: 14px; color: {ink}; \
+                 text-align: center; white-space: nowrap; text-shadow: 0px 0px 2px {halo};{turn}",
+                20.0 + dx + 90.0 * i as f32,
+                40 + 20 * i,
+            );
+            grid = grid.with_child(
+                Dom::create_p()
+                    .with_css(style.as_str())
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        format!("Main St {i}"),
+                    )),
+            );
+        }
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div()
+                .with_css("position: relative; width: 600px; height: 200px;")
+                .with_child(grid),
+        )
+    }
+
+    /// The WebRender list of one frame of `dom` in `window`, at 2x, its fonts
+    /// and images registered as a frame registers them.
+    fn frame(window: &mut LayoutWindow, dom: Dom) -> BuiltDisplayList {
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(600.0, 200.0);
+        state.size.dpi = 192;
+        window.current_window_state = state.clone();
+        let mut messages = None;
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(dom),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut messages,
+            )
+            .expect("the labels lay out");
+        let dpi = DpiScaleFactor::new(2.0);
+        register_frame_resources(window, &mut Transaction::new(), dpi);
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let (_, built, _) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(1200, 400),
+            &window.renderer_resources,
+            dpi,
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("the frame translates");
+        built
+    }
+
+    /// The shadows and the images of a built list, in list order.
+    fn shadows_and_images(list: &BuiltDisplayList) -> (usize, Vec<ImageKey>) {
+        let (mut shadows, mut images) = (0, Vec::new());
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::PushShadow(_) => shadows += 1,
+                DisplayItem::Image(image) => images.push(image.image_key),
+                _ => {}
+            }
+        }
+        (shadows, images)
+    }
+
+    #[test]
+    fn a_panned_maps_label_halos_reach_webrender_as_kept_pictures_not_blurs() {
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let first = frame(&mut window, labels(0.0, "#333333", "#ffffff", true));
+        let moved = frame(&mut window, labels(37.5, "#333333", "#ffffff", true));
+        let (shadows, halos) = shadows_and_images(&first);
+        assert_eq!(shadows, 0, "no label's halo is a WebRender shadow, a blurred surface");
+        assert_eq!(halos.len(), LABELS, "every label's halo is a picture");
+        assert_eq!(
+            shadows_and_images(&moved),
+            (0, halos),
+            "the labels moved, their halos did not change: the same pictures"
+        );
+    }
+
+    /// A halo tinted with its colour is the CPU renderer's text shadow, so the
+    /// GPU paints what the CPU paints. Upright labels in all but clear ink -
+    /// their shadows are what paints; clear text is not drawn at all, nor its
+    /// shadow - and black halos on white: each picture laid over
+    /// white where it lands holds the CPU frame's pixels.
+    #[test]
+    fn a_halo_tinted_with_its_colour_is_the_cpu_renderers_text_shadow() {
+        use azul_layout::{
+            cpurender::{render, text_halos, RenderOptions},
+            glyph_cache::GlyphCache,
+        };
+
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let _ = frame(&mut window, labels(0.0, FAINT_INK, "#000000", false));
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let cpu = render(
+            &list,
+            &window.renderer_resources,
+            &window.font_manager,
+            RenderOptions {
+                width: 600.0,
+                height: 200.0,
+                dpi_factor: 2.0,
+            },
+            &mut GlyphCache::new(),
+        )
+        .expect("the CPU renderer draws the frame");
+        let halos = text_halos(&list.items, 2.0, None);
+        assert_eq!(halos.len(), LABELS, "every label's halo is kept");
+        let mut worst = (0u8, (0, 0));
+        for halo in &halos {
+            let picture = halo.image.get_bytes().expect("a halo is a picture in memory");
+            let (x0, y0) = (halo.origin.0 as i64, halo.origin.1 as i64);
+            for y in 0..i64::from(halo.height) {
+                for x in 0..i64::from(halo.width) {
+                    let (px, py) = (x0 + x, y0 + y);
+                    if px < 0 || py < 0 || px >= i64::from(cpu.width) || py >= i64::from(cpu.height) {
+                        continue;
+                    }
+                    let coverage = picture[((y * i64::from(halo.width) + x) * 4 + 3) as usize];
+                    let over_white = 255 - coverage;
+                    let at = ((py * i64::from(cpu.width) + px) * 4) as usize;
+                    let difference = cpu.data()[at].abs_diff(over_white);
+                    if difference > worst.0 {
+                        worst = (difference, (px, py));
+                    }
+                }
+            }
+        }
+        assert!(
+            worst.0 <= 24,
+            "a halo laid over white differs from the CPU's shadow by {} at {:?}",
+            worst.0,
+            worst.1
+        );
+    }
+
+    /// The same frame drawn by WebRender: the GPU's halos are the CPU's.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_labels_halo_on_the_gpu_is_the_cpu_renderers_halo() {
+        use crate::desktop::shell2::macos::headless_gpu::{draw_both, keep, largest_difference};
+
+        let dom = labels(0.0, FAINT_INK, "#000000", false);
+        let Some(frames) = draw_both(dom, 600.0, 200.0, 2.0) else {
+            return;
+        };
+        keep("label-halos", &frames);
+        let (difference, at) = largest_difference(&frames.gpu, &frames.cpu, (0, 0, 1200, 400));
+        assert!(difference <= 24, "the GPU's halos differ from the CPU's by {difference} at {at:?}");
+    }
+}
+
+#[cfg(test)]
+mod flora_window_tests {
+    //! A whole flora window as WebRender is handed it: the ribbon's tab strip
+    //! (its selected tab's S-curves are SVG path masks over gradients), a tab
+    //! bar and the stone buttons, at 1x and 2x. The gradients and the masks
+    //! are what the GPU drew wrong; these hold every one of them to the rules
+    //! the single-item tests above pin.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::{DpiScaleFactor, RendererResources},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{AzString, StringVec};
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks,
+        widgets::{
+            button::{Button, ButtonType},
+            ribbon::{Ribbon, RibbonAppButton, RibbonTab, RibbonTabVec},
+            tabs::TabHeader,
+            themes::UiTheme,
+        },
+        window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+    use webrender::{
+        api::{units::DeviceIntSize, BuiltDisplayList, ClipChainId, ClipId, DisplayItem, PipelineId},
+        render_api::Transaction,
+    };
+
+    use super::translate_displaylist_to_wr;
+    use crate::desktop::wr_translate2::register_frame_resources;
+
+    /// AzDrive's ribbon (the application button, the second tab selected), a
+    /// flora tab bar and a primary, a default and a danger button.
+    pub(super) fn flora_window() -> Dom {
+        let ribbon = Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("Computer")),
+            RibbonTab::new(AzString::from("Ansicht")),
+        ]))
+        .with_theme(UiTheme::Flora)
+        .with_app_button(RibbonAppButton::new(AzString::from("Datei")))
+        .with_active_tab(1)
+        .dom_desktop();
+        let tab_bar = TabHeader::create(StringVec::from_vec(vec![
+            AzString::from("Allgemein"),
+            AzString::from("Freigabe"),
+            AzString::from("Sicherheit"),
+        ]))
+        .with_theme(UiTheme::Flora)
+        .with_active_tab(1)
+        .dom();
+        let mut buttons = Dom::create_div().with_css("display: flex; column-gap: 8px; padding: 8px;");
+        for (label, kind) in [
+            ("OK", ButtonType::Primary),
+            ("Abbrechen", ButtonType::Default),
+            ("Entfernen", ButtonType::Danger),
+        ] {
+            buttons = buttons.with_child(
+                Button::create(AzString::from(label))
+                    .with_theme(UiTheme::Flora)
+                    .with_button_type(kind)
+                    .dom(),
+            );
+        }
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(ribbon)
+            .with_child(tab_bar)
+            .with_child(buttons)
+    }
+
+    /// The WebRender list of the flora window at `dpi`, its fonts and images
+    /// (the masks among them) registered as a frame registers them.
+    fn built(dpi: f32) -> BuiltDisplayList {
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(500.0, 260.0);
+        state.size.dpi = (96.0 * dpi) as u32;
+        window.current_window_state = state.clone();
+        let mut messages = None;
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(flora_window()),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut messages,
+            )
+            .expect("the window lays out");
+        register_frame_resources(&mut window, &mut Transaction::new(), DpiScaleFactor::new(dpi));
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let (_, built, _) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new((500.0 * dpi) as i32, (260.0 * dpi) as i32),
+            &window.renderer_resources,
+            DpiScaleFactor::new(dpi),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("the window translates");
+        built
+    }
+
+    /// WebRender fills its gradient table from a stop at 0 to a stop at 1
+    /// and logs "Gradient stops abruptly ..., auto-completing to white" for
+    /// a gradient whose stops end early - and paints that white. Every
+    /// gradient of the window reaches it with stops from 0 to 1, in order.
+    #[test]
+    fn every_gradient_of_a_flora_window_reaches_webrender_with_stops_from_0_to_1() {
+        for dpi in [1.0, 2.0] {
+            let list = built(dpi);
+            let mut gradients = 0;
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                let kind = match item.item() {
+                    DisplayItem::Gradient(_) => "linear",
+                    DisplayItem::RadialGradient(_) => "radial",
+                    DisplayItem::ConicGradient(_) => "conic",
+                    _ => continue,
+                };
+                gradients += 1;
+                let offsets: Vec<f32> = item.gradient_stops().iter().map(|s| s.offset).collect();
+                let ordered = offsets.windows(2).all(|pair| pair[0] <= pair[1]);
+                let (first, last) = (offsets.first().copied(), offsets.last().copied());
+                assert!(
+                    ordered
+                        && first.is_some_and(|f| f.abs() < 1e-4)
+                        && last.is_some_and(|l| (l - 1.0).abs() < 1e-4),
+                    "a {kind} gradient at {dpi}x reaches WebRender with stops {offsets:?}"
+                );
+            }
+            assert!(gradients > 20, "the flora window paints its gradients ({gradients} at {dpi}x)");
+        }
+    }
+
+    /// WebRender applies an image mask to a stacking context, which it draws
+    /// to a surface and masks as a whole; a gradient, text or image that only
+    /// carries the mask in its own clip chain is drawn unmasked - the selected
+    /// tab's curves were drawn as boxes. Every mask of the window's curves
+    /// clips a stacking context and no gradient, text or image. (A plain
+    /// colour is masked in its own chain: a stroke is painted that way.)
+    #[test]
+    fn every_image_mask_of_a_flora_window_clips_a_stacking_context_and_no_single_item() {
+        for dpi in [1.0, 2.0] {
+            let list = built(dpi);
+            let mut masks: Vec<ClipId> = Vec::new();
+            let mut masked_chains: Vec<ClipChainId> = Vec::new();
+            let mut masked_contexts = 0;
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                let masked = |chain: ClipChainId, chains: &[ClipChainId]| chains.contains(&chain);
+                match item.item() {
+                    DisplayItem::ImageMaskClip(mask) => masks.push(mask.id),
+                    DisplayItem::ClipChain(chain) => {
+                        if item.clip_chain_items().iter().any(|c| masks.contains(c))
+                            || chain.parent.is_some_and(|p| masked_chains.contains(&p))
+                        {
+                            masked_chains.push(chain.id);
+                        }
+                    }
+                    DisplayItem::PushStackingContext(sc) => {
+                        if sc
+                            .stacking_context
+                            .clip_chain_id
+                            .is_some_and(|c| masked(c, &masked_chains))
+                        {
+                            masked_contexts += 1;
+                        }
+                    }
+                    DisplayItem::Gradient(g) => {
+                        assert!(!masked(g.common.clip_chain_id, &masked_chains), "a gradient carries a mask at {dpi}x")
+                    }
+                    DisplayItem::RadialGradient(g) => {
+                        assert!(!masked(g.common.clip_chain_id, &masked_chains), "a radial gradient carries a mask")
+                    }
+                    DisplayItem::Text(t) => {
+                        assert!(!masked(t.common.clip_chain_id, &masked_chains), "text carries a mask at {dpi}x")
+                    }
+                    DisplayItem::Image(i) => {
+                        assert!(!masked(i.common.clip_chain_id, &masked_chains), "an image carries a mask at {dpi}x")
+                    }
+                    _ => {}
+                }
+            }
+            assert!(
+                masked_contexts >= 4,
+                "the selected tab's and the application button's curves are masked at {dpi}x \
+                 ({masked_contexts} masked contexts, {} masks)",
+                masks.len()
+            );
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tab_curve_pixel_tests {
+    //! The curves of flora's selected ribbon tab and application button as
+    //! the GPU draws them, held to the CPU renderer's frame. Each curve is a
+    //! stone and a band of metal, both cut by an SVG mask; a mask, clip or
+    //! border slice that WebRender is handed wrong shows inside the curve's
+    //! box as a block, a seam or a bar, where the two frames then part.
+
+    use azul_core::dom::Dom;
+    use azul_css::AzString;
+    use azul_layout::{
+        solver3::display_list::DisplayListItem,
+        widgets::{
+            ribbon::{Ribbon, RibbonAppButton, RibbonTab, RibbonTabVec},
+            themes::UiTheme,
+            titlebar::TabsInTitlebar,
+        },
+    };
+
+    use crate::desktop::shell2::macos::headless_gpu::{draw_both, keep, pixels_differing};
+
+    /// AzDrive's ribbon: the application button and the second tab
+    /// selected, the strip in the titlebar or below it.
+    fn ribbon(in_titlebar: bool) -> Dom {
+        let tabs = RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("Computer")),
+            RibbonTab::new(AzString::from("Ansicht")),
+        ]);
+        let mut ribbon = Ribbon::new(tabs)
+            .with_theme(UiTheme::Flora)
+            .with_app_button(RibbonAppButton::new(AzString::from("Datei")))
+            .with_active_tab(1);
+        if in_titlebar {
+            ribbon = ribbon.with_tabs_in_titlebar(TabsInTitlebar::platform());
+        }
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(ribbon.dom_desktop())
+    }
+
+    /// Inside every curve's box at most one pixel in twenty-five differs from
+    /// the CPU's frame by more than an edge's antialiasing (32 in a channel),
+    /// which leaves room for a box edge on a half device pixel; a bar three
+    /// CSS px wide down a curve is fifteen in a hundred.
+    #[test]
+    fn the_ribbons_tab_curves_are_drawn_on_the_gpu_as_on_the_cpu() {
+        const DPI: f32 = 2.0;
+        for in_titlebar in [false, true] {
+            let Some(frames) = draw_both(ribbon(in_titlebar), 500.0, 140.0, DPI) else {
+                return;
+            };
+            keep(&format!("ribbon-curves-titlebar-{in_titlebar}"), &frames);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let curves: Vec<(u32, u32, u32, u32)> = frames
+                .display_list
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    DisplayListItem::PushImageMaskClip { mask_rect, .. } => {
+                        let r = mask_rect.inner();
+                        let (x0, y0) = ((r.origin.x * DPI).floor(), (r.origin.y * DPI).floor());
+                        let x1 = ((r.origin.x + r.size.width) * DPI).ceil();
+                        let y1 = ((r.origin.y + r.size.height) * DPI).ceil();
+                        (x0 >= 0.0 && y0 >= 0.0 && x1 > x0 && y1 > y0).then(|| {
+                            (x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32)
+                        })
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                curves.len() >= 8,
+                "the application button's and the selected tab's curves are masked \
+                 ({} masks, titlebar {in_titlebar})",
+                curves.len()
+            );
+            for curve in curves {
+                let (differing, worst) = pixels_differing(&frames.gpu, &frames.cpu, curve, 32);
+                assert!(
+                    differing * 25 <= curve.2 * curve.3,
+                    "{differing} of the {} pixels of the curve at {curve:?} differ from the \
+                     CPU's (titlebar {in_titlebar}), the worst by {} at {:?}",
+                    curve.2 * curve.3,
+                    worst.0,
+                    worst.1
+                );
+            }
+        }
     }
 }
