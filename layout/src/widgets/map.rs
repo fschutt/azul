@@ -4082,8 +4082,8 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     };
     //
     // A tile without a drawing of its own at full opacity shows what stands
-    // in for it (`tile_stack`): the coarser tile over it, the finer ones
-    // under it, the other look's drawing - and its own fading in on top.
+    // in for it (`tile_stack`): the coarser tile it lies in, the finer ones
+    // it covers, the other look's drawing - and its own fading in on top.
     // Those stand-ins are remembered so the prune keeps them.
     let now = map_clock();
     let states: BTreeMap<MapTileId, TileDisplay> = match data.downcast_mut::<MapTileCache>() {
@@ -4123,6 +4123,8 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             cache.stand_ins = stand_ins;
             // The tiles still fading in keep the view drawing; the ones done
             // are shown at full from now on.
+            // (Only a fade still running moves `fade_until`: moving it to
+            // every render's time would keep the fade timer drawing forever.)
             let tiles_settle = cache
                 .arrived
                 .values()
@@ -4130,7 +4132,9 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                 .filter(|end| *end > now)
                 .fold(now, f64::max);
             cache.arrived.retain(|_, at| now - *at < TILE_FADE_SECS);
-            cache.fade_until = cache.fade_until.max(tiles_settle);
+            if tiles_settle > now {
+                cache.fade_until = cache.fade_until.max(tiles_settle);
+            }
             out
         }
         None => BTreeMap::new(),
@@ -4490,7 +4494,9 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     let mut label_nodes = 0usize;
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
         let frame = cache.labels.place(&label_candidates, &label_view, now);
-        cache.fade_until = cache.fade_until.max(frame.settled_at);
+        if frame.settled_at > now {
+            cache.fade_until = cache.fade_until.max(frame.settled_at);
+        }
         for placed in &frame.placed {
             let label = match placed.from {
                 labels::PlacedFrom::Candidate(i) => Some(label_candidates[i].label),
