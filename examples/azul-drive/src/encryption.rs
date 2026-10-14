@@ -96,11 +96,13 @@ pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
 /// The drive index's provider with this computer's copies under `cache_root`. The copies
 /// are lazy (C6): opening reads the pack indexes only, and a folder's objects arrive in
 /// ranged chunk reads when it is browsed, so a computer new to a drive browses it before
-/// every pack has downloaded.
+/// every pack has downloaded. Small files are packed together (one ranged read each, one
+/// index commit per pack), their journal beside the drive's index copy.
 fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
     MetaIndexProvider::new("AzDrive")
         .with_cache_root(cache_root)
         .with_lazy(true)
+        .with_packing(true)
 }
 
 /// The run's cache folder (`--cache-dir`, else `<cache>/AzDrive`; `None` in a `--shot` run
@@ -340,9 +342,18 @@ fn run_maintenance(
     let drive_key = device::unlock(bucket.as_ref(), keyring, drive)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
-    provider
+    let maintained = provider
         .maintain(Arc::clone(bucket), &drive_key, rules)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // The packs of small files, when the index's round ran (there is an index): uploads a
+    // crash left half done cleared up, sparse packs repacked, retired packs deleted after
+    // their grace period.
+    if maintained.is_some() {
+        open_encrypted(Arc::clone(bucket), keyring, drive, provider)
+            .and_then(|encrypted| encrypted.maintain_packs(now_unix()))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(maintained)
 }
 
 // ==== The dialog ====
