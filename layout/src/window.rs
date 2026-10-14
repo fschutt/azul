@@ -14915,8 +14915,10 @@ impl LayoutWindow {
                 // instead of instant updates. Because a mid-flight override
                 // lives in the old cache too, `before` reads the CURRENT
                 // animated value — retargeting falls out for free.
+                // Read for every matched node, and most declare none: the
+                // declared-only lookup answers those without a cascade walk.
                 let old_anims = old_cache
-                    .get_property(
+                    .get_property_if_declared(
                         old_nd,
                         &m.old_node_id,
                         &old_state.styled_node_state,

@@ -3144,6 +3144,55 @@ impl CssPropertyCache {
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
     }
 
+    /// Whether node `index` declares `ty` anywhere the cascade looks for a
+    /// declaration, in any state: a user override, its own style, a
+    /// stylesheet rule, what it inherited, or a `*` rule. `false` means
+    /// [`Self::get_property`] can only answer the computed value or the UA
+    /// default for it.
+    #[must_use]
+    pub fn declares(&self, node_data: &NodeData, index: usize, ty: CssPropertyType) -> bool {
+        self.user_overridden_properties
+            .get(index)
+            .is_some_and(|v| v.binary_search_by_key(&ty, |(k, _)| *k).is_ok())
+            || self.inline_properties(node_data, index).any(|(p, _)| p.get_type() == ty)
+            || self.css_props.get_slice(index).iter().any(|p| p.prop_type == ty)
+            || self.cascaded_props.get_slice(index).iter().any(|p| p.prop_type == ty)
+            || self.global_css_props.iter().any(|p| p.get_type() == ty)
+    }
+
+    /// [`Self::get_property`], answering a type the node declares nowhere
+    /// ([`Self::declares`]) straight from its computed value and the UA
+    /// default instead of walking every state tier: what a pass that reads
+    /// one type of every node of a tree (a rebuild reading each node's
+    /// `animation`) wants, where most nodes declare none.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // the same signature as `get_property`
+    #[must_use]
+    pub fn get_property_if_declared<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<&'a CssProperty> {
+        let index = node_id.index();
+        if self.declares(node_data, index, *css_property_type) {
+            return self.get_property(node_data, node_id, node_state, css_property_type);
+        }
+        // The tail of the full walk (`get_property_slow`), which is all it
+        // could have found.
+        if css_property_type.is_inheritable() {
+            if let Some(v) = self.computed_values.get(index, *css_property_type) {
+                return Some(&v.property);
+            }
+        }
+        crate::ua_css::get_ua_default(
+            node_data,
+            takes_root_ua_default(index, *css_property_type, &self.inherited_from_host),
+            *css_property_type,
+            self.dynamic_context.as_deref(),
+        )
+    }
+
     #[cfg(feature = "std")]
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
                                                  // find_in_stateful)
