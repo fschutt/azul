@@ -1226,7 +1226,7 @@ fn sidebar(s: &MapState, app: &RefAny) -> Dom {
 
 /// A place's card, in the popover at its pin: what it is, where it is,
 /// directions to it, remove it.
-fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
+fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64, address: Option<&str>) -> Dom {
     let pin = || {
         RefAny::new(PinRef {
             app: app.clone(),
@@ -1238,7 +1238,11 @@ fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(CARD_TITLE)
-                .with_child(Dom::create_span_with_text(label("azmaps-dropped-pin"))),
+                .with_child(Dom::create_span_with_text(match address {
+                    // The search's address of the place, else what it is.
+                    Some(address) => AzString::from(address.to_string()),
+                    None => label("azmaps-dropped-pin"),
+                })),
         )
         .with_child(
             Dom::create_div()
@@ -1358,7 +1362,8 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
             .with_anchor(PIN_HALF_WIDTH, PIN_TIP_DEPTH)
             .with_name(AzString::from(coords(lat, lon)));
         if pin.open {
-            marker = marker.with_popup(place_card(app, pin.index, lat, lon), true);
+            let address = lists_ui::address_of(s, (lat, lon));
+            marker = marker.with_popup(place_card(app, pin.index, lat, lon, address), true);
         }
         out.push(MapOverlay::Marker(marker));
     }
@@ -1667,33 +1672,46 @@ fn pin_of(data: &mut RefAny) -> Option<(RefAny, usize)> {
 }
 
 /// A recent place's row: the map centres on it and its card opens.
-extern "C" fn on_place_row(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_place_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, index)) = pin_of(&mut data) else {
         return Update::DoNothing;
     };
-    with_map(&mut app, |s| {
+    let mut opened = None;
+    let update = with_map(&mut app, |s| {
         if let Some((lat, lon)) = s.pins.get(index).copied() {
             s.centre_on(lat, lon);
             s.selected = Some(index);
+            opened = Some((lat, lon));
             println!("AZMAPS_PLACE {index}");
         }
-    })
+    });
+    // The card shows the place's address once the search knows it.
+    if let Some(at) = opened {
+        lists_ui::ask_address(&app, &mut info, at);
+    }
+    update
 }
 
 /// A tap on a marker: a pin opens its card, or closes it when it is open;
 /// the travel line's ends and where you are do nothing.
-extern "C" fn on_marker_tap(mut data: RefAny, _info: CallbackInfo, id: u64) -> Update {
+extern "C" fn on_marker_tap(mut data: RefAny, mut info: CallbackInfo, id: u64) -> Update {
     let Some(index) = pin_of_marker(id) else {
         return Update::DoNothing;
     };
-    with_map(&mut data, |s| {
+    let mut opened = None;
+    let update = with_map(&mut data, |s| {
         if s.selected == Some(index) {
             s.selected = None;
         } else if index < s.pins.len() {
             s.selected = Some(index);
+            opened = s.pins.get(index).copied();
             println!("AZMAPS_PLACE {index}");
         }
-    })
+    });
+    if let Some(at) = opened {
+        lists_ui::ask_address(&data, &mut info, at);
+    }
+    update
 }
 
 /// Directions to a place: it becomes the destination, the sidebar shows the

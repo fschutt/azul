@@ -116,6 +116,11 @@ pub(crate) struct ListsState {
     pub export_note: String,
     /// The file or folder `--import` names, imported once the lists are read.
     pub pending_import: Option<String>,
+    /// The addresses of places the search knows (a dropped pin's card shows its address), by
+    /// the place to about 10 m.
+    pub addresses: std::collections::BTreeMap<String, String>,
+    /// The places whose address was asked for already (asked once a session).
+    pub addresses_asked: BTreeSet<String>,
 }
 
 impl ListsState {
@@ -139,6 +144,8 @@ impl ListsState {
             link_text: String::new(),
             export_note: String::new(),
             pending_import,
+            addresses: std::collections::BTreeMap::new(),
+            addresses_asked: BTreeSet::new(),
         }
     }
 
@@ -1058,4 +1065,87 @@ extern "C" fn on_export_geojson(mut app: RefAny, mut info: CallbackInfo) -> Upda
     };
     export(&app, &mut info, "AzMaps places.geojson", "application/geo+json", text.into_bytes());
     Update::RefreshDom
+}
+
+// ==== Addresses ====
+
+/// What the address worker asks.
+struct AddressRequest {
+    /// The place to about 10 m: the address's key.
+    key: String,
+    at: (f64, f64),
+    online: Arc<Transitous>,
+    on_done: azul::callbacks::WriteBackCallbackType,
+}
+
+/// The address of a place, when the search knows one.
+#[derive(Debug, Clone)]
+struct AddressReply {
+    key: String,
+    address: Option<String>,
+}
+
+/// The address worker: the nearest address of the place (cached; offline the cache answers).
+extern "C" fn address_worker(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some((key, at, online, on_done)) = init
+        .downcast_ref::<AddressRequest>()
+        .map(|r| (r.key.clone(), r.at, Arc::clone(&r.online), r.on_done))
+    else {
+        return;
+    };
+    let address = match online.reverse(at, &mut || false) {
+        Ok(Some((Some(found), _))) => Some(found.label()),
+        _ => None,
+    };
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_done,
+        RefAny::new(AddressReply { key, address }),
+    )));
+}
+
+/// Asks for the address of the place at `at` (once a session; a dropped pin's card shows it).
+pub(crate) fn ask_address(app: &RefAny, info: &mut CallbackInfo, at: (f64, f64)) {
+    let mut state = app.clone();
+    let request = {
+        let Some(mut s) = state.downcast_mut::<MapState>() else {
+            return;
+        };
+        let Some(online) = s.services.transit.clone() else {
+            return;
+        };
+        let key = azul_routing::cache::place_key(at, 4);
+        if !s.lists.addresses_asked.insert(key.clone()) {
+            return;
+        }
+        AddressRequest {
+            key,
+            at,
+            online,
+            on_done: on_address,
+        }
+    };
+    info.add_thread(ThreadId::unique(), Thread::create(RefAny::new(request), app.clone(), address_worker));
+}
+
+extern "C" fn on_address(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(reply) = msg.downcast_ref::<AddressReply>().map(|r| r.clone()) else {
+        return Update::DoNothing;
+    };
+    let Some(address) = reply.address else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<MapState>() else {
+        return Update::DoNothing;
+    };
+    println!("AZMAPS_ADDRESS {} {address}", reply.key);
+    s.lists.addresses.insert(reply.key, address);
+    Update::RefreshDom
+}
+
+/// The address the search knows for the place at `at`.
+pub(crate) fn address_of(s: &MapState, at: (f64, f64)) -> Option<&str> {
+    s.lists
+        .addresses
+        .get(&azul_routing::cache::place_key(at, 4))
+        .map(String::as_str)
 }
