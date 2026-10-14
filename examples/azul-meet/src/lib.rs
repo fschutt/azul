@@ -1456,7 +1456,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                     _ => None,
                 },
                 knock,
-                local: false,
+                local: room.preview,
             }
         })
     });
