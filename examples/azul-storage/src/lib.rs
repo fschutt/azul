@@ -389,6 +389,35 @@ impl<'a> BatchMove<'a> {
     }
 }
 
+/// One streamed write of a batch ([`Drive::put_from_many`]).
+pub struct BatchStream<'a> {
+    /// The file's key.
+    pub key: &'a str,
+    /// The file's bytes, read once to their end (a file on disk, hashed as it is read).
+    pub body: &'a mut (dyn Read + Send),
+    /// Written only when this holds ([`Drive::put_if`]); `None`: whatever is there.
+    pub condition: Option<&'a Precondition>,
+}
+
+impl<'a> BatchStream<'a> {
+    /// `body` for `key`, whatever is there.
+    #[must_use]
+    pub fn new(key: &'a str, body: &'a mut (dyn Read + Send)) -> BatchStream<'a> {
+        BatchStream {
+            key,
+            body,
+            condition: None,
+        }
+    }
+
+    /// Only when `condition` holds.
+    #[must_use]
+    pub fn when(mut self, condition: &'a Precondition) -> BatchStream<'a> {
+        self.condition = Some(condition);
+        self
+    }
+}
+
 /// Whether the entity tag a drive shows (`have`) is `want` (either may carry its quotes).
 pub(crate) fn same_etag(have: Option<&str>, want: &str) -> bool {
     have.is_some_and(|have| have.trim().trim_matches('"') == want.trim().trim_matches('"'))
@@ -720,6 +749,23 @@ pub trait Drive: Send + Sync {
     fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
         ops::move_by_copy(self, items, true)
     }
+
+    /// Writes several files from their readers, each as [`Drive::put_from`] or (with a
+    /// condition) [`Drive::put_from_if`] would: one result per item, in order. By default one
+    /// after the other; a bucket sends [`PARALLEL_FILES`] at once, an encrypted drive packs the
+    /// small ones and names all the large ones in one index change.
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        items
+            .iter_mut()
+            .map(|item| match item.condition {
+                Some(condition) => self.put_from_if(item.key, &mut *item.body, condition),
+                None => self.put_from(item.key, &mut *item.body).map(|_| None),
+            })
+            .collect()
+    }
 }
 
 /// A drive behind a pointer is that drive: a `Box`, an `Arc` or a reference forwards
@@ -801,6 +847,12 @@ macro_rules! forward_drive {
             }
             fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
                 (**self).move_many(items)
+            }
+            fn put_from_many(
+                &self,
+                items: &mut [BatchStream<'_>],
+            ) -> Vec<Result<Option<String>, DriveError>> {
+                (**self).put_from_many(items)
             }
         }
     )*};

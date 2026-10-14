@@ -29,8 +29,8 @@ use std::{
 use azul_storage::{
     config::{keyring_key, DriveEntry},
     time::now_unix,
-    BatchDelete, BatchMove, BucketSpace, ByteRange, Drive, DriveError, ListPage, ListRequest,
-    ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
+    ops, BatchDelete, BatchMove, BatchStream, BucketSpace, ByteRange, Drive, DriveError,
+    ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
 };
 
 use crate::{
@@ -470,6 +470,14 @@ impl Drive for AzlinDrive {
     }
     fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
         self.batch_with_bucket(items, |b, items| b.move_many(items))
+    }
+    /// [`azul_storage::PARALLEL_FILES`] uploads at once, each through this drive's own
+    /// streamed upload (a refusal of the credentials refreshes them for the next one).
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        ops::put_from_parallel(self, items)
     }
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         self.with_bucket(|b| b.head(key))

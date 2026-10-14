@@ -11,8 +11,8 @@ use std::sync::{
 };
 
 use crate::{
-    same_etag, BatchDelete, BatchMove, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
-    DEFAULT_PAGE_SIZE, PARALLEL_FILES,
+    same_etag, BatchDelete, BatchMove, BatchStream, Drive, DriveError, ListPage, ListRequest,
+    ObjectInfo, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
 };
 
 /// Every object under `prefix`, at any depth, across all pages, in key order.
@@ -201,6 +201,41 @@ pub fn move_by_copy<D: Drive + ?Sized>(
         }
     }
     results
+}
+
+/// [`Drive::put_from_many`] with [`PARALLEL_FILES`] files in flight at once, each through
+/// [`Drive::put_from`] or [`Drive::put_from_if`]: one result per item, in order.
+pub fn put_from_parallel<D: Drive + ?Sized>(
+    drive: &D,
+    items: &mut [BatchStream<'_>],
+) -> Vec<Result<Option<String>, DriveError>> {
+    let count = items.len();
+    let queue: Mutex<Vec<(usize, &mut BatchStream<'_>)>> =
+        Mutex::new(items.iter_mut().enumerate().rev().collect());
+    let done: Mutex<Vec<Option<Result<Option<String>, DriveError>>>> =
+        Mutex::new(vec![None; count]);
+    std::thread::scope(|scope| {
+        for _ in 0..PARALLEL_FILES.min(count) {
+            scope.spawn(|| loop {
+                let next = queue.lock().unwrap_or_else(PoisonError::into_inner).pop();
+                let Some((i, item)) = next else {
+                    break;
+                };
+                let result = match item.condition {
+                    Some(condition) => drive.put_from_if(item.key, &mut *item.body, condition),
+                    None => drive.put_from(item.key, &mut *item.body).map(|_| None),
+                };
+                done.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(result);
+            });
+        }
+    });
+    done.into_inner()
+        .unwrap_or_else(PoisonError::into_inner)
+        .into_iter()
+        .map(|result| {
+            result.unwrap_or_else(|| Err(DriveError::Protocol(String::from("not written"))))
+        })
+        .collect()
 }
 
 /// The copies of `items`, [`PARALLEL_FILES`] at once: one result per item, in order.

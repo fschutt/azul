@@ -51,8 +51,8 @@ use crate::{
     ops::check_folder,
     time::now_unix,
     packing::{PackOptions, PackState, PackedAt},
-    BatchDelete, BatchMove, BatchPut, ByteRange, Drive, DriveError, ListPage, ListRequest,
-    ObjectInfo, Precondition, DEFAULT_PAGE_SIZE,
+    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Drive, DriveError, ListPage,
+    ListRequest, ObjectInfo, Precondition, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
 };
 
 /// The object a file version's bytes are in.
@@ -463,6 +463,15 @@ impl Drive for AutoEncrypted {
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        match self.resolved() {
+            Ok(drive) => drive.put_from_many(items),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
 }
 
 /// The mutex's value, also after a thread panicked while holding it.
@@ -763,6 +772,16 @@ impl Drop for Spool {
             drop(file);
             let _ = fs::remove_file(path);
         }
+    }
+}
+
+/// The first bytes of a large file read to tell it from a small one: wiped when its reader
+/// goes.
+struct WipedHead(zeroize::Zeroizing<Vec<u8>>);
+
+impl AsRef<[u8]> for WipedHead {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -1289,6 +1308,186 @@ impl<D: Drive> EncryptedDrive<D> {
         }
     }
 
+    /// [`Drive::put_from_many`]: each body read up to the packing threshold first; one that ends
+    /// before it goes into a pack ([`EncryptedDrive::write_many`]), every larger file into an
+    /// object of its own - [`PARALLEL_FILES`] uploads at once - and all of those are named in
+    /// ONE index change. A crash before that change leaves objects nothing names (garbage for
+    /// the collector), never a name without its bytes; a path whose condition failed drops
+    /// out, and its object leaves the bucket again.
+    fn write_streams(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        let mut results: Vec<Option<Result<Option<String>, DriveError>>> = vec![None; items.len()];
+        // (item, its bytes) of the small files; (item, path, what the path must hold, reader) of
+        // the large ones.
+        let mut small: Vec<(usize, &str, Option<&Precondition>, zeroize::Zeroizing<Vec<u8>>)> =
+            Vec::new();
+        let mut large: Vec<(usize, &str, Expect, Box<dyn Read + Send + '_>)> = Vec::new();
+        let threshold = self.pack_threshold();
+        for (i, item) in items.iter_mut().enumerate() {
+            let expect = match item.condition {
+                None => Ok(Expect::Any),
+                Some(condition) => expect_of(item.key, condition),
+            };
+            let expect = match expect.and_then(|e| check_path_key(item.key).map(|()| e)) {
+                Ok(expect) => expect,
+                Err(e) => {
+                    results[i] = Some(Err(e));
+                    continue;
+                }
+            };
+            let (key, condition) = (item.key, item.condition);
+            let body: &mut (dyn Read + Send) = &mut *item.body;
+            let Some(threshold) = threshold else {
+                large.push((i, key, expect, Box::new(body)));
+                continue;
+            };
+            let mut head: zeroize::Zeroizing<Vec<u8>> = zeroize::Zeroizing::new(Vec::new());
+            if let Err(e) = (&mut *body).take(threshold).read_to_end(&mut head) {
+                results[i] = Some(Err(e.into()));
+                continue;
+            }
+            if (head.len() as u64) < threshold {
+                small.push((i, key, condition, head));
+            } else {
+                large.push((i, key, expect, Box::new(Cursor::new(WipedHead(head)).chain(body))));
+            }
+        }
+        if !small.is_empty() {
+            let puts: Vec<BatchPut<'_>> = small
+                .iter()
+                .map(|(_, key, condition, bytes)| BatchPut {
+                    key: *key,
+                    bytes: bytes.as_slice(),
+                    condition: *condition,
+                })
+                .collect();
+            for ((i, _, _, _), result) in small.iter().zip(self.write_many(&puts)) {
+                results[*i] = Some(result);
+            }
+        }
+        if !large.is_empty() {
+            self.write_large(&mut large, &mut results);
+        }
+        results
+            .into_iter()
+            .map(|result| {
+                result.unwrap_or_else(|| Err(DriveError::Protocol(String::from("not written"))))
+            })
+            .collect()
+    }
+
+    /// The large files of [`EncryptedDrive::write_streams`]: each into an object of its own,
+    /// [`PARALLEL_FILES`] at once, then ONE index change names them all.
+    fn write_large(
+        &self,
+        large: &mut [(usize, &str, Expect, Box<dyn Read + Send + '_>)],
+        results: &mut [Option<Result<Option<String>, DriveError>>],
+    ) {
+        let count = large.len();
+        let staged: Mutex<Vec<Option<Result<IndexEntry, DriveError>>>> =
+            Mutex::new(vec![None; count]);
+        {
+            let queue: Mutex<Vec<(usize, &str, &mut Box<dyn Read + Send + '_>)>> = Mutex::new(
+                large
+                    .iter_mut()
+                    .enumerate()
+                    .rev()
+                    .map(|(j, (_, key, _, body))| (j, *key, body))
+                    .collect(),
+            );
+            std::thread::scope(|scope| {
+                for _ in 0..PARALLEL_FILES.min(count) {
+                    scope.spawn(|| loop {
+                        let next = lock(&queue).pop();
+                        let Some((j, key, body)) = next else {
+                            break;
+                        };
+                        let result = self.stage(key, &mut **body);
+                        lock(&staged)[j] = Some(result);
+                    });
+                }
+            });
+        }
+        let staged = staged.into_inner().unwrap_or_else(PoisonError::into_inner);
+        // (item, path, entry, what the path must hold)
+        let mut live: Vec<(usize, String, IndexEntry, Expect)> = Vec::new();
+        for ((i, key, expect, _), entry) in large.iter().zip(staged) {
+            match entry {
+                Some(Ok(entry)) => live.push((*i, key.to_string(), entry, expect.clone())),
+                Some(Err(e)) => results[*i] = Some(Err(e)),
+                None => {
+                    results[*i] = Some(Err(DriveError::Protocol(String::from("not written"))))
+                }
+            }
+        }
+        loop {
+            let changes: Vec<IndexChange> = live
+                .iter()
+                .map(|(_, path, entry, expect)| IndexChange::Put {
+                    path: path.clone(),
+                    entry: entry.clone(),
+                    expect: expect.clone(),
+                })
+                .collect();
+            if changes.is_empty() {
+                break;
+            }
+            match self.index.apply(changes) {
+                Ok(released) => {
+                    for (i, path, entry, _) in &live {
+                        results[*i] = Some(Ok(info_of(path.clone(), entry).etag));
+                    }
+                    self.release(released);
+                    break;
+                }
+                Err(DriveError::Conflict { key }) => {
+                    let Some(at) = live.iter().position(|(_, path, _, _)| *path == key) else {
+                        for (i, _, _, _) in &live {
+                            results[*i] = Some(Err(DriveError::Conflict { key: key.clone() }));
+                        }
+                        break;
+                    };
+                    let (i, _, entry, _) = live.remove(at);
+                    // Nothing names its object: it goes.
+                    if let Some(id) = entry.object_id() {
+                        let _ = self.inner.delete(&id.bucket_key());
+                    }
+                    results[i] = Some(Err(DriveError::Conflict { key }));
+                }
+                Err(e) => {
+                    // The change may have landed: the objects stay (garbage at worst).
+                    for (i, _, _, _) in &live {
+                        results[*i] = Some(Err(e.clone()));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Puts `body` into a new object for `path`: the entry that will name it (nothing does yet).
+    fn stage(&self, path: &str, body: &mut dyn Read) -> Result<IndexEntry, DriveError> {
+        let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
+        let mut spool = Spool::new();
+        let summary = azl1::encrypt_stream(body, &mut spool, id, &self.drive_key, &self.options)
+            .map_err(|e| e.for_key(path))?;
+        self.put_spooled(&id, spool)?;
+        Ok(IndexEntry {
+            size: summary.plaintext_size,
+            modified: Some(now_unix()),
+            object: Some(StoredObject {
+                id,
+                stored_size: summary.object_len,
+                blake3: summary.blake3,
+                wrapped_key: summary.wrapped_key,
+                compressed: summary.compressed,
+                packed: None,
+            }),
+        })
+    }
+
     /// [`Drive::delete_many`]: every path removed in ONE index change. A path that names
     /// another version than its item says is a conflict and drops out (the rest is applied
     /// again); a path that is gone is deleted already.
@@ -1752,6 +1951,15 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
     /// One index change for every move: no object is copied, written or deleted.
     fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
         self.move_batch(items)
+    }
+
+    /// Small files into packs; the large ones in objects of their own, [`PARALLEL_FILES`]
+    /// uploads at once, named together in one index change.
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        self.write_streams(items)
     }
 
     /// [`EncryptedDrive::put_if`]'s condition on a streamed body: encrypted as it is read, named

@@ -26,8 +26,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     sigv4::{self, SigningParams, EMPTY_SHA256},
     time::{amz_date, now_unix, parse_http_date},
-    same_etag, xml, BatchDelete, ByteRange, Drive, DriveError, HttpCall, HttpReply, ListPage,
-    ListRequest, Method, ObjectInfo, Precondition, ServiceError, Transport, DELETE_BATCH,
+    ops, same_etag, xml, BatchDelete, BatchStream, ByteRange, Drive, DriveError, HttpCall,
+    HttpReply, ListPage, ListRequest, Method, ObjectInfo, Precondition, ServiceError, Transport,
+    DELETE_BATCH,
 };
 
 /// S3's longest key, in bytes.
@@ -1305,6 +1306,14 @@ impl Drive for S3Drive {
             DriveError::NotFound { .. } => Ok(()),
             other => Err(other),
         }
+    }
+
+    /// [`crate::PARALLEL_FILES`] uploads at once, each its own (multipart when big) upload.
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        ops::put_from_parallel(self, items)
     }
 
     /// The versions an item names checked with a HEAD each (an edit made elsewhere beats a
