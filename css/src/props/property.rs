@@ -110,7 +110,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 32] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 202] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 203] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -146,6 +146,9 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 202] = [
     (CssPropertyType::TextIndent, "text-indent"),
     (CssPropertyType::InitialLetter, "initial-letter"),
     (CssPropertyType::LineClamp, "line-clamp"),
+    // Chrome clamps only through the prefixed spelling (with `display:
+    // -webkit-box`); azul clamps any block container either way.
+    (CssPropertyType::LineClamp, "-webkit-line-clamp"),
     (CssPropertyType::HangingPunctuation, "hanging-punctuation"),
     (CssPropertyType::TextCombineUpright, "text-combine-upright"),
     (CssPropertyType::UnicodeBidi, "unicode-bidi"),

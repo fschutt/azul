@@ -8897,13 +8897,19 @@ where
         shifts
     }
 
-    /// `text-overflow: ellipsis` (CSS Overflow 3 §3.1) for the IFC rooted at
-    /// `dom_id`, whose content box is `content_width` wide: the ellipsis,
-    /// shaped in the root's style, and the lines it ends. `None` - decided
-    /// without a cascade walk wherever no node of the DOM declares the
-    /// property - when the root does not ask for it, its inline axis does not
-    /// clip (`overflow-x: visible` has no end edge to cut at), its lines are
-    /// not left-to-right horizontal ones, or no line runs past the end edge.
+    /// The ellipses of the IFC rooted at `dom_id`, whose content box is
+    /// `content_width` wide: the ellipsis, shaped in the root's style, and
+    /// the lines it ends. Two rules put one there:
+    ///
+    /// - `text-overflow: ellipsis` (CSS Overflow 3 §3.1) on every line that runs past the end edge
+    ///   - where the root asks for it (decided without a cascade walk wherever no node of the DOM
+    ///   declares the property) and its inline axis clips (`overflow-x: visible` has no end edge to
+    ///   cut at);
+    /// - `line-clamp` on the last line it keeps, where it dropped lines after it (CSS Overflow 4
+    ///   `block-ellipsis: auto`, as Chrome's `-webkit-line-clamp` draws it).
+    ///
+    /// `None` when neither applies, or the lines are not left-to-right
+    /// horizontal ones.
     fn text_overflow_ellipsis(
         &self,
         dom_id: NodeId,
@@ -8921,6 +8927,7 @@ where
         };
 
         let sd = self.ctx.styled_dom;
+        let state = self.get_styled_node_state(dom_id);
         let declared = sd
             .css_property_cache
             .ptr
@@ -8929,25 +8936,22 @@ where
             .is_none_or(|cc| {
                 cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_OVERFLOW != 0
             });
-        if !declared {
-            return None;
-        }
-        let state = self.get_styled_node_state(dom_id);
-        if !matches!(
-            get_text_overflow_property(sd, dom_id, &state),
-            MultiValue::Exact(StyleTextOverflow::Ellipsis)
-        ) {
-            return None;
-        }
-        if !matches!(
-            get_overflow_x(sd, dom_id, &state),
-            MultiValue::Exact(
-                LayoutOverflow::Hidden
-                    | LayoutOverflow::Scroll
-                    | LayoutOverflow::Auto
-                    | LayoutOverflow::Clip
+        let text_overflow = declared
+            && matches!(
+                get_text_overflow_property(sd, dom_id, &state),
+                MultiValue::Exact(StyleTextOverflow::Ellipsis)
             )
-        ) {
+            && matches!(
+                get_overflow_x(sd, dom_id, &state),
+                MultiValue::Exact(
+                    LayoutOverflow::Hidden
+                        | LayoutOverflow::Scroll
+                        | LayoutOverflow::Auto
+                        | LayoutOverflow::Clip
+                )
+            );
+        let clamped = layout.overflow.line_clamped;
+        if !text_overflow && !clamped {
             return None;
         }
         if matches!(
@@ -8968,9 +8972,10 @@ where
             &layout.items
         };
         // Most clipped boxes fit their text: nothing to shape.
-        if !items
-            .iter()
-            .any(|item| item.position.x + item.item.bounds().width > content_width + 0.5)
+        if !clamped
+            && !items
+                .iter()
+                .any(|item| item.position.x + item.item.bounds().width > content_width + 0.5)
         {
             return None;
         }
@@ -8994,7 +8999,20 @@ where
             return None;
         }
         let advance: f32 = glyphs.iter().map(|g| g.advance + g.kerning).sum();
-        let cuts = ellipsis_cuts(items, content_width, advance);
+        let mut cuts = if text_overflow {
+            ellipsis_cuts(items, content_width, advance)
+        } else {
+            Vec::new()
+        };
+        if let Some(last) = clamped
+            .then(|| line_clamp_cut(items, content_width, advance))
+            .flatten()
+        {
+            // The clamp's cut of the last line replaces a text-overflow one:
+            // either ends the line in the one ellipsis.
+            cuts.retain(|cut| cut.bottom < last.top + 0.5 || cut.top > last.bottom - 0.5);
+            cuts.push(last);
+        }
         if cuts.is_empty() {
             return None;
         }
@@ -12419,6 +12437,55 @@ pub(crate) fn ellipsis_cuts(
         });
     }
     cuts
+}
+
+/// The cut that ends the last line `line-clamp` keeps (CSS Overflow 4
+/// `block-ellipsis: auto`, as Chrome draws `-webkit-line-clamp`): the line
+/// stays as it was broken and aligned, keeps what fits in front of an
+/// ellipsis `advance` wide - its trailing spaces left out - and gives up
+/// characters from its end until the ellipsis fits before `end_x`; the first
+/// character always stays. `None` for a layout with no line.
+pub(crate) fn line_clamp_cut(
+    items: &[PositionedItem],
+    end_x: f32,
+    advance: f32,
+) -> Option<EllipsisCut> {
+    let right = |item: &PositionedItem| item.position.x + item.item.bounds().width;
+    let last_line = items.iter().map(|item| item.line_index).max()?;
+    let line: Vec<&PositionedItem> = items
+        .iter()
+        .filter(|item| item.line_index == last_line)
+        .collect();
+    let mut order = line.clone();
+    order.sort_by(|a, b| a.position.x.total_cmp(&b.position.x));
+    while order.len() > 1
+        && order
+            .last()
+            .is_some_and(|item| crate::text3::cache::is_word_separator(&item.item))
+    {
+        order.pop();
+    }
+    let fits = end_x - advance + 0.01;
+    let kept = 1 + order[1..].iter().take_while(|item| right(item) <= fits).count();
+    let last = order[kept - 1];
+    let on_baseline = order[..kept]
+        .iter()
+        .rev()
+        .find(|item| matches!(item.item, ShapedItem::Cluster(_)))
+        .copied()
+        .unwrap_or(last);
+    let (ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&on_baseline.item);
+    let top = line.iter().map(|item| item.position.y).fold(f32::INFINITY, f32::min);
+    let bottom = line
+        .iter()
+        .map(|item| item.position.y + item.item.bounds().height)
+        .fold(f32::NEG_INFINITY, f32::max);
+    Some(EllipsisCut {
+        top,
+        bottom,
+        x: right(last),
+        baseline: on_baseline.position.y + ascent,
+    })
 }
 
 /// The ellipsis of an IFC whose root asks for `text-overflow: ellipsis`, and
