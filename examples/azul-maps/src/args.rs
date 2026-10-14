@@ -21,6 +21,23 @@ pub struct Args {
     /// `--routing-online <url|off>`: the routing server asked where there are no routing
     /// tiles, else [`ROUTING_ONLINE_VAR`] (see [`online_routing`]).
     pub routing_online: Option<String>,
+    /// `--transit <url|off>`: the public transport server (a MOTIS server such as Transitous),
+    /// else [`TRANSIT_VAR`] (see [`transit_server`]).
+    pub transit: Option<String>,
+    /// `--offline`: nothing goes out; every online answer comes from the cache, marked offline.
+    pub offline: bool,
+    /// `--simulate-route`: a navigation is driven by a simulated car along its route (with one
+    /// wrong turn, so a new route is asked for), not by the position.
+    pub simulate: bool,
+    /// `--simulate-speed <km/h>`: the simulated car's speed (else [`SIMULATED_KMH`]).
+    pub simulate_kmh: Option<f64>,
+    /// `--gps <source>`: where the position comes from for this run: `platform`, `gpsd`,
+    /// `gpsd:<host:port>`, `nmea:<device>`, `replay:<file>` (else Settings > Location).
+    pub gps: Option<String>,
+    /// `--import <file or folder>`: imported into the saved lists at the start.
+    pub import: Option<String>,
+    /// `--navigate`: navigation starts as soon as the road route is there.
+    pub navigate: bool,
     /// `-h` / `--help`.
     pub help: bool,
     /// The Azlin switches (azul-appkit).
@@ -33,6 +50,18 @@ pub const TILES_VAR: &str = "AZMAPS_TILES";
 pub const ROUTING_VAR: &str = "AZMAPS_ROUTING";
 /// The variable naming the routing server, the fallback for `--routing-online`.
 pub const ROUTING_ONLINE_VAR: &str = "AZMAPS_ROUTING_ONLINE";
+/// The variable naming the public transport server, the fallback for `--transit`.
+pub const TRANSIT_VAR: &str = "AZMAPS_TRANSIT";
+/// The simulated car's speed without `--simulate-speed`, km/h.
+pub const SIMULATED_KMH: f64 = 50.0;
+
+/// The public transport server's base URL: `--transit`, else [`TRANSIT_VAR`], else
+/// Transitous; `off` (or `none`) plans no journeys.
+#[must_use]
+pub fn transit_server(flag: Option<&str>, env: Option<&str>) -> Option<String> {
+    let _ = (flag, env);
+    None
+}
 
 /// The routing server's `/route` URL: `--routing-online`, else [`ROUTING_ONLINE_VAR`], else
 /// FOSSGIS's public Valhalla server; `off` (or `none`) asks no server, so a route without
@@ -144,6 +173,13 @@ where
         tiles,
         routing,
         routing_online,
+        transit: None,
+        offline: false,
+        simulate: false,
+        simulate_kmh: None,
+        gps: None,
+        import: None,
+        navigate: false,
         help: false,
         kit: AppArgs::parse(&crate::SPEC, rest)?,
     })
@@ -207,6 +243,48 @@ mod tests {
         assert_eq!(a.routing_online.as_deref(), Some("off"));
         assert!(parse(["--routing-online"], false).is_err());
         assert!(usage().contains("--routing-online"));
+    }
+
+    #[test]
+    fn the_navigation_switches_are_azmaps_own() {
+        let a = parse(
+            [
+                "--transit",
+                "http://127.0.0.1:8080",
+                "--offline",
+                "--simulate-route",
+                "--simulate-speed",
+                "120",
+                "--gps",
+                "replay:/tmp/drive.nmea",
+                "--import=/tmp/Takeout",
+                "--navigate",
+            ],
+            false,
+        )
+        .expect("valid");
+        assert_eq!(a.transit.as_deref(), Some("http://127.0.0.1:8080"));
+        assert!(a.offline && a.simulate && a.navigate);
+        assert_eq!(a.simulate_kmh, Some(120.0));
+        assert_eq!(a.gps.as_deref(), Some("replay:/tmp/drive.nmea"));
+        assert_eq!(a.import.as_deref(), Some("/tmp/Takeout"));
+        let none = parse(Vec::<String>::new(), false).expect("valid");
+        assert!(!none.offline && !none.simulate && !none.navigate && none.gps.is_none());
+        assert!(parse(["--simulate-speed", "fast"], false).is_err());
+        assert!(parse(["--simulate-speed", "0"], false).is_err(), "a car that never moves");
+        assert!(parse(["--gps"], false).is_err());
+        for switch in ["--transit", "--offline", "--simulate-route", "--gps", "--import", "--navigate"] {
+            assert!(usage().contains(switch), "{switch} is in the usage");
+        }
+    }
+
+    #[test]
+    fn the_transit_server_is_transitous_unless_one_is_named_or_it_is_off() {
+        let transitous = azul_routing::transit::transitous::TRANSITOUS;
+        assert_eq!(transit_server(None, None).as_deref(), Some(transitous));
+        assert_eq!(transit_server(Some("http://127.0.0.1:8080/"), Some("off")).as_deref(), Some("http://127.0.0.1:8080/"));
+        assert_eq!(transit_server(None, Some("off")), None);
+        assert_eq!(transit_server(Some(" NONE "), None), None);
     }
 
     #[test]
