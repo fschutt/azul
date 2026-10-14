@@ -280,15 +280,81 @@ pub(crate) fn start_row(s: &MapState, app: &RefAny) -> Option<Dom> {
             .dom()
             .with_id(ids::NAV_START),
     );
-    if reply.source == crate::route::RouteSource::Online {
+    // The routing data's credit next to the route: the server's, or the routing tiles' own.
+    let credit = match reply.source {
+        crate::route::RouteSource::Online => Some(label("azmaps-routing-credit")),
+        crate::route::RouteSource::Tiles if !reply.credit.is_empty() => {
+            Some(AzString::from(reply.credit.clone()))
+        }
+        _ => None,
+    };
+    if let Some(credit) = credit {
         row.add_child(
             Dom::create_div()
                 .with_css(CREDIT)
                 .with_id(ids::ROUTE_CREDIT)
-                .with_child(Dom::create_span_with_text(label("azmaps-routing-credit"))),
+                .with_child(Dom::create_span_with_text(credit)),
         );
     }
     Some(row)
+}
+
+/// The choices of Settings > Navigation > Routing tiles after "as the tile set suggests":
+/// days a downloaded road tile is kept before it is fetched again.
+const KEEP_DAYS: [u32; 4] = [7, 14, 28, 56];
+
+/// The routing tiles' keep setting as settings.json holds it (`None`: as the tile set suggests).
+fn keep_days_setting(s: &MapState) -> Option<String> {
+    let mut kit_ref = s.kit.clone();
+    let k = kit_ref.downcast_ref::<kit::Kit>()?;
+    k.settings
+        .get(azul_routing::source::SETTINGS_KEY)
+        .map(str::to_string)
+}
+
+/// Settings > Navigation > Routing tiles: how long downloaded roads are kept. Applies from the
+/// next start, when the tile cache is made.
+pub(crate) fn routing_tiles_section(s: &MapState, app: &RefAny) -> kit::AppSection {
+    let mut names: Vec<AzString> = vec![label("azmaps-routing-keep-suggested")];
+    names.extend(
+        KEEP_DAYS
+            .iter()
+            .map(|days| AzString::from(t_args("azmaps-routing-keep-days", &[("days", Arg::from(i64::from(*days)))]))),
+    );
+    let selected = keep_days_setting(s)
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .and_then(|days| KEEP_DAYS.iter().position(|d| *d == days))
+        .map_or(0, |i| i + 1);
+    let content = Dom::create_div()
+        .with_css(SETTINGS_COLUMN)
+        .with_child(kit::row(
+            "azmaps-routing-keep",
+            DropDown::create(StringVec::from(names))
+                .with_selected(selected)
+                .with_on_choice_change(app.clone(), on_keep_days as DropDownOnChoiceChangeCallbackType)
+                .dom()
+                .with_id(ids::ROUTING_KEEP),
+        ))
+        .with_child(kit::note("azmaps-routing-keep-about"));
+    kit::AppSection {
+        category: 0,
+        title: t_args("azmaps-routing-tiles-title", &[]),
+        content,
+    }
+}
+
+/// Keeps the chosen keep time in settings.json; the first choice clears it.
+extern "C" fn on_keep_days(app: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    let mut state = app;
+    let Some(kit_ref) = state.downcast_ref::<MapState>().map(|s| s.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    let value = index
+        .checked_sub(1)
+        .and_then(|i| KEEP_DAYS.get(i))
+        .map_or_else(String::new, u32::to_string);
+    kit::set_value(&kit_ref, &mut info, azul_routing::source::SETTINGS_KEY, &value);
+    Update::RefreshDom
 }
 
 /// Starts navigating the travel panel's road route, when there is one; whether it started.

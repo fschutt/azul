@@ -34,8 +34,8 @@ use azul::{
 };
 use azul_routing::{
     online::{OnlineError, Step, Valhalla},
-    source::{CachedTiles, FolderTiles, HttpTiles},
-    Mode, Progress, RouteError, TileSource,
+    source::{CachedTiles, FolderTiles, HttpTiles, KeepPolicy},
+    Manifest, Mode, Progress, RouteError, TileSource,
 };
 
 use crate::model::{estimate_route, RouteEstimate, TravelMode};
@@ -132,6 +132,23 @@ impl RoutingTiles {
             tiles.prune();
         }
     }
+
+    /// The routing data's credit, shown next to every route of these tiles: the tile set's
+    /// own attribution from its manifest, else OpenStreetMap's, whose data every tile set is
+    /// built from. A downloaded manifest is read once and kept for offline use, so this may
+    /// touch the network the first time: call it on a worker.
+    #[must_use]
+    pub fn attribution(&self) -> String {
+        let manifest = match self {
+            Self::Http(tiles) => tiles.manifest(),
+            Self::Folder(tiles) => tiles.manifest(),
+        };
+        manifest
+            .ok()
+            .map(|m| m.attribution)
+            .filter(|text| !text.trim().is_empty())
+            .unwrap_or_else(|| azul_routing::manifest::OSM_ATTRIBUTION.to_string())
+    }
 }
 
 /// How big the routing tiles' cache in the data folder may grow.
@@ -140,20 +157,53 @@ const CACHE_BYTES: u64 = 256 * 1024 * 1024;
 /// How often the worker tells the panel how far it got, at most.
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 
-/// The tile source a `--routing` value names: a URL template (`{z}`, `{x}`, `{y}`) to download
-/// from, or a folder as azul-routing's `routing-tiles` writes it. Either way behind a cache in
-/// memory and in `cache_root` (a folder per source, so another source's tiles never answer).
+/// The tile source a `--routing` value names: the tiles' manifest URL (or a bare URL template
+/// with `{z}`, `{x}`, `{y}`) to download from, or a folder (or its `manifest.json`) as
+/// azul-routing's `routing-tiles` writes it. Either way behind a cache in memory and in
+/// `cache_root` (a folder per source, so another source's tiles never answer), keeping each
+/// zoom as long as the tile set suggests.
 #[must_use]
 pub fn routing_source(template: &str, cache_root: &Path) -> Tiles {
+    routing_source_keeping(template, cache_root, None)
+}
+
+/// [`routing_source`] with the user's `routing_tiles_keep_days` setting (its text from
+/// settings.json: a number of days, or an object per zoom) over what the tile set suggests.
+#[must_use]
+pub fn routing_source_keeping(template: &str, cache_root: &Path, keep_days: Option<&str>) -> Tiles {
     let template = template.trim();
     let cache = cache_root.join(format!("{:016x}", fnv(template)));
     if template.starts_with("http://") || template.starts_with("https://") {
         let http = HttpTiles::new(template, user_agent());
-        Arc::new(RoutingTiles::Http(CachedTiles::new(http, Some(cache), CACHE_BYTES)))
+        // The cache keeps a copy of the manifest once one was downloaded: its keep times hold
+        // from the start, without asking the network.
+        let manifest = Manifest::read_file(&cache.join("manifest.json")).ok();
+        let policy = keep_policy(manifest.as_ref(), keep_days);
+        Arc::new(RoutingTiles::Http(
+            CachedTiles::new(http, Some(cache), CACHE_BYTES).with_policy(policy),
+        ))
     } else {
         // A folder is on disk already: the cache only keeps its tiles in memory.
         let root = PathBuf::from(template.strip_prefix("file://").unwrap_or(template));
-        Arc::new(RoutingTiles::Folder(CachedTiles::new(FolderTiles { root }, None, CACHE_BYTES)))
+        let folder = FolderTiles { root };
+        let policy = keep_policy(folder.manifest().ok().as_ref(), keep_days);
+        Arc::new(RoutingTiles::Folder(
+            CachedTiles::new(folder, None, CACHE_BYTES).with_policy(policy),
+        ))
+    }
+}
+
+/// How long the tiles are kept: what `manifest` suggests (the default without one), with the
+/// user's setting over it. A setting that does not read as JSON is ignored.
+fn keep_policy(manifest: Option<&Manifest>, keep_days: Option<&str>) -> KeepPolicy {
+    let policy = manifest.map_or_else(KeepPolicy::default, KeepPolicy::from_manifest);
+    match keep_days.and_then(|text| serde_json::from_str::<serde_json::Value>(text.trim()).ok()) {
+        Some(value) => {
+            let mut settings = serde_json::Map::new();
+            settings.insert(azul_routing::source::SETTINGS_KEY.to_string(), value);
+            policy.with_settings(&serde_json::Value::Object(settings))
+        }
+        None => policy,
     }
 }
 
@@ -272,6 +322,9 @@ pub struct RouteReply {
     pub source: RouteSource,
     /// The routing server's turn-by-turn steps; empty for any other source.
     pub steps: Vec<Step>,
+    /// The routing tiles' credit ([`RoutingTiles::attribution`]), shown next to their road
+    /// route; empty for any other source (the server's credit is a fixed text).
+    pub credit: String,
     /// The route is a kept one, the routing server out of reach: shown marked offline.
     pub offline: bool,
     /// The road route's places, `(lat, lon)`, from where the start meets the roads to where the
@@ -409,6 +462,7 @@ pub fn work_out(
         kind: RouteKind::Estimate,
         source: RouteSource::Estimate,
         steps: Vec::new(),
+        credit: String::new(),
         offline: false,
         road: Vec::new(),
         tiles: 0,
@@ -429,6 +483,7 @@ pub fn work_out(
                     reply.road = found.points;
                     reply.tiles = found.tiles;
                     reply.attempts = found.attempts;
+                    reply.credit = tiles.attribution();
                 }
                 Err(RouteError::Stopped) => return None,
                 Err(why) => {
@@ -484,6 +539,23 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn the_users_keep_days_go_over_what_the_tile_set_suggests() {
+        assert_eq!(keep_policy(None, None), KeepPolicy::default());
+        assert_eq!(keep_policy(None, Some("7")).days, [7, 7, 7]);
+        assert_eq!(keep_policy(None, Some(r#"{"14": 3}"#)).days, [56, 28, 3]);
+        assert_eq!(keep_policy(None, Some("")), KeepPolicy::default(), "cleared: as suggested");
+    }
+
+    #[test]
+    fn routing_tiles_without_a_manifest_credit_openstreetmap() {
+        let dir = std::env::temp_dir().join(format!("azmaps-credit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let tiles = routing_source(dir.to_str().expect("a path"), &std::env::temp_dir());
+        assert_eq!(tiles.attribution(), azul_routing::manifest::OSM_ATTRIBUTION);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_folder_or_a_url_names_where_the_routing_tiles_come_from() {

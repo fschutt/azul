@@ -14,9 +14,10 @@ pub struct Args {
     pub stats: bool,
     /// `--tiles <url template>`: the tile server for this run (see [`tile_template`]).
     pub tiles: Option<String>,
-    /// `--routing <url template or folder>`: the routing tiles for this run, else
+    /// `--routing <URL or folder>`: the routing tiles for this run (their manifest's URL, a
+    /// `manifest.json` or the folder holding it; a `{z}/{x}/{y}` template still works), else
     /// [`ROUTING_VAR`], else the shared Azlin config's `endpoints.routing`; without them a
-    /// route is the straight-line estimate.
+    /// route is asked of the routing server.
     pub routing: Option<String>,
     /// `--routing-online <url|off>`: the routing server asked where there are no routing
     /// tiles, else [`ROUTING_ONLINE_VAR`] (see [`online_routing`]).
@@ -115,7 +116,7 @@ pub fn usage() -> String {
          rebuild, us).\n                             Also AZMAPS_STATS=1\n    --tiles <URL>            The tile server's URL template \
          ({z}/{x}/{y}) for this run; else\n                             AZMAPS_TILES, else \
          endpoints.tiles of the shared Azlin config,\n                             else \
-         OpenFreeMap's public tiles\n    --routing <URL|DIR>      The routing tiles ({z}/{x}/{y}.json.gz, or a folder\n                             azul-routing's routing-tiles wrote); else \
+         OpenFreeMap's public tiles\n    --routing <URL|PATH>     The routing tiles: their manifest's URL, a manifest.json\n                             or its folder (a {z}/{x}/{y} template works too); else \
          AZMAPS_ROUTING, else\n                             endpoints.routing of the shared Azlin \
          config. Without them a\n                             route is asked of the routing server\n    --routing-online <URL|off>  The routing server (a Valhalla /route URL) asked\n                             without routing tiles; else AZMAPS_ROUTING_ONLINE,\n                             else FOSSGIS's public server. off: the straight-line\n                             estimate\n    --transit <URL|off>      The public transport server (MOTIS); else\n                             AZMAPS_TRANSIT, else Transitous. off: no journeys\n    --offline                Send nothing: routes, journeys and places come from the\n                             cache, marked offline\n    --simulate-route         Navigation drives a simulated car along the route (one\n                             wrong turn on the way); --simulate-speed <km/h> (50)\n    --gps <SOURCE>           Where the position comes from: platform, gpsd,\n                             gpsd:<host:port>, nmea:<device>, replay:<file.nmea>\n    --replay-speed <N>       How much faster a replay runs than it was recorded (1)\n    --import <FILE|DIR>      Import places (GPX, KML, KMZ, GeoJSON, CSV, a Google\n                             Takeout folder) at the start\n    --navigate               Start navigating as soon as the road route is there\n",
     );
@@ -188,7 +189,7 @@ where
         } else if arg == "--routing" {
             routing = Some(
                 argv.next()
-                    .ok_or_else(|| "--routing needs a URL template or a folder".to_string())?,
+                    .ok_or_else(|| "--routing needs the tiles' manifest URL or a folder".to_string())?,
             );
         } else if arg == "--routing-online" {
             routing_online = Some(

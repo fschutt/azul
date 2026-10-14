@@ -148,6 +148,11 @@ azmaps-gps-ended = Die Quelle ist zu Ende.
 azmaps-gps-failed = Die Quelle ist ausgefallen: { $why }
 azmaps-gps-simulated = Simulierte Fahrt
 azmaps-gps-about = Ein Mac hat kein GPS: Seine Position kommt aus dem WLAN (oder von einem iPhone in der Nähe), ungenau oder auf der Autobahn gar nicht. Ein GPS-Empfänger per USB oder Bluetooth liefert die Position des Autos - direkt als NMEA oder über gpsd. Telefone nutzen ihr eigenes GPS.
+azmaps-routing-tiles-title = Routing-Kacheln
+azmaps-routing-keep = Geladene Straßen behalten für
+azmaps-routing-keep-suggested = Wie der Kachelsatz es vorschlägt
+azmaps-routing-keep-days = { $days } Tage
+azmaps-routing-keep-about = Für Routen geladene Straßenkacheln bleiben auf diesem Computer und werden neu geladen, wenn sie älter sind. Ohne Netz routen die alten weiter. Gilt ab dem nächsten Start.
 
 ## Gespeicherte Orte, Import und Export
 

@@ -73,6 +73,8 @@ names! {
     GPS_DEVICE = "gps-device";
     GPS_TEXT = "gps-text";
     GPS_APPLY = "gps-apply";
+    /// Settings > Navigation > Routing tiles: how long downloaded roads are kept.
+    ROUTING_KEEP = "routing-keep";
     // ---- saved places (`lists_ui.rs`) ----
     /// The sidebar's saved lists (each row `list-<n>`, the open one's places `saved-place-<n>`).
     SAVED = "saved";

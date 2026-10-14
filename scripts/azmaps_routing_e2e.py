@@ -4,10 +4,11 @@
     1. an OpenStreetMap extract: `--extract <file.osm.pbf>`, or with `--download` Geofabrik's
        Monaco extract (about half a megabyte), kept in `--cache` for the next run;
     2. azul-routing's `routing-tiles` cuts it into the routing tiles (zoom 8 / 11 / 14,
-       `<z>/<x>/<y>.json.gz`), and `routing-tiles --route` checks a route on the folder;
+       `tiles/<z>/<x>/<y>.pbf` next to a `manifest.json`), and `routing-tiles --route` checks a
+       route on the folder;
     3. a local Python file server serves the folder - static hosting, nothing else (a missing
        tile is a 404, a tile without roads);
-    4. AzMaps starts headless with `--routing http://127.0.0.1:<port>/{z}/{x}/{y}.json.gz` on a
+    4. AzMaps starts headless with `--routing http://127.0.0.1:<port>/manifest.json` on a
        fresh data folder; a start and a destination are typed into the travel panel;
     5. the route worker fetches the corridor's tiles off the UI thread, reporting its progress
        (`AZMAPS_ROUTE_PROGRESS`), and answers a road route (`AZMAPS_ROAD car <km> <min>
@@ -111,7 +112,7 @@ class Tiles:
         self.thread.start()
 
     def template(self):
-        return "http://127.0.0.1:%d/{z}/{x}/{y}.json.gz" % self.port
+        return "http://127.0.0.1:%d/manifest.json" % self.port
 
     def stop(self):
         self.server.shutdown()

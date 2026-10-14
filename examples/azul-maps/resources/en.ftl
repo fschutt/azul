@@ -148,6 +148,11 @@ azmaps-gps-ended = The source ended.
 azmaps-gps-failed = The source failed: { $why }
 azmaps-gps-simulated = Simulated drive
 azmaps-gps-about = A Mac has no GPS: its position comes from Wi-Fi (or a nearby iPhone), coarse or absent on a motorway. A USB or Bluetooth GPS receiver gives the car's position - directly as NMEA, or through gpsd. Phones use their own GPS.
+azmaps-routing-tiles-title = Routing tiles
+azmaps-routing-keep = Keep downloaded roads for
+azmaps-routing-keep-suggested = As the tile set suggests
+azmaps-routing-keep-days = { $days } days
+azmaps-routing-keep-about = Road tiles downloaded for routes are kept on this computer and fetched again when they are older than this. Without a network the old ones still route. Applies from the next start.
 
 ## Saved places, imports and exports
 

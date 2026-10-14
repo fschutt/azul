@@ -58,10 +58,14 @@ right idea, so we copy it:
 A node where a higher class meets a lower one appears in both levels with the same OSM id. That is
 the "level change" A* uses.
 
-Generation runs in CI from a Geofabrik extract (or the planet), with a small Rust tool in `scripts/`.
-It filters `highway=*` and restrictions, cuts the result into tiles and writes gzipped JSON in the
-routable-tiles shape. A binary encoding can come later behind the same tile interface. Planet-build
-date versioning works like the MVT URL (`.../routing/<build>/14/x/y.json.gz`).
+The tiles are Valhalla's road graph as gzipped protobuf at `tiles/<z>/<x>/<y>.pbf`, next to a
+`manifest.json` that names the coverage, the tile URL template, the licence and attribution and how
+many days each zoom may be kept (azul-routing's `manifest`, `format`). The azul-routing-tiles project
+builds and publishes them from a Valhalla build; where there is none, azul-routing's `routing-tiles`
+binary cuts an OpenStreetMap extract into the same tiles with the same manifest. AzMaps' `--routing`
+takes the manifest's URL, a `manifest.json` or the folder holding it (a bare `{z}/{x}/{y}` template
+still works). The manifest's attribution ("© OpenStreetMap contributors", ODbL) is shown next to
+every route worked out on the tiles.
 
 **Hosting on GitHub, honestly:** GitHub Pages publishes at most about 1 GB per site, and a repository
 should stay well under a few GB. These are estimates to verify. Germany alone at z14 is about 150k
@@ -132,8 +136,11 @@ After the last widening the panel says "No route found". If start and destinatio
 all in their own tiles, it says that instead. Every fetched tile stays cached:
 
 - in memory, for the session;
-- in the data tree (`maps/routing/<build>/<z>/<x>/<y>.json.gz`, size-capped, LRU), so a second
-  route through the same area costs no network.
+- in the data tree (`maps/routing/<source>/<z>/<x>/<y>.pbf`, size-capped, oldest first), so a
+  second route through the same area costs no network. Each zoom is kept as long as the manifest
+  suggests (8 / 11 / 14: 56 / 28 / 14 days by default), or as Settings > Navigation > Routing
+  tiles says (`routing_tiles_keep_days` in settings.json); without a network an old tile still
+  routes. Offline areas (azul-routing's `offline`) are kept apart from the cap.
 
 ## 5. Refinements: public transport (bahn.de and friends)
 
