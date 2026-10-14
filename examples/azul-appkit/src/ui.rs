@@ -54,8 +54,8 @@ use azul::{
     },
     time::{Duration, SystemTimeDiff},
     widgets::{
-        AboutDialog, Button, Modal, ModalState, Segmented, SegmentedState, StandardDialogEvent,
-        TabsInTitlebar, Titlebar,
+        AboutDialog, Button, CloseGuard, Modal, ModalState, Segmented, SegmentedState,
+        StandardDialogEvent, TabsInTitlebar, Titlebar,
     },
     window::{WindowCreateOptions, WindowDecorations, WindowFrame},
 };
@@ -428,6 +428,12 @@ pub fn title_row(title: &str) -> Dom {
 #[must_use]
 pub fn tabs_in_titlebar() -> TabsInTitlebar {
     TabsInTitlebar::platform()
+}
+
+/// The standard "Save changes?" guard around a window's `content`, for the open `document`.
+#[must_use]
+pub fn close_guard(content: Dom, document: &str) -> CloseGuard {
+    CloseGuard::create(content, AzString::from(document))
 }
 
 /// Asks for a new frame of the image at `node` - its `RenderImageCallback` runs again before
