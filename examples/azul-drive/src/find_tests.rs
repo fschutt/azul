@@ -337,14 +337,15 @@ fn the_folder_column_names_where_a_result_is() {
     assert_eq!(find::folder_of("x.txt"), "");
 }
 
-/// The search's settings: names only and ignored files skipped, until the Search tab says
-/// otherwise; a settings file of an older build keeps them.
+/// The search's settings: the files' contents read too (the user's choice) and ignored files
+/// skipped, until the Search tab says otherwise; a settings file of an older build that does
+/// not name them gets the same.
 #[test]
-fn the_search_settings_start_with_names_only_and_ignored_files_skipped() {
+fn the_search_settings_start_with_file_contents_on_and_ignored_files_skipped() {
     let settings = Settings::default();
-    assert!(!settings.search_contents && settings.search_ignore_files);
+    assert!(settings.search_contents && settings.search_ignore_files);
     let old = Settings::from_json("{\"show_hidden\": true}");
-    assert!(old.show_hidden && !old.search_contents && old.search_ignore_files);
+    assert!(old.show_hidden && old.search_contents && old.search_ignore_files);
 }
 
 /// 2026-10-08 (a Thursday) 15:00 in UTC+2, the clock the date refines are tested against.
