@@ -103,8 +103,8 @@ const RETIRED_FORMAT: &str = "azul-storage retired packs 1";
 const IN_FLIGHT_DIR: &str = "in-flight";
 /// The list of retired packs, in the journal folder.
 const RETIRED_FILE: &str = "retired.json";
-/// The packs this device knows of, in the journal folder: one line per pack it wrote or saw
-/// named (`+<id> <bytes>`), one per pack that left the bucket (`-<id>`).
+/// The packs this device knows of, in the journal folder: one line `+<id> <bytes>` per pack it
+/// wrote or saw named, appended; written anew without the packs that left the bucket.
 const KNOWN_FILE: &str = "known.log";
 /// Packs whose reads are counted, at most; the count starts again beyond it.
 const COUNTED_PACKS: usize = 1024;
@@ -167,6 +167,7 @@ pub struct PackRef {
 /// byte, then the file, compressed when that paid).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PackedAt {
+    /// The pack the record is in.
     pub pack: PackRef,
     /// Where the record starts in the pack's plaintext.
     pub offset: u64,
@@ -368,8 +369,11 @@ pub(crate) struct Member {
 
 /// A path a packed member goes to: what it must still hold, and the date its entry keeps.
 struct Target {
+    /// The drive path that will name the member.
     path: String,
+    /// What the path must still hold, else it drops out of the commit (a lost race).
     expect: Expect,
+    /// The date its entry keeps.
     modified: Option<u64>,
 }
 
@@ -455,10 +459,13 @@ fn decode_record(
 
 /// A pack put together: its object, what the index keeps of it, where its members went.
 struct SealedPack {
+    /// The whole AZL1 object, as it goes into the bucket.
     object: Vec<u8>,
+    /// What every member's entry names of the pack.
     pack: PackRef,
     /// The pack's file key, wrapped with the drive key for the pack's id.
     wrapped_key: WrappedKey,
+    /// Where each member's record starts in the pack's plaintext, in the members' order.
     offsets: Vec<u64>,
 }
 
@@ -513,7 +520,9 @@ fn io_error(path: &Path, e: &std::io::Error) -> DriveError {
 /// A pack in flight, as its journal file says.
 #[derive(Serialize, Deserialize)]
 struct InFlight {
+    /// [`IN_FLIGHT_FORMAT`].
     format: String,
+    /// The pack's id (hex).
     pack: String,
     /// When it was sealed (seconds since 1970).
     created: u64,
@@ -522,13 +531,16 @@ struct InFlight {
 /// The retired packs, as the journal's list says.
 #[derive(Serialize, Deserialize)]
 struct RetiredList {
+    /// [`RETIRED_FORMAT`].
     format: String,
+    /// The retired packs, in the order they were retired.
     #[serde(default)]
     packs: Vec<RetiredPack>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct RetiredPack {
+    /// The pack's id (hex).
     pack: String,
     /// When it was retired (seconds since 1970).
     at: u64,
@@ -536,6 +548,7 @@ struct RetiredPack {
 
 /// The packs in flight and the retired packs: files in the journal folder, or memory.
 struct Journal {
+    /// The journal folder; `None`: everything in [`Journal::memory`].
     dir: Option<PathBuf>,
     /// The state without a folder; with one, the lock that keeps this process's file changes in
     /// order.
@@ -544,8 +557,11 @@ struct Journal {
 
 #[derive(Default)]
 struct JournalMemory {
+    /// Packs in flight and when each was sealed.
     in_flight: BTreeMap<ObjectId, u64>,
+    /// Retired packs and when each was retired.
     retired: Vec<(ObjectId, u64)>,
+    /// Packs this device knows of, with their bytes.
     known: BTreeMap<ObjectId, u64>,
 }
 
@@ -783,14 +799,18 @@ impl Journal {
 /// Packs read recently: how often, and the whole ones kept (ciphertext).
 #[derive(Default)]
 struct Hot {
+    /// Reads per pack since it was last fetched whole ([`HOT_READS`]).
     reads: HashMap<ObjectId, u32>,
+    /// The packs fetched whole, oldest first ([`HOT_PACKS`] at most).
     kept: VecDeque<(ObjectId, Arc<Vec<u8>>)>,
 }
 
 /// Single writers of small files meeting in one open pack.
 #[derive(Default)]
 struct Packer {
+    /// The open pack's members and the outcomes of sealed ones.
     state: Mutex<Queue>,
+    /// Woken when a writer arrives or leaves and when a pack is done.
     changed: Condvar,
 }
 
@@ -802,6 +822,7 @@ struct Queue {
     sealing: bool,
     /// The outcomes of tickets whose pack is done, until their writers take them.
     done: HashMap<u64, Result<IndexEntry, DriveError>>,
+    /// The next writer's ticket.
     next: u64,
     /// Writers inside [`EncryptedDrive::write_packed`]: whether the sealing writer waits for
     /// others.
@@ -810,8 +831,11 @@ struct Queue {
 
 /// Unblocks the other writers when a sealing writer stops halfway (a panic): its members fail.
 struct SealGuard<'a> {
+    /// The packer whose other writers wait.
     packer: &'a Packer,
+    /// The tickets of the pack being sealed.
     tickets: Vec<u64>,
+    /// Cleared once the outcomes are in: the guard then does nothing.
     armed: bool,
 }
 
@@ -836,9 +860,13 @@ impl Drop for SealGuard<'_> {
 /// the hot packs. Every encrypted drive has one: a drive that does not pack still reads packed
 /// files and repacks them.
 pub(crate) struct PackState {
+    /// How the drive packs; `None`: it writes one object per file.
     options: Option<PackOptions>,
+    /// Packs in flight, retired packs, known packs.
     journal: Journal,
+    /// The open pack of single writes.
     packer: Packer,
+    /// Packs read often.
     hot: Mutex<Hot>,
 }
 
@@ -911,6 +939,7 @@ pub struct RepackReport {
 pub struct PackUpkeep {
     /// Stale packs in flight cleared up.
     pub recovered: usize,
+    /// What the repack did.
     pub repack: RepackReport,
     /// Retired packs deleted.
     pub collected: usize,

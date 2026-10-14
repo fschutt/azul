@@ -1044,10 +1044,15 @@ fn open_sealed_segment(
 /// every segment's associated data, so a segment written under another key does not open; the
 /// index's BLAKE3 of what is read checks the rest.
 pub struct StoredSegments {
+    /// The object's keys, derived from its file key and nonce prefix.
     keys: ObjectKeys,
+    /// Header bytes 0..88 as the writer made them: every segment's associated data.
     context: [u8; CONTEXT_LEN],
+    /// Plaintext bytes per segment.
     segment_size: u64,
+    /// The object's plaintext bytes: where the last segment ends.
     plaintext_size: u64,
+    /// The object's segments: the last one carries the STREAM's last-segment flag.
     segment_count: u64,
 }
 
