@@ -124,8 +124,8 @@ pub struct SensorReading {
 }
 
 impl SensorReading {
-    /// The magnitude of the `(x, y, z)` vector — e.g. total acceleration
-    /// (≈9.81 at rest for the accelerometer) or field strength.
+    /// The length of the `(x, y, z)` vector: the total acceleration (about 9.81
+    /// at rest for the accelerometer) or the field strength.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use]
     pub fn magnitude(&self) -> f32 {
