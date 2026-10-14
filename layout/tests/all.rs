@@ -1107,3 +1107,5 @@ mod line_clamp_ends_its_last_line_with_an_ellipsis;
 mod a_sticky_header_holds_while_its_list_scrolls;
 #[path = "a_drag_image_follows_the_pointer.rs"]
 mod a_drag_image_follows_the_pointer;
+#[path = "a_pane_and_the_ribbon_animate_their_size.rs"]
+mod a_pane_and_the_ribbon_animate_their_size;
