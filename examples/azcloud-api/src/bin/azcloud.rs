@@ -1375,11 +1375,24 @@ fn cmd_packs(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         options.retired_grace_secs = days * 86_400;
     }
     let drive = drive.with_packing(options);
+    let before = drive.pack_summary()?;
     let upkeep = drive.maintain_packs(azul_storage::time::now_unix())?;
+    let after = drive.pack_summary()?;
     let retired = drive.retired_packs().len();
     let repack = &upkeep.repack;
+    let summary = |s: &azul_storage::packing::PackSummary| {
+        json!({
+            "packed_files": s.packed_files,
+            "packs": s.packs,
+            "own_objects": s.own_objects,
+            "pack_bytes": s.pack_bytes,
+            "live_bytes": s.live_bytes,
+        })
+    };
     let value = json!({
         "ok": true,
+        "before": summary(&before),
+        "after": summary(&after),
         "recovered": upkeep.recovered,
         "packs_read": repack.packs_read,
         "packs_written": repack.packs_written,
@@ -1392,8 +1405,15 @@ fn cmd_packs(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         "retired": retired,
     });
     let text = format!(
-        "{} stale uploads cleared up; {} packs repacked into {} ({} files moved, {} -> {} \
-         bytes), {} packs with no file left; {} retired packs deleted, {} waiting\n",
+        "before: {} files in {} packs ({} of {} bytes live), {} files in objects of their own\n\
+         {} stale uploads cleared up; {} packs repacked into {} ({} files moved, {} -> {} \
+         bytes), {} packs with no file left; {} retired packs deleted, {} waiting\n\
+         after: {} files in {} packs ({} of {} bytes live)\n",
+        before.packed_files,
+        before.packs,
+        before.live_bytes,
+        before.pack_bytes,
+        before.own_objects,
         upkeep.recovered,
         repack.packs_read,
         repack.packs_written,
@@ -1402,7 +1422,11 @@ fn cmd_packs(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         repack.bytes_after,
         repack.packs_emptied,
         upkeep.collected,
-        retired
+        retired,
+        after.packed_files,
+        after.packs,
+        after.live_bytes,
+        after.pack_bytes
     );
     Ok((value, text))
 }

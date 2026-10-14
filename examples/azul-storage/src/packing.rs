@@ -934,6 +934,21 @@ pub struct RepackReport {
     pub bytes_after: u64,
 }
 
+/// What the index names of the drive's packs ([`EncryptedDrive::pack_summary`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PackSummary {
+    /// Paths whose bytes are in packs (a copy names its version twice).
+    pub packed_files: usize,
+    /// Packs the index names.
+    pub packs: usize,
+    /// Paths whose file has an object of its own.
+    pub own_objects: usize,
+    /// The bucket bytes of those packs: what the quota counts of them.
+    pub pack_bytes: u64,
+    /// The bytes of their live records; the rest is padding and the garbage of old versions.
+    pub live_bytes: u64,
+}
+
 /// What a round of upkeep did ([`EncryptedDrive::maintain_packs`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PackUpkeep {
@@ -1531,6 +1546,31 @@ impl<D: Drive> EncryptedDrive<D> {
         let retired: Vec<ObjectId> = old.into_iter().collect();
         self.packs.journal.retire(&retired, now)?;
         Ok(report)
+    }
+
+    /// How the index's files are stored: in packs, or in objects of their own. Walks the whole
+    /// index: call it from a worker thread.
+    pub fn pack_summary(&self) -> Result<PackSummary, DriveError> {
+        let mut summary = PackSummary::default();
+        let mut packs: HashMap<ObjectId, u64> = HashMap::new();
+        let mut versions: HashMap<ObjectId, u64> = HashMap::new();
+        for (_, entry) in self.all_entries("")? {
+            let Some(object) = entry.object.as_ref() else {
+                continue;
+            };
+            match &object.packed {
+                Some(packed) => {
+                    summary.packed_files += 1;
+                    packs.insert(packed.pack.id, packed.pack.object_len);
+                    versions.insert(object.id, packed.length);
+                }
+                None => summary.own_objects += 1,
+            }
+        }
+        summary.packs = packs.len();
+        summary.pack_bytes = packs.values().sum();
+        summary.live_bytes = versions.values().sum();
+        Ok(summary)
     }
 
     /// The retired packs and when each was retired.
