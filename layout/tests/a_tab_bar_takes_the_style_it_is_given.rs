@@ -6,7 +6,7 @@
 //!   with its run-outs.
 //! - Rectangular hangs no curves, in either theme.
 //! - Pills sit on a leather strip that reaches the top of the bar; the strip
-//!   closes on a 1px rule along its foot, gold: a shimmer over aluminium.
+//!   closes on a 2px line along its foot, gold: a shimmer over aluminium.
 //!   The selected pill wears the submit button's face.
 //! - With no tab selected (an index past the last tab) no tab looks
 //!   selected: no active class, no seam, no curves of a selected tab.
@@ -282,12 +282,12 @@ fn contains(outer: &LogicalRect, inner: &LogicalRect) -> bool {
         && inner.origin.y + inner.size.height <= outer.origin.y + outer.size.height + 0.5
 }
 
-/// The rule is one CSS pixel tall - two device pixels at 2x, as every
-/// border width is scaled - and lies along the strip's foot; the leather is
+/// The golden line is two CSS pixels tall - four device pixels at 2x, as
+/// every length is scaled - and lies along the strip's foot; the leather is
 /// drawn over the whole strip, from the top of the window, under every
 /// pill.
 #[test]
-fn the_pill_strip_is_leather_to_the_top_and_closes_on_a_one_pixel_rule() {
+fn the_pill_strip_is_leather_to_the_top_and_closes_on_a_two_pixel_line() {
     for theme in THEMES {
         let lw = laid_out(
             TabHeader::create(labels())
@@ -301,7 +301,7 @@ fn the_pill_strip_is_leather_to_the_top_and_closes_on_a_one_pixel_rule() {
         let rule = rects_of(&lw, RULE);
         assert_eq!(rule.len(), 1, "{theme:?}: one rule");
         let rule = rule[0];
-        assert!((rule.size.height - 1.0).abs() < 0.01, "{theme:?}: a 1px rule: {rule:?}");
+        assert!((rule.size.height - 2.0).abs() < 0.01, "{theme:?}: a 2px line: {rule:?}");
         assert!(
             (rule.origin.y + rule.size.height - (header.origin.y + header.size.height)).abs() < 0.5,
             "{theme:?}: along the strip's foot: rule {rule:?}, strip {header:?}"

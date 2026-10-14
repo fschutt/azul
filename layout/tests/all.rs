@@ -1095,3 +1095,5 @@ mod a_marker_stands_where_the_ground_shows_its_place;
 mod a_closing_window_hands_its_app_threads_to_a_window_that_stays_open;
 #[path = "tab_labels_sit_evenly_apart_in_every_tab_style.rs"]
 mod tab_labels_sit_evenly_apart_in_every_tab_style;
+#[path = "tab_buttons_are_22px_flora_buttons_in_a_28px_row.rs"]
+mod tab_buttons_are_22px_flora_buttons_in_a_28px_row;
