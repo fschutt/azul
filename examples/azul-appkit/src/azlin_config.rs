@@ -1188,21 +1188,14 @@ mod tests {
         assert_eq!(config_path(None, None), None);
     }
 
-    /// AzMeet's connection server may be Azlin's iroh:// address in the file and the
-    /// environment too; the other services stay http(s) addresses.
+    /// The relay may name Azlin's own with a word, as AzMeet's settings do; the meeting server
+    /// stays an http(s) address.
     #[test]
-    fn a_meeting_server_may_be_an_iroh_address_and_the_other_services_may_not() {
-        assert_eq!(
-            normalize_endpoint(Endpoint::Meet, " iroh://connect.azlin.io/ ").as_deref(),
-            Ok("iroh://connect.azlin.io")
-        );
-        assert!(normalize_endpoint(Endpoint::Meet, "iroh://").is_err());
-        assert!(normalize_endpoint(Endpoint::Meet, "iroh://connect.azlin.io/?x").is_err());
-        assert!(normalize_endpoint(Endpoint::Token, "iroh://connect.azlin.io").is_err());
-        assert_eq!(
-            normalize_endpoint(Endpoint::Meet, "http://127.0.0.1:8790").as_deref(),
-            Ok("http://127.0.0.1:8790")
-        );
+    fn the_relay_may_be_azlins_by_name_and_the_meeting_server_is_an_http_address() {
+        assert_eq!(normalize_endpoint(Endpoint::Relay, " Azlin ").as_deref(), Ok("azlin"));
+        assert_eq!(normalize_endpoint(Endpoint::Relay, "default").as_deref(), Ok("default"));
+        assert!(normalize_endpoint(Endpoint::Meet, "iroh://connect.azlin.io").is_err());
+        assert!(normalize_endpoint(Endpoint::Meet, "azlin").is_err());
     }
 
     #[test]

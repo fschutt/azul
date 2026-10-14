@@ -631,6 +631,22 @@ mod tests {
         assert_eq!(settings.get(QUALITY), Some("automatic"));
     }
 
+    /// The relay picked in the settings is a line of the settings file; none, no line.
+    #[test]
+    fn the_relay_is_remembered_in_the_settings_file() {
+        let mut settings = AppSettings::default();
+        let prefs = Prefs {
+            relay: Some(String::from("azlin")),
+            ..Prefs::default()
+        };
+        prefs.write(&mut settings);
+        assert_eq!(settings.get(RELAY), Some("azlin"));
+        let (back, _) = AppSettings::parse(&settings.to_json());
+        assert_eq!(Prefs::read(&back), prefs, "through the file and back");
+        Prefs::default().write(&mut settings);
+        assert_eq!(settings.get(RELAY), None);
+    }
+
     #[test]
     fn the_devices_the_mirror_and_how_to_join_are_remembered_in_the_settings_file() {
         let fresh = Prefs::read(&AppSettings::default());

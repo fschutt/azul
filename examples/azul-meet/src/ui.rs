@@ -2015,16 +2015,30 @@ mod tests {
     }
 
     /// The start screen keeps the connection details in the settings: it names no address, it
-    /// only says when the connection server cannot be used.
+    /// only says when the meetings service cannot be used.
     #[test]
-    fn the_start_screen_only_says_when_the_connection_server_cannot_be_used() {
+    fn the_start_screen_only_says_when_the_meetings_service_cannot_be_used() {
         crate::l10n::in_english();
         assert_eq!(server_problem(&lobby(true, false)), None);
-        let silent = server_problem(&lobby(false, false)).expect("a silent server is said");
-        assert_eq!(silent, "The connection server does not answer.");
-        let unset = server_problem(&lobby(false, true)).expect("a missing server is said");
-        assert_eq!(unset, "No connection server is set.");
-        assert!(!silent.contains("connect.azlin.io") && !unset.contains("://"));
+        let silent = server_problem(&lobby(false, false)).expect("a silent service is said");
+        assert_eq!(silent, "The meetings service does not answer.");
+        let unset = server_problem(&lobby(false, true)).expect("a missing service is said");
+        assert_eq!(unset, "No meetings service is set.");
+        assert!(!silent.contains("://") && !unset.contains("://"));
+    }
+
+    /// The relay choices as the settings list them, in `RelayChoice::ALL` order.
+    #[test]
+    fn the_relay_choices_say_whose_relays_they_are() {
+        crate::l10n::in_english();
+        assert_eq!(
+            relay_labels(),
+            vec![
+                String::from("Default (n0's public relays)"),
+                String::from("Azlin (connect.azlin.io)"),
+                String::from("Custom"),
+            ]
+        );
     }
 
     /// A row's buttons carry the start of its key: the scripts find "Admit" by the device id.

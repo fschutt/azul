@@ -709,6 +709,45 @@ mod tests {
         );
     }
 
+    /// The relay is n0's public ones, Azlin's own, or a company's: one setting, three choices.
+    #[test]
+    fn the_relay_is_n0s_public_ones_azlins_own_or_a_companys() {
+        assert_eq!(relay_choice(Some("azlin"), "meet.example.com"), Relay::Custom(AZLIN_RELAY.to_string()));
+        assert_eq!(relay_choice(Some(" Azlin "), "127.0.0.1"), Relay::Custom(AZLIN_RELAY.to_string()));
+        assert_eq!(AZLIN_RELAY, "https://connect.azlin.io");
+        assert_eq!(RelayChoice::of(&Relay::Default), Some(RelayChoice::Default));
+        assert_eq!(RelayChoice::of(&Relay::Custom(AZLIN_RELAY.to_string())), Some(RelayChoice::Azlin));
+        assert_eq!(
+            RelayChoice::of(&Relay::Custom(String::from("https://relay.corp.example"))),
+            Some(RelayChoice::Custom)
+        );
+        assert_eq!(RelayChoice::of(&Relay::Off), None, "no relay is none of the three");
+    }
+
+    /// The settings file keeps the choice as a word, or a company relay's address.
+    #[test]
+    fn a_relay_choice_is_kept_as_a_word_or_the_custom_relays_address() {
+        assert_eq!(relay_setting(RelayChoice::Default, "").as_deref(), Some("default"));
+        assert_eq!(relay_setting(RelayChoice::Azlin, "ignored").as_deref(), Some("azlin"));
+        assert_eq!(
+            relay_setting(RelayChoice::Custom, " https://relay.corp.example/ ").as_deref(),
+            Some("https://relay.corp.example")
+        );
+        for bad in ["", "relay.corp.example", "ftp://relay.corp.example", "https://"] {
+            assert_eq!(relay_setting(RelayChoice::Custom, bad), None, "{bad}");
+        }
+        assert_eq!(RelayChoice::ALL.len(), 3);
+    }
+
+    /// The relay set in the settings counts over the shared config; `--relay` over both.
+    #[test]
+    fn the_relay_switch_wins_over_the_saved_relay_and_the_saved_one_over_the_shared_config() {
+        assert_eq!(relay_setting_of(Some("off"), Some("azlin"), Some("default")), Some("off"));
+        assert_eq!(relay_setting_of(None, Some("azlin"), Some("default")), Some("azlin"));
+        assert_eq!(relay_setting_of(None, Some("  "), Some("default")), Some("default"));
+        assert_eq!(relay_setting_of(None, None, None), None);
+    }
+
     /// The E2E's relay phase reads `AZMEET_TRANSPORT relay-only http://127.0.0.1:<port>`.
     #[test]
     fn the_transport_label_says_whether_a_direct_path_may_form_and_through_which_relays() {
@@ -794,37 +833,6 @@ mod tests {
         ] {
             assert_eq!(normalize_server(bad), None, "{bad}");
         }
-    }
-
-    /// Azlin's connection server is named by an iroh address; its meeting API is HTTPS on the
-    /// same host, port and path, so every request goes to `https://` there.
-    #[test]
-    fn an_iroh_address_names_a_connection_server_whose_api_is_https_on_the_same_host() {
-        assert_eq!(
-            normalize_server(" iroh://connect.azlin.io/ "),
-            Some(String::from("iroh://connect.azlin.io"))
-        );
-        assert_eq!(api_base("iroh://connect.azlin.io"), "https://connect.azlin.io");
-        assert_eq!(
-            api_base("IROH://connect.azlin.io:8443/meet"),
-            "https://connect.azlin.io:8443/meet"
-        );
-        assert_eq!(api_base("http://127.0.0.1:8790"), "http://127.0.0.1:8790");
-        assert_eq!(api_base("https://meet.example.com"), "https://meet.example.com");
-        for bad in ["iroh://", "iroh:///rooms", "iroh://:443", "iroh://connect azlin.io"] {
-            assert_eq!(normalize_server(bad), None, "{bad}");
-        }
-    }
-
-    /// Nothing named anywhere, AzMeet talks to Azlin's own connection server.
-    #[test]
-    fn the_built_in_connection_server_is_azlins() {
-        assert_eq!(DEFAULT_SERVER, "iroh://connect.azlin.io");
-        assert_eq!(normalize_server(DEFAULT_SERVER).as_deref(), Some(DEFAULT_SERVER));
-        assert_eq!(
-            server_prefill(None, None, DEFAULT_SERVER),
-            (String::from(DEFAULT_SERVER), ServerSource::BuiltIn)
-        );
     }
 
     /// `--worker` is this run's meeting server even over the saved one (a script's worker is
