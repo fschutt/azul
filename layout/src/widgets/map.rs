@@ -43,8 +43,7 @@ use azul_css::{
 };
 use azul_css::system::DarkLightMode;
 
-#[path = "map_overlay.rs"]
-mod overlay;
+pub mod overlay;
 pub use overlay::{
     MapLatLonVec, MapLatLonVecDestructor, MapLatLonVecDestructorType, MapLatLonVecSlice,
     MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,

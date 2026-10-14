@@ -111380,7 +111380,7 @@
                         "repr": "C"
                     },
                     "MapMarker": {
-                        "external": "azul_layout::widgets::map_overlay::MapMarker",
+                        "external": "azul_layout::widgets::map::overlay::MapMarker",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -111431,7 +111431,7 @@
                                         "icon": "Dom"
                                     }
                                 ],
-                                "fn_body": "azul_layout::widgets::map_overlay::MapMarker::create(id, position, icon)"
+                                "fn_body": "azul_layout::widgets::map::overlay::MapMarker::create(id, position, icon)"
                             },
                             "create_dot": {
                                 "doc": [
@@ -111448,7 +111448,7 @@
                                         "color": "ColorU"
                                     }
                                 ],
-                                "fn_body": "azul_layout::widgets::map_overlay::MapMarker::create_dot(id, position, color)"
+                                "fn_body": "azul_layout::widgets::map::overlay::MapMarker::create_dot(id, position, color)"
                             }
                         },
                         "functions": {
@@ -111545,7 +111545,7 @@
                         "repr": "C"
                     },
                     "MapOverlay": {
-                        "external": "azul_layout::widgets::map_overlay::MapOverlay",
+                        "external": "azul_layout::widgets::map::overlay::MapOverlay",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -111567,7 +111567,7 @@
                         "repr": "C, u8"
                     },
                     "MapPolygon": {
-                        "external": "azul_layout::widgets::map_overlay::MapPolygon",
+                        "external": "azul_layout::widgets::map::overlay::MapPolygon",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -111599,7 +111599,7 @@
                                         "points": "MapLatLonVec"
                                     }
                                 ],
-                                "fn_body": "azul_layout::widgets::map_overlay::MapPolygon::create(points)"
+                                "fn_body": "azul_layout::widgets::map::overlay::MapPolygon::create(points)"
                             }
                         },
                         "functions": {
@@ -111644,7 +111644,7 @@
                         "repr": "C"
                     },
                     "MapPolyline": {
-                        "external": "azul_layout::widgets::map_overlay::MapPolyline",
+                        "external": "azul_layout::widgets::map::overlay::MapPolyline",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -111679,7 +111679,7 @@
                                         "points": "MapLatLonVec"
                                     }
                                 ],
-                                "fn_body": "azul_layout::widgets::map_overlay::MapPolyline::create(points)"
+                                "fn_body": "azul_layout::widgets::map::overlay::MapPolyline::create(points)"
                             }
                         },
                         "functions": {
@@ -111767,7 +111767,7 @@
                         "repr": "C"
                     },
                     "MapOverlayVecSlice": {
-                        "external": "azul_layout::widgets::map_overlay::MapOverlayVecSlice",
+                        "external": "azul_layout::widgets::map::overlay::MapOverlayVecSlice",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -171686,7 +171686,7 @@
                         }
                     },
                     "MapLatLonVec": {
-                        "external": "azul_layout::widgets::map_overlay::MapLatLonVec",
+                        "external": "azul_layout::widgets::map::overlay::MapLatLonVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -171868,7 +171868,7 @@
                         "repr": "C"
                     },
                     "MapLatLonVecDestructor": {
-                        "external": "azul_layout::widgets::map_overlay::MapLatLonVecDestructor",
+                        "external": "azul_layout::widgets::map::overlay::MapLatLonVecDestructor",
                         "derive": [
                             "Debug"
                         ],
@@ -171885,7 +171885,7 @@
                         "repr": "C, u8"
                     },
                     "MapLatLonVecDestructorType": {
-                        "external": "azul_layout::widgets::map_overlay::MapLatLonVecDestructorType",
+                        "external": "azul_layout::widgets::map::overlay::MapLatLonVecDestructorType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -171899,7 +171899,7 @@
                         "repr": "C"
                     },
                     "MapOverlayVec": {
-                        "external": "azul_layout::widgets::map_overlay::MapOverlayVec",
+                        "external": "azul_layout::widgets::map::overlay::MapOverlayVec",
                         "custom_impls": [
                             "Clone",
                             "Debug",
@@ -172081,7 +172081,7 @@
                         "repr": "C"
                     },
                     "MapOverlayVecDestructor": {
-                        "external": "azul_layout::widgets::map_overlay::MapOverlayVecDestructor",
+                        "external": "azul_layout::widgets::map::overlay::MapOverlayVecDestructor",
                         "derive": [
                             "Debug"
                         ],
@@ -172098,7 +172098,7 @@
                         "repr": "C, u8"
                     },
                     "MapOverlayVecDestructorType": {
-                        "external": "azul_layout::widgets::map_overlay::MapOverlayVecDestructorType",
+                        "external": "azul_layout::widgets::map::overlay::MapOverlayVecDestructorType",
                         "callback_typedef": {
                             "fn_args": [
                                 {
@@ -182980,7 +182980,7 @@
                         "repr": "C, u8"
                     },
                     "OptionMapOverlay": {
-                        "external": "azul_layout::widgets::map_overlay::OptionMapOverlay",
+                        "external": "azul_layout::widgets::map::overlay::OptionMapOverlay",
                         "derive": [
                             "Debug",
                             "Clone",
