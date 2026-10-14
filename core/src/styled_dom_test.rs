@@ -2865,3 +2865,82 @@ mod hosted_dom_inheritance_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod part_of_parent_tests {
+    use super::*;
+
+    /// `<body> > <button> > [<part> > <part-of-part>, <child>]`: node 2 is
+    /// drawn as part of the button, node 3 as part of node 2, node 4 is an
+    /// ordinary child.
+    fn button_with_parts() -> StyledDom {
+        let part = Dom::create_div()
+            .with_part_of_parent(true)
+            .with_child(Dom::create_div().with_part_of_parent(true));
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_child(part)
+                .with_child(Dom::create_div()),
+        );
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    #[test]
+    fn a_part_of_a_pressed_node_is_pressed_with_it_and_an_ordinary_child_is_not() {
+        let mut sd = button_with_parts();
+        let _ = sd.restyle_on_state_change(
+            None,
+            None,
+            Some(ActiveChange {
+                deactivated: Vec::new(),
+                activated: vec![NodeId::new(1), NodeId::ZERO],
+            }),
+        );
+        assert!(sd.get_styled_node_state(&NodeId::new(2)).active, "the part");
+        assert!(sd.get_styled_node_state(&NodeId::new(3)).active, "the part's own part");
+        assert!(!sd.get_styled_node_state(&NodeId::new(4)).active, "an ordinary child");
+
+        let _ = sd.restyle_on_state_change(
+            None,
+            None,
+            Some(ActiveChange {
+                deactivated: vec![NodeId::new(1), NodeId::ZERO],
+                activated: Vec::new(),
+            }),
+        );
+        assert!(!sd.get_styled_node_state(&NodeId::new(2)).active);
+        assert!(!sd.get_styled_node_state(&NodeId::new(3)).active);
+    }
+
+    #[test]
+    fn a_part_of_a_hovered_node_is_hovered_with_it() {
+        let mut sd = button_with_parts();
+        let _ = sd.restyle_nodes_hover(&[NodeId::new(1)], true);
+        assert!(sd.get_styled_node_state(&NodeId::new(2)).hover);
+        assert!(sd.get_styled_node_state(&NodeId::new(3)).hover);
+        assert!(!sd.get_styled_node_state(&NodeId::new(4)).hover);
+    }
+
+    #[test]
+    fn a_part_reports_the_properties_its_host_state_changed() {
+        use azul_css::props::{basic::ColorU, property::CssProperty};
+        let pressed = azul_css::dynamic_selector::CssPropertyWithConditions::on_active(
+            CssProperty::const_text_color(azul_css::props::style::StyleTextColor {
+                inner: ColorU::rgb(1, 2, 3),
+            }),
+        );
+        let mut dom = Dom::create_body().with_child(Dom::create_div().with_child(
+            Dom::create_div()
+                .with_part_of_parent(true)
+                .with_css_props(
+                    azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(vec![pressed]),
+                ),
+        ));
+        let mut sd = StyledDom::create(&mut dom, Css::empty());
+        let changed = sd.restyle_nodes_active(&[NodeId::new(1)], true);
+        assert!(
+            changed.contains_key(&NodeId::new(2)),
+            "the part's pressed colour is a change the display list must see: {changed:?}"
+        );
+    }
+}
