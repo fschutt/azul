@@ -1535,9 +1535,10 @@ pub enum TabStyle {
     Aurora,
     /// Classic square tabs, the selected one open onto the panel below.
     Rectangular,
-    /// Pill buttons on a leather strip (white leather by day, dark at
-    /// night): the selected pill wears the submit button's face, and the
-    /// strip closes on a 1px gold rule along its foot.
+    /// The theme's buttons ("Buttons" in a settings UI): the selected tab
+    /// is the submit button, the others the plain button, 22px tall at the
+    /// house radius in a 28px row (a title bar's) on a leather strip that
+    /// closes on a 2px golden line.
     Pills,
 }
 
