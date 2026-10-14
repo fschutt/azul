@@ -8,3 +8,4 @@ mod manifest;
 mod offline;
 mod costing;
 mod router;
+mod build;
