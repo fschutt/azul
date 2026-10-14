@@ -135,6 +135,107 @@ fn a_batch_of_large_files_to_a_plain_bucket_lands_with_one_result_each() {
     assert_eq!(s3.read("taken.bin"), Some(b"there already".to_vec()));
 }
 
+// ==== Bursts: a checkout, an unzip, a build ====
+
+mod bursts {
+    use std::{
+        fs,
+        path::PathBuf,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use azul_storage::{testing::TempDir, Drive};
+
+    use super::super::{fake_s3::FakeS3, sync_named::s3_drive};
+    use crate::sync::{
+        guard::{PauseReason, BURST_CHANGES},
+        sync_to, LocalRoot, RunHooks, SyncOptions, SyncReport, Target,
+    };
+
+    fn run(folder: &TempDir, state: &TempDir, drive: &dyn Drive, settle: Duration) -> SyncReport {
+        let mut opts = SyncOptions::new("Docs/", "d-bulk", "laptop").unwrap();
+        opts.settle = settle;
+        let root = LocalRoot::folder(folder.path());
+        let index = state.path().join("index.json");
+        sync_to(Target::Named(drive), &root, &index, &opts, &RunHooks::default()).unwrap()
+    }
+
+    /// Writes `count` files into `dir`, `every` apart, on a thread of its own.
+    fn burst(
+        dir: PathBuf,
+        count: usize,
+        every: Duration,
+        content: fn(usize) -> Vec<u8>,
+    ) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            fs::create_dir_all(&dir).unwrap();
+            for i in 0..count {
+                fs::write(dir.join(format!("{i:04}.txt")), content(i)).unwrap();
+                thread::sleep(every);
+            }
+        })
+    }
+
+    fn note(i: usize) -> Vec<u8> {
+        format!("note {i}: the minutes of the meeting, the plan for the week.\n")
+            .repeat(30)
+            .into_bytes()
+    }
+
+    fn edited(i: usize) -> Vec<u8> {
+        format!("note {i}, edited: the minutes of the meeting, the plan for the week.\n")
+            .repeat(30)
+            .into_bytes()
+    }
+
+    #[test]
+    fn a_burst_still_being_written_when_a_run_starts_is_synced_as_a_whole() {
+        let s3 = FakeS3::new();
+        let drive = s3_drive(&s3);
+        let (folder, state) = (TempDir::new("bulk-burst"), TempDir::new("bulk-burst-state"));
+        let writer = burst(folder.path().join("unzipped"), 300, Duration::from_millis(3), note);
+        thread::sleep(Duration::from_millis(30));
+        let started = Instant::now();
+        let report = run(&folder, &state, &*drive, Duration::from_millis(500));
+        writer.join().unwrap();
+        assert_eq!(report.files_up, 300, "{}", report.summary());
+        assert!(started.elapsed() >= Duration::from_millis(500), "the run waited for quiet");
+    }
+
+    #[test]
+    fn the_burst_guard_sees_a_whole_burst_written_while_a_run_starts() {
+        let s3 = FakeS3::new();
+        let drive = s3_drive(&s3);
+        let (folder, state) = (TempDir::new("bulk-guard"), TempDir::new("bulk-guard-state"));
+        let count = BURST_CHANGES + 50;
+        burst(folder.path().join("notes"), count, Duration::ZERO, note).join().unwrap();
+        let first = run(&folder, &state, &*drive, Duration::ZERO);
+        assert_eq!(first.files_up, count, "new files are no burst: {}", first.summary());
+        // Every file rewritten over about a second; the run starts at its beginning.
+        let writer = burst(folder.path().join("notes"), count, Duration::from_millis(4), edited);
+        thread::sleep(Duration::from_millis(30));
+        let report = run(&folder, &state, &*drive, Duration::from_millis(500));
+        writer.join().unwrap();
+        let pause = report.paused.clone().expect("the whole burst pauses uploads");
+        assert_eq!((pause.reason, pause.changes), (PauseReason::Burst, count));
+        assert_eq!(report.files_up, 0, "nothing of the burst went up: {}", report.summary());
+    }
+
+    #[test]
+    fn a_quiet_folder_is_synced_without_waiting() {
+        let s3 = FakeS3::new();
+        let drive = s3_drive(&s3);
+        let (folder, state) = (TempDir::new("bulk-quiet"), TempDir::new("bulk-quiet-state"));
+        burst(folder.path().join("a"), 5, Duration::ZERO, note).join().unwrap();
+        thread::sleep(Duration::from_millis(250));
+        let started = Instant::now();
+        let report = run(&folder, &state, &*drive, Duration::from_millis(200));
+        assert_eq!(report.files_up, 5);
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+    }
+}
+
 #[cfg(feature = "encryption")]
 mod encrypted {
     use std::{
