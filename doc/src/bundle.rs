@@ -68,6 +68,10 @@ pub struct MacBundleSpec {
     /// `CFBundleIconFile`: the `.icns` in `Contents/Resources/`, if the
     /// bundle has an icon.
     pub icon_file: Option<String>,
+    /// The privacy usage descriptions, key and text (`NSMicrophoneUsageDescription`, ...): what
+    /// macOS shows when the app first asks for that permission. Without its key the request is
+    /// refused (speech recognition) or the app is killed (iOS). From [`configured_usage`].
+    pub usage: Vec<(String, String)>,
 }
 
 /// Where the parts of a bundle live.
@@ -125,6 +129,17 @@ pub fn info_plist(spec: &MacBundleSpec) -> String {
             xml_escape(file)
         )
     });
+    let usage: String = spec
+        .usage
+        .iter()
+        .map(|(key, text)| {
+            format!(
+                "    <key>{}</key>\n    <string>{}</string>\n",
+                xml_escape(key),
+                xml_escape(text)
+            )
+        })
+        .collect();
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -150,7 +165,7 @@ pub fn info_plist(spec: &MacBundleSpec) -> String {
     <string>{version}</string>
     <key>NSHighResolutionCapable</key>
     <true/>
-</dict>
+{usage}</dict>
 </plist>
 "#
     )
@@ -433,6 +448,22 @@ pub fn default_bundle_id(cargo_toml: Option<&str>, binary_name: &str) -> String 
         .apple_bundle_id(),
         None => bundle_id_for(binary_name),
     }
+}
+
+/// The privacy usage descriptions a crate declares: `usage` of `[package.metadata.bundle]`, a
+/// list of `"<key>=<text>"` (`"NSMicrophoneUsageDescription=AzMaps listens when ..."`). Only keys
+/// of the form `NS...UsageDescription` are taken, so the list cannot overwrite the bundle's own
+/// keys.
+pub fn configured_usage(cargo_toml: &str) -> Vec<(String, String)> {
+    bundle_metadata(cargo_toml, "usage")
+        .into_iter()
+        .filter_map(|entry| {
+            let (key, text) = entry.split_once('=')?;
+            let (key, text) = (key.trim(), text.trim());
+            (key.starts_with("NS") && key.ends_with("UsageDescription") && !text.is_empty())
+                .then(|| (key.to_string(), text.to_string()))
+        })
+        .collect()
 }
 
 // ────────── The icon ───────────────────────────────────────────────────
@@ -866,6 +897,10 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
         executable,
         version,
         icon_file: icon.as_ref().map(|_| ICON_FILE.to_string()),
+        usage: manifest_text
+            .as_deref()
+            .map(configured_usage)
+            .unwrap_or_default(),
     };
     let out_dir = match &a.out {
         Some(p) => user_path(project_root, p),

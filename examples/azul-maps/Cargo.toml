@@ -45,3 +45,13 @@ path = "src/main.rs"
 
 [target.'cfg(target_os = "ios")'.dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "map-tiles"] }
+
+# What macOS shows when AzMaps first asks for a permission (azul-doc's `bundle macos` writes
+# them into the Info.plist). Without the two speech keys a spoken destination is refused.
+[package.metadata.bundle]
+usage = [
+    "NSLocationWhenInUseUsageDescription=AzMaps shows where you are on the map and starts routes there.",
+    "NSLocationUsageDescription=AzMaps shows where you are on the map and starts routes there.",
+    "NSSpeechRecognitionUsageDescription=AzMaps turns a destination you speak into text to search for it.",
+    "NSMicrophoneUsageDescription=AzMaps listens while you speak a destination.",
+]
