@@ -35,8 +35,14 @@ impl TabState {
     /// A tab on `place` in `layout`: no history, nothing selected, no search, at the top.
     #[must_use]
     pub fn at(place: Place, layout: ViewLayout) -> TabState {
-        let _ = (place, layout);
-        todo!()
+        TabState {
+            place,
+            history: History::default(),
+            selection: Selection::default(),
+            layout,
+            search: String::new(),
+            scroll: 0.0,
+        }
     }
 }
 
@@ -65,70 +71,99 @@ impl LocationTabs {
     /// One tab, showing `first`.
     #[must_use]
     pub fn new(first: TabState) -> LocationTabs {
-        let _ = first;
-        todo!()
+        LocationTabs {
+            tabs: vec![first],
+            current: 0,
+        }
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        todo!()
+        self.tabs.len()
     }
 
     /// The index of the tab showing.
     #[must_use]
     pub fn current(&self) -> usize {
-        todo!()
+        self.current
     }
 
     /// Every tab as the overview lists it: the parked ones, and `live` for the one showing.
     #[must_use]
     pub fn snapshot(&self, live: TabState) -> Vec<TabState> {
-        let _ = live;
-        todo!()
+        let mut all = self.tabs.clone();
+        all[self.current] = live;
+        all
     }
 
     /// Ctrl+T: parks `live` and opens a tab after it on the same place and layout, with no
     /// history, no selection, no search and at the top. Returns the new tab's state to show.
     pub fn open(&mut self, live: TabState) -> TabState {
-        let _ = live;
-        todo!()
+        let fresh = TabState::at(live.place.clone(), live.layout);
+        self.tabs[self.current] = live;
+        self.current += 1;
+        self.tabs.insert(self.current, fresh.clone());
+        fresh
     }
 
     /// Shows tab `to`: parks `live` and returns `to`'s state. `None` (and nothing changes) for
     /// the tab already showing or an index past the last tab.
     pub fn switch(&mut self, to: usize, live: TabState) -> Option<TabState> {
-        let _ = (to, live);
-        todo!()
+        if to == self.current || to >= self.tabs.len() {
+            return None;
+        }
+        self.tabs[self.current] = live;
+        self.current = to;
+        Some(self.tabs[to].clone())
     }
 
     /// Ctrl+Tab (`back`: Ctrl+Shift+Tab): the tab after the one showing (before it), round the
     /// ends.
     #[must_use]
     pub fn cycle(&self, back: bool) -> usize {
-        let _ = back;
-        todo!()
+        let n = self.tabs.len();
+        if back {
+            (self.current + n - 1) % n
+        } else {
+            (self.current + 1) % n
+        }
     }
 
     /// Ctrl+`digit` (1..9): the digit-th tab, when there is one.
     #[must_use]
     pub fn jump(&self, digit: u8) -> Option<usize> {
-        let _ = digit;
-        todo!()
+        let index = usize::from(digit).checked_sub(1)?;
+        (digit <= 9 && index < self.tabs.len()).then_some(index)
     }
 
     /// Ctrl+W, or the close box in the overview: closes tab `at`. Closing the tab showing shows
-    /// the one that moves into its place (the one before it when it was the last).
+    /// the one that moves into its place (the one before it when it was the last). An index
+    /// past the last tab closes nothing and counts as [`Closed::Other`].
     pub fn close(&mut self, at: usize, live: TabState) -> Closed {
-        let _ = (at, live);
-        todo!()
+        if self.tabs.len() < 2 {
+            return Closed::LastTab;
+        }
+        if at >= self.tabs.len() {
+            return Closed::Other;
+        }
+        self.tabs[self.current] = live;
+        self.tabs.remove(at);
+        let showing = at == self.current;
+        if at < self.current || self.current >= self.tabs.len() {
+            self.current -= 1;
+        }
+        if showing {
+            Closed::Current(self.tabs[self.current].clone())
+        } else {
+            Closed::Other
+        }
     }
 }
 
 /// The Ctrl digit the overview shows beside tab `index`: the first nine tabs have one.
 #[must_use]
 pub fn shortcut_digit(index: usize) -> Option<u8> {
-    let _ = index;
-    todo!()
+    u8::try_from(index + 1).ok().filter(|digit| *digit <= 9)
 }
 
 #[cfg(test)]
