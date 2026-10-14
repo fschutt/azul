@@ -77577,6 +77577,15 @@
                                 },
                                 "max_in_flight": {
                                     "type": "u32"
+                                },
+                                "disk_cache_dir": {
+                                    "type": "String"
+                                },
+                                "disk_cache_max_bytes": {
+                                    "type": "u64"
+                                },
+                                "seed_tiles": {
+                                    "type": "MapSeedTileVec"
                                 }
                             }
                         ],
@@ -77640,6 +77649,51 @@
                                     "type": "MapSetup"
                                 },
                                 "fn_body": "object.with_max_in_flight(max_in_flight)"
+                            },
+                            "with_disk_cache": {
+                                "doc": [
+                                    "Keep the downloaded tiles in `dir` across restarts, at most",
+                                    "`max_bytes` of them (0 = 256 MB): a pan back or a restart shows them",
+                                    "without a download, as long as the tile server says they are fresh"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "dir": "String"
+                                    },
+                                    {
+                                        "max_bytes": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSetup"
+                                },
+                                "fn_body": "object.with_disk_cache(dir, max_bytes)"
+                            },
+                            "with_seed_tile": {
+                                "doc": [
+                                    "Ship `tile` with the map: `bytes` are the tile as the layer's server",
+                                    "serves it. The map never downloads it and keeps it drawn under every",
+                                    "tile that has not arrived - the world tiles make a first start",
+                                    "without a network show the world"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "tile": "MapTileId"
+                                    },
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSetup"
+                                },
+                                "fn_body": "object.with_seed_tile(tile, bytes)"
                             }
                         },
                         "repr": "C"
@@ -111777,6 +111831,51 @@
                             {
                                 "ptr": {
                                     "type": "MapOverlay",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapSeedTile": {
+                        "external": "azul_layout::widgets::map::MapSeedTile",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "tile": {
+                                    "type": "MapTileId"
+                                },
+                                "bytes": {
+                                    "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapSeedTileVecSlice": {
+                        "external": "azul_layout::widgets::map::MapSeedTileVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MapSeedTile",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -172110,6 +172209,219 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "MapSeedTileVec": {
+                        "external": "azul_layout::widgets::map::MapSeedTileVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MapSeedTile",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "MapSeedTileVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `MapSeedTileVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "MapSeedTileVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `MapSeedTileVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSeedTileVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "map_seed_tile_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "map_seed_tile_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "map_seed_tile_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `MapSeedTileVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "MapSeedTile"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSeedTileVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `MapSeedTileVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const MapSeedTile"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSeedTileVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMapSeedTile"
+                                },
+                                "fn_body": "map_seed_tile_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `MapSeedTileVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSeedTileVecSlice"
+                                },
+                                "fn_body": "map_seed_tile_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapSeedTileVecSlice"
+                                },
+                                "fn_body": "map_seed_tile_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MapSeedTileVecDestructor": {
+                        "external": "azul_layout::widgets::map::MapSeedTileVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "MapSeedTileVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "MapSeedTileVecDestructorType": {
+                        "external": "azul_layout::widgets::map::MapSeedTileVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "MapSeedTileVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -182997,6 +183309,30 @@
                                     "type": "MapOverlay",
                                     "doc": [
                                         "Some value of type MapOverlay"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionMapSeedTile": {
+                        "external": "azul_layout::widgets::map::OptionMapSeedTile",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "MapSeedTile",
+                                    "doc": [
+                                        "Some value of type MapSeedTile"
                                     ]
                                 }
                             }
@@ -209642,6 +209978,180 @@
                                 "on_accent": {
                                     "type": "ColorU"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    }
+                }
+            },
+            "speech": {
+                "classes": {
+                    "Speech": {
+                        "external": "azul_dll::unified::speech::Speech",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "_reserved": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "is_available": {
+                                "doc": [
+                                    "Whether this platform can say anything at all."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "azul_dll::unified::speech::Speech::is_available()"
+                            },
+                            "is_speaking": {
+                                "doc": [
+                                    "Whether something is being said."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "azul_dll::unified::speech::Speech::is_speaking()"
+                            },
+                            "listen_blocking": {
+                                "doc": [
+                                    "Listens on the microphone for up to `timeout_ms` and answers what was said, in",
+                                    "`language` (empty for the system's). Blocks: call it from a worker thread. The first",
+                                    "call may show the system's permission prompt."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "language": "String"
+                                    },
+                                    {
+                                        "timeout_ms": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechHeard"
+                                },
+                                "fn_body": "azul_dll::unified::speech::Speech::listen_blocking(language, timeout_ms)"
+                            },
+                            "speak": {
+                                "doc": [
+                                    "Says `text` in `language` (a BCP 47 tag such as `de-DE`, or just `de`; empty for the",
+                                    "system's voice) after what is being said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "language": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechStatus"
+                                },
+                                "fn_body": "azul_dll::unified::speech::Speech::speak(text, language)"
+                            },
+                            "speak_now": {
+                                "doc": [
+                                    "Says `text` in `language` at once, cutting off what is being said and dropping what",
+                                    "waits: for a prompt that is wrong a second later."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "language": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechStatus"
+                                },
+                                "fn_body": "azul_dll::unified::speech::Speech::speak_now(text, language)"
+                            },
+                            "stop": {
+                                "doc": [
+                                    "Stops saying anything and drops what waits."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::speech::Speech::stop()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SpeechHeard": {
+                        "external": "azul_dll::unified::speech::SpeechHeard",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "status": {
+                                    "type": "HeardStatus"
+                                },
+                                "text": {
+                                    "type": "String"
+                                },
+                                "confidence": {
+                                    "type": "f32"
+                                },
+                                "message": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechStatus": {
+                        "external": "azul_dll::unified::speech::SpeechStatus",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Queued": {},
+                                "Unavailable": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "HeardStatus": {
+                        "external": "azul_dll::unified::speech::HeardStatus",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Heard": {},
+                                "NothingHeard": {},
+                                "Denied": {},
+                                "Unavailable": {},
+                                "Failed": {}
                             }
                         ],
                         "repr": "C"

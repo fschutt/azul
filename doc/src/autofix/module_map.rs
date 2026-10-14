@@ -60,6 +60,7 @@ pub const MODULES: &[&str] = &[
     "pdf",
     "url",
     "uuid",
+    "speech",
 ];
 
 /// Keywords that map to specific modules
@@ -1225,6 +1226,12 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     if path.starts_with("azul_dll::unified::iroh::") {
         return Some("iroh".to_string());
+    }
+    // Text said aloud and speech heard, on the platform's own engines.
+    if path.starts_with("azul_dll::unified::speech::")
+        || path.starts_with("azul_dll::desktop::extra::speech::")
+    {
+        return Some("speech".to_string());
     }
 
     None
