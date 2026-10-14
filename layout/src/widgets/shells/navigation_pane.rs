@@ -54,7 +54,7 @@ use azul_css::{
 
 use super::{
     inner_theme, look_for, part, root_classes, stack_state, text, ShellLook, CHROME_ROW_BASE,
-    GROW_LABEL_BASE, ITEM_BASE, LABEL_BASE, RAIL_BASE, ROW_BASE, SCROLL_COLUMN_BASE,
+    GROW_COLUMN_BASE, GROW_LABEL_BASE, ITEM_BASE, LABEL_BASE, ROW_BASE, SCROLL_COLUMN_BASE,
 };
 use crate::{
     callbacks::CallbackInfo,
@@ -944,6 +944,11 @@ fn groups(
 
 /// The pane's DOM in `look`. Expanded: nav [header?, groups, modules,
 /// footer]; collapsed: nav.collapsed [footer, strip].
+///
+/// The pane fills the box that holds it, across and down: the host decides
+/// how wide it is (a shell slot's share, a rail's width). A width of its own
+/// would leave the rest of a wider slot blank, and in the slot's flex column
+/// a box that does not grow is only as tall as its content.
 pub(crate) fn build(pane: ShellNavigationPane, look: &ShellLook) -> Dom {
     let ShellNavigationPane {
         header,
@@ -986,7 +991,7 @@ pub(crate) fn build(pane: ShellNavigationPane, look: &ShellLook) -> Dom {
     };
     Dom::create_node(NodeType::Nav)
         .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-        .with_css_props(part(RAIL_BASE, skin))
+        .with_css_props(part(GROW_COLUMN_BASE, skin))
         .with_accessibility_name(label)
         .with_children(DomVec::from_vec(children))
 }
