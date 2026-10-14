@@ -466,6 +466,9 @@ pub(crate) struct ScopedRuleIndex {
 impl ScopedRuleIndex {
     /// The index of `paths`, the rules in cascade order (a rule is its
     /// position in `paths`), over the tree `hierarchy`.
+    // An `impl Trait` argument cannot elide the lifetime of its item (unstable), so the one
+    // named lifetime stays.
+    #[allow(single_use_lifetimes)]
     pub(crate) fn new<'a>(
         paths: impl Iterator<Item = &'a CssPath>,
         hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
@@ -510,7 +513,7 @@ impl ScopedRuleIndex {
 }
 
 /// Two ascending lists of rules read as one ascending list.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct MergedRules<'a> {
     a: &'a [usize],
     b: &'a [usize],

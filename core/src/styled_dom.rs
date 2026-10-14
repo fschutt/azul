@@ -2316,6 +2316,7 @@ impl StyledDom {
     }
 
     /// Generic restyle method parameterized by the state field and pseudo-state type.
+    #[allow(clippy::too_many_lines)] // one pass per state change: collect, restyle, diff, report
     fn restyle_nodes_state(
         &mut self,
         nodes: &[NodeId],

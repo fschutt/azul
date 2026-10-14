@@ -4175,7 +4175,7 @@ mod autotest_generated {
     /// announced once per frame.
     #[test]
     fn a_decoded_frame_is_a_decorative_image() {
-        let dom = frame_image(placeholder_image(b"frame"));
+        let dom = frame_image(placeholder_image(b"frame"), AzString::from("video-frame-1"));
         assert!(matches!(dom.root.get_node_type(), NodeType::Image(_)));
         let info = dom
             .root

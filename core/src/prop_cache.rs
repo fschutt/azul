@@ -1919,7 +1919,8 @@ impl CssPropertyCache {
                             continue;
                         }
                         let state = *state;
-                        for rule_idx in candidates {
+                        // Each pass reads the node's candidates from the start.
+                        for rule_idx in candidates.clone() {
                             if takes_part[rule_idx] & bit == 0 {
                                 continue;
                             }
