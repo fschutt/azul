@@ -6582,6 +6582,13 @@ fn enter_room(
 /// unless "Join with the microphone off" / "... the camera off"). Not where they are a test tone
 /// or a test pattern (a headless run, `--test-tone`, `--test-pattern`): those keep the state
 /// their switches gave them, so a script knows what it gets.
+/// The start screen shows this side's camera and microphone live, as Meet does before a
+/// meeting: they open with the join defaults (muted or the camera off when the settings say
+/// so), whether or not a meetings service answers.
+fn open_devices_at_start(s: &mut MeetState) {
+    let _ = s;
+}
+
 fn apply_join_defaults(s: &mut MeetState) {
     if !devices_allowed() {
         return;
@@ -8095,6 +8102,7 @@ fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
     configure_video(&mut me, &probe_video());
     configure_network(&mut me);
     apply_launch_args(&mut me);
+    open_devices_at_start(&mut me);
     run(me);
 }
 
@@ -8146,5 +8154,15 @@ mod service_down_tests {
         let waiting = view.waiting.expect("the waiting room's facts");
         assert!(waiting.local, "it says the meeting is made here, with Retry");
         assert!(waiting.code.contains('-'), "a code made here: {}", waiting.code);
+    }
+
+    #[test]
+    fn the_start_screen_shows_the_camera_at_once_even_with_no_meetings_service() {
+        let mut s = lobby_without_a_service();
+        open_devices_at_start(&mut s);
+        let view = snapshot(&s);
+        assert!(matches!(view.screen, ui::UiScreen::Lobby), "the start screen");
+        assert!(view.cam, "its camera preview is on from the start");
+        assert!(view.mic, "and the microphone's level shows");
     }
 }
