@@ -82,3 +82,6 @@ azmaps-leg-car = Drive { $distance }
 ## Navigation
 
 azmaps-voice-arrived = You have arrived.
+azmaps-voice-in-m = In { $n } metres: { $instruction }
+azmaps-voice-in-km = In { $n } kilometres: { $instruction }
+azmaps-voice-rerouting = Recalculating the route.

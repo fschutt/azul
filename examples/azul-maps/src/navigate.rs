@@ -79,7 +79,10 @@ impl Navigation {
         mode: TravelMode,
         simulate_mps: Option<f64>,
     ) -> Self {
-        let _ = (WRONG_TURN_AT, simulate_mps, Drive::new);
+        // The simulated car starts where the route does, at the navigation's start.
+        let drive = simulate_mps.filter(|v| *v > 0.0).map(|speed| {
+            Drive::new(points.clone(), speed, 0.0).with_wrong_turn(WRONG_TURN_AT)
+        });
         Self {
             guidance: Guidance::new(points, steps, duration_s),
             rerouter: Rerouter::default(),
@@ -88,7 +91,7 @@ impl Navigation {
             heading_up: true,
             car_mode: mode == TravelMode::Car,
             voice: true,
-            drive: None,
+            drive,
             progress: None,
             rerouting: false,
             reroutes: 0,
@@ -106,66 +109,153 @@ impl Navigation {
 
     /// The simulated car's fix at `now_s`, when a simulated drive drives.
     pub fn simulated_fix(&mut self, now_s: f64) -> Option<Fix> {
-        let _ = now_s;
-        None
+        self.drive.as_mut()?.fix(now_s)
     }
 
     /// Takes the fix of `now_s` and says what to do.
     pub fn update(&mut self, fix: &Fix, now_s: f64) -> Vec<Event> {
-        let _ = (fix, now_s, NavState::OnRoute, self.arrived);
-        Vec::new()
+        let mut events = Vec::new();
+        if self.arrived {
+            return events;
+        }
+        let progress = self.guidance.update(fix);
+        self.progress = Some(progress);
+        if progress.state == NavState::Arrived {
+            self.arrived = true;
+            events.push(Event::Say {
+                text: t_args("azmaps-voice-arrived", &[]),
+                interrupt: true,
+            });
+            events.push(Event::Arrived);
+            return events;
+        }
+        if let Some(announcement) = progress.announce {
+            if let Some(step) = self.guidance.steps().get(announcement.step) {
+                events.push(Event::Say {
+                    text: announcement_text(step, &announcement),
+                    // The prompt at the maneuver must not wait behind an earlier one.
+                    interrupt: announcement.stage == Stage::Now,
+                });
+            }
+        }
+        if progress.state == NavState::OffRoute
+            && !self.rerouting
+            && self.rerouter.due(now_s, progress.off_route_for_s)
+        {
+            self.rerouting = true;
+            self.rerouter.asked(now_s);
+            // Said once per stretch off the route: a repeat after a failed request stays quiet.
+            if self.rerouter.gap_s() <= azul_routing::navigation::REROUTE_GAP_S {
+                events.push(Event::Say {
+                    text: t_args("azmaps-voice-rerouting", &[]),
+                    interrupt: true,
+                });
+            }
+            events.push(Event::Reroute { from: fix.at });
+        }
+        events
     }
 
     /// A new route arrived (from where the car was): the guidance follows it, the drive too.
     pub fn rerouted(&mut self, points: Vec<(f64, f64)>, steps: Vec<Step>, duration_s: f64, now_s: f64, offline: bool) {
-        let _ = (points, steps, duration_s, now_s, offline);
+        if let Some(drive) = self.drive.as_mut() {
+            drive.follow(points.clone(), now_s);
+        }
+        self.guidance = Guidance::new(points, steps, duration_s);
+        self.rerouter.answered();
+        self.rerouting = false;
+        self.reroutes += 1;
+        self.offline = offline;
     }
 
     /// The request for a new route failed: the next waits longer.
-    pub fn reroute_failed(&mut self) {}
+    pub fn reroute_failed(&mut self) {
+        self.rerouter.failed();
+        self.rerouting = false;
+    }
 
     /// Where the camera looks after the last fix.
     #[must_use]
     pub fn camera(&self) -> Option<Camera> {
-        None
+        let progress = self.progress?;
+        #[allow(clippy::cast_possible_truncation)] // a heading of 0..360
+        let bearing_deg = if self.heading_up { progress.heading_deg as f32 } else { 0.0 };
+        Some(Camera {
+            at: progress.shown_at,
+            zoom: follow_zoom(progress.speed_mps),
+            bearing_deg,
+        })
+    }
+
+    /// Whether the destination is reached.
+    #[must_use]
+    pub fn arrived(&self) -> bool {
+        self.arrived
     }
 }
 
 /// What is said for a maneuver: its instruction, `In 500 metres: ` before it while it is ahead.
 #[must_use]
 pub fn announcement_text(step: &Step, announcement: &Announcement) -> String {
-    let _ = (step, announcement, Stage::Now, t_args("azmaps-voice-arrived", &[]), Arg::from(String::new()));
-    String::new()
+    let instruction = step.instruction.trim().to_string();
+    if announcement.stage == Stage::Now {
+        return instruction;
+    }
+    let (n, km) = spoken_distance(announcement.distance_m);
+    let n = if km { azul_appkit::l10n::decimal(&n) } else { n };
+    t_args(
+        if km { "azmaps-voice-in-km" } else { "azmaps-voice-in-m" },
+        &[("n", Arg::from(n)), ("instruction", Arg::from(instruction))],
+    )
 }
 
 /// A distance as it is said: to 10 m below 100 m, to 50 m below 1 km, to half a kilometre
 /// above; `(number, in kilometres)`.
 #[must_use]
 pub fn spoken_distance(metres: f64) -> (String, bool) {
-    let _ = metres;
-    (String::new(), false)
+    let metres = metres.max(0.0);
+    let rounded = if metres < 100.0 {
+        (metres / 10.0).round() * 10.0
+    } else {
+        (metres / 50.0).round() * 50.0
+    };
+    if rounded < 1_000.0 {
+        return (format!("{rounded:.0}"), false);
+    }
+    let km = (metres / 500.0).round() / 2.0;
+    if km.fract() == 0.0 {
+        (format!("{km:.0}"), true)
+    } else {
+        (format!("{km:.1}"), true)
+    }
 }
 
 /// A distance as the banner shows it: `350 m` (to 10 m), `1.2 km`.
 #[must_use]
 pub fn banner_distance(metres: f64) -> String {
-    let _ = (metres, distance_text(0.0));
-    String::new()
+    let rounded = (metres.max(0.0) / 10.0).round() * 10.0;
+    distance_text(rounded / 1000.0)
 }
 
 /// The zoom the camera follows the car at, by its speed: closer in town, further out on a
 /// motorway.
 #[must_use]
 pub fn follow_zoom(speed_mps: f64) -> f32 {
-    let _ = speed_mps;
-    0.0
+    if speed_mps <= 8.0 {
+        17.0
+    } else if speed_mps <= 20.0 {
+        16.0
+    } else if speed_mps <= 30.0 {
+        15.0
+    } else {
+        14.0
+    }
 }
 
 /// Whether the hour (0 to 23, local) is night for the car's colours.
 #[must_use]
 pub const fn is_night(hour: u32) -> bool {
-    let _ = hour;
-    false
+    hour < 7 || hour >= 19
 }
 
 #[cfg(test)]
