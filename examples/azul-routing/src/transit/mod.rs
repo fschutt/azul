@@ -71,8 +71,25 @@ impl LegKind {
     /// The kind of a mode in MOTIS' words (`HIGHSPEED_RAIL`, `WALK`, ...).
     #[must_use]
     pub fn of_mode(mode: &str) -> Self {
-        let _ = mode;
-        Self::Other
+        match mode {
+            "WALK" => Self::Walk,
+            "BIKE" | "RENTAL" => Self::Bike,
+            "CAR" | "CAR_PARKING" | "CAR_DROPOFF" | "HGV" => Self::Car,
+            "HIGHSPEED_RAIL" => Self::HighSpeedTrain,
+            "LONG_DISTANCE" => Self::LongDistanceTrain,
+            "NIGHT_RAIL" => Self::NightTrain,
+            "RAIL" | "REGIONAL_RAIL" | "REGIONAL_FAST_RAIL" => Self::RegionalTrain,
+            "SUBURBAN" => Self::Suburban,
+            "SUBWAY" | "METRO" => Self::Subway,
+            "TRAM" => Self::Tram,
+            "BUS" => Self::Bus,
+            "COACH" => Self::Coach,
+            "FERRY" => Self::Ferry,
+            "AIRPLANE" => Self::Airplane,
+            "FUNICULAR" | "AERIAL_LIFT" | "AREAL_LIFT" | "CABLE_CAR" => Self::CableCar,
+            "ODM" | "RIDE_SHARING" | "FLEX" => Self::OnDemand,
+            _ => Self::Other,
+        }
     }
 
     /// Whether it is a ride on a timetable (else the traveller moves on their own).
@@ -166,7 +183,10 @@ impl Stop {
     /// Whether the train leaves from another platform than the timetable says.
     #[must_use]
     pub fn platform_changed(&self) -> bool {
-        false
+        match (&self.platform, &self.scheduled_platform) {
+            (Some(now), Some(planned)) => now.trim() != planned.trim(),
+            _ => false,
+        }
     }
 }
 
@@ -203,25 +223,25 @@ impl Leg {
     /// How many minutes late it leaves (negative: early).
     #[must_use]
     pub fn departure_delay_min(&self) -> i64 {
-        0
+        (self.departure - self.scheduled_departure).div_euclid(60)
     }
 
     /// How many minutes late it arrives.
     #[must_use]
     pub fn arrival_delay_min(&self) -> i64 {
-        0
+        (self.arrival - self.scheduled_arrival).div_euclid(60)
     }
 
     /// How long it takes, seconds.
     #[must_use]
     pub fn duration_s(&self) -> i64 {
-        0
+        self.arrival - self.departure
     }
 
     /// The colour its line is drawn in: the feed's, else its kind's.
     #[must_use]
     pub fn line_colour(&self) -> (u8, u8, u8) {
-        self.kind.colour()
+        self.colour.unwrap_or_else(|| self.kind.colour())
     }
 }
 
@@ -239,7 +259,7 @@ impl Journey {
     /// How long it takes, seconds.
     #[must_use]
     pub fn duration_s(&self) -> i64 {
-        0
+        self.arrival - self.departure
     }
 
     /// The legs ridden, not walked.
@@ -250,8 +270,13 @@ impl Journey {
     /// Whether a ride of it is late by `minutes` or more, cancelled, or moved to another platform.
     #[must_use]
     pub fn disrupted(&self, minutes: i64) -> bool {
-        let _ = minutes;
-        false
+        self.rides().any(|leg| {
+            leg.cancelled
+                || leg.departure_delay_min() >= minutes
+                || leg.arrival_delay_min() >= minutes
+                || leg.from.platform_changed()
+                || leg.to.platform_changed()
+        })
     }
 }
 
@@ -308,22 +333,28 @@ pub trait TransitProvider: Send + Sync {
 /// A time as MOTIS writes it (`2026-10-15T07:55:00Z`, RFC 3339) in unix seconds.
 #[must_use]
 pub fn parse_time(text: &str) -> Option<i64> {
-    let _ = text;
-    None
+    chrono::DateTime::parse_from_rfc3339(text.trim())
+        .ok()
+        .map(|t| t.timestamp())
 }
 
 /// Unix seconds as MOTIS reads them (`2026-10-15T07:55:00Z`).
 #[must_use]
 pub fn format_time(unix: i64) -> String {
-    let _ = unix;
-    String::new()
+    chrono::DateTime::<chrono::Utc>::from_timestamp(unix, 0)
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .unwrap_or_default()
 }
 
 /// A colour as GTFS writes it (`eb7405`, `#EB7405`).
 #[must_use]
 pub fn parse_colour(text: &str) -> Option<(u8, u8, u8)> {
-    let _ = text;
-    None
+    let hex = text.trim().trim_start_matches('#');
+    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let byte = |at: usize| u8::from_str_radix(&hex[at..at + 2], 16).ok();
+    Some((byte(0)?, byte(2)?, byte(4)?))
 }
 
 #[cfg(test)]

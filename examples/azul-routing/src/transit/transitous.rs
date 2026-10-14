@@ -45,16 +45,46 @@ pub const GAP: std::time::Duration = std::time::Duration::from_millis(500);
 /// current time bucket, so asking again a minute later is the same question.
 #[must_use]
 pub fn plan_query(query: &JourneyQuery, now: i64) -> Vec<(String, String)> {
-    let _ = (query, now, format_time(0));
-    Vec::new()
+    let place = |(lat, lon): (f64, f64)| format!("{lat:.6},{lon:.6}");
+    let mut params = vec![
+        ("fromPlace".to_string(), place(query.from)),
+        ("toPlace".to_string(), place(query.to)),
+    ];
+    let (time, arrive) = match query.when {
+        When::Now => (crate::cache::time_bucket(now, PLAN_BUCKET_S), false),
+        When::DepartAt(at) => (at, false),
+        When::ArriveBy(at) => (at, true),
+    };
+    params.push(("time".to_string(), format_time(time)));
+    if arrive {
+        params.push(("arriveBy".to_string(), "true".to_string()));
+    }
+    if let Some(cursor) = query.page.as_ref().filter(|c| !c.is_empty()) {
+        params.push(("pageCursor".to_string(), cursor.clone()));
+    }
+    if !query.language.trim().is_empty() {
+        params.push(("language".to_string(), query.language.trim().to_string()));
+    }
+    params
 }
 
 /// The cache key of a journey question: the places to about 10 m, the time bucket, the page,
 /// the language.
 #[must_use]
 pub fn plan_key(query: &JourneyQuery, now: i64) -> String {
-    let _ = (query, now, place_key((0.0, 0.0), 4));
-    String::new()
+    let (word, time) = match query.when {
+        When::Now => ("depart", now),
+        When::DepartAt(at) => ("depart", at),
+        When::ArriveBy(at) => ("arrive", at),
+    };
+    let time = crate::cache::time_bucket(time, PLAN_BUCKET_S);
+    format!(
+        "transitous plan {} {} {word}@{time} {} {}",
+        place_key(query.from, 4),
+        place_key(query.to, 4),
+        query.page.as_deref().unwrap_or("-"),
+        query.language.trim()
+    )
 }
 
 /// The journeys of a `/api/v6/plan` answer, the cursors of the pages before and after it.
@@ -63,8 +93,32 @@ pub fn plan_key(query: &JourneyQuery, now: i64) -> String {
 ///
 /// An answer that is no plan, the server's error, or a plan without any journey.
 pub fn parse_plan(json: &str) -> Result<JourneyPage, TransitError> {
-    let _ = json;
-    Err(TransitError::Server("not built".to_string()))
+    let doc: Value =
+        serde_json::from_str(json).map_err(|e| TransitError::Server(format!("json: {e}")))?;
+    if let Some(error) = doc.get("error").and_then(Value::as_str) {
+        return Err(TransitError::NoJourney(error.to_string()));
+    }
+    let itineraries = doc
+        .get("itineraries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| TransitError::Server("no itineraries in the answer".to_string()))?;
+    let journeys: Vec<Journey> = itineraries.iter().filter_map(journey_of).collect();
+    if journeys.is_empty() {
+        return Err(TransitError::NoJourney("no journey".to_string()));
+    }
+    let cursor = |name: &str| {
+        doc.get(name)
+            .and_then(Value::as_str)
+            .filter(|c| !c.is_empty())
+            .map(str::to_string)
+    };
+    Ok(JourneyPage {
+        journeys,
+        earlier: cursor("previousPageCursor"),
+        later: cursor("nextPageCursor"),
+        origin: Origin::Network,
+        age_s: 0,
+    })
 }
 
 /// What a found place is.
@@ -95,23 +149,40 @@ impl Found {
     /// name says it already.
     #[must_use]
     pub fn label(&self) -> String {
-        self.name.clone()
+        match self
+            .area
+            .as_deref()
+            .filter(|a| !a.is_empty() && !self.name.trim().eq_ignore_ascii_case(a.trim()))
+        {
+            Some(area) => format!("{}, {area}", self.name),
+            None => self.name.clone(),
+        }
     }
 }
 
 /// The query parameters of a place search: the text, a bias towards where the map looks.
 #[must_use]
 pub fn geocode_query(text: &str, near: Option<(f64, f64)>, language: &str) -> Vec<(String, String)> {
-    let _ = (text, near, language);
-    Vec::new()
+    let mut params = vec![
+        ("text".to_string(), text.trim().to_string()),
+        ("language".to_string(), language.trim().to_string()),
+    ];
+    if let Some((lat, lon)) = near {
+        params.push(("place".to_string(), format!("{lat:.4},{lon:.4}")));
+    }
+    params
 }
 
 /// The cache key of a place search: the text without case or surrounding space, the bias to
 /// about 10 km, the language.
 #[must_use]
 pub fn geocode_key(text: &str, near: Option<(f64, f64)>, language: &str) -> String {
-    let _ = (text, near, language);
-    String::new()
+    let near = near.map_or_else(|| "-".to_string(), |at| place_key(at, 1));
+    format!(
+        "transitous geocode {} {near} {}",
+        language.trim(),
+        text.trim().to_lowercase()
+    )
 }
 
 /// The places of a `/api/v1/geocode` answer, best first.
@@ -120,22 +191,27 @@ pub fn geocode_key(text: &str, near: Option<(f64, f64)>, language: &str) -> Stri
 ///
 /// An answer that is no list of places.
 pub fn parse_geocode(json: &str) -> Result<Vec<Found>, TransitError> {
-    let _ = json;
-    Err(TransitError::Server("not built".to_string()))
+    let doc: Value =
+        serde_json::from_str(json).map_err(|e| TransitError::Server(format!("json: {e}")))?;
+    let matches = doc
+        .as_array()
+        .ok_or_else(|| TransitError::Server("the answer is no list of places".to_string()))?;
+    Ok(matches.iter().filter_map(found_of).collect())
 }
 
 /// The query parameters of an address question.
 #[must_use]
-pub fn reverse_query(at: (f64, f64)) -> Vec<(String, String)> {
-    let _ = at;
-    Vec::new()
+pub fn reverse_query((lat, lon): (f64, f64)) -> Vec<(String, String)> {
+    vec![
+        ("place".to_string(), format!("{lat:.4},{lon:.4}")),
+        ("type".to_string(), "ADDRESS".to_string()),
+    ]
 }
 
 /// The cache key of an address question: the place to about 10 m.
 #[must_use]
 pub fn reverse_key(at: (f64, f64)) -> String {
-    let _ = at;
-    String::new()
+    format!("transitous reverse {}", place_key(at, 4))
 }
 
 /// The nearest address of a `/api/v1/reverse-geocode` answer.
@@ -144,32 +220,135 @@ pub fn reverse_key(at: (f64, f64)) -> String {
 ///
 /// An answer that is no list of places.
 pub fn parse_reverse(json: &str) -> Result<Option<Found>, TransitError> {
-    let _ = json;
-    Err(TransitError::Server("not built".to_string()))
+    Ok(parse_geocode(json)?.into_iter().next())
 }
 
 /// A place of a geocode answer.
 fn found_of(m: &Value) -> Option<Found> {
-    let _ = m;
-    None
+    let text = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).map(str::to_string);
+    let name = text(m, "name").filter(|n| !n.is_empty())?;
+    let at = (m.get("lat")?.as_f64()?, m.get("lon")?.as_f64()?);
+    let kind = match m.get("type").and_then(Value::as_str) {
+        Some("STOP") => FoundKind::Stop,
+        Some("ADDRESS") => FoundKind::Address,
+        _ => FoundKind::Place,
+    };
+    // The area the server marks to be shown with the name, else the most local one.
+    let areas = m.get("areas").and_then(Value::as_array);
+    let area = areas
+        .and_then(|areas| {
+            areas
+                .iter()
+                .find(|a| a.get("default").and_then(Value::as_bool) == Some(true))
+                .or_else(|| areas.last())
+        })
+        .and_then(|a| text(a, "name"));
+    Some(Found {
+        name,
+        kind,
+        at,
+        area,
+        country: text(m, "country"),
+    })
 }
 
 /// A leg of a plan answer.
 fn leg_of(leg: &Value) -> Option<Leg> {
-    let _ = (leg, LegKind::Other, parse_time(""), parse_colour(""));
-    None
+    let text = |key: &str| {
+        leg.get(key)
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+    };
+    let time = |key: &str| leg.get(key).and_then(Value::as_str).and_then(parse_time);
+    let kind = LegKind::of_mode(leg.get("mode").and_then(Value::as_str).unwrap_or(""));
+    let departure = time("startTime")?;
+    let arrival = time("endTime")?;
+    let from = stop_of(leg.get("from").unwrap_or(&Value::Null));
+    let to = stop_of(leg.get("to").unwrap_or(&Value::Null));
+    let cancelled = |v: Option<&Value>| v.and_then(|p| p.get("cancelled")).and_then(Value::as_bool) == Some(true);
+    let geometry = leg.get("legGeometry").unwrap_or(&Value::Null);
+    let encoded = geometry.get("points").and_then(Value::as_str).unwrap_or("");
+    let precision = geometry.get("precision").and_then(Value::as_i64).unwrap_or(6);
+    // The polyline decoder reads six decimals; another precision is a power of ten off.
+    let scale = 10f64.powi(6 - i32::try_from(precision).unwrap_or(6));
+    let mut points: Vec<(f64, f64)> = crate::online::decode_polyline6(encoded)
+        .into_iter()
+        .map(|(lat, lon)| (lat * scale, lon * scale))
+        .collect();
+    if points.len() < 2 {
+        points = vec![from.at, to.at];
+    }
+    Some(Leg {
+        kind,
+        line: text("displayName")
+            .or_else(|| text("routeShortName"))
+            .or_else(|| text("tripShortName"))
+            .unwrap_or_default(),
+        headsign: text("headsign").unwrap_or_default(),
+        operator: text("agencyName").unwrap_or_default(),
+        departure,
+        arrival,
+        scheduled_departure: time("scheduledStartTime").unwrap_or(departure),
+        scheduled_arrival: time("scheduledEndTime").unwrap_or(arrival),
+        realtime: leg.get("realTime").and_then(Value::as_bool) == Some(true),
+        cancelled: leg.get("cancelled").and_then(Value::as_bool) == Some(true)
+            || cancelled(leg.get("from"))
+            || cancelled(leg.get("to")),
+        distance_m: leg.get("distance").and_then(Value::as_f64),
+        colour: text("routeColor").as_deref().and_then(parse_colour),
+        from,
+        to,
+        points,
+    })
 }
 
-/// A stop of a leg.
+/// A stop of a leg. The trip's own start and end (MOTIS calls them `START` and `END`) keep no
+/// name: the travel panel shows the place the traveller typed.
 fn stop_of(place: &Value) -> Stop {
-    let _ = place;
-    Stop::default()
+    let text = |key: &str| {
+        place
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+    };
+    let name = text("name").unwrap_or_default();
+    let own_end = place.get("vertexType").and_then(Value::as_str) == Some("NORMAL")
+        && (name == "START" || name == "END");
+    Stop {
+        name: if own_end { String::new() } else { name },
+        at: (
+            place.get("lat").and_then(Value::as_f64).unwrap_or(0.0),
+            place.get("lon").and_then(Value::as_f64).unwrap_or(0.0),
+        ),
+        platform: text("track"),
+        scheduled_platform: text("scheduledTrack"),
+    }
 }
 
 /// A journey of a plan answer.
 fn journey_of(itinerary: &Value) -> Option<Journey> {
-    let _ = (itinerary, When::Now);
-    None
+    let time = |key: &str| itinerary.get(key).and_then(Value::as_str).and_then(parse_time);
+    let legs: Vec<Leg> = itinerary
+        .get("legs")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter_map(leg_of)
+        .collect();
+    if legs.is_empty() {
+        return None;
+    }
+    Some(Journey {
+        departure: time("startTime").unwrap_or(legs[0].departure),
+        arrival: time("endTime").unwrap_or(legs[legs.len() - 1].arrival),
+        transfers: itinerary
+            .get("transfers")
+            .and_then(Value::as_u64)
+            .and_then(|t| u32::try_from(t).ok())
+            .unwrap_or(0),
+        legs,
+    })
 }
 
 #[cfg(feature = "http")]
@@ -222,8 +401,14 @@ mod client {
             language: &str,
             stop: &mut dyn FnMut() -> bool,
         ) -> Result<Option<(Vec<Found>, Origin)>, TransitError> {
-            let _ = (text, near, language, stop);
-            Err(TransitError::Server("not built".to_string()))
+            let url = format!("{}/api/v1/geocode", self.base);
+            let query = geocode_query(text, near, language);
+            let key = geocode_key(text, near, language);
+            let request = Request::Get { url: &url, query: &query };
+            let Some(fetched) = self.fetcher.fetch(&request, &key, PLACES_TTL_S, stop).map_err(error_of)? else {
+                return Ok(None);
+            };
+            Ok(Some((parse_geocode(&fetched.body)?, fetched.origin)))
         }
 
         /// The address nearest to `at`, and where the answer came from.
@@ -236,8 +421,17 @@ mod client {
             at: (f64, f64),
             stop: &mut dyn FnMut() -> bool,
         ) -> Result<Option<(Option<Found>, Origin)>, TransitError> {
-            let _ = (at, stop);
-            Err(TransitError::Server("not built".to_string()))
+            let url = format!("{}/api/v1/reverse-geocode", self.base);
+            let query = reverse_query(at);
+            let request = Request::Get { url: &url, query: &query };
+            let Some(fetched) = self
+                .fetcher
+                .fetch(&request, &reverse_key(at), PLACES_TTL_S, stop)
+                .map_err(error_of)?
+            else {
+                return Ok(None);
+            };
+            Ok(Some((parse_reverse(&fetched.body)?, fetched.origin)))
         }
     }
 
@@ -259,15 +453,36 @@ mod client {
             query: &JourneyQuery,
             stop: &mut dyn FnMut() -> bool,
         ) -> Result<Option<JourneyPage>, TransitError> {
-            let _ = (query, stop, Request::Get { url: "", query: &[] });
-            Err(error_of(FetchError::Busy))
+            let now = i64::try_from(crate::cache::now_s()).unwrap_or(0);
+            let url = format!("{}/api/v6/plan", self.base);
+            let params = plan_query(query, now);
+            let request = Request::Get { url: &url, query: &params };
+            let Some(fetched) = self
+                .fetcher
+                .fetch(&request, &plan_key(query, now), PLAN_TTL_S, stop)
+                .map_err(error_of)?
+            else {
+                return Ok(None);
+            };
+            let mut page = parse_plan(&fetched.body)?;
+            page.origin = fetched.origin;
+            page.age_s = fetched.age_s;
+            Ok(Some(page))
         }
     }
 
     /// A fetch error in the transit words.
     pub(super) fn error_of(error: FetchError) -> TransitError {
-        let _ = error;
-        TransitError::Busy
+        match error {
+            FetchError::Offline(why) => TransitError::Offline(why),
+            FetchError::Busy => TransitError::Busy,
+            // MOTIS answers a place it cannot use with a 4xx and an `error`.
+            FetchError::Refused(status, body) if status < 500 => match parse_plan(&body) {
+                Err(TransitError::NoJourney(why)) => TransitError::NoJourney(why),
+                _ => TransitError::Server(format!("HTTP {status}")),
+            },
+            FetchError::Refused(status, _) => TransitError::Server(format!("HTTP {status}")),
+        }
     }
 }
 
