@@ -86,6 +86,7 @@ use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_tr
 
 pub mod accessibility;
 pub mod clipboard;
+mod color_space;
 mod coregraphics;
 mod corevideo;
 mod events;
@@ -2262,19 +2263,7 @@ define_class!(
                 let cached_h = ivars.cached_bitmap_h.get();
 
                 if cached.is_none() || cached_w != width || cached_h != height {
-                    *cached = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
-                        NSBitmapImageRep::alloc(),
-                        std::ptr::null_mut(),
-                        width as isize,
-                        height as isize,
-                        8,
-                        4,
-                        true,
-                        false,
-                        ns_string!("NSCalibratedRGBColorSpace"),
-                        (width * 4) as isize,
-                        32,
-                    );
+                    *cached = color_space::cpu_frame_bitmap(width, height);
                     ivars.cached_bitmap_w.set(width);
                     ivars.cached_bitmap_h.set(height);
                     ivars.cached_bitmap_stale.set(true);
@@ -2298,16 +2287,12 @@ define_class!(
                     // Copy the dirty rows (or everything, once, after a
                     // (re)allocation) into the bitmap's pixel buffer. The
                     // rep's stride is read back rather than assumed: AppKit
-                    // allocated the buffer (null planes), and a padded
-                    // `bytesPerRow` copied with the framebuffer's stride
-                    // would shear every row — which on screen looks exactly
-                    // like horizontally squashed, doubled text.
+                    // allocated the buffer, and the sRGB copy of the bitmap
+                    // may pad its rows. A padded `bytesPerRow` copied with
+                    // the framebuffer's stride would shear every row, which
+                    // on screen looks exactly like squashed, doubled text.
                     let stride = width * 4;
                     let dst_stride = bitmap.bytesPerRow() as usize;
-                    debug_assert_eq!(
-                        dst_stride, stride,
-                        "NSBitmapImageRep padded bytesPerRow ({dst_stride}) past the requested {stride}"
-                    );
                     let dst = bitmap.bitmapData();
                     let span = (x1 - x0) * 4;
                     if !dst.is_null() && span > 0 {
@@ -5925,6 +5910,21 @@ impl MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::new] Content view configured"
         );
+
+        // Both renderers write sRGB bytes. Without the tag AppKit takes the
+        // GL frame to be in the display's colour space, and on a wide-gamut
+        // display every colour looks too saturated.
+        {
+            let render_view: *const NSView = match (&gl_view, &cpu_view) {
+                (Some(gl), _) => Retained::as_ptr(gl) as *const NSView,
+                (None, Some(cpu)) => Retained::as_ptr(cpu) as *const NSView,
+                (None, None) => std::ptr::null(),
+            };
+            if !render_view.is_null() {
+                let tags = color_space::tag_window_srgb(&window, unsafe { &*render_view });
+                log_info!(LogCategory::Rendering, "[MacOSWindow::new] {}", tags);
+            }
+        }
 
         // Make the render view the window's first responder. Keyboard events
         // (keyDown:/keyUp:/flagsChanged:) are delivered to the FIRST RESPONDER
