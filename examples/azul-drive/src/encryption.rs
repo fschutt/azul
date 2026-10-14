@@ -2660,6 +2660,28 @@ mod tests {
         }))));
     }
 
+    /// A drive picked up on a second computer was encrypted by the computer it was bought on:
+    /// it is not set up again, that is said on the status line, and no failed set-up takes the
+    /// place of an open dialog (the Add drive dialog the claim code was typed into).
+    #[test]
+    fn a_set_up_that_cannot_happen_never_replaces_an_open_dialog() {
+        let add = Popup::AddDrive(crate::add_drive::AddDialog::new(1));
+        let busy = Popup::Encryption(Dialog::Busy {
+            title: String::new(),
+            text: String::new(),
+        });
+        let failed = "azdrive-enc-err-no-index";
+        assert!(!set_up_failure_shows_as_dialog(failed, Some(&add)), "the dialog stays");
+        assert!(set_up_failure_shows_as_dialog(failed, None));
+        assert!(set_up_failure_shows_as_dialog(failed, Some(&busy)), "the busy note gives way");
+        assert!(!set_up_failure_shows_as_dialog(ENCRYPTED_ELSEWHERE, None));
+        assert!(!set_up_failure_shows_as_dialog(ENCRYPTED_ELSEWHERE, Some(&busy)));
+        crate::l10n::in_english();
+        let said = t_args(ENCRYPTED_ELSEWHERE, &[("name", Arg::from("Photos"))]);
+        assert!(said.starts_with("Photos was encrypted on"), "{said}");
+        assert!(said.contains("recovery code"), "{said}");
+    }
+
     #[test]
     fn a_rotations_sheet_offers_re_encryption_next() {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
