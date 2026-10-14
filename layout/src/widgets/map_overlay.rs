@@ -206,7 +206,7 @@ impl MapMarker {
 
     /// A round dot of `color` with a white rim, centred on `position`.
     #[must_use]
-    pub fn dot(id: u64, position: MapLatLon, color: ColorU) -> Self {
+    pub fn create_dot(id: u64, position: MapLatLon, color: ColorU) -> Self {
         let css = alloc::format!(
             "width: 10px; height: 10px; border-radius: 8px; border: 3px solid #ffffff; \
              background: {}; box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.35);",

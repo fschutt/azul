@@ -8160,7 +8160,7 @@ mod overlay_tests {
                 (52.5163, 13.3850),
             ]))),
             MapOverlay::Marker(
-                MapMarker::dot(7, place(52.5163, 13.3777), ColorU::RED)
+                MapMarker::create_dot(7, place(52.5163, 13.3777), ColorU::RED)
                     .with_name(AzString::from_const_str("Brandenburg Gate")),
             ),
         ]));
