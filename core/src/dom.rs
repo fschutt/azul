@@ -2438,6 +2438,14 @@ pub struct NodeDataExt {
     /// and records the key here, so a later locale change can translate the
     /// SAME node again in place, without rebuilding the DOM.
     pub l10n_key: Option<AzString>,
+    /// The node is drawn as part of its parent, the way a browser draws a
+    /// control's `::before` / `::after`: it takes the parent's `:hover`,
+    /// `:active` and focus states whenever the parent's change (see
+    /// `StyledDom::restyle_nodes_state`). Without it a decoration built as a
+    /// child node (a tab's curved sides) keeps its resting face while the
+    /// control it belongs to is pressed, because a press activates only the
+    /// pressed node and its ancestors.
+    pub part_of_parent: bool,
 }
 
 // The MARKER is EXCLUDED from equality, ordering and hashing (USER ruling
@@ -2467,6 +2475,7 @@ impl NodeDataExt {
         &Option<DatasetMergeCallback>,
         &Option<ComponentOrigin>,
         &Vec<crate::resources::AnimationFunction>,
+        bool,
     ) {
         (
             &self.attributes,
@@ -2479,6 +2488,7 @@ impl NodeDataExt {
             &self.dataset_merge_callback,
             &self.component_origin,
             &self.animation_callbacks,
+            self.part_of_parent,
         )
     }
 }
@@ -2499,6 +2509,7 @@ impl NodeDataExt {
             && self.dataset_merge_callback.is_none()
             && self.component_origin.is_none()
             && self.animation_callbacks.is_empty()
+            && !self.part_of_parent
     }
 }
 
@@ -3491,6 +3502,26 @@ impl NodeData {
     #[must_use]
     pub fn get_marker(&self) -> Option<&AzString> {
         self.extra.as_ref().and_then(|ext| ext.marker.as_ref())
+    }
+
+    /// Whether this node is drawn as part of its parent and takes its
+    /// interaction states (see `NodeDataExt::part_of_parent`).
+    #[must_use]
+    pub fn is_part_of_parent(&self) -> bool {
+        self.extra.as_ref().is_some_and(|ext| ext.part_of_parent)
+    }
+
+    /// Marks this node as drawn as part of its parent: it is hovered,
+    /// pressed and focused whenever its parent is, as a browser's
+    /// `::before` / `::after` are.
+    pub fn set_part_of_parent(&mut self, part: bool) {
+        if part {
+            self.extra
+                .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+                .part_of_parent = true;
+        } else if let Some(ext) = self.extra.as_mut() {
+            ext.part_of_parent = false;
+        }
     }
 
     /// The Fluent key this node's text was translated from, if it was (see
@@ -7545,6 +7576,19 @@ impl Dom {
     #[inline]
     pub fn set_marker(&mut self, marker: OptionString) {
         self.root.set_marker(marker);
+    }
+    /// Draws this node as part of its parent: it takes the parent's hover,
+    /// press and focus (see [`NodeData::set_part_of_parent`]).
+    #[inline]
+    #[must_use]
+    pub fn with_part_of_parent(mut self, part: bool) -> Self {
+        self.root.set_part_of_parent(part);
+        self
+    }
+    /// Setter form of [`Self::with_part_of_parent`].
+    #[inline]
+    pub fn set_part_of_parent(&mut self, part: bool) {
+        self.root.set_part_of_parent(part);
     }
     /// Setter form of [`Self::with_key`].
     #[inline]

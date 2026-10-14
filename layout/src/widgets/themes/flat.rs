@@ -3436,8 +3436,9 @@ pub(crate) fn split_pane_skin(
     use crate::widgets::split_pane as s;
 
     let mut divider = s::divider_style(direction).into_library_owned_vec();
-    // States last: the resting dark twin matches in every state.
-    divider.extend(CssPropertyWithConditions::themed_on_focus(
+    // States last: the resting dark twin matches in every state. Grabbing
+    // the divider focuses it; only a keyboard focus lights it.
+    divider.extend(CssPropertyWithConditions::themed_on_focus_visible(
         decl::fill(FIELD_RING),
         decl::fill(DARK_ACC),
     ));
@@ -4476,17 +4477,207 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 #[must_use]
 pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
     use crate::widgets::tabs as t;
-    t::TabHeaderLook {
-        header: on_base(t::HEADER_BASE, t::CSS_MATCH_9988039989460234263.as_slice()),
+    t::TabHeaderLook::plain(
+        on_base(t::HEADER_BASE, t::CSS_MATCH_9988039989460234263.as_slice()),
         // No base: flat's spacer grows (`flex-grow: 1`), flora's does not.
-        before: t::CSS_MATCH_17290739305197504468,
-        after: on_base(t::AFTER_BASE, t::CSS_MATCH_3088386549906605418.as_slice()),
-        active: on_base(t::TAB_BASE, t::CSS_MATCH_14575853790110873394.as_slice()),
-        before_active: on_base(t::TAB_BASE, t::CSS_MATCH_4415083954137121609.as_slice()),
-        after_active: on_base(t::TAB_BASE, t::CSS_MATCH_13824480602841492081.as_slice()),
-        inactive: on_base(t::TAB_BASE, t::CSS_MATCH_11510695043643111367.as_slice()),
-        marker: None,
+        t::CSS_MATCH_17290739305197504468,
+        on_base(t::AFTER_BASE, t::CSS_MATCH_3088386549906605418.as_slice()),
+        on_base(t::TAB_BASE, t::CSS_MATCH_14575853790110873394.as_slice()),
+        on_base(t::TAB_BASE, t::CSS_MATCH_4415083954137121609.as_slice()),
+        on_base(t::TAB_BASE, t::CSS_MATCH_13824480602841492081.as_slice()),
+        on_base(t::TAB_BASE, t::CSS_MATCH_11510695043643111367.as_slice()),
+        None,
+    )
+}
+
+/// Flat's tab-bar look in `style`: its own square tabs (Rectangular, what
+/// `Auto` means in flat), the curved Aurora row in flat's palette, or the
+/// pills of flat's buttons.
+#[must_use]
+pub(crate) fn tab_header_look_in(
+    style: crate::widgets::tabs::TabStyle,
+) -> crate::widgets::tabs::TabHeaderLook {
+    use crate::widgets::tabs::TabStyle;
+    match style.resolved(super::UiTheme::Flat) {
+        TabStyle::Aurora => aurora_tab_header_look(),
+        TabStyle::Pills => crate::widgets::tabs::pill_look(super::UiTheme::Flat, None),
+        TabStyle::Rectangular | TabStyle::Auto => tab_header_look(),
     }
+}
+
+// ==== tabs: the Aurora row ====
+//
+// Flat cuts its Aurora tabs the way flora does (`tabs::australis_curves`),
+// in its own palette and a 1px hairline: the strip closes on a hairline
+// rule, every tab's sides are S curves cut from that hairline, the selected
+// tab is the panel's surface open onto the panel below (it reaches over the
+// rule), every other tab stands on the rule, bare until the pointer lights
+// it. Its curves are parts of the tab, so they light and fade with it.
+
+/// The selected Aurora tab's border box, in px; an unselected one is a
+/// hairline shorter, standing on the rule.
+const AURORA_TAB_HEIGHT: isize = 26;
+/// The space between two Aurora tabs, in px: with `AURORA_TAB_SIDE` it
+/// keeps a curve off its neighbour's label.
+const AURORA_TAB_GAP: isize = 8;
+/// An Aurora tab's room beside its label, in px.
+const AURORA_TAB_SIDE: isize = 12;
+const _: () = assert!(
+    AURORA_TAB_GAP + AURORA_TAB_SIDE >= crate::widgets::tabs::CURVE_WIDTH as isize
+);
+
+/// A face as one background layer.
+fn layer(color: ColorU) -> Vec<StyleBackgroundContent> {
+    alloc::vec![StyleBackgroundContent::Color(color)]
+}
+
+/// The curves of a flat Aurora tab: the face inside each S (under its 1px
+/// head) and the S itself, a hairline; `selected` in the panel's surface
+/// and the rule's colour, otherwise bare at rest and lit like the tab under
+/// the pointer.
+fn aurora_curves(selected: bool) -> crate::widgets::tabs::TabCurveLook {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let part = CssPropertyWithConditionsVec::from_vec;
+    let fill = {
+        let mut v = alloc::vec![
+            P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(1))),
+            P::simple(CssProperty::background_clip(StyleBackgroundClipVec::from_vec(
+                alloc::vec![StyleBackgroundClip::ContentBox],
+            ))),
+        ];
+        if selected {
+            v.extend(decl::themed_layers(layer(LIGHT_SUR), layer(DARK_SUR)));
+        } else {
+            v.push(P::simple(decl::fill(ColorU::TRANSPARENT)));
+            v.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+        }
+        v.extend(decl::state_fade(&["background"], decl::BUTTON_FADE_MS));
+        part(v)
+    };
+    let metal = {
+        let mut v = Vec::new();
+        if selected {
+            v.extend(decl::themed_fill(LIGHT_BD, DARK_BD));
+        } else {
+            v.push(P::simple(decl::fill(ColorU::TRANSPARENT)));
+            v.extend(decl::hover_fill(LIGHT_BD, DARK_BD));
+        }
+        v.extend(decl::state_fade(&["background"], decl::BUTTON_FADE_MS));
+        part(v)
+    };
+    #[allow(clippy::cast_precision_loss)] // a tab's height in px
+    let height = if selected {
+        AURORA_TAB_HEIGHT as f32
+    } else {
+        (AURORA_TAB_HEIGHT - 1) as f32
+    };
+    crate::widgets::tabs::TabCurveLook {
+        height,
+        gauge: 1.0,
+        left_fill: fill.clone(),
+        right_fill: fill,
+        metal,
+        runout: 0.0,
+        runout_left: CssPropertyWithConditionsVec::from_const_slice(&[]),
+        runout_right: CssPropertyWithConditionsVec::from_const_slice(&[]),
+    }
+}
+
+/// An Aurora tab of flat's: the tab's base, its box (a 1px head, the label
+/// `AURORA_TAB_SIDE` in from each side, one line), its curves' anchor, and
+/// its paint.
+fn aurora_tab(selected: bool) -> CssPropertyWithConditionsVec {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let mut v = crate::widgets::tabs::TAB_BASE.to_vec();
+    // The content box: the selected tab's height less its head and the
+    // hairline it reaches down over the rule.
+    let line = AURORA_TAB_HEIGHT - 2;
+    v.extend([
+        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(line))),
+        P::simple(CssProperty::const_line_height(StyleLineHeight::Length(
+            PixelValue::const_px(line),
+        ))),
+        decl::position(LayoutPosition::Relative),
+        P::simple(CssProperty::const_z_index(LayoutZIndex::Integer(if selected { 2 } else { 1 }))),
+        decl::nowrap(),
+    ]);
+    v.extend(decl::border_top(1));
+    if selected {
+        // A hairline below the label and a hairline of foot over the rule:
+        // the tab opens onto the panel.
+        v.extend(decl::padding(0, AURORA_TAB_SIDE, 1, AURORA_TAB_SIDE));
+        v.extend(decl::margin(0, 0, -1, 0));
+        v.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+        v.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+        v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+        v.extend(decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
+    } else {
+        v.extend(decl::padding(0, AURORA_TAB_SIDE, 0, AURORA_TAB_SIDE));
+        v.push(P::simple(decl::fill(ColorU::TRANSPARENT)));
+        v.push(P::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+            inner: ColorU::TRANSPARENT,
+        })));
+        v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        // States last: a resting dark twin matches in every state.
+        v.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+        v.extend(CssPropertyWithConditions::themed_on_hover(
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: LIGHT_BD }),
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD }),
+        ));
+        v.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
+        v.extend(decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
+        v.extend(decl::state_fade(
+            &["background", "border-top-color"],
+            decl::BUTTON_FADE_MS,
+        ));
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Flat's Aurora tab bar: the strip in the chrome's colour, closed by its
+/// hairline rule, the tabs `AURORA_TAB_GAP` apart from a curve's width in,
+/// every one of them cut with its curves.
+fn aurora_tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
+    use super::decl;
+    use crate::widgets::tabs as t;
+    type P = CssPropertyWithConditions;
+    let mut header = on_base(t::HEADER_BASE, t::CSS_MATCH_9988039989460234263.as_slice())
+        .into_library_owned_vec();
+    header.extend([
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::End)),
+        P::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(LayoutColumnGap {
+            inner: PixelValue::const_px(AURORA_TAB_GAP),
+        }))),
+        P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(4))),
+    ]);
+    header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    // The first tab's left curve lands a curve's width in.
+    #[allow(clippy::cast_possible_truncation)]
+    let before = alloc::vec![
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(
+            t::CURVE_WIDTH as isize - AURORA_TAB_GAP
+        ))),
+        P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    ];
+    let tab = aurora_tab(false);
+    let mut look = t::TabHeaderLook::plain(
+        CssPropertyWithConditionsVec::from_vec(header),
+        CssPropertyWithConditionsVec::from_vec(before),
+        CssPropertyWithConditionsVec::from_const_slice(t::AFTER_BASE),
+        aurora_tab(true),
+        tab.clone(),
+        tab.clone(),
+        tab,
+        None,
+    );
+    look.selected_curves = Some(aurora_curves(true));
+    look.tab_curves = Some(aurora_curves(false));
+    look
 }
 
 /// Flat's tab-panel look: the widget's base, then the panel's established

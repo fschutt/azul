@@ -146,6 +146,27 @@ pub struct ActiveChange {
     pub activated: Vec<NodeId>,
 }
 
+/// Whether `state` has the interaction state `ty` raised; `false` for the
+/// states a node does not change on its own (`:disabled`, `:checked`, ...).
+const fn state_is_raised(
+    state: &StyledNodeState,
+    ty: azul_css::dynamic_selector::PseudoStateType,
+) -> bool {
+    use azul_css::dynamic_selector::PseudoStateType as P;
+    match ty {
+        P::Hover => state.hover,
+        P::Active => state.active,
+        P::Focus => state.focused,
+        P::FocusVisible => state.focus_visible,
+        P::SeatFocus => state.seat_focused,
+        P::FocusWithin => state.focus_within,
+        P::Dragging => state.dragging,
+        P::DragOver => state.drag_over,
+        P::Backdrop => state.backdrop,
+        _ => false,
+    }
+}
+
 /// Result of a restyle operation, indicating what needs to be updated
 #[derive(Debug, Clone, Default)]
 pub struct RestyleResult {
@@ -2271,6 +2292,29 @@ impl StyledDom {
         result
     }
 
+    /// `nodes` and every node drawn as part of one of them
+    /// (`NodeData::is_part_of_parent`), the parts of parts included: the
+    /// nodes a state change of `nodes` reaches. Ids must be in range.
+    #[must_use]
+    pub fn with_parts(&self, nodes: Vec<NodeId>) -> Vec<NodeId> {
+        let hierarchy = self.node_hierarchy.as_container();
+        let node_data = self.node_data.as_container();
+        let mut out = nodes;
+        let mut next = 0;
+        while next < out.len() {
+            let host = out[next];
+            next += 1;
+            let mut child = hierarchy[host].first_child_id(host);
+            while let Some(c) = child {
+                if node_data[c].is_part_of_parent() && !out.contains(&c) {
+                    out.push(c);
+                }
+                child = hierarchy[c].next_sibling_id();
+            }
+        }
+        out
+    }
+
     /// Generic restyle method parameterized by the state field and pseudo-state type.
     fn restyle_nodes_state(
         &mut self,
@@ -2289,6 +2333,34 @@ impl StyledDom {
             .copied()
             .filter(|nid| nid.index() < node_count)
             .collect();
+        // A node's parts change state with it, as `::before` / `::after` do.
+        let mut nodes = self.with_parts(nodes);
+        if !new_state_value {
+            // A part the pointer leaves for its host keeps the host's state:
+            // it drops the state only with its host. Parts of parts follow,
+            // so this repeats until nothing more is held.
+            let hierarchy = self.node_hierarchy.as_container();
+            let node_data = self.node_data.as_container();
+            let styled_nodes = self.styled_nodes.as_container();
+            loop {
+                let held = nodes.iter().position(|n| {
+                    node_data[*n].is_part_of_parent()
+                        && hierarchy[*n].parent_id().is_some_and(|host| {
+                            !nodes.contains(&host)
+                                && state_is_raised(
+                                    &styled_nodes[host].styled_node_state,
+                                    pseudo_state_type,
+                                )
+                        })
+                });
+                match held {
+                    Some(i) => {
+                        nodes.remove(i);
+                    }
+                    None => break,
+                }
+            }
+        }
 
         // save the old node state
         let old_node_states = nodes

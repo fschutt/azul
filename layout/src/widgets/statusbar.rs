@@ -2514,7 +2514,10 @@ mod tests {
             let conds = conds.as_ref();
             let state = conds.iter().find_map(|c| match c {
                 DynamicSelector::PseudoState(
-                    s @ (PseudoStateType::Hover | PseudoStateType::Active | PseudoStateType::Focus),
+                    s @ (PseudoStateType::Hover
+                    | PseudoStateType::Active
+                    | PseudoStateType::Focus
+                    | PseudoStateType::FocusVisible),
                 ) => Some(*s),
                 _ => None,
             });

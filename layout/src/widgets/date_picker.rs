@@ -6014,7 +6014,13 @@ mod theme_tests {
         pair(node, &[], pick)
     }
 
+    /// The focused state's pair: a ring is declared on `:focus-visible`,
+    /// what a click shows too on `:focus`.
     fn on_focus<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        let (light, dark) = pair(node, &[PseudoStateType::FocusVisible], &pick);
+        if light.is_some() || dark.is_some() {
+            return (light, dark);
+        }
         pair(node, &[PseudoStateType::Focus], pick)
     }
 

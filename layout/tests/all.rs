@@ -1075,3 +1075,17 @@ mod a_press_beside_text_selects_from_the_nearest_character;
 mod text_selection_follows_the_pointer_in_both_directions;
 #[path = "a_column_of_cards_keeps_each_card_as_tall_as_its_content.rs"]
 mod a_column_of_cards_keeps_each_card_as_tall_as_its_content;
+#[path = "a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect.rs"]
+mod a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect;
+#[path = "a_leather_background_is_lit_leather_over_its_whole_box.rs"]
+mod a_leather_background_is_lit_leather_over_its_whole_box;
+#[path = "a_stylesheet_focus_visible_rule_rings_only_a_keyboard_focus.rs"]
+mod a_stylesheet_focus_visible_rule_rings_only_a_keyboard_focus;
+#[path = "a_widget_focused_by_a_click_shows_no_focus_ring.rs"]
+mod a_widget_focused_by_a_click_shows_no_focus_ring;
+#[path = "a_pressed_app_button_sinks_its_curves_with_its_face.rs"]
+mod a_pressed_app_button_sinks_its_curves_with_its_face;
+#[path = "a_tab_bar_takes_the_style_it_is_given.rs"]
+mod a_tab_bar_takes_the_style_it_is_given;
+#[path = "a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout.rs"]
+mod a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout;

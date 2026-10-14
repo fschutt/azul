@@ -287,7 +287,10 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
         v.extend(own.as_ref().iter().cloned());
         CssPropertyWithConditionsVec::from_vec(v)
     };
+    // The curve, its fill and its metal are drawn as part of the tab: they
+    // take its hover and press, so a pressed stone sinks to its feet.
     let fill = Dom::create_div()
+        .with_part_of_parent(true)
         .with_ids_and_classes(decl::classes(&[CURVE_FILL_CLASS]))
         .with_css_props(over(if left {
             &look.left_fill
@@ -296,6 +299,7 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
         }))
         .with_svg_data(shape(curve_fill(s, w, h, left)));
     let metal = Dom::create_div()
+        .with_part_of_parent(true)
         .with_ids_and_classes(decl::classes(&[CURVE_STROKE_CLASS]))
         .with_css_props(over(&look.metal))
         .with_svg_data(shape(curve_band(s, look.gauge)));
@@ -305,6 +309,7 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
         decl::simple(CssProperty::const_right(LayoutRight::px(-w)))
     };
     Dom::create_div()
+        .with_part_of_parent(true)
         .with_ids_and_classes(decl::classes(&[if left {
             CURVE_LEFT_CLASS
         } else {
@@ -351,6 +356,7 @@ fn runout(look: &TabCurveLook, left: bool) -> Dom {
     };
     style.extend(paint.as_ref().iter().cloned());
     Dom::create_div()
+        .with_part_of_parent(true)
         .with_ids_and_classes(decl::classes(&[if left {
             RUNOUT_LEFT_CLASS
         } else {
@@ -1516,13 +1522,46 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = 
 pub(crate) const CSS_MATCH_11510695043643111367: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_11510695043643111367_PROPERTIES);
 
+/// The shape of a tab bar's tabs ([`TabHeader::with_style`]).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum TabStyle {
+    /// The theme's own tabs: Aurora under flora, Rectangular under flat.
+    #[default]
+    Auto,
+    /// Firefox's curved tabs: the sides of every tab are S curves rolling
+    /// from the strip's foot into the tab's top edge, so all tabs share one
+    /// shape; the selected one stands on the strip's rule.
+    Aurora,
+    /// Classic square tabs, the selected one open onto the panel below.
+    Rectangular,
+    /// Pill buttons on a leather strip (white leather by day, dark at
+    /// night): the selected pill wears the submit button's face, and the
+    /// strip closes on a 1px gold rule along its foot.
+    Pills,
+}
+
+impl TabStyle {
+    /// This style under `theme`, with `Auto` answered by the theme.
+    #[must_use]
+    pub const fn resolved(self, theme: crate::widgets::themes::UiTheme) -> Self {
+        use crate::widgets::themes::UiTheme;
+        match (self, theme) {
+            (Self::Auto, UiTheme::Flora) => Self::Aurora,
+            (Self::Auto, UiTheme::Flat) => Self::Rectangular,
+            (other, _) => other,
+        }
+    }
+}
+
 /// Header bar for a tab widget, containing the clickable tab labels.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TabHeader {
     /// Labels for each tab.
     pub tabs: StringVec,
-    /// Zero-based index of the currently active tab.
+    /// Zero-based index of the currently active tab. An index past the last
+    /// tab selects none: no tab is drawn selected.
     pub active_tab: usize,
     /// Optional callback invoked when a tab is clicked.
     pub on_click: OptionTabOnClick,
@@ -1530,6 +1569,8 @@ pub struct TabHeader {
     /// to follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
+    /// The shape of the tabs (`with_style`); `Auto` takes the theme's own.
+    pub style: TabStyle,
 }
 
 impl Default for TabHeader {
@@ -1539,6 +1580,7 @@ impl Default for TabHeader {
             active_tab: 0,
             on_click: None.into(),
             theme: crate::widgets::themes::OptionUiTheme::None,
+            style: TabStyle::Auto,
         }
     }
 }
@@ -1582,7 +1624,21 @@ impl TabHeader {
             active_tab: 0,
             on_click: None.into(),
             theme: crate::widgets::themes::OptionUiTheme::None,
+            style: TabStyle::Auto,
         }
+    }
+
+    /// The shape of the tabs: Aurora's curves, square tabs or pills.
+    /// `Auto` (the default) takes the theme's own.
+    pub const fn set_style(&mut self, style: TabStyle) {
+        self.style = style;
+    }
+
+    /// [`Self::set_style`] for the builder chain.
+    #[must_use]
+    pub const fn with_style(mut self, style: TabStyle) -> Self {
+        self.set_style(style);
+        self
     }
 
     /// Pin the widget theme: the tab bar keeps this look whatever the app
@@ -1673,17 +1729,16 @@ impl TabHeader {
         // carries both looks, each in its `@theme(<name>)` block. The tabs,
         // their classes, datasets, click and arrow keys are the same in every
         // theme.
-        let look = TabHeaderLook::of(self.theme);
-        // Flora cuts its selected tab as Firefox's (`australis_curves`): the
-        // curves are nodes, so they are in the tree when it is built for
-        // flora - the pinned look, or the app theme the DOM is built for (a
-        // theme switch rebuilds the DOM, as for every widget whose looks
-        // build different trees).
-        let curves = {
-            use crate::widgets::themes::{flora, UiTheme};
-            let theme = self.theme.into_option().unwrap_or_else(UiTheme::current);
-            (theme == UiTheme::Flora).then(|| flora::tab_curves(false))
-        };
+        // The look's curves (Aurora) and rule (Pills) are nodes, so they are
+        // in the tree when it is built for a theme and style that has them -
+        // the pinned look, or the app theme the DOM is built for (a theme
+        // switch rebuilds the DOM, as for every widget whose looks build
+        // different trees).
+        let look = TabHeaderLook::of(self.theme, self.style);
+        let tab_count = self.tabs.as_ref().len();
+        // An index past the last tab selects none: no tab is drawn selected,
+        // and no neighbour of a missing selection gets its seam.
+        let active = (self.active_tab < tab_count).then_some(self.active_tab);
         let on_click_is_some = self.on_click.is_some();
         // WAI-ARIA APG: an interactive tab list is ONE Tab stop - the active
         // tab, or the first when the index is out of range. The arrow keys
@@ -1692,7 +1747,7 @@ impl TabHeader {
         let tab_stop =
             crate::widgets::roving::stop_index(Some(self.active_tab), self.tabs.as_ref().len());
 
-        Dom::create_div()
+        let mut header = Dom::create_div()
             .with_css_props(look.header.clone())
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_6172459441955124689: &[IdOrClass] =
@@ -1726,14 +1781,13 @@ impl TabHeader {
                 };
 
                 for (tab_idx, tab) in self.tabs.as_ref().iter().enumerate() {
-                    let next_tab_is_active = self.active_tab == tab_idx.saturating_add(1);
-                    let previous_tab_was_active = if self.active_tab == 0 {
-                        false
-                    } else {
-                        self.active_tab == tab_idx.saturating_sub(1)
+                    let next_tab_is_active = active == Some(tab_idx.saturating_add(1));
+                    let previous_tab_was_active = match active {
+                        Some(0) | None => false,
+                        Some(a) => a == tab_idx.saturating_sub(1),
                     };
 
-                    let tab_is_active = self.active_tab == tab_idx;
+                    let tab_is_active = active == Some(tab_idx);
 
                     let (ids_and_classes, css_props) = if tab_is_active {
                         (IDS_AND_CLASSES_15002865554973741556, look.active.clone())
@@ -1799,13 +1853,16 @@ impl TabHeader {
                             tab_idx, tab_stop,
                         ));
                     }
-                    // The selected tab's curves and run-outs, after its label
-                    // text.
-                    if tab_is_active {
-                        if let Some(curves) = curves.as_ref() {
-                            for curve in australis_curves(curves) {
-                                tab_dom.add_child(curve);
-                            }
+                    // The tab's curves (and the selected tab's run-outs),
+                    // after its label text.
+                    let curves = if tab_is_active {
+                        look.selected_curves.as_ref()
+                    } else {
+                        look.tab_curves.as_ref()
+                    };
+                    if let Some(curves) = curves {
+                        for curve in australis_curves(curves) {
+                            tab_dom.add_child(curve);
                         }
                     }
                     tab_items.push(tab_dom);
@@ -1813,7 +1870,7 @@ impl TabHeader {
 
                 tab_items.push(
                     Dom::create_div()
-                        .with_css_props(look.after)
+                        .with_css_props(look.after.clone())
                         .with_ids_and_classes({
                             const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[Class(
                                 AzString::from_const_str("__azul-native-tabs-after-tabs"),
@@ -1822,10 +1879,33 @@ impl TabHeader {
                         }),
                 );
 
+                // The rule along the strip's foot, last so it lies over the
+                // strip and under nothing.
+                if let Some(rule) = look.rule.as_ref() {
+                    const RULE_CLASSES: &[IdOrClass] =
+                        &[Class(AzString::from_const_str(RULE_CLASS))];
+                    let mut rule_dom = Dom::create_div()
+                        .with_css_props(rule.clone())
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(RULE_CLASSES));
+                    if !look.rule_css.is_empty() {
+                        rule_dom.root.set_css(look.rule_css);
+                    }
+                    tab_items.push(rule_dom);
+                }
+
                 tab_items.into()
-            })
+            });
+        // The custom properties the strip's material reads (the leather's
+        // tint), after its style: `with_css_props` replaces a node's style.
+        if !look.header_css.is_empty() {
+            header.root.set_css(look.header_css);
+        }
+        header
     }
 }
+
+/// The rule a pill strip closes on, along its foot.
+pub(crate) const RULE_CLASS: &str = "__azul-native-tabs-rule";
 
 /// What a theme gives a tab bar: one style per part, and the marker class
 /// its header carries (`None` for flat, whose header carries none). A tab
@@ -1850,39 +1930,209 @@ pub(crate) struct TabHeaderLook {
     pub(crate) inactive: CssPropertyWithConditionsVec,
     /// The theme marker class on the header, if the look has one.
     pub(crate) marker: Option<&'static str>,
+    /// The curves hung on the selected tab (Aurora), its run-outs included;
+    /// `None` hangs none.
+    pub(crate) selected_curves: Option<TabCurveLook>,
+    /// The curves hung on every other tab (Aurora): the same shape as the
+    /// selected tab's, in the unselected tab's paint and without run-outs.
+    pub(crate) tab_curves: Option<TabCurveLook>,
+    /// The rule along the strip's foot, its own node (Pills); `None` for a
+    /// look whose rule is the header's own border.
+    pub(crate) rule: Option<CssPropertyWithConditionsVec>,
+    /// Inline CSS laid on the header after its style - the custom
+    /// properties its material reads (the leather's tint); `""` for none.
+    pub(crate) header_css: &'static str,
+    /// Inline CSS laid on the rule after its style (the metal's tint); `""`
+    /// for none.
+    pub(crate) rule_css: &'static str,
 }
 
 impl TabHeaderLook {
-    /// The look `theme` pins, or - unpinned - the look that follows the app
-    /// theme: every part carries both themes' declarations, each theme's in
-    /// its `@theme(<name>)` block (`theme_blocks::follow_props`), and the
-    /// header the marker of the theme the DOM is built for.
-    pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme) -> Self {
+    /// A look of the six parts with nothing hung on them: no curves, no
+    /// rule node, no extra CSS.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn plain(
+        header: CssPropertyWithConditionsVec,
+        before: CssPropertyWithConditionsVec,
+        after: CssPropertyWithConditionsVec,
+        active: CssPropertyWithConditionsVec,
+        before_active: CssPropertyWithConditionsVec,
+        after_active: CssPropertyWithConditionsVec,
+        inactive: CssPropertyWithConditionsVec,
+        marker: Option<&'static str>,
+    ) -> Self {
+        Self {
+            header,
+            before,
+            after,
+            active,
+            before_active,
+            after_active,
+            inactive,
+            marker,
+            selected_curves: None,
+            tab_curves: None,
+            rule: None,
+            header_css: "",
+            rule_css: "",
+        }
+    }
+
+    /// The look `theme` pins in `style`, or - unpinned - the look that
+    /// follows the app theme: every part carries both themes' declarations
+    /// (each in `style` as that theme answers it), each theme's in its
+    /// `@theme(<name>)` block (`theme_blocks::follow_props`); the nodes only
+    /// one look hangs (curves, the rule) and the header's marker are those of
+    /// the theme the DOM is built for.
+    pub(crate) fn of(theme: crate::widgets::themes::OptionUiTheme, style: TabStyle) -> Self {
         use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
         match theme.into_option() {
-            Some(UiTheme::Flat) => flat::tab_header_look(),
-            Some(UiTheme::Flora) => flora::tab_header_look(),
+            Some(UiTheme::Flat) => flat::tab_header_look_in(style),
+            Some(UiTheme::Flora) => flora::tab_header_look_in(style),
             None => {
-                let (a, b) = (flat::tab_header_look(), flora::tab_header_look());
+                let (a, b) = (flat::tab_header_look_in(style), flora::tab_header_look_in(style));
                 let both = |x: &CssPropertyWithConditionsVec, y: &CssPropertyWithConditionsVec| {
                     follow_props(x.as_ref(), y.as_ref())
                 };
-                Self {
-                    header: both(&a.header, &b.header),
-                    before: both(&a.before, &b.before),
-                    after: both(&a.after, &b.after),
-                    active: both(&a.active, &b.active),
-                    before_active: both(&a.before_active, &b.before_active),
-                    after_active: both(&a.after_active, &b.after_active),
-                    inactive: both(&a.inactive, &b.inactive),
-                    marker: match UiTheme::current() {
-                        UiTheme::Flat => a.marker,
-                        UiTheme::Flora => b.marker,
-                    },
-                }
+                let mut look = Self::plain(
+                    both(&a.header, &b.header),
+                    both(&a.before, &b.before),
+                    both(&a.after, &b.after),
+                    both(&a.active, &b.active),
+                    both(&a.before_active, &b.before_active),
+                    both(&a.after_active, &b.after_active),
+                    both(&a.inactive, &b.inactive),
+                    None,
+                );
+                let current = match UiTheme::current() {
+                    UiTheme::Flat => a,
+                    UiTheme::Flora => b,
+                };
+                look.marker = current.marker;
+                look.selected_curves = current.selected_curves;
+                look.tab_curves = current.tab_curves;
+                look.rule = current.rule;
+                look.header_css = current.header_css;
+                look.rule_css = current.rule_css;
+                look
             }
         }
     }
+}
+
+// ---- Pills: pill buttons on leather ----
+//
+// A pill tab is a button: the selected one is the theme's submit button
+// (its primary command), every other one its plain button, each with the
+// button's whole style - resting face, hover, press, the keyboard ring and
+// the fades - rounded into a pill. They sit on a strip of leather, tinted
+// white by day and dark at night, laid over the strip's whole border box so
+// it reaches the strip's top edge. Along the foot runs a 1px rule of gold:
+// the theme's metal shimmer over aluminium tinted gold. The rule is a node
+// of its own (each material reads its tint from its own node), one CSS
+// pixel tall, which the renderer draws as two device pixels at 2x.
+
+/// The leather's tint: white leather by day, dark leather at night.
+const PILL_STRIP_CSS: &str =
+    "--azul-material-tint: #f4f0e8; @theme(dark) { --azul-material-tint: #3a322c; }";
+/// The rule's tint: aluminium turned gold.
+const PILL_RULE_CSS: &str = "--azul-material-tint: #d4af37;";
+/// The room between two pills and around the row, in px.
+const PILL_GAP: isize = 6;
+
+/// The style `theme`'s `button_type` button is drawn with: its container's
+/// declarations, conditions and all.
+fn button_style(
+    theme: crate::widgets::themes::UiTheme,
+    button_type: crate::widgets::button::ButtonType,
+) -> Vec<CssPropertyWithConditions> {
+    let dom = crate::widgets::button::Button::with_type(AzString::from_const_str("x"), button_type)
+        .with_theme(theme)
+        .dom();
+    dom.root
+        .style
+        .iter_inline_properties()
+        .map(|(property, apply_if)| CssPropertyWithConditions {
+            property: property.clone(),
+            apply_if: apply_if.clone(),
+        })
+        .collect()
+}
+
+/// A pill: the tab's base, `theme`'s `button_type` button, rounded, one
+/// line.
+fn pill(
+    theme: crate::widgets::themes::UiTheme,
+    button_type: crate::widgets::button::ButtonType,
+) -> CssPropertyWithConditionsVec {
+    use crate::widgets::themes::decl;
+    let mut v = TAB_BASE.to_vec();
+    v.extend(button_style(theme, button_type));
+    v.extend(decl::radius(999));
+    v.extend(decl::padding(4, 14, 4, 14));
+    v.extend(decl::margin(0, 0, 0, 0));
+    v.push(decl::nowrap());
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The Pills look in `theme` (whose header carries `marker`).
+pub(crate) fn pill_look(
+    theme: crate::widgets::themes::UiTheme,
+    marker: Option<&'static str>,
+) -> TabHeaderLook {
+    use crate::widgets::{button::ButtonType, themes::decl};
+    type P = CssPropertyWithConditions;
+    let leather = || StyleBackgroundContent::Image(AzString::from_const_str("azul-builtin:leather"));
+
+    let mut header = HEADER_BASE.to_vec();
+    header.extend([
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(LayoutColumnGap {
+            inner: PixelValue::const_px(PILL_GAP),
+        }))),
+        decl::position(LayoutPosition::Relative),
+        decl::font_size(13),
+    ]);
+    // A gauge of room under the pills for the rule, so it never runs under
+    // a pill.
+    header.extend(decl::padding(PILL_GAP, PILL_GAP * 2, PILL_GAP + 1, PILL_GAP * 2));
+    // The leather over a base of its own colour (seen while the material
+    // renders, or without the materials feature).
+    header.extend(decl::themed_layers(
+        vec![StyleBackgroundContent::Color(ColorU::rgb(0xF4, 0xF0, 0xE8)), leather()],
+        vec![StyleBackgroundContent::Color(ColorU::rgb(0x3A, 0x32, 0x2C)), leather()],
+    ));
+
+    let rule = vec![
+        decl::position(LayoutPosition::Absolute),
+        decl::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+        decl::simple(CssProperty::const_right(LayoutRight::const_px(0))),
+        decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+        decl::px_height(1.0),
+        P::simple(decl::layers(vec![
+            StyleBackgroundContent::Image(AzString::from_const_str("azul-builtin:aluminium")),
+            crate::widgets::themes::flora::RULE_SHIMMER,
+        ])),
+    ];
+
+    let tab = pill(theme, ButtonType::Default);
+    let mut look = TabHeaderLook::plain(
+        CssPropertyWithConditionsVec::from_vec(header),
+        CssPropertyWithConditionsVec::from_vec(vec![
+            P::simple(CssProperty::const_width(LayoutWidth::const_px(0))),
+            P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        ]),
+        CssPropertyWithConditionsVec::from_const_slice(AFTER_BASE),
+        pill(theme, ButtonType::Primary),
+        tab.clone(),
+        tab.clone(),
+        tab,
+        marker,
+    );
+    look.rule = Some(CssPropertyWithConditionsVec::from_vec(rule));
+    look.header_css = PILL_STRIP_CSS;
+    look.rule_css = PILL_RULE_CSS;
+    look
 }
 
 /// What a theme gives a tab panel: its style with and without the default
@@ -1921,6 +2171,20 @@ impl TabContentLook {
     }
 }
 
+/// Which way a tab panel's content moves in when its tab bar switched tabs
+/// ([`TabContent::with_switch`]).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum TabSlide {
+    /// No switch: the content stands still.
+    #[default]
+    None,
+    /// Switched to a tab on the left: the content slides left into place.
+    Left,
+    /// Switched to a tab on the right: the content slides right into place.
+    Right,
+}
+
 /// Content panel displayed beneath the active tab in a tab widget.
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -1933,6 +2197,14 @@ pub struct TabContent {
     /// follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
+    /// How the content came in with the last tab switch (`with_switch`).
+    /// Anything but `None` gives the content group its slide and fade.
+    pub slide: TabSlide,
+    /// The tab the content belongs to, set with `slide`: it keys the content
+    /// group, so a switch to another tab replaces the group (the old one
+    /// fades out, the new one slides in) while a rebuild for the same tab
+    /// keeps it still.
+    pub tab: usize,
 }
 
 impl Default for TabContent {
@@ -1941,8 +2213,112 @@ impl Default for TabContent {
             content: Dom::create_div(),
             has_padding: true,
             theme: crate::widgets::themes::OptionUiTheme::None,
+            slide: TabSlide::None,
+            tab: 0,
         }
     }
+}
+
+/// The content group's entrance after a switch to a tab on the right.
+const SLIDE_IN_FROM_LEFT: &str = "__azul-tabs-slide-in-from-left";
+/// The content group's entrance after a switch to a tab on the left.
+const SLIDE_IN_FROM_RIGHT: &str = "__azul-tabs-slide-in-from-right";
+/// The content group's exit, the same for both directions.
+const FADE_OUT: &str = "__azul-tabs-fade-out";
+/// How far the content travels as it slides in, in px: a hint of the
+/// direction, not a page turn.
+const SLIDE_PX: isize = 16;
+/// How long the slide-in takes.
+const SLIDE_IN_MS: u32 = 220;
+/// How long the fade-out takes: shorter than the slide, so the old content
+/// is gone before the new one settles.
+const FADE_OUT_MS: u32 = 120;
+
+/// One stop of a slide or fade: its `x` shift in px and its opacity.
+fn slide_stop(permille: u16, x: isize, opacity: f32) -> azul_css::css::KeyframeStop {
+    azul_css::css::KeyframeStop {
+        permille,
+        props: CssPropertyVec::from_vec(vec![
+            CssProperty::const_opacity(StyleOpacity {
+                inner: PercentageValue::new(opacity * 100.0),
+            }),
+            CssProperty::const_transform(StyleTransformVec::from_vec(vec![
+                StyleTransform::TranslateX(PixelValue::const_px(x)),
+            ])),
+        ]),
+    }
+}
+
+/// The three tracks a switched panel's content group runs.
+fn slide_keyframes() -> azul_css::css::Css {
+    use azul_css::css::{KeyframeStopVec, Keyframes, KeyframesVec};
+    let track = |name: &'static str, stops: Vec<azul_css::css::KeyframeStop>| Keyframes {
+        name: AzString::from_const_str(name),
+        stops: KeyframeStopVec::from_vec(stops),
+    };
+    let mut css = azul_css::css::Css::empty();
+    css.keyframes = KeyframesVec::from_vec(vec![
+        track(
+            SLIDE_IN_FROM_LEFT,
+            vec![slide_stop(0, -SLIDE_PX, 0.0), slide_stop(1000, 0, 1.0)],
+        ),
+        track(
+            SLIDE_IN_FROM_RIGHT,
+            vec![slide_stop(0, SLIDE_PX, 0.0), slide_stop(1000, 0, 1.0)],
+        ),
+        track(
+            FADE_OUT,
+            vec![
+                azul_css::css::KeyframeStop {
+                    permille: 0,
+                    props: CssPropertyVec::from_vec(vec![CssProperty::const_opacity(
+                        StyleOpacity {
+                            inner: PercentageValue::new(100.0),
+                        },
+                    )]),
+                },
+                azul_css::css::KeyframeStop {
+                    permille: 1000,
+                    props: CssPropertyVec::from_vec(vec![CssProperty::const_opacity(
+                        StyleOpacity {
+                            inner: PercentageValue::new(0.0),
+                        },
+                    )]),
+                },
+            ],
+        ),
+    ]);
+    css
+}
+
+/// `-azul-animation-in` / `-out` naming `track`, run once over `millis` -
+/// only where the reader has not asked for less motion.
+fn slide_animation(
+    out: bool,
+    track: &'static str,
+    millis: u32,
+    timing: azul_css::props::basic::animation::AnimationTiming,
+) -> CssPropertyWithConditions {
+    use azul_css::{
+        dynamic_selector::{BoolCondition, DynamicSelector},
+        props::basic::animation::{AnimationIterationCount, StyleAnimation, StyleAnimationVec},
+    };
+    const NO_REDUCED_MOTION: &[DynamicSelector] =
+        &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)];
+    let list = StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(vec![StyleAnimation {
+        name: AzString::from_const_str(track),
+        duration: azul_css::props::basic::time::CssDuration::from_millis(millis),
+        delay: azul_css::props::basic::time::CssDuration::from_millis(0),
+        iterations: AnimationIterationCount::Count(1),
+        timing,
+        clip: true,
+    }]));
+    let property = if out {
+        CssProperty::AnimationOut(list)
+    } else {
+        CssProperty::AnimationIn(list)
+    };
+    CssPropertyWithConditions::with_single_condition(property, NO_REDUCED_MOTION)
 }
 
 impl TabContent {
@@ -1952,7 +2328,33 @@ impl TabContent {
             content,
             has_padding: true,
             theme: crate::widgets::themes::OptionUiTheme::None,
+            slide: TabSlide::None,
+            tab: 0,
         }
+    }
+
+    /// The tab bar switched from tab `from` to tab `to` and this panel now
+    /// shows `to`: its content slides in from the side the switch leaves -
+    /// right into place for a tab on the right, left for one on the left -
+    /// as it fades in, and the content it replaces fades out. Keep passing
+    /// the last switch on every rebuild: the same switch again keeps the
+    /// content still; `from == to` is no switch.
+    pub const fn set_switch(&mut self, from: usize, to: usize) {
+        self.slide = if to > from {
+            TabSlide::Right
+        } else if to < from {
+            TabSlide::Left
+        } else {
+            TabSlide::None
+        };
+        self.tab = to;
+    }
+
+    /// [`Self::set_switch`] for the builder chain.
+    #[must_use]
+    pub const fn with_switch(mut self, from: usize, to: usize) -> Self {
+        self.set_switch(from, to);
+        self
     }
 
     /// Pin the widget theme: the panel keeps this look whatever the app
@@ -2005,12 +2407,29 @@ impl TabContent {
             )])),
         };
 
-        panel
-            .with_children(DomVec::from_vec(vec![Dom::create_div()
-                .with_ids_and_classes(IdOrClassVec::from_const_slice(
-                    IDS_AND_CLASSES_2989815829020816222,
-                ))
-                .with_children(DomVec::from_vec(vec![self.content]))]))
+        let mut group = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                IDS_AND_CLASSES_2989815829020816222,
+            ))
+            .with_children(DomVec::from_vec(vec![self.content]));
+        let panel = match self.slide {
+            TabSlide::None => panel,
+            slide => {
+                use azul_css::props::basic::animation::AnimationTiming;
+                let enter = match slide {
+                    TabSlide::Left => SLIDE_IN_FROM_RIGHT,
+                    _ => SLIDE_IN_FROM_LEFT,
+                };
+                group = group
+                    .with_key(("azul-tab-panel", self.tab))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                        slide_animation(false, enter, SLIDE_IN_MS, AnimationTiming::EaseOut),
+                        slide_animation(true, FADE_OUT, FADE_OUT_MS, AnimationTiming::EaseIn),
+                    ]));
+                panel.with_component_css(slide_keyframes())
+            }
+        };
+        panel.with_children(DomVec::from_vec(vec![group]))
     }
 }
 
@@ -2636,23 +3055,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_one_past_the_end_still_seams_the_last_tab() {
-        // PINNED QUIRK: with `active_tab == tabs.len()` no tab is active, yet the
-        // *last* tab still matches `active_tab == tab_idx + 1` and loses its right
-        // border — a visible seam against the after-tabs spacer. Deliberately
-        // pinned: if the widget starts range-checking `active_tab`, this flips.
+    fn dom_one_past_the_end_seams_no_tab() {
+        // With `active_tab == tabs.len()` no tab is selected, so no tab is
+        // drawn as the neighbour of a selected one: the last tab keeps its
+        // right border.
         let n = 3usize;
         let dom = TabHeader::create(numbered_labels(n))
             .with_active_tab(n)
             .dom();
         let children = dom.children.as_ref();
-
-        assert_eq!(
-            class_strs(&children[n]),
-            vec![CLASS_NO_RIGHT, CLASS_NOT_ACTIVE],
-            "the last tab is styled as if the (non-existent) next tab were active"
-        );
-        for (i, node) in children[1..n].iter().enumerate() {
+        for (i, node) in children[1..=n].iter().enumerate() {
             assert_eq!(class_strs(node), vec![CLASS_NOT_ACTIVE], "tab {i}");
         }
     }
@@ -4503,6 +4915,21 @@ mod structure_tests {
                 "__azul-native-tabs-tab-active",
                 CssPropertyType::Position,
                 "flora hangs the Australis curves off its selected tab",
+            ),
+            (
+                "__azul-native-tabs-tab-not-active",
+                CssPropertyType::Position,
+                "flora's Aurora row hangs curves off every tab",
+            ),
+            (
+                "__azul-native-tabs-tab-active",
+                CssPropertyType::ZIndex,
+                "flora's selected tab stands over its neighbours' curves",
+            ),
+            (
+                "__azul-native-tabs-tab-not-active",
+                CssPropertyType::ZIndex,
+                "flora's unselected tabs stand under the selected tab's curves",
             ),
         ];
         for t in BOTH {

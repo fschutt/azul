@@ -2491,18 +2491,31 @@ mod press_tests {
             ButtonType::Warning,
             ButtonType::Info,
             ButtonType::Link,
+            ButtonType::Illuminated,
         ];
         for theme in [UiTheme::Flat, UiTheme::Flora] {
             for ty in types {
-                let dom = Button::with_type(AzString::from("Go"), ty)
-                    .with_theme(theme)
-                    .dom();
-                for dark in [false, true] {
-                    let pressed = FACE.iter().any(|prop| {
-                        resolve(&dom, *prop, dark, Some(PseudoStateType::Active))
-                            .is_some_and(|p| Some(p) != resolve(&dom, *prop, dark, None))
-                    });
-                    assert!(pressed, "{theme:?} {ty:?} (dark: {dark}): no pressed face");
+                // Labelled, and icon-only as a toolbar's or a player's key.
+                let shapes = [
+                    ("labelled", Button::with_type(AzString::from("Go"), ty)),
+                    (
+                        "icon-only",
+                        Button::with_type(AzString::from(""), ty)
+                            .with_icon(AzString::from("add")),
+                    ),
+                ];
+                for (shape, button) in shapes {
+                    let dom = button.with_theme(theme).dom();
+                    for dark in [false, true] {
+                        let pressed = FACE.iter().any(|prop| {
+                            resolve(&dom, *prop, dark, Some(PseudoStateType::Active))
+                                .is_some_and(|p| Some(p) != resolve(&dom, *prop, dark, None))
+                        });
+                        assert!(
+                            pressed,
+                            "{theme:?} {ty:?} {shape} (dark: {dark}): no pressed face"
+                        );
+                    }
                 }
             }
         }

@@ -1941,9 +1941,11 @@ mod autotest_generated {
         let mut dark = Vec::new();
         for (i, (p, conds)) in node.root.style.iter_inline_properties().enumerate() {
             let conds = conds.as_ref();
-            let gated_on_state = conds
-                .iter()
-                .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
+            // Keyboard focus raises `:focus` and `:focus-visible` together.
+            let gated_on_state = conds.iter().any(|c| {
+                matches!(c, DynamicSelector::PseudoState(s) if *s == state
+                    || (state == PseudoStateType::Focus && *s == PseudoStateType::FocusVisible))
+            });
             if !gated_on_state {
                 continue;
             }

@@ -4603,6 +4603,7 @@ impl Lower for crate::css::CssPathPseudoSelector {
             Self::DragOver => Expr::unit("CssPathPseudoSelector", EnumShape::Tagged, "DragOver"),
             Self::Root => Expr::unit("CssPathPseudoSelector", EnumShape::Tagged, "Root"),
             Self::Placeholder => Expr::unit("CssPathPseudoSelector", EnumShape::Tagged, "Placeholder"),
+            Self::FocusVisible => Expr::unit("CssPathPseudoSelector", EnumShape::Tagged, "FocusVisible"),
         }
     }
 }

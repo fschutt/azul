@@ -6606,6 +6606,22 @@ impl MacOSWindow {
             window.apply_background_material(initial_background_material);
         }
 
+        // An opaque window shows AppKit's own background until its view has
+        // drawn the first frame: make that the colour the frame clears to, so
+        // a dialog over a dark window opens dark instead of flashing white.
+        if matches!(initial_background_material, WindowBackgroundMaterial::Opaque) {
+            let c = window.common.clear_color();
+            unsafe {
+                let backdrop = NSColor::colorWithRed_green_blue_alpha(
+                    f64::from(c.r) / 255.0,
+                    f64::from(c.g) / 255.0,
+                    f64::from(c.b) / 255.0,
+                    1.0,
+                );
+                window.window.setBackgroundColor(Some(&backdrop));
+            }
+        }
+
         // Apply initial window state for fields not set during window creation
         // (title, size, frame, decorations, background_material are set above)
         window.apply_initial_window_state();

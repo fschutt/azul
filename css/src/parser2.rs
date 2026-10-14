@@ -473,6 +473,7 @@ pub fn pseudo_selector_from_str<'a>(
         "hover" => Ok(CssPathPseudoSelector::Hover),
         "active" => Ok(CssPathPseudoSelector::Active),
         "focus" => Ok(CssPathPseudoSelector::Focus),
+        "focus-visible" => Ok(CssPathPseudoSelector::FocusVisible),
         "seat-focus" => Ok(CssPathPseudoSelector::SeatFocus),
         "dragging" => Ok(CssPathPseudoSelector::Dragging),
         "drag-over" => Ok(CssPathPseudoSelector::DragOver),

@@ -1495,6 +1495,26 @@ impl DisplayList {
         Some(damage.unwrap_or_else(LogicalRect::zero))
     }
 
+    /// Swap the image the `Image` item at `index` draws; its geometry stays
+    /// (the backend's display-list diff sees the identity change and damages
+    /// its bounds, which it returns). The frames of callback images painted
+    /// as background layers go in this way
+    /// (`LayoutWindow::resolve_background_image_callbacks`). `None` when the
+    /// item is not an image.
+    pub fn patch_item_image(&mut self, index: usize, image: ImageRef) -> Option<LogicalRect> {
+        match self.items.get_mut(index) {
+            Some(DisplayListItem::Image {
+                bounds,
+                image: item_image,
+                ..
+            }) => {
+                *item_image = image;
+                Some(*bounds.inner())
+            }
+            _ => None,
+        }
+    }
+
     pub fn patch_node_image(&mut self, node: NodeId, image: &ImageRef) -> Option<LogicalRect> {
         let mut damage: Option<LogicalRect> = None;
 

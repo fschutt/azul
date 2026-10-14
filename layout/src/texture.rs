@@ -15,10 +15,24 @@
 //! The vellum is stored as its INK - how much darker than the paper each
 //! pixel is - in 16 levels, two pixels per byte (`assets/textures/README.md`):
 //! 8 KiB, and no image decoder needed, so it is there in every build.
+//!
+//! MATERIALS - `builtin(leather)`, `builtin(bluejeans)`, `builtin(aluminium)`
+//! - are surfaces, not pictures: a micro tile of each CC0 PBR set (albedo,
+//! normal, roughness) and a small CPU shader that lights it for the rect it
+//! fills, at that rect's size, with a bevel around its rounded edge
+//! (`texture::materials`, cargo feature `materials`). The window's light
+//! ([`MaterialLight`], `CallbackInfo::set_material_light`) is defined here in
+//! every build, so the API is the same with or without the feature; without
+//! it the names stay transparent, like any `builtin(..)` no window has.
 
 use alloc::vec::Vec;
 
 use azul_core::resources::{ImageCache, ImageRef, RawImage, RawImageData, RawImageFormat};
+use azul_css::props::basic::ColorU;
+
+// The 2.5D materials' tiles, decoder, shader and render cache.
+#[cfg(feature = "materials")]
+pub mod materials;
 
 /// A texture compiled into the library.
 #[repr(C)]
@@ -122,14 +136,212 @@ pub fn builtin_texture(texture: BuiltinTexture) -> ImageRef {
     })
 }
 
-/// A window's image cache with every built-in texture under its CSS name.
+/// A window's image cache with every built-in texture under its CSS name -
+/// and, with the `materials` feature, every [`Material`] as the callback
+/// image that renders it for the rect it fills.
 #[must_use]
 pub fn image_cache_with_builtin_textures() -> ImageCache {
     let mut cache = ImageCache::default();
     for texture in BuiltinTexture::ALL {
         cache.add_css_image_id(texture.css_name().as_str().into(), builtin_texture(texture));
     }
+    #[cfg(feature = "materials")]
+    for material in Material::ALL {
+        cache.add_css_image_id(material.css_name().as_str().into(), material_image(material));
+    }
     cache
+}
+
+// -- Materials: the always-present half (the light, the names) ---------------
+
+/// A 2.5D material compiled into the library (cargo feature `materials`):
+/// a micro tile of a CC0 PBR texture set, lit by the window's
+/// [`MaterialLight`] for the rect it fills - `background: builtin(leather);`.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Material {
+    /// Brown leather with a pebbled grain (Poly Haven `brown_leather`, CC0).
+    Leather,
+    /// Blue denim, a twill weave (ambientCG `Fabric003`, CC0).
+    BlueJeans,
+    /// Satin aluminium with a fine grain (CC0, see the assets README).
+    Aluminium,
+}
+
+impl Material {
+    /// Every material.
+    pub const ALL: [Self; 3] = [Self::Leather, Self::BlueJeans, Self::Aluminium];
+
+    /// The name `builtin(<name>)` takes.
+    #[must_use]
+    pub const fn builtin_name(self) -> &'static str {
+        match self {
+            Self::Leather => "leather",
+            Self::BlueJeans => "bluejeans",
+            Self::Aluminium => "aluminium",
+        }
+    }
+
+    /// The image id every window has the material under (`azul-builtin:<name>`).
+    #[must_use]
+    pub fn css_name(self) -> alloc::string::String {
+        alloc::format!(
+            "{}{}",
+            azul_css::props::style::background::BUILTIN_IMAGE_PREFIX,
+            self.builtin_name()
+        )
+    }
+}
+
+/// The material as an image for `Dom::create_image` or a CSS id of the app's
+/// own: a render callback that lights the material for the size it is drawn
+/// at. Without the `materials` feature a transparent pixel.
+#[must_use]
+pub fn material_image(material: Material) -> ImageRef {
+    #[cfg(feature = "materials")]
+    {
+        materials::material_callback_image(material)
+    }
+    #[cfg(not(feature = "materials"))]
+    {
+        let _ = material;
+        transparent_pixel()
+    }
+}
+
+/// One transparent RGBA8 pixel: an image that draws nothing (a `NullImage`
+/// would be painted as the grey "no pixels" placeholder).
+#[must_use]
+pub fn transparent_pixel() -> ImageRef {
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(alloc::vec![0_u8; 4].into()),
+        width: 1,
+        height: 1,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    })
+    .unwrap_or_else(|| ImageRef::null_image(1, 1, RawImageFormat::RGBA8, b"transparent".to_vec()))
+}
+
+/// The light every material in a window is lit by
+/// (`CallbackInfo::set_material_light`, `LayoutWindow::set_material_light`):
+/// one per window, so every surface agrees where it comes from. Directions
+/// are on the SCREEN: x to the right, y up, the viewer in front.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct MaterialLight {
+    /// Where the light comes from, degrees counter-clockwise from the right:
+    /// 135 = the upper left (the default - flora's light), 90 = above,
+    /// 270 = below.
+    pub azimuth_deg: f32,
+    /// How high it stands over the screen, degrees: 90 = straight in front
+    /// (no bevel is darker than another), small = grazing (strong
+    /// highlights and shadows).
+    pub elevation_deg: f32,
+    /// Its colour (a warm white by default).
+    pub color: ColorU,
+    /// Its strength: at 1.0 a flat texel shows exactly its albedo.
+    pub intensity: f32,
+    /// The share of the light that comes from everywhere, 0..1 (the rest
+    /// comes from the direction above).
+    pub ambient: f32,
+    /// A soft band of light across the window - god rays. Off by default.
+    pub rays: MaterialRays,
+}
+
+impl MaterialLight {
+    /// The default light: from the upper left, 45 degrees high, warm white.
+    pub const DEFAULT: Self = Self {
+        azimuth_deg: 135.0,
+        elevation_deg: 45.0,
+        color: ColorU {
+            r: 255,
+            g: 250,
+            b: 240,
+            a: 255,
+        },
+        intensity: 1.0,
+        ambient: 0.45,
+        rays: MaterialRays::OFF,
+    };
+
+    /// The default light.
+    #[must_use]
+    pub const fn create() -> Self {
+        Self::DEFAULT
+    }
+
+    /// The default light from another direction.
+    #[must_use]
+    pub const fn from_direction(azimuth_deg: f32, elevation_deg: f32) -> Self {
+        Self {
+            azimuth_deg,
+            elevation_deg,
+            ..Self::DEFAULT
+        }
+    }
+
+    /// The same light with these god rays.
+    #[must_use]
+    pub const fn with_rays(self, rays: MaterialRays) -> Self {
+        Self { rays, ..self }
+    }
+}
+
+impl Default for MaterialLight {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+/// God rays: a soft band of light lying across the whole window (window
+/// coordinates, so every surface it crosses brightens where it passes),
+/// running in `angle_deg`'s direction. Animate `phase` to sweep it.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct MaterialRays {
+    /// 0 = off; 1 = the band doubles the light at its centre.
+    pub strength: f32,
+    /// The direction the band runs in, degrees as `MaterialLight::azimuth_deg`.
+    pub angle_deg: f32,
+    /// The band's width (full width at half maximum), logical px.
+    pub width: f32,
+    /// 0 = a single band; otherwise bands repeat every `spacing` logical px.
+    pub spacing: f32,
+    /// Where the band lies across its direction, logical px from the
+    /// window's origin.
+    pub phase: f32,
+}
+
+impl MaterialRays {
+    /// No rays.
+    pub const OFF: Self = Self {
+        strength: 0.0,
+        angle_deg: 135.0,
+        width: 160.0,
+        spacing: 0.0,
+        phase: 0.0,
+    };
+
+    /// One band of `strength`, `width` logical px wide, running in
+    /// `angle_deg`'s direction, `phase` px across from the window's origin.
+    #[must_use]
+    pub const fn create(strength: f32, angle_deg: f32, width: f32, phase: f32) -> Self {
+        Self {
+            strength,
+            angle_deg,
+            width,
+            spacing: 0.0,
+            phase,
+        }
+    }
+}
+
+impl Default for MaterialRays {
+    fn default() -> Self {
+        Self::OFF
+    }
 }
 
 #[cfg(test)]
@@ -157,6 +369,29 @@ mod tests {
         depths.sort_unstable();
         depths.dedup();
         assert!(depths.len() >= 8, "only {} shades", depths.len());
+    }
+
+    #[test]
+    fn every_material_is_a_builtin_name_the_css_parser_knows() {
+        for material in Material::ALL {
+            assert!(
+                azul_css::props::style::background::BUILTIN_IMAGES
+                    .contains(&material.builtin_name()),
+                "the CSS parser knows `builtin({})`",
+                material.builtin_name()
+            );
+        }
+        // With the feature every window has each material as the callback
+        // image that renders it for the rect it fills; without it the names
+        // name nothing (transparent).
+        let cache = image_cache_with_builtin_textures();
+        for material in Material::ALL {
+            let image = cache.get_css_image_id(&material.css_name().as_str().into());
+            #[cfg(feature = "materials")]
+            assert!(image.is_some_and(ImageRef::is_callback), "{}", material.css_name());
+            #[cfg(not(feature = "materials"))]
+            assert!(image.is_none(), "{}", material.css_name());
+        }
     }
 
     #[test]

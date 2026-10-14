@@ -2660,6 +2660,15 @@ impl Runner {
                 self.layout_window.invalidate_all_image_callbacks();
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
+            // As in the shells: the material backgrounds render again under
+            // the new light; the same light again is nothing.
+            CallbackChange::SetMaterialLight { light } => {
+                if self.layout_window.set_material_light(*light) {
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
 
             // === DOM structure ===
             CallbackChange::InsertChildNode {
