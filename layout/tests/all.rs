@@ -1095,3 +1095,5 @@ mod a_marker_stands_where_the_ground_shows_its_place;
 mod a_closing_window_hands_its_app_threads_to_a_window_that_stays_open;
 #[path = "a_rebuild_after_a_runtime_style_write_compares_only_the_written_node.rs"]
 mod a_rebuild_after_a_runtime_style_write_compares_only_the_written_node;
+#[path = "thread_cpu_clock.rs"]
+mod thread_cpu_clock;

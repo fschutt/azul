@@ -10,11 +10,14 @@
 //! the whole page's work again on every click, which is what made
 //! AzWidgets' rebuild take a quarter of a second.
 //!
-//! Release builds only; the timings are printed for comparison.
+//! Release builds only; the timings are printed for comparison. Both sides
+//! are timed in the CPU time of the thread that runs them
+//! (`thread_cpu_clock`), so the suite's other tests and the machine's other
+//! work weigh on neither.
 //!
 //! Not compiled by the author (house rule).
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources, styled_dom::StyledDom};
 use azul_css::{AzString, StringVec};
@@ -76,7 +79,7 @@ fn page() -> Dom {
 }
 
 fn lay_out(lw: &mut LayoutWindow, mut dom: Dom) -> Duration {
-    let started = Instant::now();
+    let started = crate::thread_cpu_clock::CpuInstant::now();
     let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let ws = lw.current_window_state.clone();
     lw.layout_and_generate_display_list(
@@ -108,9 +111,9 @@ fn a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout() {
     // Warm the fonts once, so neither side pays for loading them.
     let _ = lay_out(&mut fresh_window(&fonts), page());
 
-    // The best of five of each, taken in turns: the pass is measured, not
-    // the machine's other work, and a busy moment (the rest of the suite
-    // runs beside this test) weighs on both sides alike.
+    // The best of five of each, taken in turns and in CPU time: the pass is
+    // measured, not the machine's other work, and what load remains (caches
+    // shared with the rest of the suite) weighs on both sides alike.
     let mut lw = fresh_window(&fonts);
     let _ = lay_out(&mut lw, page());
     let (mut fresh, mut rebuilt) = (Duration::MAX, Duration::MAX);
