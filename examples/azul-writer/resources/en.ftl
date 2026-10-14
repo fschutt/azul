@@ -35,6 +35,7 @@ azwriter-page-open = Open
 azwriter-page-save = Save
 azwriter-page-export = Export
 azwriter-page-close = Close
+azwriter-tab-file = FILE
 azwriter-tab-home = HOME
 azwriter-tab-insert = INSERT
 azwriter-tab-view = VIEW
