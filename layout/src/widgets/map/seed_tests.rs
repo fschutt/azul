@@ -138,3 +138,33 @@ fn a_seeded_tile_is_never_forgotten_or_evicted() {
     assert!(cache.drawn.contains_key(&key), "the world stays drawn");
     assert!(cache.tile_bytes.contains_key(&WORLD), "and its bytes stay");
 }
+
+#[test]
+fn a_tile_that_failed_offline_is_asked_for_again_while_the_view_still_wants_it() {
+    use super::RETRY_FAILED_SECS;
+
+    let mut cache = cache_at(0.0, 0.0, 4.0);
+    let look = cache.current_look();
+    let tile = MapTileId { z: 4, x: 8, y: 8 };
+    let key = TileStyleKey { tile, look };
+    let wanted = WantedTiles {
+        z: 4,
+        x_min: 8,
+        x_max: 8,
+        y_min: 8,
+        y_max: 8,
+    };
+    cache.want_tiles_at(wanted, look, 0.0);
+    cache.mark_tile_failed(key, AzString::from("fetch failed: offline"));
+    cache.failed_at.insert(key, 100.0);
+    cache.want_tiles_at(wanted, look, 101.0);
+    assert!(
+        matches!(cache.tiles.get(&key), Some(TileEntry::Failed { .. })),
+        "not hammered: a failure waits a while"
+    );
+    cache.want_tiles_at(wanted, look, 100.0 + RETRY_FAILED_SECS);
+    assert!(
+        matches!(cache.tiles.get(&key), Some(TileEntry::Pending)),
+        "then the view's tile is asked for again: the network may be back"
+    );
+}
