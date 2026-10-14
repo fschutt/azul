@@ -31547,12 +31547,31 @@ fn unchanged_cascades(
             && on.style == nn.style
             && old_cache.css_props.get_slice(oi) == new_cache.css_props.get_slice(ni)
             && old_cache.cascaded_props.get_slice(oi) == new_cache.cascaded_props.get_slice(ni)
-            && old_cache.user_overridden_properties.get(oi)
-                == new_cache.user_overridden_properties.get(ni)
+            && overrides_of(old_cache, oi) == overrides_of(new_cache, ni)
             && old_cache.resolved_inline.get(&oi) == new_cache.resolved_inline.get(&ni);
         unchanged[ni] = same;
     }
     unchanged
+}
+
+/// A node's runtime overrides (`set_css_property`, a transition's frame).
+///
+/// The table is built lazily: a fresh tree has none, and the first runtime
+/// write sizes it to the whole tree with empty lists. A node without an entry
+/// has no overrides, exactly like one with an empty list, so the two must
+/// compare equal - or every node of every rebuild after a window's first
+/// runtime write counts as restyled (`unchanged_cascades`).
+fn overrides_of(
+    cache: &azul_core::prop_cache::CssPropertyCache,
+    index: usize,
+) -> &[(
+    azul_css::props::property::CssPropertyType,
+    azul_css::props::property::CssProperty,
+)] {
+    cache
+        .user_overridden_properties
+        .get(index)
+        .map_or(&[][..], Vec::as_slice)
 }
 
 /// The motion `animation: move <duration> [timing]` asks a node's moves for
