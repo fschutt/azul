@@ -2070,3 +2070,29 @@ extern "C" fn on_restore_version(mut data: RefAny, mut info: CallbackInfo) -> Up
         Update::RefreshDom
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The window has no title row, so on macOS the traffic lights sit on whatever is at its
+    /// top left. With the folder list open that is the list's top strip, which leaves them
+    /// room; collapsed, the strip goes across the whole window, so they sit on it and not on the
+    /// collapsed strip's expand button or the note list's search field.
+    #[test]
+    fn the_top_strip_goes_across_the_window_while_the_folder_list_is_collapsed() {
+        assert_eq!(top_strip(false), TopStrip::InFolderList);
+        assert_eq!(top_strip(true), TopStrip::AcrossTheWindow);
+    }
+
+    /// The strip keeps room for the traffic lights at its left end on macOS only, and the
+    /// collapsed folder list leaves none of it to the note list.
+    #[test]
+    fn the_strip_leaves_room_for_the_traffic_lights_on_macos() {
+        if cfg!(target_os = "macos") {
+            assert!(TRAFFIC_LIGHTS_INSET.contains("76px"), "{TRAFFIC_LIGHTS_INSET}");
+        } else {
+            assert!(!TRAFFIC_LIGHTS_INSET.contains("76px"), "{TRAFFIC_LIGHTS_INSET}");
+        }
+    }
+}
