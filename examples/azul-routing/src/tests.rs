@@ -90,16 +90,20 @@ fn a_car_keeps_to_a_one_way_street_and_a_walker_does_not() {
 #[test]
 fn a_bridge_outside_the_first_corridor_is_found_by_widening_it() {
     // A river runs north-south between 7.410 and 7.420; the only bridge is
-    // 11 km north of the line between the ends.
+    // 11 km north of the line between the ends. A tile holds its nodes and
+    // their neighbours along a way, so each bank's road has a node halfway:
+    // the bridge's ends are then in no tile of the first corridor.
     let places = [
         (1, (43.700, 7.395)),
         (2, (43.700, 7.410)),
+        (7, (43.750, 7.410)),
         (3, (43.800, 7.410)),
         (4, (43.800, 7.420)),
+        (8, (43.750, 7.420)),
         (5, (43.700, 7.420)),
         (6, (43.700, 7.435)),
     ];
-    let tiles = tiles_of(&[road(10, Highway::Tertiary, &[1, 2, 3, 4, 5, 6])], &places);
+    let tiles = tiles_of(&[road(10, Highway::Tertiary, &[1, 2, 7, 3, 4, 8, 5, 6])], &places);
     let r = route(&tiles, (43.700, 7.400), (43.700, 7.430), Mode::Car, &mut no_progress, &mut || false)
         .expect("a route over the bridge");
     assert!(r.attempts > 1, "the first corridor holds no way: {} attempts", r.attempts);
