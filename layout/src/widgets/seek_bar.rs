@@ -915,6 +915,64 @@ mod seek_bar_tests {
         assert_eq!(bare.children.as_ref().len(), 1, "the trough alone");
     }
 
+    /// The node of `dom` carrying `class`.
+    fn part_of<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        theme_checks::nodes(dom)
+            .into_iter()
+            .find(|(_, n)| theme_checks::has_class(n, class))
+            .map(|(_, n)| n)
+            .unwrap_or_else(|| panic!("the {class}"))
+    }
+
+    /// The resting `translateX` a node declares, in percent of its own width.
+    fn shift(node: &Dom) -> Option<f32> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .filter_map(|(p, _)| match p {
+                CssProperty::Transform(v) => v.get_property().and_then(|t| {
+                    t.as_ref().iter().find_map(|t| match t {
+                        StyleTransform::TranslateX(x) => Some(x.number.get()),
+                        _ => None,
+                    })
+                }),
+                _ => None,
+            })
+            .last()
+    }
+
+    /// A player moves the bar many times a second: the played part and the
+    /// thumb move by a transform (paint only), never by a width or a left
+    /// (a relayout each time). The played part is the trough's width slid
+    /// left by what is still to play; the thumb rides a rail as wide as the
+    /// trough, slid right by what is played.
+    #[test]
+    fn the_played_part_and_the_thumb_move_by_a_transform_not_by_layout() {
+        for theme in checks::BOTH {
+            let dom = bar().with_theme(theme).dom();
+            let played = part_of(&dom, "__azul-native-seek-bar-played");
+            let percent = 72.0 / 562.0 * 100.0;
+            let at = shift(played).expect("the played part is slid by a transform");
+            assert!((at - (percent - 100.0)).abs() < 0.01, "{}: {at}", theme.name());
+            let rail = part_of(&dom, "__azul-native-seek-bar-rail");
+            let at = shift(rail).expect("the thumb's rail is slid by a transform");
+            assert!((at - percent).abs() < 0.01, "{}: {at}", theme.name());
+            for moving in [played, rail] {
+                let width = moving.root.style.iter_inline_properties().filter_map(|(p, _)| match p {
+                    CssProperty::Width(v) => v.get_property().cloned(),
+                    _ => None,
+                }).last();
+                assert_eq!(
+                    width,
+                    Some(LayoutWidth::Px(PixelValue::percent(100.0))),
+                    "{}: as wide as the trough, whatever the position",
+                    theme.name()
+                );
+            }
+        }
+    }
+
     #[test]
     fn the_bar_is_one_slider_stop_reading_the_time_of_the_length() {
         let dom = bar().with_theme(UiTheme::Flat).dom();
