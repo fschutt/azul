@@ -2123,7 +2123,8 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
             }
             changed |= s.heading().map(|h| h.round() as i32) != shown;
         }
-        if s.locating {
+        // The platform's location; an external receiver's fixes come through its worker.
+        if s.locating && s.drive.source == azul_routing::gnss::Source::Platform {
             match fix {
                 Some(f) => {
                     let here = (f.latitude_deg, f.longitude_deg);
