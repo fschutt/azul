@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "geometry": {"coordinates": [13.3691, 52.5250], "type": "Point"},
+      "properties": {"address": "Europaplatz 1, 10557 Berlin, Germany", "name": "Work"},
+      "type": "Feature"
+    }
+  ]
+}

@@ -22,6 +22,13 @@ serde_json = "1"
 # The road routing on static tiles (ROUTING.md): the corridor, the tiles' download and cache,
 # A*. No azul types; its `http` feature is the ureq and rustls azul-layout builds already.
 azul-routing = { path = "../azul-routing", features = ["http"] }
+# Imports of places (src/import): GPX and KML are XML, a KMZ a zip, Google's saved lists CSV;
+# the times of journeys are shown in the local time. All four are the versions other crates of
+# the tree build already, so no crate enters Cargo.lock.
+roxmltree = { version = "0.21.1", default-features = false }
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+csv = "1.4"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity", "map-tiles"] }

@@ -62,12 +62,14 @@
 pub mod args;
 pub mod geocode;
 pub mod ids;
+pub mod import;
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod model;
 pub mod places;
 pub mod route;
+pub mod saved;
 
 use std::{
     cell::Cell,
