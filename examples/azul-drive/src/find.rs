@@ -724,6 +724,13 @@ impl FindState {
         }
     }
 
+    /// The folders of the results as the view shows them (each folder's key prefix and how many
+    /// results it holds), the folder of the best match first; empty while a column's sort is on.
+    #[must_use]
+    pub fn groups(&self) -> Vec<(String, usize)> {
+        todo!()
+    }
+
     /// The rows in the order they show: sorted by the column clicked, else as found.
     #[must_use]
     pub fn shown(&self) -> Vec<&Entry> {

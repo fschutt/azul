@@ -459,11 +459,11 @@ fn sized(key: &str, size: u64, modified: u64) -> Found {
     found
 }
 
-/// The results come in the order they were found (names first); a click on a column's header
-/// sorts them (again: the other way), the Match column puts them back in the found order -
-/// and a batch that lands later takes its place in the sort.
+/// The results show ranked and grouped (equal scores in the order they were found); a click on a
+/// column's header sorts them (again: the other way), a click on it once more puts them back
+/// in the ranked order - and a batch that lands later takes its place in the sort.
 #[test]
-fn the_results_sort_by_a_column_and_go_back_to_the_found_order() {
+fn the_results_sort_by_a_column_and_go_back_to_the_ranked_order() {
     let mut find = state("x", false, false);
     find.merge(vec![sized("b.txt", 30, 2), sized("a.txt", 10, 3), sized("c.txt", 20, 1)]);
     let keys = |find: &FindState| -> Vec<String> {
@@ -483,7 +483,11 @@ fn the_results_sort_by_a_column_and_go_back_to_the_found_order() {
     }));
     assert_eq!(keys(&find), vec!["d.txt", "c.txt", "b.txt", "a.txt"]);
     find.set_sort(None);
-    assert_eq!(keys(&find), vec!["b.txt", "a.txt", "c.txt", "d.txt"], "the found order again");
+    assert_eq!(
+        keys(&find),
+        vec!["b.txt", "a.txt", "c.txt", "d.txt"],
+        "the ranked order again: nothing matches x, so as found"
+    );
     assert!(find.entry("d.txt").is_some(), "a key still finds its row");
 }
 
@@ -771,4 +775,40 @@ fn a_saved_search_keeps_the_query_the_choices_and_the_place() {
     settings.saved_searches = list.clone();
     assert_eq!(Settings::from_json(&settings.to_json()).saved_searches, list);
     assert!(Settings::default().saved_searches.is_empty());
+}
+
+/// Search behaviour B: the results are grouped by their folder, the folder of the best match
+/// first; within a folder the best match first (a short name holding the term beats a long
+/// one, a name beats a line of the contents). A column's sort shows them flat.
+#[test]
+fn the_results_show_grouped_by_folder_the_best_match_first() {
+    let mut find = state("steuer", true, false);
+    find.merge(vec![
+        found("Tax/Steuer 2025.pdf", None),
+        found("Docs/notes.txt", Some((4, "keine steuer hier"))),
+        found("Docs/steuer.md", None),
+    ]);
+    let keys: Vec<String> = find.shown().iter().map(|e| e.key.clone()).collect();
+    assert_eq!(keys, vec!["Docs/steuer.md", "Docs/notes.txt", "Tax/Steuer 2025.pdf"]);
+    assert_eq!(
+        find.groups(),
+        vec![(String::from("Docs"), 2), (String::from("Tax"), 1)]
+    );
+    find.set_sort(Some(Sort {
+        column: Column::Name,
+        descending: false,
+    }));
+    assert!(find.groups().is_empty(), "a column's sort shows the results flat");
+    find.set_sort(None);
+    assert_eq!(find.groups().len(), 2);
+}
+
+/// A content match that joins a row found by its name ranks it again with its line.
+#[test]
+fn a_line_that_joins_a_named_row_counts_in_its_rank() {
+    let mut find = state("steuer", true, false);
+    find.merge(vec![found("A/steuer-a.txt", None), found("B/steuer-b.txt", None)]);
+    find.merge(vec![found("B/steuer-b.txt", Some((1, "steuer steuer steuer")))]);
+    let keys: Vec<String> = find.shown().iter().map(|e| e.key.clone()).collect();
+    assert_eq!(keys[0], "B/steuer-b.txt", "its contents hold the term too");
 }

@@ -216,6 +216,8 @@ mod pay_words;
 #[cfg(test)]
 mod pay_words_tests;
 pub mod preview;
+/// The search's ranking (BM25) and its grouping by folder.
+pub mod rank;
 mod source_words;
 #[cfg(test)]
 mod source_words_tests;
