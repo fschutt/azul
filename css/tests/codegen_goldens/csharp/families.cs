@@ -26,6 +26,7 @@ namespace AzulStyles
                 ),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontWeight(StyleFontWeight.W600)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontStyle(StyleFontStyle.Italic)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantNumeric(new AzStyleFontVariantNumericValue { Exact = new AzStyleFontVariantNumericValueVariant_Exact { tag = AzStyleFontVariantNumericValue_Tag.Exact, payload = new AzStyleFontVariantNumeric { lining_nums = false, oldstyle_nums = false, proportional_nums = false, tabular_nums = true, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false } } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_textAlign(StyleTextAlign.Center)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_textJustify(LayoutTextJustify.InterWord)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_verticalAlign(NativeMethods.AzStyleVerticalAlign_middle())),

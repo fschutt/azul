@@ -48,6 +48,7 @@ function Get-StyleText {
         ),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.StyleFontWeight]::W600)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontStyle([Azul.StyleFontStyle]::Italic)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantNumeric([Azul.AzStyleFontVariantNumericValue]@{ Exact = [Azul.AzStyleFontVariantNumericValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariantNumericValue_Tag]::Exact; payload = [Azul.AzStyleFontVariantNumeric]@{ lining_nums = $false; oldstyle_nums = $false; proportional_nums = $false; tabular_nums = $true; diagonal_fractions = $false; stacked_fractions = $false; ordinal = $false; slashed_zero = $false } } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_textAlign([Azul.StyleTextAlign]::Center)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_textJustify([Azul.LayoutTextJustify]::InterWord)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_verticalAlign([Azul.NativeMethods]::AzStyleVerticalAlign_middle())),

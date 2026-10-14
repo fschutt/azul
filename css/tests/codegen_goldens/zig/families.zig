@@ -17,6 +17,7 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
         ),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_W600)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_Italic)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(C.AzStyleFontVariantNumericValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantNumeric{ .lining_nums = false, .oldstyle_nums = false, .proportional_nums = false, .tabular_nums = true, .diagonal_fractions = false, .stacked_fractions = false, .ordinal = false, .slashed_zero = false } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textAlign(C.AzStyleTextAlign_Center)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textJustify(C.AzLayoutTextJustify_InterWord)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_verticalAlign(C.AzStyleVerticalAlign_middle())),
@@ -66,7 +67,7 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
                 }, 2)
             )
         ),
-    }, 47);
+    }, 48);
 }
 
 // CSS: .box

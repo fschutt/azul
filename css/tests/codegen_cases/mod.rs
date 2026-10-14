@@ -33,6 +33,7 @@ pub const FAMILIES: &str = r#"
     font-family: Arial, sans-serif;
     font-weight: 600;
     font-style: italic;
+    font-variant-numeric: tabular-nums;
     text-align: center;
     text-justify: inter-word;
     vertical-align: middle;

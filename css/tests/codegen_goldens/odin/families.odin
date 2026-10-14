@@ -22,6 +22,7 @@ style_text :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight.W600)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.AzStyleFontStyle.Italic)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantNumeric(azul.AzStyleFontVariantNumericValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantNumeric{lining_nums = false, oldstyle_nums = false, proportional_nums = false, tabular_nums = true, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textAlign(azul.AzStyleTextAlign.Center)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textJustify(azul.AzLayoutTextJustify.InterWord)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_verticalAlign(azul.AzStyleVerticalAlign_middle())),
@@ -71,7 +72,7 @@ style_text :: proc() -> azul.AzCssPropertyWithConditionsVec {
 				}[0], 2)
 			)
 		),
-	}[0], 47)
+	}[0], 48)
 }
 
 // CSS: .box

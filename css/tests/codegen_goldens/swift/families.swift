@@ -16,6 +16,7 @@ public func styleText() -> [CssPropertyWithConditions] {
         ),
         CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.w600)),
         CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic)),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumericValue.exact(StyleFontVariantNumeric(liningNums: false, oldstyleNums: false, proportionalNums: false, tabularNums: true, diagonalFractions: false, stackedFractions: false, ordinal: false, slashedZero: false)))),
         CssPropertyWithConditions.simple(CssProperty.textAlign(StyleTextAlign.center)),
         CssPropertyWithConditions.simple(CssProperty.textJustify(LayoutTextJustify.interWord)),
         CssPropertyWithConditions.simple(CssProperty.verticalAlign(StyleVerticalAlign.middle)),

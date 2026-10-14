@@ -3,6 +3,7 @@
 *> One subprogram per style: CALL "<PROGRAM-ID>" USING BY REFERENCE <result record>.
 
 *> CSS: .text
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleFontVariantNumericValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleInitialLetterValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleLineClampValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHangingPunctuationValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)

@@ -20,6 +20,7 @@ module azul_styles
 contains
 
   ! CSS: .text
+  ! dropped a value these bindings cannot build: `StyleFontVariantNumericValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleInitialLetterValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleLineClampValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleHangingPunctuationValue` is an ABI-opaque blob in the Fortran bindings (no constructor)

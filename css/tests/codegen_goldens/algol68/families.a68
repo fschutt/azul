@@ -5,6 +5,7 @@ PROC css str = (STRING s) AZSTRING:
    az string copy from bytes (s, LENG 0, LENG UPB s);
 
 # CSS: .text #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantNumericValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleInitialLetterValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleLineClampValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleHangingPunctuationValue` (CssPropertyValue<T>) #

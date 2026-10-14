@@ -18,6 +18,7 @@ function styleText() {
         ),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontWeight(azul.StyleFontWeight.W600)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStyle(azul.StyleFontStyle.Italic)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantNumeric({ Exact: { tag: 6, payload: { lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textAlign(azul.StyleTextAlign.Center)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textJustify(azul.LayoutTextJustify.InterWord)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_verticalAlign(lib.AzStyleVerticalAlign_middle())),
@@ -67,7 +68,7 @@ function styleText() {
                 ], 2)
             )
         ),
-    ], 47));
+    ], 48));
 }
 
 // CSS: .box

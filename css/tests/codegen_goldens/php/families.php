@@ -67,6 +67,7 @@ function style_text()
             ),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_W600)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_Italic)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantNumeric(azul_union('AzStyleFontVariantNumericValue', 'Exact', 6, azul_struct('AzStyleFontVariantNumeric', ['lining_nums' => false, 'oldstyle_nums' => false, 'proportional_nums' => false, 'tabular_nums' => true, 'diagonal_fractions' => false, 'stacked_fractions' => false, 'ordinal' => false, 'slashed_zero' => false])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textAlign($L->AzStyleTextAlign_Center)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textJustify($L->AzLayoutTextJustify_InterWord)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_verticalAlign($L->AzStyleVerticalAlign_middle())),

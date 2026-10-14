@@ -16,6 +16,7 @@ styleText = sequence
     (CssPropertyWithConditions.simple (T.CssProperty_FontSize (T.StyleFontSizeValue_Exact (T.StyleFontSize (T.PixelValue T.SizeMetric_Px (T.FloatValue 14000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_FontWeight (T.StyleFontWeightValue_Exact T.StyleFontWeight_W600))),
     (CssPropertyWithConditions.simple (T.CssProperty_FontStyle (T.StyleFontStyleValue_Exact T.StyleFontStyle_Italic))),
+    (CssPropertyWithConditions.simple (T.CssProperty_FontVariantNumeric (T.StyleFontVariantNumericValue_Exact (T.StyleFontVariantNumeric 0 0 0 1 0 0 0 0)))),
     (CssPropertyWithConditions.simple (T.CssProperty_TextAlign (T.StyleTextAlignValue_Exact T.StyleTextAlign_Center))),
     (CssPropertyWithConditions.simple (T.CssProperty_TextJustify (T.LayoutTextJustifyValue_Exact T.LayoutTextJustify_InterWord))),
     (CssPropertyWithConditions.simple (T.CssProperty_VerticalAlign (T.StyleVerticalAlignValue_Exact T.StyleVerticalAlign_Middle))),

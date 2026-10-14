@@ -24,6 +24,7 @@ proc styleText*(): AzCssPropertyWithConditionsVec =
     ),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight.W600)),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle.Italic)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumericValue(Exact: AzStyleFontVariantNumericValueVariant_Exact(tag: 6, payload: AzStyleFontVariantNumeric(lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))))),
     AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign.Center)),
     AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify.InterWord)),
     AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),

@@ -22,6 +22,7 @@ inline AzCssPropertyWithConditionsVec style_text() {
             ),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_W600)),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric([]{ AzStyleFontVariantNumericValue v{}; v.Exact = AzStyleFontVariantNumericValueVariant_Exact{ AzStyleFontVariantNumericValue_Tag_Exact, AzStyleFontVariantNumeric{ false, false, false, true, false, false, false, false } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign_Center)),
             AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify_InterWord)),
             AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),
@@ -75,7 +76,7 @@ inline AzCssPropertyWithConditionsVec style_text() {
                 )
             ),
         }.data(),
-        47
+        48
     );
 }
 

@@ -22,6 +22,7 @@ fun styleText(): AzCssPropertyWithConditionsVec.ByValue {
         ),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.W600.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStyle(StyleFontStyle.Italic.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumericValue.ByValue().apply { Exact.tag = AzStyleFontVariantNumericValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontVariantNumeric.ByValue().apply { lining_nums = 0.toByte(); oldstyle_nums = 0.toByte(); proportional_nums = 0.toByte(); tabular_nums = 1.toByte(); diagonal_fractions = 0.toByte(); stacked_fractions = 0.toByte(); ordinal = 0.toByte(); slashed_zero = 0.toByte() }; setType("Exact") })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_textAlign(StyleTextAlign.Center.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_textJustify(LayoutTextJustify.InterWord.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_verticalAlign(AzulNativeCss.AzStyleVerticalAlign_middle())),

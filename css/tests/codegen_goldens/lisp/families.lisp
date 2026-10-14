@@ -27,6 +27,7 @@
     (azul-internal::%az-string-copy-from-bytes buf 0 len)))
 
 ;; CSS: .text
+;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleFontVariantNumericValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleInitialLetterValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleLineClampValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleHangingPunctuationValue` from Lisp data (no constructor function)

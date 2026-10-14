@@ -17,6 +17,7 @@ module AzulStyles
       ),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_weight(Azul::StyleFontWeight::W600)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_style(Azul::StyleFontStyle::Italic)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_numeric(Azul::StyleFontVariantNumericValue::Exact.new(Azul::StyleFontVariantNumeric.__own(LibAzul::AzStyleFontVariantNumeric.new(lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.text_align(Azul::StyleTextAlign::Center)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.text_justify(Azul::LayoutTextJustify::InterWord)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.vertical_align(Azul::StyleVerticalAlign.middle)),

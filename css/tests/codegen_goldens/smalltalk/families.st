@@ -27,6 +27,7 @@ AzulStyles class >> str: aString [
 ]
 
 "CSS: .text
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantNumericValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleInitialLetterValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleLineClampValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleHangingPunctuationValue` or its CssPropertyValue<T> payload
