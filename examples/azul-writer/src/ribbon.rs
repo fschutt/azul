@@ -317,7 +317,7 @@ pub fn ribbon(app: &RefAny, st: &AppState) -> Dom {
     let tabs = vec![home_tab(app, editor), insert_tab(app), view_tab(app, st)];
     let active = st.ribbon_tab.min(tabs.len() - 1);
     Ribbon::create(tabs)
-        .with_app_button(RibbonAppButton::create(s("FILE")).with_on_click(
+        .with_app_button(RibbonAppButton::create(s("azwriter-tab-file")).with_on_click(
             command(app, Command::OpenBackstage(BackstagePage::Info)),
             on_command as ButtonOnClickCallbackType,
         ))
