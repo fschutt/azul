@@ -21,6 +21,8 @@ use azul_core::{
     video::{VideoConfig, VideoFrame, VideoPhase, VideoStatus},
 };
 
+use azul_css::AzString;
+
 use super::capture_common::{
     invoke_on_frame, terminate_requested, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
 };
@@ -128,6 +130,12 @@ pub struct VideoWidgetState {
     /// poster then carries every theme's block (`@theme(..)`) and `theme`
     /// is only the structure it was built in. Adopted from every rebuild.
     pub follows_app_theme: bool,
+    /// The MARKER on the `<img>` a frame renders as inside the view
+    /// ([`frame_image`]). Once the view shows a frame, [`video_writeback`]
+    /// finds that node by it and swaps the next frame's image into it: a
+    /// frame is then an image update, not a re-render of the view. Kept
+    /// across rebuilds (the view renders from the surviving allocation).
+    pub frame_marker: AzString,
 }
 
 /// The runtime-installed streaming decode worker every video picks up when it
@@ -340,6 +348,7 @@ impl VideoWidget {
             setup: VideoSetup::new(),
             theme,
             follows_app_theme,
+            frame_marker: super::capture_common::next_capture_marker("video-frame"),
         };
         let dataset = RefAny::new(state);
         let vv_data = dataset.clone();
@@ -409,8 +418,9 @@ fn state_poster_style(
 /// which the app names ("Play video", "Seek"). An `<img>` with no
 /// accessibility info at all is absent from the tree without saying so, and
 /// a named one would be announced again on every decoded frame.
-fn frame_image(img: ImageRef) -> Dom {
+fn frame_image(img: ImageRef, marker: AzString) -> Dom {
     Dom::create_image(img)
+        .with_marker(Some(marker).into())
         .with_css("width: 100%; height: 100%;")
         .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
             role: azul_core::a11y::AccessibilityRole::Nothing,
@@ -454,7 +464,7 @@ extern "C" fn video_widget_render(
                         // visibly dead. Drawn in the widget's theme.
                         OptionDom::Some(Dom::create_div().with_css_props(state_poster_style(&s)))
                     },
-                    |img| OptionDom::Some(frame_image(img.clone())),
+                    |img| OptionDom::Some(frame_image(img.clone(), s.frame_marker.clone())),
                 )
             })
     };
@@ -1587,6 +1597,7 @@ mod autotest_generated {
             setup: VideoSetup::new(),
             theme: crate::widgets::themes::UiTheme::Flat,
             follows_app_theme: false,
+            frame_marker: "azul-video-frame-test".into(),
         }
     }
 
@@ -1758,6 +1769,15 @@ mod autotest_generated {
     fn with_callback_info<R>(f: impl FnOnce(CallbackInfo) -> R) -> (R, Vec<CallbackChange>) {
         let layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        with_callback_info_in(&layout_window, f)
+    }
+
+    /// [`with_callback_info`] over `layout_window` (laid-out nodes the
+    /// callback can look up).
+    fn with_callback_info_in<R>(
+        layout_window: &LayoutWindow,
+        f: impl FnOnce(CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
         let current_window_state = FullWindowState::default();
@@ -1768,7 +1788,7 @@ mod autotest_generated {
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
 
         let ref_data = CallbackInfoRefData {
-            layout_window: &layout_window,
+            layout_window,
             renderer_resources: &renderer_resources,
             previous_window_state: &previous_window_state,
             current_window_state: &current_window_state,
@@ -2971,6 +2991,65 @@ mod autotest_generated {
             current_frame_dims(&mut data),
             Some((4, 3)),
             "the decoded frame becomes the widget's current CPU image"
+        );
+    }
+
+    /// A video plays as image swaps. Once the view shows a frame, the next
+    /// frame replaces that picture's image (the display list is patched in
+    /// place, as for a camera tile) and no view is rendered again. A view
+    /// re-render per frame - of every view in the window - rebuilt the
+    /// window's display list 30 times a second: a 30 fps clip ran at ~18.
+    #[test]
+    fn a_frame_on_a_shown_picture_swaps_its_image_and_renders_no_view_again() {
+        let mut data = state(VideoConfig::default());
+        let marker = data
+            .downcast_ref::<VideoWidgetState>()
+            .map(|s| s.frame_marker.clone())
+            .expect("a video state");
+        let shown = ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![7u8; 4 * 3 * 4].into()),
+            width: 4,
+            height: 3,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::<u8>::new().into(),
+        })
+        .expect("a picture");
+        // The view shows a frame: its picture carries the widget's marker.
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        layout_window
+            .layout_and_generate_display_list(
+                azul_core::styled_dom::StyledDom::create_from_dom(
+                    Dom::create_body().with_child(frame_image(shown, marker)),
+                ),
+                &FullWindowState::default(),
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut None,
+            )
+            .expect("the picture lays out");
+
+        let (_, changes) = with_callback_info_in(&layout_window, |info| {
+            video_writeback(data.clone(), RefAny::new(frame(4, 3)), info)
+        });
+
+        assert_eq!(
+            count_virtual_view_rerenders(&changes),
+            0,
+            "a frame on a shown picture renders no view again"
+        );
+        assert!(
+            changes.iter().any(|c| matches!(
+                c,
+                CallbackChange::ChangeNodeImage { node_id, .. } if node_id.index() == 1
+            )),
+            "the frame is swapped into the picture's node"
+        );
+        assert_eq!(
+            current_frame_dims(&mut data),
+            Some((4, 3)),
+            "and kept for the view's next render"
         );
     }
 
