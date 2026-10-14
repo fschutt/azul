@@ -1033,6 +1033,7 @@ mod tests {
             bundle_id: "com.azul.azwidgets".to_string(),
             version: "0.1.0".to_string(),
             icon_file: None,
+            usage: Vec::new(),
         }
     }
 
@@ -1086,6 +1087,48 @@ mod tests {
             plist_value(&plist, "CFBundleName").as_deref(),
             Some("Azul Widgets")
         );
+    }
+
+    #[test]
+    fn a_crates_usage_descriptions_go_into_the_info_plist() {
+        let cargo = r#"[package]
+name = "AzMaps"
+
+[package.metadata.bundle]
+identifier = "rs.azul.azmaps"
+usage = [
+    "NSMicrophoneUsageDescription=AzMaps listens when you speak a destination.",
+    "NSSpeechRecognitionUsageDescription=AzMaps turns a spoken destination into text.",
+    "CFBundleName=not a usage key",
+]
+"#;
+        let usage = configured_usage(cargo);
+        assert_eq!(
+            usage,
+            vec![
+                (
+                    "NSMicrophoneUsageDescription".to_string(),
+                    "AzMaps listens when you speak a destination.".to_string()
+                ),
+                (
+                    "NSSpeechRecognitionUsageDescription".to_string(),
+                    "AzMaps turns a spoken destination into text.".to_string()
+                ),
+            ],
+            "only privacy usage keys, in order"
+        );
+        let mut spec = spec();
+        spec.usage = usage;
+        let plist = info_plist(&spec);
+        assert_eq!(
+            plist_value(&plist, "NSMicrophoneUsageDescription").as_deref(),
+            Some("AzMaps listens when you speak a destination.")
+        );
+        assert_eq!(
+            plist_value(&plist, "NSSpeechRecognitionUsageDescription").as_deref(),
+            Some("AzMaps turns a spoken destination into text.")
+        );
+        assert!(configured_usage("[package]\nname = \"x\"\n").is_empty());
     }
 
     #[test]
