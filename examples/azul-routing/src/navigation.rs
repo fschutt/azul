@@ -72,17 +72,21 @@ impl RouteLine {
     /// The line through `points`.
     #[must_use]
     pub fn new(points: Vec<(f64, f64)>) -> Self {
-        let _ = distance_m((0.0, 0.0), (0.0, 0.0));
-        Self {
-            along_m: vec![0.0; points.len()],
-            points,
+        let mut along_m = Vec::with_capacity(points.len());
+        let mut total = 0.0;
+        for (i, &p) in points.iter().enumerate() {
+            if i > 0 {
+                total += distance_m(points[i - 1], p);
+            }
+            along_m.push(total);
         }
+        Self { points, along_m }
     }
 
     /// The line's length, metres.
     #[must_use]
     pub fn length_m(&self) -> f64 {
-        0.0
+        self.along_m.last().copied().unwrap_or(0.0)
     }
 
     /// The nearest place on the line to `at`. Of places about as near, the one closest to
@@ -90,15 +94,74 @@ impl RouteLine {
     /// where the car is on it, not where it will be later.
     #[must_use]
     pub fn snap(&self, at: (f64, f64), hint_m: f64) -> Option<Snap> {
-        let _ = (at, hint_m);
-        None
+        /// Metres a candidate may lie from the hint before it pays for it.
+        const HINT_SLACK_M: f64 = 200.0;
+        /// What a metre further from the hint costs, in metres off the line.
+        const HINT_WEIGHT: f64 = 0.05;
+        let first = *self.points.first()?;
+        if self.points.len() == 1 {
+            return Some(Snap {
+                point: first,
+                segment: 0,
+                along_m: 0.0,
+                off_m: distance_m(at, first),
+                bearing_deg: 0.0,
+            });
+        }
+        // A flat frame in metres around `at`: exact enough for the length of a road segment.
+        let metres_per_deg = 6_371_000.0_f64.to_radians();
+        let cos_lat = at.0.to_radians().cos().max(1e-9);
+        let local = |p: (f64, f64)| ((p.1 - at.1) * metres_per_deg * cos_lat, (p.0 - at.0) * metres_per_deg);
+        let mut best: Option<(f64, Snap)> = None;
+        for i in 0..self.points.len() - 1 {
+            let (a, b) = (local(self.points[i]), local(self.points[i + 1]));
+            let d = (b.0 - a.0, b.1 - a.1);
+            let len2 = d.0 * d.0 + d.1 * d.1;
+            let t = if len2 > 0.0 {
+                (-(a.0 * d.0 + a.1 * d.1) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let q = (a.0 + t * d.0, a.1 + t * d.1);
+            let off_m = (q.0 * q.0 + q.1 * q.1).sqrt();
+            let along = self.along_m[i] + t * (self.along_m[i + 1] - self.along_m[i]);
+            let score = off_m + HINT_WEIGHT * ((along - hint_m).abs() - HINT_SLACK_M).max(0.0);
+            if best.as_ref().map_or(true, |(s, _)| score < *s) {
+                let point = (at.0 + q.1 / metres_per_deg, at.1 + q.0 / (metres_per_deg * cos_lat));
+                best = Some((
+                    score,
+                    Snap {
+                        point,
+                        segment: i,
+                        along_m: along,
+                        off_m,
+                        bearing_deg: bearing_deg(self.points[i], self.points[i + 1]),
+                    },
+                ));
+            }
+        }
+        best.map(|(_, snap)| snap)
     }
 
     /// The place `along_m` metres along the line and the direction there.
     #[must_use]
     pub fn point_at(&self, along_m: f64) -> ((f64, f64), f64) {
-        let _ = along_m;
-        ((0.0, 0.0), 0.0)
+        match self.points.len() {
+            0 => return ((0.0, 0.0), 0.0),
+            1 => return (self.points[0], 0.0),
+            _ => {}
+        }
+        let along = along_m.clamp(0.0, self.length_m());
+        let n = self.points.len();
+        let i = self
+            .along_m
+            .partition_point(|&a| a <= along)
+            .saturating_sub(1)
+            .min(n - 2);
+        let (a, b) = (self.points[i], self.points[i + 1]);
+        let len = self.along_m[i + 1] - self.along_m[i];
+        let t = if len > 0.0 { (along - self.along_m[i]) / len } else { 0.0 };
+        ((a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t), bearing_deg(a, b))
     }
 }
 
@@ -198,8 +261,13 @@ impl Guidance {
     #[must_use]
     pub fn new(points: Vec<(f64, f64)>, steps: Vec<Step>, duration_s: f64) -> Self {
         let line = RouteLine::new(points);
+        let last = line.along_m.len().saturating_sub(1);
+        let step_at_m = steps
+            .iter()
+            .map(|step| line.along_m.get(step.first_point.min(last)).copied().unwrap_or(0.0))
+            .collect();
         Self {
-            step_at_m: vec![0.0; steps.len()],
+            step_at_m,
             said: vec![None; steps.len()],
             line,
             steps,
@@ -232,21 +300,144 @@ impl Guidance {
 
     /// Takes the next fix.
     pub fn update(&mut self, fix: &Fix) -> Progress {
-        let _ = (fix, OFF_ROUTE_M, OFF_ROUTE_FOR_S, ARRIVAL_M, FAST_MPS);
-        Progress {
-            state: NavState::OnRoute,
-            shown_at: fix.at,
-            heading_deg: 0.0,
-            speed_mps: 0.0,
-            along_m: 0.0,
-            remaining_m: 0.0,
-            remaining_s: 0.0,
-            next_step: None,
-            to_next_m: 0.0,
-            off_route_m: 0.0,
-            off_route_for_s: 0.0,
-            announce: None,
+        let total = self.line.length_m();
+        let threshold = OFF_ROUTE_M.max(fix.accuracy_m.filter(|a| a.is_finite()).unwrap_or(0.0));
+        let snap = self.line.snap(fix.at, self.along_m);
+        let on = snap.is_some_and(|s| s.off_m <= threshold);
+        let moved = self.last_fix.map(|last| (distance_m(last.at, fix.at), fix.time_s - last.time_s));
+
+        // The speed: the receiver's, else from the way since the last fix.
+        let speed = fix
+            .speed_mps
+            .filter(|v| v.is_finite() && *v >= 0.0)
+            .or_else(|| moved.filter(|(_, dt)| *dt > 0.0).map(|(d, dt)| d / dt));
+        if let Some(v) = speed {
+            self.smoothed.speed_mps = if self.smoothed.known {
+                0.6 * self.smoothed.speed_mps + 0.4 * v
+            } else {
+                v
+            };
         }
+
+        // The heading: the road's while on it, else the receiver's (when moving), else the way
+        // since the last fix.
+        let raw = fix
+            .heading_deg
+            .filter(|h| h.is_finite() && speed.map_or(true, |v| v > 1.0))
+            .or_else(|| {
+                let last = self.last_fix?;
+                (moved?.0 > 3.0).then(|| bearing_deg(last.at, fix.at))
+            });
+        let sample = match snap {
+            Some(s) if on => Some(s.bearing_deg),
+            _ => raw,
+        };
+        if let Some(h) = sample {
+            let (east, north) = (h.to_radians().sin(), h.to_radians().cos());
+            if self.smoothed.known {
+                self.smoothed.east = 0.6 * self.smoothed.east + 0.4 * east;
+                self.smoothed.north = 0.6 * self.smoothed.north + 0.4 * north;
+            } else {
+                self.smoothed.east = east;
+                self.smoothed.north = north;
+            }
+            self.smoothed.known = true;
+        }
+        let heading_deg = (self.smoothed.east.atan2(self.smoothed.north).to_degrees() + 360.0) % 360.0;
+
+        if let (true, Some(s)) = (on, snap) {
+            self.along_m = s.along_m;
+            self.off_since_s = None;
+        } else if self.off_since_s.is_none() {
+            self.off_since_s = Some(fix.time_s);
+        }
+        let off_route_for_s = self.off_since_s.map_or(0.0, |since| (fix.time_s - since).max(0.0));
+        let remaining_m = (total - self.along_m).max(0.0);
+        let near_end = self.destination().is_some_and(|end| distance_m(fix.at, end) <= ARRIVAL_M);
+        if (on && remaining_m <= ARRIVAL_M) || near_end {
+            self.arrived = true;
+        }
+        let state = if self.arrived {
+            NavState::Arrived
+        } else if !on && off_route_for_s >= OFF_ROUTE_FOR_S {
+            NavState::OffRoute
+        } else {
+            NavState::OnRoute
+        };
+
+        // The step the car is on is the last one that starts behind it; the next one is next.
+        let current = self.step_at_m.iter().rposition(|&at| at <= self.along_m + 1e-6);
+        let next_step = match current {
+            Some(i) if i + 1 < self.steps.len() => Some(i + 1),
+            Some(_) => None,
+            None if self.steps.is_empty() => None,
+            None => Some(0),
+        };
+        let to_next_m = next_step.map_or(remaining_m, |n| (self.step_at_m[n] - self.along_m).max(0.0));
+
+        let announce = if state == NavState::OnRoute && on {
+            self.announcement(next_step, to_next_m)
+        } else {
+            None
+        };
+        self.last_fix = Some(*fix);
+        Progress {
+            state,
+            shown_at: match snap {
+                Some(s) if on => s.point,
+                _ => fix.at,
+            },
+            heading_deg,
+            speed_mps: self.smoothed.speed_mps,
+            along_m: self.along_m,
+            remaining_m,
+            remaining_s: if total > 0.0 { self.duration_s * remaining_m / total } else { 0.0 },
+            next_step,
+            to_next_m,
+            off_route_m: snap.map_or(0.0, |s| s.off_m),
+            off_route_for_s,
+            announce,
+        }
+    }
+
+    /// What to say now: the start once, then each maneuver's stages as the car nears it - only
+    /// the latest stage that is due, so a stage already passed is not said late. The
+    /// destination is not said ahead: arriving is.
+    fn announcement(&mut self, next_step: Option<usize>, to_next_m: f64) -> Option<Announcement> {
+        use crate::online::Maneuver;
+        if let Some(Step { kind: Maneuver::Start, .. }) = self.steps.first() {
+            if self.said[0].is_none() {
+                self.said[0] = Some(Stage::Now);
+                return Some(Announcement {
+                    step: 0,
+                    stage: Stage::Now,
+                    distance_m: 0.0,
+                });
+            }
+        }
+        let n = next_step?;
+        if self.steps[n].kind == Maneuver::Destination {
+            return None;
+        }
+        let (prepare, approach, now) = announce_distances(self.smoothed.speed_mps);
+        let due = if to_next_m <= now {
+            Stage::Now
+        } else if to_next_m <= approach {
+            Stage::Approach
+        } else if to_next_m <= prepare {
+            Stage::Prepare
+        } else {
+            return None;
+        };
+        if self.said[n].is_some_and(|said| said >= due) {
+            return None;
+        }
+        self.said[n] = Some(due);
+        Some(Announcement {
+            step: n,
+            stage: due,
+            distance_m: to_next_m,
+        })
     }
 }
 
@@ -254,8 +445,13 @@ impl Guidance {
 /// approach, now).
 #[must_use]
 pub fn announce_distances(speed_mps: f64) -> (f64, f64, f64) {
-    let _ = speed_mps;
-    (0.0, 0.0, 0.0)
+    // "Now" comes about three seconds ahead, never closer than 30 m.
+    let now = (3.0 * speed_mps).max(30.0);
+    if speed_mps > FAST_MPS {
+        (2_000.0, 500.0, now)
+    } else {
+        (500.0, 200.0, now)
+    }
 }
 
 /// The spacing of the requests for a new route while the car is off its route: one at once
@@ -273,25 +469,30 @@ impl Rerouter {
     /// Whether to ask for a new route now, the car having been off the route `off_for_s`.
     #[must_use]
     pub fn due(&self, now_s: f64, off_for_s: f64) -> bool {
-        let _ = (now_s, off_for_s, REROUTE_GAP_S, REROUTE_MAX_GAP_S);
-        false
+        off_for_s >= OFF_ROUTE_FOR_S
+            && self.last_asked_s.map_or(true, |at| now_s - at >= self.gap_s())
     }
 
     /// A request went out.
     pub fn asked(&mut self, now_s: f64) {
-        let _ = now_s;
+        self.last_asked_s = Some(now_s);
     }
 
     /// The request failed (no network, a busy server).
-    pub fn failed(&mut self) {}
+    pub fn failed(&mut self) {
+        self.failures = self.failures.saturating_add(1);
+    }
 
     /// A new route arrived.
-    pub fn answered(&mut self) {}
+    pub fn answered(&mut self) {
+        self.failures = 0;
+    }
 
     /// The wait before the next request, seconds.
     #[must_use]
     pub fn gap_s(&self) -> f64 {
-        REROUTE_GAP_S
+        (REROUTE_GAP_S * 2f64.powi(i32::try_from(self.failures.min(16)).unwrap_or(16)))
+            .min(REROUTE_MAX_GAP_S)
     }
 }
 
@@ -307,8 +508,11 @@ pub fn offset((lat, lon): (f64, f64), east_m: f64, north_m: f64) -> (f64, f64) {
 /// The direction from `a` to `b`, degrees clockwise from north.
 #[must_use]
 pub fn bearing_deg(a: (f64, f64), b: (f64, f64)) -> f64 {
-    let _ = (a, b);
-    0.0
+    let (lat1, lat2) = (a.0.to_radians(), b.0.to_radians());
+    let dlon = (b.1 - a.1).to_radians();
+    let y = dlon.sin() * lat2.cos();
+    let x = lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * dlon.cos();
+    (y.atan2(x).to_degrees() + 360.0) % 360.0
 }
 
 #[cfg(test)]

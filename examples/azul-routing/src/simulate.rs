@@ -3,7 +3,7 @@
 //! going straight where the route turns - so the guidance sees the car leave its route and a new
 //! route is asked for. Given the new route ([`Drive::follow`]) the drive goes on along it.
 
-use crate::navigation::{offset, Fix, RouteLine};
+use crate::navigation::{bearing_deg, offset, Fix, RouteLine};
 
 /// The drive's wrong turn: where along the first route it happens, metres.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -58,15 +58,65 @@ impl Drive {
     /// The same drive with one wrong turn: at the first maneuver point after `fraction` of the
     /// route (a point where the route turns by more than 30 degrees), else at `fraction` itself.
     #[must_use]
-    pub fn with_wrong_turn(self, fraction: f64) -> Self {
-        let _ = (fraction, WrongTurn { at_m: 0.0 });
+    pub fn with_wrong_turn(mut self, fraction: f64) -> Self {
+        /// How sharply the route must turn at a point for it to be a maneuver, degrees.
+        const TURN_DEG: f64 = 30.0;
+        let Leg::Route { line, .. } = &self.leg else {
+            return self;
+        };
+        let target = fraction.clamp(0.0, 1.0) * line.length_m();
+        let p = &line.points;
+        let at_m = (1..p.len().saturating_sub(1))
+            .filter(|&k| line.along_m[k] >= target)
+            .find(|&k| {
+                let turn = (bearing_deg(p[k], p[k + 1]) - bearing_deg(p[k - 1], p[k]) + 540.0) % 360.0 - 180.0;
+                turn.abs() > TURN_DEG
+            })
+            .map_or(target, |k| line.along_m[k]);
+        self.wrong_turn = Some(WrongTurn { at_m });
         self
     }
 
     /// The fix at time `now_s`; `None` once the car is at the end of its route.
     #[must_use]
     pub fn fix(&mut self, now_s: f64) -> Option<Fix> {
-        let _ = (now_s, MAX_ASTRAY_M, offset((0.0, 0.0), 0.0, 0.0));
+        let speed = self.speed_mps;
+        let astray_from = match &self.leg {
+            Leg::Route { line, from_m, since_s } => {
+                let along = from_m + speed * (now_s - since_s).max(0.0);
+                match self.wrong_turn {
+                    Some(turn) if along >= turn.at_m => {
+                        // Straight on in the direction the car came from.
+                        let (at, _) = line.point_at(turn.at_m);
+                        let (_, bearing) = line.point_at((turn.at_m - 1.0).max(0.0));
+                        Some((at, bearing, since_s + (turn.at_m - from_m) / speed))
+                    }
+                    _ => {
+                        if along > line.length_m() + 1e-6 {
+                            return None;
+                        }
+                        let (at, bearing) = line.point_at(along);
+                        return Some(fix_at(at, now_s, bearing, speed));
+                    }
+                }
+            }
+            Leg::Astray { from, bearing_deg, since_s } => {
+                let gone = (speed * (now_s - since_s).max(0.0)).min(MAX_ASTRAY_M);
+                let rad = bearing_deg.to_radians();
+                let at = offset(*from, gone * rad.sin(), gone * rad.cos());
+                let moving = if gone < MAX_ASTRAY_M { speed } else { 0.0 };
+                return Some(fix_at(at, now_s, *bearing_deg, moving));
+            }
+        };
+        if let Some((from, bearing, since_s)) = astray_from {
+            self.wrong_turn = None;
+            self.leg = Leg::Astray {
+                from,
+                bearing_deg: bearing,
+                since_s,
+            };
+            return self.fix(now_s);
+        }
         None
     }
 
@@ -79,7 +129,24 @@ impl Drive {
     /// Goes on along a new route from where the car is at `now_s` (the route starts there: it
     /// was asked for from there).
     pub fn follow(&mut self, points: Vec<(f64, f64)>, now_s: f64) {
-        let _ = (points, now_s);
+        // The wrong turn belongs to the first route.
+        self.wrong_turn = None;
+        self.leg = Leg::Route {
+            line: RouteLine::new(points),
+            from_m: 0.0,
+            since_s: now_s,
+        };
+    }
+}
+
+/// A simulated fix: a good receiver's, five metres uncertain.
+fn fix_at(at: (f64, f64), time_s: f64, heading_deg: f64, speed_mps: f64) -> Fix {
+    Fix {
+        at,
+        time_s,
+        accuracy_m: Some(5.0),
+        heading_deg: Some(heading_deg),
+        speed_mps: Some(speed_mps),
     }
 }
 
