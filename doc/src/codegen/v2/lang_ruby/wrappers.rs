@@ -620,6 +620,7 @@ fn emit_field_accessors(
     let mut emitted = false;
     for (f, shape) in accessible_fields(s, ir, config) {
         let key = super::types::ruby_field_name(&f.name);
+        let method = ruby_accessor_name(&key);
         let doc = f
             .doc
             .as_deref()
@@ -637,7 +638,7 @@ fn emit_field_accessors(
             }
             FieldShape::Value { .. } => format!("Azul._fields(self)[:{}]", key),
         };
-        if !RUBY_OBJECT_METHODS.contains(&key.as_str()) && emitted_names.insert(key.clone()) {
+        if !RUBY_OBJECT_METHODS.contains(&method.as_str()) && emitted_names.insert(method.clone()) {
             match &shape {
                 FieldShape::Value { .. } => builder.line(&format!(
                     "# A live view of the `{}` field (writes reach this object; `.clone` copies it).{}",
@@ -649,7 +650,7 @@ fn emit_field_accessors(
                 )),
                 _ => builder.line(&format!("# The `{}` field.{}", f.name, doc)),
             }
-            builder.line(&format!("def {}", key));
+            builder.line(&format!("def {}", method));
             builder.indent();
             builder.line(&getter);
             builder.dedent();
@@ -658,7 +659,7 @@ fn emit_field_accessors(
             emitted = true;
         }
         // Setter.
-        let setter = format!("{}=", key);
+        let setter = format!("{}=", method);
         if !emitted_names.insert(setter.clone()) {
             continue;
         }
@@ -691,7 +692,7 @@ fn emit_field_accessors(
                 let native = config.apply_prefix(name);
                 builder.line(&format!(
                     "raise TypeError, '{}= expects {}' unless _v.is_a?(Native::{})",
-                    key, name, native
+                    method, name, native
                 ));
                 builder.line(&format!(
                     "Native.{}(_s[:{}])",
@@ -712,7 +713,7 @@ fn emit_field_accessors(
                 builder.line("_v = Azul._own(value)");
                 builder.line(&format!(
                     "raise TypeError, '{}= expects {}' unless _v.is_a?(Native::{})",
-                    key,
+                    method,
                     name,
                     config.apply_prefix(name)
                 ));
@@ -1691,6 +1692,22 @@ fn ruby_arg_name(name: &str) -> String {
         format!("{}_", snake)
     } else {
         snake
+    }
+}
+
+/// The accessor method of the struct field whose FFI name is `key`. The
+/// FFI symbol keeps the name; a method named `_1` .. `_9` (a tuple struct's
+/// fields) is a syntax error since Ruby 3.4, which reserves those for the
+/// numbered block parameters, so it gets the keywords' trailing `_`.
+fn ruby_accessor_name(key: &str) -> String {
+    let numbered = key.len() == 2
+        && key.starts_with('_')
+        && key.as_bytes()[1].is_ascii_digit()
+        && key != "_0";
+    if numbered {
+        format!("{}_", key)
+    } else {
+        key.to_string()
     }
 }
 

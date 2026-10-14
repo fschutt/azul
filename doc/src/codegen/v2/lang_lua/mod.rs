@@ -123,26 +123,30 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     //     (rationale in CB_TYPEDEF_LOOP). Struct fields typed with them were
     //     rewritten to `void*` by cdef.rs, and every function declaration
     //     that names them is cdef'd lazily below, after this loop ran.
+    // The three data tables below are each built in a function of their own:
+    // LuaJIT allows 65 536 constants per function, and their ~30 000 strings
+    // in the main chunk, next to the wrapper layer's, overflowed it ("main
+    // function has more than 65536 constants") before any code ran.
     builder.line("-- Callback function-pointer typedefs: { name, declaration } in header order.");
-    builder.line("local __az_cb_typedefs = {");
+    builder.line("local __az_cb_typedefs = (function() return {");
     for (name, decl) in &cb_typedefs {
         builder.line(&format!("    {{ \"{name}\", '{decl}' }},"));
     }
-    builder.line("}");
+    builder.line("} end)()");
     builder.raw(CB_TYPEDEF_LOOP);
 
     // 3b. The lazy function-declaration registry (plain Lua strings — costs
     //     table slots, never ctype IDs, until a function is first called).
     builder.line("-- Function declarations, cdef'd lazily on first use (see the ctype");
     builder.line("-- budget note above). Keys are the C symbol names.");
-    builder.line("local __az_fn_decls = {");
+    builder.line("local __az_fn_decls = (function() return {");
     for d in &fn_decls {
         // C declarations contain no quotes/backslashes; plain single-quoted
         // Lua strings are safe. Defensive assert keeps that true.
         debug_assert!(!d.decl.contains('\'') && !d.decl.contains('\\'));
         builder.line(&format!("    [\"{}\"] = '{}',", d.name, d.decl));
     }
-    builder.line("}");
+    builder.line("} end)()");
     builder.blank();
 
     // 3c. Byref routing table (the rationale lives in LOAD_PROXY, emitted
@@ -156,7 +160,7 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("-- type or nil>, agg = <return is a struct / tagged union> }. Only functions");
     builder.line("-- that move an aggregate by value (argument or return) AND have a Byref twin");
     builder.line("-- declared above are listed; everything else is called directly.");
-    builder.line("local __az_fn_meta = {");
+    builder.line("local __az_fn_meta = (function() return {");
     for r in &routes {
         let body = match &r.ret {
             Some(ret) => format!(" ret = \"{ret}\", agg = {} ", r.agg_ret),
@@ -164,7 +168,7 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
         };
         builder.line(&format!("    [\"{}\"] = {{{body}}},", r.name));
     }
-    builder.line("}");
+    builder.line("} end)()");
     builder.blank();
 
     // 4. Load the native library behind a MEMOIZING PROXY: first access to a function cdefs its
