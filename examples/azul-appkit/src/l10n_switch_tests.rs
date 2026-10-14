@@ -189,7 +189,7 @@ fn a_worker_thread_that_adopts_the_ui_threads_voice_says_its_words_in_its_langua
     })
     .join()
     .expect("the worker thread ends");
-    assert_eq!(before, "kit-general-language", "a new thread has no words of its own");
+    assert_eq!(before, "Language", "a new thread says appkit's own words, in English");
     assert_eq!(after, "Sprache", "the voice's language, not this thread's English");
     assert_eq!(Voice::here(), Voice::here());
     assert_ne!(Voice::here(), voice_in("de-DE"), "a printout in another language differs");

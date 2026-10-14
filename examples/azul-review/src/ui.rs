@@ -917,12 +917,16 @@ mod tests {
     /// Whether `dom`'s own CSS (the app's `with_css`) declares `what`, as the
     /// property prints (`AppRegion(Exact(Drag))`).
     fn declares(dom: &Dom, what: &str) -> bool {
+        // The bindings' Debug prints a declaration across lines, a comma after every field:
+        // compare it without its whitespace and those commas.
+        let flat = |text: &str| text.split_whitespace().collect::<String>().replace(",)", ")");
+        let what = flat(what);
         dom.css
             .as_slice()
             .iter()
             .flat_map(|css| css.rules.as_slice().iter())
             .flat_map(|rule| rule.declarations.as_slice().iter())
-            .any(|d| format!("{d:?}").contains(what))
+            .any(|d| flat(&format!("{d:?}")).contains(&what))
     }
 
     fn buttons(dom: &Dom) -> Vec<&Dom> {
