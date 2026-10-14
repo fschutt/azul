@@ -106,8 +106,15 @@ extern "C" fn layout_options(mut data: RefAny, info: LayoutCallbackInfo) -> Dom 
         )
         .with_callback(
             EventFilter::Window(WindowEventFilter::CloseRequested),
-            app,
+            app.clone(),
             on_options_close_requested,
+        )
+        // The main window's keyring answer arrives here once the main window closed (see the
+        // compose window).
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::KeyringResult),
+            app,
+            crate::on_keyring_result,
         )
 }
 
