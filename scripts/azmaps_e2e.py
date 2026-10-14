@@ -13,17 +13,17 @@
        (`AZMAPS_LAYOUT` - nothing of AzMaps' own is on the map yet);
     4. a click on the map drops a pin (`AZMAPS_PINS 1`), written to maps/pins.json
        (`AZMAPS_PINS_SAVED 1`); the sidebar's recents list it (`#__azmaps_place-0`);
-    5. the place's row centres the map on it and opens its card - a popover at its pin, a window
-       of its own (`AZMAPS_PLACE 0`); the card's Directions makes it the destination
+    5. the place's row centres the map on it and opens its card - the pin marker's popup, in the
+       map's own view (`AZMAPS_PLACE 0`); the card's Directions makes it the destination
        (`AZMAPS_TRAVEL car - <lat>,<lon>`) and closes the card;
     6. the travel panel: walking (`AZMAPS_TRAVEL walk ...`), a start typed in
        (`AZMAPS_TRAVEL walk 48.2082,16.3738 ...`) shows the distance, and the route worker answers
        off the UI thread (`AZMAPS_ROUTE walk <km> <minutes> <ms>`); the viewport is kept in
        maps/settings.json once it rests;
-    6b. a drag with the travel line, its ends and the destination's pin on the map moves them in
-       place (`AZMAPS_PAN move`): the window is NOT rebuilt for every pointer move, the pin
-       follows the drag, and the next rebuild draws it where the drag left it; a zoom step of the
-       map moves them in place too;
+    6b. a drag with the travel line, its ends and the destination's pin on the map: they are the
+       map's overlays, it moves them itself (`AZMAPS_PAN map`, microseconds): the window is NOT
+       rebuilt for a pointer move, the pin follows the drag, and the next rebuild draws it where
+       the drag left it; a zoom step of the map rebuilds nothing either;
     7. the sidebar hides and shows again (`AZMAPS_SIDEBAR closed` / `open`);
     8. the gear opens azul-appkit's settings page, About the standard About box
        (`AZMAPS_ABOUT open`), Escape closes the box, Escape the page;
@@ -172,19 +172,22 @@ def body(args, logs, out):
         if len(pins) != 1:
             raise Failure("maps/pins.json holds %s" % pins)
         app.until("the pin in the recents", lambda: app.has_id("__azmaps_place-0"))
-        if not app.has_id("__azmaps_place-pin-0"):
+        # The pins are markers of the map: their icons live in the map's own view (a DOM of its
+        # own), not in the window's.
+        if not app.has_id("__azmaps_place-pin-0", every_dom=True):
             raise Failure("the pin is not drawn on the map")
         app.screenshot(os.path.join(out, "2-pin.png"))
 
-        # Its card: a popover at the pin, opened from the recents.
+        # Its card: the pin marker's popup, opened from the recents.
+        card = "__azmaps_place-directions-0"
         app.click(selector="#__azmaps_place-0")
         app.expect_line("AZMAPS_PLACE", "0", "the row opens the place's card")
-        app.until("the place's card (a popover window)", lambda: app.popup() is not None)
+        app.until("the place's card above its pin", lambda: app.has_id(card, every_dom=True))
         app.screenshot(os.path.join(out, "3-card.png"))
-        app.click(selector="#__azmaps_place-directions-0", window=app.popup())
+        app.click(selector="#" + card, every_dom=True)
         app.until("Directions: the place is the destination",
                   lambda: app.printed("AZMAPS_TRAVEL", r"car - -?\d+\.\d{4},-?\d+\.\d{4}"))
-        app.until("the card closes", lambda: app.popup() is None)
+        app.until("the card closes", lambda: not app.has_id(card, every_dom=True))
 
         # The travel panel: a mode, a start; the distance as the crow flies.
         app.click(selector="#__azmaps_travel-walk")
@@ -199,14 +202,15 @@ def body(args, logs, out):
         app.log("route: %s" % app.last("AZMAPS_ROUTE"))
         app.screenshot(os.path.join(out, "4-travel.png"))
 
-        # A drag with the travel line, its ends and the destination's pin on the map: they move in
-        # place with the map, the window is not rebuilt for every pointer move (it was, while
-        # anything of AzMaps' own showed: a full layout per move made the pan crawl).
+        # A drag with the travel line, its ends and the destination's pin on the map: they are the
+        # map's overlays and move with it in its own view; the window is not rebuilt for a pointer
+        # move (it was, while anything of AzMaps' own showed: a full layout per move made the pan
+        # crawl).
         app.until("the viewport kept before the drag with the route",
                   lambda: kept_view(data_dir) == app.last("AZMAPS_VIEW"))
         app.frame(3)
         pin = "__azmaps_place-pin-0"
-        before = app.rect(pin)
+        before = app.rect(pin, every_dom=True)
         if not before:
             raise Failure("the destination's pin is not on the map before the drag")
         layouts, pans = app.count("AZMAPS_LAYOUT"), app.count("AZMAPS_PAN")
@@ -219,18 +223,17 @@ def body(args, logs, out):
             raise Failure("a drag with the route on the map rebuilt the window %d times (once per "
                           "pointer move?)" % rebuilt)
         steps = [v.split() for v in app.printed("AZMAPS_PAN")[pans:]]
-        moves = [int(us) for done, us in steps if done == "move"]
-        if not moves:
-            raise Failure("no step of the drag moved AzMaps' marks in place (AZMAPS_PAN move)")
-        # Moving the marks is a plan and a handful of overrides: microseconds, not a layout's
-        # milliseconds.
-        if sorted(moves)[len(moves) // 2] > 5000:
-            raise Failure("moving the marks in place took %s us per step (median over 5 ms)" % moves)
-        after = app.rect(pin)
+        if not steps or any(done != "map" for done, _ in steps):
+            raise Failure("the drag's steps were not the map's alone: %s" % steps)
+        # AzMaps only keeps the viewport: microseconds, not a layout's milliseconds.
+        took = [int(us) for _, us in steps]
+        if sorted(took)[len(took) // 2] > 5000:
+            raise Failure("a step of the drag took AzMaps %s us (median over 5 ms)" % took)
+        after = app.rect(pin, every_dom=True)
         moved = (after["x"] - before["x"], after["y"] - before["y"])
         if abs(moved[0] - (x1 - x0)) > 4 or abs(moved[1] - (y1 - y0)) > 4:
             raise Failure("the pin moved by %s, the map by %s" % (moved, (x1 - x0, y1 - y0)))
-        # A zoom step (the wheel over the map) moves them in place too. (The viewport kept once
+        # A zoom step (the wheel over the map) rebuilds nothing either. (The viewport kept once
         # it rests may rebuild the window once of its own.)
         layouts, pans, zoom0 = app.count("AZMAPS_LAYOUT"), app.count("AZMAPS_PAN"), view(app)[2]
         app.must("wheel", x=WIDTH * 0.6, y=HEIGHT * 0.6, delta_x=0.0, delta_y=24.0)
@@ -245,10 +248,10 @@ def body(args, logs, out):
             zoomed = [v.split()[0] for v in app.printed("AZMAPS_PAN")[pans:]]
             rebuilt = app.count("AZMAPS_LAYOUT") - layouts
             app.log("zoom step with the route: %s, %d rebuild(s)" % (zoomed, rebuilt))
-            if rebuilt > 1 or "move" not in zoomed:
-                raise Failure("a zoom step with the route on the map did not move the marks in "
-                              "place: %s, %d rebuild(s)" % (zoomed, rebuilt))
-        after = app.rect(pin)
+            if rebuilt > 1:
+                raise Failure("a zoom step with the route on the map rebuilt the window %d times"
+                              % rebuilt)
+        after = app.rect(pin, every_dom=True)
         # A rebuild (the travel mode's button) draws the pin where the drag and the zoom left it:
         # what moved it in place does not follow it into the build.
         layouts = app.count("AZMAPS_LAYOUT")
@@ -256,7 +259,7 @@ def body(args, logs, out):
         app.until("a rebuild after the drag", lambda: app.count("AZMAPS_LAYOUT") > layouts)
         app.frame(2)
         app.log("the rebuild after the drag: AZMAPS_LAYOUT %s" % app.last("AZMAPS_LAYOUT"))
-        rebuilt_at = app.rect(pin)
+        rebuilt_at = app.rect(pin, every_dom=True)
         if (not rebuilt_at or abs(rebuilt_at["x"] - after["x"]) > 1.5
                 or abs(rebuilt_at["y"] - after["y"]) > 1.5):
             raise Failure("the rebuild drew the pin at %s, the zoom left it at %s" % (rebuilt_at, after))

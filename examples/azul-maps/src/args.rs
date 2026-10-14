@@ -1,5 +1,5 @@
 //! AzMaps' command line: azul-appkit's switches (`--theme`, `--mode`, `--size`, `--shot`,
-//! `--sample`, `--data-dir`) plus AzMaps' own `--stats` and `--tiles`; `-h` / `--help`. Pure:
+//! `--sample`, `--data-dir`) plus AzMaps' own `--stats`, `--tiles` and `--routing`; `-h` / `--help`. Pure:
 //! no azul types, tested without a window.
 
 use azul_appkit::{args::help, AppArgs};
@@ -14,6 +14,10 @@ pub struct Args {
     pub stats: bool,
     /// `--tiles <url template>`: the tile server for this run (see [`tile_template`]).
     pub tiles: Option<String>,
+    /// `--routing <url template or folder>`: the routing tiles for this run, else
+    /// [`ROUTING_VAR`], else the shared Azlin config's `endpoints.routing`; without them a
+    /// route is the straight-line estimate.
+    pub routing: Option<String>,
     /// `-h` / `--help`.
     pub help: bool,
     /// The Azlin switches (azul-appkit).
@@ -22,6 +26,8 @@ pub struct Args {
 
 /// The variable naming the tile server, the fallback for `--tiles`.
 pub const TILES_VAR: &str = "AZMAPS_TILES";
+/// The variable naming the routing tiles, the fallback for `--routing`.
+pub const ROUTING_VAR: &str = "AZMAPS_ROUTING";
 
 /// The tile server's URL template (`{z}`, `{x}`, `{y}`): `--tiles`, else
 /// [`TILES_VAR`], else the shared Azlin config's `endpoints.tiles`; `None`
@@ -53,7 +59,9 @@ pub fn usage() -> String {
          rebuild, us).\n                             Also AZMAPS_STATS=1\n    --tiles <URL>            The tile server's URL template \
          ({z}/{x}/{y}) for this run; else\n                             AZMAPS_TILES, else \
          endpoints.tiles of the shared Azlin config,\n                             else \
-         OpenFreeMap's public tiles\n",
+         OpenFreeMap's public tiles\n    --routing <URL|DIR>      The routing tiles ({z}/{x}/{y}.json.gz, or a folder\n                             azul-routing's routing-tiles wrote); else \
+         AZMAPS_ROUTING, else\n                             endpoints.routing of the shared Azlin \
+         config. Without them a\n                             route is the straight-line estimate\n",
     );
     text
 }
@@ -78,6 +86,7 @@ where
     }
     let mut stats = env_stats;
     let mut tiles = None;
+    let mut routing = None;
     let mut rest = Vec::with_capacity(argv.len());
     let mut argv = argv.into_iter();
     while let Some(arg) = argv.next() {
@@ -92,6 +101,13 @@ where
             );
         } else if let Some(template) = arg.strip_prefix("--tiles=") {
             tiles = Some(template.to_string());
+        } else if arg == "--routing" {
+            routing = Some(
+                argv.next()
+                    .ok_or_else(|| "--routing needs a URL template or a folder".to_string())?,
+            );
+        } else if let Some(template) = arg.strip_prefix("--routing=") {
+            routing = Some(template.to_string());
         } else {
             rest.push(arg);
         }
@@ -99,6 +115,7 @@ where
     Ok(Args {
         stats,
         tiles,
+        routing,
         help: false,
         kit: AppArgs::parse(&crate::SPEC, rest)?,
     })
@@ -137,6 +154,18 @@ mod tests {
         assert_eq!(a.tiles.as_deref(), Some(local));
         assert!(parse(["--tiles"], false).is_err(), "--tiles needs a template");
         assert!(usage().contains("--tiles"));
+    }
+
+    #[test]
+    fn the_routing_switch_names_the_routing_tiles_a_url_or_a_folder() {
+        let local = "http://127.0.0.1:8765/routing/{z}/{x}/{y}.json.gz";
+        let a = parse(["--routing", local], false).expect("valid");
+        assert_eq!(a.routing.as_deref(), Some(local));
+        let a = parse(["--routing=/tmp/routing-tiles"], false).expect("valid");
+        assert_eq!(a.routing.as_deref(), Some("/tmp/routing-tiles"));
+        assert_eq!(parse(Vec::<String>::new(), false).expect("valid").routing, None);
+        assert!(parse(["--routing"], false).is_err(), "--routing needs a value");
+        assert!(usage().contains("--routing"));
     }
 
     #[test]

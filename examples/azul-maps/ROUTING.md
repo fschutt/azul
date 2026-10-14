@@ -1,4 +1,4 @@
-# Routing in AzMaps (design note, nothing here is built yet)
+# Routing in AzMaps
 
 Two constraints shape it:
 
@@ -13,6 +13,14 @@ typeahead's suggestions, `lat, lon`, or a dropped pin (its Directions button). T
 straight line between start and destination, the panel its great-circle distance and the route
 worker's estimate (step 1), and the map frames both ends. `AZMAPS_TRAVEL <mode> <from> <to>` goes to
 stdout on every change.
+
+Steps 1 to 4 are built: `examples/azul-routing` (no azul types) has the tile math, the corridor,
+the routable-tiles reader and writer, the road graph, A* and the widening, the parallel fetch with
+its memory and disk cache, and the `routing-tiles` generator that cuts an OpenStreetMap extract
+into zoom 8 / 11 / 14 tiles. AzMaps' route worker uses it when it is given tiles
+(`--routing <URL template or folder>`), and the route is a polyline overlay of the map widget.
+`scripts/azmaps_routing_e2e.py` runs the whole way on Geofabrik's Monaco extract. Not built yet:
+turn restrictions (the generator reads no relations), the archive-per-level hosting, and step 5.
 
 The plan has five steps. The rest of this note works through them in order.
 
@@ -190,11 +198,10 @@ route has hundreds of segments, so it wants a polyline layer inside `MapWidget` 
 
 ## Engine notes (for the central session)
 
-- **A route / overlay layer in `MapWidget`.** Something like
-  `MapWidget::with_overlay(Vec<MapPolyline>)`: projected and drawn in the tile grid's own render, so
-  it pans and zooms with the tiles without an app DOM rebuild per frame. Today the app rebuilds its
-  whole DOM on every viewport change, and pins and lines are placed with `px_at_latlon`, which
-  ignores bearing and pitch.
+- **The overlay layer in `MapWidget`** (built): `MapWidget::with_overlays(MapOverlayVec)` with
+  `MapOverlay::Polyline` / `Polygon` / `Marker`. Lines and areas are cut per tile and drawn inside
+  the tile grid, so the camera turns and tilts them with the tiles; markers stand upright over
+  it, placed through the same camera. A pan moves them without an app DOM rebuild.
 - **A geocoder** (place names into the fields): the app ships a small gazetteer of the world's
   capitals and larger cities (`resources/places.tsv`, `src/places.rs`), searched on the geocoder
   worker (`src/geocode.rs`) once the typing rests. Streets and smaller places need a hosted search

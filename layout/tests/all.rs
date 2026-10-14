@@ -1089,3 +1089,5 @@ mod a_pressed_app_button_sinks_its_curves_with_its_face;
 mod a_tab_bar_takes_the_style_it_is_given;
 #[path = "a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout.rs"]
 mod a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout;
+#[path = "a_marker_stands_where_the_ground_shows_its_place.rs"]
+mod a_marker_stands_where_the_ground_shows_its_place;

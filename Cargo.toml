@@ -6,6 +6,7 @@ members = [
     "examples/azul-review", # AzReview — ink-first code review; tablet/pen stress test
     "examples/azul-widgets", # AzulWidgets demo (showcase of all widgets; W5 release demo)
     "examples/azul-maps", # AzMaps demo (SUPER_PLAN_2 P3 goal app)
+    "examples/azul-routing", # azul-routing: AzMaps' road routing without azul types (corridor tiles, routable tiles, A*, the tile generator)
     "examples/azul-writer",
     "examples/azul-builder", # AzWriter demo (office-2013-style document editor; bin azwriter)
     "examples/azul-meet", # azul-meet demo (SUPER_PLAN_2 P8 goal app: Udp + AudioSink + MicrophoneWidget)
