@@ -21,19 +21,28 @@
 //! [`source`] has the tile sources: a folder, a cache in memory and on disk,
 //! and (feature `http`) a download from any static file hosting. Where no
 //! tiles are at hand, [`online`] asks a Valhalla server for the route.
+//!
+//! Every online answer goes through [`fetch`]: the [`cache`] in memory and on disk answers a
+//! repeated question without the network (and a stale answer when the network is gone, marked
+//! offline), and [`polite`] keeps the requests to one service apart and pauses after failures.
 
 pub mod astar;
+pub mod cache;
 pub mod corridor;
+pub mod fetch;
 pub mod format;
 pub mod generate;
 pub mod graph;
 pub mod mode;
 pub mod online;
 pub mod pbf;
+pub mod polite;
 pub mod router;
 pub mod source;
 pub mod tile;
 
+#[cfg(test)]
+mod test_server;
 #[cfg(test)]
 mod tests;
 

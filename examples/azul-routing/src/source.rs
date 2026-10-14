@@ -120,7 +120,7 @@ impl<S: TileSource> CachedTiles<S> {
 
 /// Every file under `dir`, `depth` folders deep at most, with its time and
 /// size.
-fn collect_files(dir: &Path, out: &mut Vec<(std::time::SystemTime, u64, PathBuf)>, depth: usize) {
+pub(crate) fn collect_files(dir: &Path, out: &mut Vec<(std::time::SystemTime, u64, PathBuf)>, depth: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
