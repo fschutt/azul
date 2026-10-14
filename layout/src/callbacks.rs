@@ -9376,6 +9376,25 @@ mod autotest_generated {
         });
     }
 
+    /// `set_app_light` hands the app's new light to the event loop (which
+    /// publishes it and has every window adopt it); `get_app_light` reads
+    /// the app's light as it stands.
+    #[test]
+    fn setting_the_app_light_queues_it_for_every_window() {
+        let light = azul_core::light::Light::point(1200.0, 40.0, 700.0);
+        with_info(node_none(), |info| {
+            assert_eq!(info.get_app_light(), azul_core::light::app_light());
+            info.set_app_light(light);
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 1, "one queued change: {changes:?}");
+            assert!(
+                matches!(changes[0], CallbackChange::SetAppLight { light: queued } if queued == light),
+                "{:?}",
+                changes[0]
+            );
+        });
+    }
+
     #[test]
     fn callback_info_flag_mutators_queue_exactly_one_matching_change() {
         macro_rules! assert_queues {
