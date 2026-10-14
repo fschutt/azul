@@ -1103,3 +1103,5 @@ mod a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line;
 mod a_tab_bar_with_a_reveal_draws_no_tab_selected_while_its_panel_is_closed;
 #[path = "a_painted_row_of_tab_buttons_shows_gold_edges_and_the_stone.rs"]
 mod a_painted_row_of_tab_buttons_shows_gold_edges_and_the_stone;
+#[path = "tab_buttons_and_leather_commands_answer_every_state.rs"]
+mod tab_buttons_and_leather_commands_answer_every_state;
