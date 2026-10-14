@@ -3987,7 +3987,9 @@ pub fn number_input(mut n: crate::widgets::number_input::NumberInput) -> Dom {
     }
     let mut dom = n.build();
     if owns_field {
-        for p in decl::focus_ring(LIGHT_ACC, DARK_GLOW) {
+        // A field that takes typed text rings on `:focus`, as its inner text
+        // input does: a later `:focus-visible` ring would hide the click's.
+        for p in decl::text_field_focus_ring(LIGHT_ACC, DARK_GLOW) {
             dom.add_css_property(p);
         }
     }
@@ -7347,8 +7349,9 @@ pub(crate) mod australis {
     /// sides S curves (`unselected_tab_curves`, hung on it as parts that
     /// light with it), but standing on the rule in the unselected tab's box.
     /// Bare at rest; under the pointer the hover face, its head in the
-    /// `--fl-bd` hairline and the house ink; held, the pressed face - every
-    /// change over `--fl-dur`, a press at once.
+    /// `--fl-bd` hairline and the house ink; held, the pressed face under a
+    /// `--fl-bd3` head (`.nav-links a:active`) - every change over
+    /// `--fl-dur`, a press at once.
     pub(crate) fn aurora_tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
@@ -7377,6 +7380,10 @@ pub(crate) mod australis {
         v.extend(decl::active_layers(
             vec![PRESSED_FACE_LIGHT],
             vec![PRESSED_FACE_DARK],
+        ));
+        v.extend(P::themed_on_active(
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: LIGHT_BD3 }),
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD3 }),
         ));
         v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
     }
