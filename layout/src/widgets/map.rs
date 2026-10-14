@@ -51,6 +51,8 @@ mod label_placement_tests;
 mod stand_in_tests;
 #[cfg(test)]
 mod ground_tests;
+#[cfg(test)]
+mod disk_cache_tests;
 pub use overlay::{
     MapLatLonVec, MapLatLonVecDestructor, MapLatLonVecDestructorType, MapLatLonVecSlice,
     MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,
