@@ -680,7 +680,10 @@ fn a_view_called_again_with_the_same_inputs_keeps_the_dom_it_has() {
             "frame {frame} of a drag that changes nothing the view draws builds nothing"
         );
     }
-    assert!(memo.must_build((1, 4, 900), false), "another slice of pages builds");
+    assert!(
+        memo.must_build((1, 4, 900), false),
+        "another slice of pages builds"
+    );
     assert!(!memo.must_build((1, 4, 900), false));
 }
 
