@@ -1088,6 +1088,10 @@ pub struct MapTileCache {
     /// ancestor, children, the other look). The prune keeps them: without
     /// them the tile's box would be blank until its own drawing arrives.
     pub stand_ins: alloc::collections::BTreeSet<TileStyleKey>,
+    /// The tiles the app shipped ([`MapSetup::seed_tiles`]), installed on
+    /// mount: queued first at every look the map shows, never forgotten,
+    /// never evicted (entry, drawing or bytes).
+    pub pinned: alloc::collections::BTreeSet<MapTileId>,
 }
 
 impl MapTileCache {
@@ -1124,6 +1128,20 @@ impl MapTileCache {
             fade_idle_ticks: 0,
             arrived: BTreeMap::new(),
             stand_ins: alloc::collections::BTreeSet::new(),
+            pinned: alloc::collections::BTreeSet::new(),
+        }
+    }
+
+    /// Takes the setup's seed tiles as tiles the map already has: their
+    /// bytes go where a download's would, so drawing one is a restyle, and
+    /// they are pinned.
+    pub fn install_seed_tiles(&mut self) {
+        for seed in self.setup.seed_tiles.as_ref() {
+            if seed.bytes.as_ref().is_empty() {
+                continue;
+            }
+            self.tile_bytes.insert(seed.tile, seed.bytes.clone());
+            self.pinned.insert(seed.tile);
         }
     }
 
@@ -1254,8 +1272,12 @@ impl MapTileCache {
         let Some(wanted) = self.wanted else {
             return;
         };
-        self.tiles
-            .retain(|key, entry| !matches!(entry, TileEntry::Pending) || wanted.contains(key.tile));
+        let pinned = &self.pinned;
+        self.tiles.retain(|key, entry| {
+            !matches!(entry, TileEntry::Pending)
+                || wanted.contains(key.tile)
+                || pinned.contains(&key.tile)
+        });
     }
 
     /// The look to render right now: the layer's choice of cartography, taken
@@ -1426,12 +1448,14 @@ impl MapTileCache {
         };
 
         // A stand-in's entry goes with its drawing (see prune_drawn_tiles).
-        let stand_ins = &self.stand_ins;
+        let (stand_ins, pinned) = (&self.stand_ins, &self.pinned);
         let mut evictable: Vec<(f64, TileStyleKey)> = self
             .tiles
             .iter()
             .filter(|(k, e)| {
-                !matches!(e, TileEntry::Pending | TileEntry::Fetching) && !stand_ins.contains(k)
+                !matches!(e, TileEntry::Pending | TileEntry::Fetching)
+                    && !stand_ins.contains(k)
+                    && !pinned.contains(&k.tile)
             })
             .map(|(k, _)| (score(k), *k))
             .collect();
@@ -1457,7 +1481,7 @@ impl MapTileCache {
             let mut byte_evictable: Vec<(f64, MapTileId)> = self
                 .tile_bytes
                 .keys()
-                .filter(|t| !live.contains(t))
+                .filter(|t| !live.contains(t) && !self.pinned.contains(t))
                 .map(|t| (tile_viewport_score(&self.viewport, &self.layer, *t), *t))
                 .collect();
             byte_evictable
@@ -1492,12 +1516,13 @@ impl MapTileCache {
         }
         let active = self.active_look;
         let wanted = self.wanted;
-        let (viewport, layer, stand_ins) = (&self.viewport, &self.layer, &self.stand_ins);
+        let (viewport, layer, stand_ins, pinned) =
+            (&self.viewport, &self.layer, &self.stand_ins, &self.pinned);
         let mut evictable: Vec<(f64, TileStyleKey)> = self
             .drawn
             .keys()
             .filter(|k| !(k.look == active && wanted.is_some_and(|w| w.contains(k.tile))))
-            .filter(|k| !stand_ins.contains(k))
+            .filter(|k| !stand_ins.contains(k) && !pinned.contains(&k.tile))
             .map(|k| {
                 let penalty = if k.look == active {
                     0.0
@@ -1953,7 +1978,42 @@ pub struct MapSetup {
     /// The most bytes that folder holds before the least recently used tiles
     /// go; 0 = [`disk_cache::DEFAULT_DISK_CACHE_BYTES`].
     pub disk_cache_max_bytes: u64,
+    /// Tiles the app ships, as the tile server serves them (the world at
+    /// zoom 0 and 1, say): the map holds them from mount on as tiles it
+    /// already has, never downloads them, and keeps them drawn as the ground
+    /// of last resort under every tile that has not arrived
+    /// ([`MapTileCache::install_seed_tiles`]).
+    pub seed_tiles: MapSeedTileVec,
 }
+
+/// A tile an app ships with its map: which one, and its bytes as the
+/// layer's tile server serves them (an MVT tile for a vector layer). See
+/// [`MapSetup::seed_tiles`].
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct MapSeedTile {
+    pub tile: MapTileId,
+    pub bytes: azul_css::U8Vec,
+}
+
+azul_css::impl_option!(
+    MapSeedTile,
+    OptionMapSeedTile,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+azul_css::impl_vec!(
+    MapSeedTile,
+    MapSeedTileVec,
+    MapSeedTileVecDestructor,
+    MapSeedTileVecDestructorType,
+    MapSeedTileVecSlice,
+    OptionMapSeedTile
+);
+azul_css::impl_vec_clone!(MapSeedTile, MapSeedTileVec, MapSeedTileVecDestructor);
+azul_css::impl_vec_debug!(MapSeedTile, MapSeedTileVec);
+azul_css::impl_vec_mut!(MapSeedTile, MapSeedTileVec);
+azul_css::impl_vec_partialeq!(MapSeedTile, MapSeedTileVec);
 
 impl azul_core::host_invoker::HostOut for MapSetup {
     /// Shares nothing: owns no pool, no thread.
@@ -1978,6 +2038,7 @@ impl MapSetup {
             max_in_flight: 0,
             disk_cache_dir: AzString::from_const_str(""),
             disk_cache_max_bytes: 0,
+            seed_tiles: MapSeedTileVec::from_const_slice(&[]),
         }
     }
 
@@ -2009,6 +2070,16 @@ impl MapSetup {
     pub fn with_disk_cache(mut self, dir: AzString, max_bytes: u64) -> Self {
         self.disk_cache_dir = dir;
         self.disk_cache_max_bytes = max_bytes;
+        self
+    }
+
+    /// Ship `tile` with the map: `bytes` are the tile as the layer's server
+    /// serves it. The map never downloads it and keeps it drawn under every
+    /// tile that has not arrived - the world tiles make a first start
+    /// without a network show the world
+    #[must_use]
+    pub fn with_seed_tile(mut self, tile: MapTileId, bytes: azul_css::U8Vec) -> Self {
+        self.seed_tiles.push(MapSeedTile { tile, bytes });
         self
     }
 }
@@ -2057,6 +2128,7 @@ fn mount_map(data: &mut RefAny, info: &CallbackInfo) {
     let setup = hook.callback.invoke(hook.refany, *info, setup);
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
         cache.setup = setup;
+        cache.install_seed_tiles();
     }
 }
 
@@ -3230,15 +3302,23 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 .or_insert(TileEntry::Pending);
         }
         cache.drop_unwanted_pending();
+        // The shipped tiles at the look shown: queued whatever the view
+        // wants, since they stand in for every tile that has not arrived.
+        let pinned: Vec<MapTileId> = cache.pinned.iter().copied().collect();
+        for tile in &pinned {
+            cache
+                .tiles
+                .entry(TileStyleKey { tile: *tile, look })
+                .or_insert(TileEntry::Pending);
+        }
 
         let budget = spawn_budget(&cache);
-        // Centre-out: the tiles under the user's eyes first, the off-screen
+        // The shipped tiles first (a restyle each, no network), then
+        // centre-out: the tiles under the user's eyes first, the off-screen
         // margin and other-zoom leftovers last (see `pending_tiles_nearest_first`).
-        let pending: Vec<TileStyleKey> = cache
-            .pending_tiles_nearest_first()
-            .into_iter()
-            .take(budget)
-            .collect();
+        let mut queue = cache.pending_tiles_nearest_first();
+        queue.sort_by_key(|key| !cache.pinned.contains(&key.tile));
+        let pending: Vec<TileStyleKey> = queue.into_iter().take(budget).collect();
         for key in pending {
             to_spawn.push(tile_fetch_init(&cache, key));
             cache.tiles.insert(key, TileEntry::Fetching);
