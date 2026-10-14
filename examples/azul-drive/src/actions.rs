@@ -1165,6 +1165,7 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         shift: m.shift,
         ctrl: m.primary_down(),
         alt: m.alt,
+        control: m.ctrl,
     };
     // azul-appkit's keys first: Mod+, opens the Options, F1 at the keyboard shortcuts, Escape
     // closes them.
@@ -1349,6 +1350,12 @@ pub(crate) fn run_command(
         }
         Command::PreviewPane => run_action(info, app, s, Action::Toggle(Toggle::PreviewPane)),
         Command::DetailsPane => run_action(info, app, s, Action::Toggle(Toggle::DetailsPane)),
+        Command::NewTab
+        | Command::CloseTab
+        | Command::NextTab
+        | Command::PrevTab
+        | Command::JumpTab(_)
+        | Command::TabOverview => {}
     }
 }
 

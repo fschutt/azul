@@ -2,7 +2,12 @@
 //! command (Enter opens, Backspace / Alt+Up go up, Alt+Left / Alt+Right walk
 //! the history, F2 renames, Delete / Shift+Delete, Ctrl+C / X / V, Ctrl+A,
 //! Ctrl+Shift+N, F5, Ctrl+F / F3, the arrows with Shift / Ctrl, the context
-//! menu key, type-ahead). Cmd counts as Ctrl on macOS. No azul types: the app
+//! menu key, type-ahead), Finder's Cmd keys beside them (Cmd+[ and Cmd+] walk
+//! the history, Cmd+Up goes up, Cmd+Down opens, Cmd+Backspace deletes, Cmd+I
+//! shows the properties), and the location tabs' keys (Ctrl+T, Ctrl+W,
+//! Ctrl+Tab, Ctrl+1..9, Ctrl+Shift+A). Cmd counts as Ctrl on macOS for the
+//! file commands; the tab keys are the Control key on every platform (Cmd+T
+//! and Cmd+W too), so Cmd+1 can stay a layout on macOS. No azul types: the app
 //! maps azul's key codes to [`Key`] and runs the [`Command`].
 
 use azul_appkit::Shortcut;
@@ -35,12 +40,16 @@ pub enum Key {
     Other,
 }
 
-/// The modifiers held (`ctrl` is Ctrl or, on macOS, Cmd).
+/// The modifiers held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Mods {
     pub shift: bool,
+    /// The platform's shortcut modifier: Cmd on macOS, Ctrl elsewhere.
     pub ctrl: bool,
     pub alt: bool,
+    /// The Control key itself, on every platform (on macOS a key apart from Cmd): the location
+    /// tabs' keys read it, so Ctrl+1 jumps to a tab while Cmd+1 picks a layout.
+    pub control: bool,
 }
 
 /// How far an arrow key moves in the visible order.
@@ -114,6 +123,18 @@ pub enum Command {
     DetailsPane,
     /// A letter or digit typed: jump to the name starting with it.
     TypeAhead(char),
+    /// Ctrl+T (Cmd+T): a new location tab on the folder the window shows.
+    NewTab,
+    /// Ctrl+W (Cmd+W): the location tab showing closes (never the last one).
+    CloseTab,
+    /// Ctrl+Tab: the next location tab, round the end.
+    NextTab,
+    /// Ctrl+Shift+Tab: the previous location tab, round the start.
+    PrevTab,
+    /// Ctrl+1..9: the location tab of that number.
+    JumpTab(u8),
+    /// Ctrl+Shift+A: the tab overview.
+    TabOverview,
 }
 
 /// The keyboard shortcuts as the Options' "Keyboard shortcuts" section lists them (azul-appkit's
@@ -219,26 +240,51 @@ mod tests {
         shift: false,
         ctrl: false,
         alt: false,
+        control: false,
     };
     const CTRL: Mods = Mods {
         shift: false,
         ctrl: true,
         alt: false,
+        control: false,
     };
     const SHIFT: Mods = Mods {
         shift: true,
         ctrl: false,
         alt: false,
+        control: false,
     };
     const ALT: Mods = Mods {
         shift: false,
         ctrl: false,
         alt: true,
+        control: false,
     };
     const CTRL_SHIFT: Mods = Mods {
         shift: true,
         ctrl: true,
         alt: false,
+        control: false,
+    };
+    /// The Control key on macOS: not the shortcut modifier there.
+    const CONTROL: Mods = Mods {
+        shift: false,
+        ctrl: false,
+        alt: false,
+        control: true,
+    };
+    const CONTROL_SHIFT: Mods = Mods {
+        shift: true,
+        ctrl: false,
+        alt: false,
+        control: true,
+    };
+    /// Ctrl on Windows and Linux: the Control key IS the shortcut modifier.
+    const PC_CTRL: Mods = Mods {
+        shift: false,
+        ctrl: true,
+        alt: false,
+        control: true,
     };
 
     #[test]
@@ -352,6 +398,7 @@ mod tests {
             shift: true,
             ctrl: false,
             alt: true,
+            control: false,
         };
         assert_eq!(command_for(Key::Char('p'), ALT), Some(Command::PreviewPane));
         assert_eq!(
@@ -364,13 +411,87 @@ mod tests {
         );
     }
 
-    /// `Mod+Shift+N` -> (`Char('n')`, Ctrl + Shift), as the table spells keys.
+    /// The location tabs: Ctrl+T and Ctrl+W with the Control key or the shortcut modifier
+    /// (Cmd+T, Cmd+W on macOS), Ctrl+Tab and Ctrl+Shift+Tab, Ctrl+1..9, Ctrl+Shift+A - on
+    /// macOS with the Control key, on Windows and Linux with Ctrl.
+    #[test]
+    fn the_location_tab_keys_work_with_control_on_every_platform() {
+        for mods in [CONTROL, CTRL, PC_CTRL] {
+            assert_eq!(command_for(Key::Char('t'), mods), Some(Command::NewTab), "{mods:?}");
+            assert_eq!(command_for(Key::Char('w'), mods), Some(Command::CloseTab), "{mods:?}");
+        }
+        for mods in [CONTROL, PC_CTRL] {
+            assert_eq!(command_for(Key::Tab, mods), Some(Command::NextTab), "{mods:?}");
+            assert_eq!(command_for(Key::Char('1'), mods), Some(Command::JumpTab(1)), "{mods:?}");
+            assert_eq!(command_for(Key::Char('9'), mods), Some(Command::JumpTab(9)), "{mods:?}");
+        }
+        assert_eq!(command_for(Key::Tab, CONTROL_SHIFT), Some(Command::PrevTab));
+        assert_eq!(command_for(Key::Char('a'), CONTROL_SHIFT), Some(Command::TabOverview));
+        let pc_ctrl_shift = Mods {
+            shift: true,
+            ..PC_CTRL
+        };
+        assert_eq!(command_for(Key::Tab, pc_ctrl_shift), Some(Command::PrevTab));
+        assert_eq!(command_for(Key::Char('a'), pc_ctrl_shift), Some(Command::TabOverview));
+        assert_eq!(command_for(Key::Char('a'), PC_CTRL), Some(Command::SelectAll), "Ctrl+A stays");
+        assert_eq!(command_for(Key::Tab, CTRL), None, "Cmd+Tab is the system's app switcher");
+        assert_eq!(command_for(Key::Char('0'), CONTROL), None, "no tab 0");
+        assert_eq!(
+            command_for(Key::Char('t'), CONTROL_SHIFT),
+            None,
+            "Ctrl+Shift+T is no new tab"
+        );
+    }
+
+    /// A letter with the Control key held is never type-ahead (on macOS Control is no
+    /// shortcut modifier, so the letter would otherwise jump to a name).
+    #[test]
+    fn a_letter_with_control_held_does_not_type_ahead() {
+        assert_eq!(command_for(Key::Char('q'), CONTROL), None);
+        assert_eq!(command_for(Key::Char('5'), CONTROL_SHIFT), None);
+    }
+
+    /// Finder's keys beside Explorer's: Cmd+[ and Cmd+] go back and forward, Cmd+Up goes up,
+    /// Cmd+Down opens, Cmd+Backspace deletes, Cmd+I shows the properties, Cmd+Alt+P the preview
+    /// pane; Cmd+Left and Cmd+Right still move only the focus.
+    #[test]
+    fn finders_cmd_keys_walk_the_history_go_up_open_delete_and_show_the_properties() {
+        let cmd_alt = Mods { alt: true, ..CTRL };
+        assert_eq!(command_for(Key::Char('['), CTRL), Some(Command::Back));
+        assert_eq!(command_for(Key::Char(']'), CTRL), Some(Command::Forward));
+        assert_eq!(command_for(Key::Up, CTRL), Some(Command::Up));
+        assert_eq!(command_for(Key::Down, CTRL), Some(Command::Open));
+        assert_eq!(command_for(Key::Back, CTRL), Some(Command::Delete));
+        assert_eq!(command_for(Key::Char('i'), CTRL), Some(Command::Properties));
+        assert_eq!(command_for(Key::Char('p'), cmd_alt), Some(Command::PreviewPane));
+        assert_eq!(
+            command_for(Key::Left, CTRL),
+            Some(Command::Move {
+                step: Step::Prev,
+                extend: false,
+                keep: true
+            })
+        );
+    }
+
+    /// Cmd+1 large icons and Cmd+2 details on macOS (Finder's keys); on Windows and Linux
+    /// Ctrl+1 and Ctrl+2 are the tab keys, and Ctrl+Shift+1..8 the layouts.
+    #[test]
+    fn cmd_one_and_two_pick_icons_and_details_where_ctrl_one_is_not_a_tab_key() {
+        assert_eq!(command_for(Key::Char('1'), CTRL), Some(Command::Layout(2)));
+        assert_eq!(command_for(Key::Char('2'), CTRL), Some(Command::Layout(6)));
+        assert_eq!(command_for(Key::Char('1'), PC_CTRL), Some(Command::JumpTab(1)));
+    }
+
+    /// `Mod+Shift+N` -> (`Char('n')`, Ctrl + Shift), as the table spells keys; `Ctrl` is the
+    /// Control key.
     fn parse_keys(keys: &str) -> (Key, Mods) {
         let mut mods = NONE;
         let mut key = Key::Other;
         for part in keys.split('+') {
             match part {
                 "Mod" => mods.ctrl = true,
+                "Ctrl" => mods.control = true,
                 "Shift" => mods.shift = true,
                 "Alt" => mods.alt = true,
                 "Enter" => key = Key::Enter,
@@ -378,6 +499,7 @@ mod tests {
                 "Delete" => key = Key::Delete,
                 "Escape" => key = Key::Escape,
                 "Space" => key = Key::Space,
+                "Tab" => key = Key::Tab,
                 "Up" => key = Key::Up,
                 "Down" => key = Key::Down,
                 "Left" => key = Key::Left,
