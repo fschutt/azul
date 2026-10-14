@@ -4271,10 +4271,11 @@ impl Ribbon {
             .with_children(DomVec::from_vec(group_list_items));
 
         // On the leather a disabled command keeps the raised pill in a
-        // quieter face: the Button only dims it.
+        // quieter face (the Button only dims it), and a check box's row is
+        // a frosted panel.
         if pills && theme == UiTheme::Flora {
             for g in &mut group_doms {
-                quiet_disabled_commands(g);
+                leather_details(g);
             }
         }
         let mut content_style = style.resolved_content_style().into_library_owned_vec();
@@ -4614,28 +4615,44 @@ fn golden_line() -> Dom {
     line
 }
 
-/// Every disabled command in `dom` (its `RIBBON_DISABLED_CLASS`) as the
-/// leather shows it: the raised pill in a quieter face with a neutral edge
-/// and grey words, opaque (the Button dims a disabled caller-styled command).
-fn quiet_disabled_commands(dom: &mut Dom) {
+/// `node`'s own style with `extra` laid after it (so `extra` wins).
+fn append_style(node: &mut NodeData, extra: Vec<Cond>) {
+    let mut v: Vec<Cond> = node
+        .style
+        .iter_inline_properties()
+        .map(|(property, apply_if)| Cond {
+            property: property.clone(),
+            apply_if: apply_if.clone(),
+        })
+        .collect();
+    v.extend(extra);
+    node.set_css_props(CssPropertyWithConditionsVec::from_vec(v));
+}
+
+/// The commands and controls in `dom` as the leather shows them: a
+/// disabled command (its `RIBBON_DISABLED_CLASS`) keeps the raised pill in a
+/// quieter face with a neutral edge and grey words, opaque (the Button only
+/// dims a disabled caller-styled command); a row holding a check box (a
+/// check box and its label) is a frosted recessed panel.
+fn leather_details(dom: &mut Dom) {
+    use crate::widgets::themes::flora;
     if dom.root.has_class(RIBBON_DISABLED_CLASS) {
-        let mut v: Vec<Cond> = dom
-            .root
-            .style
-            .iter_inline_properties()
-            .map(|(property, apply_if)| Cond {
-                property: property.clone(),
-                apply_if: apply_if.clone(),
-            })
-            .collect();
-        v.extend(crate::widgets::themes::flora::quiet_command());
-        v.push(Cond::simple(P::const_opacity(StyleOpacity {
+        let mut extra = flora::quiet_command();
+        extra.push(Cond::simple(P::const_opacity(StyleOpacity {
             inner: PercentageValue::const_new(100),
         })));
-        dom.root.set_css_props(CssPropertyWithConditionsVec::from_vec(v));
+        append_style(&mut dom.root, extra);
+    } else if dom.root.has_class("__azul-native-ribbon-row")
+        && dom
+            .children
+            .as_ref()
+            .iter()
+            .any(|c| c.root.has_class("__azul-native-checkbox-container"))
+    {
+        append_style(&mut dom.root, flora::check_panel());
     }
     for child in dom.children.iter_mut() {
-        quiet_disabled_commands(child);
+        leather_details(child);
     }
 }
 

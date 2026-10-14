@@ -1254,6 +1254,29 @@ pub(crate) fn frosted(on: bool) -> Vec<CssPropertyWithConditions> {
     v
 }
 
+/// A check box's row on the leather (the box and its label): a frosted
+/// recessed panel one small command tall, a shade lighter under the
+/// pointer.
+#[must_use]
+pub(crate) fn check_panel() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let mut v = alloc::vec![
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(22))),
+    ];
+    v.extend(decl::padding(0, 8, 0, 6));
+    v.extend(decl::radius(3));
+    v.extend(decl::border(1));
+    v.extend(frosted(false));
+    v.extend(decl::hover_layers(
+        face_layer((ColorU::new(255, 255, 255, 242), ColorU::new(248, 247, 243, 242))),
+        face_layer((ColorU::new(50, 50, 50, 235), ColorU::new(42, 42, 42, 235))),
+    ));
+    v
+}
+
 /// A small button at the end of the tab row (the chevron, the location
 /// tabs' button): 24 x 20, the house radius, the leather face in the
 /// hairline of a plain button, raised, never gold.
