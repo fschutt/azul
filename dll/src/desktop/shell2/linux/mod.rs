@@ -91,20 +91,20 @@ pub enum LinuxEvent {
     Wayland(wayland::WaylandEvent),
 }
 
-/// Hands the app threads of `closing` (already out of the registry) to the first registered
-/// window that may take them (`common::thread_handover`).
+/// Hands the app threads and the keyring ops of `closing` (already out of the registry) to the
+/// first registered window that may take them (`common::thread_handover`).
 ///
 /// # Safety
 ///
 /// Every pointer in the registry is a live window, and `closing` is not one of them.
-pub(crate) unsafe fn hand_over_threads(closing: &mut LinuxWindow) {
+pub(crate) unsafe fn hand_over_background_work(closing: &mut LinuxWindow) {
     use super::common::{event::PlatformWindow, thread_handover};
 
     fn hand_to<H: PlatformWindow>(closing: &mut LinuxWindow, heir: &mut H) -> bool {
         match closing {
-            LinuxWindow::X11(w) => thread_handover::hand_over_threads(w, heir),
+            LinuxWindow::X11(w) => thread_handover::hand_over_background_work(w, heir),
             #[cfg(target_os = "linux")]
-            LinuxWindow::Wayland(w) => thread_handover::hand_over_threads(w, heir),
+            LinuxWindow::Wayland(w) => thread_handover::hand_over_background_work(w, heir),
         }
     }
 

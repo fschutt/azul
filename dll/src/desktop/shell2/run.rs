@@ -2563,7 +2563,7 @@ fn run_linux_windows(
                     // a window that stays open, not stopped with this one.
                     if let Some(win_ptr) = registry::unregister_window(*wid) {
                         unsafe {
-                            super::linux::hand_over_threads(&mut *win_ptr);
+                            super::linux::hand_over_background_work(&mut *win_ptr);
                             drop(Box::from_raw(win_ptr));
                         }
                     }

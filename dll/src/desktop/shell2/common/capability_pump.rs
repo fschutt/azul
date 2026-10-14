@@ -161,7 +161,9 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     for req in &keyring_requests {
         crate::desktop::extra::keyring::request(req);
     }
-    for result in azul_layout::managers::keyring::drain_keyring_results() {
+    // Only the answers this window waits for: another window's pass leaves them for it.
+    let awaited = usize::try_from(lw.keyring_manager.in_flight).unwrap_or(usize::MAX);
+    for result in azul_layout::managers::keyring::drain_keyring_results_up_to(awaited) {
         lw.keyring_manager.set_last_result(result);
         changed = true;
     }

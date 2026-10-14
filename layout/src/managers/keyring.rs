@@ -154,13 +154,25 @@ pub fn push_keyring_result(result: KeyringResult) {
     q.push(result);
 }
 
-/// Drain every parked keyring result, in arrival order. Called once per
-/// layout pass; the caller applies them via [`KeyringManager::set_last_result`].
+/// Drain every parked keyring result, in arrival order (a test clears the channel with it). A
+/// window's pass takes only its own: [`drain_keyring_results_up_to`].
 pub fn drain_keyring_results() -> Vec<KeyringResult> {
     let mut q = PENDING_RESULTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
+}
+
+/// Drain the oldest `max` parked keyring results. A window passes the number of its ops in
+/// flight, so it takes only answers it waits for: the answers are not tagged with the window that
+/// asked, and with several windows open another window's pass would otherwise take one, fire the
+/// `KeyringResult` event there, and leave the asking window's callback waiting forever.
+pub fn drain_keyring_results_up_to(max: usize) -> Vec<KeyringResult> {
+    let mut q = PENDING_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let take = max.min(q.len());
+    q.drain(..take).collect()
 }
 
 #[cfg(test)]

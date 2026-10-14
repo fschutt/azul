@@ -9303,11 +9303,11 @@ pub(crate) fn drain_closed_windows() {
         // queued, so this is its sole owner and the box is freed exactly once.
         // The registry no longer holds it, so no heir below is the same window.
         unsafe {
-            // The app's threads go on in a window that stays open (a compose
+            // The app's threads and keyring ops go on in a window that stays open (a compose
             // window whose main window closed), not stopped with this one.
             for heir in registry::get_all_window_ptrs() {
                 if heir != window_ptr
-                    && crate::desktop::shell2::common::thread_handover::hand_over_threads(
+                    && crate::desktop::shell2::common::thread_handover::hand_over_background_work(
                         &mut *window_ptr,
                         &mut *heir,
                     )
