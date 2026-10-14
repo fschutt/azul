@@ -52,21 +52,19 @@ impl Entry {
     /// Whether it may answer without asking the service.
     #[must_use]
     pub fn is_fresh(&self, now: u64) -> bool {
-        let _ = now;
-        false
+        now < self.stored_at.saturating_add(self.max_age_s)
     }
 
     /// How old it is, seconds.
     #[must_use]
     pub fn age_s(&self, now: u64) -> u64 {
-        let _ = now;
-        0
+        now.saturating_sub(self.stored_at)
     }
 
     /// Whether the service can be asked if it changed (it has a validator).
     #[must_use]
     pub fn can_revalidate(&self) -> bool {
-        false
+        self.etag.is_some() || self.last_modified.is_some()
     }
 }
 
@@ -114,26 +112,59 @@ impl ResponseCache {
     /// remembered in memory from then on, and its file counts as just used).
     #[must_use]
     pub fn get(&self, key: &str) -> Option<Entry> {
-        let _ = key;
-        None
+        if let Ok(mut memory) = self.memory.lock() {
+            if let Some(at) = memory.iter().position(|(k, _)| k == key) {
+                // Used now: it moves to the back, the most recently used end.
+                let hit = memory.remove(at)?;
+                let entry = hit.1.clone();
+                memory.push_back(hit);
+                return Some(entry);
+            }
+        }
+        let entry = Self::read_file(self.dir.as_deref()?, key)?;
+        self.remember(key, &entry);
+        Some(entry)
     }
 
     /// Keeps `entry` as the answer for `key`, in memory and in the folder. A folder that cannot
     /// be written only makes the next session slower.
     pub fn put(&self, key: &str, entry: Entry) {
-        let _ = (key, entry);
+        if let Some(dir) = &self.dir {
+            Self::write_file(dir, key, &entry);
+        }
+        self.remember(key, &entry);
     }
 
     /// The service said the answer for `key` did not change (`304`): it is fresh again from
     /// `now` for `max_age_s`.
     pub fn refresh(&self, key: &str, now: u64, max_age_s: u64) {
-        let _ = (key, now, max_age_s);
+        if let Some(mut entry) = self.get(key) {
+            entry.stored_at = now;
+            entry.max_age_s = max_age_s;
+            self.put(key, entry);
+        }
     }
 
     /// Deletes the least recently used files of the folder until it holds at most its cap.
     /// Returns how many bytes it holds after.
     pub fn prune(&self) -> u64 {
-        0
+        let Some(dir) = &self.dir else {
+            return 0;
+        };
+        let mut files = Vec::new();
+        crate::source::collect_files(dir, &mut files, 0);
+        let mut total: u64 = files.iter().map(|f| f.1).sum();
+        // A file's time is when it was last written or read (`read_file` touches it).
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        for (_, size, path) in files {
+            if total <= self.max_disk_bytes {
+                break;
+            }
+            if std::fs::remove_file(&path).is_ok() {
+                total = total.saturating_sub(size);
+            }
+        }
+        total
     }
 
     /// The file of `key` in `dir`: a hash of the key, so any key makes a file name.
@@ -141,17 +172,67 @@ impl ResponseCache {
         dir.join(format!("{:016x}.cache", fnv(key)))
     }
 
+    /// Keeps `entry` in memory as the most recently used answer, dropping the least recently
+    /// used one when memory is full.
     fn remember(&self, key: &str, entry: &Entry) {
-        let _ = (key, entry);
+        let Ok(mut memory) = self.memory.lock() else {
+            return;
+        };
+        if let Some(at) = memory.iter().position(|(k, _)| k == key) {
+            memory.remove(at);
+        }
+        while memory.len() >= self.memory_entries {
+            memory.pop_front();
+        }
+        memory.push_back((key.to_string(), entry.clone()));
     }
 
+    /// The answer for `key` in its file: the magic line, the header line naming this very key,
+    /// then the body. The file's time is set to now, so pruning sees it as just used.
     fn read_file(dir: &Path, key: &str) -> Option<Entry> {
-        let _ = (dir, key, MAGIC);
-        None
+        let path = Self::file_of(dir, key);
+        let bytes = std::fs::read(&path).ok()?;
+        let magic_end = bytes.iter().position(|&b| b == b'\n')?;
+        if &bytes[..magic_end] != MAGIC.as_bytes() {
+            return None;
+        }
+        let rest = &bytes[magic_end + 1..];
+        let header_end = rest.iter().position(|&b| b == b'\n')?;
+        let header: Value = serde_json::from_slice(&rest[..header_end]).ok()?;
+        if header.get("key").and_then(Value::as_str) != Some(key) {
+            return None;
+        }
+        let text = |name: &str| header.get(name).and_then(Value::as_str).map(str::to_string);
+        let entry = Entry {
+            body: rest[header_end + 1..].to_vec(),
+            stored_at: header.get("stored_at").and_then(Value::as_u64)?,
+            max_age_s: header.get("max_age_s").and_then(Value::as_u64)?,
+            etag: text("etag"),
+            last_modified: text("last_modified"),
+        };
+        if let Ok(file) = std::fs::File::options().write(true).open(&path) {
+            let _ = file.set_modified(SystemTime::now());
+        }
+        Some(entry)
     }
 
+    /// Writes the answer's file whole or not at all: into a temporary file, then renamed over
+    /// the old one, so a reader never sees half an answer.
     fn write_file(dir: &Path, key: &str, entry: &Entry) {
-        let _ = (dir, key, entry);
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+        let path = Self::file_of(dir, key);
+        let mut bytes = Vec::with_capacity(entry.body.len() + 256);
+        bytes.extend_from_slice(MAGIC.as_bytes());
+        bytes.push(b'\n');
+        bytes.extend_from_slice(header_of(key, entry).to_string().as_bytes());
+        bytes.push(b'\n');
+        bytes.extend_from_slice(&entry.body);
+        let part = path.with_extension(format!("part{}", std::process::id()));
+        if std::fs::write(&part, &bytes).is_ok() && std::fs::rename(&part, &path).is_err() {
+            let _ = std::fs::remove_file(&part);
+        }
     }
 }
 
@@ -178,24 +259,34 @@ pub fn now_s() -> u64 {
 /// `no-cache` / `no-store`, `None` when it says nothing about it.
 #[must_use]
 pub fn max_age_of(cache_control: Option<&str>) -> Option<u64> {
-    let _ = cache_control;
-    None
+    let mut found = None;
+    for directive in cache_control?.split(',') {
+        let directive = directive.trim().to_ascii_lowercase();
+        if directive == "no-cache" || directive == "no-store" {
+            return Some(0);
+        }
+        if let Some(value) = directive.strip_prefix("max-age=") {
+            found = value.trim_matches('"').parse().ok().or(found);
+        }
+    }
+    found
 }
 
 /// A place as a key: rounded to `decimals` (3 is about 100 m, 4 about 10 m), so places that
 /// close together ask the same question.
 #[must_use]
 pub fn place_key((lat, lon): (f64, f64), decimals: usize) -> String {
-    let _ = (lat, lon, decimals);
-    String::new()
+    format!("{lat:.decimals$},{lon:.decimals$}")
 }
 
 /// The bucket of `unix` seconds `bucket_s` wide (its start): times in one bucket ask the same
 /// question.
 #[must_use]
 pub fn time_bucket(unix: i64, bucket_s: i64) -> i64 {
-    let _ = bucket_s;
-    unix
+    if bucket_s <= 0 {
+        return unix;
+    }
+    unix.div_euclid(bucket_s) * bucket_s
 }
 
 /// A stable 64-bit hash (FNV-1a): an answer's file name.

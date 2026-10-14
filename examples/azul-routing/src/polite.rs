@@ -57,28 +57,65 @@ impl Polite {
 
     /// Waits for this request's turn - asking `stop` while it waits - and takes it.
     pub fn turn(&self, stop: &mut dyn FnMut() -> bool) -> Turn {
-        let _ = stop;
-        Turn::Go
+        loop {
+            if stop() {
+                return Turn::Stopped;
+            }
+            let wait = {
+                let Ok(mut state) = self.state.lock() else {
+                    return Turn::Go;
+                };
+                let now = Instant::now();
+                if let Some(until) = state.paused_until.filter(|until| *until > now) {
+                    return Turn::BackingOff(until - now);
+                }
+                let wait = state
+                    .last_sent
+                    .map_or(Duration::ZERO, |at| self.gap.saturating_sub(at.elapsed()));
+                if wait.is_zero() {
+                    state.last_sent = Some(now);
+                    return Turn::Go;
+                }
+                wait
+            };
+            // Short sleeps, so a caller that gives up is let go soon.
+            std::thread::sleep(wait.min(Duration::from_millis(50)));
+        }
     }
 
     /// The service answered: the pause ends.
-    pub fn answered(&self) {}
+    pub fn answered(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.failures = 0;
+            state.paused_until = None;
+        }
+    }
 
     /// The service failed: the next pause is twice the last one.
-    pub fn failed(&self) {}
+    pub fn failed(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.failures = state.failures.saturating_add(1);
+            state.paused_until = Some(Instant::now() + backoff(state.failures));
+        }
+    }
 
     /// How long the service still pauses, if it does.
     #[must_use]
     pub fn paused_for(&self) -> Option<Duration> {
-        None
+        let state = self.state.lock().ok()?;
+        let now = Instant::now();
+        state.paused_until.filter(|until| *until > now).map(|until| until - now)
     }
 }
 
 /// The pause after `failures` failures in a row: 2 s, 4 s, 8 s, ... up to [`MAX_BACKOFF`].
 #[must_use]
 pub fn backoff(failures: u32) -> Duration {
-    let _ = failures;
-    Duration::ZERO
+    if failures == 0 {
+        return Duration::ZERO;
+    }
+    let doublings = (failures - 1).min(16);
+    FIRST_BACKOFF.saturating_mul(1u32 << doublings).min(MAX_BACKOFF)
 }
 
 #[cfg(test)]

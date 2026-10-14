@@ -140,10 +140,124 @@ impl Fetcher {
         ttl_s: u64,
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<Option<Fetched>, FetchError> {
-        let _ = (request, key, ttl_s, stop, Self::MAX_ANSWER, max_age_of(None), now_s());
-        let _ = Entry::new(Vec::new(), 0, 0);
-        let _ = Turn::Go;
-        Err(FetchError::Offline("not built".to_string()))
+        let kept = self.cache.get(key);
+        let now = now_s();
+        if let Some(entry) = kept.as_ref().filter(|e| e.is_fresh(now)) {
+            return Ok(Some(answer(entry, Origin::Cache, now)));
+        }
+        let offline = |why: FetchError| match kept.as_ref() {
+            Some(entry) => Ok(Some(answer(entry, Origin::Offline, now))),
+            None => Err(why),
+        };
+        if self.is_offline() {
+            return offline(FetchError::Offline("offline".to_string()));
+        }
+        match self.gate.turn(stop) {
+            Turn::Go => {}
+            Turn::Stopped => return Ok(None),
+            Turn::BackingOff(_) => return offline(FetchError::Busy),
+        }
+        let validators = kept.as_ref().filter(|e| e.can_revalidate());
+        let sent = match *request {
+            Request::Get { url, query } => {
+                let mut builder = self
+                    .agent
+                    .get(url)
+                    .header("User-Agent", self.user_agent.as_str())
+                    .header("Accept", "application/json");
+                if let Some(entry) = validators {
+                    if let Some(etag) = &entry.etag {
+                        builder = builder.header("If-None-Match", etag.as_str());
+                    }
+                    if let Some(date) = &entry.last_modified {
+                        builder = builder.header("If-Modified-Since", date.as_str());
+                    }
+                }
+                builder
+                    .query_pairs(query.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+                    .call()
+            }
+            Request::PostJson { url, body } => self
+                .agent
+                .post(url)
+                .header("User-Agent", self.user_agent.as_str())
+                .header("Content-Type", "application/json")
+                .send(body),
+        };
+        let response = match sent {
+            Ok(response) => response,
+            Err(e) => {
+                self.gate.failed();
+                return offline(FetchError::Offline(e.to_string()));
+            }
+        };
+        let status = response.status().as_u16();
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        };
+        let max_age = max_age_of(header("cache-control").as_deref()).unwrap_or(ttl_s);
+        let etag = header("etag");
+        let last_modified = header("last-modified");
+        if status == 304 {
+            self.gate.answered();
+            if let Some(entry) = kept.as_ref() {
+                self.cache.refresh(key, now, max_age);
+                return Ok(Some(answer(entry, Origin::Revalidated, now)));
+            }
+            return Err(FetchError::Refused(304, String::new()));
+        }
+        let text = match response
+            .into_body()
+            .into_with_config()
+            .limit(Self::MAX_ANSWER)
+            .read_to_string()
+        {
+            Ok(text) => text,
+            Err(e) => {
+                self.gate.failed();
+                return offline(FetchError::Offline(e.to_string()));
+            }
+        };
+        match status {
+            200 => {
+                self.gate.answered();
+                let mut entry = Entry::new(text.clone().into_bytes(), now, max_age);
+                entry.etag = etag;
+                entry.last_modified = last_modified;
+                self.cache.put(key, entry);
+                Ok(Some(Fetched {
+                    body: text,
+                    origin: Origin::Network,
+                    age_s: 0,
+                }))
+            }
+            429 => {
+                self.gate.failed();
+                offline(FetchError::Busy)
+            }
+            500.. => {
+                // The service is down: kept answers stand in for it until it is back.
+                self.gate.failed();
+                offline(FetchError::Refused(status, text))
+            }
+            _ => {
+                self.gate.answered();
+                Err(FetchError::Refused(status, text))
+            }
+        }
+    }
+}
+
+/// A kept answer as a [`Fetched`].
+fn answer(entry: &Entry, origin: Origin, now: u64) -> Fetched {
+    Fetched {
+        body: String::from_utf8_lossy(&entry.body).into_owned(),
+        origin,
+        age_s: entry.age_s(now),
     }
 }
 
