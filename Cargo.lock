@@ -180,6 +180,7 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-dll",
+ "azul-routing",
  "ctor",
  "serde_json",
 ]
@@ -1523,6 +1524,16 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "azul-routing"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "rustls-rustcrypto",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]
