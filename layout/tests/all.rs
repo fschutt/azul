@@ -1093,3 +1093,9 @@ mod a_widget_page_rebuilt_unchanged_costs_less_than_a_fresh_layout;
 mod a_marker_stands_where_the_ground_shows_its_place;
 #[path = "a_closing_window_hands_its_app_threads_to_a_window_that_stays_open.rs"]
 mod a_closing_window_hands_its_app_threads_to_a_window_that_stays_open;
+#[path = "a_material_is_lit_per_device_pixel.rs"]
+mod a_material_is_lit_per_device_pixel;
+#[path = "a_window_is_lit_by_the_app_light.rs"]
+mod a_window_is_lit_by_the_app_light;
+#[path = "a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape.rs"]
+mod a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape;
