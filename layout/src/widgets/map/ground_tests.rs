@@ -12,12 +12,18 @@ use super::{
     map_ground_css, map_widget_render, MapTheme, MapTileLayer, MapWidget,
 };
 
-/// The background declarations of a node's inline style, with their
-/// conditions.
+/// The background declarations of a node, with their conditions: its inline
+/// style and its own sheet (`with_css` gives a node a sheet of its own).
 fn grounds(dom: &Dom) -> Vec<(CssProperty, DynamicSelectorVec)> {
     dom.root
         .style
         .iter_inline_properties()
+        .chain(
+            dom.css
+                .as_ref()
+                .iter()
+                .flat_map(|sheet| sheet.iter_inline_properties()),
+        )
         .filter(|(p, _)| p.get_type().to_str().starts_with("background"))
         .map(|(p, c)| (p.clone(), c.clone()))
         .collect()
