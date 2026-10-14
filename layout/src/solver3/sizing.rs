@@ -2904,6 +2904,55 @@ pub fn calculate_used_size_for_node(
         intrinsic.max_content_height.max(0.0)
     };
 
+    // A picture keeps its own proportions (CSS 2.2 10.3.2 and 10.6.2): with both sizes auto
+    // its tentative size is its natural size, and with one size given the other follows
+    // through the natural ratio, measured on the content box. The stored min- and max-content
+    // sizes cannot stand in for the natural size here: `max-width` narrows the width
+    // contribution but nothing narrows the height, so the min/max table below would read a
+    // far taller picture than the real one and squeeze a 256x192 photo under
+    // `max-width: 16px; max-height: 16px` into a 1x16 sliver (Chrome: 16x12).
+    let natural_size = match (intrinsic.preferred_width, intrinsic.preferred_height) {
+        (Some(w), Some(h)) if is_replaced && w > 0.0 && h > 0.0 => Some((w, h)),
+        _ => None,
+    };
+    let (resolved_width, resolved_height) = match natural_size {
+        Some((natural_w, natural_h)) => {
+            // A quantitative border-box size holds the padding and border; the ratio is the
+            // content's.
+            let border_box = matches!(
+                get_css_box_sizing(styled_dom, id, node_state),
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+            );
+            let content_w = if border_box && width_is_quantitative {
+                (resolved_width
+                    - box_props.padding.left
+                    - box_props.padding.right
+                    - box_props.border.left
+                    - box_props.border.right)
+                    .max(0.0)
+            } else {
+                resolved_width
+            };
+            let content_h = if border_box && height_is_quantitative {
+                (resolved_height
+                    - box_props.padding.top
+                    - box_props.padding.bottom
+                    - box_props.border.top
+                    - box_props.border.bottom)
+                    .max(0.0)
+            } else {
+                resolved_height
+            };
+            match (width_is_auto, height_is_auto) {
+                (true, true) => (natural_w, natural_h),
+                (false, true) => (resolved_width, content_w * natural_h / natural_w),
+                (true, false) => (content_h * natural_w / natural_h, resolved_height),
+                (false, false) => (resolved_width, resolved_height),
+            }
+        }
+        None => (resolved_width, resolved_height),
+    };
+
     // +spec:replaced-elements:5a85ce - abs-pos replaced: derive auto width from height × intrinsic
     // ratio +spec:replaced-elements:aedb26 - abs-pos replaced: both auto, ratio but no
     // intrinsic w/h → block constraint CSS Position 3 §6.2 (abs-replaced-width): For absolutely
