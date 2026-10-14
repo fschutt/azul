@@ -1180,6 +1180,12 @@ pub struct LayoutNodeWarm {
     pub ifc_membership: Option<IfcMembership>,
     /// Containing block index for clip exemption
     pub containing_block_index: Option<usize>,
+    /// For a `position: sticky` box, what a scroll after the layout pass
+    /// needs to move it without a relayout (`positioning::StickyConstraint`,
+    /// written by the sticky step of every pass, read per frame by
+    /// `GpuStateManager::update_scrollbar_transforms`). BOXED: rare data,
+    /// `None` on every other node.
+    pub sticky: Option<Box<crate::solver3::positioning::StickyConstraint>>,
 }
 
 /// Cold layout node fields — construction / reconciliation / debugging only.
@@ -1238,6 +1244,8 @@ impl LayoutNode {
                 parent_formatting_context: self.parent_formatting_context,
                 ifc_membership: self.ifc_membership,
                 containing_block_index: self.containing_block_index,
+                // Written by the sticky step of the pass that lays the node out.
+                sticky: None,
             },
             LayoutNodeCold {
                 anonymous_type: self.anonymous_type,

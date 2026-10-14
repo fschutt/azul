@@ -1193,8 +1193,9 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 // +spec:overflow:bac4e5 - sticky view rectangle from inset properties relative to nearest
 // scrollport
 
-/// The scrollport the sticky box at `node_index` sticks to, and how far that
-/// box has scrolled: its NEAREST SCROLL CONTAINER by containing block - the
+/// The scrollport the sticky box at `node_index` sticks to, how far that
+/// box has scrolled, and the node whose offset that is (`None` where no
+/// frame moves it): its NEAREST SCROLL CONTAINER by containing block - the
 /// innermost CSS scroll container of its `ScrollChain` (`hidden | scroll |
 /// auto`: a program scrolls an `overflow: hidden` box, so it is one) - as
 /// the content box and the offset of that box. With none, the viewport, and
@@ -1225,7 +1226,7 @@ fn nearest_scrollport(
     calculated_positions: &super::PositionVec,
     viewport: LogicalRect,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
-) -> (LogicalRect, LogicalPosition) {
+) -> (LogicalRect, LogicalPosition, Option<NodeId>) {
     use azul_core::spaces::Inclusivity;
 
     use crate::solver3::scroll_chain::{is_css_scroll_container, ScrollChain};
@@ -1251,15 +1252,15 @@ fn nearest_scrollport(
         .rev()
         .find(|link| link.layout_index == root || is_css_scroll_container(styled_dom, link.node))
     else {
-        return (viewport, LogicalPosition::zero());
+        return (viewport, LogicalPosition::zero(), None);
     };
     let scroll_offset = offset_of(link.node);
     if !is_css_scroll_container(styled_dom, link.node) {
         // The root, standing in for the viewport.
-        return (viewport, scroll_offset);
+        return (viewport, scroll_offset, Some(link.node));
     }
     let Some(scroller) = tree.get(link.layout_index) else {
-        return (viewport, scroll_offset);
+        return (viewport, scroll_offset, Some(link.node));
     };
     let margin_box_pos = calculated_positions
         .get(link.layout_index.index())
@@ -1287,7 +1288,112 @@ fn nearest_scrollport(
             - pbp.padding.bottom)
             .max(0.0),
     );
-    (LogicalRect::new(content_pos, content_size), scroll_offset)
+    (
+        LogicalRect::new(content_pos, content_size),
+        scroll_offset,
+        Some(link.node),
+    )
+}
+
+/// What `position: sticky` needs to place a box at ANY scroll offset of its
+/// scroller: where normal flow put it, the insets it keeps from the
+/// scrollport and the containing block it never leaves.
+///
+/// Layout places the box for the offsets of its pass ([`Self::baked`]); a
+/// scroll after that moves no box, only the scroll frame, so the box would
+/// go with the rows. The difference `shift_at(offset now) - baked` is what
+/// the GPU value cache's sticky channel carries per frame
+/// (`GpuStateManager::update_scrollbar_transforms`), the way a scrollbar
+/// thumb follows its offset: the renderers and the hit tester read it, no
+/// layout runs. Held in the box's `LayoutNodeWarm::sticky`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StickyConstraint {
+    /// The node whose scroll offset moves the box (its nearest scroll
+    /// container, or the root for the viewport); `None` where no frame
+    /// moves it (a box under a `fixed` ancestor), so it never shifts later.
+    pub scroller: Option<NodeId>,
+    /// The scrollport the insets are measured from, unscrolled, in layout
+    /// coordinates.
+    pub scrollport: LogicalRect,
+    /// The border box where normal flow put the box, before any shift.
+    pub static_rect: LogicalRect,
+    /// The box's margins (top, right, bottom, left): its margin box stays
+    /// inside the containing block.
+    pub margin: [f32; 4],
+    /// The insets (top, right, bottom, left) it keeps from the scrollport;
+    /// `None` for `auto`, a side it does not stick to.
+    pub insets: [Option<f32>; 4],
+    /// The containing block's content box, which the box never leaves.
+    pub containing_block: LogicalRect,
+    /// The shift layout applied, for the offsets of its pass.
+    pub baked: LogicalPosition,
+}
+
+impl StickyConstraint {
+    /// How far the box moves from where normal flow put it when its
+    /// scroller is scrolled by `offset` (positive: down / right) - CSS
+    /// Position 3 s3.4: each side with an inset keeps the border edge inside
+    /// the scrollport inset by it, and the margin box stays inside the
+    /// containing block.
+    #[must_use]
+    pub fn shift_at(&self, offset: LogicalPosition) -> LogicalPosition {
+        let port = self.scrollport;
+        let rect = self.static_rect;
+        let [top, right, bottom, left] = self.insets;
+        let [margin_top, margin_right, margin_bottom, margin_left] = self.margin;
+        let mut shift_x = 0.0f32;
+        let mut shift_y = 0.0f32;
+        if let Some(inset) = top {
+            let edge = port.origin.y + offset.y + inset;
+            if rect.origin.y < edge {
+                shift_y = shift_y.max(edge - rect.origin.y);
+            }
+        }
+        if let Some(inset) = bottom {
+            let edge = port.origin.y + offset.y + port.size.height - inset;
+            let border_bottom = rect.origin.y + rect.size.height;
+            if border_bottom > edge {
+                shift_y = shift_y.min(edge - border_bottom);
+            }
+        }
+        if let Some(inset) = left {
+            let edge = port.origin.x + offset.x + inset;
+            if rect.origin.x < edge {
+                shift_x = shift_x.max(edge - rect.origin.x);
+            }
+        }
+        if let Some(inset) = right {
+            let edge = port.origin.x + offset.x + port.size.width - inset;
+            let border_right = rect.origin.x + rect.size.width;
+            if border_right > edge {
+                shift_x = shift_x.min(edge - border_right);
+            }
+        }
+        let cb = self.containing_block;
+        if shift_y != 0.0 {
+            let margin_box_top = rect.origin.y - margin_top + shift_y;
+            let margin_box_bottom = rect.origin.y + rect.size.height + margin_bottom + shift_y;
+            if margin_box_top < cb.origin.y {
+                shift_y += cb.origin.y - margin_box_top;
+            }
+            let cb_bottom = cb.origin.y + cb.size.height;
+            if margin_box_bottom > cb_bottom {
+                shift_y -= margin_box_bottom - cb_bottom;
+            }
+        }
+        if shift_x != 0.0 {
+            let margin_box_left = rect.origin.x - margin_left + shift_x;
+            let margin_box_right = rect.origin.x + rect.size.width + margin_right + shift_x;
+            if margin_box_left < cb.origin.x {
+                shift_x += cb.origin.x - margin_box_left;
+            }
+            let cb_right = cb.origin.x + cb.size.width;
+            if margin_box_right > cb_right {
+                shift_x -= margin_box_right - cb_right;
+            }
+        }
+        LogicalPosition::new(shift_x, shift_y)
+    }
 }
 
 /// Adjusts positions of sticky-positioned elements based on scroll offset.
@@ -1302,6 +1408,10 @@ fn nearest_scrollport(
 /// +spec:box-model:af9af8 - sticky positioning: shift element to stay within sticky view rectangle,
 /// margin box constrained to containing block +spec:overflow:bac4e5 - compute sticky view
 /// rectangle, clamp end-edge insets to border box size
+///
+/// Returns every sticky box's [`StickyConstraint`] (by layout node index),
+/// which the caller keeps in the tree so a later scroll can move the box
+/// without a relayout.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
 pub fn adjust_sticky_positions<T: ParsedFontTrait>(
@@ -1310,9 +1420,10 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
     calculated_positions: &mut super::PositionVec,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     viewport: LogicalRect,
-) {
-    // Returns `()` (not `Result<()>`): Ok-always (its only `?` is Option-`?` in an `.and_then`
-    // closure). Avoids the lift-fragile Result<(),LayoutError> Ok-niche read at the call site.
+) -> Vec<(usize, StickyConstraint)> {
+    // Returns no `Result`: Ok-always (its only `?` is Option-`?` in an `.and_then`
+    // closure). Avoids the lift-fragile Result Ok-niche read at the call site.
+    let mut constraints = Vec::new();
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
         let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
@@ -1327,7 +1438,7 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
 
         // The nearest scrollport for this sticky element, and how far it
         // has scrolled: one answer (`nearest_scrollport`).
-        let (scrollport, scroll_offset) = nearest_scrollport(
+        let (scrollport, scroll_offset, scroller) = nearest_scrollport(
             tree,
             node_index,
             ctx.styled_dom,
@@ -1375,75 +1486,20 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
         let element_size = node.used_size.unwrap_or_default();
         let nbp = node.box_props.unpack();
         let margin = &nbp.margin;
-
-        let mut shift_x = 0.0f32;
-        let mut shift_y = 0.0f32;
-
-        // For each side: if inset is not auto, clamp the border edge to stay
-        // within the sticky view rectangle (scrollport inset by the specified amount).
-        // The scroll offset shifts the effective scrollport position.
-        if let Some(top_inset) = offsets.top {
-            let sticky_edge = scrollport.origin.y + scroll_offset.y + top_inset;
-            let border_top = current_pos.y;
-            if border_top < sticky_edge {
-                shift_y = shift_y.max(sticky_edge - border_top);
-            }
-        }
-
-        if let Some(bottom_inset) = offsets.bottom {
-            let sticky_edge =
-                scrollport.origin.y + scroll_offset.y + scrollport.size.height - bottom_inset;
-            let border_bottom = current_pos.y + element_size.height;
-            if border_bottom > sticky_edge {
-                shift_y = shift_y.min(sticky_edge - border_bottom);
-            }
-        }
-
-        if let Some(left_inset) = offsets.left {
-            let sticky_edge = scrollport.origin.x + scroll_offset.x + left_inset;
-            let border_left = current_pos.x;
-            if border_left < sticky_edge {
-                shift_x = shift_x.max(sticky_edge - border_left);
-            }
-        }
-
-        if let Some(right_inset) = offsets.right {
-            let sticky_edge =
-                scrollport.origin.x + scroll_offset.x + scrollport.size.width - right_inset;
-            let border_right = current_pos.x + element_size.width;
-            if border_right > sticky_edge {
-                shift_x = shift_x.min(sticky_edge - border_right);
-            }
-        }
-
-        // Constrain: the margin box must remain within the containing block
-        if shift_y != 0.0 {
-            let margin_box_top = current_pos.y - margin.top + shift_y;
-            let margin_box_bottom = current_pos.y + element_size.height + margin.bottom + shift_y;
-            if margin_box_top < containing_block.origin.y {
-                shift_y += containing_block.origin.y - margin_box_top;
-            }
-            let cb_bottom = containing_block.origin.y + containing_block.size.height;
-            if margin_box_bottom > cb_bottom {
-                shift_y -= margin_box_bottom - cb_bottom;
-            }
-        }
-
-        if shift_x != 0.0 {
-            let margin_box_left = current_pos.x - margin.left + shift_x;
-            let margin_box_right = current_pos.x + element_size.width + margin.right + shift_x;
-            if margin_box_left < containing_block.origin.x {
-                shift_x += containing_block.origin.x - margin_box_left;
-            }
-            let cb_right = containing_block.origin.x + containing_block.size.width;
-            if margin_box_right > cb_right {
-                shift_x -= margin_box_right - cb_right;
-            }
-        }
-
-        if shift_x != 0.0 || shift_y != 0.0 {
-            current_pos.x += shift_x;
-            current_pos.y += shift_y;
+        let mut constraint = StickyConstraint {
+            scroller,
+            scrollport,
+            static_rect: LogicalRect::new(static_pos, element_size),
+            margin: [margin.top, margin.right, margin.bottom, margin.left],
+            insets: [offsets.top, offsets.right, offsets.bottom, offsets.left],
+            containing_block,
+            baked: LogicalPosition::zero(),
+        };
+        let shift = constraint.shift_at(scroll_offset);
+        constraint.baked = shift;
+        if shift.x != 0.0 || shift.y != 0.0 {
+            current_pos.x += shift.x;
+            current_pos.y += shift.y;
 
             debug_log!(
                 ctx,
@@ -1453,7 +1509,9 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
                 *current_pos
             );
         }
+        constraints.push((node_index, constraint));
     }
+    constraints
 }
 
 // +spec:positioning:22f165 - absolute/fixed containing block: nearest positioned ancestor's
