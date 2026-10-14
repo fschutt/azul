@@ -92,3 +92,7 @@ azmaps-gps-no-fix = No fix
 azmaps-gps-fix = { $dimension }D fix
 azmaps-gps-satellites = { $count } satellites
 azmaps-gps-uncertainty = ±{ $metres } m
+
+## Search sources
+
+azmaps-source-places = AzMaps' list of cities

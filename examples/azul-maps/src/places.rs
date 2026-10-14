@@ -44,6 +44,47 @@ pub struct Suggestion {
     pub country_de: String,
     pub lat: f64,
     pub lon: f64,
+    /// Where it was found: the search results say so.
+    pub source: SuggestionSource,
+    /// What it is, for its icon.
+    pub kind: SuggestionKind,
+}
+
+/// Where a suggestion was found.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SuggestionSource {
+    /// AzMaps' own list of capitals and larger cities.
+    #[default]
+    Places,
+    /// Transitous' search: OpenStreetMap's places and addresses, the timetables' stops.
+    Transitous,
+    /// A saved list of the user's: its name.
+    Saved(String),
+}
+
+/// What a suggestion is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SuggestionKind {
+    #[default]
+    City,
+    Station,
+    Address,
+    Place,
+    Saved,
+}
+
+impl SuggestionKind {
+    /// The Material icon of its row.
+    #[must_use]
+    pub const fn icon(self) -> &'static str {
+        match self {
+            Self::City => "location_city",
+            Self::Station => "train",
+            Self::Address => "home",
+            Self::Place => "place",
+            Self::Saved => "star",
+        }
+    }
 }
 
 impl Suggestion {
@@ -62,6 +103,9 @@ impl Suggestion {
     #[must_use]
     pub fn label(&self, german: bool) -> String {
         let country = if german { &self.country_de } else { &self.country_en };
+        if country.trim().is_empty() {
+            return self.name(german).to_string();
+        }
         format!("{}, {country}", self.name(german))
     }
 }
@@ -234,6 +278,8 @@ impl Gazetteer {
                     country_de: home.de.clone(),
                     lat: place.lat,
                     lon: place.lon,
+                    source: SuggestionSource::Places,
+                    kind: SuggestionKind::City,
                 })
             })
             .collect()
