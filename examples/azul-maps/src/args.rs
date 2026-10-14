@@ -34,6 +34,9 @@ pub struct Args {
     /// `--gps <source>`: where the position comes from for this run: `platform`, `gpsd`,
     /// `gpsd:<host:port>`, `nmea:<device>`, `replay:<file>` (else Settings > Location).
     pub gps: Option<String>,
+    /// `--replay-speed <factor>`: how much faster an NMEA replay (`--gps replay:<file>`) runs
+    /// than it was recorded (else 1).
+    pub replay_speed: Option<f64>,
     /// `--import <file or folder>`: imported into the saved lists at the start.
     pub import: Option<String>,
     /// `--navigate`: navigation starts as soon as the road route is there.
@@ -231,6 +234,7 @@ where
         simulate,
         simulate_kmh,
         gps,
+        replay_speed: None,
         import,
         navigate,
         help: false,
@@ -321,6 +325,10 @@ mod tests {
         assert_eq!(a.simulate_kmh, Some(120.0));
         assert_eq!(a.gps.as_deref(), Some("replay:/tmp/drive.nmea"));
         assert_eq!(a.import.as_deref(), Some("/tmp/Takeout"));
+        let r = parse(["--replay-speed", "8"], false).expect("valid");
+        assert_eq!(r.replay_speed, Some(8.0));
+        assert!(parse(["--replay-speed", "-1"], false).is_err());
+        assert!(usage().contains("--replay-speed"));
         let none = parse(Vec::<String>::new(), false).expect("valid");
         assert!(!none.offline && !none.simulate && !none.navigate && none.gps.is_none());
         assert!(parse(["--simulate-speed", "fast"], false).is_err());
