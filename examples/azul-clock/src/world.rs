@@ -213,6 +213,7 @@ mod tests {
 
     #[test]
     fn the_sample_cities_read_as_the_plan_draws_them_from_berlin() {
+        crate::l10n::in_english();
         let at = utc(2026, 9, 15, 12, 32);
         let rows: Vec<CityRow> = sample_cities().iter().filter_map(|c| row(c, &Berlin, at)).collect();
         let lines: Vec<String> = rows

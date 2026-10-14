@@ -265,6 +265,7 @@ mod tests {
 
     #[test]
     fn the_sample_is_the_plans() {
+        crate::l10n::in_english();
         let s = sample(now(), &Berlin);
         let alarms: Vec<(u32, u32, &str, bool, String)> = s
             .alarms

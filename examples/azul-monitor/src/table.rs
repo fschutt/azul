@@ -542,6 +542,7 @@ mod tests {
 
     #[test]
     fn the_table_has_the_models_columns_none_editable() {
+        crate::l10n::in_english();
         let cols = columns();
         assert_eq!(cols.len(), COLUMNS.len());
         assert_eq!(cols[Column::Name.index()].title.as_str(), "Image Name");

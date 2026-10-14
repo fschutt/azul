@@ -766,6 +766,7 @@ fn jumping_in_the_history_shows_that_state() {
 
 #[test]
 fn dragging_a_slider_makes_one_history_step_not_one_per_value() {
+    crate::l10n::in_english();
     let mut e = white_engine(16, 16);
     let bg = e.active_layer().unwrap();
     for i in 1..=10 {
