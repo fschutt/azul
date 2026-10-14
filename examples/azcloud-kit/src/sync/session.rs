@@ -34,6 +34,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
     },
+    time::Duration,
 };
 
 use azul_storage::{Drive, DriveError, ListRequest};
@@ -570,6 +571,8 @@ pub struct SyncSession {
     /// Small transfers in flight at once ([`SyncSession::with_parallel`]); `None`: the run's
     /// default.
     parallel: Option<usize>,
+    /// How long a pass waits for the folder to be quiet first ([`SyncSession::with_settle`]).
+    settle: Duration,
 }
 
 impl SyncSession {
@@ -614,7 +617,17 @@ impl SyncSession {
             remote,
             transfer_limit: None,
             parallel: None,
+            settle: Duration::ZERO,
         }
+    }
+
+    /// The session's passes first wait until nothing in the folder changed for `quiet`
+    /// ([`super::SyncOptions::settle`], at most [`super::SETTLE_MAX`]): a checkout, an unzip or
+    /// a build syncs as one batch, and the burst guard sees the whole burst.
+    #[must_use]
+    pub fn with_settle(mut self, quiet: Duration) -> SyncSession {
+        self.settle = quiet;
+        self
     }
 
     /// The session's passes leave the transfers of files over `bytes` for a pass without the
@@ -675,6 +688,7 @@ impl SyncSession {
         if let Some(parallel) = self.parallel {
             opts.parallel = parallel;
         }
+        opts.settle = self.settle;
         Ok(opts)
     }
 

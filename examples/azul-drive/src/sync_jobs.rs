@@ -133,11 +133,13 @@ impl SyncWork {
     }
 
     /// The session (on the worker: an Azlin drive decides on its first call whether it is
-    /// encrypted), with the work's transfer limit and its transfers at once.
+    /// encrypted), with the work's transfer limit, its transfers at once and the settle time
+    /// that lets a burst of changes (a checkout, an unzip) go as one batch.
     pub(crate) fn session(&self) -> SyncSession {
         self.drive_session()
             .with_transfer_limit(self.transfer_limit)
             .with_parallel(self.parallel)
+            .with_settle(settle())
     }
 
     /// The session of the drive's kind.
@@ -502,6 +504,17 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
 }
 
 // ==== The UI thread's side ====
+
+/// How long a pass waits for its folder to be quiet first: `$AZDRIVE_SYNC_SETTLE_MS`
+/// (scripts), else two seconds - long enough for a checkout or an unzip to finish its burst,
+/// short enough that a saved file still goes up at once.
+fn settle() -> StdDuration {
+    let millis = std::env::var("AZDRIVE_SYNC_SETTLE_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(2_000);
+    StdDuration::from_millis(millis)
+}
 
 /// How often the timer polls every synced drive: `$AZDRIVE_SYNC_POLL` seconds (scripts), else
 /// 30.

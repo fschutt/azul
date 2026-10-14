@@ -20,7 +20,7 @@ use std::{
     fs,
     io::{ErrorKind, Read},
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use azul_appkit::azlin_config::MACHINE_LOCAL_KEYS;
@@ -172,6 +172,75 @@ pub struct Scan {
     pub hashed: usize,
     /// When it started (nanoseconds).
     pub started_ns: u64,
+}
+
+/// Waits until nothing under `root` changed for `quiet` - the newest modification time of its
+/// files and folders (a rule's leave out) is that old - or until `most` passed, or `stop` says
+/// so: a burst (a checkout, an unzip, a build) is then synced by one run as a whole, and the
+/// burst guard sees all of it. A folder's time moves when an entry is made, renamed or removed,
+/// so an unzip whose files keep their old dates still counts. How long it waited.
+pub fn settle(
+    root: &Path,
+    rules: &Rules,
+    quiet: Duration,
+    most: Duration,
+    stop: &dyn Fn() -> bool,
+) -> Duration {
+    let started = Instant::now();
+    if quiet.is_zero() {
+        return Duration::ZERO;
+    }
+    loop {
+        let Some(newest) = newest_change(root, rules) else {
+            return started.elapsed();
+        };
+        // A time in the future (another clock) counts as now.
+        let age = SystemTime::now()
+            .duration_since(newest)
+            .unwrap_or(Duration::ZERO);
+        let waited = started.elapsed();
+        if age >= quiet || waited >= most || stop() {
+            return waited;
+        }
+        // Short steps, so a stop is heard and a burst that ends is noticed soon.
+        let wait = (quiet - age)
+            .min(most - waited)
+            .clamp(Duration::from_millis(10), Duration::from_millis(250));
+        std::thread::sleep(wait);
+    }
+}
+
+/// The newest modification time of `root`, its folders and its files (symbolic links and what
+/// `rules` leave out are not looked at); `None` when `root` cannot be read.
+fn newest_change(root: &Path, rules: &Rules) -> Option<SystemTime> {
+    let mut newest = fs::metadata(root).and_then(|m| m.modified()).ok()?;
+    let mut stack: Vec<(PathBuf, String)> = vec![(root.to_path_buf(), String::new())];
+    while let Some((dir, prefix)) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let key = format!("{prefix}{}", entry.file_name().to_string_lossy());
+            let skipped = if kind.is_dir() {
+                rules.excluded_dir(&key).is_some()
+            } else {
+                kind.is_symlink() || rules.excluded(&key).is_some()
+            };
+            if skipped {
+                continue;
+            }
+            if let Ok(modified) = entry.metadata().and_then(|m| m.modified()) {
+                newest = newest.max(modified);
+            }
+            if kind.is_dir() {
+                stack.push((entry.path(), format!("{key}/")));
+            }
+        }
+    }
+    Some(newest)
 }
 
 /// The modification time of `meta` in nanoseconds since 1970 (0 when the
