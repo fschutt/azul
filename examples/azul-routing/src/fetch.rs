@@ -142,15 +142,16 @@ impl Fetcher {
     ) -> Result<Option<Fetched>, FetchError> {
         let kept = self.cache.get(key);
         let now = now_s();
-        if let Some(entry) = kept.as_ref().filter(|e| e.is_fresh(now)) {
-            return Ok(Some(answer(entry, Origin::Cache, now)));
-        }
         let offline = |why: FetchError| match kept.as_ref() {
             Some(entry) => Ok(Some(answer(entry, Origin::Offline, now))),
             None => Err(why),
         };
+        // Offline by choice, every kept answer is shown as what it is: offline.
         if self.is_offline() {
             return offline(FetchError::Offline("offline".to_string()));
+        }
+        if let Some(entry) = kept.as_ref().filter(|e| e.is_fresh(now)) {
+            return Ok(Some(answer(entry, Origin::Cache, now)));
         }
         match self.gate.turn(stop) {
             Turn::Go => {}
