@@ -9,7 +9,9 @@
 //! - focused from the keyboard, a tab button rings (a `:focus-visible`
 //!   shadow);
 //! - a ribbon command hovered brightens its gold; a toggled one rests
-//!   recessed in the accent's frost (#E2E6F0 at 92% on top) and keeps it.
+//!   recessed in the accent's frost (#E2E6F0 at 92% on top) and keeps it;
+//! - a check box's row (the box and its label) is a frosted recessed panel
+//!   (#FBFAF7 at 90% on top).
 
 use azul_core::{
     dom::{Dom, NodeId},
@@ -25,7 +27,10 @@ use azul_css::{
     AzString, StringVec,
 };
 use azul_layout::widgets::{
-    ribbon::{Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec},
+    check_box::CheckBox,
+    ribbon::{
+        Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonRow, RibbonTab, RibbonTabVec,
+    },
     tabs::{TabHeader, TabStyle},
     themes::UiTheme,
 };
@@ -214,4 +219,27 @@ fn a_command_on_the_leather_brightens_its_gold_and_a_toggled_one_rests_in_the_fr
     );
     hover(&mut sd, plain);
     assert_eq!(top_edge(&sd, plain), Some(GOLD_HOVER_TOP), "the gold brightens under the pointer");
+}
+
+#[test]
+fn a_check_box_s_row_on_the_leather_is_a_frosted_panel() {
+    let row = RibbonRow::default()
+        .with_item(RibbonItem::Check(CheckBox::create(true)))
+        .with_item(RibbonItem::Custom(Dom::create_span_with_text("Item check boxes")));
+    let group = RibbonGroup::new("Show/hide".into())
+        .with_items(vec![RibbonItem::Column(
+            azul_layout::widgets::ribbon::RibbonColumn::default().with_item(RibbonItem::Row(row)),
+        )]
+        .into());
+    let mut dom = Dom::create_body().with_child(
+        Ribbon::new(RibbonTabVec::from_vec(vec![RibbonTab::new("VIEW".into()).with_group(group)]))
+            .with_theme(UiTheme::Flora)
+            .with_tab_style(TabStyle::Pills)
+            .with_available_width(1280.0)
+            .dom_desktop(),
+    );
+    let sd = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let rows = classed(&sd, "__azul-native-ribbon-row");
+    assert_eq!(rows.len(), 1, "the check box's row");
+    assert_eq!(face_top(&sd, rows[0]), Some(ColorU::new(251, 250, 247, 230)), "frosted");
 }
