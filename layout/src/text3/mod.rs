@@ -11,7 +11,7 @@
 //! - `mock_fonts`: built-in test fonts with exactly known metrics
 //! - `script`: Unicode script detection
 //! - `selection`: text selection and cursor utilities
-//! - `ui_fonts`: the fonts azul bundles (EB Garamond for flora, Calmet UI)
+//! - `ui_fonts`: the fonts azul bundles for its widget themes (EB Garamond)
 
 pub mod cache;
 pub mod default;

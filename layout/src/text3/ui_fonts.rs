@@ -10,18 +10,6 @@
 //! |               |                                  | chrome and its running text     |
 //! |               |                                  | (the `system:` text roles under |
 //! |               |                                  | flora, [`theme_font_families`]) |
-//! | `Calmet UI`   | 400, upright and italic          | AzDrive's design: every text,   |
-//! |               |                                  | in front of EB Garamond         |
-//!
-//! Calmet UI is traced from the 1732 print of Augustin Calmet's Commentaire
-//! litteral and made fit for a UI: the umlauts and the sharp s composed from
-//! the book's own glyphs, the long s mapped, a few marks re-spaced, `liga`,
-//! `dlig` (ct), `ss01` (the long s) and `tnum`. It has about a hundred code
-//! points ([`calmet_ui_ranges`]) and no bold and no small caps, so a stack
-//! names EB Garamond after it: a character Calmet lacks falls to Garamond one
-//! code point at a time, as the face's `unicode-range` does in a browser.
-//! `scripts/make_calmet_ui_fonts.py` packs the pinned build and prints its
-//! range table; brotli at quality 11 makes the two faces about 26 KB.
 //!
 //! flora.css sets running text and "every label in capitals" in Garamond
 //! (`--font-serif`, `--font-caps`), and the faces here are the website's own:
@@ -43,9 +31,12 @@
 //! ([`eb_garamond_ranges`]); any other character falls back per glyph
 //! through the rest of the `font-family` list.
 //!
-//! The slice has no `smcp` feature (and azul's CSS no `font-variant`), so
-//! flora sets its "small capitals" the way it already does: uppercase, a
-//! size step down, tracked out (`letter-spacing`).
+//! The slice has no `smcp` feature: `font-variant-caps` small capitals are
+//! synthesized from its capitals, as Chrome does.
+//!
+//! Only the faces azul's own themes need are bundled - every byte here is in
+//! libazul. An app's typeface stays in the app: it registers the faces at
+//! startup (`AppConfig::add_font`), and they take the same path as these.
 
 use std::sync::OnceLock;
 
@@ -53,9 +44,6 @@ use rust_fontconfig::UnicodeRange;
 
 /// The family flora's chrome is set in.
 pub const EB_GARAMOND: &str = "EB Garamond";
-
-/// The family AzDrive's design sets its text in.
-pub const CALMET_UI: &str = "Calmet UI";
 
 /// Flora's hand, as a family list: `--font-serif` / `--font-caps`,
 /// `'EB Garamond', Georgia, 'Times New Roman', serif`. The bundled face
@@ -114,8 +102,6 @@ const EB_GARAMOND_ITALIC_BR: &[u8] =
     include_bytes!("../../assets/fonts/ui/EBGaramond-Italic.ttf.br");
 const EB_GARAMOND_BOLD_ITALIC_BR: &[u8] =
     include_bytes!("../../assets/fonts/ui/EBGaramond-BoldItalic.ttf.br");
-const CALMET_UI_REGULAR_BR: &[u8] = include_bytes!("../../assets/fonts/ui/CalmetUI-Regular.ttf.br");
-const CALMET_UI_ITALIC_BR: &[u8] = include_bytes!("../../assets/fonts/ui/CalmetUI-Italic.ttf.br");
 
 /// `packed`, brotli-decompressed; empty if it does not decompress (the face
 /// is then skipped - a font path never panics over a bundled file).
@@ -128,10 +114,10 @@ fn decompress(packed: &[u8]) -> Vec<u8> {
 }
 
 /// One bundled face: its family, its TrueType bytes, and whether it is the
-/// italic cut (whose cmap differs from the upright's).
+/// italic cut (whose cmap is a little smaller: [`eb_garamond_italic_ranges`]).
 #[derive(Debug)]
 pub struct BundledUiFace {
-    /// The family the face registers under ([`EB_GARAMOND`], [`CALMET_UI`]).
+    /// The family the face registers under ([`EB_GARAMOND`]).
     pub family: &'static str,
     /// The TrueType bytes, decompressed (empty if the bundle is damaged).
     pub bytes: Vec<u8>,
@@ -140,124 +126,36 @@ pub struct BundledUiFace {
 }
 
 impl BundledUiFace {
-    /// The codepoints the face covers, exactly its cmap: what it is
-    /// registered with, so a character it lacks falls back to the next
-    /// family and a character it has never does.
+    /// The codepoints the face covers: what it is registered with, so a
+    /// character it lacks falls back to the next family.
     #[must_use]
     pub fn ranges(&self) -> Vec<UnicodeRange> {
-        match (self.family, self.italic) {
-            (CALMET_UI, false) => calmet_ui_ranges(),
-            (CALMET_UI, true) => calmet_ui_italic_ranges(),
-            (_, true) => eb_garamond_italic_ranges(),
-            (_, false) => eb_garamond_ranges(),
+        if self.italic {
+            eb_garamond_italic_ranges()
+        } else {
+            eb_garamond_ranges()
         }
     }
 }
 
 /// Every bundled face, decompressed on first use and kept for the process:
-/// EB Garamond 400 and 700, upright and italic, then Calmet UI 400, upright
-/// and italic.
+/// EB Garamond 400 and 700, upright and italic.
 #[must_use]
 pub fn bundled_ui_fonts() -> &'static [BundledUiFace] {
     static FACES: OnceLock<Vec<BundledUiFace>> = OnceLock::new();
     FACES.get_or_init(|| {
-        let face = |family: &'static str, packed: &[u8], italic: bool| BundledUiFace {
-            family,
+        let face = |packed: &[u8], italic: bool| BundledUiFace {
+            family: EB_GARAMOND,
             bytes: decompress(packed),
             italic,
         };
         alloc::vec![
-            face(EB_GARAMOND, EB_GARAMOND_REGULAR_BR, false),
-            face(EB_GARAMOND, EB_GARAMOND_BOLD_BR, false),
-            face(EB_GARAMOND, EB_GARAMOND_ITALIC_BR, true),
-            face(EB_GARAMOND, EB_GARAMOND_BOLD_ITALIC_BR, true),
-            face(CALMET_UI, CALMET_UI_REGULAR_BR, false),
-            face(CALMET_UI, CALMET_UI_ITALIC_BR, true),
+            face(EB_GARAMOND_REGULAR_BR, false),
+            face(EB_GARAMOND_BOLD_BR, false),
+            face(EB_GARAMOND_ITALIC_BR, true),
+            face(EB_GARAMOND_BOLD_ITALIC_BR, true),
         ]
     })
-}
-
-/// The ranges of `pairs` (inclusive start and end code points).
-fn ranges_of(pairs: &[(u32, u32)]) -> Vec<UnicodeRange> {
-    pairs
-        .iter()
-        .map(|&(start, end)| UnicodeRange { start, end })
-        .collect()
-}
-
-/// The codepoints the upright Calmet UI covers (its cmap, as
-/// `scripts/make_calmet_ui_fonts.py` prints it): the letters and figures,
-/// the punctuation a UI writes, the German umlauts and sharp s, the long s,
-/// the dashes, quotes, bullet and ellipsis. No `#`, `$`, `%`, `+`, `/`, `@`,
-/// brackets or accented letters other than the umlauts.
-#[must_use]
-pub fn calmet_ui_ranges() -> Vec<UnicodeRange> {
-    ranges_of(&[
-        (0x0020, 0x0022),
-        (0x0026, 0x002A),
-        (0x002C, 0x002E),
-        (0x0030, 0x003B),
-        (0x003F, 0x003F),
-        (0x0041, 0x005A),
-        (0x0061, 0x007A),
-        (0x00A0, 0x00A0),
-        (0x00A8, 0x00A8),
-        (0x00C4, 0x00C4),
-        (0x00C6, 0x00C6),
-        (0x00D6, 0x00D6),
-        (0x00DC, 0x00DC),
-        (0x00DF, 0x00DF),
-        (0x00E4, 0x00E4),
-        (0x00E6, 0x00E6),
-        (0x00F6, 0x00F6),
-        (0x00FC, 0x00FC),
-        (0x0152, 0x0153),
-        (0x017F, 0x017F),
-        (0x2013, 0x2014),
-        (0x2018, 0x201A),
-        (0x201C, 0x201E),
-        (0x2022, 0x2022),
-        (0x2026, 0x2026),
-    ])
-}
-
-/// The codepoints the italic Calmet UI covers: the upright's and a few
-/// accented vowels the italic of the book has (a circumflex, e acute and
-/// dieresis, i dieresis, the dotless i).
-#[must_use]
-pub fn calmet_ui_italic_ranges() -> Vec<UnicodeRange> {
-    ranges_of(&[
-        (0x0020, 0x0022),
-        (0x0026, 0x002A),
-        (0x002C, 0x002E),
-        (0x0030, 0x003B),
-        (0x003F, 0x003F),
-        (0x0041, 0x005A),
-        (0x0061, 0x007A),
-        (0x00A0, 0x00A0),
-        (0x00A8, 0x00A8),
-        (0x00C4, 0x00C4),
-        (0x00C6, 0x00C6),
-        (0x00D6, 0x00D6),
-        (0x00DC, 0x00DC),
-        (0x00DF, 0x00DF),
-        (0x00E2, 0x00E2),
-        (0x00E4, 0x00E4),
-        (0x00E6, 0x00E6),
-        (0x00E9, 0x00E9),
-        (0x00EB, 0x00EB),
-        (0x00EF, 0x00EF),
-        (0x00F6, 0x00F6),
-        (0x00FC, 0x00FC),
-        (0x0131, 0x0131),
-        (0x0152, 0x0153),
-        (0x017F, 0x017F),
-        (0x2013, 0x2014),
-        (0x2018, 0x201A),
-        (0x201C, 0x201E),
-        (0x2022, 0x2022),
-        (0x2026, 0x2026),
-    ])
 }
 
 /// The codepoints the bundled italic EB Garamond covers: the upright's
@@ -319,7 +217,10 @@ pub fn eb_garamond_ranges() -> Vec<UnicodeRange> {
         (0x2212, 0x2212),
         (0x2215, 0x2215),
     ];
-    ranges_of(RANGES)
+    RANGES
+        .iter()
+        .map(|&(start, end)| UnicodeRange { start, end })
+        .collect()
 }
 
 #[cfg(test)]
@@ -362,33 +263,13 @@ mod tests {
     }
 
     #[test]
-    fn every_bundled_face_decompresses_to_truetype() {
-        let families: Vec<_> = bundled_ui_fonts().iter().map(|f| f.family).collect();
-        assert_eq!(
-            families,
-            [EB_GARAMOND, EB_GARAMOND, EB_GARAMOND, EB_GARAMOND, CALMET_UI, CALMET_UI]
-        );
-        for face in bundled_ui_fonts() {
+    fn every_garamond_face_decompresses_to_truetype() {
+        let faces = bundled_ui_fonts();
+        assert_eq!(faces.len(), 4);
+        for face in faces {
+            assert_eq!(face.family, EB_GARAMOND);
             assert_eq!(face.bytes.get(..4), Some(&[0, 1, 0, 0][..]), "a TrueType (glyf) face");
         }
-    }
-
-    /// The faces are registered by the family name inside them: a face
-    /// whose own name differed would answer to a family nobody asks for.
-    #[test]
-    fn calmet_ui_is_the_regular_upright_and_italic_of_its_family() {
-        use rust_fontconfig::{FcWeight, PatternMatch};
-        let styles: Vec<_> = bundled_ui_fonts()
-            .iter()
-            .filter(|face| face.family == CALMET_UI)
-            .map(|face| {
-                let faces =
-                    rust_fontconfig::FcParseFontBytes(&face.bytes, face.family).expect("parses");
-                let (pattern, _) = faces.into_iter().next().expect("one face");
-                (pattern.weight, pattern.italic == PatternMatch::True, face.italic)
-            })
-            .collect();
-        assert_eq!(styles, [(FcWeight::Normal, false, false), (FcWeight::Normal, true, true)]);
     }
 
     /// Running text has emphasis: the bundle is the regular and the bold,
@@ -399,7 +280,6 @@ mod tests {
         use rust_fontconfig::{FcWeight, PatternMatch};
         let styles: Vec<_> = bundled_ui_fonts()
             .iter()
-            .filter(|face| face.family == EB_GARAMOND)
             .map(|face| {
                 let faces =
                     rust_fontconfig::FcParseFontBytes(&face.bytes, face.family).expect("parses");
@@ -425,7 +305,6 @@ mod tests {
     fn the_garamond_bundle_has_an_italic_regular_and_bold() {
         let italic_weights: Vec<_> = bundled_ui_fonts()
             .iter()
-            .filter(|face| face.family == EB_GARAMOND)
             .filter_map(|face| {
                 let faces =
                     rust_fontconfig::FcParseFontBytes(&face.bytes, face.family).expect("parses");

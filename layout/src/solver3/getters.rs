@@ -11526,7 +11526,8 @@ mod memory_font_tier_tests {
         registry
     }
 
-    /// The FontId of the upright regular face azul bundles for `family`.
+    /// The FontId of the upright regular memory face of `family` (one azul
+    /// bundles or an app registered).
     fn bundled_face(
         fonts: &crate::text3::cache::FontManager<azul_css::props::basic::FontRef>,
         family: &str,
@@ -11535,16 +11536,17 @@ mod memory_font_tier_tests {
             .iter()
             .find(|f| !f.italic && f.weight == FcWeight::Normal)
             .map(|f| f.font_match.id)
-            .unwrap_or_else(|| panic!("{family} is bundled"))
+            .unwrap_or_else(|| panic!("{family} is registered"))
     }
 
-    /// CSS takes a stack's families in order, so a face azul bundles for a
-    /// family stands where that family stands - in front of the installed
-    /// families the stack names after it. AzDrive's stack names Calmet UI
-    /// and EB Garamond (bundled, not installed) before Georgia (installed on
-    /// every Mac): its letters are Calmet's, the characters Calmet lacks are
-    /// Garamond's, and Georgia draws nothing. The desktop resolves through the
-    /// registry, which knows only font files, so this is its path.
+    /// CSS takes a stack's families in order, so a face azul bundles - or an
+    /// app registered at startup - for a family stands where that family
+    /// stands, in front of the installed families the stack names after it.
+    /// AzDrive's stack names Calmet UI (the app's) and EB Garamond (azul's),
+    /// neither installed, before Georgia (installed on every Mac): its
+    /// letters are Calmet's, the characters Calmet lacks are Garamond's, and
+    /// Georgia draws nothing. The desktop resolves through the registry,
+    /// which knows only font files, so this is its path.
     #[test]
     fn a_bundled_face_stands_where_its_family_stands_in_the_stack() {
         use crate::text3::cache::{covering_font, FontManager, FontSelector};
@@ -11558,8 +11560,19 @@ mod memory_font_tier_tests {
             &[("Georgia.ttf", &mock)],
             rust_fontconfig::FcFallbackConfig::empty(),
         );
-        let fonts = FontManager::<azul_css::props::basic::FontRef>::new(FcFontCache::default())
-            .expect("font manager");
+        let mut fonts =
+            FontManager::<azul_css::props::basic::FontRef>::new(FcFontCache::default())
+                .expect("font manager");
+        let calmet_faces: Vec<azul_core::resources::NamedFont> = azul_fonts_calmet::faces()
+            .iter()
+            .map(|face| {
+                azul_core::resources::NamedFont::new(
+                    azul_fonts_calmet::FAMILY.into(),
+                    face.clone().into(),
+                )
+            })
+            .collect();
+        fonts.register_app_fonts(&calmet_faces);
         let calmet = bundled_face(&fonts, "Calmet UI");
         let garamond = bundled_face(&fonts, "EB Garamond");
         let stack: Vec<FontSelector> = ["Calmet UI", "EB Garamond", "Georgia", "serif"]
