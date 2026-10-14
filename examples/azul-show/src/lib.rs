@@ -64,7 +64,7 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::U8VecRef,
     widgets::{
-        CloseGuard, CloseGuardDocumentState, CloseGuardEvent, CloseGuardEventKind, ThumbnailStripLayout, Titlebar,
+        CloseGuardDocumentState, CloseGuardEvent, CloseGuardEventKind, ThumbnailStripLayout, Titlebar,
     },
     window::WindowEventFilter,
 };
@@ -212,7 +212,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // notes or a text box marks it without a rebuild, so the state this DOM
     // was built with can be stale.
     let title = st.editor.as_ref().map_or_else(|| t("azshow-presentation"), |e| e.deck.title.clone());
-    let content = CloseGuard::create(content, s(&title))
+    let content = kit::close_guard(content, &title)
         .with_dirty_check(app.clone(), deck_dirty_now as CloseGuardDirtyCheckCallbackType)
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard as CloseGuardOnEventCallbackType)

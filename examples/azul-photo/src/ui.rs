@@ -20,7 +20,7 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        AboutDialog, ButtonType, CloseGuard, Dialog, DropDown, Segmented, Slider, StatusBar, StatusBarSegment, TextInput, Titlebar,
+        AboutDialog, ButtonType, Dialog, DropDown, Segmented, Slider, StatusBar, StatusBarSegment, TextInput, Titlebar,
     },
 };
 
@@ -1228,7 +1228,7 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(title_row(a))
         .with_child(area);
     // "Save changes?" before the window closes over unsaved work.
-    let root = CloseGuard::create(content, AzString::from(a.s.name.as_str()))
+    let root = kit::close_guard(content, &a.s.name)
         .with_dirty(a.s.modified && a.screen == AppScreen::Editor)
         .with_asking(a.closing)
         .with_on_event(app_ref.clone(), commands::on_close_guard as CloseGuardOnEventCallbackType)
