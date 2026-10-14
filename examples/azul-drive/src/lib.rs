@@ -206,6 +206,8 @@ mod jobs;
 pub mod keys;
 /// The open folder's listing as it streams in, and the window of it the views build.
 pub mod listing;
+/// The window's location tabs: each keeps its place, history, selection, layout, search, scroll.
+pub mod location_tabs;
 /// The body's looks in flat and flora, by day and at night.
 mod look;
 pub mod model;
