@@ -241,7 +241,7 @@ impl CustomPropertyEnvs {
         let other_maps = core::mem::take(&mut other.maps);
         self.maps.extend(other_maps.into_iter().skip(1));
         if other.normal.is_empty() {
-            self.normal.extend(std::iter::repeat_n(0, other_nodes));
+            self.normal.extend(core::iter::repeat_n(0, other_nodes));
         } else {
             self.normal.extend(other.normal.drain(..).map(remap));
         }

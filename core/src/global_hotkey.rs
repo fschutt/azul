@@ -41,7 +41,7 @@
 //! (Cmd on macOS, Ctrl elsewhere) is honoured by [`GlobalHotkey::from_combo`],
 //! and the accelerator parser has `CmdOrCtrl` for the same thing.
 
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use azul_css::AzString;
