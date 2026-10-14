@@ -112,8 +112,7 @@ use azul::{
         TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
     css::{ColorU, CssProperty, CssPropertyWithConditions, DarkLightMode, LayoutWidth, PixelValue, SystemColorRef},
-    dom::{DomId, GeolocationProbeConfig, MapMountCallback, VirtualKeyCode},
-    option::OptionRefAny,
+    dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
     prelude::*,
     sensor::SensorKind,
     shells::{ShellThemeAccent, ShellThemeScope},
@@ -1436,13 +1435,7 @@ fn map_area(s: &MapState, app: &RefAny) -> Dom {
         .with_on_viewport_changed(app.clone(), on_viewport_changed)
         .with_on_pin_tap(app.clone(), on_pin_tap)
         .with_on_marker_tap(app.clone(), on_marker_tap)
-        .with_on_mount(
-            app.clone(),
-            MapMountCallback {
-                cb: on_map_mount,
-                callable: OptionRefAny::None,
-            },
-        )
+        .with_on_mount(app.clone(), on_map_mount)
         .dom();
     let mut area = Dom::create_div()
         .with_css(MAP_AREA)
@@ -1573,7 +1566,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_child(kit::title_row(SPEC.name))
             .with_child(kit::settings_page(
                 &s.kit,
-                vec![drive_ui::location_section(&s, &app, None), lists_ui::places_section(&s, &app)],
+                vec![
+                    drive_ui::location_section(&s, &app, None),
+                    drive_ui::routing_tiles_section(&s, &app),
+                    lists_ui::places_section(&s, &app),
+                ],
             ))
     } else {
         screen(&s, &app, dark)
@@ -2400,8 +2397,17 @@ pub fn start() {
     if let Some(template) = &routing_template {
         println!("AZMAPS_ROUTING {template}");
     }
-    let routing = routing_template
-        .map(|t| route::routing_source(&t, &data_root.join("maps").join("routing")));
+    // Settings > Navigation > Routing tiles: how long downloaded roads are kept.
+    let keep_days = {
+        let mut k = kit_ref.clone();
+        let found = k
+            .downcast_ref::<kit::Kit>()
+            .and_then(|k| k.settings.get(azul_routing::source::SETTINGS_KEY).map(str::to_string));
+        found
+    };
+    let routing = routing_template.map(|t| {
+        route::routing_source_keeping(&t, &data_root.join("maps").join("routing"), keep_days.as_deref())
+    });
     // Without routing tiles a route is asked of the routing server (FOSSGIS's
     // public Valhalla unless `--routing-online` / AZMAPS_ROUTING_ONLINE names
     // another or says off).
