@@ -26,7 +26,8 @@
 //! repeated question without the network (and a stale answer when the network is gone, marked
 //! offline), and [`polite`] keeps the requests to one service apart and pauses after failures.
 //! [`transit`] plans public transport journeys (Transitous by default) and finds places by name.
-//! [`navigation`] guides a car along a route from position fixes; [`simulate`] drives one.
+//! [`navigation`] guides a car along a route from position fixes; [`simulate`] drives one;
+//! [`gnss`] reads the fixes of an external receiver (gpsd, NMEA, a replay file).
 
 pub mod astar;
 pub mod cache;
@@ -34,6 +35,7 @@ pub mod corridor;
 pub mod fetch;
 pub mod format;
 pub mod generate;
+pub mod gnss;
 pub mod graph;
 pub mod mode;
 pub mod navigation;
