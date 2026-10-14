@@ -173,6 +173,31 @@ pub(crate) fn screen(m: &Manager, app: &RefAny) -> Dom {
     .with_id(s("installmgr-settings"))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manager(source: Option<&str>) -> Manager {
+        let mut updates = azul_appkit::azlin_config::UpdatesSection::default();
+        updates.manifest_url = source.map(str::to_string);
+        Manager::for_test(std::path::PathBuf::from("/tmp/azlin-test/config.json"), updates)
+    }
+
+    /// The update source is a setting the user can type in, with a line that says what it is
+    /// for - and, while there is none, that nothing can be installed or updated without it.
+    #[test]
+    fn the_settings_offer_a_field_for_the_update_source_and_say_what_it_is_for() {
+        crate::l10n::in_english();
+        let m = manager(None);
+        let dom = screen(&m, &RefAny::new(0u8));
+        assert!(crate::has_id(&dom, "installmgr-source"), "a field for the update source");
+        assert!(crate::has_id(&dom, "installmgr-source-help"), "a line that explains it");
+        let m = manager(Some("https://example.org/{app}/{channel}.json"));
+        let dom = screen(&m, &RefAny::new(0u8));
+        assert!(crate::has_id(&dom, "installmgr-source"), "the field holds the source");
+    }
+}
+
 /// Opens the settings.
 pub(crate) fn open(m: &mut Manager) {
     m.screen = Screen::Settings;

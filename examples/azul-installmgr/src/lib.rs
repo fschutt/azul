@@ -158,6 +158,36 @@ impl Manager {
     pub(crate) fn load_apps(&mut self, info: &mut CallbackInfo, app: &RefAny) {
         jobs::spawn(info, app, Job::Load, self.fetching());
     }
+
+    /// A first run on the config `config` with the policy `updates`, nothing installed: what
+    /// the tests of the screens build them from.
+    #[cfg(test)]
+    pub(crate) fn for_test(config: PathBuf, updates: UpdatesSection) -> Manager {
+        let places = places_for(config, &updates);
+        Manager {
+            kit: RefAny::new(0u8),
+            wizard: wizard::Wizard::new(places.install_dir.to_string_lossy().into_owned(), None),
+            places,
+            updates,
+            cohort: 1,
+            screen: Screen::Wizard,
+            apps: Vec::new(),
+            busy: false,
+            polling: false,
+            notice: String::new(),
+            about_open: false,
+            confirm_cancel: false,
+            confirm_uninstall: None,
+            checking: false,
+            last_check_unix: 0,
+        }
+    }
+}
+
+/// Whether `dom` or a box inside it has the id `id` (the tests of the screens).
+#[cfg(test)]
+pub(crate) fn has_id(dom: &Dom, id: &str) -> bool {
+    dom.root.has_id(AzString::from(id)) || dom.children.as_slice().iter().any(|c| has_id(c, id))
 }
 
 /// The places of the config `config`: its folder is the Azlin folder; the shortcuts' folders
