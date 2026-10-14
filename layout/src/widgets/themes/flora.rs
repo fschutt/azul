@@ -1064,6 +1064,196 @@ pub(crate) fn leaf_edge() -> Vec<CssPropertyWithConditions> {
     props
 }
 
+// ==== commands on the leather ====
+//
+// The leather area (the tab strip and the ribbon's band under it) is one
+// surface, and the commands on it keep flora's faces but let about an eighth
+// of the grain through (86%), never over their words. Every enabled command
+// wears a 1px gold edge, lighter on top and darker at its foot, so the eye
+// finds what can be clicked without hovering; under the pointer the gold
+// brightens. A disabled command keeps the raised pill (lip, foot, cast) in a
+// quieter face with a neutral edge and grey words. A command that is toggled
+// on is recessed into a frosted panel in the accent's tint and keeps its
+// gold; the controls that are not commands (a gallery, a check box) are
+// frosted recessed panels too. Round buttons never take the gold.
+
+/// The plain face on leather, top and bottom (`--lf-t`, `--lf-b`).
+const LEATHER_FACE_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(250, 249, 245, 219), ColorU::new(236, 234, 228, 219));
+const LEATHER_FACE_DARK: (ColorU, ColorU) =
+    (ColorU::new(51, 51, 51, 219), ColorU::new(41, 41, 41, 219));
+/// The plain face on leather under the pointer (`--lf-ht`, `--lf-hb`, 90%).
+const LEATHER_HOVER_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(253, 252, 249, 230), ColorU::new(242, 240, 235, 230));
+const LEATHER_HOVER_DARK: (ColorU, ColorU) =
+    (ColorU::new(58, 58, 58, 230), ColorU::new(47, 47, 47, 230));
+/// The plain face on leather pressed in (`--lf-pt`, `--lf-pb`).
+const LEATHER_PRESSED_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(226, 223, 215, 230), ColorU::new(236, 234, 228, 230));
+const LEATHER_PRESSED_DARK: (ColorU, ColorU) =
+    (ColorU::new(30, 30, 30, 230), ColorU::new(38, 38, 38, 230));
+/// A disabled command's face on leather (`--lf-qt`, `--lf-qb`, 80%).
+const QUIET_FACE_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(248, 247, 243, 204), ColorU::new(234, 232, 226, 204));
+const QUIET_FACE_DARK: (ColorU, ColorU) =
+    (ColorU::new(46, 46, 46, 204), ColorU::new(37, 37, 37, 204));
+/// A disabled command's neutral edge (`--quiet-bd`).
+const QUIET_EDGE_LIGHT: ColorU = ColorU::new(150, 144, 130, 115);
+const QUIET_EDGE_DARK: ColorU = ColorU::new(90, 90, 90, 179);
+
+/// The gold edge of an enabled command: top, right, bottom, left
+/// (`--gold-edge`), lighter on top where the light falls.
+const GOLD_EDGE_LIGHT: [ColorU; 4] = [
+    ColorU::rgb(0xDC, 0xC1, 0x7C),
+    ColorU::rgb(0xC2, 0xA5, 0x5C),
+    ColorU::rgb(0xA3, 0x87, 0x3F),
+    ColorU::rgb(0xC2, 0xA5, 0x5C),
+];
+const GOLD_EDGE_DARK: [ColorU; 4] = [
+    ColorU::rgb(0xCD, 0xB2, 0x6C),
+    ColorU::rgb(0xA8, 0x8F, 0x50),
+    ColorU::rgb(0x85, 0x70, 0x3A),
+    ColorU::rgb(0xA8, 0x8F, 0x50),
+];
+/// The gold edge under the pointer (`--gold-edge-hover`).
+const GOLD_EDGE_HOVER_LIGHT: [ColorU; 4] = [
+    ColorU::rgb(0xE8, 0xCF, 0x8C),
+    ColorU::rgb(0xCD, 0xB1, 0x68),
+    ColorU::rgb(0xAD, 0x90, 0x47),
+    ColorU::rgb(0xCD, 0xB1, 0x68),
+];
+const GOLD_EDGE_HOVER_DARK: [ColorU; 4] = [
+    ColorU::rgb(0xDC, 0xC2, 0x7C),
+    ColorU::rgb(0xB7, 0x9D, 0x5C),
+    ColorU::rgb(0x92, 0x7B, 0x42),
+    ColorU::rgb(0xB7, 0x9D, 0x5C),
+];
+
+/// A frosted panel's face, top and bottom (`--frost-t`, `--frost-b`, 90%).
+const FROST_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(251, 250, 247, 230), ColorU::new(243, 241, 236, 230));
+const FROST_DARK: (ColorU, ColorU) = (ColorU::new(40, 40, 40, 230), ColorU::new(34, 34, 34, 230));
+/// A frosted panel's rim (`--frost-bd`).
+const FROST_EDGE_LIGHT: ColorU = ColorU::new(120, 108, 80, 71);
+const FROST_EDGE_DARK: ColorU = ColorU::new(0, 0, 0, 115);
+/// The shadow along a frosted panel's top (`--frost-well`).
+const FROST_WELL_LIGHT: ColorU = ColorU::new(48, 40, 25, 41);
+const FROST_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 128);
+/// A toggled command's frost in the accent's tint (`--frost-on-t`,
+/// `--frost-on-b`, 92%).
+const FROST_ON_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(226, 230, 240, 235), ColorU::new(216, 222, 234, 235));
+const FROST_ON_DARK: (ColorU, ColorU) =
+    (ColorU::new(46, 60, 88, 235), ColorU::new(38, 50, 76, 235));
+/// The shadow a toggled command is recessed by (`inset 0 1px 3px`).
+const FROST_ON_WELL_LIGHT: ColorU = ColorU::new(30, 40, 70, 56);
+const FROST_ON_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 140);
+
+/// A face as one gradient layer, top to bottom.
+fn face_layer((top, bottom): (ColorU, ColorU)) -> Vec<StyleBackgroundContent> {
+    alloc::vec![super::decl::face(top, bottom)]
+}
+
+/// Four edge colours, top, right, bottom, left, with their night twins,
+/// in `state` (resting, or one pseudo-state).
+fn edges_in(
+    light: [ColorU; 4],
+    dark: [ColorU; 4],
+    on_hover: bool,
+) -> Vec<CssPropertyWithConditions> {
+    type P = CssPropertyWithConditions;
+    let props = |c: [ColorU; 4]| {
+        [
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: c[0] }),
+            CssProperty::const_border_right_color(StyleBorderRightColor { inner: c[1] }),
+            CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: c[2] }),
+            CssProperty::const_border_left_color(StyleBorderLeftColor { inner: c[3] }),
+        ]
+    };
+    let mut v = Vec::with_capacity(8);
+    for (l, d) in props(light).into_iter().zip(props(dark)) {
+        v.extend(if on_hover { P::themed_on_hover(l, d) } else { P::themed(l, d) });
+    }
+    v
+}
+
+/// The 1px gold edge of an enabled command, at rest and brighter under the
+/// pointer. Appended after a command's whole style, so it wins its border.
+#[must_use]
+pub(crate) fn gold_edge() -> Vec<CssPropertyWithConditions> {
+    let mut v = edges_in(GOLD_EDGE_LIGHT, GOLD_EDGE_DARK, false);
+    v.extend(edges_in(GOLD_EDGE_HOVER_LIGHT, GOLD_EDGE_HOVER_DARK, true));
+    v
+}
+
+/// A plain command's faces on leather: resting, hovered and pressed, each
+/// translucent so a little grain shows. Appended after the command's own
+/// style; its depth (lip, foot, cast, the pressed well) stays the command's.
+#[must_use]
+pub(crate) fn leather_faces() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(6);
+    v.extend(decl::themed_layers(face_layer(LEATHER_FACE_LIGHT), face_layer(LEATHER_FACE_DARK)));
+    v.extend(decl::hover_layers(face_layer(LEATHER_HOVER_LIGHT), face_layer(LEATHER_HOVER_DARK)));
+    v.extend(decl::active_layers(
+        face_layer(LEATHER_PRESSED_LIGHT),
+        face_layer(LEATHER_PRESSED_DARK),
+    ));
+    v
+}
+
+/// An enabled plain command on leather: its leather faces and the gold edge.
+#[must_use]
+pub(crate) fn leather_command() -> Vec<CssPropertyWithConditions> {
+    let mut v = leather_faces();
+    v.extend(gold_edge());
+    v
+}
+
+/// A disabled command on leather: still the raised pill (lip, foot, cast)
+/// in the quiet face, a neutral edge, grey words, and the same face under
+/// the pointer and pressed (it does nothing).
+#[must_use]
+pub(crate) fn quiet_command() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(24);
+    let quiet = || (face_layer(QUIET_FACE_LIGHT), face_layer(QUIET_FACE_DARK));
+    let (l, d) = quiet();
+    v.extend(decl::themed_layers(l, d));
+    let (l, d) = quiet();
+    v.extend(decl::hover_layers(l, d));
+    let (l, d) = quiet();
+    v.extend(decl::active_layers(l, d));
+    let edge = |c: ColorU| [c, c, c, c];
+    v.extend(edges_in(edge(QUIET_EDGE_LIGHT), edge(QUIET_EDGE_DARK), false));
+    v.extend(edges_in(edge(QUIET_EDGE_LIGHT), edge(QUIET_EDGE_DARK), true));
+    v.extend(decl::themed_ink(LIGHT_DISTX, DARK_DISTX));
+    v.extend(raised_depth());
+    v
+}
+
+/// A frosted recessed panel: the frost, its rim and a shadow along its
+/// top, the raised depth taken away. `on` tints it with the accent (a
+/// toggled command, a picked gallery cell).
+#[must_use]
+pub(crate) fn frosted(on: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(16);
+    let (face_light, face_dark, well_light, well_dark, blur) = if on {
+        (FROST_ON_LIGHT, FROST_ON_DARK, FROST_ON_WELL_LIGHT, FROST_ON_WELL_DARK, 3)
+    } else {
+        (FROST_LIGHT, FROST_DARK, FROST_WELL_LIGHT, FROST_WELL_DARK, 2)
+    };
+    v.extend(decl::themed_layers(face_layer(face_light), face_layer(face_dark)));
+    if !on {
+        v.extend(decl::themed_border_color(FROST_EDGE_LIGHT, FROST_EDGE_DARK));
+    }
+    v.extend(themed_shadow_in(ShadowSlot::Top, (1, blur, 0), well_light, well_dark, true));
+    v.push(CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Right)));
+    v.push(CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Bottom)));
+    v
+}
+
 const EB_GARAMOND_STR: AzString = AzString::from_const_str("EB Garamond");
 const GEORGIA_STR: AzString = AzString::from_const_str("Georgia");
 const SERIF_STR: AzString = AzString::from_const_str("serif");
@@ -1087,6 +1277,26 @@ pub(crate) const CAPS_COMMAND: (isize, f32) = (11, 0.07);
 pub(crate) const CAPS_TITLE: (isize, f32) = (11, 0.12);
 /// A field's label over it (the specimen's 11.5px small capitals): .1em.
 pub(crate) const CAPS_LABEL: (isize, f32) = (10, 0.1);
+
+/// A tab button's capitals (the selected tab and its neighbours in a
+/// `TabStyle::Pills` row): 11.5px, tracked .08em.
+pub(crate) const TAB_BUTTON_CAPS: (f32, f32) = (11.5, 0.08);
+
+/// A tab button's label: [`TAB_BUTTON_CAPS`] in the UI hand, bold,
+/// uppercase, on a 1.25 line.
+#[must_use]
+pub(crate) fn tab_button_caps() -> Vec<CssPropertyWithConditions> {
+    let (px, em) = TAB_BUTTON_CAPS;
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::px(px))),
+        super::decl::bold(),
+        CssPropertyWithConditions::simple(CssProperty::TextTransform(
+            StyleTextTransform::Uppercase.into(),
+        )),
+        super::decl::letter_spacing_em(em),
+    ]
+}
 
 /// A label in flora's capitals, `(px, em)` one of the `CAPS_*` sizes: EB
 /// Garamond, bold, uppercase, tracked out.

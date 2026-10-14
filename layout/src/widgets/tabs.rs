@@ -2020,25 +2020,43 @@ impl TabHeaderLook {
     }
 }
 
-// ---- Pills: pill buttons on leather ----
+// ---- Pills: tab buttons on leather ("Buttons" in the UI) ----
 //
-// A pill tab is a button: the selected one is the theme's submit button
-// (its primary command), every other one its plain button, each with the
-// button's whole style - resting face, hover, press, the keyboard ring and
-// the fades - rounded into a pill. They sit on a strip of leather, tinted
-// white by day and dark at night, laid over the strip's whole border box so
-// it reaches the strip's top edge. Along the foot runs a 1px rule of gold:
-// the theme's metal shimmer over aluminium tinted gold. The rule is a node
-// of its own (each material reads its tint from its own node), one CSS
-// pixel tall, which the renderer draws as two device pixels at 2x.
+// A tab button is the theme's own command at the house radius: the selected
+// one is its submit button (the primary command), every other one its plain
+// button, each with the button's whole style - resting face, hover, press
+// (pointer, Space, Enter), the keyboard ring and the fades. They stand in a
+// row as tall as a title bar, centred where the traffic lights are centred
+// when the row is the window's title bar, on a strip of leather laid over
+// the strip's whole border box so it reaches its top edge. Under the row
+// runs a 2px golden line: the theme's metal shimmer over aluminium tinted
+// gold. The line is a node of its own (each material reads its tint from
+// its own node). In flora the plain buttons wear the leather faces (a little
+// grain shows through) and every button the gold edge.
 
-/// The leather's tint: white leather by day, dark leather at night.
-const PILL_STRIP_CSS: &str =
-    "--azul-material-tint: #f4f0e8; @theme(dark) { --azul-material-tint: #3a322c; }";
-/// The rule's tint: aluminium turned gold.
-const PILL_RULE_CSS: &str = "--azul-material-tint: #d4af37;";
-/// The room between two pills and around the row, in px.
-const PILL_GAP: isize = 6;
+/// The leather's tint (pale grey nappa, mixed toward black at night) and
+/// its pillow: the strip rises from its edges, the golden line its seam.
+pub(crate) const PILL_STRIP_CSS: &str = "--azul-material-tint: #e4e2dd; --azul-pillow: 76px .16; \
+     @theme(dark) { --azul-material-tint: #373635; }";
+/// The golden line: aluminium tinted gold, lit along its own shape by a
+/// cushion bevel.
+pub(crate) const PILL_RULE_CSS: &str = "--azul-material-tint: #e9c672; --azul-bevel: 1px; \
+     --azul-bevel-depth: 2.5; --azul-bevel-softness: 1;";
+/// The room between two tab buttons, in px.
+pub(crate) const PILL_GAP: isize = 6;
+/// The row the buttons stand in, in px: a title bar's height.
+pub(crate) const PILL_ROW: isize = 28;
+/// A tab button's height, in px.
+pub(crate) const PILL_HEIGHT: isize = 22;
+/// The room beside a tab button's label, in px.
+pub(crate) const PILL_SIDE: isize = 12;
+/// The house radius of a tab button, in px.
+pub(crate) const PILL_RADIUS: isize = 3;
+/// The golden line's height, in px (four device pixels at 2x).
+pub(crate) const PILL_RULE: isize = 2;
+/// The room before the first and after the last button of a strip that is
+/// not the window's title bar, in px.
+pub(crate) const PILL_LEAD: isize = 10;
 
 /// The style `theme`'s `button_type` button is drawn with: its container's
 /// declarations, conditions and all.
@@ -2059,19 +2077,49 @@ fn button_style(
         .collect()
 }
 
-/// A pill: the tab's base, `theme`'s `button_type` button, rounded, one
-/// line.
-fn pill(
+/// A tab button: the tab's base, `theme`'s `button_type` button at the house
+/// radius, `PILL_HEIGHT` tall (its border box) with its label centred on
+/// one line, `PILL_SIDE` beside the label. In flora the label is set in the
+/// tab capitals (the right side giving their trailing tracking back), a
+/// plain button wears the leather faces, and every button the gold edge.
+#[must_use]
+pub(crate) fn pill(
     theme: crate::widgets::themes::UiTheme,
     button_type: crate::widgets::button::ButtonType,
 ) -> CssPropertyWithConditionsVec {
-    use crate::widgets::themes::decl;
+    use crate::widgets::{
+        button::ButtonType,
+        themes::{decl, flora, UiTheme},
+    };
+    type P = CssPropertyWithConditions;
     let mut v = TAB_BASE.to_vec();
     v.extend(button_style(theme, button_type));
-    v.extend(decl::radius(999));
-    v.extend(decl::padding(4, 14, 4, 14));
+    v.extend(decl::radius(PILL_RADIUS));
+    v.extend(decl::padding(0, PILL_SIDE, 0, PILL_SIDE));
     v.extend(decl::margin(0, 0, 0, 0));
     v.push(decl::nowrap());
+    // The border box is the button's height: the button's own base sizes
+    // its content box and starts it at the top of a column (`align-self:
+    // start`); here it is centred in the row.
+    v.push(P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)));
+    v.push(P::simple(CssProperty::const_height(LayoutHeight::const_px(PILL_HEIGHT))));
+    v.push(P::simple(CssProperty::align_self(LayoutAlignSelf::Center)));
+    // One line as tall as the content box (the border box less its 1px
+    // border), so the label is centred in either box model.
+    v.push(P::simple(CssProperty::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(PILL_HEIGHT - 2),
+    ))));
+    if theme == UiTheme::Flora {
+        v.extend(flora::tab_button_caps());
+        let (px, em) = flora::TAB_BUTTON_CAPS;
+        #[allow(clippy::cast_precision_loss)] // a few px
+        let side = PILL_SIDE as f32;
+        v.push(decl::px_padding_right(side - decl::trailing_tracking_px(px, em)));
+        if button_type == ButtonType::Default {
+            v.extend(flora::leather_faces());
+        }
+        v.extend(flora::gold_edge());
+    }
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -2092,10 +2140,12 @@ pub(crate) fn pill_look(
         }))),
         decl::position(LayoutPosition::Relative),
         decl::font_size(13),
+        // The row and the line under it, nothing else: no air above or
+        // below the buttons.
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(PILL_ROW + PILL_RULE))),
     ]);
-    // A gauge of room under the pills for the rule, so it never runs under
-    // a pill.
-    header.extend(decl::padding(PILL_GAP, PILL_GAP * 2, PILL_GAP + 1, PILL_GAP * 2));
+    header.extend(decl::padding(0, PILL_LEAD, PILL_RULE, PILL_LEAD));
     // The leather over a base of its own colour (seen while the material
     // renders, or without the materials feature).
     header.extend(decl::themed_layers(
@@ -2103,12 +2153,13 @@ pub(crate) fn pill_look(
         vec![StyleBackgroundContent::Color(ColorU::rgb(0x3A, 0x32, 0x2C)), leather()],
     ));
 
+    #[allow(clippy::cast_precision_loss)] // 2px
     let rule = vec![
         decl::position(LayoutPosition::Absolute),
         decl::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
         decl::simple(CssProperty::const_right(LayoutRight::const_px(0))),
         decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
-        decl::px_height(1.0),
+        decl::px_height(PILL_RULE as f32),
         P::simple(decl::layers(vec![
             StyleBackgroundContent::Image(AzString::from_const_str("azul-builtin:aluminium")),
             crate::widgets::themes::flora::RULE_SHIMMER,
@@ -2121,6 +2172,9 @@ pub(crate) fn pill_look(
         CssPropertyWithConditionsVec::from_vec(vec![
             P::simple(CssProperty::const_width(LayoutWidth::const_px(0))),
             P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+            // No spacer before the first button: the strip's padding is
+            // its lead, and a spacer would add a gap to it.
+            P::simple(CssProperty::const_display(LayoutDisplay::None)),
         ]),
         CssPropertyWithConditionsVec::from_const_slice(AFTER_BASE),
         pill(theme, ButtonType::Primary),
