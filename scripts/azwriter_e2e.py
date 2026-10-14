@@ -16,7 +16,10 @@
     8. starts AzWriter again on the same folder, opens the document from File > Open and finds the
        text; screenshots in flat / flora x light / dark;
     9. types once more and closes: Don't Save closes the window (and the app) without writing,
-       the file keeps what it had.
+       the file keeps what it had;
+   10. starts AzWriter in German (--language de) on the same folder: the File tab says DATEI,
+       and a close over unsaved typing asks in German ("... speichern?", Speichern / Nicht
+       speichern / Abbrechen - no English word); Abbrechen keeps the window.
 
 Usage (from the azul repository, after building libazul with the debug server and AzWriter):
 
@@ -209,6 +212,35 @@ def second_session(app, data, doc_id, out):
     app.log("Don't Save closes without writing")
 
 
+def german_session(app, doc_id, out):
+    app.until("the window", lambda: app.printed("AZWRITER_READY", r".*"))
+    app.until("the File tab in German", lambda: app.shows("DATEI"))
+    app.until("the list", lambda: app.printed("AZWRITER_LISTED", r"\d+"))
+    app.key("o", primary=True)
+    app.until("the document list", lambda: app.has_id("__azwriter_open-0"))
+    app.click("#__azwriter_open-0")
+    app.until("the document to open", lambda: doc_id in app.printed("AZWRITER_OPENED", r"[0-9a-f-]+"))
+    app.frame(3)
+    app.click(BLOCK % 1)
+    app.must("text_input", text="DEUTSCH ")
+    app.frame(2)
+    app.op("close")
+    app.frame(2)
+    app.until("the save-changes question in German", lambda: app.shows("speichern?"))
+    app.screenshot(os.path.join(out, "close-guard-de.png"))
+    for word in ("Nicht speichern", "Abbrechen"):
+        if not app.shows(word):
+            raise e.Failure("the German close question has no %r button" % word)
+    for word in ("Save changes", "Don't Save"):
+        if app.shows(word):
+            raise e.Failure("the close question of a German window says %r" % word)
+    e.click_dialog_button(app, "Abbrechen")
+    app.until("the question to go", lambda: not app.shows("speichern?"))
+    if not app.alive():
+        raise e.Failure("Abbrechen closed the window")
+    app.log("German: the File tab says DATEI, the close question and its buttons are German")
+
+
 def body(args, logs, out):
     binary = e.find_binary("AzWriter", args.bin, "AZWRITER_BIN")
     data = os.path.join(logs, "data")
@@ -226,6 +258,15 @@ def body(args, logs, out):
     app = e.App("azwriter-2", binary, common, args.debug_port, logs, args.timeout)
     try:
         second_session(app, data, doc_id, out)
+    except e.Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e.tail(app.out_path), e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    german = ["--data-dir", data, "--size", "1280x800", "--language", "de"]
+    app = e.App("azwriter-3", binary, german, args.debug_port, logs, args.timeout)
+    try:
+        german_session(app, doc_id, out)
     except e.Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e.tail(app.out_path), e.tail(app.err_path)))
         raise
