@@ -1267,6 +1267,33 @@ pub enum SearchScope {
     AllDrives,
 }
 
+/// Where a search starts: a drive's folder (its root for "This drive"), or every drive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchRoot {
+    Folder { drive: String, prefix: String },
+    AllDrives,
+}
+
+impl SearchScope {
+    /// Where the search of `place` starts in this scope: This PC and Quick access are on no
+    /// drive, so every drive is searched there.
+    #[must_use]
+    pub fn root(self, place: &Place) -> SearchRoot {
+        let _ = place;
+        todo!()
+    }
+}
+
+/// The recent searches the empty search view offers as chips.
+pub const RECENT_SEARCHES: usize = 6;
+
+/// Remembers `query` as the newest recent search: none shorter than two characters, the same
+/// text (in any case) only once, [`RECENT_SEARCHES`] at most.
+pub fn remember_search(recent: &mut Vec<String>, query: &str) {
+    let _ = (recent, query);
+    todo!()
+}
+
 /// A search kept in AzDrive's settings (Save search): its name, the search box's text, the
 /// Search tab's choices and the place it searched; Saved searches runs it again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -15,10 +15,10 @@ use azul_storage::{ListPage, ObjectInfo};
 use chrono::{FixedOffset, TimeZone};
 
 use crate::{
-    browse::{Column, Entry, Sort},
+    browse::{Column, Entry, Place, Sort},
     find::{
         self, DateRefine, FindEnd, FindOptions, FindPhase, FindState, Found, FoundLine,
-        KindRefine, Refines, SizeRefine,
+        KindRefine, Refines, SearchRoot, SearchScope, SizeRefine,
     },
     model::Settings,
 };
@@ -811,4 +811,40 @@ fn a_line_that_joins_a_named_row_counts_in_its_rank() {
     find.merge(vec![found("B/steuer-b.txt", Some((1, "steuer steuer steuer")))]);
     let keys: Vec<String> = find.shown().iter().map(|e| e.key.clone()).collect();
     assert_eq!(keys[0], "B/steuer-b.txt", "its contents hold the term too");
+}
+
+/// The scope chips: This folder searches the open folder (and below it), This drive the drive
+/// from its root, All drives every drive; This PC and Quick access are on no drive, so they
+/// search every drive whatever the scope.
+#[test]
+fn the_scope_says_where_a_search_starts() {
+    let documents = Place::folder("home", "Documents/");
+    assert_eq!(
+        SearchScope::Folder.root(&documents),
+        SearchRoot::Folder {
+            drive: String::from("home"),
+            prefix: String::from("Documents/")
+        }
+    );
+    assert_eq!(
+        SearchScope::Drive.root(&documents),
+        SearchRoot::Folder {
+            drive: String::from("home"),
+            prefix: String::new()
+        }
+    );
+    assert_eq!(SearchScope::AllDrives.root(&documents), SearchRoot::AllDrives);
+    assert_eq!(SearchScope::Folder.root(&Place::ThisPc), SearchRoot::AllDrives);
+    assert_eq!(SearchScope::Drive.root(&Place::QuickAccess), SearchRoot::AllDrives);
+}
+
+/// The recent searches: the newest first, each text once whatever its case, none shorter than
+/// two characters, six at most.
+#[test]
+fn a_search_is_remembered_newest_first_once_and_six_at_most() {
+    let mut recent = Vec::new();
+    for query in ["Steuer", "x", "Rechnung", "steuer ", "a1", "b2", "c3", "d4", "e5"] {
+        find::remember_search(&mut recent, query);
+    }
+    assert_eq!(recent, vec!["e5", "d4", "c3", "b2", "a1", "steuer"]);
 }
