@@ -45,6 +45,8 @@ use azul_css::system::DarkLightMode;
 
 pub mod overlay;
 pub mod labels;
+#[cfg(feature = "std")]
+pub mod disk_cache;
 #[cfg(test)]
 mod label_placement_tests;
 #[cfg(test)]
@@ -1140,8 +1142,11 @@ impl MapTileCache {
                 svg: AzString::from_const_str(""),
             },
         );
-        self.drawn.insert(key, drawn);
-        self.arrived.insert(key, map_clock());
+        // Only a first arrival fades in: a drawing that replaces one of the
+        // same key (a revalidated tile that changed) takes its place at once.
+        if self.drawn.insert(key, drawn).is_none() {
+            self.arrived.insert(key, map_clock());
+        }
     }
 
     /// What `tile`'s box shows at `look` and clock time `now`, bottom first.
@@ -1640,6 +1645,11 @@ pub struct TileFetchInit {
     /// The connection pool to download through, from the map's [`MapSetup`].
     /// `None` opens a connection for this tile alone.
     pub client: OptionHttpClient,
+    /// The folder the tile is kept in on disk and looked up in first
+    /// ([`MapSetup::disk_cache_dir`]); empty: no disk cache.
+    pub cache_dir: AzString,
+    /// That folder's cap ([`MapSetup::disk_cache_max_bytes`]).
+    pub cache_max_bytes: u64,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -1934,6 +1944,13 @@ pub struct MapSetup {
     /// Most tiles downloading at once. 0 = no limit (at most 16 are started
     /// per pass).
     pub max_in_flight: u32,
+    /// The folder the map keeps its downloaded tiles in across restarts
+    /// ([`disk_cache`]); empty keeps them in memory only. Every fetch is
+    /// handed it ([`TileFetchInit::cache_dir`]).
+    pub disk_cache_dir: AzString,
+    /// The most bytes that folder holds before the least recently used tiles
+    /// go; 0 = [`disk_cache::DEFAULT_DISK_CACHE_BYTES`].
+    pub disk_cache_max_bytes: u64,
 }
 
 impl azul_core::host_invoker::HostOut for MapSetup {
@@ -1957,6 +1974,8 @@ impl MapSetup {
             http_client: OptionHttpClient::None,
             thread_pool: OptionThreadPool::None,
             max_in_flight: 0,
+            disk_cache_dir: AzString::from_const_str(""),
+            disk_cache_max_bytes: 0,
         }
     }
 
@@ -1978,6 +1997,16 @@ impl MapSetup {
     #[must_use]
     pub const fn with_max_in_flight(mut self, max_in_flight: u32) -> Self {
         self.max_in_flight = max_in_flight;
+        self
+    }
+
+    /// Keep the downloaded tiles in `dir` across restarts, at most
+    /// `max_bytes` of them (0 = 256 MB): a pan back or a restart shows them
+    /// without a download, as long as the tile server says they are fresh
+    #[must_use]
+    pub fn with_disk_cache(mut self, dir: AzString, max_bytes: u64) -> Self {
+        self.disk_cache_dir = dir;
+        self.disk_cache_max_bytes = max_bytes;
         self
     }
 }
@@ -3200,7 +3229,6 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         }
         cache.drop_unwanted_pending();
 
-        let template = cache.layer.url_template.as_str().to_string();
         let budget = spawn_budget(&cache);
         // Centre-out: the tiles under the user's eyes first, the off-screen
         // margin and other-zoom leftovers last (see `pending_tiles_nearest_first`).
@@ -3210,29 +3238,8 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             .take(budget)
             .collect();
         for key in pending {
-            let url = build_tile_url(&template, key.tile);
-            // Each job is styled for the look ITS KEY asks for, not for one
-            // cache-wide "current" look. A sweep can therefore legitimately
-            // carry jobs for two different looks at once (the new one being
-            // filled in, an old one still queued) and neither invalidates the
-            // other.
-            let style_css = cache.layer.effective_style_css_for(key.look);
-            // Bytes already in hand => restyle, no network. This is the whole
-            // point of the split cache: geometry is fetched once per tile, ever.
-            let bytes = cache
-                .tile_bytes
-                .get(&key.tile)
-                .cloned()
-                .unwrap_or_else(|| azul_css::U8Vec::from_vec(Vec::new()));
+            to_spawn.push(tile_fetch_init(&cache, key));
             cache.tiles.insert(key, TileEntry::Fetching);
-            to_spawn.push(TileFetchInit {
-                tile: key.tile,
-                url: AzString::from(url),
-                style_css,
-                look: key.look,
-                bytes,
-                client: cache.setup.http_client.clone(),
-            });
         }
         // Now that the current view's tiles are queued (Fetching, so eviction
         // protects them), bound the cache by dropping tiles far from the
@@ -3280,6 +3287,31 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     #[cfg(feature = "std")]
     if map_debug() {
         eprintln!("[map] spawn_pending: {spawn_count} thread(s) spawned");
+    }
+}
+
+/// The job that fetches (or restyles) the tile `key` names for `cache`'s map.
+///
+/// Each job is styled for the look ITS KEY asks for, not for one cache-wide
+/// "current" look: a pass can carry jobs for two looks at once (the new one
+/// being filled in, an old one still queued) and neither invalidates the
+/// other. Bytes already in hand make it a restyle with no network at all:
+/// a tile's geometry is downloaded once per session. Otherwise the worker
+/// looks in the map's disk cache first.
+fn tile_fetch_init(cache: &MapTileCache, key: TileStyleKey) -> TileFetchInit {
+    TileFetchInit {
+        tile: key.tile,
+        url: AzString::from(build_tile_url(cache.layer.url_template.as_str(), key.tile)),
+        style_css: cache.layer.effective_style_css_for(key.look),
+        look: key.look,
+        bytes: cache
+            .tile_bytes
+            .get(&key.tile)
+            .cloned()
+            .unwrap_or_else(|| azul_css::U8Vec::from_vec(Vec::new())),
+        client: cache.setup.http_client.clone(),
+        cache_dir: cache.setup.disk_cache_dir.clone(),
+        cache_max_bytes: cache.setup.disk_cache_max_bytes,
     }
 }
 
