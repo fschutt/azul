@@ -5613,6 +5613,51 @@ fn split_memory_matches(
     (groups, disk, fallback)
 }
 
+/// Puts each fallback-tier group (a face azul or the caller registered for a
+/// family without claiming it, [`split_memory_matches`]) where its family
+/// stands in the stack: right behind the disk's faces for that family, so an
+/// installed copy still wins, and in front of every family the stack names
+/// after it, as CSS orders them. A group the disk found for a family's
+/// expansion (`serif` as Times, a substitute) counts as that family's; one
+/// found for no family of the stack (a script or last-resort candidate)
+/// counts as behind them all. A stand-in for a generic therefore still waits
+/// behind the installed faces the generic means.
+fn place_fallback_tier_groups(
+    groups: &mut Vec<rust_fontconfig::CssFallbackGroup>,
+    fallbacks: Vec<rust_fontconfig::CssFallbackGroup>,
+    font_families: &[String],
+    config: &rust_fontconfig::FcFallbackConfig,
+) {
+    if fallbacks.is_empty() {
+        return;
+    }
+    let expansions: Vec<Vec<String>> = font_families
+        .iter()
+        .map(|family| {
+            config.expand_family(family, rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS)
+        })
+        .collect();
+    let rank = |name: &str| {
+        font_families
+            .iter()
+            .position(|family| family.eq_ignore_ascii_case(name))
+            .or_else(|| {
+                expansions
+                    .iter()
+                    .position(|names| names.iter().any(|n| n.eq_ignore_ascii_case(name)))
+            })
+            .unwrap_or(font_families.len())
+    };
+    for group in fallbacks {
+        let own = rank(&group.css_name);
+        let at = groups
+            .iter()
+            .rposition(|g| rank(&g.css_name) <= own)
+            .map_or(0, |i| i + 1);
+        groups.insert(at, group);
+    }
+}
+
 /// Choose the registered in-memory face that best matches a CSS
 /// `(weight, italic/oblique)` query. Prefers faces whose slant matches the
 /// request, then the nearest weight via [`rust_fontconfig::FcWeight::find_best_match`]
@@ -6032,8 +6077,7 @@ pub fn resolve_font_chains_with_registry(
         // italic. A memory font is not an installed font: where the disk
         // turned up memory fonts and nothing else for a family, the face
         // registered for that family goes first. (A family the disk found
-        // nothing for keeps its face at the end, behind the installed fonts
-        // the stack names after it.)
+        // nothing for gets its face at its place in the stack, below.)
         for group in &mut chain.css_fallbacks {
             let Some(own) = mem_fallbacks.iter().find(|g| g.css_name == group.css_name) else {
                 continue;
@@ -6051,10 +6095,14 @@ pub fn resolve_font_chains_with_registry(
             merged.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = merged;
         }
-        // Fallback-tier faces go on the END: the disk has already had its turn,
-        // so on a desktop these sit harmlessly behind the installed fonts, and
-        // on a target with nothing installed they are what is left.
-        chain.css_fallbacks.extend(mem_fallbacks);
+        if !mem_fallbacks.is_empty() {
+            place_fallback_tier_groups(
+                &mut chain.css_fallbacks,
+                mem_fallbacks,
+                &font_families,
+                &fc_cache.fallback_config(),
+            );
+        }
 
         // A family that produced no group matched NOTHING — record it (see
         // `ResolvedFontChains::unresolved_families`). Generics are exempt:
@@ -6398,10 +6446,14 @@ pub fn resolve_font_chains_fast(
             css_fallbacks.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = css_fallbacks;
         }
-        // Fallback-tier faces go on the END: the disk has already had its turn,
-        // so on a desktop these sit harmlessly behind the installed fonts, and
-        // on a target with nothing installed they are what is left.
-        chain.css_fallbacks.extend(mem_fallbacks);
+        if !mem_fallbacks.is_empty() {
+            place_fallback_tier_groups(
+                &mut chain.css_fallbacks,
+                mem_fallbacks,
+                &font_families,
+                &shared_cache.fallback_config(),
+            );
+        }
 
         // A family AHEAD of the first matched one produced no group: it
         // matched NOTHING, and the text renders in a later family instead.
