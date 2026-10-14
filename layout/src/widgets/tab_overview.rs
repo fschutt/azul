@@ -449,8 +449,112 @@ impl TabOverview {
     /// The scrim over the window with the list on it, under the tab button.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let _ = self;
+        let theme = self.theme.into_option().unwrap_or_else(UiTheme::current);
+        let pal = Palette::of(theme);
+        let tabs = self.items.as_ref().len();
+        let rows = tabs + 1;
+        let data = |index: usize| {
+            RefAny::new(OverviewData {
+                index,
+                rows,
+                highlighted: self.highlighted,
+                on_event: self.on_event.clone(),
+            })
+        };
+
+        let mut list_children: Vec<Dom> = Vec::with_capacity(tabs + 3);
+        // The header, in the UI hand's capitals.
+        let mut head = alloc::vec![
+            C::simple(P::TextTransform(StyleTextTransform::Uppercase.into())),
+            decl::letter_spacing_em(0.12),
+            decl::bold(),
+        ];
+        head.extend(decl::padding(9, 14, 6, 14));
+        if theme == UiTheme::Flora {
+            head.push(C::simple(P::const_font_family(flora::FONT_CAPS)));
+        }
+        // The capitals a size step under the tab buttons' 11.5px.
+        head.push(C::simple(P::const_font_size(StyleFontSize::px(10.5))));
+        list_children.push(text(self.title.clone(), pal.soft1, 10, head));
+
+        for (i, item) in self.items.as_ref().iter().enumerate() {
+            list_children.push(self.row(i, item, &pal, data(i)));
+        }
+        list_children.push(self.new_row(tabs, &pal, data(tabs)));
+
+        if !self.footer.as_str().is_empty() {
+            let mut foot = alloc::vec![C::simple(P::const_font_family(SYSTEM_FONT))];
+            foot.extend(decl::padding(7, 14, 9, 14));
+            foot.extend(decl::border_top(1));
+            foot.extend(decl::themed_border_top_color(pal.sep2.0, pal.sep2.1));
+            list_children.push(text(self.footer.clone(), pal.soft2, 11, foot));
+        }
+
+        let mut list = alloc::vec![
+            decl::display_flex(),
+            decl::flex_direction(LayoutFlexDirection::Column),
+            C::simple(P::const_width(LayoutWidth::const_px(TAB_OVERVIEW_WIDTH))),
+            C::simple(P::const_flex_shrink(LayoutFlexShrink {
+                inner: FloatValue::const_new(0),
+            })),
+            C::simple(P::const_overflow_x(LayoutOverflow::Hidden)),
+            C::simple(P::const_overflow_y(LayoutOverflow::Hidden)),
+        ];
+        list.extend(decl::radius(8));
+        list.extend(decl::border(1));
+        list.extend(decl::themed_border_color(pal.bd.0, pal.bd.1));
+        list.extend(decl::themed_fill(pal.sur.0, pal.sur.1));
+        list.extend(decl::themed_shadow(9, 32, POP_SHADOW.0, POP_SHADOW.1));
+        let list_data = data(self.highlighted);
+        let list = Dom::create_div()
+            .with_ids_and_classes(classes(&[TAB_OVERVIEW_LIST_CLASS]))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(list))
+            .with_tab_index(TabIndex::Auto)
+            .with_attribute(AttributeType::Autofocus)
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::List,
+                accessibility_name: azul_css::OptionString::Some(self.title.clone()),
+                ..Default::default()
+            })
+            .with_callbacks(
+                alloc::vec![
+                    on(EventFilter::Hover(HoverEventFilter::Click), on_list_click as usize, &list_data),
+                    on(
+                        EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                        on_list_key as usize,
+                        &list_data,
+                    ),
+                ]
+                .into(),
+            )
+            .with_children(DomVec::from_vec(list_children));
+
+        let mut scrim = alloc::vec![
+            decl::position(LayoutPosition::Absolute),
+            C::simple(P::const_left(LayoutLeft::const_px(0))),
+            C::simple(P::const_top(LayoutTop::const_px(0))),
+            C::simple(P::const_right(LayoutRight::const_px(0))),
+            C::simple(P::const_bottom(LayoutInsetBottom::const_px(0))),
+            C::simple(P::const_z_index(LayoutZIndex::Integer(80))),
+            decl::display_flex(),
+            decl::flex_direction(LayoutFlexDirection::Row),
+            C::simple(P::const_justify_content(LayoutJustifyContent::End)),
+            C::simple(P::const_align_items(LayoutAlignItems::Start)),
+        ];
+        scrim.extend(decl::padding(TAB_OVERVIEW_TOP, TAB_OVERVIEW_RIGHT, 0, 0));
+        scrim.extend(decl::themed_fill(SCRIM.0, SCRIM.1));
         Dom::create_div()
+            .with_ids_and_classes(classes(&[TAB_OVERVIEW_CLASS]))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(scrim))
+            .with_callbacks(
+                alloc::vec![on(
+                    EventFilter::Hover(HoverEventFilter::Click),
+                    on_scrim_click as usize,
+                    &data(0)
+                )]
+                .into(),
+            )
+            .with_child(list)
     }
 
     /// A row's box: icon, words, key; the 3px bar on its left, lit under the
@@ -680,8 +784,64 @@ impl TabOverviewButton {
     /// The button, its badge over its top right corner.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let _ = self;
-        Dom::create_div()
+        let theme = self.theme.into_option().unwrap_or_else(UiTheme::current);
+        let pal = Palette::of(theme);
+        let mut style = crate::widgets::ribbon::strip_button_style(theme).into_library_owned_vec();
+        style.push(decl::position(LayoutPosition::Relative));
+        let mut button = Dom::create_div()
+            .with_ids_and_classes(classes(&[TAB_OVERVIEW_BUTTON_CLASS]))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+            .with_tab_index(TabIndex::Auto)
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::PushButton,
+                accessibility_name: azul_css::OptionString::Some(AzString::from(alloc::format!(
+                    "Tabs ({})",
+                    self.count
+                ))),
+                ..Default::default()
+            })
+            .with_child(Dom::create_icon(AzString::from_const_str("tab")));
+        if self.count > 1 {
+            let mut badge = alloc::vec![
+                decl::position(LayoutPosition::Absolute),
+                C::simple(P::const_right(LayoutRight::const_px(-4))),
+                C::simple(P::const_top(LayoutTop::const_px(-4))),
+                C::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox)),
+                C::simple(P::const_min_width(LayoutMinWidth::const_px(13))),
+                C::simple(P::const_height(LayoutHeight::const_px(13))),
+                C::simple(P::const_line_height(StyleLineHeight::Length(PixelValue::const_px(13)))),
+                C::simple(P::const_font_family(SYSTEM_FONT)),
+                decl::font_size(9),
+                decl::semibold(),
+                C::simple(P::const_text_align(StyleTextAlign::Center)),
+                C::simple(decl::ink(pal.on_accent)),
+            ];
+            badge.extend(decl::padding(0, 3, 0, 3));
+            badge.extend(decl::radius(7));
+            badge.extend(decl::themed_fill(pal.accent.0, pal.accent.1));
+            badge.extend(decl::themed_shadow(0, 0, pal.sur.0, pal.sur.1));
+            let mut badge = crate::widgets::widget_p_with_text(AzString::from(alloc::format!(
+                "{}",
+                self.count
+            )))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(badge));
+            badge.root.add_class(AzString::from_const_str(TAB_OVERVIEW_BADGE_CLASS));
+            button.add_child(badge);
+        }
+        if let Some(click) = self.on_click.into_option() {
+            button = button.with_callbacks(
+                alloc::vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Click),
+                    callback: CoreCallback {
+                        cb: click.callback.cb as *const () as usize,
+                        ctx: click.callback.ctx,
+                    },
+                    refany: click.refany,
+                }]
+                .into(),
+            );
+        }
+        button
     }
 }
 
