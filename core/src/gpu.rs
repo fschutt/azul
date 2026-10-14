@@ -132,6 +132,30 @@ impl GpuValueCache {
             .map(|(key, transform)| (*key, *transform))
     }
 
+    /// [`Self::reference_frame_of`] for a node laid out at `size` (its border
+    /// box, logical px): the CSS channel's matrix is resolved against that
+    /// box. The cache holds what the PREVIOUS pass's sizes gave, and nothing
+    /// is known before a node's first layout, so a percentage origin (the
+    /// default `50% 50%`) would pivot at the corner. The display list is
+    /// built after layout, so it bakes this pass's matrix: a renderer that
+    /// reads the list's own value (a `VirtualView`'s list on the CPU, a
+    /// screenshot) draws the same as one that reads the live value.
+    #[must_use]
+    pub fn reference_frame_at(
+        &self,
+        styled_dom: &StyledDom,
+        node: NodeId,
+        size: (f32, f32),
+    ) -> Option<(TransformKey, ComputedTransform3D)> {
+        let css = self
+            .css_transform_keys
+            .get(&node)
+            .filter(|_| self.css_current_transform_values.contains_key(&node))
+            .zip(Self::css_transform_of(styled_dom, node, size));
+        css.map(|(key, transform)| (*key, transform))
+            .or_else(|| self.reference_frame_of(node))
+    }
+
     /// The matrix `node` is painted with now ([`Self::reference_frame_of`]),
     /// `None` when it is painted untransformed.
     #[must_use]

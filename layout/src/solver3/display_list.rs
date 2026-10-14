@@ -5329,10 +5329,6 @@ where
         // CSS transform first, then the ANIMATION channel: an engine-driven
         // transition animates nodes that have no CSS `transform` of their own
         // (`GpuValueCache::reference_frame_of`, the hit tester's rule too).
-        let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
-            self.gpu_value_cache
-                .and_then(|cache| cache.reference_frame_of(dom_id))
-        });
         // Push a stacking context for WebRender
         // Get the node's bounds for the stacking context
         let node_pos = self
@@ -5344,6 +5340,15 @@ where
         let node_size = node.used_size.unwrap_or(LogicalSize {
             width: 0.0,
             height: 0.0,
+        });
+        let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
+            self.gpu_value_cache.and_then(|cache| {
+                cache.reference_frame_at(
+                    self.ctx.styled_dom,
+                    dom_id,
+                    (node_size.width, node_size.height),
+                )
+            })
         });
         let node_bounds = LogicalRect {
             origin: node_pos,
@@ -5935,9 +5940,18 @@ where
         .then(|| self.enter_scroll_chain(builder, child_index));
 
         // Check if this child has a GPU transform (CSS transform or drag)
+        let child_size = child_node.used_size.unwrap_or(LogicalSize {
+            width: 0.0,
+            height: 0.0,
+        });
         let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
-            self.gpu_value_cache
-                .and_then(|cache| cache.reference_frame_of(dom_id))
+            self.gpu_value_cache.and_then(|cache| {
+                cache.reference_frame_at(
+                    self.ctx.styled_dom,
+                    dom_id,
+                    (child_size.width, child_size.height),
+                )
+            })
         });
 
         // Push reference frame if child has a transform
@@ -5948,10 +5962,6 @@ where
                 .get(child_index)
                 .copied()
                 .unwrap_or_default();
-            let child_size = child_node.used_size.unwrap_or(LogicalSize {
-                width: 0.0,
-                height: 0.0,
-            });
             let child_bounds = LogicalRect {
                 origin: child_pos,
                 size: child_size,
