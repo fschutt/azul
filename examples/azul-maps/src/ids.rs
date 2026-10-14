@@ -28,6 +28,11 @@ names! {
     /// The typeahead's suggestions under the travel fields (each row
     /// `suggestion-<n>`, see [`indexed`]).
     SUGGESTIONS = "suggestions";
+    /// The line saying the ends go to the routing server, while it is asked.
+    ROUTE_PRIVACY = "route-privacy";
+    /// The routing server's turn-by-turn steps (each row `route-step-<n>`,
+    /// see [`route_step`]).
+    ROUTE_STEPS = "route-steps";
     // ---- the recent places ----
     /// The list of recent places (the dropped pins, newest first).
     RECENTS = "recents";
@@ -51,4 +56,10 @@ pub fn indexed(stem: &str, n: usize) -> AzString {
 #[must_use]
 pub fn travel_mode(key: &str) -> AzString {
     AzString::from(format!("__azmaps_travel-{key}"))
+}
+
+/// A turn-by-turn step's row: `__azmaps_route-step-0`, ...
+#[must_use]
+pub fn route_step(n: usize) -> AzString {
+    indexed("route-step", n)
 }

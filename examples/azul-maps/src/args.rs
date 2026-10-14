@@ -18,6 +18,9 @@ pub struct Args {
     /// [`ROUTING_VAR`], else the shared Azlin config's `endpoints.routing`; without them a
     /// route is the straight-line estimate.
     pub routing: Option<String>,
+    /// `--routing-online <url|off>`: the routing server asked where there are no routing
+    /// tiles, else [`ROUTING_ONLINE_VAR`] (see [`online_routing`]).
+    pub routing_online: Option<String>,
     /// `-h` / `--help`.
     pub help: bool,
     /// The Azlin switches (azul-appkit).
@@ -28,6 +31,23 @@ pub struct Args {
 pub const TILES_VAR: &str = "AZMAPS_TILES";
 /// The variable naming the routing tiles, the fallback for `--routing`.
 pub const ROUTING_VAR: &str = "AZMAPS_ROUTING";
+/// The variable naming the routing server, the fallback for `--routing-online`.
+pub const ROUTING_ONLINE_VAR: &str = "AZMAPS_ROUTING_ONLINE";
+
+/// The routing server's `/route` URL: `--routing-online`, else [`ROUTING_ONLINE_VAR`], else
+/// FOSSGIS's public Valhalla server; `off` (or `none`) asks no server, so a route without
+/// routing tiles is the straight-line estimate.
+#[must_use]
+pub fn online_routing(flag: Option<&str>, env: Option<&str>) -> Option<String> {
+    let _ = azul_routing::online::FOSSGIS_VALHALLA;
+    let chosen = [flag, env]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|t| !t.is_empty())
+        .unwrap_or("off");
+    (!matches!(chosen.to_ascii_lowercase().as_str(), "off" | "none")).then(|| chosen.to_string())
+}
 
 /// The tile server's URL template (`{z}`, `{x}`, `{y}`): `--tiles`, else
 /// [`TILES_VAR`], else the shared Azlin config's `endpoints.tiles`; `None`
@@ -61,7 +81,7 @@ pub fn usage() -> String {
          endpoints.tiles of the shared Azlin config,\n                             else \
          OpenFreeMap's public tiles\n    --routing <URL|DIR>      The routing tiles ({z}/{x}/{y}.json.gz, or a folder\n                             azul-routing's routing-tiles wrote); else \
          AZMAPS_ROUTING, else\n                             endpoints.routing of the shared Azlin \
-         config. Without them a\n                             route is the straight-line estimate\n",
+         config. Without them a\n                             route is asked of the routing server\n    --routing-online <URL|off>  The routing server (a Valhalla /route URL) asked\n                             without routing tiles; else AZMAPS_ROUTING_ONLINE,\n                             else FOSSGIS's public server. off: the straight-line\n                             estimate\n",
     );
     text
 }
@@ -87,6 +107,7 @@ where
     let mut stats = env_stats;
     let mut tiles = None;
     let mut routing = None;
+    let mut routing_online = None;
     let mut rest = Vec::with_capacity(argv.len());
     let mut argv = argv.into_iter();
     while let Some(arg) = argv.next() {
@@ -106,6 +127,13 @@ where
                 argv.next()
                     .ok_or_else(|| "--routing needs a URL template or a folder".to_string())?,
             );
+        } else if arg == "--routing-online" {
+            routing_online = Some(
+                argv.next()
+                    .ok_or_else(|| "--routing-online needs a URL or off".to_string())?,
+            );
+        } else if let Some(url) = arg.strip_prefix("--routing-online=") {
+            routing_online = Some(url.to_string());
         } else if let Some(template) = arg.strip_prefix("--routing=") {
             routing = Some(template.to_string());
         } else {
@@ -116,6 +144,7 @@ where
         stats,
         tiles,
         routing,
+        routing_online,
         help: false,
         kit: AppArgs::parse(&crate::SPEC, rest)?,
     })
@@ -166,6 +195,19 @@ mod tests {
         assert_eq!(parse(Vec::<String>::new(), false).expect("valid").routing, None);
         assert!(parse(["--routing"], false).is_err(), "--routing needs a value");
         assert!(usage().contains("--routing"));
+    }
+
+    #[test]
+    fn the_routing_server_is_fossgis_unless_one_is_named_or_it_is_off() {
+        let fossgis = azul_routing::online::FOSSGIS_VALHALLA;
+        assert_eq!(online_routing(None, None).as_deref(), Some(fossgis));
+        assert_eq!(online_routing(Some("http://127.0.0.1:8002/route"), Some("off")).as_deref(), Some("http://127.0.0.1:8002/route"));
+        assert_eq!(online_routing(None, Some("OFF")), None);
+        assert_eq!(online_routing(Some("none"), None), None);
+        let a = parse(["--routing-online", "off"], false).expect("valid");
+        assert_eq!(a.routing_online.as_deref(), Some("off"));
+        assert!(parse(["--routing-online"], false).is_err());
+        assert!(usage().contains("--routing-online"));
     }
 
     #[test]
