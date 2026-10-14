@@ -1145,6 +1145,11 @@ pub struct GLViewIvars {
     /// Set to true by setMarkedText / insertText to prevent handle_key_down
     /// from double-processing the same key event during IME composition.
     ime_key_handled: Cell<bool>,
+    /// The window's background material is not `Opaque`: the view reports
+    /// itself non-opaque, so AppKit composites the alpha the GL surface
+    /// leaves (see-through pixels show what lies behind, not black). Set
+    /// with the surface's opacity in `set_gl_surface_see_through`.
+    transparent: Cell<bool>,
 }
 
 define_class!(
@@ -1184,6 +1189,7 @@ define_class!(
                 if let Err(e) = macos_window.render_and_present_in_draw_rect() {
                     log_error!(LogCategory::Rendering, "[GLView] drawRect: Error during rendering: {:?}", e);
                 }
+                macos_window.reveal_after_first_frame();
             }
         }
 
@@ -1221,6 +1227,11 @@ define_class!(
             // not just when the OS decides to send a reshape event.
 
             self.ivars().needs_reshape.set(false);
+        }
+
+        #[unsafe(method(isOpaque))]
+        fn is_opaque(&self) -> bool {
+            !self.ivars().transparent.get()
         }
 
         // Event Handling
@@ -1638,6 +1649,7 @@ define_class!(
                 mtm,
                 window_ptr: RefCell::new(None),
                 ime_key_handled: Cell::new(false),
+                transparent: Cell::new(false),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame, pixelFormat: pixel_format]
@@ -1885,9 +1897,14 @@ pub struct CPUViewIvars {
 
 /// The RGBA a CPU view's framebuffer is filled with when its size changes,
 /// before a frame is rendered into it. It reaches the screen when a
-/// `drawRect` blits before that render.
-fn blank_frame_pixel(_transparent: bool) -> [u8; 4] {
-    [255, 255, 255, 255]
+/// `drawRect` blits before that render, so a see-through window gets clear
+/// pixels: what lies behind it shows, as it will once the frame is in.
+fn blank_frame_pixel(transparent: bool) -> [u8; 4] {
+    if transparent {
+        [0, 0, 0, 0]
+    } else {
+        [255, 255, 255, 255]
+    }
 }
 
 #[cfg(test)]
@@ -2320,6 +2337,12 @@ define_class!(
                         false,
                         None,
                     );
+                }
+            }
+
+            if let Some(window_ptr) = *ivars.window_ptr.borrow() {
+                unsafe {
+                    (*(window_ptr as *mut MacOSWindow)).reveal_after_first_frame();
                 }
             }
         }
@@ -2975,6 +2998,11 @@ impl GLView {
     /// Get the back-pointer to the owning MacOSWindow
     fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
         *self.ivars().window_ptr.borrow()
+    }
+
+    /// Whether the view composites the GL surface's alpha (see the ivar).
+    pub fn set_transparent(&self, transparent: bool) {
+        self.ivars().transparent.set(transparent);
     }
 }
 
@@ -4621,6 +4649,13 @@ pub struct MacOSWindow {
     /// The window's `<webview>`s (`webview::MacWebViews`), made at the first
     /// one: an app without a web view never loads WebKit.
     webviews: Option<webview::MacWebViews>,
+    /// The constructor ordered the window in fully transparent and no view
+    /// has drawn it since. The constructor runs before the views have the
+    /// back-pointer they render through, so a `drawRect` it causes draws no
+    /// frame; shown at once, a new window would flash white (or an empty GL
+    /// surface) before its content. `reveal_after_first_frame` makes it
+    /// opaque again from the first `drawRect` that could draw.
+    awaiting_first_frame: bool,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -6425,6 +6460,7 @@ impl MacOSWindow {
             redraw_requested: true,   // First frame must not be skipped
             applied_chrome_mode: None, // a fresh NSWindow inherits its appearance
             webviews: None,            // made (and WebKit loaded) at the first web view
+            awaiting_first_frame: false,
         };
 
         // The titlebar in the mode the window will show, before it is ever
@@ -6583,6 +6619,11 @@ impl MacOSWindow {
             // an `AzulListPopupWindow`) is only ordered front: it can never
             // be key, asking AppKit to make it so merely logs a complaint,
             // and the parent must keep the keyboard anyway.
+            // Invisible until a view can draw its first frame (see
+            // `awaiting_first_frame`); ordering it in now still lays it out
+            // and makes it key at once.
+            window.window.setAlphaValue(0.0);
+            window.awaiting_first_frame = true;
             if crate::desktop::shell2::common::transient::popup_takes_focus(
                 window.common.current_window_state(),
             ) {
@@ -7792,6 +7833,7 @@ impl MacOSWindow {
             }
         }
         if let Some(ref gl_view) = self.gl_view {
+            gl_view.set_transparent(see_through);
             unsafe {
                 let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
                 if let Some(layer) = (*view_ptr).layer() {
@@ -8476,6 +8518,17 @@ impl MacOSWindow {
         }
     }
 
+    /// Make a window the constructor ordered in transparent visible, once a
+    /// view's `drawRect` could draw its frame (see `awaiting_first_frame`).
+    /// Called after every `drawRect` that reached the window, whatever the
+    /// render did, so a failed first frame never leaves it invisible.
+    pub(super) fn reveal_after_first_frame(&mut self) {
+        if self.awaiting_first_frame {
+            self.awaiting_first_frame = false;
+            self.window.setAlphaValue(1.0);
+        }
+    }
+
     /// Finalize the delegate's back-pointer to this window.
     ///
     /// MUST be called AFTER the window is in its final memory location.
@@ -8497,6 +8550,20 @@ impl MacOSWindow {
             // NSTimer was created for some other reason.
             if let Some(ref cpu_view) = self.cpu_view {
                 cpu_view.set_window_ptr(window_ptr);
+            }
+            // The views can draw now. A drawRect the constructor's order-in
+            // caused already ran without them, so ask for the one that
+            // reveals the window (a request only: nothing draws inside this
+            // borrow).
+            if self.awaiting_first_frame {
+                let view: Option<&NSView> = match (&self.gl_view, &self.cpu_view) {
+                    (Some(gl), _) => Some(&*(Retained::as_ptr(gl) as *const NSView)),
+                    (None, Some(cpu)) => Some(&*(Retained::as_ptr(cpu) as *const NSView)),
+                    (None, None) => None,
+                };
+                if let Some(view) = view {
+                    view.setNeedsDisplay(true);
+                }
             }
             log_trace!(
                 LogCategory::Platform,
