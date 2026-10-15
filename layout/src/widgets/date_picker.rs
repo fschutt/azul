@@ -6906,3 +6906,31 @@ mod range_tests {
         assert_ne!(lit, plain, "the wash survives the repaint");
     }
 }
+
+#[cfg(test)]
+mod autofocus_tests {
+    use super::*;
+
+    /// How many nodes of `dom` ask for the focus when they mount.
+    fn autofocused(dom: &Dom) -> usize {
+        let own = dom
+            .root
+            .attributes()
+            .as_ref()
+            .iter()
+            .filter(|a| matches!(a, AttributeType::Autofocus))
+            .count();
+        own + dom.children.as_ref().iter().map(autofocused).sum::<usize>()
+    }
+
+    /// An inline calendar is part of the page: it must not take the focus
+    /// when it appears, nor when ‹ / › rebuild it onto another month. A
+    /// popup's day asks for the focus, for when the popup opens.
+    #[test]
+    fn an_inline_picker_does_not_take_the_focus_when_it_mounts() {
+        let inline = DatePicker::create(2026, 10, 15).with_inline(true).dom();
+        assert_eq!(autofocused(&inline), 0, "an inline calendar leaves the focus where it is");
+        let popup = DatePicker::create(2026, 10, 15).dom();
+        assert_eq!(autofocused(&popup), 1, "the popup's day asks for the focus");
+    }
+}
