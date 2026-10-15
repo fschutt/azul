@@ -919,17 +919,6 @@ pub fn presentational_css(
             }
         }
     }
-    // HTML 15.3.8: an `<ol start>` starts its `list-item` counter one below
-    // `start`, so that its first item's step numbers it `start`. A reversed
-    // list counts down from there instead (its counter reads `start` too).
-    if tag == "ol" {
-        if let Some(start) = attr("start").and_then(parse_html_integer) {
-            let reset = start
-                .saturating_sub(1)
-                .clamp(i64::from(i32::MIN), i64::from(i32::MAX));
-            out.push(format!("counter-reset: list-item {reset}"));
-        }
-    }
     out.join("; ")
 }
 
@@ -939,7 +928,6 @@ const fn hint_tag(node_type: &crate::dom::NodeType) -> Option<&'static str> {
     use crate::dom::NodeType as N;
     Some(match node_type {
         N::Body => "body",
-        N::Ol => "ol",
         N::Table => "table",
         N::Caption => "caption",
         N::THead => "thead",
