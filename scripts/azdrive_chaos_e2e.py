@@ -1092,6 +1092,7 @@ def offline_conflict(ctx):
         desktop.sync(desk)
         offline_status = status_after_passes(laptop, drive, 2)
         expect(offline_status != UP_TO_DATE, "offline, the status says Up to date")
+        offline_raw = raw_errors([offline_status])
         stack.proxy.network("up")
         laptop.app.until("the conflict question", lambda: laptop.app.printed(
             "AZDRIVE_SYNC_CONFLICT", re.escape(drive) + r" plan\.txt"))
@@ -1108,10 +1109,13 @@ def offline_conflict(ctx):
         here, theirs = tree(folder), tree(desk)
         nothing_lost(versions, [here])
         nothing_lost(versions, [theirs])
-        expect(here == theirs, "the devices differ: %s" % sorted(set(here) ^ set(theirs)))
+        checks = Checks()
+        checks.expect(here == theirs, "the devices differ: %s" % sorted(set(here) ^ set(theirs)))
+        checks.expect(not offline_raw, "offline, the status showed a technical error: %s" %
+                      offline_status)
         no_silent_failure(laptop, drive)
-        return "offline status %s; both versions on both devices: %s" % (offline_status,
-                                                                         sorted(here))
+        return checks.done("offline status %s; both versions on both devices: %s" % (
+            offline_status, sorted(here)))
     finally:
         laptop.stop()
         stack.stop()
@@ -1249,7 +1253,9 @@ def long_names(ctx):
             "  leading spaces.txt",
             "CON",
             "x" * 20 + "/" + "deep/" * 60 + "bottom.txt",          # 60 folders deep
-            "/".join(["p%03d-" % i + "q" * 40 for i in range(22)]) + "/long-path.txt",
+            # About 800 characters: macOS takes 1,024 bytes for a whole path, the run's folder
+            # included.
+            "/".join(["p%03d-" % i + "q" * 40 for i in range(17)]) + "/long-path.txt",
         ]
         for name in names:
             data = ("content of %s\n" % name[:40]).encode("utf-8")
