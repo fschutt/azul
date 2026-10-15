@@ -224,25 +224,97 @@ mod tests {
         assert!(!PAPER_TEXT_CSS.contains("sans-serif"));
     }
 
+    fn between(path: Vec<u32>) -> Break {
+        Break {
+            path,
+            text_path: Vec::new(),
+            text_byte: None,
+        }
+    }
+
+    fn inside(path: Vec<u32>, text_path: Vec<u32>, byte: u32) -> Break {
+        Break {
+            path,
+            text_path,
+            text_byte: Some(byte),
+        }
+    }
+
+    /// Every block one run of ten bytes, block 3 the runs "Hello " / "world" / "again".
+    fn runs(block: usize) -> Vec<usize> {
+        if block == 3 {
+            vec![6, 5, 5]
+        } else {
+            vec![10]
+        }
+    }
+
     #[test]
     fn a_page_starts_at_the_block_a_break_falls_in() {
-        let paths = vec![vec![4, 0, 2], vec![9], vec![9, 1], vec![30]];
-        assert_eq!(starts_from_breaks(&paths, 20), vec![0, 4, 9], "unique, within the document");
-        assert_eq!(starts_from_breaks(&[], 3), vec![0]);
-        assert_eq!(starts_from_breaks(&[vec![0, 3]], 3), vec![0], "a break in the first block");
+        let breaks = vec![
+            between(vec![4, 0, 2]),
+            between(vec![9]),
+            between(vec![9, 1]),
+            between(vec![30]),
+        ];
+        assert_eq!(
+            starts_from_breaks(&breaks, &runs, 20),
+            vec![(0, 0), (4, 0), (9, 0)],
+            "unique, within the document"
+        );
+        assert_eq!(starts_from_breaks(&[], &runs, 3), vec![(0, 0)]);
+        assert_eq!(
+            starts_from_breaks(&[between(vec![0, 3])], &runs, 3),
+            vec![(0, 0)],
+            "a break in the first block"
+        );
+    }
+
+    #[test]
+    fn a_break_inside_a_paragraph_starts_the_next_page_at_its_line() {
+        // The next page's first line begins at "rld" of the run "world" (a bare text node, or
+        // the text inside the run's span): six bytes of "Hello " before it, then two.
+        let breaks = vec![
+            between(vec![2]),
+            inside(vec![4], vec![3, 1], 2),
+            between(vec![5]),
+        ];
+        assert_eq!(
+            starts_from_breaks(&breaks, &runs, 20),
+            vec![(0, 0), (2, 0), (3, 8), (5, 0)]
+        );
+        let wrapped = vec![inside(vec![4], vec![3, 1, 0], 2)];
+        assert_eq!(starts_from_breaks(&wrapped, &runs, 20), vec![(0, 0), (3, 8)]);
+        // A line that begins at the block's very start: the page starts with the whole block.
+        let at_start = vec![inside(vec![4], vec![3, 0], 0)];
+        assert_eq!(starts_from_breaks(&at_start, &runs, 20), vec![(0, 0), (3, 0)]);
+        // A text node the runs do not account for: the block the break path names.
+        let unknown = vec![inside(vec![4], vec![3, 7], 1)];
+        assert_eq!(starts_from_breaks(&unknown, &runs, 20), vec![(0, 0), (4, 0)]);
     }
 
     #[test]
     fn known_pages_fit_a_shorter_document_and_name_the_page_of_a_block() {
         let pages = Pages {
             generation: 3,
-            starts: vec![0, 4, 9],
+            starts: vec![(0, 0), (4, 0), (9, 0)],
         };
-        assert_eq!(pages.starts_for(20), vec![0, 4, 9]);
-        assert_eq!(pages.starts_for(6), vec![0, 4], "a page past the end goes");
-        assert_eq!(pages.page_of(0), 0);
-        assert_eq!(pages.page_of(5), 1);
-        assert_eq!(pages.page_of(12), 2);
+        assert_eq!(pages.starts_for(20), vec![(0, 0), (4, 0), (9, 0)]);
+        assert_eq!(pages.starts_for(6), vec![(0, 0), (4, 0)], "a page past the end goes");
+        assert_eq!(pages.page_of(0, 0), 0);
+        assert_eq!(pages.page_of(5, 3), 1);
+        assert_eq!(pages.page_of(12, 0), 2);
+    }
+
+    #[test]
+    fn a_caret_in_a_paragraph_a_page_cuts_is_on_the_page_of_its_part() {
+        let pages = Pages {
+            generation: 3,
+            starts: vec![(0, 0), (3, 8)],
+        };
+        assert_eq!(pages.page_of(3, 2), 0, "the head of block 3 ends page 1");
+        assert_eq!(pages.page_of(3, 8), 1, "its tail starts page 2");
+        assert_eq!(pages.page_of(4, 0), 1);
     }
 
     #[test]
