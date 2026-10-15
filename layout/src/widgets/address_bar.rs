@@ -1268,6 +1268,40 @@ mod address_bar_tests {
         assert_eq!(corner(input), Some(4.0), "the search field's own frame");
     }
 
+    /// SPEC 2.6, flora: Refresh is a round button of its own between the
+    /// crumbs field and the search box, the search box shows a magnifier, and
+    /// the last crumb is bold.
+    #[test]
+    fn flora_s_refresh_stands_apart_the_search_shows_a_magnifier_the_place_is_bold() {
+        use azul_css::props::basic::font::StyleFontWeight;
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = bar(&log).with_theme(UiTheme::Flora).dom();
+        let field = with_class(&dom, "__azul-native-address-bar-box").expect("the crumbs field");
+        assert!(!subtree_has_class(field, REFRESH_CLASS), "Refresh is not in the crumbs field");
+        let parts = dom.children.as_ref();
+        let at = |class: &str| parts.iter().position(|p| subtree_has_class(p, class));
+        let (field_at, refresh_at, search_at) = (
+            at("__azul-native-address-bar-box").expect("the field"),
+            at(REFRESH_CLASS).expect("Refresh in the bar"),
+            at("__azul-native-address-bar-search").expect("the search box"),
+        );
+        assert!(field_at < refresh_at && refresh_at < search_at, "field, Refresh, search");
+        assert_eq!(corner(&parts[refresh_at]), Some(13.0), "Refresh is round, like Back");
+        let search = &parts[search_at];
+        fn has_icon(node: &Dom, name: &str) -> bool {
+            matches!(node.root.get_node_type(), NodeType::Icon(i) if i.as_str() == name)
+                || node.children.as_ref().iter().any(|c| has_icon(c, name))
+        }
+        assert!(has_icon(search, "search"), "the search box shows a magnifier");
+        let current = with_class(&dom, CURRENT_CLASS).expect("the current crumb");
+        let bold = current.root.style.iter_inline_properties().any(|(p, conds)| {
+            conds.as_ref().is_empty()
+                && matches!(p, CssProperty::FontWeight(w)
+                    if w.get_property().is_some_and(|w| *w == StyleFontWeight::Bold))
+        });
+        assert!(bold, "the place's crumb is bold");
+    }
+
     /// A trail too long for a 520 px bar.
     const LONG: [&str; 8] = [
         "This PC", "Home", "Documents", "Projects", "azul", "layout", "src", "widgets",
