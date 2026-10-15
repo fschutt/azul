@@ -10,6 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
+use azul_pim::write_queue::{CloseHold, MainClose};
 use azul_storage::{Drive, DriveError};
 
 /// One thing to do in the data folder.
@@ -60,6 +61,43 @@ impl FileOutcome {
             FileOutcome::Got { result, .. } => result.as_ref().err().cloned(),
             FileOutcome::GotAll { errors, .. } => errors.first().cloned(),
         }
+    }
+}
+
+/// The writes an app has on their way through file jobs (`ui::spawn_file_jobs`), and its
+/// window's close held while they land: a close request waits, the answer of the last write
+/// closes the window, and writes that failed are said once before the next close passes. For
+/// apps that write without azul-pim's write queue (AzContacts, AzPaint); the decision is the
+/// queue's [`CloseHold`].
+#[derive(Debug, Clone, Default)]
+pub struct PendingWrites {
+    /// Batches of writes spawned and not answered yet.
+    in_flight: usize,
+    /// Writes that did not land.
+    failed: usize,
+    /// The close held for them.
+    hold: CloseHold,
+}
+
+impl PendingWrites {
+    /// A batch of writes was spawned.
+    pub fn started(&mut self) {}
+
+    /// A batch's answer: `Some(Close)` when a held close goes now, `Some(Tell)` when writes
+    /// failed (the window stays and says so), `None` otherwise.
+    pub fn answered(&mut self, _outcomes: &[FileOutcome]) -> Option<MainClose> {
+        None
+    }
+
+    /// The window is asked to close: what the request does now.
+    pub fn close_requested(&mut self) -> MainClose {
+        MainClose::Close
+    }
+
+    /// Writes that did not land.
+    #[must_use]
+    pub fn failed(&self) -> usize {
+        self.failed
     }
 }
 
@@ -256,6 +294,32 @@ mod tests {
             key: key.to_string(),
             bytes: text.as_bytes().to_vec(),
         }
+    }
+
+    fn landed(key: &str) -> FileOutcome {
+        FileOutcome::Put { key: key.to_string(), result: Ok(()) }
+    }
+
+    #[test]
+    fn a_close_waits_for_the_writes_on_their_way_and_goes_with_the_last_answer() {
+        let mut writes = PendingWrites::default();
+        assert_eq!(writes.close_requested(), MainClose::Close, "nothing on its way");
+        writes.started();
+        writes.started();
+        assert_eq!(writes.close_requested(), MainClose::Wait);
+        assert_eq!(writes.answered(&[landed("a")]), None, "one batch still on its way");
+        assert_eq!(writes.answered(&[landed("b")]), Some(MainClose::Close));
+    }
+
+    #[test]
+    fn a_write_that_did_not_land_is_said_once_and_the_next_close_passes() {
+        let mut writes = PendingWrites::default();
+        writes.started();
+        let refused = FileOutcome::Put { key: "a".into(), result: Err("disk full".into()) };
+        assert_eq!(writes.answered(&[refused]), None, "no close was asked for");
+        assert_eq!(writes.failed(), 1);
+        assert_eq!(writes.close_requested(), MainClose::Tell);
+        assert_eq!(writes.close_requested(), MainClose::Close);
     }
 
     #[test]
