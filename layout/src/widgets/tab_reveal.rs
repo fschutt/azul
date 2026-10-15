@@ -107,7 +107,10 @@ pub enum RevealStep {
 }
 
 /// The behaviour of one tab strip as a state machine over [`RevealEvent`]s.
-#[derive(Debug, Clone, PartialEq, Eq)]
+// Its flags are independent facts about the pointer and the content, not
+// states of one machine.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RevealMachine {
     /// Which behaviour this strip follows.
     behaviour: TabClickBehaviour,
@@ -206,7 +209,7 @@ impl RevealMachine {
 
     /// The app made `tab` its active tab (a click it handled, a tab it
     /// selected itself): the content shows that tab from now on.
-    pub fn follow(&mut self, tab: usize) {
+    pub const fn follow(&mut self, tab: usize) {
         self.shown = tab;
     }
 
@@ -307,7 +310,7 @@ impl RevealMachine {
 
     /// The content closes and unlocks; closed by a click, hovering does not
     /// open it again until the pointer left the tab area.
-    fn close(&mut self, by_click: bool) {
+    const fn close(&mut self, by_click: bool) {
         self.open = false;
         self.locked = false;
         self.hover = None;
@@ -479,6 +482,7 @@ impl TabReveal {
     /// Feeds `event` at `now_ms` (any clock; the widgets use their own)
     /// without a callback: no timer, no app to tell. For tests and for an
     /// app that drives the content itself (a shortcut that locks it open).
+    #[must_use]
     pub fn apply(&self, event: RevealEvent, now_ms: u64) -> RevealStep {
         let mut state = self.state.clone();
         let Some(mut shared) = state.downcast_mut::<RevealShared>() else {
@@ -491,7 +495,7 @@ impl TabReveal {
     pub(crate) fn machine(&self) -> Option<RevealMachine> {
         let mut state = self.state.clone();
         let shared = state.downcast_ref::<RevealShared>()?;
-        Some(shared.machine.clone())
+        Some(shared.machine)
     }
 
     /// At build time: the app's active tab is `tab`, which the content

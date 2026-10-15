@@ -1308,7 +1308,7 @@ fn nearest_scrollport(
 /// (`GpuStateManager::update_scrollbar_transforms`), the way a scrollbar
 /// thumb follows its offset: the renderers and the hit tester read it, no
 /// layout runs. Held in the box's `LayoutNodeWarm::sticky`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StickyConstraint {
     /// The node whose scroll offset moves the box (its nearest scroll
     /// container, or the root for the viewport); `None` where no frame

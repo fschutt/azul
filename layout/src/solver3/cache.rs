@@ -4613,7 +4613,7 @@ fn position_flex_child_descendants(
 /// Checks if the given CSS height value should use content-based sizing
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
                                   // (or cross-type bindings that can't merge)
-fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
+const fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
     match css_height {
         MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
             // Auto/Initial/Inherit height should use content-based sizing

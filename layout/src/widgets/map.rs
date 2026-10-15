@@ -2309,13 +2309,16 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let screen = |p: azul_core::geom::LogicalPosition| (f64::from(p.x), f64::from(p.y));
     let (dx_px, dy_px) = match overlay::MapCamera::of(&cache_guard.viewport, size.0, size.1) {
         None => (f64::from(pos.x - anchor.x), f64::from(pos.y - anchor.y)),
-        Some(camera) => match (camera.unproject(screen(anchor)), camera.unproject(screen(pos))) {
-            (Some(from), Some(to)) => (to.0 - from.0, to.1 - from.1),
-            _ => {
+        Some(camera) => {
+            if let (Some(from), Some(to)) =
+                (camera.unproject(screen(anchor)), camera.unproject(screen(pos)))
+            {
+                (to.0 - from.0, to.1 - from.1)
+            } else {
                 cache_guard.drag_anchor = Some(pos);
                 return Update::DoNothing;
             }
-        },
+        }
     };
 
     let (new_lon, new_lat) = pan_viewport(
@@ -4128,7 +4131,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                     continue;
                 }
                 // Draws a tile its fetcher handed back only as SVG, once.
-                let _ = cache.drawing_for(tile, look);
+                drop(cache.drawing_for(tile, look));
                 let stack = cache.tile_stack(tile, look, now);
                 let own_key = TileStyleKey { tile, look };
                 let own = stack.last().is_some_and(|p| p.key == own_key);

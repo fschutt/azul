@@ -162,7 +162,7 @@ impl PieMarker {
     /// A pie `fraction` full (0 to 1) in `tone`, unnamed, doing nothing on a
     /// click.
     #[must_use]
-    pub fn create(fraction: f32, tone: PieTone) -> Self {
+    pub const fn create(fraction: f32, tone: PieTone) -> Self {
         Self {
             fraction,
             tone,

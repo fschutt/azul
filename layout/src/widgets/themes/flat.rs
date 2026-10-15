@@ -2312,7 +2312,7 @@ pub fn button_states(
         // A link presses like every button: its ink dims while held, the
         // face its press fades to and back from.
         out.push(CssPropertyWithConditions::on_active(CssProperty::const_opacity(
-            azul_css::props::style::StyleOpacity::const_new(60),
+            StyleOpacity::const_new(60),
         )));
         // A link is a keyboard stop too: it shows keyboard focus as a halo,
         // which takes no room, so nothing moves when it is focused.

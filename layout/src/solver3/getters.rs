@@ -5680,7 +5680,7 @@ fn place_fallback_tier_groups(
     let expansions: Vec<Vec<String>> = font_families
         .iter()
         .map(|family| {
-            config.expand_family(family, rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS)
+            config.expand_family(family, DEFAULT_UNICODE_FALLBACK_SCRIPTS)
         })
         .collect();
     let rank = |name: &str| {
@@ -8261,7 +8261,7 @@ pub fn get_box_shadows(
 /// it is in - a pressed button is `:active` before it is `:hover`, a
 /// disabled one `:disabled` before all.
 #[must_use]
-pub fn custom_property_state(
+pub const fn custom_property_state(
     state: &StyledNodeState,
 ) -> azul_css::dynamic_selector::PseudoStateType {
     use azul_css::dynamic_selector::PseudoStateType;
