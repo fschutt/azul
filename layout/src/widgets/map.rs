@@ -61,7 +61,7 @@ mod seed_tests;
 mod camera_update_tests;
 pub use overlay::{
     MapLatLonVec, MapLatLonVecDestructor, MapLatLonVecDestructorType, MapLatLonVecSlice,
-    MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,
+    MapLineDash, MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,
     MapOverlayVecSlice, MapPolygon, MapPolyline, OptionMapLatLon, OptionMapOverlay, OverlayCache,
 };
 

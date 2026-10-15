@@ -31,6 +31,10 @@ use azul_css::{
 
 use super::MapLatLon;
 
+#[cfg(test)]
+#[path = "dash_tests.rs"]
+mod dash_tests;
+
 impl_option!(
     MapLatLon,
     OptionMapLatLon,
@@ -57,6 +61,21 @@ const ROUTE_BLUE: ColorU = ColorU {
     a: 0xff,
 };
 
+/// How a [`MapPolyline`] is stroked along its length, as CSS names the
+/// border styles. The pattern scales with the line's width and runs on across
+/// corners and tiles.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MapLineDash {
+    /// One unbroken line.
+    #[default]
+    Solid,
+    /// Dashes about three widths long with gaps of one and a half widths.
+    Dashed,
+    /// Round dots one width across, two widths apart: a walk.
+    Dotted,
+}
+
 /// A line on the ground: a route, a track, a border. Its points are joined in
 /// order with round joins and caps, `width` px wide on the screen at every
 /// zoom; a `casing_width` wider than `width` draws an outline under it.
@@ -74,6 +93,8 @@ pub struct MapPolyline {
     /// The outline's whole width in px; no outline when it is not wider than
     /// `width` or its colour is transparent.
     pub casing_width: f32,
+    /// Solid, dashed or dotted; the outline follows the dashes.
+    pub dash: MapLineDash,
 }
 
 impl MapPolyline {
@@ -86,6 +107,7 @@ impl MapPolyline {
             width: 5.0,
             casing_color: ColorU::TRANSPARENT,
             casing_width: 0.0,
+            dash: MapLineDash::Solid,
         }
     }
 
@@ -108,6 +130,13 @@ impl MapPolyline {
     pub const fn with_casing(mut self, color: ColorU, width: f32) -> Self {
         self.casing_color = color;
         self.casing_width = width;
+        self
+    }
+
+    /// The line `dash`ed: solid, dashed or dotted.
+    #[must_use]
+    pub const fn with_dash(mut self, dash: MapLineDash) -> Self {
+        self.dash = dash;
         self
     }
 }
@@ -591,6 +620,17 @@ fn project_overlay(overlay: &MapOverlay, z: u8) -> Option<Projected> {
         margin,
         area,
     })
+}
+
+/// The `(dash, gap)` lengths in px of a zoom level for a line `width` px wide
+/// dashed as `dash`; `None` for a solid line.
+pub(crate) fn dash_pattern(_dash: MapLineDash, _width: f32) -> Option<(f64, f64)> {
+    None
+}
+
+/// `points` cut into dashes `dash` long with gaps `gap` long between them.
+fn dash_runs(points: &[(f64, f64)], _dash: f64, _gap: f64) -> Vec<Vec<(f64, f64)>> {
+    alloc::vec![points.to_vec()]
 }
 
 /// Cuts `shape` to tile `(z, x, y)`: the parts of each copy of it around the
