@@ -1137,3 +1137,5 @@ mod a_tab_bar_with_a_reveal_draws_no_tab_selected_while_its_panel_is_closed;
 mod a_painted_row_of_tab_buttons_shows_gold_edges_and_the_stone;
 #[path = "tab_buttons_and_leather_commands_answer_every_state.rs"]
 mod tab_buttons_and_leather_commands_answer_every_state;
+#[path = "a_pie_marker_paints_its_disc_and_wedge.rs"]
+mod a_pie_marker_paints_its_disc_and_wedge;
