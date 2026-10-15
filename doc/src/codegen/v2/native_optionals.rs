@@ -284,3 +284,36 @@ fn zig_gives_optionals_and_error_unions() {
         ],
     );
 }
+
+#[test]
+fn go_takes_nil_and_gives_ok_pairs_and_errors() {
+    let path = "go/wrappers.go";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            // nil is None; the resume callback is a Go function (`Bind3(onPick)`).
+            "func FileDialogOpenDirectory(title *String, default_path *String, data any, on_result any) AzRequestId {",
+            "azOptInOptionString(default_path)",
+            "azGoResumeCallbackArg(on_result)",
+            "func FileOpenResultDowncast(result any) (*FileOpenResult, bool) {",
+            "func (self *FileOpenResult) Path() (*FilePath, bool) {",
+            "func (self *FileOpenResult) SetPath(v *FilePath) {",
+            "func UrlParse(s *String) (*Url, error) {",
+            "type AzulError struct {",
+        ],
+    );
+    let path = "go/callbacks.go";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "func Bind3[T any, Ctx any, A any, Ret any](cb func(*T, Ctx, A) Ret) func(any, Ctx, A) any {",
+            "func azGoResumeCallbackArg(v any) AzResumeCallback {",
+            // A resume callback's result reaches the callback as the *RefAny.
+            "var refAny any = refAny_wrap",
+        ],
+    );
+}
