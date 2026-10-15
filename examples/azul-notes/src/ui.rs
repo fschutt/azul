@@ -57,12 +57,11 @@ use crate::{
 /// The top strip of a pane: the window has no title row (Apple Notes), so
 /// the strips along its top edge are where it is moved from.
 const TOP_STRIP: &str =
-    "display: flex; flex-direction: row; align-items: center; min-height: 40px; -azul-app-region: drag;";
-/// Room for the traffic lights at the folder list's top left (macOS only).
-#[cfg(target_os = "macos")]
-const TRAFFIC_LIGHTS_INSET: &str = "padding: 0px 8px 0px 76px;";
-#[cfg(not(target_os = "macos"))]
-const TRAFFIC_LIGHTS_INSET: &str = "padding: 0px 8px;";
+    "display: flex; flex-direction: row; align-items: center; -azul-app-region: drag;";
+/// Apple Notes' strip height; a taller title bar makes the strip taller.
+const TOP_STRIP_MIN_HEIGHT: f32 = 40.0;
+/// The least room at either end of the strip, where no window control sits.
+const TOP_STRIP_EDGE: f32 = 8.0;
 /// A control in a top strip keeps its clicks.
 const NO_DRAG: &str = "-azul-app-region: no-drag;";
 
@@ -87,16 +86,24 @@ pub(crate) fn top_strip(collapsed: bool) -> TopStrip {
     }
 }
 
-/// The top strip's declarations for a window whose controls need `insets`.
-fn top_strip_css(_insets: kit::TitleInsets) -> String {
-    format!("{TOP_STRIP} {TRAFFIC_LIGHTS_INSET} justify-content: flex-end;")
+/// The top strip's declarations for a window whose controls need `insets`: the controls'
+/// room stays free at their end (the traffic lights at the left on macOS, the caption buttons
+/// at the right on Windows), and the strip is at least the title bar's height, so the
+/// controls sit inside it.
+fn top_strip_css(insets: kit::TitleInsets) -> String {
+    format!(
+        "{TOP_STRIP} min-height: {}px; padding: 0px {}px 0px {}px; justify-content: flex-end;",
+        insets.height.max(TOP_STRIP_MIN_HEIGHT),
+        insets.right.max(TOP_STRIP_EDGE),
+        insets.left.max(TOP_STRIP_EDGE),
+    )
 }
 
-/// The top strip: the room for the traffic lights at its left end, the window moves by it,
+/// The top strip: the room for the window controls at their end, the window moves by it,
 /// Apple Notes' buttons at its right end.
-fn top_strip_dom(app: &RefAny) -> Dom {
+fn top_strip_dom(app: &RefAny, insets: kit::TitleInsets) -> Dom {
     Dom::create_div()
-        .with_css(format!("{TOP_STRIP} {TRAFFIC_LIGHTS_INSET} justify-content: flex-end;"))
+        .with_css(top_strip_css(insets))
         .with_child(
             Button::create("")
                 .with_icon("note_add")
@@ -153,11 +160,12 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     let s = &*guard;
+    let insets = kit::title_insets(&info);
     let content = if kit::settings_open(&s.kit) {
         settings_screen(s, &app, look)
     } else {
         match s.screen {
-            Screen::Notes => notes_screen(s, &app, look),
+            Screen::Notes => notes_screen(s, &app, look, insets),
             Screen::History => history_screen(s, &app, look),
         }
     };
@@ -202,14 +210,24 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 }
 
 /// The notes: the PIM shell, or a placeholder while loading.
-fn notes_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
+fn notes_screen(s: &AppState, app: &RefAny, look: &Look, insets: kit::TitleInsets) -> Dom {
     if !s.loaded {
         return ShellEmptyState::create(label("aznotes-loading-notes"))
             .with_icon("hourglass_empty")
             .with_detail(s.root.display().to_string())
             .dom();
     }
-    let shell = PimShell::create(navigation_pane(s, app), note_list(s, app), reading_pane(s, app, look))
+    // With the folder list open, the reading pane's top strip is the window's top right: the
+    // controls that sit there (Windows' caption buttons) need their room in it too.
+    let right_room = match top_strip(s.nav.collapsed) {
+        TopStrip::InFolderList => insets.right,
+        TopStrip::AcrossTheWindow => 0.0,
+    };
+    let shell = PimShell::create(
+        navigation_pane(s, app, insets),
+        note_list(s, app),
+        reading_pane(s, app, look, right_room),
+    )
         .with_list_label(label("aznotes-notes"))
         .with_navigation_ratio(s.nav.navigation_ratio)
         .with_list_ratio(s.nav.list_ratio)
@@ -221,7 +239,7 @@ fn notes_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         TopStrip::InFolderList => shell,
         TopStrip::AcrossTheWindow => Dom::create_div()
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-            .with_child(top_strip_dom(app))
+            .with_child(top_strip_dom(app, insets))
             .with_child(shell),
     }
 }
@@ -400,7 +418,7 @@ fn tag_order(s: &AppState) -> Vec<String> {
     s.library.tags().into_iter().map(|(t, _)| t).collect()
 }
 
-fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
+fn navigation_pane(s: &AppState, app: &RefAny, insets: kit::TitleInsets) -> Dom {
     let counts = s.library.counts();
     let library = TreeViewNode::create(t_args("aznotes-all-notes-count", &[("count", Arg::from(counts.all))]))
         .with_icon("notes")
@@ -435,7 +453,7 @@ fn navigation_pane(s: &AppState, app: &RefAny) -> Dom {
     let mut pane = ShellNavigationPane::create();
     // A collapsed pane shows no header: its strip is then across the window (`notes_screen`).
     if top_strip(s.nav.collapsed) == TopStrip::InFolderList {
-        pane = pane.with_header(top_strip_dom(app));
+        pane = pane.with_header(top_strip_dom(app, insets));
     }
     pane
         .with_group(
@@ -962,7 +980,7 @@ fn header_button(app: &RefAny, id: AzString, icon: &str, name: &str, primary: bo
 /// was edited, the note's buttons; the window moves by it), the toolbar and
 /// the text, whose first line is the note's title and whose `#tags` are its
 /// tags (`Note::adopt_text`).
-fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
+fn reading_pane(s: &AppState, app: &RefAny, look: &Look, right_room: f32) -> Dom {
     let Some(note) = s.open_note() else {
         return ShellEmptyState::create(label("aznotes-no-note-open"))
             .with_icon("description")
@@ -982,8 +1000,9 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             Dom::create_div()
                 .with_id(ids::TRASH_BAR)
                 .with_css(format!(
-                    "display: flex; flex-direction: row; align-items: center; padding: 6px 24px; \
-                     background: {}; flex-shrink: 0;",
+                    "display: flex; flex-direction: row; align-items: center; padding: 6px {}px \
+                     6px 24px; background: {}; flex-shrink: 0;",
+                    right_room.max(24.0),
                     look.code_bg
                 ))
                 .with_child(text_line("aznotes-note-trash", "flex-grow: 1; font-size: 13px;"))
@@ -1012,7 +1031,11 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     );
     pane.add_child(
         Dom::create_div()
-            .with_css(format!("{TOP_STRIP} padding: 0px 16px 0px 24px; flex-shrink: 0;"))
+            .with_css(format!(
+                "{TOP_STRIP} min-height: {TOP_STRIP_MIN_HEIGHT}px; padding: 0px {}px 0px 24px; \
+                 flex-shrink: 0;",
+                right_room.max(16.0)
+            ))
             .with_child(text_line(&meta, &format!("flex-grow: 1; font-size: 12px; color: {};", look.muted)).with_id(ids::NOTE_META))
             .with_child(header_button(
                 app,
