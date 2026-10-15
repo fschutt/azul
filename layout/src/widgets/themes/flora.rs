@@ -11524,3 +11524,37 @@ mod australis_tab_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod leather_ribbon_tests {
+    //! The ribbon band on the leather adds to the parts the ribbon draws and
+    //! keeps what they were.
+
+    use super::*;
+
+    /// A group's commands stay one row of the band's height and a column
+    /// stays a column: the leather adds gaps to them, it does not replace
+    /// their layout (an addition alone in a part left empty dropped the
+    /// ribbon's own layout, and every group stacked its commands).
+    #[test]
+    fn a_leather_ribbon_keeps_its_groups_commands_in_a_row() {
+        let plain = ribbon_style(crate::widgets::ribbon::RibbonStyle::default());
+        let leather = ribbon_leather_style(plain.clone());
+        let items = leather.resolved_group_items_style();
+        for p in plain.resolved_group_items_style().as_ref() {
+            assert!(
+                items.as_ref().contains(p),
+                "the leather dropped {:?} from a group's commands",
+                p.property
+            );
+        }
+        let columns = leather.resolved_column_style();
+        for p in plain.resolved_column_style().as_ref() {
+            assert!(
+                columns.as_ref().contains(p),
+                "the leather dropped {:?} from a column",
+                p.property
+            );
+        }
+    }
+}
