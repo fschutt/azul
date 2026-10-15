@@ -132,6 +132,46 @@ hides the JNA `Pointer` conversion logic behind the scenes.
 Using `app.use { ... }` ensures that `.close()` is called 
 when the app exits, properly cleaning up the native C memory.
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is a Kotlin nullable: a parameter takes `null` 
+for "none", a field or a return value is a `T?`, so `?.` and `?: return` read the 
+whole chain. A failed call (an `Err`) throws; an exception thrown inside a callback 
+is logged and the callback does nothing.
+
+A folder picker. Before, `FileDialog.openDirectory` only existed with C types 
+(`AzString.ByValue`, `AzOptionString.ByValue`, `AzRefAny.ByValue`, 
+`AzResumeCallback.ByValue`) and the picked path was a raw `AzOptionFilePath.ByValue`:
+
+```kotlin
+fun onPickFolder(model: Model, info: CallbackInfo, result: RefAny): Update {
+    val picked = FileOpenResult.downcast(result) ?: return Update.DoNothing
+    val path = picked.path.toNullable() ?: return Update.DoNothing // an AzFilePath struct
+    ...
+}
+```
+
+Now:
+
+```kotlin
+fun onChooseFolder(model: Model, info: CallbackInfo): Update {
+    FileDialog.openDirectory("Choose a folder", null, model, ::onPickFolder)
+    return Update.DoNothing
+}
+
+fun onPickFolder(model: Model, info: CallbackInfo, result: RefAny): Update {
+    val path = FileOpenResult.downcast(result)?.path
+        ?: return Update.DoNothing // not a folder pick, or cancelled
+    model.folder = path.inner
+    return Update.RefreshDom
+}
+
+fun onOpenLink(model: Model, info: CallbackInfo): Update {
+    val url = Url.parse(model.link) // an Err throws: logged, the callback does nothing
+    return Update.RefreshDom
+}
+```
+
 ## Build and run
 
 ```sh

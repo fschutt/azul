@@ -144,6 +144,43 @@ smoke_scala() {
     --extra-jars "$WORK_DIR/java/classes" --extra-jars "$JNA_JAR" --main-class NativeOptionalsScala
 }
 
+# ---- Kotlin -------------------------------------------------------------------
+smoke_kotlin() {
+  local out="$WORK_DIR/kotlin"; rm -rf "$out"; mkdir -p "$out"
+  JAVA_HOME="${JAVA_HOME:-$(cd "$("${JDK_BIN}java" -XshowSettings:properties -version 2>&1 \
+    | sed -n 's/^ *java.home = //p')" 2>/dev/null && pwd)}" \
+    kotlinc -J-Xmx4g -nowarn -cp "$JNA_JAR" "$CODEGEN_DIR/kotlin/Azul.kt" "$SRC_DIR/kotlin.kt" \
+      -include-runtime -d "$out/smoke.jar" || return 1
+  "${JDK_BIN}java" -Djna.library.path="$LIB_DIR" -cp "$out/smoke.jar:$JNA_JAR" com.azul.KotlinKt
+}
+
+# ---- Haskell ------------------------------------------------------------------
+# The generated package next to a one-module executable, the way
+# examples/haskell builds it (-O0: the binding gains nothing from optimisation).
+smoke_haskell() {
+  local out="$WORK_DIR/haskell"; rm -rf "$out"; mkdir -p "$out"
+  cp -R "$CODEGEN_DIR/haskell" "$out/azul-haskell" || return 1
+  cp "$CODEGEN_DIR/azul.h" "$out/azul-haskell/cbits/" || return 1
+  cp "$SRC_DIR/haskell.hs" "$out/Main.hs" || return 1
+  cat > "$out/smoke.cabal" <<'CABAL'
+cabal-version:      2.4
+name:               smoke
+version:            0.1.0
+build-type:         Simple
+
+executable smoke
+    main-is:            Main.hs
+    build-depends:      base, azul, transformers
+    default-language:   Haskell2010
+    ghc-options:        -threaded
+CABAL
+  printf 'packages: . ./azul-haskell\nshared: False\n' > "$out/cabal.project"
+  ( cd "$out" \
+    && cabal build -v1 --ghc-options=-O0 --extra-lib-dirs="$LIB_DIR" \
+         --ghc-options="-optl-Wl,-rpath,$LIB_DIR" smoke \
+    && "$(cabal list-bin smoke)" )
+}
+
 status=0
 for lang in "${LANGS[@]}"; do
   echo "=== native optionals [$lang] ==="
