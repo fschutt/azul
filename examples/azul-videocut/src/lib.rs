@@ -85,6 +85,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::LanguagePref,
     l10n::{named, t, t_args, t_label, Arg},
+    pieces::Clickable,
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -1407,11 +1408,7 @@ fn media_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
                         .with_child(text(&m.name, BIN_NAME_CSS))
                         .with_child(text(&media_line(app, m), NOTE_CSS)),
                 )
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    item_data.clone(),
-                    on_bin_click,
-                )
+                .clickable(&m.name, item_data.clone(), on_bin_click)
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::DoubleClick),
                     item_data,
