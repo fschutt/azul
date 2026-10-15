@@ -1598,6 +1598,15 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // scan measured (`get_item_measure_with_spacing`). With the bare
         // advances, `text-align: center` put a letter-spaced line half its
         // spacing right of centre (`right`: all of it, past the box's edge).
+        //
+        // An inline box's start and end margin, border and padding move the
+        // pen too ([`inline_box_edge_advances`]), so they belong to the width
+        // the line is aligned by: a centred `<span style="margin-right:
+        // -0.08em">` (a tracked label giving its last tracking back) sat
+        // where the margin was not, and a padded span half its padding off.
+        let inline_offsets: Vec<(f32, f32)> = (0..justified_segment_items.len())
+            .map(|idx| inline_box_edge_advances(&justified_segment_items, idx))
+            .collect();
         let final_segment_width: f32 = justified_segment_items
             .iter()
             .map(|item| match item {
@@ -1606,7 +1615,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 }
                 _ => get_item_measure_with_spacing(item, is_vertical),
             })
-            .sum();
+            .sum::<f32>()
+            + inline_offsets.iter().map(|(l, r)| l + r).sum::<f32>();
 
         // +spec:line-breaking:155a96 - pre-wrap hanging spaces: unconditionally hang without forced
         // break, conditionally hang with forced break +spec:white-space-processing:68af09 -
@@ -1740,14 +1750,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // dominant-baseline/vertical-align +spec:line-height:e2253a - vertical-align
         // positioning within line boxes
 
-        // Pre-compute inline margin/border/padding offsets at span boundaries
-        // ([`inline_box_edge_advances`], the rule the intrinsic scan shares).
-        let inline_offsets: Vec<(f32, f32)> = {
-            let items_slice: &[ShapedItem] = &justified_segment_items;
-            (0..items_slice.len())
-                .map(|idx| inline_box_edge_advances(items_slice, idx))
-                .collect()
-        };
+        // The inline margin/border/padding offsets at span boundaries
+        // (`inline_offsets` above, the rule the intrinsic scan shares) move
+        // the pen as the items are placed.
         for (inline_offset_idx, item) in justified_segment_items.into_iter().enumerate() {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global

@@ -3184,20 +3184,26 @@ fn get_inline_border_info(
     use crate::text3::cache::InlineBorderInfo;
 
     // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
-    // against the real viewport instead of being treated as raw pixels.
-    fn resolve_padding(mv: MultiValue<PixelValue>, viewport: PhysicalSize) -> f32 {
+    // against the real viewport instead of being treated as raw pixels, and an
+    // `em` against the element's own font size (a label's `margin-right:
+    // -0.08em` gives back its tracking, which is 0.08em of ITS size).
+    fn resolve_padding(mv: MultiValue<PixelValue>, viewport: PhysicalSize, em: (f32, f32)) -> f32 {
         match mv {
             MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
                 &pv,
                 0.0,
-                DEFAULT_FONT_SIZE,
-                DEFAULT_FONT_SIZE,
+                em.0,
+                em.1,
                 viewport.width,
                 viewport.height,
             ),
             _ => 0.0,
         }
     }
+    let em = (
+        get_element_font_size_in_viewport(styled_dom, node_id, node_state, viewport),
+        get_root_font_size(styled_dom, node_state),
+    );
 
     macro_rules! border_width_px {
         ($field:expr) => {
@@ -3276,18 +3282,22 @@ fn get_inline_border_info(
     let p_top = resolve_padding(
         get_css_padding_top(styled_dom, node_id, node_state),
         viewport,
+        em,
     );
     let p_right = resolve_padding(
         get_css_padding_right(styled_dom, node_id, node_state),
         viewport,
+        em,
     );
     let p_bottom = resolve_padding(
         get_css_padding_bottom(styled_dom, node_id, node_state),
         viewport,
+        em,
     );
     let p_left = resolve_padding(
         get_css_padding_left(styled_dom, node_id, node_state),
         viewport,
+        em,
     );
 
     // CSS 2.2 s10.3.1: an inline box's left and right margins apply (its
@@ -3295,10 +3305,12 @@ fn get_inline_border_info(
     let m_left = resolve_padding(
         get_css_margin_left(styled_dom, node_id, node_state),
         viewport,
+        em,
     );
     let m_right = resolve_padding(
         get_css_margin_right(styled_dom, node_id, node_state),
         viewport,
+        em,
     );
 
     // Only return Some if there's actually a border, padding or margin
