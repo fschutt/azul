@@ -436,10 +436,11 @@ impl Profile {
     /// and live token servers are the Workers' routes in
     /// `iso/azworker/token/wrangler.toml`.
     ///
-    /// The relay is Azlin's own ([`AZLIN_RELAY`]) for Azlin's customers, the
-    /// trial and the production profile, and n0's public relays (`default`)
-    /// for the local one. The local stack names its own `iroh-relay --dev` in
-    /// its profile's file (azul-apps `local/mkprofile.py`).
+    /// The relay is n0's public relays (`default`) for every profile: Azlin's
+    /// own ([`AZLIN_RELAY`]) is not hosted yet, so a profile that named it
+    /// would leave every relayed connection without a relay. It stays a
+    /// choice by its word and its address. The local stack names its own
+    /// `iroh-relay --dev` in its profile's file (azul-apps `local/mkprofile.py`).
     #[must_use]
     pub fn default_for(self, endpoint: Endpoint) -> Option<&'static str> {
         match (self, endpoint) {
@@ -447,8 +448,7 @@ impl Profile {
             (Profile::Local, Endpoint::Meet) => Some("http://127.0.0.1:8790"),
             (Profile::Trial, Endpoint::Token) => Some("https://token-trial.azlin.io"),
             (Profile::Production, Endpoint::Token) => Some("https://token.azlin.io"),
-            (Profile::Trial | Profile::Production, Endpoint::Relay) => Some(AZLIN_RELAY),
-            (Profile::Local, Endpoint::Relay) => Some("default"),
+            (_, Endpoint::Relay) => Some("default"),
             _ => None,
         }
     }
@@ -488,8 +488,8 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
     Ok(s.to_string())
 }
 
-/// Azlin's own iroh relay: the trial and production profiles' default, and
-/// what the relay setting's word `azlin` stands for.
+/// Azlin's own iroh relay: what the relay setting's word `azlin` stands for.
+/// No profile names it until it is hosted.
 pub const AZLIN_RELAY: &str = "https://connect.azlin.io";
 
 /// A relay setting: `off` (also `0`), `default` (n0's public relays; also

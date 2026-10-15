@@ -79,9 +79,9 @@ Settings > Meetings offers three relays ("iroh relay"):
 - **Azlin**: Azlin's own relay at `https://connect.azlin.io`.
 - **Custom**: a company's own relay, by its address, for networks that must not leave the company.
 
-Azlin's customers relay through Azlin's relay by default: the shared Azlin config's trial and
-production profiles name it. Everyone else, a local stack, and a build without an Azlin profile
-use n0's public relays. A choice made in the settings is saved in `meet/settings.json` and counts
+Every profile of the shared Azlin config uses n0's public relays until Azlin's relay is hosted;
+Azlin's relay is then the trial and production profiles' default. Until then it is a choice in
+the settings, by name or by address. A choice made in the settings is saved in `meet/settings.json` and counts
 over the shared config (`endpoints.relay`: `default`, `azlin`, or an address); `--relay`
 overrides both for one run. "No relay" is not offered: `--relay off` exists for tests, and a
 meetings service on the same computer means a local test and no relay as well. Changing the relay
