@@ -271,3 +271,67 @@ fn a_river_name_keeps_its_anchor_while_the_view_pans() {
         }
     }
 }
+
+/// A map left alone stops drawing: a crowded view of labels - repeated road
+/// names, names of equal rank crossing, the same name offered twice by two
+/// tiles - placed again and again with nothing changing settles within a few
+/// fades, and its frame says so (`settled_at` is the frame's own time). A
+/// placement that never settles keeps the map's fade timer re-rendering the
+/// view many times a second while nobody touches it.
+#[test]
+fn a_crowded_view_left_alone_settles() {
+    let kinds = ["place", "transportation_name", "poi", "water_name", "housenumber"];
+    let mut labels = Vec::new();
+    // A small deterministic generator: the same crowd every run.
+    let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for i in 0..220 {
+        let text = format!("Name {}", next() % 60);
+        let priority = (next() % 6) as i32 * 100;
+        labels.push((label(&text, priority, kinds[i % kinds.len()]), next(), next()));
+    }
+    let view = view_at(14.0, 0.0);
+    let mut placed_at: Vec<(f64, f64)> = labels
+        .iter()
+        .map(|(_, a, b)| {
+            world_near_centre(14.0, (a % 900) as f64 - 450.0, (b % 700) as f64 - 350.0)
+        })
+        .collect();
+    // The same name offered by two neighbouring tiles at the same point.
+    for i in 0..20 {
+        placed_at.push(placed_at[i]);
+    }
+    let all: Vec<&TileLabel> = labels
+        .iter()
+        .map(|(l, _, _)| l)
+        .chain(labels.iter().take(20).map(|(l, _, _)| l))
+        .collect();
+    let candidates: Vec<LabelCandidate<'_>> = all
+        .iter()
+        .zip(&placed_at)
+        .map(|(l, w)| at(&view, *w, l))
+        .collect();
+    let mut placement = LabelPlacement::new();
+    let mut last = None;
+    for frame_no in 0..240 {
+        let now = f64::from(frame_no) * 0.016;
+        let frame = placement.place(&candidates, &view, now);
+        if frame_no >= 120 {
+            assert!(
+                frame.settled_at <= now,
+                "frame {frame_no}: still fading until {} at {now}",
+                frame.settled_at
+            );
+            let ids: Vec<u64> = frame.placed.iter().map(|p| p.id).collect();
+            if let Some(previous) = &last {
+                assert_eq!(&ids, previous, "frame {frame_no}: the labels changed");
+            }
+            last = Some(ids);
+        }
+    }
+}
