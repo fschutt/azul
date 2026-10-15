@@ -1799,6 +1799,26 @@ impl CGenerator {
         builder.line("#endif");
         builder.blank();
 
+        // C has no optional or result type of its own: these bind a payload
+        // through the generated `matchRef` helpers or end the block, the C
+        // spelling of `let Some(x) = .. else { return .. }`. One line each
+        // (comments and defines), for the line-wise cdef converters.
+        builder.line("/* Binds `out` (a const pointer) to the payload of an Option, or runs `otherwise`: */");
+        builder.line("/*     const AzFilePath* path;                                                     */");
+        builder.line("/*     AZ_LET_SOME(AzOptionFilePath, &picked.path, path, return AzUpdate_DoNothing); */");
+        builder.line("#ifndef AZ_LET_SOME");
+        builder.line(
+            "#define AZ_LET_SOME(OptT, opt_ptr, out, otherwise) if (!OptT##_matchRefSome((opt_ptr), &(out))) { otherwise; } else ((void)0)",
+        );
+        builder.line("#endif");
+        builder.line("/* The same for the Ok of a Result: AZ_LET_OK(AzResultUrlUrlParseError, &r, url, return AzUpdate_DoNothing); */");
+        builder.line("#ifndef AZ_LET_OK");
+        builder.line(
+            "#define AZ_LET_OK(ResT, res_ptr, out, otherwise) if (!ResT##_matchRefOk((res_ptr), &(out))) { otherwise; } else ((void)0)",
+        );
+        builder.line("#endif");
+        builder.blank();
+
         // AZ_REFLECT macro for user-defined types
         self.generate_az_reflect_macro(builder);
     }
