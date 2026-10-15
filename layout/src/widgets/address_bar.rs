@@ -296,6 +296,9 @@ pub(crate) struct AddressBarLook {
     /// its style (it stands over the field, which leaves room for it in
     /// [`Self::search_field`]).
     pub search_icon: Option<Vec<Cond>>,
+    /// The key cap of the search shortcut hint (its font, ink and rim);
+    /// the hint's place over the field's end is the base's.
+    pub search_hint: Vec<Cond>,
     /// The theme's marker class on the bar, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -390,6 +393,21 @@ pub(crate) static ADDRESS_BAR_EDIT_BASE: &[Cond] = &[
 
 /// The search box keeps its width.
 pub(crate) static ADDRESS_BAR_SEARCH_BASE: &[Cond] = &[display_flex(), grow(0), no_shrink()];
+
+/// The search shortcut hint lies over the field's end, on its midline, one
+/// line that is never selected; over it the pointer stays the text cursor
+/// (a click on it focuses the field).
+pub(crate) static ADDRESS_BAR_SEARCH_HINT_BASE: &[Cond] = &[
+    crate::widgets::themes::decl::position(azul_css::props::layout::LayoutPosition::Absolute),
+    simple(CssProperty::const_top(azul_css::props::layout::LayoutTop::const_px(0))),
+    simple(CssProperty::const_bottom(azul_css::props::layout::LayoutInsetBottom::const_px(0))),
+    simple(CssProperty::const_right(azul_css::props::layout::LayoutRight::const_px(6))),
+    display_flex(),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    nowrap(),
+    simple(CssProperty::const_cursor(StyleCursor::Text)),
+    simple(CssProperty::user_select(StyleUserSelect::None)),
+];
 
 // ---- folding a long trail ----
 //
@@ -874,6 +892,21 @@ extern "C" fn on_search_text(
     }
 }
 
+/// A click on the search shortcut hint: the caret goes into the search
+/// field under it (the hint's box holds the search row first, the field
+/// first in that).
+extern "C" fn on_search_hint_click(_data: RefAny, mut info: CallbackInfo) -> Update {
+    let hint = info.get_hit_node();
+    let field = info
+        .get_parent(hint)
+        .and_then(|search_box| info.get_first_child(search_box))
+        .and_then(|row| info.get_first_child(row));
+    if let Some(field) = field {
+        info.set_focus(FocusTarget::Id(field));
+    }
+    Update::DoNothing
+}
+
 /// Marks a built button unavailable for assistive technology.
 fn mark_unavailable(button: &mut Dom) {
     let mut a11y = button
@@ -917,6 +950,7 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
         show_recent,
         icon,
         available_width,
+        search_shortcut,
     } = bar;
     let theme = OptionUiTheme::Some(look.theme);
     let shared = RefAny::new(AddressBarShared { on_event });
@@ -1145,6 +1179,9 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
     }
 
     // ---- the search box ----
+    // The hint shows only on an empty box (read before the text moves into
+    // the input).
+    let search_empty = search.as_str().is_empty();
     let on_search: TextInputOnTextInputCallbackType = on_search_text;
     let search_input = TextInput::create_search()
         .with_text(search)
@@ -1169,6 +1206,7 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
             field.root.set_css_props(CssPropertyWithConditionsVec::from_vec(v));
         }
     }
+    let show_hint = !search_shortcut.as_str().is_empty() && search_empty;
     let mut search_box = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SEARCH_CLASS))
         .with_css_props(part(ADDRESS_BAR_SEARCH_BASE, &look.search))
@@ -1179,6 +1217,37 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
             Dom::create_icon(AzString::from_const_str("search"))
                 .with_css_props(CssPropertyWithConditionsVec::from_vec(style.clone())),
         );
+    }
+    if show_hint {
+        // Over the field's end, after it so it paints on the field's paper;
+        // gone while the box holds the focus (`:focus-within`), like the
+        // design's hint.
+        search_box.add_child(
+            Dom::create_div()
+                .with_class(AzString::from_const_str(SEARCH_HINT_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                    ADDRESS_BAR_SEARCH_HINT_BASE,
+                ))
+                .with_child(
+                    crate::widgets::widget_p_with_text(search_shortcut).with_css_props(
+                        CssPropertyWithConditionsVec::from_vec(look.search_hint.clone()),
+                    ),
+                )
+                .with_callbacks(
+                    alloc::vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::Click),
+                        callback: CoreCallback {
+                            cb: on_search_hint_click as usize,
+                            ctx: OptionRefAny::None,
+                        },
+                        refany: shared.clone(),
+                    }]
+                    .into(),
+                ),
+        );
+        search_box = search_box.with_css(&format!(
+            ".__azul-native-address-bar-search:focus-within .{SEARCH_HINT_CLASS} {{ display: none; }}"
+        ));
     }
 
     let mut parts = alloc::vec![
