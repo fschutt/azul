@@ -20113,14 +20113,13 @@ impl LayoutWindow {
                         // stopping one that ran out of time (detached).
                         OptionThreadReceiveMsg::None => {
                             let given_up = !is_finished
-                                && match stopping {
-                                    Some(told) => crate::managers::thread_owner::detach_if_overdue(
+                                && stopping.is_some_and(|told| {
+                                    crate::managers::thread_owner::detach_if_overdue(
                                         told,
                                         thread_inner,
                                         crate::managers::thread_owner::wall_clock(),
-                                    ),
-                                    None => false,
-                                };
+                                    )
+                                });
                             if is_finished || given_up {
                                 all_changes.push(CallbackChange::RemoveThread { thread_id });
                             }

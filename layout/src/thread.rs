@@ -731,11 +731,11 @@ impl Drop for ThreadInner {
     }
 }
 
-/// The shell's wake for its event loop (`set_thread_wake`), stored as a function
-/// pointer (`0`: none). Called from the worker's thread after it sent the UI thread
-/// a message or ended, so the write-back runs at once instead of at the next poll.
+/// The shell's wake for its event loop (`set_thread_wake`). Called from the worker's
+/// thread after it sent the UI thread a message or ended, so the write-back runs at
+/// once instead of at the next poll.
 #[cfg(feature = "std")]
-static THREAD_WAKE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static THREAD_WAKE: Mutex<Option<extern "C" fn()>> = Mutex::new(None);
 
 /// Set while a wake is on its way to the UI thread and its poll has not run yet:
 /// a worker that sends a thousand messages in a burst wakes the loop once.
@@ -751,17 +751,22 @@ static THREAD_WAKE_PENDING: core::sync::atomic::AtomicBool =
 /// poll for its workers (`LayoutWindow::thread_poll_needed`).
 #[cfg(feature = "std")]
 pub fn set_thread_wake(wake: Option<extern "C" fn()>) {
-    THREAD_WAKE.store(
-        wake.map_or(0, |f| f as usize),
-        core::sync::atomic::Ordering::SeqCst,
-    );
+    if let Ok(mut slot) = THREAD_WAKE.lock() {
+        *slot = wake;
+    }
+}
+
+/// The installed thread wake, if any ([`set_thread_wake`]).
+#[cfg(feature = "std")]
+fn installed_thread_wake() -> Option<extern "C" fn()> {
+    THREAD_WAKE.lock().ok().and_then(|slot| *slot)
 }
 
 /// Whether a shell installed a thread wake ([`set_thread_wake`]).
 #[cfg(feature = "std")]
 #[must_use]
 pub fn thread_wake_installed() -> bool {
-    THREAD_WAKE.load(core::sync::atomic::Ordering::SeqCst) != 0
+    installed_thread_wake().is_some()
 }
 
 /// Without std no worker runs, so nothing ever needs waking.
@@ -774,6 +779,7 @@ pub const fn thread_wake_installed() -> bool {
 /// The UI thread's side of a wake: call it before polling the threads. Returns
 /// whether a wake was pending; the next send after this wakes the loop again.
 #[cfg(feature = "std")]
+#[must_use]
 pub fn take_thread_wake() -> bool {
     THREAD_WAKE_PENDING.swap(false, core::sync::atomic::Ordering::SeqCst)
 }
@@ -782,13 +788,12 @@ pub fn take_thread_wake() -> bool {
 /// calls the installed wake, once per poll the UI thread has not run yet.
 #[cfg(feature = "std")]
 fn wake_ui_thread() {
-    let wake = THREAD_WAKE.load(core::sync::atomic::Ordering::SeqCst);
-    if wake == 0 || THREAD_WAKE_PENDING.swap(true, core::sync::atomic::Ordering::SeqCst) {
+    let Some(wake) = installed_thread_wake() else {
+        return;
+    };
+    if THREAD_WAKE_PENDING.swap(true, core::sync::atomic::Ordering::SeqCst) {
         return;
     }
-    // SAFETY: the only values ever stored are 0 and an `extern "C" fn()` cast to
-    // `usize` by `set_thread_wake`.
-    let wake: extern "C" fn() = unsafe { core::mem::transmute::<usize, extern "C" fn()>(wake) };
     wake();
 }
 
