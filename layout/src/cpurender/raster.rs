@@ -4152,7 +4152,7 @@ const fn font_resolution_failed(_font_hash: u64) {}
 /// How far each side of a glyph moves out when the run is drawn in
 /// synthetic bold ([`FontHash::synthetic_bold`]), in device pixels; 0 for a
 /// face drawn as it is. Keyed on the size in device pixels, the one size
-/// WebRender's glyph rasterizer sees, so both renderers draw the same stems.
+/// `WebRender`'s glyph rasterizer sees, so both renderers draw the same stems.
 fn synthetic_bold_px(font_hash: FontHash, effective_px: f32) -> f32 {
     if font_hash.synthetic_bold {
         super::embolden::synthetic_bold_strength_px(effective_px)

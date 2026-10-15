@@ -5,11 +5,11 @@
 //! while it is filled, with a stroke `size / 24` wide at 9px and below,
 //! `size / 32` at 36px and above, and linear in between. Each side of a
 //! stem therefore moves out by half that width, and the glyph's advance
-//! stays as it is. Both of azul's rasterizers (the CPU one and WebRender's
+//! stays as it is. Both of azul's rasterizers (the CPU one and `WebRender`'s
 //! glyph rasterizer) thicken the outline here, before it is flattened, so
 //! they draw the same stems.
 //!
-//! The outline is offset point by point, the way FreeType's
+//! The outline is offset point by point, the way `FreeType`'s
 //! `FT_Outline_EmboldenXY` does it: every point (control points too) moves
 //! along the bisector of its two edges, far enough that both edges move out
 //! by the strength. That is a mitred stroke, without stroking the path.

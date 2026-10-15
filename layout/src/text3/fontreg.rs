@@ -57,6 +57,7 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Registers the face `bytes` under `family` for the process. Returns
 /// `false` for bytes that are no font (nothing registered). Registering the
 /// same bytes under the same family again changes nothing.
+#[must_use]
 pub fn register_font(family: &str, bytes: &[u8]) -> bool {
     let ranges = cmap_coverage(bytes);
     if ranges.is_empty() {

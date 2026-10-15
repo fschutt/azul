@@ -249,7 +249,7 @@ impl FontContext {
 }
 
 /// How far each side of a glyph moves out in font units when `font` draws
-/// in synthetic bold (WebRender's `SYNTHETIC_BOLD` flag, which azul sets on
+/// in synthetic bold (`WebRender`'s `SYNTHETIC_BOLD` flag, which azul sets on
 /// a run whose face has no bold cut); 0 otherwise. The strength is the CPU
 /// renderer's (`azul_layout::cpurender::embolden`), from the size in device
 /// pixels, so both draw the same stems.
