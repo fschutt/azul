@@ -3628,6 +3628,12 @@ define_class!(
                     macos_window.snapshot_window_state_baseline("macos.window_did_become_key");
                     macos_window.common.update_unsynced_state(|ws| ws.window_focused = true);
                     macos_window.common.note_focus_gained();
+                    // The user may have changed the wallpaper while away: the
+                    // metals read it again (one `stat` when it is the same)
+                    // and the window redraws when it changed.
+                    if crate::desktop::wallpaper::refresh() {
+                        macos_window.request_redraw();
+                    }
                     macos_window.dynamic_selector_context.window_focused = true;
 
                     // Phase 2: OnFocus callback - sync IME position after focus
@@ -3761,6 +3767,16 @@ define_class!(
                     }
                     // GL surface may have moved to a different screen
                     macos_window.surface_needs_update = true;
+                    // Under a point light, or reflecting the wallpaper behind
+                    // it, the window's materials change as it moves.
+                    let relight = macos_window
+                        .common
+                        .layout_window
+                        .as_ref()
+                        .is_some_and(azul_layout::window::LayoutWindow::materials_follow_window_position);
+                    if relight {
+                        macos_window.request_redraw();
+                    }
                     // Dispatch the move and consume the delta in THIS handler.
                     let result = macos_window.process_window_events(0);
                     macos_window.apply_activation_pass_result(result);
@@ -4983,6 +4999,24 @@ impl PlatformWindow for MacOSWindow {
             }
             // Even when its mode did not move: a pin forces the chrome.
             w.sync_native_appearance();
+        }
+    }
+
+    fn adopt_app_light_in_other_windows(&mut self) {
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            let changed = w
+                .common
+                .layout_window
+                .as_mut()
+                .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+            if changed {
+                w.request_redraw();
+            }
         }
     }
 

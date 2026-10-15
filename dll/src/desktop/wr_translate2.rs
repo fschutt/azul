@@ -1874,6 +1874,13 @@ pub fn generate_frame(
         return;
     }
 
+    // The material backgrounds are drawn - by the GPU, with this frame's
+    // context - BEFORE the display list goes to WebRender: a frame patched in
+    // afterwards would show one frame late, and never in a frame that skips
+    // the scene builder. A patched list is sent again with its new images.
+    let display_list_was_rebuilt =
+        layout_window.resolve_background_image_callbacks(gl_context) || display_list_was_rebuilt;
+
     // CRITICAL: Build display list FIRST, then set root pipeline (matching upstream WebRender
     // order)
     let root_pipeline_id = wr_translate_pipeline_id(PipelineId(0, layout_window.document_id.id));
@@ -2696,6 +2703,10 @@ pub fn build_webrender_transaction(
     // Get root pipeline ID
     let root_pipeline_id = wr_translate_pipeline_id(PipelineId(0, layout_window.document_id.id));
 
+    // Step 0: the material backgrounds, drawn with this frame's GL context
+    // before their images are registered (see `generate_frame`).
+    let _ = layout_window.resolve_background_image_callbacks(gl_context);
+
     // Step 1: Collect + register font and image resources, then add them to the
     // transaction. Shared with generate_frame.
     log_debug!(
@@ -2961,6 +2972,15 @@ pub fn build_image_only_transaction(
         "[build_image_only_txn] Building lightweight transaction (layout unchanged)"
     );
 
+    // Step 0: the material backgrounds (a moving sheen, a new light) drawn
+    // with this frame's GL context; a patched item's new image is registered
+    // and the display list sent again below.
+    let materials_patched = layout_window.resolve_background_image_callbacks(gl_context);
+    if materials_patched {
+        let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+        register_frame_resources(layout_window, txn, dpi);
+    }
+
     // Step 1: Re-invoke image callbacks to produce updated GL textures
     let callbacks_changed = process_image_callback_updates(layout_window, gl_context, txn);
 
@@ -2969,12 +2989,13 @@ pub fn build_image_only_transaction(
     // key: `update_image`, pixels only. After the callbacks, so a callback's
     // raw frame is picked up in the same transaction.
     let overlay = upload_overlay_images(layout_window, txn);
-    let images_changed = callbacks_changed || overlay.changed;
+    let images_changed = callbacks_changed || overlay.changed || materials_patched;
 
     // Step 2: Skip scene builder (display lists haven't changed) - unless a
     // tile got its key in this transaction: the display list WebRender holds
     // names the tile's previous image, so it is resent once, at a new epoch.
-    if overlay.new_slot {
+    // A material frame patched into the list is the same case.
+    if overlay.new_slot || materials_patched {
         set_display_lists(txn, layout_window)?;
         layout_window.epoch.increment();
     } else {

@@ -6231,6 +6231,13 @@ unsafe extern "system" fn window_proc(
             );
             window.common.note_focus_gained();
             window.dynamic_selector_context.window_focused = true;
+            // The user may have changed the wallpaper while away: the metals
+            // read it again (one `stat` when it is the same).
+            if crate::desktop::wallpaper::refresh() {
+                unsafe {
+                    (window.win32.user32.InvalidateRect)(window.hwnd, ptr::null(), 0);
+                }
+            }
 
             // Re-read the pressed-key set: the releases that happened while
             // another window had the focus never reached us (Alt+Tab's LAlt
@@ -7667,6 +7674,28 @@ impl PlatformWindow for Win32Window {
                 let w = unsafe { &mut *wptr };
                 if w.adopt_app_mode() {
                     w.apply_titlebar_theme();
+                    unsafe {
+                        (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                    }
+                }
+            }
+        }
+    }
+
+    fn adopt_app_light_in_other_windows(&mut self) {
+        let hwnd = self.hwnd;
+        for other_hwnd in registry::get_all_window_handles() {
+            if other_hwnd == hwnd {
+                continue;
+            }
+            if let Some(wptr) = registry::get_window(other_hwnd) {
+                let w = unsafe { &mut *wptr };
+                let changed = w
+                    .common
+                    .layout_window
+                    .as_mut()
+                    .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+                if changed {
                     unsafe {
                         (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
                     }

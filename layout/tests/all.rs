@@ -1103,3 +1103,9 @@ mod a_rebuild_draws_a_waiting_entrance_without_a_second_display_list;
 mod a_picture_scaled_down_by_max_width_and_max_height_keeps_its_proportions;
 #[path = "a_padded_full_width_button_fills_its_column_and_no_more.rs"]
 mod a_padded_full_width_button_fills_its_column_and_no_more;
+#[path = "a_material_is_lit_per_device_pixel.rs"]
+mod a_material_is_lit_per_device_pixel;
+#[path = "a_window_is_lit_by_the_app_light.rs"]
+mod a_window_is_lit_by_the_app_light;
+#[path = "a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape.rs"]
+mod a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape;

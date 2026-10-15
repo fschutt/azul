@@ -688,6 +688,7 @@ mod autotest_generated {
             theme,
             app_id,
             mode,
+            light,
             log_level,
             natural_scroll,
             termination_behavior,
@@ -717,6 +718,7 @@ mod autotest_generated {
             + size_of_field(theme)
             + size_of_field(app_id)
             + size_of_field(mode)
+            + size_of_field(light)
             + size_of_field(log_level)
             + size_of_field(natural_scroll)
             + size_of_field(termination_behavior)

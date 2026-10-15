@@ -2664,7 +2664,17 @@ impl Runner {
             // the new light; the same light again is nothing.
             CallbackChange::SetMaterialLight { light } => {
                 if self.layout_window.set_material_light(*light) {
-                    ProcessEventResult::ShouldReRenderCurrentWindow
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+            // The app's one light: published for every window, adopted here
+            // at once (materials and light-following shadows anew).
+            CallbackChange::SetAppLight { light } => {
+                azul_core::light::set_app_light(*light);
+                if self.layout_window.adopt_app_light() {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 } else {
                     ProcessEventResult::DoNothing
                 }

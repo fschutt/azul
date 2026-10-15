@@ -1062,6 +1062,14 @@ pub struct AppConfig {
     /// 8 bytes, 4-aligned: it sits with the 4-byte enums below (a 4-byte
     /// `repr(C)` enum here would leave 4 bytes of tail padding).
     pub mode: crate::window::OptionDarkLightMode,
+    /// The app's ONE light (`crate::light`): where the light every window's
+    /// materials, bevels, cursor sheen and light-following shadows come from.
+    /// Default: the sun at the top right, low (azimuth 45, elevation 36).
+    /// Published when the app starts; `CallbackInfo::set_app_light` moves it
+    /// for every window.
+    ///
+    /// 16 bytes, 4-aligned: it sits with the 4-byte enums.
+    pub light: crate::light::Light,
     /// If enabled, logs error and info messages.
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
@@ -1207,6 +1215,18 @@ impl AppConfig {
         self.theme = name;
     }
 
+    /// Light every window of the app with `light` (see [`Self::light`]).
+    #[must_use]
+    pub const fn with_light(mut self, light: crate::light::Light) -> Self {
+        self.light = light;
+        self
+    }
+
+    /// In-place [`Self::with_light`].
+    pub const fn set_light(&mut self, light: crate::light::Light) {
+        self.light = light;
+    }
+
     /// Name the app: `app_id` is its reverse-DNS id (`org.example.Editor`).
     /// See [`Self::app_id`] for where each OS uses it and where the
     /// platform's own declaration wins.
@@ -1268,6 +1288,7 @@ impl AppConfig {
             app_id: AzString::from_const_str(""),
             // Follow the desktop.
             mode: crate::window::OptionDarkLightMode::None,
+            light: crate::light::Light::DEFAULT,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.
