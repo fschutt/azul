@@ -414,6 +414,25 @@ impl Drive for AutoEncrypted {
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
         self.resolved()?.put_from(key, body)
     }
+    // A plain drive's file uploads resume (a bucket's parts); an encrypted one streams.
+    fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        self.resolved()?.put_file(key, path, progress)
+    }
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        check: &crate::checked::FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<crate::checked::CheckedUpload, DriveError> {
+        self.resolved()?
+            .put_file_checked(key, path, check, progress)
+    }
     fn put_if(
         &self,
         key: &str,

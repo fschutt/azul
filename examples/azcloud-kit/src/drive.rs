@@ -510,6 +510,17 @@ impl Drive for AzlinDrive {
     ) -> Result<u64, DriveError> {
         self.with_bucket(|b| b.put_file(key, path, progress))
     }
+    /// The bucket's resumable upload: a refusal of the credentials half way refreshes them and
+    /// the upload goes on from its state file with the parts it lacks.
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &Path,
+        check: &azul_storage::checked::FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<azul_storage::checked::CheckedUpload, DriveError> {
+        self.with_bucket(|b| b.put_file_checked(key, path, check, progress))
+    }
     /// The bucket's streamed conditional upload; like [`AzlinDrive::put_from`], a refusal of the
     /// credentials half way refreshes them for the next call and is the caller's to retry.
     fn put_from_if(

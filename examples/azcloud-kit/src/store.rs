@@ -7,7 +7,9 @@
 //! dial it ([`crate::transport::IrohLane`], what [`crate::transport::CloudDrive`] sets up); any
 //! other store (a bucket in memory, a cache) implements the trait itself.
 
-use std::{io::Read, path::Path};
+use std::{fs, io::Read, path::Path};
+
+use azul_storage::checked::{FileCheck, HashCheck};
 
 use crate::error::CloudResult;
 
@@ -63,6 +65,23 @@ pub trait RemoteStore: Send + Sync {
         let mut data = Vec::with_capacity(usize::try_from(size).unwrap_or(0).min(BIG_BLOB as usize));
         body.read_to_end(&mut data)?;
         self.put(key, &data)
+    }
+
+    /// PUT of the local file `path`, which must be the file `check` describes until the upload
+    /// completes (a sync's blob is named by its BLAKE3): the bytes sent, `None` when it is not
+    /// (it changed; nothing completed). A bucket sends a big file's parts several at once and
+    /// resumes an upload a dropped connection or a killed app cut off with the parts it lacks;
+    /// by default the file is streamed in and hashed as it is read.
+    fn put_file(&self, key: &str, path: &Path, check: &FileCheck) -> CloudResult<Option<u64>> {
+        if !check.matches(&fs::metadata(path)?) {
+            return Ok(None);
+        }
+        let mut hashed = HashCheck::new(fs::File::open(path)?, &check.blake3);
+        match self.put_from(key, &mut hashed, check.size) {
+            Ok(_) => Ok(Some(hashed.bytes())),
+            Err(_) if hashed.changed() => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     /// GET of an object of `size` bytes into the file `dest` (replaced); `false` when there is

@@ -71,7 +71,7 @@ use std::{
     time::Duration,
 };
 
-use azul_storage::{Drive as _, LocalDrive};
+use azul_storage::{checked::FileCheck, Drive as _, LocalDrive};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -86,6 +86,7 @@ use crate::{
     error::{fail, CloudError, CloudResult, Context},
     state::{read_json, write_json},
     store::BIG_BLOB,
+    user_errors::{Class, UserError},
 };
 
 /// The data root of every Azlin app, in the drive.
@@ -102,8 +103,8 @@ pub const SETTLE_MAX: Duration = Duration::from_secs(30);
 /// Below this many deletes a plan is never stopped as a mass delete.
 pub const MASS_DELETE_MIN: usize = 10;
 /// The biggest file a sync takes by default: S3's largest object (5 TiB). A big file travels
-/// streamed - up in parts, its BLAKE3 checked as it is read; down into a file - never whole in
-/// memory.
+/// in parts - up from its file (an upload cut off goes on from the parts the bucket holds, and
+/// its BLAKE3 is checked again before it completes), down into a file - never whole in memory.
 pub const MAX_FILE_BYTES: u64 = 5 * (1 << 40);
 
 /// How a run behaves.
@@ -851,6 +852,9 @@ struct BlobJob {
     key: String,
     hash: String,
     size: u64,
+    /// The file's modification time as the scan found it (nanoseconds; 0 for bytes made here):
+    /// a big file's resumable upload checks it is still that file.
+    mtime_ns: u64,
     source: BlobSource,
 }
 
@@ -927,19 +931,6 @@ impl std::io::Read for CheckedRead {
     }
 }
 
-/// The job's file opened for a streamed upload (a file above [`BIG_BLOB`]), checked against its
-/// hash as it is read; `None` for a job whose bytes are made here (small ones, JSON).
-fn streamed(job: &BlobJob) -> Option<Result<CheckedRead, String>> {
-    match &job.source {
-        BlobSource::File(path) if job.size > BIG_BLOB => Some(
-            fs::File::open(path)
-                .map(|file| CheckedRead::new(file, &job.hash))
-                .map_err(|e| format!("cannot be read ({e})")),
-        ),
-        _ => None,
-    }
-}
-
 /// A file in the system's temporary folder a big download comes into, named after what it
 /// holds (a download cut short resumes there next time); removed when dropped.
 struct TempBlob(PathBuf);
@@ -993,22 +984,33 @@ fn upload_one<S: RemoteStore + ?Sized>(
     prefix: &str,
     job: &BlobJob,
 ) -> CloudResult<Outcome> {
-    if let Some(reader) = streamed(job) {
-        let key = remote::blob_key(prefix, &job.hash);
-        if store.head(&key)?.is_some() {
-            return Ok(Outcome::Existed);
+    // A big file goes up from its file, part by part: an upload a dropped connection or a
+    // killed app cut off goes on next time with the parts it lacks, and it never completes
+    // unless the file still holds the bytes its name says (hashed whole once more).
+    if let BlobSource::File(path) = &job.source {
+        if job.size > BIG_BLOB {
+            let key = remote::blob_key(prefix, &job.hash);
+            if store.head(&key)?.is_some() {
+                return Ok(Outcome::Existed);
+            }
+            let check = FileCheck {
+                size: job.size,
+                modified_ns: job.mtime_ns,
+                blake3: job.hash.clone(),
+            };
+            return match store.put_file(&key, path, &check) {
+                Ok(Some(sent)) => Ok(Outcome::Uploaded(sent)),
+                Ok(None) => Ok(Outcome::Changed(String::from(
+                    "changed while it was synced",
+                ))),
+                // A file that changed or vanished since the scan waits for the next run; any
+                // other failure is the upload's.
+                Err(e) => match fs::metadata(path) {
+                    Ok(meta) if check.matches(&meta) => Err(e),
+                    _ => Ok(Outcome::Changed(String::from("changed while it was synced"))),
+                },
+            };
         }
-        let mut reader = match reader {
-            Ok(reader) => reader,
-            Err(why) => return Ok(Outcome::Changed(why)),
-        };
-        return match store.put_from(&key, &mut reader, job.size) {
-            Ok(_) => Ok(Outcome::Uploaded(reader.bytes())),
-            Err(_) if reader.changed() => Ok(Outcome::Changed(String::from(
-                "changed while it was synced",
-            ))),
-            Err(e) => Err(e),
-        };
     }
     let bytes = match job_bytes(job) {
         Ok(bytes) => bytes,
@@ -1086,10 +1088,12 @@ fn blob_job(action: &Action, work: &Uploads<'_>, hash: &str) -> BlobJob {
             (file.blob_size, source)
         }
     };
+    let mtime_ns = work.scan.files.get(key).map_or(0, |f| f.mtime_ns);
     BlobJob {
         key: key.to_string(),
         hash: hash.to_string(),
         size,
+        mtime_ns,
         source,
     }
 }
@@ -1138,7 +1142,20 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
     }
     let mut abandoned = BTreeSet::new();
     for (key, hash, outcome) in outcomes {
-        match outcome? {
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            // A dropped connection, a busy node: this file waits for the next run with its
+            // reason, the others reach the drive now. What the user must act on (a full drive,
+            // a device removed) fails the run, which says it.
+            Err(e) if passes(&e) => {
+                report.errors.push(format!("upload {key}: {e}"));
+                report.file_errors.push((key.clone(), e.to_string()));
+                abandoned.insert(key);
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        match outcome {
             Outcome::Uploaded(bytes) => {
                 known.insert(hash);
                 report.blobs_up += 1;
@@ -1167,6 +1184,12 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
         }
     }
     Ok(abandoned)
+}
+
+/// Whether `e` passes by itself (the errors table's retry class: no connection, a busy or
+/// updating node): one file's such failure is no failed run.
+fn passes(e: &CloudError) -> bool {
+    UserError::from_cloud_error(e).is_some_and(|user| user.class() == Class::Retry)
 }
 
 /// The index after `actions`: `remote` itself when they change nothing in it
