@@ -1143,3 +1143,5 @@ mod a_pie_marker_paints_its_disc_and_wedge;
 mod a_closing_window_never_waits_for_its_workers;
 #[path = "an_accordion_tween_frame_builds_its_display_list_once.rs"]
 mod an_accordion_tween_frame_builds_its_display_list_once;
+#[path = "a_virtual_views_child_dom_lays_out_warm.rs"]
+mod a_virtual_views_child_dom_lays_out_warm;
