@@ -866,6 +866,9 @@ pub(crate) struct DriveState {
     /// The search view is open: from the first key typed into the search box until Escape on
     /// an empty box (or another place). An empty query shows the recent and saved searches.
     pub search_open: bool,
+    /// The search box's own Escape emptied it just now: the window hears the same Escape next,
+    /// which then is not the second Escape that closes the search view.
+    pub search_cleared_now: bool,
     /// Quick Look shows over the window (Space): the selected item's preview, large.
     pub quick_look: bool,
     /// Quick Look opens once the open folder is listed (a file the palette found).
@@ -1467,6 +1470,7 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         s.refines = find::Refines::default();
         if was_open {
             println!("AZDRIVE_SEARCH_CLEARED");
+            s.search_cleared_now = true;
         }
         return;
     }
@@ -3432,6 +3436,7 @@ pub fn start() {
             azul::widgets::TabClickBehaviour::HoverRevealDoubleClickLock,
         ),
         search_open: false,
+        search_cleared_now: false,
         quick_look: false,
         quick_look_when_listed: false,
         palette: None,

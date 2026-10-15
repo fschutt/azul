@@ -9,7 +9,6 @@
 
 use azul::{
     callbacks::ButtonOnClickCallbackType,
-    dom::TabIndex,
     misc::TransientAnchor,
     prelude::*,
     str::String as AzString,
@@ -209,14 +208,12 @@ fn pie_dom(id: AzString, pie: Pie, words: &str) -> Dom {
         PieTone::Warn => MarkerTone::Warning,
         PieTone::Bad => MarkerTone::Danger,
     };
-    Dom::create_div()
+    // The widget is the 15 x 25 hit area, its hover face and its button: the words are its
+    // label.
+    PieMarker::create(pie.fraction, tone)
+        .with_label(AzString::from(words))
+        .dom()
         .with_id(id)
-        .with_css(look::PIE_HIT)
-        .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(AzString::from(words))
-        .with_child(
-            PieMarker::create(pie.fraction, tone).dom(),
-        )
 }
 
 /// The two pies at the right of the navigation pane's foot; each opens the sync popover (above

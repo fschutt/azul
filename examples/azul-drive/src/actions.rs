@@ -1297,6 +1297,8 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
             return Update::DoNothing;
         };
         let s = &mut *guard;
+        // The box's own Escape emptied it before this handler ran: this is that Escape.
+        let cleared_now = core::mem::take(&mut s.search_cleared_now);
         if s.popup.is_some() || s.backstage_shown().is_some() || s.renaming.is_some() {
             return Update::DoNothing;
         }
@@ -1309,8 +1311,14 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
                 | Command::JumpTab(_)
                 | Command::TabOverview,
             ) => true,
+            // The tab overview over the window closes first, wherever the keyboard is.
             Some(Command::Escape) => {
-                s.search_open && s.search.is_empty() && !s.editing_path && s.palette.is_none()
+                s.tab_overview
+                    || (s.search_open
+                        && s.search.is_empty()
+                        && !cleared_now
+                        && !s.editing_path
+                        && s.palette.is_none())
             }
             _ => false,
         };

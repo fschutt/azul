@@ -1371,6 +1371,9 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 (SyncChange::Freed, Ok(text)) => {
                     println!("AZDRIVE_SYNC_FREED {drive_id}");
                     s.info(text);
+                    // The open preview read the bytes that are gone: it says so now.
+                    s.clear_preview();
+                    crate::actions::request_preview(info, app, s);
                 }
                 (SyncChange::Deleted, Ok(text)) => {
                     println!("AZDRIVE_SYNC_DELETED {drive_id}");
@@ -1385,6 +1388,9 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 (SyncChange::Fetched, Ok(text)) => {
                     println!("AZDRIVE_SYNC_FETCHED {drive_id}");
                     s.info(text);
+                    // The preview of a file whose bytes came down shows them now.
+                    s.clear_preview();
+                    crate::actions::request_preview(info, app, s);
                     // The copy, move or download that waited for them.
                     if let Some(waiting) = s.sync_view.waiting_transfer.take() {
                         crate::actions::enqueue_routed(info, app, s, waiting);

@@ -260,16 +260,6 @@ pub(crate) const PIES: &str =
     "display: flex; flex-direction: row; align-items: center; margin-left: auto; \
      padding-right: 4px; height: 26px;";
 
-/// A pie's hit area: 15 x 25 px around its 11 px disc, the hover face behind it.
-pub(crate) const PIE_HIT: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-     width: 15px; height: 25px; padding: 0px 2px; border-radius: 3px; cursor: default;",
-    ":hover { background: #DDE4EC; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
-    ":hover { background: #474747; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
-    ":hover { background: #F1EFE9; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
-    ":hover { background: #333333; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
-);
-
 /// The sync popover's content: 330 px of field paper.
 pub(crate) const SYNC_POPOVER: &str = themed!(
     "display: flex; flex-direction: column; width: 330px; box-sizing: border-box; \
