@@ -35,6 +35,12 @@ Account opens the wizard and its Cancel returns to the mail window.
 The sample phase also prints: File > Print with the newsletter open makes its PDF (azul's PDF
 writer), draws the first page as the preview (PDF -> SVG -> picture) and Print writes the file.
 
+The cancel phase (`--phase cancel`): after the account's first Send / Receive the IMAP server
+stops answering (its stall file); F9 starts a Send / Receive that hangs, Cancel All frees it at
+once (AZMAIL_SYNC_STOPPED, "Send/Receive stopped." in the status bar), and once the server answers
+again F9 runs to the end while the stopped sync's last report (AZMAIL_SYNC_STOPPED_DONE) leaves
+the new one's status alone.
+
 The local phase (`--phase local`, AZMAIL11: no account, no IMAP server): New E-mail opens a
 message window of its own (AZMAIL_COMPOSE_OPEN <window id> new) whose From line is typed; Save
 Draft puts the draft into Local Folders' Drafts (AZMAIL_DRAFT_SAVED, the folder pane lists it);
@@ -199,6 +205,8 @@ class Run:
         self.debug = args.debug_port
         # More switches for the SMTP sink (the submission phase makes it a submission server).
         self.sink_args = []
+        # More switches for the IMAP server (the cancel phase gives it a stall file).
+        self.server_args = []
 
     # -- processes --
 
@@ -418,7 +426,7 @@ class Run:
         os.makedirs(self.sink_dir)
         self.start('server', [sys.executable, os.path.join(MAIL_SCRIPTS, 'imap_server.py'),
                               '--root', self.server_root, '--port', '0', '--user', USER,
-                              '--log', self.server_log],
+                              '--log', self.server_log] + self.server_args,
                    {'AZMAIL_TEST_PASSWORD': self.password})
         self.imap_port = int(self.until('the IMAP server', lambda: (re.search(
             r'^IMAP_SERVER_PORT (\d+)$', self.output('server'), re.M) or [None, None])[1]))
@@ -1386,6 +1394,71 @@ class LocalRun(Run):
         self.options_cancel_puts_the_view_back()
 
 
+# ---- the cancel phase: Cancel on a Send / Receive that hangs in the server's answer ----
+
+
+class CancelRun(Run):
+    """Send / Receive against an IMAP server that stops answering mid-sync: Cancel All frees
+    it at once (the status bar says it stopped, the window answers the next frame), a new
+    Send / Receive runs to the end once the server answers again, and the stopped sync's last
+    report arrives without touching the new one."""
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.stall_file = os.path.join(self.tmp, 'imap-stall')
+        self.server_args = ['--stall-file', self.stall_file]
+
+    def stalled(self):
+        try:
+            with open(self.server_log, encoding='utf-8') as f:
+                return any('stalled' in json.loads(line) for line in f if line.strip())
+        except (OSError, ValueError):
+            return False
+
+    def cancel_a_stalled_send_receive(self):
+        starts = len(self.printed('AZMAIL_SYNC_START'))
+        with open(self.stall_file, 'w', encoding='utf-8') as f:
+            f.write('stall\n')
+        self.key('f9')
+        self.until('the second Send / Receive to start',
+                   lambda: len(self.printed('AZMAIL_SYNC_START')) > starts, limit=20)
+        self.until('the server to stop answering', self.stalled, limit=30)
+        self.click('Send / Receive')
+        before = time.time()
+        self.click('Cancel All')
+        self.until('AZMAIL_SYNC_STOPPED', lambda: self.output('azmail').count(
+            'AZMAIL_SYNC_STOPPED\n'), limit=5)
+        took = time.time() - before
+        if took > 1.5:
+            raise Failure(f'Cancel All took {took:.1f} s to free Send / Receive')
+        self.until('the status bar to say it stopped',
+                   lambda: self.shows('Send/Receive stopped.'), limit=5)
+        log(f'Cancel All freed the stalled Send / Receive in {took:.2f} s')
+
+    def send_receive_again(self):
+        done = len(self.printed('AZMAIL_SYNC_DONE'))
+        starts = len(self.printed('AZMAIL_SYNC_START'))
+        os.remove(self.stall_file)
+        self.key('f9')
+        self.until('a new Send / Receive to start',
+                   lambda: len(self.printed('AZMAIL_SYNC_START')) > starts, limit=20)
+        self.until('the new Send / Receive to finish',
+                   lambda: len(self.printed('AZMAIL_SYNC_DONE')) > done, limit=60)
+        self.until("the stopped sync's last report (it writes what it has, then says so)",
+                   lambda: 'AZMAIL_SYNC_STOPPED_DONE' in self.output('azmail'), limit=30)
+        if self.shows('Send/Receive stopped.'):
+            raise Failure("the stopped sync's last report put its words over the new one's")
+        log('Send / Receive ran again to the end; the stopped one reported without touching it')
+
+    def run(self):
+        log(f'logs and data: {self.tmp}')
+        self.start_servers()
+        self.start_app()
+        self.add_account()
+        self.cancel_a_stalled_send_receive()
+        self.send_receive_again()
+
+
 # ---- the submission phase (MAIL9 left 2): the Sending page's third choice and DKIM ----
 
 SUBMISSION_TO = 'ben@example.org'
@@ -1922,10 +1995,11 @@ def main():
     parser.add_argument('--runner', help='run_capped.sh (caps the app\'s memory and time)')
     parser.add_argument('--keep-logs', action='store_true')
     parser.add_argument('--phase', choices=('all', 'empty', 'local', 'sample', 'account',
-                                            'submission', 'azlin'),
+                                            'cancel', 'submission', 'azlin'),
                         default='all',
                         help='empty: no account - the real window, File, the ways back (no '
-                             'servers); local: no account - a message window, Local Folders '
+                             'servers); cancel: Cancel All on a Send / Receive the IMAP '
+                             'server stopped answering; local: no account - a message window, Local Folders '
                              '(Drafts, Outbox, Sent Items), Send/Receive, File > Options in its '
                              'own window (the SMTP sink only); sample: --sample, the look and the '
                              'app-kit flows (no servers); account: the wizard, IMAP, SMTP; '
@@ -1971,6 +2045,9 @@ def main():
     if args.phase in ('all', 'account'):
         passed &= run_phase(Run, args, 'account, Send/Receive, reply window, send through SMTP, '
                                        'Sent, draft')
+    if args.phase in ('all', 'cancel'):
+        passed &= run_phase(CancelRun, args, 'cancel: a stalled Send / Receive freed at once by '
+                                             'Cancel All, the next one runs to the end')
     if args.phase in ('all', 'submission'):
         passed &= run_phase(SubmissionRun, args, 'Sending: signed-in submission and DKIM, a mail '
                                                  'to the sink signed in and signed')
