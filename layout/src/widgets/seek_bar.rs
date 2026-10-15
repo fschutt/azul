@@ -25,7 +25,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq,
     props::{
         basic::{length::FloatValue, pixel::PixelValue},
         layout::{
@@ -409,13 +409,13 @@ impl SeekThumbnail {
     }
 }
 
-azul_css::impl_option!(
+impl_option!(
     SeekThumbnail,
     OptionSeekThumbnail,
     copy = false,
     [Debug, Clone, PartialEq]
 );
-azul_css::impl_vec!(
+impl_vec!(
     SeekThumbnail,
     SeekThumbnailVec,
     SeekThumbnailVecDestructor,
@@ -423,10 +423,10 @@ azul_css::impl_vec!(
     SeekThumbnailVecSlice,
     OptionSeekThumbnail
 );
-azul_css::impl_vec_clone!(SeekThumbnail, SeekThumbnailVec, SeekThumbnailVecDestructor);
-azul_css::impl_vec_debug!(SeekThumbnail, SeekThumbnailVec);
-azul_css::impl_vec_partialeq!(SeekThumbnail, SeekThumbnailVec);
-azul_css::impl_vec_mut!(SeekThumbnail, SeekThumbnailVec);
+impl_vec_clone!(SeekThumbnail, SeekThumbnailVec, SeekThumbnailVecDestructor);
+impl_vec_debug!(SeekThumbnail, SeekThumbnailVec);
+impl_vec_partialeq!(SeekThumbnail, SeekThumbnailVec);
+impl_vec_mut!(SeekThumbnail, SeekThumbnailVec);
 
 /// What the hover tip says at `t` seconds: the chapter it is in (its
 /// title, when `chapters` - the starts - have `titles`) and the time.
