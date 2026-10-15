@@ -505,6 +505,20 @@ pub fn push_generated_pseudo_element(path: &mut Vec<CssPathSelector>, tag: NodeT
     path.extend(states);
 }
 
+/// The pseudo-element of a selector that is nothing but one (a bare
+/// `::before` parses as `* > ::before`), so that a nested one can attach to
+/// its parent rule.
+fn bare_generated_pseudo_element(path: &[CssPathSelector]) -> Option<NodeTypeTag> {
+    match path {
+        [CssPathSelector::Global, CssPathSelector::DirectChildren, CssPathSelector::Type(tag), ..]
+            if matches!(tag, NodeTypeTag::Before | NodeTypeTag::After) =>
+        {
+            Some(*tag)
+        }
+        _ => None,
+    }
+}
+
 /// "selector" contains the actual selector such as "nth-child" while "value" contains
 /// an optional value - for example "nth-child(3)" would be: selector: "nth-child", value: "3".
 /// # Errors
@@ -2040,6 +2054,17 @@ fn new_from_str_inner<'a>(
                                 let mut result = Vec::new();
                                 for parent in &parent_paths {
                                     for child in &current_paths {
+                                        // A bare `::before` nested in a rule is the
+                                        // PARENT's pseudo-element, as a bare `:hover`
+                                        // is the parent's state (`with_css` wraps a
+                                        // node's own `::after { .. }` this way).
+                                        if let Some(tag) = bare_generated_pseudo_element(child) {
+                                            let mut combined = parent.clone();
+                                            push_generated_pseudo_element(&mut combined, tag);
+                                            combined.extend(child[3..].iter().cloned());
+                                            result.push(combined);
+                                            continue;
+                                        }
                                         // Check if child starts with pseudo-selector
                                         let is_pseudo_only = child.first().is_some_and(|s| {
                                             matches!(s, CssPathSelector::PseudoSelector(_))
@@ -5524,5 +5549,9 @@ mod invalid_selector_tests {
             Ok(rules[3].path.selectors.as_ref().to_vec()),
             "the printed path parses back to the same path"
         );
+
+        // Nested, a bare pseudo-element is the parent rule's own.
+        let (nested, _) = parse(".card { ::after { content: \"x\"; } }");
+        assert_eq!(paths(&nested), [".card::after"]);
     }
 }
