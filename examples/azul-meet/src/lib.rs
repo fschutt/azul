@@ -175,6 +175,7 @@ mod audio;
 mod chat;
 mod chatroom;
 mod crypto;
+mod direct;
 mod identity;
 mod ids;
 /// A room's invite key from the invite secret of its link (CRYPTO.md section 4); public, since
