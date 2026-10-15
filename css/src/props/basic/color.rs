@@ -2757,6 +2757,47 @@ mod tests {
         assert_eq!(ColorU::parse_css("#ff573"), None);
     }
 
+    /// `system:danger`, `system:warning` and `system:success` colour an error,
+    /// a caution and a finished state; each `-text` keyword is the ink that
+    /// sits on that colour as a fill. A palette that names none of them still
+    /// answers readable colours: the colour as ink on the window and on a
+    /// field, and the `-text` ink on the colour, in both modes.
+    #[test]
+    fn the_danger_warning_and_success_keywords_read_in_both_modes() {
+        let empty = crate::system::SystemColors::default();
+        for (name, text_name) in [
+            ("danger", "danger-text"),
+            ("warning", "warning-text"),
+            ("success", "success-text"),
+        ] {
+            let fill = SystemColorRef::from_css_name(name)
+                .unwrap_or_else(|| panic!("system:{name} is a keyword"));
+            let ink = SystemColorRef::from_css_name(text_name)
+                .unwrap_or_else(|| panic!("system:{text_name} is a keyword"));
+            let css = format!("system:{name}");
+            assert_eq!(
+                parse_color_or_system(&css).ok(),
+                Some(ColorOrSystem::System(fill))
+            );
+            for r in [fill, ink] {
+                assert_eq!(SystemColorRef::from_color_token(r.to_color_token()), Some(r));
+            }
+            for dark in [false, true] {
+                let colour = fill.resolve_for_theme(&empty, dark);
+                for ground in [SystemColorRef::WindowBackground, SystemColorRef::Background] {
+                    let ratio = colour.contrast_ratio(&ground.resolve_for_theme(&empty, dark));
+                    assert!(
+                        ratio >= 4.5,
+                        "dark {dark}: system:{name} on {} reads {ratio:.2}:1",
+                        ground.as_css_str()
+                    );
+                }
+                let on = ink.resolve_for_theme(&empty, dark).contrast_ratio(&colour);
+                assert!(on >= 4.5, "dark {dark}: system:{text_name} on system:{name} reads {on:.2}:1");
+            }
+        }
+    }
+
     #[test]
     fn test_system_color_css_str() {
         assert_eq!(SystemColorRef::Accent.as_css_str(), "system:accent");

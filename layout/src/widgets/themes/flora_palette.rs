@@ -274,6 +274,35 @@ mod tests {
         }
     }
 
+    /// flora says "wrong", "careful" and "done" with the stones it already
+    /// cuts its error lines, warning badges and success badges from: clay,
+    /// amber and leaf, lifted to their glow at night. Each `-text` keyword
+    /// is the ink on that stone (flora's on-stone paper by day, the night
+    /// leaf on the glow), and every pair reads in every spin.
+    #[test]
+    fn the_danger_warning_and_success_keywords_are_floras_clay_amber_and_leaf() {
+        for (name, stone) in [
+            ("danger", f::STONE_CLAY),
+            ("warning", f::STONE_AMBER),
+            ("success", f::STONE_LEAF),
+        ] {
+            let fill = R::from_css_name(name).expect("a keyword");
+            let ink = R::from_css_name(&format!("{name}-text")).expect("a keyword");
+            for spin in FloraSpin::ALL {
+                for (dark, want) in [(false, stone.stone), (true, stone.glow)] {
+                    let p = system_colors(dark, spin.ramp());
+                    assert_eq!(fill.get(&p).into_option(), Some(want), "{name} {spin:?} dark {dark}");
+                    let colour = fill.resolve_for_theme(&p, dark);
+                    let on = ink.resolve_for_theme(&p, dark).contrast_ratio(&colour);
+                    assert!(on >= 4.5, "{name}-text on {name} reads {on:.2}:1 (dark {dark})");
+                    let ground = R::WindowBackground.resolve_for_theme(&p, dark);
+                    let ratio = colour.contrast_ratio(&ground);
+                    assert!(ratio >= 4.5, "{name} on the leaf reads {ratio:.2}:1 (dark {dark})");
+                }
+            }
+        }
+    }
+
     #[test]
     fn the_night_ground_is_neutral_grey() {
         // flora.css: "untinted gray in dark", never the warm brown.
