@@ -1301,8 +1301,15 @@ def clock_skew(ctx):
         except Failure:
             pass  # judged by the pass times below
         durations = pass_durations(laptop, drive)
-        running = [round(time.time() - at, 1) for at, line in laptop.timeline()[-1:]
-                   if line.startswith("AZDRIVE_SYNC_STARTED") and at > written_at]
+        # A pass still running counts with the time it has taken so far.
+        last_start = None
+        for at, line in laptop.timeline():
+            if line.startswith("AZDRIVE_SYNC_STARTED %s" % drive) and at > written_at:
+                last_start = at
+            elif line.startswith(("AZDRIVE_SYNC_DONE %s" % drive,
+                                  "AZDRIVE_SYNC_FAILED %s" % drive)):
+                last_start = None
+        running = [round(time.time() - last_start, 1)] if last_start else []
         slow = [d for d in durations[-2:] + running if d > 10]
         no_silent_failure(laptop, drive)
         checks = Checks()
