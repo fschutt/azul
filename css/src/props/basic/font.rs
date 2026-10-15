@@ -354,6 +354,223 @@ pub fn parse_style_font_variant_numeric(
     }
 }
 
+// --- Font Variant Caps ---
+
+/// The `font-variant-caps` property (CSS Fonts 4 s6.6): which capital forms
+/// the text asks the font for - `small-caps` (`smcp`: lowercase letters as
+/// small capitals), `all-small-caps` (`smcp` and `c2sc`: every letter),
+/// `petite-caps` / `all-petite-caps` (`pcap`, `c2pc`), `unicase` (`unic`)
+/// and `titling-caps` (`titl`). Inherited.
+///
+/// A font without small capitals gets them synthesized, as Chrome does: the
+/// letter's capital at 0.7 of the font size (petite capitals fall back to
+/// small capitals first, as the spec says).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StyleFontVariantCaps {
+    #[default]
+    Normal,
+    SmallCaps,
+    AllSmallCaps,
+    PetiteCaps,
+    AllPetiteCaps,
+    Unicase,
+    TitlingCaps,
+}
+
+impl StyleFontVariantCaps {
+    /// Every value with its CSS keyword, in the grammar's order.
+    pub const ALL: [(Self, &'static str); 7] = [
+        (Self::Normal, "normal"),
+        (Self::SmallCaps, "small-caps"),
+        (Self::AllSmallCaps, "all-small-caps"),
+        (Self::PetiteCaps, "petite-caps"),
+        (Self::AllPetiteCaps, "all-petite-caps"),
+        (Self::Unicase, "unicase"),
+        (Self::TitlingCaps, "titling-caps"),
+    ];
+
+    /// The CSS keyword of this value.
+    #[must_use]
+    pub const fn keyword(&self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::SmallCaps => "small-caps",
+            Self::AllSmallCaps => "all-small-caps",
+            Self::PetiteCaps => "petite-caps",
+            Self::AllPetiteCaps => "all-petite-caps",
+            Self::Unicase => "unicase",
+            Self::TitlingCaps => "titling-caps",
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleFontVariantCaps {
+    fn print_as_css_value(&self) -> String {
+        self.keyword().to_string()
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleFontVariantCaps {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleFontVariantCaps::{self:?}")
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-variant-caps` value: one of its keywords, ASCII
+/// case-insensitive.
+///
+/// # Errors
+///
+/// Returns an error if `input` is not exactly one `font-variant-caps`
+/// keyword.
+pub fn parse_style_font_variant_caps(
+    input: &str,
+) -> Result<StyleFontVariantCaps, InvalidValueErr<'_>> {
+    let word = input.trim();
+    StyleFontVariantCaps::ALL
+        .iter()
+        .find(|(_, keyword)| word.eq_ignore_ascii_case(keyword))
+        .map(|(value, _)| *value)
+        .ok_or(InvalidValueErr(input))
+}
+
+// --- Font Feature Settings ---
+
+/// The `font-feature-settings` property (CSS Fonts 4 s6.12): OpenType
+/// features turned on, off or to an alternate by their tag, on top of what
+/// the shaper and the `font-variant-*` properties ask for - `"tnum"`,
+/// `"liga" 0`, `"salt" 2`. Inherited.
+///
+/// Held as its canonical CSS text (`normal`, or the tags in double quotes,
+/// each followed by its value unless that is 1, separated by `, `): one
+/// string keeps the value a single C struct. [`Self::features`] reads the
+/// tags back; a tag given twice keeps only its last value.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleFontFeatureSettings {
+    /// The canonical CSS text of the value (`normal` for no features).
+    pub inner: AzString,
+}
+
+impl Default for StyleFontFeatureSettings {
+    fn default() -> Self {
+        Self {
+            inner: AzString::from_const_str("normal"),
+        }
+    }
+}
+
+impl StyleFontFeatureSettings {
+    /// The value for `features`, each an OpenType tag and its value (0 off,
+    /// 1 on, more an alternate); `normal` for none.
+    #[must_use]
+    pub fn from_features(features: &[([u8; 4], u32)]) -> Self {
+        if features.is_empty() {
+            return Self::default();
+        }
+        let text = features
+            .iter()
+            .map(|(tag, value)| {
+                let tag = String::from_utf8_lossy(tag);
+                if *value == 1 {
+                    alloc::format!("\"{tag}\"")
+                } else {
+                    alloc::format!("\"{tag}\" {value}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Self { inner: text.into() }
+    }
+
+    /// Whether this is `normal` (no feature asked for).
+    #[must_use]
+    pub fn is_normal(&self) -> bool {
+        self.inner.as_str().eq_ignore_ascii_case("normal")
+    }
+
+    /// The features asked for, in order, each an OpenType tag and its value
+    /// (0 turns the feature off, 1 on, more picks an alternate). Empty for
+    /// `normal`.
+    #[must_use]
+    pub fn features(&self) -> Vec<([u8; 4], u32)> {
+        if self.is_normal() {
+            return Vec::new();
+        }
+        parse_feature_tag_values(self.inner.as_str()).unwrap_or_default()
+    }
+}
+
+/// The `(tag, value)` list of a `font-feature-settings` value that is not
+/// `normal`: comma-separated, each a quoted four-character printable-ASCII
+/// tag, then nothing (1), `on` (1), `off` (0) or a non-negative integer. A
+/// tag given twice keeps its last value, where it last stands. `None` for
+/// anything the grammar does not allow.
+fn parse_feature_tag_values(input: &str) -> Option<Vec<([u8; 4], u32)>> {
+    let mut out: Vec<([u8; 4], u32)> = Vec::new();
+    for item in input.split(',') {
+        let item = item.trim();
+        let quote = item.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+        let rest = &item[1..];
+        let end = rest.find(quote)?;
+        let bytes = rest[..end].as_bytes();
+        if bytes.len() != 4 || !bytes.iter().all(|b| (0x20..=0x7E).contains(b)) {
+            return None;
+        }
+        let tag = [bytes[0], bytes[1], bytes[2], bytes[3]];
+        let value = match rest[end + 1..].trim() {
+            "" => 1,
+            v if v.eq_ignore_ascii_case("on") => 1,
+            v if v.eq_ignore_ascii_case("off") => 0,
+            v if v.bytes().all(|b| b.is_ascii_digit()) => v.parse::<u32>().ok()?,
+            _ => return None,
+        };
+        out.retain(|(t, _)| *t != tag);
+        out.push((tag, value));
+    }
+    Some(out)
+}
+
+impl PrintAsCssValue for StyleFontFeatureSettings {
+    fn print_as_css_value(&self) -> String {
+        self.inner.as_str().to_string()
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleFontFeatureSettings {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleFontFeatureSettings {{ inner: AzString::from_const_str({:?}) }}",
+            self.inner.as_str()
+        )
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-feature-settings` value: `normal`, or a comma-separated
+/// list of quoted four-letter OpenType tags, each optionally followed by
+/// `on`, `off` or a non-negative integer.
+///
+/// # Errors
+///
+/// Returns an error for an unquoted, short, long or non-ASCII tag, a
+/// negative, fractional or unknown value, an empty item, or nothing at all.
+pub fn parse_style_font_feature_settings(
+    input: &str,
+) -> Result<StyleFontFeatureSettings, InvalidValueErr<'_>> {
+    let trimmed = input.trim();
+    if trimmed.eq_ignore_ascii_case("normal") {
+        return Ok(StyleFontFeatureSettings::default());
+    }
+    parse_feature_tag_values(trimmed)
+        .map(|features| StyleFontFeatureSettings::from_features(&features))
+        .ok_or(InvalidValueErr(input))
+}
+
 // --- Font Size ---
 
 /// Represents a `font-size` attribute

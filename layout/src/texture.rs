@@ -33,6 +33,11 @@ use azul_css::props::basic::ColorU;
 // The 2.5D materials' tiles, decoder, shader and render cache.
 #[cfg(feature = "materials")]
 pub mod materials;
+// What the metals reflect: the desktop's wallpapers or the highlight colour.
+#[cfg(feature = "materials")]
+pub mod environment;
+// The cursor's sheen on the materials: its easing and the areas it follows.
+pub mod sheen;
 
 /// A texture compiled into the library.
 #[repr(C)]
@@ -154,23 +159,26 @@ pub fn image_cache_with_builtin_textures() -> ImageCache {
 
 // -- Materials: the always-present half (the light, the names) ---------------
 
-/// A 2.5D material compiled into the library (cargo feature `materials`):
-/// a micro tile of a CC0 PBR texture set, lit by the window's
-/// [`MaterialLight`] for the rect it fills - `background: builtin(leather);`.
+/// A material compiled into the library (cargo feature `materials`): a
+/// surface lit per device pixel by the app's light for the rect it fills -
+/// `background: builtin(leather);` (see `texture::materials`).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Material {
-    /// Brown leather with a pebbled grain (Poly Haven `brown_leather`, CC0).
+    /// Fine-grained nappa leather, pale grey unless tinted.
     Leather,
-    /// Blue denim, a twill weave (ambientCG `Fabric003`, CC0).
+    /// Denim, a 3/1 twill, indigo unless tinted.
     BlueJeans,
-    /// Satin aluminium with a fine grain (CC0, see the assets README).
+    /// Brushed aluminium, a metal (gold unless tinted): it reflects the
+    /// desktop behind the window.
     Aluminium,
+    /// Vellum, a page of parchment: blotches, fibres, creases.
+    Vellum,
 }
 
 impl Material {
     /// Every material.
-    pub const ALL: [Self; 3] = [Self::Leather, Self::BlueJeans, Self::Aluminium];
+    pub const ALL: [Self; 4] = [Self::Leather, Self::BlueJeans, Self::Aluminium, Self::Vellum];
 
     /// The name `builtin(<name>)` takes.
     #[must_use]
@@ -179,6 +187,7 @@ impl Material {
             Self::Leather => "leather",
             Self::BlueJeans => "bluejeans",
             Self::Aluminium => "aluminium",
+            Self::Vellum => "vellum-leaf",
         }
     }
 
@@ -190,6 +199,52 @@ impl Material {
             azul_css::props::style::background::BUILTIN_IMAGE_PREFIX,
             self.builtin_name()
         )
+    }
+}
+
+/// The accent as a strip of light: its hue at 60% lightness and 90%
+/// saturation. What the AzDrive design's golden line throws into the content
+/// below it (a gradient from this colour at a low alpha to transparent).
+#[must_use]
+pub fn accent_glow(accent: ColorU) -> ColorU {
+    let v = [accent.r, accent.g, accent.b].map(|c| f32::from(c) / 255.0);
+    let mx = v[0].max(v[1]).max(v[2]);
+    let mn = v[0].min(v[1]).min(v[2]);
+    let d = mx - mn;
+    let mut hue = 0.0;
+    if d > 0.0 {
+        hue = if mx == v[0] {
+            ((v[1] - v[2]) / d) % 6.0
+        } else if mx == v[1] {
+            (v[2] - v[0]) / d + 2.0
+        } else {
+            (v[0] - v[1]) / d + 4.0
+        };
+    }
+    let hue = (hue * 60.0 + 360.0) % 360.0;
+    let (l, sat) = (0.6_f32, 0.9_f32);
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * sat;
+    let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r, g, b) = if hue < 60.0 {
+        (c, x, 0.0)
+    } else if hue < 120.0 {
+        (x, c, 0.0)
+    } else if hue < 180.0 {
+        (0.0, c, x)
+    } else if hue < 240.0 {
+        (0.0, x, c)
+    } else if hue < 300.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    let byte = |q: f32| ((q + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    ColorU {
+        r: byte(r),
+        g: byte(g),
+        b: byte(b),
+        a: 255,
     }
 }
 
@@ -224,16 +279,18 @@ pub fn transparent_pixel() -> ImageRef {
     .unwrap_or_else(|| ImageRef::null_image(1, 1, RawImageFormat::RGBA8, b"transparent".to_vec()))
 }
 
-/// The light every material in a window is lit by
+/// A window's OWN light for its materials, outranking the app's one light
+/// (`azul_core::light::Light`) in that window
 /// (`CallbackInfo::set_material_light`, `LayoutWindow::set_material_light`):
-/// one per window, so every surface agrees where it comes from. Directions
-/// are on the SCREEN: x to the right, y up, the viewer in front.
+/// its direction as a sun, and the light's colour, strength, ambient share
+/// and god rays, which every window takes from here. Directions are on the
+/// SCREEN: x to the right, y up, the viewer in front.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MaterialLight {
     /// Where the light comes from, degrees counter-clockwise from the right:
-    /// 135 = the upper left (the default - flora's light), 90 = above,
-    /// 270 = below.
+    /// 45 = the upper right (the default, the app's sun), 135 = the upper
+    /// left, 90 = above, 270 = below.
     pub azimuth_deg: f32,
     /// How high it stands over the screen, degrees: 90 = straight in front
     /// (no bevel is darker than another), small = grazing (strong
@@ -251,14 +308,15 @@ pub struct MaterialLight {
 }
 
 impl MaterialLight {
-    /// The default light: from the upper left, 45 degrees high, warm white.
+    /// The default light: the app's default sun (the top right, 36 degrees
+    /// high), a warm white (linear 1, 0.975, 0.94), 45% ambient.
     pub const DEFAULT: Self = Self {
-        azimuth_deg: 135.0,
-        elevation_deg: 45.0,
+        azimuth_deg: 45.0,
+        elevation_deg: 36.0,
         color: ColorU {
             r: 255,
-            g: 250,
-            b: 240,
+            g: 252,
+            b: 248,
             a: 255,
         },
         intensity: 1.0,

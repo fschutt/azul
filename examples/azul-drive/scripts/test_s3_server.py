@@ -5,6 +5,8 @@
     python3 examples/azul-drive/scripts/test_s3_server.py
 """
 
+import base64
+import hashlib
 import os
 import shutil
 import sys
@@ -293,6 +295,63 @@ class Objects(ServerTest):
         self.assertEqual(status, 400)
         self.assertEqual(xml_code(body), "XAmzContentSHA256Mismatch")
         self.assertFalse(os.path.exists(os.path.join(self.root, BUCKET, "x.txt")))
+
+
+class BatchDeletes(ServerTest):
+    """DeleteObjects (POST ?delete): many keys in one request, as azul-storage sends a folder
+    delete; the body's Content-MD5 required, as S3 does."""
+
+    def setUp(self):
+        super().setUp()
+        for i in range(5):
+            self.seed("old/%d.txt" % i, b"x")
+        self.seed("kept.txt", b"k")
+
+    @staticmethod
+    def body(keys, quiet=True):
+        objects = "".join("<Object><Key>%s</Key></Object>" % k for k in keys)
+        return ("<Delete><Quiet>%s</Quiet>%s</Delete>"
+                % ("true" if quiet else "false", objects)).encode("utf-8")
+
+    @staticmethod
+    def md5(body):
+        return base64.b64encode(hashlib.md5(body).digest()).decode("ascii")
+
+    def delete_objects(self, body, md5=None):
+        headers = {} if md5 is None else {"Content-MD5": md5}
+        return self.client.request("POST", BUCKET, "", query={"delete": ""}, body=body,
+                                   headers=headers)
+
+    def test_delete_objects_deletes_every_key_in_one_request(self):
+        body = self.body(["old/%d.txt" % i for i in range(5)] + ["never-there.txt"])
+        status, _, answer = self.delete_objects(body, self.md5(body))
+        self.assertEqual(status, 200, answer)
+        self.assertEqual(local_name(ET.fromstring(answer).tag), "DeleteResult")
+        self.assertEqual(xml_values(answer, "Error"), [], "quiet: only failures are named")
+        for i in range(5):
+            self.assertFalse(os.path.exists(os.path.join(self.root, BUCKET, "old", "%d.txt" % i)))
+        self.assertEqual(self.get("kept.txt")[2], b"k")
+        ops = [r["op"] for r in self.server.requests()]
+        self.assertEqual(ops.count("DeleteObjects"), 1)
+
+    def test_not_quiet_names_every_deleted_key(self):
+        body = self.body(["old/1.txt", "old/2.txt"], quiet=False)
+        status, _, answer = self.delete_objects(body, self.md5(body))
+        self.assertEqual(status, 200, answer)
+        self.assertEqual(xml_values(answer, "Key"), ["old/1.txt", "old/2.txt"])
+
+    def test_a_delete_objects_request_without_its_content_md5_is_refused(self):
+        body = self.body(["old/0.txt"])
+        status, _, answer = self.delete_objects(body)
+        self.assertEqual((status, xml_code(answer)), (400, "InvalidRequest"))
+        status, _, answer = self.delete_objects(body, self.md5(b"another body"))
+        self.assertEqual((status, xml_code(answer)), (400, "BadDigest"))
+        self.assertTrue(os.path.exists(os.path.join(self.root, BUCKET, "old", "0.txt")))
+
+    def test_more_than_a_thousand_keys_are_refused(self):
+        body = self.body(["k%d.txt" % i for i in range(1001)])
+        status, _, answer = self.delete_objects(body, self.md5(body))
+        self.assertEqual((status, xml_code(answer)), (400, "MalformedXML"))
 
 
 class AzlinSpace(ServerTest):

@@ -925,8 +925,10 @@ pub struct AppConfig {
     /// Register icons here before calling `App::run()`.
     /// Each window will clone this provider (cheap, Arc-based).
     pub icon_provider: crate::icon::IconProviderHandle,
-    /// Fonts bundled with the application.
-    /// These fonts are loaded into memory and take priority over system fonts.
+    /// Font faces the application ships (`add_font`): every window's font
+    /// manager registers them (`App::create` hands them to the layout
+    /// engine), each covering exactly its cmap and standing at its family's
+    /// place in a stack; the web backend serves them as `@font-face`.
     pub bundled_fonts: NamedFontVec,
     /// Configuration for how system fonts should be loaded.
     /// Default: `LoadAllSystemFonts` (scan all system fonts at startup)
@@ -1062,6 +1064,14 @@ pub struct AppConfig {
     /// 8 bytes, 4-aligned: it sits with the 4-byte enums below (a 4-byte
     /// `repr(C)` enum here would leave 4 bytes of tail padding).
     pub mode: crate::window::OptionDarkLightMode,
+    /// The app's ONE light (`crate::light`): where the light every window's
+    /// materials, bevels, cursor sheen and light-following shadows come from.
+    /// Default: the sun at the top right, low (azimuth 45, elevation 36).
+    /// Published when the app starts; `CallbackInfo::set_app_light` moves it
+    /// for every window.
+    ///
+    /// 16 bytes, 4-aligned: it sits with the 4-byte enums.
+    pub light: crate::light::Light,
     /// If enabled, logs error and info messages.
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
@@ -1207,6 +1217,18 @@ impl AppConfig {
         self.theme = name;
     }
 
+    /// Light every window of the app with `light` (see [`Self::light`]).
+    #[must_use]
+    pub const fn with_light(mut self, light: crate::light::Light) -> Self {
+        self.light = light;
+        self
+    }
+
+    /// In-place [`Self::with_light`].
+    pub const fn set_light(&mut self, light: crate::light::Light) {
+        self.light = light;
+    }
+
     /// Name the app: `app_id` is its reverse-DNS id (`org.example.Editor`).
     /// See [`Self::app_id`] for where each OS uses it and where the
     /// platform's own declaration wins.
@@ -1219,6 +1241,29 @@ impl AppConfig {
     /// In-place [`Self::with_app_id`].
     pub fn set_app_id(&mut self, app_id: AzString) {
         self.app_id = app_id;
+    }
+
+    /// Register a font face the app ships, under `family` (the name a
+    /// stylesheet's `font-family` uses), before the app runs: every window
+    /// draws with it. `bytes` is a TrueType or OpenType file. Call it once
+    /// per face - regular, italic, bold - with the same family: each face's
+    /// weight and style come from its own tables, and the face covers exactly
+    /// the code points of its cmap, so a character it lacks falls to the next
+    /// family of the stack. The face stands where its family stands in a
+    /// stack; an installed copy of the same family wins, as for the faces
+    /// azul bundles.
+    pub fn add_font(&mut self, family: AzString, bytes: U8Vec) {
+        let empty = NamedFontVec::from_const_slice(&[]);
+        let mut fonts = core::mem::replace(&mut self.bundled_fonts, empty).into_library_owned_vec();
+        fonts.push(NamedFont::new(family, bytes));
+        self.bundled_fonts = NamedFontVec::from_vec(fonts);
+    }
+
+    /// [`Self::add_font`] for a builder chain.
+    #[must_use]
+    pub fn with_font(mut self, family: AzString, bytes: U8Vec) -> Self {
+        self.add_font(family, bytes);
+        self
     }
 
     #[must_use]
@@ -1268,6 +1313,7 @@ impl AppConfig {
             app_id: AzString::from_const_str(""),
             // Follow the desktop.
             mode: crate::window::OptionDarkLightMode::None,
+            light: crate::light::Light::DEFAULT,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.

@@ -85,13 +85,13 @@ pub const MIN_SEGMENT_SIZE: u32 = 1 << 10;
 pub const MAX_SEGMENT_SIZE: u32 = 1 << 24;
 
 /// The STREAM nonce prefix: 24 nonce bytes less the 32-bit counter and the last-segment flag.
-const PREFIX_LEN: usize = 19;
+pub const PREFIX_LEN: usize = 19;
 /// Bytes of the sealed info's plaintext.
 const INFO_LEN: usize = 60;
 /// Bytes of the key commitment.
 const COMMITMENT_LEN: usize = 32;
 /// A segment's bytes beyond its data: the codec byte and the tag.
-const SEGMENT_OVERHEAD: u64 = 1 + TAG_LEN as u64;
+pub const SEGMENT_OVERHEAD: u64 = 1 + TAG_LEN as u64;
 /// Bytes of one trailer entry (a segment's sealed length).
 const TRAILER_ENTRY: usize = 4;
 /// Bytes of the trailer's length at the very end.
@@ -175,6 +175,15 @@ pub fn segment_count(size: u64, segment_size: u32) -> u64 {
 /// The sealed trailer's bytes for `count` segments (without the length field after it).
 fn trailer_len(count: u64) -> u64 {
     count * TRAILER_ENTRY as u64 + TAG_LEN as u64
+}
+
+/// The bytes of an object of `plaintext_size` bytes whose every segment is stored
+/// ([`Compression::Never`]): the header, each segment's plaintext with its codec byte and tag,
+/// the trailer and its length. A pack's size is planned with it before it is written.
+#[must_use]
+pub fn stored_object_len(plaintext_size: u64, segment_size: u32) -> u64 {
+    let count = segment_count(plaintext_size, segment_size);
+    HEADER_LEN as u64 + plaintext_size + count * SEGMENT_OVERHEAD + trailer_len(count) + LENGTH_FIELD
 }
 
 /// The key commitment of `file_key`: BLAKE3 in keyed mode, keyed with the file key. Finding
@@ -646,6 +655,13 @@ pub struct PublicHeader {
 }
 
 impl PublicHeader {
+    /// The nonce prefix of the object's segments: with the file key, what opens a stored-only
+    /// object's segments without its header ([`StoredSegments`]).
+    #[must_use]
+    pub fn prefix(&self) -> [u8; PREFIX_LEN] {
+        self.prefix
+    }
+
     /// The header in the first [`HEADER_LEN`] bytes of `bytes`: its magic, version, length and
     /// segment size checked, its unused bytes zero.
     pub fn parse(bytes: &[u8]) -> Result<PublicHeader, CryptoError> {
@@ -881,37 +897,9 @@ impl OpenObject {
 
     /// The plaintext of segment `index` from its sealed bytes.
     fn open_segment(&self, index: u64, sealed: Vec<u8>) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
-        let position = u32::try_from(index)
-            .map_err(|_| damaged("a segment index past the STREAM's counter"))?;
         let last = index + 1 == self.info.segment_count;
-        let mut buffer = Zeroizing::new(sealed);
-        // Nonce: the prefix, `position` (32 bits, big endian) and the last-segment flag.
-        self.keys
-            .segments
-            .decrypt_in_place(position, last, &self.context, &mut *buffer)
-            .map_err(|_| {
-                damaged(format!(
-                    "segment {index} does not authenticate (changed, moved or cut off)"
-                ))
-            })?;
-        let expected = usize::try_from(self.info.segment_plain_len(self.segment_size, index))
-            .map_err(|_| damaged("a segment larger than memory"))?;
-        let Some(&codec_byte) = buffer.first() else {
-            return Err(damaged(format!("segment {index} is empty")));
-        };
-        match Codec::from_byte(codec_byte)? {
-            Codec::Stored => {
-                if buffer.len() != expected + 1 {
-                    return Err(damaged(format!("segment {index} has the wrong length")));
-                }
-                // Drop the codec byte in place (the plaintext never leaves the wiped buffer).
-                buffer.copy_within(1.., 0);
-                buffer.truncate(expected);
-                Ok(buffer)
-            }
-            Codec::Zstd => codec::decompress(&buffer[1..], expected),
-            Codec::Brotli => codec::decompress_brotli(&buffer[1..], expected),
-        }
+        let expected = self.info.segment_plain_len(self.segment_size, index);
+        open_sealed_segment(&self.keys, &self.context, index, last, expected, sealed)
     }
 
     /// The plaintext of segments `first..=last`, whose sealed bytes are `sealed` (they start
@@ -1004,6 +992,162 @@ impl OpenObject {
             hasher: blake3::Hasher::new(),
             checked: false,
         }
+    }
+}
+
+/// The plaintext of segment `index` (the STREAM's last one when `last`) from its sealed bytes:
+/// decrypted in place, its codec byte read, decompressed to exactly `expected` bytes.
+fn open_sealed_segment(
+    keys: &ObjectKeys,
+    context: &[u8; CONTEXT_LEN],
+    index: u64,
+    last: bool,
+    expected: u64,
+    sealed: Vec<u8>,
+) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+    let position =
+        u32::try_from(index).map_err(|_| damaged("a segment index past the STREAM's counter"))?;
+    let mut buffer = Zeroizing::new(sealed);
+    // Nonce: the prefix, `position` (32 bits, big endian) and the last-segment flag.
+    keys.segments
+        .decrypt_in_place(position, last, context, &mut *buffer)
+        .map_err(|_| {
+            damaged(format!(
+                "segment {index} does not authenticate (changed, moved or cut off)"
+            ))
+        })?;
+    let expected =
+        usize::try_from(expected).map_err(|_| damaged("a segment larger than memory"))?;
+    let Some(&codec_byte) = buffer.first() else {
+        return Err(damaged(format!("segment {index} is empty")));
+    };
+    match Codec::from_byte(codec_byte)? {
+        Codec::Stored => {
+            if buffer.len() != expected + 1 {
+                return Err(damaged(format!("segment {index} has the wrong length")));
+            }
+            // Drop the codec byte in place (the plaintext never leaves the wiped buffer).
+            buffer.copy_within(1.., 0);
+            buffer.truncate(expected);
+            Ok(buffer)
+        }
+        Codec::Zstd => codec::decompress(&buffer[1..], expected),
+        Codec::Brotli => codec::decompress_brotli(&buffer[1..], expected),
+    }
+}
+
+/// The segments of an object whose every segment is stored (written with
+/// [`Compression::Never`]), opened from what a drive's index keeps of it: its id, its file key,
+/// its segment size, its plaintext size and the nonce prefix of its segments. A stored segment
+/// has a fixed sealed length, so where any plaintext range lies in the object is known without
+/// the header or the trailer: a pack's member is ONE ranged read. The key commitment is part of
+/// every segment's associated data, so a segment written under another key does not open; the
+/// index's BLAKE3 of what is read checks the rest.
+pub struct StoredSegments {
+    /// The object's keys, derived from its file key and nonce prefix.
+    keys: ObjectKeys,
+    /// Header bytes 0..88 as the writer made them: every segment's associated data.
+    context: [u8; CONTEXT_LEN],
+    /// Plaintext bytes per segment.
+    segment_size: u64,
+    /// The object's plaintext bytes: where the last segment ends.
+    plaintext_size: u64,
+    /// The object's segments: the last one carries the STREAM's last-segment flag.
+    segment_count: u64,
+}
+
+impl fmt::Debug for StoredSegments {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoredSegments")
+            .field("segment_size", &self.segment_size)
+            .field("plaintext_size", &self.plaintext_size)
+            .finish_non_exhaustive()
+    }
+}
+
+impl StoredSegments {
+    /// The segments of `object_id` under `file_key`, `prefix` being the nonce prefix its header
+    /// names ([`PublicHeader::prefix`]).
+    pub fn new(
+        object_id: &ObjectId,
+        file_key: &FileKey,
+        prefix: &[u8; PREFIX_LEN],
+        segment_size: u32,
+        plaintext_size: u64,
+    ) -> Result<StoredSegments, CryptoError> {
+        check_segment_size(segment_size)?;
+        let context = header_context(segment_size, object_id, prefix, &commitment_of(file_key));
+        Ok(StoredSegments {
+            keys: ObjectKeys::derive(file_key, prefix),
+            context,
+            segment_size: u64::from(segment_size),
+            plaintext_size,
+            segment_count: segment_count(plaintext_size, segment_size),
+        })
+    }
+
+    /// The first and the last segment covering plaintext bytes `start..start + len`, which
+    /// must be at least one byte inside the plaintext.
+    fn covering(&self, start: u64, len: u64) -> Result<(u64, u64), CryptoError> {
+        let end = start
+            .checked_add(len)
+            .filter(|end| len > 0 && *end <= self.plaintext_size)
+            .ok_or_else(|| damaged("a range outside the object"))?;
+        Ok((start / self.segment_size, (end - 1) / self.segment_size))
+    }
+
+    /// Where segment `index` starts in the object, and its sealed length.
+    fn sealed_span(&self, index: u64) -> (u64, u64) {
+        let plain = if index + 1 < self.segment_count {
+            self.segment_size
+        } else {
+            self.plaintext_size - (self.segment_count - 1) * self.segment_size
+        };
+        let full = self.segment_size + SEGMENT_OVERHEAD;
+        (HEADER_LEN as u64 + index * full, plain + SEGMENT_OVERHEAD)
+    }
+
+    /// The bytes of the object to read for plaintext bytes `start..start + len`: their offset
+    /// and their length (whole segments).
+    pub fn span(&self, start: u64, len: u64) -> Result<(u64, u64), CryptoError> {
+        let (first, last) = self.covering(start, len)?;
+        let (from, _) = self.sealed_span(first);
+        let (at, sealed) = self.sealed_span(last);
+        Ok((from, at + sealed - from))
+    }
+
+    /// The plaintext bytes `start..start + len` from `sealed`: exactly the bytes
+    /// [`StoredSegments::span`] names.
+    pub fn open(
+        &self,
+        start: u64,
+        len: u64,
+        sealed: &[u8],
+    ) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+        let (first, last) = self.covering(start, len)?;
+        let (base, total) = self.span(start, len)?;
+        if sealed.len() as u64 != total {
+            return Err(damaged("the object is cut short"));
+        }
+        let mut out = Zeroizing::new(Vec::with_capacity(usize::try_from(len).unwrap_or(0)));
+        for index in first..=last {
+            let (offset, sealed_len) = self.sealed_span(index);
+            let from = (offset - base) as usize;
+            let plain_len = sealed_len - SEGMENT_OVERHEAD;
+            let plain = open_sealed_segment(
+                &self.keys,
+                &self.context,
+                index,
+                index + 1 == self.segment_count,
+                plain_len,
+                sealed[from..from + sealed_len as usize].to_vec(),
+            )?;
+            let segment_start = index * self.segment_size;
+            let lo = start.max(segment_start) - segment_start;
+            let hi = (start + len).min(segment_start + plain_len) - segment_start;
+            out.extend_from_slice(&plain[lo as usize..hi as usize]);
+        }
+        Ok(out)
     }
 }
 

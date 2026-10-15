@@ -9,8 +9,9 @@
 //!   folder the user added has Finder's eject button, which forgets it;
 //! - CLOUD: the S3 drives, each with its state (syncing - the count of its transfers as a pill
 //!   -, its keys still in the keyring, connected) and its eject button, then "Add drive";
-//! - under the list the ACTIVITY area while transfers run, wait or failed (a click opens the
-//!   transfers), and the + (Add drive, Add a folder, Pin) and actions (Options) buttons.
+//! - under the list its foot: the + (Add drive, Add a folder, Pin) and the gear (Options) on the
+//!   left, the two pies on the right (the sync and the drive's space, `ui_pies`; a click opens
+//!   the sync popover with the numbers and the transfers).
 //!
 //! A section title has a disclosure triangle (a click opens or closes the section); the row of
 //! the place the window shows has the rounded highlight; a folder's row takes dropped items (a
@@ -933,9 +934,10 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
         RowKind::Go(Place::Folder { .. } | Place::QuickAccess)
     );
     let mut css = format!(
-        "{} padding-left: {}px; {} {} {}",
+        "{} padding-left: {}px; height: {}px; {} {} {}",
         look::ROW,
         4 + row.depth * 14,
+        s.settings.density.nav_row_px(),
         if selected { look::ROW_SELECTED } else { "" },
         look::ROW_FOCUS,
         if takes_drops { look::ROW_DROP } else { "" },
@@ -1049,58 +1051,6 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
     dom
 }
 
-/// The activity area: the transfer that runs (its progress), those that wait, those that
-/// failed - while there are any. A click opens the transfers.
-fn activity(s: &DriveState, app: &RefAny) -> Option<Dom> {
-    let failed = s.queue.failed().len();
-    if s.queue.is_idle() && failed == 0 {
-        return None;
-    }
-    let line = |content: String| block(look::ACTIVITY_LINE, text(content));
-    let mut area = Dom::create_div()
-        .with_id(ids::SIDE_ACTIVITY)
-        .with_css(look::ACTIVITY)
-        .with_accessibility_name(l10n::label("azdrive-transfers-title"))
-        .with_child(block(look::ACTIVITY_HEAD, text(l10n::label("azdrive-transfers-title"))));
-    if let Some(job) = s.queue.running() {
-        let p = &job.progress;
-        area.add_child(line(l10n::t_text(&job.label)));
-        area.add_child(block(
-            "padding: 3px 10px 2px 10px;",
-            ProgressBar::create(p.percent()).dom(),
-        ));
-        area.add_child(line(t_args(
-            "azdrive-side-activity-progress",
-            &[
-                ("done", Arg::from(p.files_done)),
-                ("total", Arg::from(p.files_total)),
-                ("percent", Arg::from(format!("{:.0}", p.percent()))),
-            ],
-        )));
-    }
-    let waiting = s.queue.waiting();
-    if waiting > 0 {
-        area.add_child(line(t_args(
-            "azdrive-queue-waiting",
-            &[("count", Arg::from(waiting))],
-        )));
-    }
-    if failed > 0 {
-        area.add_child(block(
-            look::ACTIVITY_ERROR,
-            text(t_args(
-                "azdrive-status-transfers-failed",
-                &[("count", Arg::from(failed))],
-            )),
-        ));
-    }
-    Some(area.with_callback(
-        EventFilter::Hover(HoverEventFilter::Click),
-        action_ref(app, Action::ShowTransfers),
-        on_action,
-    ))
-}
-
 /// A small button under the list.
 fn small_button(icon: &str, label: &str, id: AzString, data: RefAny, callback: CallbackType) -> Dom {
     Dom::create_div()
@@ -1112,8 +1062,9 @@ fn small_button(icon: &str, label: &str, id: AzString, data: RefAny, callback: C
         .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, callback)
 }
 
-/// The bar under the list: + (Add drive, Add a folder, Pin) and the actions (Options).
-fn foot(app: &RefAny) -> Dom {
+/// The bar under the list: + (Add drive, Add a folder, Pin) and the gear (Options) on the
+/// left, the pies (the sync, the drive's space) on the right.
+fn foot(s: &DriveState, app: &RefAny) -> Dom {
     Dom::create_div()
         .with_css(look::SIDEBAR_FOOT)
         .with_child(small_button(
@@ -1130,9 +1081,11 @@ fn foot(app: &RefAny) -> Dom {
             action_ref(app, Action::Options),
             on_action,
         ))
+        .with_child(crate::ui_pies::pies(s, app))
 }
 
-/// The navigation pane: the source list, the activity area, the buttons under them.
+/// The navigation pane: the source list and its foot (no Transfers block: the transfers are
+/// the sync pie's and its popover's).
 pub(crate) fn sidebar(s: &DriveState, app: &RefAny) -> Dom {
     let rows = rows(&sources(s));
     let stop = rows.iter().position(|r| shows(&s.place, r)).unwrap_or(0);
@@ -1151,14 +1104,11 @@ pub(crate) fn sidebar(s: &DriveState, app: &RefAny) -> Dom {
         .with_css(look::SIDEBAR)
         .with_accessibility_name(l10n::label("azdrive-side-sources"))
         .with_child(list);
-    if let Some(area) = activity(s, app) {
-        column.add_child(area);
-    }
     // Cash by post: the orders waiting for their letters (or why one ended).
     if let Some(area) = crate::cash::waiting_area(s, app) {
         column.add_child(area);
     }
-    column.add_child(foot(app));
+    column.add_child(foot(s, app));
     column
 }
 
@@ -1248,7 +1198,9 @@ pub(crate) fn on_sidebar_key(
     key: Key,
     mods: Mods,
 ) -> Option<Update> {
-    if mods.ctrl || mods.alt {
+    // A modified key is the window's (Ctrl+Tab and Ctrl+1 switch the location tab, also with
+    // the keyboard in the list).
+    if mods.ctrl || mods.alt || mods.control {
         return None;
     }
     let (focused, row_node) = focus_in_sidebar(info)?;

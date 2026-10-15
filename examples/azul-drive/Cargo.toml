@@ -28,6 +28,9 @@ azul-pay = { path = "../azul-pay" }
 # The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
 # Data, Shortcuts, About), the --shot timer.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The design's typeface, Calmet UI, registered at startup (AppConfig::add_font): the app links
+# its 26 KB, libazul does not.
+azul-fonts-calmet = { path = "../azul-fonts-calmet", features = ["azul"] }
 # The search box: the open folder and every folder below it, names then contents (ripgrep's
 # walker and searcher; AzCode's find in files runs on it too).
 azul-search = { path = "../azul-search" }

@@ -1,12 +1,11 @@
 //! AzDrive's body in each app theme and mode - the source list, the content leaf, the Details
-//! list, the icon cells, the path bar and the status line (View > Status bar) - one inline style
-//! per part.
+//! list, the icon cells - one inline style per part.
 //!
 //! FLORA (the website's look, `doc/templates/flora.css`): the content is a LEAF of field paper
 //! (`--fl-fld`) filling its pane, over the linen page (`--fl-pg` and its two hairline rasters,
 //! `--fl-grain`); the source list rests on a soft vertical gradient from the strip tone down to
 //! the desk (`--fl-strip` .. `--fl-desk`);
-//! its section titles are flora's capitals (`.fl-label`: EB Garamond, bold, tracked, `--fl-soft1`);
+//! its section titles are flora's capitals (Calmet UI, bold, tracked, `--fl-soft1`);
 //! a selected source is the accent stone (`--az-accent`) under paper ink, with a lip and a cast;
 //! the Details header is the raised face (`--fl-rT` -> `--fl-rB`), its rows alternate field paper
 //! with a quiet wash, a selected item rests on the accent's soft wash (flora's data table and
@@ -65,7 +64,8 @@ pub(crate) const SIDEBAR: &str = themed!(
      min-width: 0px; min-height: 0px; overflow: hidden; font-size: 13px;",
     "background: linear-gradient(to bottom, #EAEFF5, #D6DEE8); color: #1E1E1E;",
     "background: linear-gradient(to bottom, #303338, #25272B); color: #F2F2F2;",
-    "background: linear-gradient(to bottom, #EEECE7, #DCD9D2); color: #262521;",
+    "background: linear-gradient(to bottom, #EEECE7, #DCD9D2); color: #262521; \
+     font-size: 15px;",
     "background: linear-gradient(to bottom, #282828, #1B1B1B); color: #E7E7E7;",
 );
 
@@ -74,16 +74,16 @@ pub(crate) const SIDEBAR_LIST: &str =
     "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
      padding: 0px 0px 10px 0px;";
 
-/// A section's title: small capitals behind a disclosure triangle (flora's `.fl-label`: EB
-/// Garamond, bold, tracked out).
+/// A section's title: small capitals behind a disclosure triangle (flora's caps: Calmet UI,
+/// 10.5 px, bold, tracked out).
 pub(crate) const SECTION_HEAD: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; height: 20px; \
      margin: 10px 6px 3px 6px; padding: 0px 6px 0px 2px; border-radius: 4px; font-size: 11px; \
      font-weight: 700; text-transform: uppercase; cursor: pointer;",
     "color: #6A7788; :hover { color: #27364A; }",
     "color: #9AA6B5; :hover { color: #E3E8EE; }",
-    "color: #66645C; font-family: EB Garamond, Georgia, Times New Roman, serif; \
-     letter-spacing: 1px; :hover { color: #262521; }",
+    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", \
+     Georgia, serif; font-size: 10.5px; letter-spacing: 0.08em; :hover { color: #262521; }",
     "color: #A8A8A8; :hover { color: #E7E7E7; }",
 );
 
@@ -210,13 +210,13 @@ pub(crate) const ACTIVITY: &str = themed!(
     "border-top: 1px solid #3F3F3F;",
 );
 
-/// The activity area's title.
+/// The cash orders' area title (under the source list).
 pub(crate) const ACTIVITY_HEAD: &str = themed!(
     "padding: 0px 10px 3px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase;",
     "color: #6A7788;",
     "color: #9AA6B5;",
-    "color: #66645C; font-family: EB Garamond, Georgia, Times New Roman, serif; \
-     letter-spacing: 1px;",
+    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", \
+     Georgia, serif; letter-spacing: 0.08em;",
     "color: #A8A8A8;",
 );
 
@@ -235,7 +235,7 @@ pub(crate) const ACTIVITY_ERROR: &str = themed!(
 
 /// The bar under the list: + and the actions.
 pub(crate) const SIDEBAR_FOOT: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 24px;",
+    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 26px;",
     "border-top: 1px solid #C2C9D2; background: linear-gradient(to bottom, #F7F9FB, #E4E9EF);",
     "border-top: 1px solid #575757; background: linear-gradient(to bottom, #3C3C3C, #313131);",
     "border-top: 1px solid #C6C3BB; background: linear-gradient(to bottom, #FAF9F5, #ECEAE4);",
@@ -245,7 +245,7 @@ pub(crate) const SIDEBAR_FOOT: &str = themed!(
 /// One of the small buttons in that bar.
 pub(crate) const SMALL_BUTTON: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-     width: 30px; height: 24px; font-size: 15px; cursor: pointer;",
+     width: 32px; height: 26px; font-size: 15px; cursor: pointer;",
     "border-right: 1px solid #D3D9E0; color: #3D5574; :hover { background: #DDE4EC; } \
      :focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
     "border-right: 1px solid #4D4D4D; color: #DADADA; :hover { background: #474747; } \
@@ -254,6 +254,62 @@ pub(crate) const SMALL_BUTTON: &str = themed!(
      :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
     "border-right: 1px solid #383838; color: #BEBEBE; :hover { background: #3A3A3A; }",
 );
+
+/// The two pies at the right of the foot.
+pub(crate) const PIES: &str =
+    "display: flex; flex-direction: row; align-items: center; margin-left: auto; \
+     padding-right: 4px; height: 26px;";
+
+/// A pie's hit area: 15 x 25 px around its 11 px disc, the hover face behind it.
+pub(crate) const PIE_HIT: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; justify-content: center; \
+     width: 15px; height: 25px; padding: 0px 2px; border-radius: 3px; cursor: default;",
+    ":hover { background: #DDE4EC; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
+    ":hover { background: #474747; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
+    ":hover { background: #F1EFE9; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
+    ":hover { background: #333333; } :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
+);
+
+/// The sync popover's content: 330 px of field paper.
+pub(crate) const SYNC_POPOVER: &str = themed!(
+    "display: flex; flex-direction: column; width: 330px; box-sizing: border-box; \
+     padding: 12px 14px;",
+    "color: #1E1E1E;",
+    "color: #F2F2F2;",
+    "color: #262521;",
+    "color: #E7E7E7;",
+);
+
+/// The popover's first line: the sync's state.
+pub(crate) const POPOVER_HEAD: &str = "font-weight: 600; margin-bottom: 4px;";
+
+/// A sentence of the popover.
+pub(crate) const POPOVER_TEXT: &str = "margin: 2px 0px;";
+
+/// A small line of the popover (the transfers, this computer's health).
+pub(crate) const POPOVER_SMALL: &str = themed!(
+    "font-size: 12px; margin: 4px 0px 2px 0px;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// The drive's usage line.
+pub(crate) const POPOVER_DRIVE: &str = "margin-top: 10px;";
+
+/// A warning of the popover (near full, failed transfers).
+pub(crate) const POPOVER_WARNING: &str = themed!(
+    "font-size: 12.5px; margin: 4px 0px;",
+    "color: #B04032;",
+    "color: #E08070;",
+    "color: #B04032;",
+    "color: #E08070;",
+);
+
+/// The popover's buttons, at its foot on the right.
+pub(crate) const POPOVER_ACTIONS: &str =
+    "display: flex; flex-direction: row; justify-content: flex-end; margin-top: 12px;";
 
 // ==== The content: a leaf filling its pane ====
 
@@ -366,6 +422,333 @@ pub(crate) const FIND_NOTE: &str = themed!(
     "background: #302B1E; border-bottom: 1px solid #101010; color: #DCD2B0;",
 );
 
+/// The search's bar over its view: the chips, the count, Save search.
+pub(crate) const FIND_BAR: &str = themed!(
+    "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; flex-shrink: 0; \
+     padding: 7px 10px; column-gap: 6px; row-gap: 6px;",
+    "background: #F3F6F9; border-bottom: 1px solid #D3D9E0;",
+    "background: #2B2B2B; border-bottom: 1px solid #1E1E1E;",
+    "background: #EFEDE7; border-bottom: 1px solid #D8D5CE;",
+    "background: #222222; border-bottom: 1px solid #383838;",
+);
+
+/// The rule between the scope chips and the refine chips.
+pub(crate) const FIND_BAR_SEPARATOR: &str = themed!(
+    "width: 1px; height: 18px; margin: 0px 4px; flex-shrink: 0;",
+    "background: #C2C9D2;",
+    "background: #4D4D4D;",
+    "background: #C6C3BB;",
+    "background: #3F3F3F;",
+);
+
+/// A chip: a small rounded button of the search's bar and its empty states.
+pub(crate) const CHIP: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 24px; \
+     box-sizing: border-box; padding: 0px 10px; border-radius: 12px; font-size: 12.5px; \
+     white-space: nowrap; cursor: default;",
+    "border: 1px solid #C2C9D2; background: linear-gradient(to bottom, #FFFFFF, #EDF1F5); \
+     color: #3D4A5C; :hover { border-color: #8E9BAD; color: #1E1E1E; }",
+    "border: 1px solid #4D4D4D; background: linear-gradient(to bottom, #3C3C3C, #313131); \
+     color: #D0D0D0; :hover { border-color: #6A6A6A; color: #F2F2F2; }",
+    "border: 1px solid #C6C3BB; background: linear-gradient(to bottom, #FAF9F5, #ECEAE4); \
+     color: #4E4C45; :hover { border-color: #9C9890; color: #262521; }",
+    "border: 1px solid #3F3F3F; background: linear-gradient(to bottom, #333333, #292929); \
+     color: #BCBCBC; :hover { border-color: #616161; color: #E7E7E7; }",
+);
+
+/// A chosen scope chip: the accent.
+pub(crate) const CHIP_ON: &str = themed!(
+    "",
+    "background: #2B579A; border-color: #1E3F73; color: #FFFFFF; \
+     :hover { background: #2B579A; color: #FFFFFF; }",
+    "background: #2B579A; border-color: #1E3F73; color: #FFFFFF; \
+     :hover { background: #2B579A; color: #FFFFFF; }",
+    "background: #2F4A85; border-color: #1E3260; color: #F4F2EA; \
+     box-shadow: inset 0px 1px 0px rgba(255, 255, 255, 0.16); \
+     :hover { background: #2F4A85; color: #F4F2EA; }",
+    "background: #2F4A85; border-color: #1E3260; color: #F4F2EA; \
+     :hover { background: #2F4A85; color: #F4F2EA; }",
+);
+
+/// A filter chip that narrows the search: outlined in the accent.
+pub(crate) const CHIP_SET: &str = themed!(
+    "",
+    "border-color: #2B579A; color: #2B579A; background: #E3ECF7; \
+     :hover { background: #E3ECF7; }",
+    "border-color: #4683D6; color: #DCE6F2; background: #2E3E55; \
+     :hover { background: #2E3E55; }",
+    "border-color: #2F4A85; color: #2F4A85; background: #E0E4EE; \
+     :hover { background: #E0E4EE; }",
+    "border-color: #4A65A0; color: #DCE3F2; background: #24304A; \
+     :hover { background: #24304A; }",
+);
+
+/// A row of chips under an empty state, centred.
+pub(crate) const CHIP_ROW: &str =
+    "display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center; \
+     column-gap: 8px; row-gap: 8px; margin-top: 10px;";
+
+/// The search bar's count.
+pub(crate) const FIND_STATUS: &str = themed!(
+    "font-size: 12.5px; font-variant-numeric: tabular-nums; margin-right: 6px;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// A quiet text button (Save search): its words in the accent, a face only under the pointer.
+pub(crate) const QUIET_BUTTON: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; height: 24px; padding: 0px 8px; \
+     border-radius: 3px; font-size: 12.5px; cursor: default;",
+    "color: #2B579A; :hover { background: #DDE4EC; }",
+    "color: #7AA7E0; :hover { background: #3A3A3A; }",
+    "color: #2F4A85; :hover { background: #E4E1DA; }",
+    "color: #7A93C6; :hover { background: #333333; }",
+);
+
+/// An empty state of the search view: centred, its icon, its title, its detail, its chips.
+pub(crate) const FIND_EMPTY_STATE: &str = themed!(
+    "display: flex; flex-direction: column; align-items: center; justify-content: center; \
+     flex-grow: 1; padding: 40px; text-align: center;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// The empty state's big icon.
+pub(crate) const FIND_EMPTY_ICON: &str = themed!(
+    "font-size: 46px; margin-bottom: 6px;",
+    "color: #B4BDC9;",
+    "color: #5A5A5A;",
+    "color: #B4B1A9;",
+    "color: #4A4A4A;",
+);
+
+/// The empty state's title.
+pub(crate) const FIND_EMPTY_TITLE: &str = themed!(
+    "font-size: 18px; margin-bottom: 6px;",
+    "color: #1E1E1E;",
+    "color: #F2F2F2;",
+    "color: #262521;",
+    "color: #E7E7E7;",
+);
+
+/// The empty state's sentence under its title.
+pub(crate) const FIND_EMPTY_DETAIL: &str = "font-size: 13.5px; max-width: 420px;";
+
+/// The header of a folder's results: the folder's path in the accent, a rule to the edge.
+pub(crate) const FIND_GROUP: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; box-sizing: border-box; \
+     padding: 0px 10px; flex-shrink: 0; font-size: 13.5px; position: sticky; top: 0px;",
+    "color: #2B579A; background: #FFFFFF; border-bottom: 1px solid #E2E6EB;",
+    "color: #7AA7E0; background: #1E1E1E; border-bottom: 1px solid #333333;",
+    "color: #2F4A85; background: #FBFAF6; border-bottom: 1px solid #E0DDD7;",
+    "color: #7A93C6; background: #1D1D1D; border-bottom: 1px solid #2E2E2E;",
+);
+
+/// "· 2 items" after a results header's path.
+pub(crate) const FIND_GROUP_COUNT: &str = themed!(
+    "font-size: 12px; margin: 0px 8px 0px 4px; font-variant-numeric: tabular-nums;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76;",
+    "color: #8C8C8C;",
+);
+
+/// The rule after a results header's count.
+pub(crate) const FIND_GROUP_RULE: &str = themed!(
+    "flex-grow: 1; height: 1px;",
+    "background: #E2E6EB;",
+    "background: #333333;",
+    "background: #D8D5CE;",
+    "background: #383838;",
+);
+
+/// A result's two lines of the text its contents matched on.
+pub(crate) const SNIPPET: &str = themed!(
+    "display: block; display: -webkit-box; -webkit-box-orient: vertical; \
+     -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; \
+     max-height: 33px; font-size: 12.5px; line-height: 1.3; padding-right: 8px;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// What a result found by its name is, in the snippet's place.
+pub(crate) const SNIPPET_KIND: &str = themed!(
+    "font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76;",
+    "color: #8C8C8C;",
+);
+
+// ==== The preview pane ====
+
+/// The preview's stage: the picture, the page, the text - on a soft gradient over the leaf.
+pub(crate) const PREVIEW_STAGE: &str = themed!(
+    "display: flex; flex-direction: column; flex-grow: 1; min-height: 120px; overflow: hidden;",
+    "border-bottom: 1px solid #E2E6EB;",
+    "border-bottom: 1px solid #333333;",
+    "background: linear-gradient(to bottom, #EFEDE7, #FBFAF6); border-bottom: 1px solid #E0DDD7;",
+    "background: linear-gradient(to bottom, #242424, #1D1D1D); border-bottom: 1px solid #2E2E2E;",
+);
+
+/// The item's facts under the preview.
+pub(crate) const PREVIEW_INFO: &str =
+    "display: flex; flex-direction: column; flex-shrink: 0; padding: 12px 14px;";
+
+/// The item's name: 17 px, semibold.
+pub(crate) const PREVIEW_NAME: &str =
+    "font-size: 17px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; \
+     white-space: nowrap;";
+
+/// The item's kind under its name.
+pub(crate) const PREVIEW_KIND: &str = themed!(
+    "font-size: 12.5px; margin-bottom: 10px;",
+    "color: #626A76;",
+    "color: #9E9E9E;",
+    "color: #66645C;",
+    "color: #A8A8A8;",
+);
+
+/// A fact: its name on the left, its value.
+pub(crate) const PREVIEW_ROW: &str =
+    "display: flex; flex-direction: row; padding: 2px 0px; font-size: 12.5px;";
+
+pub(crate) const PREVIEW_ROW_KEY: &str = themed!(
+    "width: 84px; flex-shrink: 0;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76;",
+    "color: #8C8C8C;",
+);
+
+pub(crate) const PREVIEW_ROW_VALUE: &str =
+    "flex-grow: 1; min-width: 0px; overflow: hidden; text-overflow: ellipsis; \
+     white-space: nowrap; font-variant-numeric: tabular-nums;";
+
+/// Open and Copy link at the foot.
+pub(crate) const PREVIEW_ACTIONS: &str =
+    "display: flex; flex-direction: row; justify-content: flex-end; margin-top: 12px;";
+
+// ==== Over the window: Quick Look, the command palette ====
+
+/// The grey scrim over the window, what lies on it centred.
+pub(crate) const SCRIM: &str = themed!(
+    "position: absolute; top: 0px; left: 0px; width: 100%; height: 100%; z-index: 50; \
+     display: flex; flex-direction: column; align-items: center; justify-content: center;",
+    "background: rgba(40, 38, 34, 0.32);",
+    "background: rgba(0, 0, 0, 0.5);",
+    "background: rgba(40, 38, 34, 0.32);",
+    "background: rgba(0, 0, 0, 0.5);",
+);
+
+/// The palette's scrim holds it near the top of the window.
+pub(crate) const SCRIM_TOP: &str = "justify-content: flex-start; padding-top: 80px; \
+                                    box-sizing: border-box;";
+
+/// Quick Look's panel: most of the window, the preview filling it.
+pub(crate) const QUICK_LOOK: &str = themed!(
+    "display: flex; flex-direction: column; width: 72%; height: 80%; border-radius: 8px; \
+     overflow: hidden;",
+    "background: #FFFFFF; box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), \
+     0px 9px 32px rgba(48, 45, 38, 0.18);",
+    "background: #1E1E1E; box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.5), \
+     0px 10px 36px rgba(0, 0, 0, 0.55);",
+    "background: #FBFAF6; box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), \
+     0px 9px 32px rgba(48, 45, 38, 0.18);",
+    "background: #1D1D1D; box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.5), \
+     0px 10px 36px rgba(0, 0, 0, 0.55);",
+);
+
+/// Quick Look's title: the item's name.
+pub(crate) const QUICK_LOOK_HEAD: &str = themed!(
+    "flex-shrink: 0; padding: 8px 14px; font-weight: 600;",
+    "border-bottom: 1px solid #E2E6EB;",
+    "border-bottom: 1px solid #333333;",
+    "border-bottom: 1px solid #E0DDD7;",
+    "border-bottom: 1px solid #2E2E2E;",
+);
+
+/// The palette: 560 px of field paper.
+pub(crate) const PALETTE_PANEL: &str = themed!(
+    "display: flex; flex-direction: column; width: 560px; max-height: 70%; border-radius: 8px; \
+     overflow: hidden;",
+    "background: #FFFFFF; box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), \
+     0px 9px 32px rgba(48, 45, 38, 0.18);",
+    "background: #252525; box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.5), \
+     0px 10px 36px rgba(0, 0, 0, 0.55);",
+    "background: #FBFAF6; box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), \
+     0px 9px 32px rgba(48, 45, 38, 0.18);",
+    "background: #1D1D1D; box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.5), \
+     0px 10px 36px rgba(0, 0, 0, 0.55);",
+);
+
+/// The palette's box row.
+pub(crate) const PALETTE_INPUT_ROW: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; \
+     padding: 10px 12px;",
+    "border-bottom: 1px solid #E2E6EB;",
+    "border-bottom: 1px solid #333333;",
+    "border-bottom: 1px solid #E0DDD7;",
+    "border-bottom: 1px solid #2E2E2E;",
+);
+
+/// The palette's rows.
+pub(crate) const PALETTE_LIST: &str =
+    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
+     padding: 4px 0px;";
+
+/// A group's title in the palette.
+pub(crate) const PALETTE_SECTION: &str = themed!(
+    "padding: 6px 14px 2px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76; letter-spacing: 0.08em;",
+    "color: #8C8C8C;",
+);
+
+/// A row of the palette.
+pub(crate) const PALETTE_ROW: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; height: 30px; \
+     padding: 0px 14px; cursor: default;",
+    ":hover { background: #EEF3F9; }",
+    ":hover { background: #333333; }",
+    ":hover { background: #EDEFF4; }",
+    ":hover { background: #2B2F37; }",
+);
+
+/// The hot row (the arrows', Return's).
+pub(crate) const PALETTE_ROW_HOT: &str = themed!(
+    "",
+    "background: #DDE8F5; :hover { background: #DDE8F5; }",
+    "background: #2E3E55; :hover { background: #2E3E55; }",
+    "background: #E0E4EE; :hover { background: #E0E4EE; }",
+    "background: #2F4A85; :hover { background: #2F4A85; }",
+);
+
+/// Where a palette row is (a place's folders, a command's keys).
+pub(crate) const PALETTE_DETAIL: &str = themed!(
+    "flex-shrink: 0; margin-left: 10px; font-size: 12px; white-space: nowrap;",
+    "color: #7A8594;",
+    "color: #8C8C8C;",
+    "color: #827F76;",
+    "color: #8C8C8C;",
+);
+
+/// The keys at the palette's foot.
+pub(crate) const PALETTE_FOOT: &str = themed!(
+    "flex-shrink: 0; padding: 6px 14px; font-size: 12px;",
+    "color: #7A8594; border-top: 1px solid #E2E6EB;",
+    "color: #8C8C8C; border-top: 1px solid #333333;",
+    "color: #827F76; border-top: 1px solid #E0DDD7;",
+    "color: #8C8C8C; border-top: 1px solid #2E2E2E;",
+);
+
 // ==== Items (every layout) ====
 
 /// An item at rest: a hairline kept free for the focus, a wash under the pointer.
@@ -423,67 +806,6 @@ pub(crate) const TILE_SELECTED: &str = themed!(
     "box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.60);",
     "box-shadow: 0px 1px 2px rgba(48, 45, 38, 0.14), 0px 6px 16px rgba(48, 45, 38, 0.16);",
     "box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.55), 0px 6px 16px rgba(0, 0, 0, 0.45);",
-);
-
-// ==== The path bar and the status line, at the foot of the leaf ====
-
-/// Finder's path bar: the open place's trail, each step an icon and its name.
-pub(crate) const PATH_BAR: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 24px; \
-     padding: 0px 6px; font-size: 12px; overflow: hidden;",
-    "border-top: 1px solid #D3D9E0; background: linear-gradient(to bottom, #F8FAFC, #EDF1F5);",
-    "border-top: 1px solid #3D3D3D; background: linear-gradient(to bottom, #303030, #292929);",
-    "border-top: 1px solid #D8D5CE; background: linear-gradient(to bottom, #F7F6F2, #EEECE7);",
-    "border-top: 1px solid #383838; background: linear-gradient(to bottom, #272727, #212121);",
-);
-
-/// A step of the path bar (a click goes there; items dropped on it move there).
-pub(crate) const CRUMB: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 1; min-width: 0px; \
-     height: 20px; padding: 0px 5px; border-radius: 4px; cursor: pointer;",
-    ":hover { background: #E2EBF6; } :drag-over { background: #C1DCFC; }",
-    ":hover { background: #3A3A3A; } :drag-over { background: #2E4A6E; }",
-    ":hover { background: #E6E8EE; } :drag-over { background: #E0E4EE; }",
-    ":hover { background: #2E2E2E; } :drag-over { background: #1E3260; }",
-);
-
-/// The open place's own step: in full, bold.
-pub(crate) const CRUMB_LAST: &str = "flex-shrink: 0; font-weight: 600;";
-
-/// A step's icon: tinted as [`ICON_TINT`].
-pub(crate) const CRUMB_ICON: &str = themed!(
-    "font-size: 14px; margin-right: 4px; flex-shrink: 0;",
-    "color: #3D6AA8;",
-    "color: #7AA7E0;",
-    "color: system:icon;",
-    "color: system:icon;",
-);
-
-/// The chevron between two steps.
-pub(crate) const CRUMB_SEPARATOR: &str =
-    "font-size: 14px; flex-shrink: 0; margin: 0px 1px; opacity: 0.45;";
-
-/// Finder's status line: how many items, how many selected, the space left.
-pub(crate) const STATUS_LINE: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-     flex-shrink: 0; height: 22px; padding: 0px 10px; font-size: 11px; overflow: hidden; \
-     border-radius: 0px 0px 2px 2px;",
-    "border-top: 1px solid #E2E6EB; background: #EDF1F5; color: #626A76;",
-    "border-top: 1px solid #333333; background: #292929; color: #9E9E9E;",
-    "border-top: 1px solid #E0DDD7; background: #EEECE7; color: #66645C; \
-     border-radius: 0px 0px 4px 4px;",
-    "border-top: 1px solid #2E2E2E; background: #212121; color: #A8A8A8;",
-);
-
-/// A transfer (or a failure) in the status line, while the source list is hidden: a chip that
-/// opens the transfers.
-pub(crate) const STATUS_CHIP: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 16px; \
-     margin-left: 10px; padding: 0px 7px; border-radius: 8px; cursor: pointer;",
-    "background: #DCE6F2; color: #1E4F99;",
-    "background: #3A4556; color: #DCE6F2;",
-    "background: #E0E4EE; color: #1E3260;",
-    "background: #1E3260; color: #DCE3F2;",
 );
 
 // ==== Buy storage's payment popover ====

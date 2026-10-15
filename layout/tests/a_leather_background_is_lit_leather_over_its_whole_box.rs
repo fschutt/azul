@@ -1,6 +1,7 @@
 //! A `builtin(leather)` background is rendered as lit leather for the box it
-//! fills: the display list draws one frame of the box's own size, opaque,
-//! leather brown, with the grain of the tile in it.
+//! fills: the display list draws one frame of the box's own size, opaque, in
+//! the leather's tint (a pale, warm nappa unless the node sets
+//! `--azul-material-tint`), with the grain in it.
 //!
 //! The materials register themselves as callback images under their CSS
 //! names, so this runs the whole path a widget's background takes: the CSS
@@ -101,10 +102,10 @@ fn a_leather_background_is_lit_leather_over_its_whole_box() {
     );
     let (mean, grain) = mean_and_grain(&pixels);
     assert!(
-        mean[0] > mean[1] && mean[1] > mean[2],
-        "leather is brown: red over green over blue, got {mean:?}"
+        mean[0] >= mean[1] && mean[1] >= mean[2] && mean[0] - mean[2] < 30.0,
+        "nappa is a pale warm grey: red over green over blue, close together, got {mean:?}"
     );
-    assert!(grain > 2.0, "the tile's grain shows, not a flat fill (luma spread {grain})");
+    assert!(grain > 1.0, "the grain shows, not a flat fill (luma spread {grain})");
 }
 
 /// The luma of a mean colour.

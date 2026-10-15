@@ -1,9 +1,10 @@
 //! An S3 service in memory, behind the kit's [`Bucket`]: it answers path-style requests the
 //! way an S3 service does - objects with their ETags, conditional reads (`If-None-Match`: 304)
 //! and writes (`If-Match`, `If-None-Match: *`: 412), ranges (206), ListObjectsV2 pages,
-//! multipart uploads. Every request is logged as `METHOD key` (`LIST prefix` for a listing),
-//! and a test can make another device's write land right before the next conditional PUT
-//! ([`FakeS3::before_next_cas`]).
+//! multipart uploads, CopyObject (logged `COPY key`) and DeleteObjects (logged `DELETEOBJECTS
+//! <count>`, Content-MD5 required as S3 does). Every request is logged as `METHOD key` (`LIST
+//! prefix` for a listing), and a test can make another device's write land right before the
+//! next conditional PUT ([`FakeS3::before_next_cas`]).
 
 use std::{
     collections::BTreeMap,
@@ -172,6 +173,16 @@ impl FakeS3 {
             .count()
     }
 
+    /// How many requests of `method` were made on keys under `prefix` (`PUT data/` for the
+    /// encrypted drive's objects).
+    pub fn count_under(&self, method: &str, prefix: &str) -> usize {
+        let start = format!("{method} {prefix}");
+        lock(&self.log)
+            .iter()
+            .filter(|line| line.starts_with(&start))
+            .count()
+    }
+
     /// Forgets the request log.
     pub fn clear_log(&self) {
         lock(&self.log).clear();
@@ -215,8 +226,14 @@ impl FakeS3 {
             (Method::Put, false) if query.contains_key("partNumber") => {
                 self.part_answer(&key, &query, &call.body)
             }
+            (Method::Put, false) if header("x-amz-copy-source").is_some() => {
+                self.copy_answer(&key, &header("x-amz-copy-source").unwrap_or_default())
+            }
             (Method::Put, false) => {
                 self.put_answer(&key, header("if-match"), header("if-none-match"), call)
+            }
+            (Method::Post, true) if query.contains_key("delete") => {
+                self.delete_objects_answer(call)
             }
             (Method::Post, false) if query.contains_key("uploads") => self.start_answer(&key),
             (Method::Post, false) if query.contains_key("uploadId") => {
@@ -319,6 +336,70 @@ impl FakeS3 {
         }
         let etag = self.write(key, call.body.clone());
         reply(200, vec![(String::from("etag"), etag)], Vec::new())
+    }
+
+    /// CopyObject: the source (`/<bucket>/<key>`, encoded) copied to `key` on the service.
+    fn copy_answer(&self, key: &str, source: &str) -> HttpReply {
+        self.note("COPY", key);
+        let source = uri_decode(source.trim_start_matches('/')).unwrap_or_default();
+        let Some((bucket, from)) = source.split_once('/') else {
+            return error(400, "InvalidArgument", "a copy source names a bucket and a key");
+        };
+        if bucket != BUCKET {
+            return error(404, "NoSuchBucket", "The specified bucket does not exist");
+        }
+        let Some(data) = lock(&self.objects).get(from).map(|o| o.data.clone()) else {
+            return error(404, "NoSuchKey", "The specified key does not exist.");
+        };
+        let etag = self.write(key, data);
+        reply(
+            200,
+            Vec::new(),
+            format!(
+                "<CopyObjectResult><ETag>{}</ETag><LastModified>2026-10-15T00:00:00.000Z\
+                 </LastModified></CopyObjectResult>",
+                xml_escape(&etag)
+            )
+            .into_bytes(),
+        )
+    }
+
+    /// DeleteObjects: every `<Key>` of the body deleted at once (a missing one counts as
+    /// deleted, as S3 says). Like S3, it wants the body's Content-MD5 and at most 1,000 keys.
+    fn delete_objects_answer(&self, call: &HttpCall) -> HttpReply {
+        let has_md5 = call
+            .headers
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case("content-md5") && !value.is_empty());
+        if !has_md5 {
+            return error(
+                400,
+                "InvalidRequest",
+                "Missing required header for this request: Content-MD5",
+            );
+        }
+        let body = String::from_utf8_lossy(&call.body);
+        let keys: Vec<String> = body
+            .split("<Key>")
+            .skip(1)
+            .filter_map(|rest| rest.split_once("</Key>"))
+            .map(|(key, _)| {
+                key.replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+                    .replace("&apos;", "'")
+                    .replace("&amp;", "&")
+            })
+            .collect();
+        if keys.len() > 1000 {
+            return error(400, "MalformedXML", "more than 1000 keys in one request");
+        }
+        self.note("DELETEOBJECTS", &keys.len().to_string());
+        let mut objects = lock(&self.objects);
+        for key in &keys {
+            objects.remove(key);
+        }
+        reply(200, Vec::new(), b"<DeleteResult></DeleteResult>".to_vec())
     }
 
     fn start_answer(&self, key: &str) -> HttpReply {

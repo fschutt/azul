@@ -1416,6 +1416,11 @@ pub struct OverflowInfo {
     /// the constraints. Populated by both positioners (greedy + Knuth-Plass) from
     /// [`UnifiedLayout::bounds`]; useful for `OverflowBehavior::Visible`/`Scroll`.
     pub unclipped_bounds: Rect,
+    /// Whether `line-clamp` stopped the lines with content left over. The
+    /// display list then ends the last line kept with an ellipsis, as
+    /// Chrome does (`block-ellipsis: auto`); without the flag a clamped
+    /// block and one whose text happens to end there look the same.
+    pub line_clamped: bool,
 }
 
 impl OverflowInfo {

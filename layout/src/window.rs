@@ -1123,6 +1123,11 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // A light and a counter.
         material_light: _,
         background_frames_generation: _,
+        material_light_is_own: _,
+        app_light: _,
+        app_light_generation: _,
+        // One small entry per node drawing a material.
+        material_sheen: _,
         content_journal: _,
         caret_text_snapshot: _,
         scroll_manager: _,
@@ -1731,13 +1736,30 @@ pub struct LayoutWindow {
     /// per item: what each was rendered from and the frame patched into the
     /// display list ([`Self::resolve_background_image_callbacks`]).
     pub background_image_frames: BTreeMap<BackgroundFrameKey, BackgroundFrame>,
-    /// The light the window's built-in materials are lit by
-    /// (`CallbackInfo::set_material_light`).
+    /// The window's own material light (`CallbackInfo::set_material_light`):
+    /// the light's colour, strength, ambient share and god rays for every
+    /// material here, and - once [`Self::material_light_is_own`] - its
+    /// direction too.
     pub material_light: crate::texture::MaterialLight,
-    /// Bumped by every new [`Self::material_light`] and every
-    /// `update_all_image_callbacks`: a background frame rendered under an
-    /// older one renders again.
+    /// Bumped by every new [`Self::material_light`], every adopted app
+    /// light and every `update_all_image_callbacks`: a background frame
+    /// rendered under an older one renders again.
     pub background_frames_generation: u64,
+    /// Whether the window set a light of its own
+    /// ([`Self::set_material_light`]): its direction then outranks the app's
+    /// one light here ([`Self::effective_light`]).
+    pub material_light_is_own: bool,
+    /// The app's light as this window last adopted it
+    /// ([`Self::adopt_app_light`]); read by the materials and the
+    /// light-following shadows through [`Self::effective_light`].
+    pub app_light: azul_core::light::Light,
+    /// The app light's change count at that adoption: a window whose count
+    /// lags adopts the light at its next frame (`u64::MAX` = never adopted).
+    pub app_light_generation: u64,
+    /// The cursor's sheen on each node that draws a built-in material,
+    /// eased on the animation clock ([`Self::step_material_sheen`]) and handed
+    /// to the material's render through its extras.
+    pub material_sheen: crate::texture::sheen::MaterialSheen,
     /// Frame-scoped journal of applied content changes (what the RENDERER may
     /// still need: old images for backends compositing a not-fully-redrawn
     /// buffer, retention = swapchain depth). Fed by the same chokepoint;
@@ -2571,6 +2593,10 @@ impl LayoutWindow {
             background_image_frames: BTreeMap::new(),
             material_light: crate::texture::MaterialLight::DEFAULT,
             background_frames_generation: 0,
+            material_light_is_own: false,
+            app_light: azul_core::light::Light::DEFAULT,
+            app_light_generation: u64::MAX,
+            material_sheen: crate::texture::sheen::MaterialSheen::default(),
             content_journal: crate::overlay::ContentJournal::default(),
             caret_text_snapshot: None,
             layout_results: BTreeMap::new(),
@@ -2824,6 +2850,14 @@ impl LayoutWindow {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
         new_generation: bool,
     ) -> Result<(), solver3::LayoutError> {
+        // The display list is made under this window's light: shadows that
+        // follow the light read it (and where the window is, for a point
+        // light) while the scope lives.
+        self.adopt_app_light();
+        let _light = azul_core::light::LightScope::enter(
+            self.effective_light(),
+            [self.window_desktop_origin().x, self.window_desktop_origin().y],
+        );
         // E2E observability: this is the ONE funnel every layout pass goes
         // through — `regenerate_layout` and `incremental_relayout` in the
         // shells, `regenerate_layout()` and `relayout_only()` in the headless
@@ -8864,6 +8898,102 @@ impl LayoutWindow {
         moved
     }
 
+    /// Moves what follows the pointer in a node drag, through the GPU
+    /// transform values - no relayout, no callback per move: the drag image
+    /// a `DragStart` named (`CallbackInfo::set_drag_image`: the node with
+    /// that id, its border box put at the pointer plus the image's offset),
+    /// else the dragged node itself, by the pointer's way since the press.
+    ///
+    /// Both ride the ANIMATION channel: a DOM rebuild remaps it, the CSS
+    /// sync leaves it alone, and a keyed node is painted through a reference
+    /// frame as a stacking context of its own, so any box can follow. The
+    /// move that first keys a node asks for a display-list rebuild (the list
+    /// opens the frame only for a keyed node); every later one only
+    /// repaints. A drag image named after the first moves takes over: the
+    /// dragged node is released and stays in place.
+    pub fn update_drag_visual(&mut self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+
+        let Some(ctx) = self.gesture_drag_manager.get_drag_context() else {
+            return ProcessEventResult::DoNothing;
+        };
+        let Some(node_drag) = ctx.as_node_drag() else {
+            return ProcessEventResult::DoNothing;
+        };
+        let dom_id = node_drag.dom_id;
+        let pointer = ctx.current_position();
+        let press = ctx.start_position();
+        let (node, x, y) = if let Some(image) = self.gesture_drag_manager.drag_image() {
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return ProcessEventResult::DoNothing;
+            };
+            let Some(node) = layout_result
+                .styled_dom
+                .node_data
+                .as_ref()
+                .iter()
+                .position(|data| data.has_id(image.id.as_str()))
+                .map(NodeId::new)
+            else {
+                // Not rendered yet: the rebuild `DragStart` asked for brings it.
+                return ProcessEventResult::DoNothing;
+            };
+            let Some(rect) = self.get_node_layout_rect(DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            }) else {
+                return ProcessEventResult::DoNothing;
+            };
+            (
+                node,
+                pointer.x + image.offset.x - rect.origin.x,
+                pointer.y + image.offset.y - rect.origin.y,
+            )
+        } else {
+            (node_drag.node_id, pointer.x - press.x, pointer.y - press.y)
+        };
+        let previous = self.gesture_drag_manager.drag_visual_node.replace((dom_id, node));
+        if let Some((old_dom, old)) = previous.filter(|p| *p != (dom_id, node)) {
+            if let Some(cache) = self.gpu_state_manager.caches.get_mut(&old_dom) {
+                cache.anim_transform_keys.remove(&old);
+                cache.anim_current_transform_values.remove(&old);
+            }
+        }
+        let cache = self.gpu_state_manager.get_or_create_cache(dom_id);
+        let keyed = cache.anim_transform_keys.contains_key(&node);
+        if !keyed {
+            cache
+                .anim_transform_keys
+                .insert(node, azul_core::resources::TransformKey::unique());
+        }
+        cache.anim_current_transform_values.insert(
+            node,
+            azul_core::transform::ComputedTransform3D::new_translation(x, y, 0.0),
+        );
+        if keyed && previous.is_some() {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        }
+    }
+
+    /// Ends what [`Self::update_drag_visual`] moved, when a node drag ends
+    /// (before its context goes): the node it keyed is painted where layout
+    /// put it again, and the drag image is forgotten. Returns whether
+    /// anything moved back (then the display list needs a rebuild: it still
+    /// opens the node's reference frame).
+    pub fn end_drag_visual(&mut self) -> bool {
+        self.gesture_drag_manager.drag_image = None;
+        let Some((dom, node)) = self.gesture_drag_manager.drag_visual_node.take() else {
+            return false;
+        };
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom) {
+            cache.anim_transform_keys.remove(&node);
+            cache.anim_current_transform_values.remove(&node);
+        }
+        true
+    }
+
     /// The CONTENT half of [`Self::prepare_frame_cpu`]: journal frame clock +
     /// `RenderImageCallback` invocation through the chokepoint, WITHOUT the
     /// scrollbar-fade cache refresh. For hosts that deliberately freeze
@@ -8896,17 +9026,20 @@ impl LayoutWindow {
         self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
     }
 
-    /// Light the window's built-in materials with `light`
-    /// (`CallbackInfo::set_material_light`). Returns whether it is a new
-    /// light: then every frame of a callback image renders again on the next
-    /// frame (a callback reads the light through
-    /// `RenderImageCallbackInfo::get_material_light`), and the caller
-    /// repaints.
+    /// Light the window's built-in materials with a light of its own
+    /// (`CallbackInfo::set_material_light`): from now on its direction
+    /// outranks the app's one light in this window. Returns whether it is a
+    /// new light: then every frame of a callback image renders again on the
+    /// next frame (a callback reads the light through its extras), and the
+    /// caller repaints.
     pub fn set_material_light(&mut self, light: crate::texture::MaterialLight) -> bool {
-        if self.material_light == light {
+        if self.material_light == light && self.material_light_is_own {
             return false;
         }
         self.material_light = light;
+        self.material_light_is_own = true;
+        // Light-following shadows were made under the light before.
+        self.layout_cache.cached_display_list = None;
         self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
         // Image nodes: their inputs do not carry the light.
         self.image_callback_inputs.clear();
@@ -9960,6 +10093,10 @@ impl LayoutWindow {
             // What the callback may read beyond its size: the window's
             // material light, the node's custom properties, where it sits.
             let mut extras = crate::callbacks::RenderImageCallbackExtras::new(self.material_light);
+            extras.light = self.effective_light();
+            extras.window_desktop_origin = self.window_desktop_origin();
+            extras.screen = self.window_screen_rect();
+            extras.highlight = self.system_highlight_colour();
             if let Some(lr) = self.layout_results.get(&dom_id) {
                 extras.custom_properties = node_custom_properties(&lr.styled_dom, node_id).0;
             }
@@ -10014,22 +10151,28 @@ impl LayoutWindow {
     /// under the id), which no renderer can draw: the CPU raster painted the
     /// grey "never invoked" placeholder for it and WebRender nothing. This
     /// invokes the callback for each such item's own rect - its size, its
-    /// corner radii and window position, its node's custom properties
-    /// ([`crate::callbacks::RenderImageCallbackExtras`]), the window's
-    /// material light - and patches the produced frame into the item.
+    /// corner radii and window position, its node's custom properties and
+    /// clip path, the window's light and the cursor's sheen on it
+    /// ([`crate::callbacks::RenderImageCallbackExtras`]) - and patches the
+    /// produced frame into the item. Returns whether it patched any item.
     ///
     /// Remembered per item ([`BackgroundFrameKey`] -> [`BackgroundFrame`]): a
     /// frame at rest is not rendered again; an item the display list rebuilt
     /// with the declared image gets the remembered frame back; a changed input
-    /// (a new light, a resize, a pressed state's custom property, an explicit
-    /// `update_all_image_callbacks`) renders it anew. Frames no item uses any
-    /// more are dropped.
+    /// (a new light, a resize, a pressed state's custom property, the sheen
+    /// moving, an explicit `update_all_image_callbacks`) renders it anew.
+    /// Frames no item uses any more are dropped.
     ///
-    /// Runs where a display list is made (the layout funnel,
-    /// [`Self::regenerate_display_list_for_dom`]), when the light changes and
-    /// in every frame's preparation. Free when no css id names a callback
-    /// image and no frame is remembered: one pass over the window's css ids.
-    pub fn resolve_background_image_callbacks(&mut self, gl_context: &OptionGlContextPtr) {
+    /// A window drawn by its GPU (`renderer_type` hardware) resolves only
+    /// where the GL frame path hands its context in - before it translates
+    /// the display list, so a frame is drawn in the frame that needs it - and
+    /// the materials are then drawn by the GPU; every other call returns at
+    /// once there. A CPU window resolves wherever a display list is made
+    /// (the layout funnel, [`Self::regenerate_display_list_for_dom`]), when
+    /// the light changes, when the sheen steps and in every frame's
+    /// preparation. Free when no css id names a callback image and no frame
+    /// is remembered: one pass over the window's css ids.
+    pub fn resolve_background_image_callbacks(&mut self, gl_context: &OptionGlContextPtr) -> bool {
         use azul_core::resources::{DecodedImage, ImageRefHash};
 
         use crate::solver3::display_list::DisplayListItem;
@@ -10040,7 +10183,15 @@ impl LayoutWindow {
             bounds: LogicalRect,
             radii: [f32; 4],
             custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
+            clip_path: Option<azul_css::props::layout::shape::ClipPath>,
+            sheen: f32,
+            cursor: LogicalPosition,
         }
+
+        if gl_context.as_ref().is_none() && self.renderer_type == Some(RendererType::Hardware) {
+            return false;
+        }
+        self.adopt_app_light();
 
         let declared: BTreeMap<ImageRefHash, ImageRef> = self
             .image_cache
@@ -10050,8 +10201,17 @@ impl LayoutWindow {
             .map(|image| (image.get_hash(), image.clone()))
             .collect();
         if declared.is_empty() && self.background_image_frames.is_empty() {
-            return;
+            return false;
         }
+        // The built-in materials among them: those shine under the cursor.
+        let materials: BTreeSet<ImageRefHash> = crate::texture::Material::ALL
+            .iter()
+            .filter_map(|m| {
+                self.image_cache
+                    .get_css_image_id(&m.css_name().as_str().into())
+                    .map(|image| image.get_hash())
+            })
+            .collect();
         // An item patched before carries its frame: known by the frame's id.
         let produced: BTreeMap<ImageRefHash, BackgroundFrameKey> = self
             .background_image_frames
@@ -10060,12 +10220,28 @@ impl LayoutWindow {
             .collect();
         let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
         let generation = self.background_frames_generation;
+        let light = self.effective_light();
+        let window_origin = self.window_desktop_origin();
+        let screen = self.window_screen_rect();
+        // A new wallpaper is a new reflection for every metal.
+        #[cfg(feature = "materials")]
+        let environment_generation = crate::texture::environment::desktop_generation();
+        #[cfg(not(feature = "materials"))]
+        let environment_generation = 0_u64;
+        // Where the window sits matters to a point light and to the
+        // wallpaper a metal reflects.
+        let desktop_bits = if light.depends_on_position() || self.reflects_the_desktop() {
+            [window_origin.x.to_bits(), window_origin.y.to_bits()]
+        } else {
+            [0, 0]
+        };
 
         // Phase 1: every item that draws a declared callback image or one of
         // the frames, and what it would be rendered from now.
         let mut seen: BTreeSet<BackgroundFrameKey> = BTreeSet::new();
         let mut renders: BTreeMap<BackgroundFrameKey, Render> = BTreeMap::new();
         let mut patches: BTreeMap<DomId, Vec<(usize, BackgroundFrameKey)>> = BTreeMap::new();
+        let mut shining: BTreeMap<(DomId, NodeId), (LogicalRect, LogicalRect)> = BTreeMap::new();
         for (dom_id, lr) in &self.layout_results {
             let node_data = lr.styled_dom.node_data.as_container();
             for (index, item) in lr.display_list.items.iter().enumerate() {
@@ -10115,15 +10291,71 @@ impl LayoutWindow {
                     border_radius.bottom_right,
                     border_radius.bottom_left,
                 ];
-                let (custom_properties, custom_properties_hash) = node.map_or(
+                let (custom_properties, mut custom_properties_hash) = node.map_or(
                     (core::ptr::null(), 0),
                     |n| node_custom_properties(&lr.styled_dom, n),
                 );
+                let clip_path = node.and_then(|n| {
+                    let state = lr
+                        .styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(n)
+                        .map(|s| s.styled_node_state)
+                        .unwrap_or_default();
+                    crate::solver3::getters::get_clip_path(&lr.styled_dom, n, &state)
+                });
+                if let Some(clip) = &clip_path {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    custom_properties_hash.hash(&mut hasher);
+                    clip.hash(&mut hasher);
+                    custom_properties_hash = hasher.finish();
+                }
+                // The sheen of a material node: the area whose hover drives
+                // it, and its eased amount and cursor now.
+                let (sheen, cursor) = match node {
+                    Some(n) if materials.contains(&declared_hash) => {
+                        let area = sheen_area(self, *dom_id, &lr.styled_dom, n).unwrap_or(rect);
+                        shining.insert((*dom_id, n), (area, rect));
+                        self.material_sheen
+                            .surfaces
+                            .get(&(*dom_id, n))
+                            .filter(|s| s.amount > 0.0)
+                            .map_or((0.0, LogicalPosition::zero()), |s| {
+                                let c = s.cursor_in_surface();
+                                (s.amount, c)
+                            })
+                    }
+                    _ => (0.0, LogicalPosition::zero()),
+                };
+                // The CPU relights a whole surface per sheen frame: it steps
+                // the sheen in sixteenths and the cursor in 4 px, so an easing
+                // or a moving cursor costs a few relights, not one per frame.
+                let (sheen, cursor) = if sheen > 0.0 && gl_context.as_ref().is_none() {
+                    (
+                        ((sheen * 16.0).round() / 16.0).max(1.0 / 16.0),
+                        LogicalPosition::new((cursor.x / 4.0).round() * 4.0, (cursor.y / 4.0).round() * 4.0),
+                    )
+                } else {
+                    (sheen, cursor)
+                };
                 let inputs = BackgroundFrameInputs {
                     hidpi_factor,
                     radii_bits: radii.map(f32::to_bits),
                     generation,
                     custom_properties_hash,
+                    sheen_bits: if sheen > 0.0 {
+                        [
+                            ((sheen * 256.0).round() as u32).max(1),
+                            cursor.x.to_bits(),
+                            cursor.y.to_bits(),
+                        ]
+                    } else {
+                        [0; 3]
+                    },
+                    desktop_bits,
+                    environment_generation,
                 };
                 match self.background_image_frames.get(&key) {
                     Some(remembered) if remembered.inputs == inputs => {
@@ -10143,15 +10375,20 @@ impl LayoutWindow {
                             bounds: rect,
                             radii,
                             custom_properties,
+                            clip_path,
+                            sheen,
+                            cursor,
                         });
                         patches.entry(*dom_id).or_default().push((index, key));
                     }
                 }
             }
         }
+        self.material_sheen.sync(shining);
 
         // Phase 2: render what is not remembered (nothing above is mutated
         // until phase 3, so the custom-property pointers stay valid).
+        let highlight = self.system_highlight_colour();
         let mut rendered: Vec<(BackgroundFrameKey, BackgroundFrame)> = Vec::new();
         for (key, render) in renders {
             let DecodedImage::Callback(core_callback) = render.declared.get_data() else {
@@ -10164,7 +10401,17 @@ impl LayoutWindow {
                 border_radii: render.radii,
                 origin: render.bounds.origin,
                 material_light: self.material_light,
+                light,
+                window_desktop_origin: window_origin,
+                screen,
+                sheen: render.sheen,
+                cursor: render.cursor,
+                highlight,
                 custom_properties: render.custom_properties,
+                clip_path: render
+                    .clip_path
+                    .as_ref()
+                    .map_or(core::ptr::null(), core::ptr::from_ref),
             };
             let domnode_id = DomNodeId {
                 dom: key.dom,
@@ -10181,7 +10428,8 @@ impl LayoutWindow {
                 &self.image_cache,
                 &self.font_manager.fc_cache,
             );
-            // SAFETY: `extras` outlives the invocation right below.
+            // SAFETY: `extras` (and the clip path it points into) outlives
+            // the invocation right below.
             unsafe { info.set_extras(core::ptr::from_ref(&extras)) };
             let cb = crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
             let refany = core_callback.refany.clone();
@@ -10206,6 +10454,7 @@ impl LayoutWindow {
             self.background_image_frames.insert(key, frame);
         }
         self.background_image_frames.retain(|key, _| seen.contains(key));
+        let mut patched_any = false;
         for (dom_id, items) in patches {
             let Some(lr) = self.layout_results.get_mut(&dom_id) else {
                 continue;
@@ -10221,6 +10470,7 @@ impl LayoutWindow {
             if frames.is_empty() {
                 continue;
             }
+            patched_any = true;
             // The solver's structural-identity cache may hold this very list:
             // hand it the patched one, or the next relayout over the same tree
             // serves the declared callbacks back (as `apply_image_change`).
@@ -10240,6 +10490,142 @@ impl LayoutWindow {
                 }
             }
         }
+        patched_any
+    }
+
+    /// Where this window's light comes from: its own material light when it
+    /// set one ([`Self::set_material_light`]), else the app's one light.
+    #[must_use]
+    pub fn effective_light(&self) -> azul_core::light::Light {
+        if self.material_light_is_own {
+            azul_core::light::Light::sun(
+                self.material_light.azimuth_deg,
+                self.material_light.elevation_deg,
+            )
+        } else {
+            self.app_light
+        }
+    }
+
+    /// Adopt the app's light if it changed since this window last did:
+    /// every material frame renders again and the display lists are made
+    /// anew where shadows follow the light. Returns whether this window's
+    /// light changed.
+    pub fn adopt_app_light(&mut self) -> bool {
+        let (light, generation) = azul_core::light::app_light_with_generation();
+        if generation == self.app_light_generation {
+            return false;
+        }
+        self.app_light_generation = generation;
+        if light == self.app_light {
+            return false;
+        }
+        self.app_light = light;
+        if self.material_light_is_own {
+            return false;
+        }
+        self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
+        self.image_callback_inputs.clear();
+        // A list made under the old light caches its light-following shadows.
+        self.layout_cache.cached_display_list = None;
+        true
+    }
+
+    /// Where the window's top-left sits on the desktop, desktop points (the
+    /// origin when the platform does not say, as on Wayland).
+    #[must_use]
+    pub fn window_desktop_origin(&self) -> LogicalPosition {
+        match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(p) => {
+                LogicalPosition::new(p.x as f32, p.y as f32)
+            }
+            _ => LogicalPosition::zero(),
+        }
+    }
+
+    /// The screen the window is on, desktop points: its monitor's rect, else
+    /// the primary monitor's, else a 1920 x 1080 screen at the origin.
+    #[must_use]
+    pub fn window_screen_rect(&self) -> LogicalRect {
+        let fallback = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(1920.0, 1080.0));
+        let Ok(monitors) = self.monitors.lock() else {
+            return fallback;
+        };
+        let wanted = self.current_window_state.monitor_id.into_option();
+        let monitor = monitors
+            .as_ref()
+            .iter()
+            .find(|m| wanted.is_some_and(|id| m.monitor_id.index as u32 == id))
+            .or_else(|| monitors.as_ref().iter().find(|m| m.is_primary_monitor))
+            .or_else(|| monitors.as_ref().first());
+        monitor.map_or(fallback, |m| {
+            LogicalRect::new(
+                LogicalPosition::new(m.position.x as f32, m.position.y as f32),
+                LogicalSize::new(m.size.width as f32, m.size.height as f32),
+            )
+        })
+    }
+
+    /// Whether this window's materials change when the window moves: under
+    /// a point light, or while they reflect the desktop's wallpaper. A shell
+    /// that sees the window move redraws it then.
+    #[must_use]
+    pub fn materials_follow_window_position(&self) -> bool {
+        self.effective_light().depends_on_position() || self.reflects_the_desktop()
+    }
+
+    /// Whether a material here reflects the desktop (the wallpapers are
+    /// known): a window that moves then renders its metals again.
+    fn reflects_the_desktop(&self) -> bool {
+        #[cfg(feature = "materials")]
+        {
+            crate::texture::environment::desktop_generation() > 0
+        }
+        #[cfg(not(feature = "materials"))]
+        {
+            false
+        }
+    }
+
+    /// The system's text highlight colour (macOS's pale blue by default):
+    /// what a metal reflects where no wallpaper is known.
+    fn system_highlight_colour(&self) -> azul_css::props::basic::ColorU {
+        let fallback = azul_css::props::basic::ColorU {
+            r: 0xB3,
+            g: 0xD7,
+            b: 0xFF,
+            a: 255,
+        };
+        self.system_style
+            .as_ref()
+            .and_then(|style| {
+                style
+                    .colors
+                    .text_selection_background
+                    .into_option()
+                    .or_else(|| style.colors.selection_background.into_option())
+            })
+            .unwrap_or(fallback)
+    }
+
+    /// The cursor's sheen on material node `node` of `dom`, eased 0..1;
+    /// `None` for a node that draws no built-in material.
+    #[must_use]
+    pub fn material_sheen_of(&self, dom: DomId, node: NodeId) -> Option<f32> {
+        self.material_sheen.surfaces.get(&(dom, node)).map(|s| s.amount)
+    }
+
+    /// Advance the cursor's sheen on every material by `dt_s` seconds (the
+    /// animation clock's step) toward where the cursor is now. Returns
+    /// whether a frame shows something new; the frames render again (a CPU
+    /// window patches them in now; a GPU window at its next frame).
+    pub fn step_material_sheen(&mut self, dt_s: f32) -> bool {
+        let cursor = self.current_window_state.mouse_state.cursor_position.get_position();
+        if !self.material_sheen.step(dt_s, cursor) {
+            return false;
+        }
+        let _ = self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
+        true
     }
 
     /// Handle a window resize by updating the cached layout.
@@ -15613,6 +15999,15 @@ impl LayoutWindow {
                 .any(|node| !self.culled_tracks.contains(node))
             || !self.css_transitions.is_empty()
             || self.zombies.iter().any(|z| !z.tracks.is_empty())
+            || self.material_sheen_in_flight()
+    }
+
+    /// Whether the cursor's sheen on a material is still easing, or the
+    /// cursor moved over a surface that shines: the materials owe a frame.
+    #[must_use]
+    pub fn material_sheen_in_flight(&self) -> bool {
+        self.material_sheen
+            .needs_frame(self.current_window_state.mouse_state.cursor_position.get_position())
     }
 
     /// Refresh [`Self::culled_tracks`]: which live keyframe tracks change
@@ -15835,7 +16230,9 @@ impl LayoutWindow {
     pub fn take_animation_frame_work(&mut self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         let relayout = self.take_transition_relayout();
-        let patched = self.take_transition_patched();
+        // A sheen step patched its material frames into the list (or, in a
+        // GPU window, owes them to the next frame): a repaint shows them.
+        let patched = self.take_transition_patched() | self.material_sheen.take_stepped();
         if relayout {
             ProcessEventResult::ShouldIncrementalRelayout
         } else if patched || self.animation_tick_is_values_only() {
@@ -15859,12 +16256,24 @@ impl LayoutWindow {
     /// would waste a frame, and using the true elapsed idle time would teleport
     /// the animation to its end.
     pub fn tick_animations_now(&mut self) -> bool {
-        if self.animations.is_empty() && !self.has_track_work() {
+        let sheen = self.material_sheen_in_flight();
+        if self.animations.is_empty() && !self.has_track_work() && !sheen {
             self.last_anim_tick = None;
             return false;
         }
         let now = Instant::now();
         let dt = self.animation_step_at(&now);
+        if sheen {
+            self.step_material_sheen(dt);
+        }
+        if self.animations.is_empty() && !self.has_track_work() {
+            self.last_anim_tick = if self.material_sheen_in_flight() {
+                Some(now)
+            } else {
+                None
+            };
+            return self.material_sheen_in_flight();
+        }
         // Tracks parked by a culled stop (`park_culled_tracks`) catch up on
         // the wall time they spent parked, less the step every track takes
         // below: they land on the phase they would have reached running.
@@ -16638,11 +17047,19 @@ impl LayoutWindow {
         {
             return;
         }
+        // The node a node drag moves with the pointer (`update_drag_visual`)
+        // is driven too, by the pointer.
+        let dragged = self
+            .gesture_drag_manager
+            .drag_visual_node
+            .filter(|(dom, _)| *dom == DomId::ROOT_ID)
+            .map(|(_, node)| node);
         let driven: BTreeSet<NodeId> = self
             .animations
             .iter()
             .filter_map(|(key, _)| self.anim_key_to_node.get(&key).copied())
             .chain(self.live_tracks.keys().copied())
+            .chain(dragged)
             .collect();
         if let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) {
             cache
@@ -23943,6 +24360,10 @@ impl LayoutWindow {
         // pure scroll this must be FLAT ZERO - any activity here is the
         // hover-restyle / overscroll rebuild class.
         let _p = crate::probe::Probe::span("dl_regenerate_full");
+        let _light = azul_core::light::LightScope::enter(
+            self.effective_light(),
+            [self.window_desktop_origin().x, self.window_desktop_origin().y],
+        );
 
         // This rebuild is WHOLESALE — the list is regenerated from the current
         // layout tree, it is not a splice of the previous one. The previous
@@ -27049,6 +27470,12 @@ impl LayoutWindow {
             // The window's light, keyed by nothing.
             material_light: _,
             background_frames_generation: _,
+            material_light_is_own: _,
+            app_light: _,
+            app_light_generation: _,
+            // Keyed by the material node: a rebuild that shifts it keeps the
+            // sheen it has, an unmount drops it.
+            material_sheen,
             content_journal,
 
             // --- EXEMPT: not keyed by NodeId ---------------------------------
@@ -27333,6 +27760,7 @@ impl LayoutWindow {
         content_overlay.remap_node_ids(dom, map);
         image_callback_inputs.retain(|(d, _), _| *d != dom);
         background_image_frames.retain(|key, _| key.dom != dom);
+        crate::managers::remap_dom_keys(&mut material_sheen.surfaces, dom, map);
         // The journal's old-image entries are keyed by pre-swap NodeIds and a
         // generation swap repaints everything anyway — drop this DOM's history
         // rather than remapping it.
@@ -27448,28 +27876,7 @@ impl ImageCallbackInputs {
     }
 }
 
-/// The pseudo-state whose custom properties a node in `state` shows to a
-/// render callback: the most specific one it is in - a pressed button is
-/// `:active` before it is `:hover`, a disabled one `:disabled` before all.
-fn custom_property_state(
-    state: &azul_core::styled_dom::StyledNodeState,
-) -> azul_css::dynamic_selector::PseudoStateType {
-    use azul_css::dynamic_selector::PseudoStateType;
-
-    if state.disabled {
-        PseudoStateType::Disabled
-    } else if state.active {
-        PseudoStateType::Active
-    } else if state.focused {
-        PseudoStateType::Focus
-    } else if state.hover {
-        PseudoStateType::Hover
-    } else if state.checked {
-        PseudoStateType::CheckedTrue
-    } else {
-        PseudoStateType::Normal
-    }
-}
+use crate::solver3::getters::custom_property_state;
 
 /// The custom properties `node` sees in its current state (a pointer into
 /// `styled_dom`'s cascade, for [`crate::callbacks::RenderImageCallbackExtras`])
@@ -27495,6 +27902,39 @@ fn node_custom_properties(
     (core::ptr::from_ref(map), hasher.finish())
 }
 
+/// The area whose hover drives the sheen of material node `node`: with
+/// `--azul-sheen-area: <name>` the outermost ancestor-or-self carrying the
+/// same name (custom properties inherit, so the name is set once on the
+/// area), its laid-out rect in window logical px. `None` without the
+/// property - the surface's own rect is its area then.
+fn sheen_area(lw: &LayoutWindow, dom: DomId, styled_dom: &StyledDom, node: NodeId) -> Option<LogicalRect> {
+    let name_of = |n: NodeId| -> Option<String> {
+        let (map, _) = node_custom_properties(styled_dom, n);
+        // SAFETY: the map lives in `styled_dom`, borrowed for this call.
+        unsafe { map.as_ref() }
+            .and_then(|m| m.get("azul-sheen-area"))
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty() && v != "none")
+    };
+    let name = name_of(node)?;
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut top = node;
+    while let Some(parent) = hierarchy
+        .get(top)
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+    {
+        if name_of(parent).as_deref() != Some(name.as_str()) {
+            break;
+        }
+        top = parent;
+    }
+    let r = lw.get_node_bounds(dom, top)?;
+    Some(LogicalRect::new(
+        LogicalPosition::new(r.origin.x as f32, r.origin.y as f32),
+        LogicalSize::new(r.size.width as f32, r.size.height as f32),
+    ))
+}
+
 /// Which background item a frame of a callback image is for
 /// ([`LayoutWindow::background_image_frames`]): the DOM, the node the item
 /// paints (the canvas background's tiles paint none), the declared callback
@@ -27511,15 +27951,29 @@ pub struct BackgroundFrameKey {
 
 /// What a background frame was rendered from besides its key: the scale
 /// factor, the item's corner radii (bit patterns), the window's generation
-/// of lights and explicit updates, and the node's custom properties (a hash
-/// of its map in its current state).
+/// of lights and explicit updates, the node's custom properties and clip
+/// path, the cursor's sheen on it and - where it matters - the window's
+/// place on the desktop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BackgroundFrameInputs {
+    /// The window's scale factor.
     pub hidpi_factor: azul_core::resources::DpiScaleFactor,
+    /// The item's corner radii, bit patterns.
     pub radii_bits: [u32; 4],
     /// [`LayoutWindow::background_frames_generation`] when it rendered.
     pub generation: u64,
+    /// A hash of the node's custom properties in its current state and of
+    /// its clip path.
     pub custom_properties_hash: u64,
+    /// The sheen's amount (1/256 steps, 0 = none) and the cursor in the
+    /// rect (bit patterns): a moving sheen is a new frame.
+    pub sheen_bits: [u32; 3],
+    /// The window's top-left on the desktop (bit patterns) while a point
+    /// light or a reflected wallpaper makes it matter, else zero.
+    pub desktop_bits: [u32; 2],
+    /// How many times the desktop's wallpapers changed: a metal reflects
+    /// the new one.
+    pub environment_generation: u64,
 }
 
 /// A frame of a callback image painted as a background layer, and what it

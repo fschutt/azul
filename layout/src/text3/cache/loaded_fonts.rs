@@ -227,6 +227,13 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
             Self::Ref(r) => r.get_space_width(),
         }
     }
+
+    fn has_gsub_feature(&self, script: Script, tag: [u8; 4]) -> bool {
+        match self {
+            Self::Font(f) => f.has_gsub_feature(script, tag),
+            Self::Ref(r) => r.has_gsub_feature(script, tag),
+        }
+    }
 }
 
 /// Bundles all font-related state that can be shared across layout passes.

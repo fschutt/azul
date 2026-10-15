@@ -5481,6 +5481,10 @@ impl X11Window {
                         .update_unsynced_state(|ws| ws.window_focused = true);
                     self.common.note_focus_gained();
                     self.dynamic_selector_context.window_focused = true;
+                    // A changed wallpaper is read again for the metals.
+                    if crate::desktop::wallpaper::refresh() {
+                        self.request_redraw();
+                    }
                     // The keyboard state is a guess again: everything released
                     // while another window had focus was delivered THERE. The
                     // KeymapNotify that follows this event replaces the guess
@@ -8468,6 +8472,26 @@ impl PlatformWindow for X11Window {
             if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                 if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
                     if w.adopt_app_mode() {
+                        w.request_redraw();
+                    }
+                }
+            }
+        }
+    }
+
+    fn adopt_app_light_in_other_windows(&mut self) {
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.window as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                    let changed = w
+                        .common
+                        .layout_window
+                        .as_mut()
+                        .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+                    if changed {
                         w.request_redraw();
                     }
                 }

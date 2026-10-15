@@ -1,26 +1,31 @@
 //! AzDrive: a file manager on the public azul API that looks and works like
 //! Windows 8's File Explorer, with a Finder window for its body.
 //!
-//! The window is the S5 `BrowserShell` without a title row: Windows 8's
-//! ribbon (`ui_ribbon`: File - a mini backstage in a popup under its tab -,
-//! Home, Share, View; Computer at This PC) whose tab strip is the window's
-//! title bar, over Explorer's address row (round Back / Forward, Recent
-//! locations, Up, the breadcrumb box - a chevron per crumb dropping its
-//! folders, the first crumbs folded into « when the path is long, a click on
-//! its empty part for the typed path - with Refresh at its end, "Search
-//! <folder>"). The window's title is the open place's path. Under it the body
-//! is a Finder window in the app theme (`look`: flora's linen, leaves and
-//! Garamond capitals; Office 2010's silver in flat): the navigation pane is
-//! Finder's source list (`ui_sidebar`: FAVORITES - Quick access, the standard
-//! folders, the pins -, LOCATIONS - This PC and the drives on this computer,
-//! their folders listed when a row opens -, CLOUD - the S3 drives with their
-//! state -, the transfers' activity, + and the actions); the content is a leaf
-//! on the page (This PC's drive tiles, Quick access's pinned folders, or a
-//! folder in one of Explorer's eight layouts - Details by default, the icon
-//! layouts on azul's IconGrid - grouped or not, with check boxes or not) with
-//! Finder's path bar and status line ("N items, N selected, X available") at
-//! its foot; the preview pane OR the details pane at the right, a leaf too.
-//! The Options and About are the backstage (View > Options, File > Help).
+//! The window is the S5 `BrowserShell` without a title row: the ribbon (`ui_ribbon`: File - a
+//! mini backstage in a popup under its tab -, Home, Share, View; Computer at This PC) whose tab
+//! strip is the window's title bar - its tabs are buttons on the leather whose content opens
+//! while a tab is hovered and locks on a double click, and its right end holds the location
+//! tabs' button -, over the address row (round Back / Forward, Recent locations, Up, the
+//! breadcrumb box - a chevron per crumb dropping its folders, the first crumbs folded into «
+//! when the path is long, a click on its empty part for the typed path -, Refresh, "Search
+//! <folder>"). The strip shows no title; the window's title (the open place's path) is what the
+//! system's window list names it by. Under it the body is a Finder window in the app theme
+//! (`look`: flora's linen, leaves and Calmet UI's capitals; Office 2010's silver in flat): the
+//! navigation pane is Finder's source list (`ui_sidebar`: FAVORITES - Quick access, the
+//! standard folders, the pins -, LOCATIONS - This PC and the drives on this computer, their
+//! folders listed when a row opens -, CLOUD - the S3 drives with their state -, and its foot:
+//! + and the gear, and two pies for the sync and the drive's space, `ui_pies`); the content is
+//! a leaf on the page (This PC's drive tiles, Quick access's pinned folders, or a folder in one
+//! of Explorer's eight layouts - Details by default, the icon layouts on azul's IconGrid -
+//! grouped or not, with check boxes or not); the preview pane OR the details pane at the
+//! right, a leaf too. There is no status bar: no path bar, no status line, no item count or
+//! free space anywhere; the pies' popover has the numbers. The Options and About are the
+//! backstage (File > Options, File > About).
+//!
+//! The window has location tabs (`location_tabs`, `ui_tabs`): Ctrl+T opens one on the folder
+//! in view, Ctrl+W closes one, Ctrl+Tab and Ctrl+1..9 switch, the strip's tab button (or
+//! Ctrl+Shift+A) lists them over a scrim. Each keeps its place, history, selection, layout,
+//! search and scroll.
 //!
 //! A folder of any size opens at once (`listing`, `jobs`): its scan reads the
 //! names and kinds with one `read_dir` - no stat per entry - and streams them
@@ -30,13 +35,15 @@
 //! folders among them their item counts (one `read_dir` each) and the pictures
 //! their thumbnails, nothing else.
 //!
-//! The search box searches the open folder and every folder below it (`find`, on azul-search:
-//! ripgrep's parallel walker and searcher, AzCode's find in files' engine too): the names first,
-//! then - the Search tab's "File contents" - the files whose lines hold the text. The results
-//! stream into the view as rows (Details, with their folder and the line they matched on) and
-//! the status line counts them ("Searching... 1,234 found"); every key starts the search again
-//! (the one running stops within milliseconds), Escape closes it. A cloud drive is searched by
-//! name over a recursive listing - slower, and its files are not read.
+//! The search box turns the leaf into the search view (`find`, `rank`, `ui_find`, on
+//! azul-search: ripgrep's parallel walker and searcher, AzCode's find in files' engine too):
+//! where its scope says (this folder, this drive - the default -, all drives) the names first,
+//! then - "File contents", on by default - the files whose lines hold the text. The results
+//! stream in, ranked by BM25 and grouped by their folder, the best folder first, each row with
+//! its name and two lines of its text, the terms marked; the search's bar counts them
+//! ("Searching... 1,234 found"); every key starts the search again (the one running stops
+//! within milliseconds); Escape clears the box, then closes the view. A cloud drive is searched
+//! by name over a recursive listing - slower, and its files are not read.
 //!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
 //! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
@@ -86,7 +93,10 @@
 //! node's HeadBucket count of stored bytes, `-` what it did not say),
 //! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
 //! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
-//! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
+//! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLEARED` (Escape emptied
+//! the box; the search view stays), `AZDRIVE_SEARCH_CLOSED`, `AZDRIVE_SEARCH_SCOPE
+//! Folder|Drive|AllDrives`, `AZDRIVE_TABS <count> <index of the tab showing>`,
+//! `AZDRIVE_TAB_OVERVIEW open|closed`, `AZDRIVE_PIE_ACTION <action>`. Keys,
 //! passwords, tokens and payment pages are never printed.
 //!
 //! Add drive (Home > Add drive, Computer > Add drive, the source list's "Add drive...", the
@@ -111,8 +121,9 @@
 //! Home), the folder's files carry their state (cloud only, downloading, on this device,
 //! pinned, a conflict, an error), cloud-only files are listed and come down when opened,
 //! Share > Sync has Sync now, "Always keep on this device" and "Free up space", the drive's
-//! status line ("Up to date", "Syncing 12 files (340 MB)", "Paused", "Read-only (payment
-//! due)") is in the status bar and on its row in the source list, a conflict asks keep mine /
+//! status ("Up to date", "Syncing 12 files (340 MB)", "Paused", "Read-only (payment due)") is
+//! the sync pie's (its colour, its words, its popover) and on its row in the source list, a
+//! conflict asks keep mine /
 //! take theirs / keep both, Options > Drives > Sync has each drive's settings. A timer polls
 //! every synced drive every `$AZDRIVE_SYNC_POLL` seconds (30 by default). Markers:
 //! `AZDRIVE_SYNC_PAIRED <drive id> <folder>`, `AZDRIVE_SYNC_STARTED <drive id>`,
@@ -206,14 +217,20 @@ mod jobs;
 pub mod keys;
 /// The open folder's listing as it streams in, and the window of it the views build.
 pub mod listing;
+/// The window's location tabs: each keeps its place, history, selection, layout, search, scroll.
+pub mod location_tabs;
 /// The body's looks in flat and flora, by day and at night.
 mod look;
 pub mod model;
+/// The command palette (Cmd+K): what it lists for what was typed.
+pub mod palette;
 mod paper;
 mod pay_words;
 #[cfg(test)]
 mod pay_words_tests;
 pub mod preview;
+/// The search's ranking (BM25) and its grouping by folder.
+pub mod rank;
 mod source_words;
 #[cfg(test)]
 mod source_words_tests;
@@ -225,8 +242,14 @@ mod ui_dialogs;
 /// The search's results in the folder view.
 mod ui_find;
 mod ui_panes;
+/// The navigation pane's two pies (the sync, the drive's space) and their popover.
+mod ui_pies;
 /// Windows 8's ribbon and its File menu.
 mod ui_ribbon;
+/// The location tabs in the window: the keys' commands, the tab overview.
+mod ui_tabs;
+/// Quick Look and the command palette, over the window on a scrim.
+mod ui_overlays;
 /// The navigation pane: Finder's source list.
 mod sync_lookup;
 mod ui_sidebar;
@@ -301,9 +324,8 @@ pub(crate) type TreeKey = (String, String);
 
 /// The content's leaf frame across: the page's padding either side and the leaf's rule.
 const LEAF_FRAME_X: f32 = 2.0 * 8.0 + 2.0;
-/// ... and down, with the leaf's foot: the page's padding, the rule, the path bar (24 px and its
-/// rule) and the status line (22 px and its rule).
-const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0 + 25.0 + 23.0;
+/// ... and down: the page's padding and the rule (the leaf has no foot).
+const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0;
 
 // ==== Drives ====
 
@@ -827,6 +849,23 @@ pub(crate) struct DriveState {
     pub indexes: HashMap<String, find::IndexInfo>,
     /// The item to select once the open folder is listed (Open file location of a result).
     pub select_when_listed: Option<String>,
+    /// Where to scroll the folder view once the open folder is listed: a location tab that
+    /// comes back scrolls to where it was left.
+    pub scroll_when_listed: Option<f32>,
+    /// The window's location tabs: the one showing lives in this state, the others are parked
+    /// there.
+    pub tabs: location_tabs::LocationTabs,
+    /// The tab overview is showing (the strip's tab button, Ctrl+Shift+A).
+    pub tab_overview: bool,
+    /// The search view is open: from the first key typed into the search box until Escape on
+    /// an empty box (or another place). An empty query shows the recent and saved searches.
+    pub search_open: bool,
+    /// Quick Look shows over the window (Space): the selected item's preview, large.
+    pub quick_look: bool,
+    /// Quick Look opens once the open folder is listed (a file the palette found).
+    pub quick_look_when_listed: bool,
+    /// The command palette, while it is open (Cmd+K): what was typed, the hot row.
+    pub palette: Option<ui_overlays::PaletteState>,
     pub editing_path: bool,
     pub renaming: Option<Renaming>,
     pub column_drag: Option<ColumnDrag>,
@@ -999,7 +1038,7 @@ impl DriveState {
     /// The layout the folder view draws: the search's results always in Details (a row each,
     /// with its folder and the line it matched on), else the user's.
     pub fn view_layout(&self) -> model::ViewLayout {
-        if self.find.is_some() {
+        if self.find.is_some() || self.search_open {
             model::ViewLayout::Details
         } else {
             self.settings.layout
@@ -1009,7 +1048,7 @@ impl DriveState {
     /// The grouping the folder view draws: none for the search's results (they come in the
     /// order they were found: names first), else the user's.
     pub fn view_grouping(&self) -> model::GroupBy {
-        if self.find.is_some() {
+        if self.find.is_some() || self.search_open {
             model::GroupBy::None
         } else {
             self.settings.group_by
@@ -1358,23 +1397,44 @@ pub(crate) fn stop_find(s: &mut DriveState) -> bool {
     true
 }
 
+/// The open search's text joins the recent searches when it found something (the empty search
+/// view offers it again). Whether the list changed (the settings are then saved).
+pub(crate) fn remember_open_search(s: &mut DriveState) -> bool {
+    let Some(query) = s
+        .find
+        .as_ref()
+        .filter(|f| !f.rows.is_empty())
+        .map(|f| f.query.clone())
+    else {
+        return false;
+    };
+    let before = s.settings.recent_searches.clone();
+    find::remember_search(&mut s.settings.recent_searches, &query);
+    s.settings.recent_searches != before
+}
+
 /// The search box's text changed, or a setting of the search did: the search running stops and
-/// a new one starts for the open folder - with every folder below it, or ("Current folder") its
-/// own items - as the Search tab says: the names, then the files' contents when "File
-/// contents" is on, the Refine's kinds, sizes and dates; a cloud drive's names over its listing
-/// (slower, no contents); on This PC every drive on this computer, a job each. Its results
-/// stream into the view as rows. An empty box (Escape cleared it) shows the place again and
-/// forgets the Refine. Quick access is not searched.
+/// a new one starts where the scope says (the open folder, its drive from the root, every
+/// drive) - with every folder below it, or ("Current folder") its own items - as the Search tab
+/// says: the names, then the files' contents when "File contents" is on, the Refine's kinds,
+/// sizes and dates; a cloud drive's names over its listing (slower, no contents); every drive
+/// on this computer a job each. Its results stream into the view as rows, ranked and grouped by
+/// folder. An empty box (Escape cleared it) keeps the search view open on the recent and saved
+/// searches; the text searched last joins the recent ones.
 pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    let was_open = stop_find(s);
     let query = s.search.trim().to_string();
+    if query.is_empty() && remember_open_search(s) {
+        save_settings(info, app, s);
+    }
+    let was_open = stop_find(s);
     if query.is_empty() {
         s.refines = find::Refines::default();
         if was_open {
-            println!("AZDRIVE_SEARCH_CLOSED");
+            println!("AZDRIVE_SEARCH_CLEARED");
         }
         return;
     }
+    s.search_open = true;
     let mut options = find::FindOptions {
         contents: s.settings.search_contents && find::searches_contents(&query),
         show_hidden: s.settings.show_hidden,
@@ -1388,11 +1448,17 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     let mut jobs = Vec::new();
     let mut remote = false;
     let mut drive_index = false;
-    if let Some(index) = s.current_drive() {
+    let root = s.settings.search_scope.root(&s.place);
+    let searched = match &root {
+        find::SearchRoot::Folder { drive, prefix } => s
+            .slot_index(drive)
+            .map(|index| (index, prefix.clone())),
+        find::SearchRoot::AllDrives => None,
+    };
+    if let Some((index, prefix)) = searched {
         let Some(drive) = open_slot(s, index) else {
             return;
         };
-        let prefix = s.prefix().to_string();
         match s.local_dir(index, &prefix) {
             Some(dir) => {
                 let ask = if options.contents {
@@ -1443,8 +1509,8 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 });
             }
         }
-    } else if s.place == Place::ThisPc {
-        // This PC: every drive on this computer, from its root; a row's key names its drive.
+    } else if root == find::SearchRoot::AllDrives {
+        // Every drive on this computer, from its root; a row's key names its drive.
         for index in 0..s.slots.len() {
             let Some(root) = s.local_root(index) else {
                 continue;
@@ -1821,6 +1887,12 @@ pub(crate) fn go(
         let leaving = s.place.clone();
         s.history.visit(leaving);
     }
+    // The search being left joins the recent searches.
+    if remember_open_search(s) {
+        save_settings(info, app, s);
+    }
+    s.search_open = false;
+    ui_overlays::close_quick_look(s);
     s.recent.retain(|p| *p != place);
     s.recent.insert(0, place.clone());
     s.recent.truncate(RECENT_PLACES);
@@ -2313,7 +2385,7 @@ fn scanned(
     }
     s.listing_done = true;
     s.loading = false;
-    // The drive answered: its problem leaves the status line.
+    // The drive answered: its problem leaves the sync pie and its popover.
     problems::drive_answered(s);
     if let Some(mut fresh) = s.refreshing.take() {
         // The rows read again show the old sizes and dates until their own stats are in.
@@ -2326,12 +2398,20 @@ fn scanned(
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
     s.selection.retain(&order);
-    // Open file location: the result the folder was opened for is selected, in view.
+    // A location tab that came back: its view where it was left.
+    if let Some(y) = s.scroll_when_listed.take() {
+        ui_view::scroll_view_to(info, s, y);
+    }
+    // Open file location: the result the folder was opened for is selected, in view (and in
+    // Quick Look, for a file the palette found).
     if let Some(key) = s.select_when_listed.take() {
         if s.entries.iter().any(|e| e.key == key) {
             s.selection.set(vec![key.clone()]);
             s.print_selection();
             ui_view::reveal_item(info, s, &key);
+            if std::mem::take(&mut s.quick_look_when_listed) {
+                ui_overlays::toggle_quick_look(info, app, s);
+            }
         }
     }
     if let Place::Folder { drive, prefix } = &s.place {
@@ -2694,9 +2774,10 @@ pub(crate) extern "C" fn on_job_done(
             let Some(find) = s.find.as_mut().filter(|f| f.serial == serial) else {
                 return Update::DoNothing; // an older search, or none open any more
             };
-            find.merge(batch);
+            // How many files were read counts in the ranking (BM25's corpus): before the merge.
             find.phase = phase;
             find.searched = searched;
+            find.merge(batch);
             let mut removed = false;
             if let Some(end) = end {
                 // A cloud drive's results of its last listing that the fresh one has not got.
@@ -2878,8 +2959,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         s.window_width
     };
 
-    // Finder's body under Explorer's ribbon: the source list, the content as a leaf on the
-    // page (its path bar and status line at its foot), the right pane a leaf too.
+    // Finder's body under the ribbon: the source list, the content as a leaf on the page, the
+    // right pane a leaf too.
     let backstage = s.backstage_shown();
     let mut browser = BrowserShell::create(
         chrome(s, &app, width),
@@ -2906,8 +2987,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         );
     }
     // No title row while the ribbon shows - its tabs are the title bar; the backstage (the
-    // Options, About), which has no ribbon, keeps azul's title row to move the window by. The
-    // counts are the leaf's status line (no status bar).
+    // Options, About), which has no ribbon, keeps azul's title row to move the window by. There
+    // is no status bar: the navigation pane's pies say the sync and the space.
     let mut shell =
         shell.with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
     if let Some(page) = backstage {
@@ -2916,9 +2997,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_backstage(ui_dialogs::backstage(s, &app, page));
     }
     let mut body = Dom::create_body()
+        // The design's typeface under flora: Calmet UI everywhere (EB Garamond for what it
+        // lacks), 15 px on 1.3, tabular figures so sizes and dates line up.
         .with_css(
             "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px; \
-             font-family: system:ui; color: system:text;",
+             font-family: system:ui; color: system:text; @theme(flora) { font-family: \
+             \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", Georgia, serif; \
+             font-size: 15px; line-height: 1.3; font-variant-numeric: tabular-nums; }",
         )
         .with_child(
             Dom::create_div()
@@ -2960,6 +3045,17 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 app.clone(),
                 ui_view::on_column_drag_end,
             );
+    }
+    // The location tabs' overview, Quick Look and the command palette over the window, while
+    // they are open.
+    if let Some(overview) = ui_tabs::overview(s, &app) {
+        body.add_child(overview);
+    }
+    if let Some(quick_look) = ui_overlays::quick_look(s, &app, dark) {
+        body.add_child(quick_look);
+    }
+    if let Some(palette) = ui_overlays::palette(s, &app) {
+        body.add_child(palette);
     }
     if let Some(popup) = &s.popup {
         let (title, panel) = ui_dialogs::popup_parts(popup, s, &app);
@@ -3253,6 +3349,8 @@ pub fn start() {
     // A big upload outlives the app: its state file in the cache, resumed by the next upload of
     // the same file to the same drive (azul-storage's multipart).
     azul_storage::multipart::set_resume_folder(cache_dir.as_ref().map(|dir| dir.join("uploads")));
+    // The first location tab, on the place the window opens at.
+    let first_tab = location_tabs::TabState::at(place.clone(), settings.layout);
     let mut state = DriveState {
         slots,
         place,
@@ -3282,6 +3380,13 @@ pub fn start() {
         refines: find::Refines::default(),
         indexes: HashMap::new(),
         select_when_listed: None,
+        scroll_when_listed: None,
+        tabs: location_tabs::LocationTabs::new(first_tab),
+        tab_overview: false,
+        search_open: false,
+        quick_look: false,
+        quick_look_when_listed: false,
+        palette: None,
         editing_path: false,
         renaming: None,
         column_drag: None,
@@ -3359,10 +3464,13 @@ pub fn start() {
     let mut config = azul_appkit::ui::app_config(&state.kit);
     // AzDrive's words, appkit's and the kit's error table for the engine's localization.
     l10n::register(&mut config);
+    // The design's typeface, Calmet UI (regular and italic): the app ships it, not libazul.
+    // Its stack is `azul_fonts_calmet::STACK`.
+    azul_fonts_calmet::register(&mut config);
     let mut window = azul_appkit::ui::window_options(
         &state.kit,
         layout,
-        (1200.0, 760.0),
+        (1280.0, 800.0),
         (640.0, 420.0),
         startup,
     );

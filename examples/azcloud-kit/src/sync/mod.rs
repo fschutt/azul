@@ -96,6 +96,9 @@ pub const HOME_PREFIX: &str = "azlin/config/";
 pub const TOMBSTONE_DAYS: i64 = 90;
 /// How often a run tries again after another device won the race.
 pub const MAX_ATTEMPTS: u32 = 8;
+/// The longest a run waits for a folder to settle ([`SyncOptions::settle`]): a build that
+/// writes all the time is synced as it is after this.
+pub const SETTLE_MAX: Duration = Duration::from_secs(30);
 /// Below this many deletes a plan is never stopped as a mass delete.
 pub const MASS_DELETE_MIN: usize = 10;
 /// The biggest file a sync takes by default: S3's largest object (5 TiB). A big file travels
@@ -123,6 +126,11 @@ pub struct SyncOptions {
     pub dry_run: bool,
     pub max_file_bytes: u64,
     pub tombstone_days: i64,
+    /// A run first waits until nothing in the folder changed for this long (at most
+    /// [`SETTLE_MAX`]): a burst of changes - a checkout, an unzip, a build - goes in one run
+    /// as a whole, in batches, and the burst guard sees all of it. Zero (the default): the run
+    /// starts at once.
+    pub settle: Duration,
 }
 
 impl SyncOptions {
@@ -143,6 +151,7 @@ impl SyncOptions {
             dry_run: false,
             max_file_bytes: MAX_FILE_BYTES,
             tombstone_days: TOMBSTONE_DAYS,
+            settle: Duration::ZERO,
         })
     }
 }
@@ -1723,6 +1732,13 @@ fn run<R: SyncRemote + ?Sized>(
     };
     let mut index = LocalIndex::load(index_path)?
         .unwrap_or_else(|| LocalIndex::new(&root.path, &opts.bucket, &opts.prefix));
+    local::settle(
+        &root.path,
+        &root.rules,
+        opts.settle,
+        SETTLE_MAX,
+        &|| hooks.cancelled(),
+    );
     let scan = local::scan(
         &root.path,
         &root.rules,

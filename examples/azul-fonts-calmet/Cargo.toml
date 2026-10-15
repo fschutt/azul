@@ -1,0 +1,29 @@
+[package]
+name = "azul-fonts-calmet"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = """
+    Calmet UI, the typeface of AzDrive's design, for an app to register at
+    startup (AppConfig::add_font): the regular and the italic, brotli-packed.
+    The app links it, not libazul - the engine bundles only the faces its
+    built-in themes need.
+"""
+publish = false
+
+[dependencies]
+# Already in the tree (azul-layout unpacks its bundled EB Garamond with it, allsorts decodes
+# WOFF2 with it): no new crate. 5.0.3 in Cargo.lock, no build.rs, no proc-macro.
+brotli-decompressor = { version = "5", default-features = false, features = ["std"] }
+# `register` takes the app's AppConfig: the `azul` feature, on the app's own link mode.
+azul = { path = "../../dll", package = "azul-dll", default-features = false, optional = true }
+
+[features]
+default = []
+# `register(&mut AppConfig)` for an app (AzDrive). Without it the crate is the bytes alone,
+# which the engine's own tests take (azul-layout's dev-dependency).
+azul = ["dep:azul", "azul/link-dynamic"]
+
+[lib]
+name = "azul_fonts_calmet"
+path = "src/lib.rs"

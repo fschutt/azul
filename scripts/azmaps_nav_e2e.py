@@ -11,8 +11,8 @@ receiver, the cache without a network, a Google Takeout import.
               azul's headless speech log AZ_SPEECH), the car takes its wrong turn, one new route
               is asked for and followed (AZMAPS_REROUTE, AZMAPS_REROUTED 1), the car arrives;
               no position update rebuilds the window (AZMAPS_LAYOUT between the AZMAPS_NAV
-              lines, AZMAPS_STATS=1): the map follows the car and the banner counts down in
-              place.
+              lines, AZMAPS_STATS=1) but the one with a new maneuver: the map follows the car
+              and the banner counts down in place.
     replay    the same kind of route driven by an NMEA replay (--gps replay:<fixture>
               --replay-speed 10): fixes (AZMAPS_GPS) with their quality, the guidance counting
               down, arrival.
@@ -122,17 +122,22 @@ NAV_EVENTS = ("AZMAPS_REROUTE", "AZMAPS_REROUTED", "AZMAPS_REROUTE_FAILED", "AZM
 def rebuilds_per_position(out_path):
     """The window rebuilds (AZMAPS_LAYOUT, printed with AZMAPS_STATS) after each position update
     (AZMAPS_NAV) up to the next one, for the updates that came with no navigation event: a list
-    of (update number, rebuilds). The first update is left out, it follows the start's rebuild."""
+    of (update number, rebuilds). The first update is left out, it follows the start's rebuild.
+    A new maneuver is an event too: the banner's arrow is an icon node, drawn anew."""
     with open(out_path, "r", encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
     spans = []
     current = None
+    step = None
     for line in lines:
         key = line.split(" ", 1)[0]
         if key == "AZMAPS_NAV":
             if current is not None:
                 spans.append(current)
-            current = {"n": len(spans) + 1, "layouts": 0, "event": False}
+            fields = line.split()
+            new_step = fields[1] if len(fields) > 1 else None
+            current = {"n": len(spans) + 1, "layouts": 0, "event": new_step != step}
+            step = new_step
         elif current is not None and key == "AZMAPS_LAYOUT":
             current["layouts"] += 1
         elif current is not None and key in NAV_EVENTS:

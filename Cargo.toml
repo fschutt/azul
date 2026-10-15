@@ -24,6 +24,7 @@ members = [
     "examples/azul-shells", # AzShells: the eleven app shells (S1..S11) with placeholder content, a picker, the headless E2E
     "examples/azul-appkit", # azul-appkit: the shared app skeleton (switches, data layout, settings, shortcuts, About, file jobs)
     "examples/azul-icons-haiku", # azul-icons-haiku: Haiku's icons (HVIF, MIT) under Material names, the flora theme's icon pack (azul-appkit registers it)
+    "examples/azul-fonts-calmet", # azul-fonts-calmet: Calmet UI, AzDrive's typeface, for an app to register at startup (AppConfig::add_font); linked by the app, not libazul
     "examples/azul-calculator", # AzCalculator: Standard / Scientific / Programmer / Date / Convert on the S9 UtilityShell (azul-appkit)
     "examples/azul-contacts", # AzContacts: the address book on the S4 PimShell, one contacts/<uuid>.vcf per contact (azul-appkit)
     "examples/azul-contacts-core", # azul-contacts-core: AzContacts' address book without azul types (vCard, the contact, the files), shared with the Azlin Bridge's CardDAV

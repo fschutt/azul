@@ -593,6 +593,10 @@ minisign = "0.9"
 accesskit = "0.24"
 accesskit_consumer = "0.38"
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
+# Calmet UI's bytes, TESTS ONLY (the shaping, small-caps, line-clamp and fallback tests are
+# measured on it): an app's typeface, registered the way an app registers it, never part of
+# the library. The bytes alone - no `azul` feature, no libazul.
+azul-fonts-calmet = { path = "../examples/azul-fonts-calmet" }
 
 [[bench]]
 name = "fast_dom_bench"

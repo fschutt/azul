@@ -376,6 +376,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // below.
     let mut atomic_line_box_top = f32::MAX;
     let mut atomic_line_box_bottom = f32::MIN;
+    // Whether `line-clamp` stopped the lines with content left over: the
+    // last line kept then ends in an ellipsis (`OverflowInfo::line_clamped`).
+    let mut line_clamped = false;
     'column_loop: while current_column < column_count {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -441,6 +444,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
             if let Some(clamp) = fragment_constraints.line_clamp {
                 if line_index >= clamp.get() {
+                    line_clamped = true;
                     break;
                 }
             }
@@ -748,7 +752,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     let mut layout = UnifiedLayout {
         items: positioned_items,
-        overflow: OverflowInfo::default(),
+        overflow: OverflowInfo {
+            line_clamped,
+            ..OverflowInfo::default()
+        },
     };
 
     // Calculate bounds on demand via the bounds() method

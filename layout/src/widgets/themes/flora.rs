@@ -1064,6 +1064,365 @@ pub(crate) fn leaf_edge() -> Vec<CssPropertyWithConditions> {
     props
 }
 
+// ==== commands on the leather ====
+//
+// The leather area (the tab strip and the ribbon's band under it) is one
+// surface, and the commands on it keep flora's faces but let about an eighth
+// of the grain through (86%), never over their words. Every enabled command
+// wears a 1px gold edge, lighter on top and darker at its foot, so the eye
+// finds what can be clicked without hovering; under the pointer the gold
+// brightens. A disabled command keeps the raised pill (lip, foot, cast) in a
+// quieter face with a neutral edge and grey words. A command that is toggled
+// on is recessed into a frosted panel in the accent's tint and keeps its
+// gold; the controls that are not commands (a gallery, a check box) are
+// frosted recessed panels too. Round buttons never take the gold.
+
+/// The plain face on leather, top and bottom (`--lf-t`, `--lf-b`).
+const LEATHER_FACE_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(250, 249, 245, 219), ColorU::new(236, 234, 228, 219));
+const LEATHER_FACE_DARK: (ColorU, ColorU) =
+    (ColorU::new(51, 51, 51, 219), ColorU::new(41, 41, 41, 219));
+/// The plain face on leather under the pointer (`--lf-ht`, `--lf-hb`, 90%).
+const LEATHER_HOVER_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(253, 252, 249, 230), ColorU::new(242, 240, 235, 230));
+const LEATHER_HOVER_DARK: (ColorU, ColorU) =
+    (ColorU::new(58, 58, 58, 230), ColorU::new(47, 47, 47, 230));
+/// The plain face on leather pressed in (`--lf-pt`, `--lf-pb`).
+const LEATHER_PRESSED_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(226, 223, 215, 230), ColorU::new(236, 234, 228, 230));
+const LEATHER_PRESSED_DARK: (ColorU, ColorU) =
+    (ColorU::new(30, 30, 30, 230), ColorU::new(38, 38, 38, 230));
+/// A disabled command's face on leather (`--lf-qt`, `--lf-qb`, 80%).
+const QUIET_FACE_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(248, 247, 243, 204), ColorU::new(234, 232, 226, 204));
+const QUIET_FACE_DARK: (ColorU, ColorU) =
+    (ColorU::new(46, 46, 46, 204), ColorU::new(37, 37, 37, 204));
+/// A disabled command's neutral edge (`--quiet-bd`).
+const QUIET_EDGE_LIGHT: ColorU = ColorU::new(150, 144, 130, 115);
+const QUIET_EDGE_DARK: ColorU = ColorU::new(90, 90, 90, 179);
+
+/// The gold edge of an enabled command: top, right, bottom, left
+/// (`--gold-edge`), lighter on top where the light falls.
+const GOLD_EDGE_LIGHT: [ColorU; 4] = [
+    ColorU::rgb(0xDC, 0xC1, 0x7C),
+    ColorU::rgb(0xC2, 0xA5, 0x5C),
+    ColorU::rgb(0xA3, 0x87, 0x3F),
+    ColorU::rgb(0xC2, 0xA5, 0x5C),
+];
+const GOLD_EDGE_DARK: [ColorU; 4] = [
+    ColorU::rgb(0xCD, 0xB2, 0x6C),
+    ColorU::rgb(0xA8, 0x8F, 0x50),
+    ColorU::rgb(0x85, 0x70, 0x3A),
+    ColorU::rgb(0xA8, 0x8F, 0x50),
+];
+/// The gold edge under the pointer (`--gold-edge-hover`).
+const GOLD_EDGE_HOVER_LIGHT: [ColorU; 4] = [
+    ColorU::rgb(0xE8, 0xCF, 0x8C),
+    ColorU::rgb(0xCD, 0xB1, 0x68),
+    ColorU::rgb(0xAD, 0x90, 0x47),
+    ColorU::rgb(0xCD, 0xB1, 0x68),
+];
+const GOLD_EDGE_HOVER_DARK: [ColorU; 4] = [
+    ColorU::rgb(0xDC, 0xC2, 0x7C),
+    ColorU::rgb(0xB7, 0x9D, 0x5C),
+    ColorU::rgb(0x92, 0x7B, 0x42),
+    ColorU::rgb(0xB7, 0x9D, 0x5C),
+];
+
+/// A frosted panel's face, top and bottom (`--frost-t`, `--frost-b`, 90%).
+const FROST_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(251, 250, 247, 230), ColorU::new(243, 241, 236, 230));
+const FROST_DARK: (ColorU, ColorU) = (ColorU::new(40, 40, 40, 230), ColorU::new(34, 34, 34, 230));
+/// A frosted panel's rim (`--frost-bd`).
+const FROST_EDGE_LIGHT: ColorU = ColorU::new(120, 108, 80, 71);
+const FROST_EDGE_DARK: ColorU = ColorU::new(0, 0, 0, 115);
+/// The shadow along a frosted panel's top (`--frost-well`).
+const FROST_WELL_LIGHT: ColorU = ColorU::new(48, 40, 25, 41);
+const FROST_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 128);
+/// A toggled command's frost in the accent's tint (`--frost-on-t`,
+/// `--frost-on-b`, 92%).
+const FROST_ON_LIGHT: (ColorU, ColorU) =
+    (ColorU::new(226, 230, 240, 235), ColorU::new(216, 222, 234, 235));
+const FROST_ON_DARK: (ColorU, ColorU) =
+    (ColorU::new(46, 60, 88, 235), ColorU::new(38, 50, 76, 235));
+/// The shadow a toggled command is recessed by (`inset 0 1px 3px`).
+const FROST_ON_WELL_LIGHT: ColorU = ColorU::new(30, 40, 70, 56);
+const FROST_ON_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 140);
+
+/// A face as one gradient layer, top to bottom.
+fn face_layer((top, bottom): (ColorU, ColorU)) -> Vec<StyleBackgroundContent> {
+    alloc::vec![super::decl::face(top, bottom)]
+}
+
+/// Four edge colours, top, right, bottom, left, with their night twins,
+/// in `state` (resting, or one pseudo-state).
+fn edges_in(
+    light: [ColorU; 4],
+    dark: [ColorU; 4],
+    on_hover: bool,
+) -> Vec<CssPropertyWithConditions> {
+    type P = CssPropertyWithConditions;
+    let props = |c: [ColorU; 4]| {
+        [
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: c[0] }),
+            CssProperty::const_border_right_color(StyleBorderRightColor { inner: c[1] }),
+            CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: c[2] }),
+            CssProperty::const_border_left_color(StyleBorderLeftColor { inner: c[3] }),
+        ]
+    };
+    let mut v = Vec::with_capacity(8);
+    for (l, d) in props(light).into_iter().zip(props(dark)) {
+        v.extend(if on_hover { P::themed_on_hover(l, d) } else { P::themed(l, d) });
+    }
+    v
+}
+
+/// The 1px gold edge of an enabled command, at rest and brighter under the
+/// pointer. Appended after a command's whole style, so it wins its border.
+#[must_use]
+pub(crate) fn gold_edge() -> Vec<CssPropertyWithConditions> {
+    let mut v = edges_in(GOLD_EDGE_LIGHT, GOLD_EDGE_DARK, false);
+    v.extend(edges_in(GOLD_EDGE_HOVER_LIGHT, GOLD_EDGE_HOVER_DARK, true));
+    v
+}
+
+/// A plain command's faces on leather: resting, hovered and pressed, each
+/// translucent so a little grain shows. Appended after the command's own
+/// style; its depth (lip, foot, cast, the pressed well) stays the command's.
+#[must_use]
+pub(crate) fn leather_faces() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(6);
+    v.extend(decl::themed_layers(face_layer(LEATHER_FACE_LIGHT), face_layer(LEATHER_FACE_DARK)));
+    v.extend(decl::hover_layers(face_layer(LEATHER_HOVER_LIGHT), face_layer(LEATHER_HOVER_DARK)));
+    v.extend(decl::active_layers(
+        face_layer(LEATHER_PRESSED_LIGHT),
+        face_layer(LEATHER_PRESSED_DARK),
+    ));
+    v
+}
+
+/// An enabled plain command on leather: its leather faces and the gold edge.
+#[must_use]
+pub(crate) fn leather_command() -> Vec<CssPropertyWithConditions> {
+    let mut v = leather_faces();
+    v.extend(gold_edge());
+    v
+}
+
+/// A disabled command on leather: still the raised pill (lip, foot, cast)
+/// in the quiet face, a neutral edge, grey words, and the same face under
+/// the pointer and pressed (it does nothing).
+#[must_use]
+pub(crate) fn quiet_command() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(24);
+    let quiet = || (face_layer(QUIET_FACE_LIGHT), face_layer(QUIET_FACE_DARK));
+    let (l, d) = quiet();
+    v.extend(decl::themed_layers(l, d));
+    let (l, d) = quiet();
+    v.extend(decl::hover_layers(l, d));
+    let (l, d) = quiet();
+    v.extend(decl::active_layers(l, d));
+    let edge = |c: ColorU| [c, c, c, c];
+    v.extend(edges_in(edge(QUIET_EDGE_LIGHT), edge(QUIET_EDGE_DARK), false));
+    v.extend(edges_in(edge(QUIET_EDGE_LIGHT), edge(QUIET_EDGE_DARK), true));
+    v.extend(decl::themed_ink(LIGHT_DISTX, DARK_DISTX));
+    v.extend(raised_depth());
+    v
+}
+
+/// A frosted recessed panel: the frost, its rim and a shadow along its
+/// top, the raised depth taken away. `on` tints it with the accent (a
+/// toggled command, a picked gallery cell).
+#[must_use]
+pub(crate) fn frosted(on: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(16);
+    let (face_light, face_dark, well_light, well_dark, blur) = if on {
+        (FROST_ON_LIGHT, FROST_ON_DARK, FROST_ON_WELL_LIGHT, FROST_ON_WELL_DARK, 3)
+    } else {
+        (FROST_LIGHT, FROST_DARK, FROST_WELL_LIGHT, FROST_WELL_DARK, 2)
+    };
+    v.extend(decl::themed_layers(face_layer(face_light), face_layer(face_dark)));
+    if !on {
+        v.extend(decl::themed_border_color(FROST_EDGE_LIGHT, FROST_EDGE_DARK));
+    }
+    v.extend(themed_shadow_in(ShadowSlot::Top, (1, blur, 0), well_light, well_dark, true));
+    v.push(CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Right)));
+    v.push(CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Bottom)));
+    v
+}
+
+/// A check box's row on the leather (the box and its label): a frosted
+/// recessed panel one small command tall, a shade lighter under the
+/// pointer.
+#[must_use]
+pub(crate) fn check_panel() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let mut v = alloc::vec![
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(22))),
+    ];
+    v.extend(decl::padding(0, 8, 0, 6));
+    v.extend(decl::radius(3));
+    v.extend(decl::border(1));
+    v.extend(frosted(false));
+    v.extend(decl::hover_layers(
+        face_layer((ColorU::new(255, 255, 255, 242), ColorU::new(248, 247, 243, 242))),
+        face_layer((ColorU::new(50, 50, 50, 235), ColorU::new(42, 42, 42, 235))),
+    ));
+    v
+}
+
+/// A small button at the end of the tab row (the chevron, the location
+/// tabs' button): 24 x 20, the house radius, the leather face in the
+/// hairline of a plain button, raised, never gold.
+#[must_use]
+pub(crate) fn strip_button() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let mut v = alloc::vec![
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+        P::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(24))),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(20))),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        decl::font_size(18),
+    ];
+    v.extend(decl::radius(3));
+    v.extend(decl::border(1));
+    v.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    v.extend(leather_faces());
+    v.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
+    v.extend(raised_depth());
+    v.extend(pressed_depth());
+    v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
+    v.extend(double_ring(0));
+    v
+}
+
+/// The seam between two of the ribbon's groups, pressed into the leather:
+/// 1px of shade and 1px of light along a group's right edge (by night the
+/// shade deeper and the light fainter).
+fn seam(dark_line: ColorU, light_line: ColorU) -> StyleBackgroundContent {
+    let stops = alloc::vec![
+        stop_after(100, -2, ColorU::TRANSPARENT),
+        stop_after(100, -2, dark_line),
+        stop_after(100, -1, dark_line),
+        stop_after(100, -1, light_line),
+        stop_after(100, 0, light_line),
+    ];
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(90),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(stops),
+    })
+}
+
+/// Words pressed into the leather (the group titles): a 1px highlight on
+/// the side away from the light (the sun at the top right), by night a
+/// shade toward it.
+fn pressed_text() -> [CssPropertyWithConditions; 2] {
+    let shadow = |x: f32, y: f32, color: ColorU| {
+        CssProperty::TextShadow(azul_css::css::CssPropertyValue::Exact(BoxOrStatic::heap(
+            StyleBoxShadow {
+                offset_x: PixelValueNoPercent { inner: PixelValue::px(x) },
+                offset_y: PixelValueNoPercent { inner: PixelValue::px(y) },
+                blur_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                clip_mode: BoxShadowClipMode::Outset,
+                color,
+            },
+        )))
+    };
+    CssPropertyWithConditions::themed(
+        shadow(-0.5, 0.87, ColorU::new(255, 255, 255, 158)),
+        shadow(0.3, -0.52, ColorU::new(0, 0, 0, 140)),
+    )
+}
+
+/// `slot` with `extra` appended (the slot's own declarations first, so
+/// `extra` wins where they meet).
+fn append_part(
+    slot: &mut azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec,
+    extra: Vec<CssPropertyWithConditions>,
+) {
+    let mut v: Vec<CssPropertyWithConditions> =
+        slot.as_ref().map(|x| x.as_ref().to_vec()).unwrap_or_default();
+    v.extend(extra);
+    *slot = azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+        CssPropertyWithConditionsVec::from_vec(v),
+    );
+}
+
+/// Flora's ribbon band on the leather (`TabStyle::Pills`): laid over the
+/// parts [`ribbon_style`] filled. Every command wears the plain button's
+/// raised face on the leather with the gold edge, 4px from the next and
+/// 3px between rows; a toggled one is recessed into the accent's frost; the
+/// gallery is a frosted panel; the groups are parted by seams and their
+/// titles pressed in. A disabled command takes [`quiet_command`] where the
+/// ribbon builds it.
+#[must_use]
+pub(crate) fn ribbon_leather_style(
+    mut s: crate::widgets::ribbon::RibbonStyle,
+) -> crate::widgets::ribbon::RibbonStyle {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let command = || {
+        let mut v = leather_command();
+        v.extend(raised_depth());
+        v.extend(pressed_depth());
+        v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
+        v.extend(double_ring(0));
+        v
+    };
+    append_part(&mut s.large_button_style, command());
+    append_part(&mut s.small_button_style, command());
+    let mut on = frosted(true);
+    on.extend(gold_edge());
+    append_part(&mut s.checked_style, on);
+    let mut gallery = frosted(false);
+    gallery.extend(decl::radius(3));
+    append_part(&mut s.gallery_frame_style, gallery);
+    append_part(&mut s.gallery_cell_selected_style, frosted(true));
+    append_part(
+        &mut s.group_items_style,
+        alloc::vec![P::simple(CssProperty::ColumnGap(
+            azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
+                inner: PixelValue::const_px(4),
+            }),
+        ))],
+    );
+    append_part(
+        &mut s.column_style,
+        alloc::vec![P::simple(CssProperty::RowGap(
+            azul_css::props::property::LayoutRowGapValue::Exact(LayoutRowGap {
+                inner: PixelValue::const_px(3),
+            }),
+        ))],
+    );
+    let mut group = alloc::vec![P::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(0),
+    ))];
+    group.extend(decl::padding(0, 6, 0, 6));
+    group.extend(decl::themed_layers(
+        alloc::vec![seam(ColorU::new(40, 30, 15, 20), ColorU::new(255, 255, 255, 77))],
+        alloc::vec![seam(ColorU::new(0, 0, 0, 102), ColorU::new(255, 255, 255, 10))],
+    ));
+    append_part(&mut s.group_style, group);
+    append_part(&mut s.group_label_style, pressed_text().to_vec());
+    s
+}
+
 const EB_GARAMOND_STR: AzString = AzString::from_const_str("EB Garamond");
 const GEORGIA_STR: AzString = AzString::from_const_str("Georgia");
 const SERIF_STR: AzString = AzString::from_const_str("serif");
@@ -1087,6 +1446,26 @@ pub(crate) const CAPS_COMMAND: (isize, f32) = (11, 0.07);
 pub(crate) const CAPS_TITLE: (isize, f32) = (11, 0.12);
 /// A field's label over it (the specimen's 11.5px small capitals): .1em.
 pub(crate) const CAPS_LABEL: (isize, f32) = (10, 0.1);
+
+/// A tab button's capitals (the selected tab and its neighbours in a
+/// `TabStyle::Pills` row): 11.5px, tracked .08em.
+pub(crate) const TAB_BUTTON_CAPS: (f32, f32) = (11.5, 0.08);
+
+/// A tab button's label: [`TAB_BUTTON_CAPS`] in the UI hand, bold,
+/// uppercase, on a 1.25 line.
+#[must_use]
+pub(crate) fn tab_button_caps() -> Vec<CssPropertyWithConditions> {
+    let (px, em) = TAB_BUTTON_CAPS;
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::px(px))),
+        super::decl::bold(),
+        CssPropertyWithConditions::simple(CssProperty::TextTransform(
+            StyleTextTransform::Uppercase.into(),
+        )),
+        super::decl::letter_spacing_em(em),
+    ]
+}
 
 /// A label in flora's capitals, `(px, em)` one of the `CAPS_*` sizes: EB
 /// Garamond, bold, uppercase, tracked out.
@@ -6257,9 +6636,11 @@ pub(crate) fn ribbon_style(
     let e = s.resolved_app_button_style();
     chrome_part(&mut s.app_button_style, &e, australis::app_button);
     let e = s.resolved_tab_style();
-    chrome_part(&mut s.tab_style, &e, |v| australis::tab(v, true));
+    chrome_part(&mut s.tab_style, &e, |v| australis::tab(v, true, CURVED_TABS));
     let e = s.resolved_tab_active_style();
-    chrome_part(&mut s.tab_active_style, &e, |v| australis::selected(v, true));
+    chrome_part(&mut s.tab_active_style, &e, |v| {
+        australis::selected(v, true, CURVED_TABS);
+    });
     // The rule is the strip's own (an inset line under every tab): the
     // filler draws no foot of its own.
     let e = s.resolved_tab_filler_style();
@@ -6975,23 +7356,47 @@ pub const TAB_HEIGHT: isize = 28;
 pub const TAB_GAUGE: isize = 2;
 /// The air above the tabs in a flora tab row, in px.
 pub const TAB_AIR: isize = 4;
-/// A tab's room beside its label, its 1px hairline included: flora.css's
-/// `.nav-links a { padding: 3px 12px 4px }`.
-pub const TAB_SIDE: isize = 12;
-/// The space between two tabs, flora.css's `.nav-links { gap: 8px }`. A
-/// selected tab's curve hangs a curve's width past its box, over the gap and
-/// the neighbour's side: the two hold its foot off the neighbour's label.
-pub const TAB_GAP: isize = 8;
 /// How far a selected tab's curve hangs past its box, in px.
 const TAB_CURVE: isize = crate::widgets::tabs::CURVE_WIDTH as isize;
-const _: () = assert!(TAB_GAP + TAB_SIDE >= TAB_CURVE);
 
-/// `column-gap: TAB_GAP`, on the row that holds the tabs.
-fn tab_gap() -> CssPropertyWithConditions {
+/// How a tab row is spaced, in px: the room beside each label (a tab's 1px
+/// hairline included), the gap between two tabs and the room before the
+/// first one. Each shape has its own, because only a row that hangs curves
+/// needs room for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TabSpacing {
+    /// Between a tab's edge and its label.
+    pub(crate) side: isize,
+    /// Between one tab and the next.
+    pub(crate) gap: isize,
+    /// Before the first tab, where its left curve lands.
+    pub(crate) lead: isize,
+}
+
+/// A row whose tabs hang S curves (Aurora, the ribbon's row): every S lies
+/// in a gap of its own width, which the two tabs beside it share as
+/// Firefox's tabs overlap, and keeps 8px off the labels on both sides.
+pub(crate) const CURVED_TABS: TabSpacing = TabSpacing {
+    side: 8,
+    gap: TAB_CURVE,
+    lead: TAB_CURVE,
+};
+const _: () = assert!(CURVED_TABS.gap >= TAB_CURVE && CURVED_TABS.lead >= TAB_CURVE);
+
+/// A row of square tabs: nothing hangs past a tab, so the tabs stand close
+/// and the first one at the strip's edge.
+pub(crate) const SQUARE_TABS: TabSpacing = TabSpacing {
+    side: 12,
+    gap: 2,
+    lead: 0,
+};
+
+/// `column-gap: <gap>px`, on the row that holds the tabs.
+fn tab_gap(gap: isize) -> CssPropertyWithConditions {
     CssPropertyWithConditions::simple(CssProperty::ColumnGap(
         azul_css::props::property::LayoutColumnGapValue::Exact(
             azul_css::props::layout::LayoutColumnGap {
-                inner: PixelValue::const_px(TAB_GAP),
+                inner: PixelValue::const_px(gap),
             },
         ),
     ))
@@ -7048,23 +7453,29 @@ pub const TAB_STREAK_HOVER: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(TAB_STREAK_HOVER_STOPS),
     });
 
+/// The size of a tab label's capitals, in px.
+const TAB_CAPS_PX: isize = 12;
+/// How far a tab label's capitals are tracked out, in em.
+const TAB_CAPS_TRACK: f32 = 0.08;
+
 /// A tab's label in flora: the UI hand's capitals, tracked out - flora.css's
 /// `.nav-links a` (17px all-small-caps at 700, 0.07em) set as true capitals of
 /// the same height.
 fn tab_caps(v: &mut Vec<CssPropertyWithConditions>) {
     use super::decl;
     v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)));
-    v.push(decl::font_size(12));
+    v.push(decl::font_size(TAB_CAPS_PX));
     v.push(decl::semibold());
-    v.push(decl::letter_spacing_em(0.08));
+    v.push(decl::letter_spacing_em(TAB_CAPS_TRACK));
     v.push(CssPropertyWithConditions::simple(CssProperty::TextTransform(
         StyleTextTransformValue::Exact(StyleTextTransform::Uppercase),
     )));
 }
 
-/// A tab's box in a flora tab row: `TAB_SIDE` beside the label and no
-/// margins but the selected tab's foot (the row spaces its tabs by
-/// `TAB_GAP`). The SELECTED tab is the full
+/// A tab's box in a flora tab row: `spacing.side` beside the label (on the
+/// right less the tracking the capitals carry after their last letter) and
+/// no margins but the selected tab's foot (the row spaces its tabs by
+/// `spacing.gap`). The SELECTED tab is the full
 /// `TAB_HEIGHT`, a transparent `--fl-metal` head the rolled metal shows
 /// through and no other border (`position: relative` carries its curves,
 /// `z-index` keeps a neighbour's hover face off them); it reaches a gauge
@@ -7078,7 +7489,12 @@ fn tab_caps(v: &mut Vec<CssPropertyWithConditions>) {
 /// box's height, so it is centred in either box model; `border_box` says
 /// which one the tab's base declares (the ribbon's tabs size their border
 /// box, the tab bar's their content).
-fn australis_tab_box(v: &mut Vec<CssPropertyWithConditions>, selected: bool, border_box: bool) {
+fn australis_tab_box(
+    v: &mut Vec<CssPropertyWithConditions>,
+    selected: bool,
+    border_box: bool,
+    spacing: TabSpacing,
+) {
     use super::decl;
     type P = CssPropertyWithConditions;
     let g = TAB_GAUGE;
@@ -7095,7 +7511,12 @@ fn australis_tab_box(v: &mut Vec<CssPropertyWithConditions>, selected: bool, bor
         PixelValue::const_px(line),
     ))));
     v.extend(decl::margin(0, 0, foot, 0));
-    v.extend(decl::padding(pad_top, TAB_SIDE - side, pad_bottom, TAB_SIDE - side));
+    v.extend(decl::padding(pad_top, spacing.side - side, pad_bottom, spacing.side - side));
+    #[allow(clippy::cast_precision_loss)] // a few px
+    let right = (spacing.side - side) as f32;
+    #[allow(clippy::cast_precision_loss)]
+    let tracking = decl::trailing_tracking_px(TAB_CAPS_PX as f32, TAB_CAPS_TRACK);
+    v.push(decl::px_padding_right(right - tracking));
     v.extend([
         P::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(head))),
         P::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(side))),
@@ -7288,16 +7709,18 @@ pub(crate) fn unselected_tab_curves() -> crate::widgets::tabs::TabCurveLook {
 /// the Australis metrics and paint laid on it. Shared by the ribbon's tab row
 /// and the tab bar.
 pub(crate) mod australis {
-    use super::{CssPropertyWithConditions, TAB_AIR, TAB_CURVE, tab_gap, TAB_STREAK, TAB_STREAK_HOVER, CssProperty, LayoutHeight, TAB_HEIGHT, tab_rule_foot, over_metal, RULE_METAL, StyleBackgroundContent, LIGHT_STRIP, DARK_STRIP, over_metal_clips, australis_tab_box, tab_caps, LIGHT_SOFT1, DARK_SOFT1, ColorU, HOVER_FACE_LIGHT, HOVER_FACE_DARK, LIGHT_INK, DARK_INK, LIGHT_BD, DARK_BD, PRESSED_FACE_LIGHT, PRESSED_FACE_DARK, LIGHT_BD3, DARK_BD3, shadow_in, ShadowSlot, TAB_PRESS_SHADOW, flora_fade, FLORA_FACE, FL_DUR_MS, australis_face, ROLLED_TAB, LIGHT_ON_ACC, StyleBorderTopColor, stone_light_fade, stone_face, LIGHT_ACC, sunken_stone_face, LIGHT_DEEP, FL_DUR_SLOW_MS};
+    use super::{CssPropertyWithConditions, TAB_AIR, CURVED_TABS, TabSpacing, tab_gap, TAB_STREAK, TAB_STREAK_HOVER, CssProperty, LayoutHeight, TAB_HEIGHT, tab_rule_foot, over_metal, RULE_METAL, StyleBackgroundContent, LIGHT_STRIP, DARK_STRIP, over_metal_clips, australis_tab_box, tab_caps, LIGHT_SOFT1, DARK_SOFT1, ColorU, HOVER_FACE_LIGHT, HOVER_FACE_DARK, LIGHT_INK, DARK_INK, LIGHT_BD, DARK_BD, PRESSED_FACE_LIGHT, PRESSED_FACE_DARK, LIGHT_BD3, DARK_BD3, shadow_in, ShadowSlot, TAB_PRESS_SHADOW, flora_fade, FLORA_FACE, FL_DUR_MS, australis_face, ROLLED_TAB, LIGHT_ON_ACC, StyleBorderTopColor, stone_light_fade, stone_face, LIGHT_ACC, sunken_stone_face, LIGHT_DEEP, FL_DUR_SLOW_MS};
 
     /// The strip: air above the tabs, room before the first one for its
-    /// curve and `TAB_GAP` between them, the strip's paper on its padding
-    /// box, and the rule - the website's travelling metal, along the whole
-    /// strip - through its transparent foot.
+    /// curve and a curve's width between them (the ribbon's application
+    /// button and selected tab hang curves, so its row is spaced as Aurora),
+    /// the strip's paper on its padding box, and the rule - the website's
+    /// travelling metal, along the whole strip - through its transparent
+    /// foot.
     pub(crate) fn strip(v: &mut Vec<CssPropertyWithConditions>) {
         use super::super::decl;
-        v.extend(decl::padding(TAB_AIR, 0, 0, TAB_CURVE));
-        v.push(tab_gap());
+        v.extend(decl::padding(TAB_AIR, 0, 0, CURVED_TABS.lead));
+        v.push(tab_gap(CURVED_TABS.gap));
         v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
             LayoutHeight::const_px(TAB_AIR + TAB_HEIGHT),
         )));
@@ -7314,10 +7737,10 @@ pub(crate) mod australis {
     /// hairline and the house ink, held the pressed face in a `--fl-bd3`
     /// hairline over its well (`.nav-links a:hover` / `:active`) - every
     /// change over `--fl-dur` on `--fl-ease`, a press in `--fl-dur-fast`.
-    pub(crate) fn tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
+    pub(crate) fn tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool, spacing: TabSpacing) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
-        australis_tab_box(v, false, border_box);
+        australis_tab_box(v, false, border_box, spacing);
         tab_caps(v);
         v.extend(decl::radius_corners(4, 4, 0, 0));
         v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
@@ -7355,7 +7778,7 @@ pub(crate) mod australis {
     pub(crate) fn aurora_tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
-        australis_tab_box(v, false, border_box);
+        australis_tab_box(v, false, border_box, CURVED_TABS);
         tab_caps(v);
         // The curves hang off its box, and stand under the selected tab's.
         v.push(decl::position(azul_css::props::layout::LayoutPosition::Relative));
@@ -7393,10 +7816,14 @@ pub(crate) mod australis {
     /// transparent head (its sides are its curves, `tab_curves`) - and the
     /// light moving across the stone under the pointer at the shafts' pace.
     /// Its own colour in both modes.
-    pub(crate) fn selected(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
+    pub(crate) fn selected(
+        v: &mut Vec<CssPropertyWithConditions>,
+        border_box: bool,
+        spacing: TabSpacing,
+    ) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
-        australis_tab_box(v, true, border_box);
+        australis_tab_box(v, true, border_box, spacing);
         tab_caps(v);
         v.extend(decl::radius(0));
         let face = australis_face(TAB_STREAK);
@@ -7421,7 +7848,7 @@ pub(crate) mod australis {
     pub(crate) fn app_button(v: &mut Vec<CssPropertyWithConditions>) {
         use super::super::decl;
         type P = CssPropertyWithConditions;
-        australis_tab_box(v, true, true);
+        australis_tab_box(v, true, true, CURVED_TABS);
         tab_caps(v);
         v.extend(decl::radius(0));
         let face = stone_face(LIGHT_ACC, TAB_STREAK);
@@ -7453,16 +7880,20 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
     use super::decl;
     type P = CssPropertyWithConditions;
     let part = CssPropertyWithConditionsVec::from_vec;
+    let spacing = match shape {
+        TabShape::Aurora => CURVED_TABS,
+        TabShape::Rectangular => SQUARE_TABS,
+    };
 
     // Every part is the widget's base (`tabs::HEADER_BASE`, `AFTER_BASE`,
     // `TAB_BASE`: its structure), then flora's skin.
     let mut header = crate::widgets::tabs::HEADER_BASE.to_vec();
     header.extend([
-        // Flora's own layout: the tabs stand on the strip's foot, `TAB_GAP`
+        // Flora's own layout: the tabs stand on the strip's foot, a gap
         // apart. Flat's native tabs hang from the top of the bar (its
         // default).
         P::simple(CssProperty::const_align_items(LayoutAlignItems::End)),
-        tab_gap(),
+        tab_gap(spacing.gap),
         P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
         decl::font_size(13),
         P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(TAB_AIR))),
@@ -7476,12 +7907,19 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
     ));
     header.push(over_metal_clips(1));
 
-    // The tabs start a curve's width in, where the first tab's foot lands
-    // when it is selected: a fixed spacer (flat's grows) and the gap after it.
-    let before = vec![
-        P::simple(CssProperty::const_width(LayoutWidth::const_px(TAB_CURVE - TAB_GAP))),
+    // The first tab starts `lead` in: a fixed spacer (flat's grows) and the
+    // gap after it. Aurora's lead is a curve's width, where the first tab's
+    // foot lands; square tabs need none, so their spacer leaves the row and
+    // takes its gap with it.
+    let mut before = vec![
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(
+            (spacing.lead - spacing.gap).max(0),
+        ))),
         P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];
+    if spacing.lead == 0 {
+        before.push(P::simple(CssProperty::const_display(LayoutDisplay::None)));
+    }
     let after = crate::widgets::tabs::AFTER_BASE.to_vec();
 
     // A tab: the widget's tab base (its content box sized, the pointer
@@ -7496,12 +7934,12 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
     let mut tab = tab_box();
     match shape {
         TabShape::Aurora => australis::aurora_tab(&mut tab, false),
-        TabShape::Rectangular => australis::tab(&mut tab, false),
+        TabShape::Rectangular => australis::tab(&mut tab, false, spacing),
     }
     tab.extend(decl::focus_halo_inset_stacked(LIGHT_ACC, DARK_GLOW));
 
     let mut active = tab_box();
-    australis::selected(&mut active, false);
+    australis::selected(&mut active, false, spacing);
     if shape == TabShape::Rectangular {
         // Square, its top corners eased like an unselected tab's.
         active.extend(decl::radius_corners(4, 4, 0, 0));
@@ -8230,7 +8668,8 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
     field_box.extend(decl::margin(0, 8, 0, 6));
     field_box.extend(decl::border(1));
     field_box.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
-    field_box.extend(decl::radius(3));
+    // The field's corners, which the search box shares.
+    field_box.extend(decl::radius(ADDRESS_FIELD_RADIUS));
     field_box.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
     field_box.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
 
@@ -8292,9 +8731,14 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
         refresh,
         refresh_icon,
         search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
+        search_field: decl::radius(ADDRESS_FIELD_RADIUS).to_vec(),
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
+
+/// The corners of the address bar's crumbs field and of its search box, in
+/// px: one shape for the two fields of the row.
+const ADDRESS_FIELD_RADIUS: isize = 4;
 
 /// The flora address bar.
 #[must_use]
@@ -10901,9 +11345,10 @@ mod flora16_look_tests {
 
 #[cfg(test)]
 mod australis_tab_tests {
-    //! The Australis tab row against flora.css, the design it transcribes:
-    //! `.nav-links { gap: 8px }` and `.nav-links a { padding: 3px 12px 4px }`
-    //! with a 1px hairline, and the light raked across a selected stone.
+    //! The Australis tab row: its spacing per shape (a curved row leaves a
+    //! curve's width between its tabs, a square one 2px, as flora.css's
+    //! `.nav-links a { padding: 3px 12px 4px }` with a 1px hairline) and the
+    //! light raked across a selected stone.
 
     use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
@@ -10952,45 +11397,48 @@ mod australis_tab_tests {
         })
     }
 
-    #[test]
-    fn a_flora_tab_holds_its_label_12px_from_its_edges_as_flora_css_does() {
-        let mut selected = Vec::new();
-        australis::selected(&mut selected, true);
-        let mut tab = Vec::new();
-        australis::tab(&mut tab, true);
-        let mut app = Vec::new();
-        australis::app_button(&mut app);
-        for (name, v) in [
-            ("selected", &selected),
-            ("unselected", &tab),
-            ("app button", &app),
-        ] {
-            assert_eq!(label_inset(v), (12.0, 12.0), "{name}");
-        }
+    /// The tracking a tab's capitals carry after their last letter, which
+    /// its right side takes back.
+    fn trailing() -> f32 {
+        super::super::decl::trailing_tracking_px(TAB_CAPS_PX as f32, TAB_CAPS_TRACK)
     }
 
-    /// The selected tab's curve hangs a curve's width past its box: the gap
-    /// and the neighbour's inset hold it off the neighbour's label.
+    /// A curved row holds every label 8px from its tab's edges, a square one
+    /// 12px (flora.css's `.nav-links a { padding: 3px 12px 4px }`), the right
+    /// side less the trailing tracking.
     #[test]
-    fn a_flora_tab_row_leaves_8px_between_its_tabs_and_a_curve_clear_of_every_label() {
+    fn a_flora_tab_holds_its_label_8px_in_a_curved_row_and_12px_in_a_square_one() {
+        for (spacing, side) in [(CURVED_TABS, 8.0), (SQUARE_TABS, 12.0)] {
+            let mut selected = Vec::new();
+            australis::selected(&mut selected, true, spacing);
+            let mut tab = Vec::new();
+            australis::tab(&mut tab, true, spacing);
+            for (name, v) in [("selected", &selected), ("unselected", &tab)] {
+                let (left, right) = label_inset(v);
+                assert_eq!(left, side, "{name} {spacing:?}");
+                assert!((right - (side - trailing())).abs() < 0.01, "{name} {spacing:?}: {right}");
+            }
+        }
+        let mut app = Vec::new();
+        australis::app_button(&mut app);
+        let (left, right) = label_inset(&app);
+        assert_eq!(left, 8.0, "the app button stands in the curved row");
+        assert!((right - (8.0 - trailing())).abs() < 0.01, "app button: {right}");
+    }
+
+    /// A selected tab's curve hangs a curve's width past its box: in a
+    /// curved row the gap is that wide, so the S lies in it and clear of
+    /// both labels; a square row hangs none and keeps its tabs 2px apart.
+    #[test]
+    fn a_curved_flora_row_is_a_curve_wide_between_tabs_and_a_square_one_2px() {
         let mut strip = Vec::new();
         australis::strip(&mut strip);
-        let header = tab_header_look().header;
-        let mut tab = Vec::new();
-        australis::tab(&mut tab, true);
-        let neighbour = label_inset(&tab).0;
-        for (name, v) in [
-            ("ribbon strip", strip.as_slice()),
-            ("tab bar", header.as_ref()),
-        ] {
-            let gap = column_gap(v);
-            assert_eq!(gap, 8.0, "{name}");
-            assert!(
-                gap + neighbour >= crate::widgets::tabs::CURVE_WIDTH,
-                "{name}: a curve of {} reaches past {gap} + {neighbour}",
-                crate::widgets::tabs::CURVE_WIDTH
-            );
+        let aurora = tab_header_look_in(crate::widgets::tabs::TabStyle::Aurora).header;
+        let square = tab_header_look_in(crate::widgets::tabs::TabStyle::Rectangular).header;
+        for (name, v) in [("ribbon strip", strip.as_slice()), ("tab bar", aurora.as_ref())] {
+            assert_eq!(column_gap(v), crate::widgets::tabs::CURVE_WIDTH, "{name}");
         }
+        assert_eq!(column_gap(square.as_ref()), 2.0, "square tabs");
     }
 
     /// The alpha a linear gradient of concrete colours paints at (x, y) of
@@ -11054,7 +11502,7 @@ mod australis_tab_tests {
     #[test]
     fn the_light_on_a_selected_stone_does_not_end_at_the_edge_of_its_middle() {
         let mut selected = Vec::new();
-        australis::selected(&mut selected, true);
+        australis::selected(&mut selected, true, CURVED_TABS);
         let mut app = Vec::new();
         australis::app_button(&mut app);
         let face_height = (TAB_HEIGHT - TAB_GAUGE) as f32;

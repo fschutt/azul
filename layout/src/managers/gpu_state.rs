@@ -268,11 +268,16 @@ impl GpuStateManager {
             .and_then(|cache| cache.painted_transform_of(node))
     }
 
-    /// Updates scrollbar thumb transforms based on current scroll positions.
+    /// Updates the scroll-driven transforms based on current scroll positions:
+    /// the scrollbar thumbs, and the `position: sticky` boxes.
     ///
     /// Calculates the transform needed to position scrollbar thumbs correctly
-    /// based on the scroll offset and content/container sizes. Returns the
-    /// GPU event changes that need to be applied by the renderer.
+    /// based on the scroll offset and content/container sizes, and how far a
+    /// scroll since the layout pass moves each sticky box from where that
+    /// pass placed it (`StickyConstraint::shift_at` now minus what the pass
+    /// baked in), so a header holds while its list scrolls without a
+    /// relayout. Returns the GPU event changes that need to be applied by
+    /// the renderer.
     pub fn update_scrollbar_transforms(
         &mut self,
         dom_id: DomId,
@@ -284,6 +289,11 @@ impl GpuStateManager {
 
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
             let warm = layout_tree.warm(LayoutNodeId::new(node_idx));
+            if let (Some(sticky), Some(node_id)) =
+                (warm.and_then(|w| w.sticky.as_deref()), node.dom_node_id)
+            {
+                update_sticky_transform(gpu_cache, &mut changes, scroll_manager, dom_id, node_id, sticky);
+            }
             // The necessity flags are the layout pass's, amended after layout by
             // `cache::apply_virtual_scroll_necessity` (via `register_scroll_nodes`)
             // for a `VirtualView`, whose scrollable extent layout cannot see. This
@@ -423,6 +433,42 @@ impl GpuStateManager {
     }
 }
 
+/// Moves the sticky box `node_id` by what a scroll since its layout pass
+/// changed: the translation from where the pass placed it to where it
+/// sticks at its scroller's offset now. Only a box `synchronize` gave a key
+/// is moved - the display list opened its reference frame with that key.
+fn update_sticky_transform(
+    gpu_cache: &mut GpuValueCache,
+    changes: &mut GpuEventChanges,
+    scroll_manager: &ScrollManager,
+    dom_id: DomId,
+    node_id: NodeId,
+    sticky: &crate::solver3::positioning::StickyConstraint,
+) {
+    let Some(&key) = gpu_cache.sticky_transform_keys.get(&node_id) else {
+        return;
+    };
+    let offset = sticky
+        .scroller
+        .and_then(|scroller| scroll_manager.get_current_offset(dom_id, scroller))
+        .unwrap_or_default();
+    let now = sticky.shift_at(offset);
+    let transform =
+        ComputedTransform3D::new_translation(now.x - sticky.baked.x, now.y - sticky.baked.y, 0.0);
+    match gpu_cache
+        .sticky_current_transform_values
+        .insert(node_id, transform)
+    {
+        Some(old) if old == transform => {}
+        Some(old) => changes
+            .transform_key_changes
+            .push(GpuTransformKeyEvent::Changed(node_id, key, old, transform)),
+        None => changes
+            .transform_key_changes
+            .push(GpuTransformKeyEvent::Added(node_id, key, transform)),
+    }
+}
+
 /// Updates or creates a scrollbar transform key in the GPU cache for the given orientation.
 fn update_scrollbar_transform_key(
     gpu_cache: &mut GpuValueCache,
@@ -503,6 +549,10 @@ impl crate::managers::NodeIdRemap for GpuStateManager {
         remap_hashmap(&mut cache.anim_current_transform_values, map);
         remap_hashmap(&mut cache.anim_opacity_keys, map);
         remap_hashmap(&mut cache.anim_current_opacity_values, map);
+        // The STICKY channel: the next sync re-keys every sticky node anyway,
+        // but until then a moved box keeps its own translation.
+        remap_hashmap(&mut cache.sticky_transform_keys, map);
+        remap_hashmap(&mut cache.sticky_current_transform_values, map);
         remap_dom_hashmap(&mut cache.scrollbar_v_opacity_keys, dom, map);
         remap_dom_hashmap(&mut cache.scrollbar_h_opacity_keys, dom, map);
         remap_dom_hashmap(&mut cache.scrollbar_v_opacity_values, dom, map);

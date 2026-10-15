@@ -217,6 +217,8 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::Zoom(v) => prop_value(v, "Zoom", "StyleZoomValue", "StyleZoom", None),
         P::BackgroundClip(v) => prop_value(v, "BackgroundClip", "StyleBackgroundClipVecValue", "StyleBackgroundClipVec", Some("background_clip")),
         P::FontVariantNumeric(v) => prop_value(v, "FontVariantNumeric", "StyleFontVariantNumericValue", "StyleFontVariantNumeric", None),
+        P::FontVariantCaps(v) => prop_value(v, "FontVariantCaps", "StyleFontVariantCapsValue", "StyleFontVariantCaps", None),
+        P::FontFeatureSettings(v) => prop_value(v, "FontFeatureSettings", "StyleFontFeatureSettingsValue", "StyleFontFeatureSettings", None),
     }
 }
 
@@ -2851,11 +2853,15 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleFontFamilyVecDestructorType", "vec"),
     ("StyleFontFamilyVecSlice", "css"),
     ("StyleFontFamilyVecValue", "css"),
+    ("StyleFontFeatureSettings", "css"),
+    ("StyleFontFeatureSettingsValue", "css"),
     ("StyleFontSize", "css"),
     ("StyleFontSizeValue", "css"),
     ("StyleFontStyle", "css"),
     ("StyleFontStyleValue", "css"),
     ("StyleFontValue", "css"),
+    ("StyleFontVariantCaps", "css"),
+    ("StyleFontVariantCapsValue", "css"),
     ("StyleFontVariantNumeric", "css"),
     ("StyleFontVariantNumericValue", "css"),
     ("StyleFontWeight", "css"),
@@ -3605,6 +3611,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleDominantBaseline",
     "StyleEmptyCells",
     "StyleFontStyle",
+    "StyleFontVariantCaps",
     "StyleFontWeight",
     "StyleHyphens",
     "StyleInitialLetterAlign",
@@ -3838,6 +3845,8 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("Zoom", "StyleZoomValue", ""),
     ("BackgroundClip", "StyleBackgroundClipVecValue", "background_clip"),
     ("FontVariantNumeric", "StyleFontVariantNumericValue", ""),
+    ("FontVariantCaps", "StyleFontVariantCapsValue", ""),
+    ("FontFeatureSettings", "StyleFontFeatureSettingsValue", ""),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -4055,6 +4064,8 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "Zoom",
     "BackgroundClip",
     "FontVariantNumeric",
+    "FontVariantCaps",
+    "FontFeatureSettings",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:
@@ -6889,6 +6900,32 @@ impl Lower for crate::props::basic::font::StyleFontWeight {
             Self::Bolder => "Bolder",
         };
         Expr::unit("StyleFontWeight", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font::StyleFontVariantCaps {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Normal => "Normal",
+            Self::SmallCaps => "SmallCaps",
+            Self::AllSmallCaps => "AllSmallCaps",
+            Self::PetiteCaps => "PetiteCaps",
+            Self::AllPetiteCaps => "AllPetiteCaps",
+            Self::Unicase => "Unicase",
+            Self::TitlingCaps => "TitlingCaps",
+        };
+        Expr::unit("StyleFontVariantCaps", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font::StyleFontFeatureSettings {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontFeatureSettings",
+            vec![
+                ("inner", self.inner.lower()),
+            ],
+        )
     }
 }
 

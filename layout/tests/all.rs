@@ -1103,3 +1103,37 @@ mod a_rebuild_draws_a_waiting_entrance_without_a_second_display_list;
 mod a_picture_scaled_down_by_max_width_and_max_height_keeps_its_proportions;
 #[path = "a_padded_full_width_button_fills_its_column_and_no_more.rs"]
 mod a_padded_full_width_button_fills_its_column_and_no_more;
+#[path = "a_material_is_lit_per_device_pixel.rs"]
+mod a_material_is_lit_per_device_pixel;
+#[path = "a_window_is_lit_by_the_app_light.rs"]
+mod a_window_is_lit_by_the_app_light;
+#[path = "a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape.rs"]
+mod a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape;
+#[path = "calmet_ui_falls_back_per_code_point.rs"]
+mod calmet_ui_falls_back_per_code_point;
+#[path = "opentype_features_reach_the_shaper.rs"]
+mod opentype_features_reach_the_shaper;
+#[path = "small_capitals_are_synthesized_like_chrome.rs"]
+mod small_capitals_are_synthesized_like_chrome;
+#[path = "a_tracked_label_centres_once_its_last_tracking_is_given_back.rs"]
+mod a_tracked_label_centres_once_its_last_tracking_is_given_back;
+#[path = "line_clamp_ends_its_last_line_with_an_ellipsis.rs"]
+mod line_clamp_ends_its_last_line_with_an_ellipsis;
+#[path = "a_sticky_header_holds_while_its_list_scrolls.rs"]
+mod a_sticky_header_holds_while_its_list_scrolls;
+#[path = "a_drag_image_follows_the_pointer.rs"]
+mod a_drag_image_follows_the_pointer;
+#[path = "a_pane_and_the_ribbon_animate_their_size.rs"]
+mod a_pane_and_the_ribbon_animate_their_size;
+#[path = "tab_labels_sit_evenly_apart_in_every_tab_style.rs"]
+mod tab_labels_sit_evenly_apart_in_every_tab_style;
+#[path = "tab_buttons_are_22px_flora_buttons_in_a_28px_row.rs"]
+mod tab_buttons_are_22px_flora_buttons_in_a_28px_row;
+#[path = "a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line.rs"]
+mod a_ribbon_of_tab_buttons_is_one_leather_area_closed_by_a_golden_line;
+#[path = "a_tab_bar_with_a_reveal_draws_no_tab_selected_while_its_panel_is_closed.rs"]
+mod a_tab_bar_with_a_reveal_draws_no_tab_selected_while_its_panel_is_closed;
+#[path = "a_painted_row_of_tab_buttons_shows_gold_edges_and_the_stone.rs"]
+mod a_painted_row_of_tab_buttons_shows_gold_edges_and_the_stone;
+#[path = "tab_buttons_and_leather_commands_answer_every_state.rs"]
+mod tab_buttons_and_leather_commands_answer_every_state;

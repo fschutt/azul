@@ -128,6 +128,55 @@ pub(super) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
     }
 }
 
+/// One face an app registered for the process ([`set_app_fonts`]): every
+/// `FontManager` built afterwards registers it.
+struct AppFace {
+    /// The family a stylesheet names it by.
+    family: String,
+    /// The TrueType / OpenType bytes.
+    bytes: Vec<u8>,
+    /// The code points of its cmap, read once when the app registered it.
+    ranges: Vec<UnicodeRange>,
+}
+
+/// The font faces the app ships (`AppConfig::add_font`), for the process:
+/// set once by `App::create` before any window exists and read by every
+/// `FontManager` constructor ([`FontManager::register_builtin_ui_fonts`]),
+/// the way the faces azul bundles are - so each window, the PDF writer and a
+/// window opened later all draw with them.
+static APP_FONTS: std::sync::RwLock<Vec<AppFace>> = std::sync::RwLock::new(Vec::new());
+
+/// Install the font faces an app ships (`AppConfig::bundled_fonts`) for the
+/// process: every `FontManager` built from now on registers them
+/// ([`FontManager::register_app_fonts`] has the rules). Replaces what an
+/// earlier call installed. A face whose bytes do not parse is left out.
+pub fn set_app_fonts(fonts: &[azul_core::resources::NamedFont]) {
+    let faces: Vec<AppFace> = fonts
+        .iter()
+        .filter_map(|font| {
+            let ranges = cmap_coverage(font.bytes.as_ref());
+            (!ranges.is_empty()).then(|| AppFace {
+                family: font.name.as_str().to_string(),
+                bytes: font.bytes.as_ref().to_vec(),
+                ranges,
+            })
+        })
+        .collect();
+    if let Ok(mut slot) = APP_FONTS.write() {
+        *slot = faces;
+    }
+}
+
+/// The code points the face `bytes` maps to a glyph, exactly: its best
+/// Unicode cmap, as rust-fontconfig reads it for a font on disk. Empty for
+/// bytes that are no font.
+fn cmap_coverage(bytes: &[u8]) -> Vec<UnicodeRange> {
+    rust_fontconfig::FcParseFontBytes(bytes, "")
+        .and_then(|faces| faces.into_iter().next())
+        .map(|(pattern, _)| pattern.unicode_ranges)
+        .unwrap_or_default()
+}
+
 /// The font GC's grace pool: faces evicted from `parsed_fonts` wait here for
 /// one resurrection window (see `FontManager::condemned_fonts`).
 #[derive(Debug)]
@@ -599,10 +648,12 @@ impl<T: ParsedFontTrait> FontManager<T> {
         self.register_builtin_ui_fonts();
     }
 
-    /// Register the UI fonts azul bundles for its widget themes (see
-    /// [`crate::text3::ui_fonts`]: flora's EB Garamond), in the FALLBACK tier
-    /// so an installed copy of the family wins. Static faces, so every
-    /// constructor after the first takes the idempotent reuse path.
+    /// Register the UI fonts azul bundles (see [`crate::text3::ui_fonts`]:
+    /// flora's EB Garamond), each with exactly its cmap as its coverage, in
+    /// the FALLBACK tier so an installed copy of the family wins - then the
+    /// fonts the app registered for the process ([`set_app_fonts`]), the
+    /// same way. Static faces, so every constructor after the first takes
+    /// the idempotent reuse path.
     pub fn register_builtin_ui_fonts(&mut self) {
         for face in crate::text3::ui_fonts::bundled_ui_fonts() {
             if face.bytes.is_empty() {
@@ -612,6 +663,43 @@ impl<T: ParsedFontTrait> FontManager<T> {
                 face.family,
                 &face.bytes,
                 face.ranges(),
+                MemoryFontTier::Fallback,
+            );
+        }
+        if let Ok(faces) = APP_FONTS.read() {
+            for face in faces.iter() {
+                self.register_named_font_in_tier(
+                    &face.family,
+                    &face.bytes,
+                    face.ranges.clone(),
+                    MemoryFontTier::Fallback,
+                );
+            }
+        }
+    }
+
+    /// Register the font faces an app ships (`AppConfig::add_font`) in this
+    /// manager the way azul's own faces are registered: each with exactly
+    /// the code points of its cmap as its coverage, in the FALLBACK tier - a
+    /// face stands where its family stands in a stack, and an installed copy
+    /// of the same family wins. Faces of one family are told apart by their
+    /// own weight and style. A face whose bytes do not parse is skipped.
+    ///
+    /// The shells need not call it: every manager built after
+    /// [`set_app_fonts`] (`App::create`) registers the process's app fonts
+    /// by itself. For a manager that exists already, or one outside an app
+    /// (a test, a tool).
+    pub fn register_app_fonts(&mut self, fonts: &[azul_core::resources::NamedFont]) {
+        for font in fonts {
+            let bytes = font.bytes.as_ref();
+            let ranges = cmap_coverage(bytes);
+            if ranges.is_empty() {
+                continue;
+            }
+            self.register_named_font_in_tier(
+                font.name.as_str(),
+                bytes,
+                ranges,
                 MemoryFontTier::Fallback,
             );
         }
@@ -1267,5 +1355,46 @@ impl<T: ParsedFontTrait> FontManager<T> {
         self.font_hash_to_families
             .retain(|h, _| keep_hashes.contains(h));
         evicted
+    }
+}
+
+#[cfg(test)]
+mod app_font_tests {
+    use super::*;
+
+    /// The fonts an app registers at startup (`App::create` hands
+    /// `AppConfig::bundled_fonts` to `set_app_fonts`) are in every font
+    /// manager built after that - each window's, the PDF writer's - with the
+    /// coverage of their cmap, in the tier the bundled faces have: they stand
+    /// at their family's place in a stack, and an installed copy of the same
+    /// family wins.
+    #[test]
+    fn a_font_manager_built_after_startup_has_the_apps_fonts() {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fonts/azul-mock-prop.ttf"
+        ))
+        .expect("tests/fonts/azul-mock-prop.ttf");
+        set_app_fonts(&[azul_core::resources::NamedFont::new(
+            "Azul Startup Face".into(),
+            bytes.into(),
+        )]);
+        let fonts = FontManager::<azul_css::props::basic::FontRef>::new(FcFontCache::default())
+            .expect("font manager");
+        let faces = fonts
+            .memory_families
+            .get(&rust_fontconfig::utils::normalize_family_name("Azul Startup Face"))
+            .expect("the app's family is registered");
+        assert_eq!(faces.len(), 1, "one face");
+        assert_eq!(faces[0].tier, MemoryFontTier::Fallback);
+        assert!(
+            faces[0]
+                .font_match
+                .unicode_ranges
+                .iter()
+                .any(|r| r.start <= u32::from('a') && u32::from('a') <= r.end),
+            "with the coverage of its cmap: {:?}",
+            faces[0].font_match.unicode_ranges
+        );
     }
 }

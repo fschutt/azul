@@ -731,6 +731,22 @@ pub const fn tablet_usb_vendor_name(vendor_id: u32) -> &'static str {
     }
 }
 
+/// What follows the pointer in a node drag instead of the dragged node: the
+/// node of the dragged DOM whose `id` attribute is `id` - a ghost the app
+/// renders while it drags (`position: fixed` at the top left of the
+/// window, say) - with its border box at the pointer plus `offset`. Named by
+/// a `DragStart` callback (`CallbackInfo::set_drag_image`); by id, because
+/// the ghost usually appears with the rebuild that callback asks for.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DragImage {
+    /// The `id` attribute of the node that follows the pointer.
+    pub id: AzString,
+    /// Where the node's border box stands from the pointer (logical px;
+    /// positive: right / down). Keep it off the pointer, or the image is
+    /// what the pointer is over.
+    pub offset: LogicalPosition,
+}
+
 /// Manager for multi-frame gestures and drag operations
 ///
 /// This collects raw input samples and analyzes them to detect gestures.
@@ -762,6 +778,16 @@ pub struct GestureAndDragManager {
     /// "the drag suddenly stops" desync. Remapped across DOM rebuilds,
     /// cleared when the button releases / the gesture ends.
     drag_source_node: azul_core::dom::OptionDomNodeId,
+    /// The drag image a `DragStart` callback named for the current node drag
+    /// (`CallbackInfo::set_drag_image`): the node with that id follows the
+    /// pointer instead of the dragged node. Cleared when the drag ends, so
+    /// the next drag starts without one.
+    pub(crate) drag_image: Option<DragImage>,
+    /// The node `LayoutWindow::update_drag_visual` keyed in the GPU
+    /// animation channel to follow the pointer (the drag image or the
+    /// dragged node), so the drag's end releases exactly that key. Remapped
+    /// across DOM rebuilds like the drag source.
+    pub(crate) drag_visual_node: Option<(DomId, NodeId)>,
     /// Current pen/stylus state
     pub pen_state: Option<PenState>,
     /// Pen state as of the previous determine-events pass (for diffing pen events).
@@ -896,6 +922,8 @@ impl GestureAndDragManager {
             next_session_id: 1,
             active_drag: None,
             drag_source_node: azul_core::dom::OptionDomNodeId::None,
+            drag_image: None,
+            drag_visual_node: None,
 
             pen_state: None,
             previous_pen_state: None,
@@ -2630,7 +2658,8 @@ impl GestureAndDragManager {
     }
 
     /// End the current drag and return the context
-    pub const fn end_drag(&mut self) -> Option<DragContext> {
+    pub fn end_drag(&mut self) -> Option<DragContext> {
+        self.drag_image = None;
         self.active_drag.take()
     }
 
@@ -2640,7 +2669,21 @@ impl GestureAndDragManager {
             drag.cancelled = true;
         }
         self.active_drag = None;
+        self.drag_image = None;
         self.drag_source_node = azul_core::dom::OptionDomNodeId::None;
+    }
+
+    /// Name the drag image of the current node drag: the node whose `id` is
+    /// `image.id` follows the pointer, its border box at the pointer plus
+    /// `image.offset`, until the drag ends (`LayoutWindow::update_drag_visual`).
+    pub fn set_drag_image(&mut self, image: DragImage) {
+        self.drag_image = Some(image);
+    }
+
+    /// The drag image of the current node drag, if a `DragStart` named one.
+    #[must_use]
+    pub const fn drag_image(&self) -> Option<&DragImage> {
+        self.drag_image.as_ref()
     }
 
     // ========================================================================
@@ -2779,6 +2822,13 @@ impl crate::managers::NodeIdRemap for GestureAndDragManager {
                 // Critical node removed — cancel the drag
                 drag.cancelled = true;
                 self.active_drag = None;
+            }
+        }
+        // The node the drag visual keyed follows its node like the GPU
+        // cache's keys do; an unmounted one has no key left to release.
+        if let Some((dom, node)) = self.drag_visual_node {
+            if dom == dom_id {
+                self.drag_visual_node = map.resolve(node).map(|n| (dom, n));
             }
         }
         // The drag SOURCE follows its node; an unmounted source ends the

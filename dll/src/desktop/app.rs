@@ -219,6 +219,17 @@ impl App {
         // builds and styles for it; `CallbackInfo::set_theme` switches it
         // (a DOM rebuild of every window).
         azul_core::app_theme::set_app_theme(app_config.theme.as_str());
+        // The app's ONE light: every window's materials, their bevels and
+        // sheen, and the shadows that follow the light are lit from it;
+        // `CallbackInfo::set_app_light` moves it for all of them.
+        azul_core::light::set_app_light(app_config.light);
+        // What the metals reflect: the platform's wallpaper reader, run the
+        // first time a metal is drawn.
+        crate::desktop::wallpaper::install();
+        // The font faces the app ships (`AppConfig::add_font`): every font
+        // manager built from now on - each window's, the PDF writer's -
+        // registers them, before the first window exists.
+        azul_layout::text3::cache::set_app_fonts(app_config.bundled_fonts.as_ref());
         // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy
         // per-app file, `azul_css::rice`), in the `AZ_RICING` mode. Installed
         // HERE, with the real home directory, so a test or a tool that never

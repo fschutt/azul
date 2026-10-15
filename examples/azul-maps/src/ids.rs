@@ -110,7 +110,6 @@ names! {
     /// The map widget's root: the navigation moves its camera and overlays in place.
     MAP_VIEW = "map-view";
     /// The banner's and the bar's text nodes the navigation rewrites in place.
-    NAV_ICON_TEXT = "nav-icon-text";
     NAV_DISTANCE_TEXT = "nav-distance-text";
     NAV_INSTRUCTION_TEXT = "nav-instruction-text";
     NAV_SUMMARY_TEXT = "nav-summary-text";

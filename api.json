@@ -20411,6 +20411,70 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.translate(message_id, args).into()"
+                            },
+                            "get_app_light": {
+                                "doc": [
+                                    "The app's light (a `set_app_light` in the same callback is not",
+                                    "visible here yet)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Light"
+                                },
+                                "fn_body": "object.get_app_light()"
+                            },
+                            "set_app_light": {
+                                "doc": [
+                                    "Move the app's ONE light (`AppConfig::light` at startup): the sun at",
+                                    "an azimuth and elevation, or a point light over the desktop. Every",
+                                    "window adopts it at its next frame - its materials, their bevels and",
+                                    "the cursor's sheen, the metals' reflection and the box-shadows and",
+                                    "pressed text that follow the light (`--azul-follow-light`) - and a",
+                                    "window opened later starts with it. A window that set its own light",
+                                    "(`set_material_light`) keeps that one. The light the app already has",
+                                    "does nothing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "light": "Light"
+                                    }
+                                ],
+                                "fn_body": "object.set_app_light(light)"
+                            },
+                            "set_drag_image": {
+                                "doc": [
+                                    "Name the drag image of the current node drag: the node whose `id`",
+                                    "attribute is `id` follows the pointer, its border box at the pointer",
+                                    "plus `offset`, until the drag ends, and the dragged node stays where it",
+                                    "is. Moved through the GPU transform values: no relayout, no callback",
+                                    "per move.",
+                                    "",
+                                    "W3C equivalent: `dataTransfer.setDragImage(element, x, y)`, live: the",
+                                    "image is a DOM node the app renders (a ghost with the file's icon,",
+                                    "name and count, `position: fixed` at the top left), not a snapshot.",
+                                    "Call it from a `DragStart` callback; by id, because the ghost usually",
+                                    "appears with the rebuild the callback asks for. Keep the offset off",
+                                    "the pointer (positive), or the image is what the pointer is over."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "id": "String"
+                                    },
+                                    {
+                                        "offset": "LogicalPosition"
+                                    }
+                                ],
+                                "fn_body": "object.set_drag_image(id, offset)"
                             }
                         },
                         "repr": "C"
@@ -25110,6 +25174,25 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "TabOverviewOnEventCallbackType": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewOnEventCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "TabOverviewEvent"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -38227,6 +38310,38 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "TabOverviewOnEventCallback": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewOnEventCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "TabOverviewOnEventCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -39351,6 +39466,12 @@
                                 },
                                 "FontVariantNumeric": {
                                     "type": "StyleFontVariantNumericValue"
+                                },
+                                "FontVariantCaps": {
+                                    "type": "StyleFontVariantCapsValue"
+                                },
+                                "FontFeatureSettings": {
+                                    "type": "StyleFontFeatureSettingsValue"
                                 }
                             }
                         ],
@@ -51686,7 +51807,9 @@
                                 "StringSet": {},
                                 "Zoom": {},
                                 "BackgroundClip": {},
-                                "FontVariantNumeric": {}
+                                "FontVariantNumeric": {},
+                                "FontVariantCaps": {},
+                                "FontFeatureSettings": {}
                             }
                         ],
                         "repr": "C"
@@ -59962,6 +60085,75 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "StyleFontFeatureSettings": {
+                        "external": "azul_css::props::basic::font::StyleFontFeatureSettings",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontFeatureSettingsValue": {
+                        "external": "azul_css::props::property::StyleFontFeatureSettingsValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontFeatureSettings"
+                            ]
+                        }
+                    },
+                    "StyleFontVariantCaps": {
+                        "external": "azul_css::props::basic::font::StyleFontVariantCaps",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "SmallCaps": {},
+                                "AllSmallCaps": {},
+                                "PetiteCaps": {},
+                                "AllPetiteCaps": {},
+                                "Unicase": {},
+                                "TitlingCaps": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontVariantCapsValue": {
+                        "external": "azul_css::props::property::StyleFontVariantCapsValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariantCaps"
+                            ]
+                        }
                     }
                 }
             },
@@ -63614,6 +63806,9 @@
                                 },
                                 "style": {
                                     "type": "TabStyle"
+                                },
+                                "reveal": {
+                                    "type": "OptionTabReveal"
                                 }
                             }
                         ],
@@ -63772,6 +63967,42 @@
                                     "type": "TabHeader"
                                 },
                                 "fn_body": "object.with_style(style)"
+                            },
+                            "set_reveal": {
+                                "doc": [
+                                    "How the panel opens and closes: the app makes `reveal` once",
+                                    "(`TabReveal::create`, with its `TabClickBehaviour`), hands the same",
+                                    "one to every build of this bar and of its `TabContent`, and builds",
+                                    "the panel for the tab `on_click` reports. The bar feeds it the",
+                                    "pointer, the clicks and Enter / Space (Shift+Enter, or a double",
+                                    "Enter, locks), and draws no tab selected while the panel is closed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "reveal": "TabReveal"
+                                    }
+                                ],
+                                "fn_body": "object.set_reveal(reveal)"
+                            },
+                            "with_reveal": {
+                                "doc": [
+                                    "[`Self::set_reveal`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "reveal": "TabReveal"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabHeader"
+                                },
+                                "fn_body": "object.with_reveal(reveal)"
                             }
                         },
                         "repr": "C"
@@ -64742,6 +64973,15 @@
                                 },
                                 "available_width": {
                                     "type": "f32"
+                                },
+                                "tab_style": {
+                                    "type": "TabStyle"
+                                },
+                                "reveal": {
+                                    "type": "OptionTabReveal"
+                                },
+                                "strip_end": {
+                                    "type": "OptionDom"
                                 }
                             }
                         ],
@@ -65078,6 +65318,106 @@
                                     "type": "Ribbon"
                                 },
                                 "fn_body": "object.with_available_width(width)"
+                            },
+                            "set_reveal": {
+                                "doc": [
+                                    "How the content opens and closes: the app makes `reveal` once",
+                                    "(`TabReveal::create`, with its `TabClickBehaviour`) and hands the same",
+                                    "one to every build, so the content shows as it did. The ribbon feeds",
+                                    "it the pointer and the clicks and tells the app of a tab the content",
+                                    "switched to through [`Self::on_tab_click`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "reveal": "TabReveal"
+                                    }
+                                ],
+                                "fn_body": "object.set_reveal(reveal)"
+                            },
+                            "set_strip_end": {
+                                "doc": [
+                                    "Puts `dom` at the right end of the tab row, before the chevron (the",
+                                    "location tabs' button, `TabOverview::button`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "dom": "Dom"
+                                    }
+                                ],
+                                "fn_body": "object.set_strip_end(dom)"
+                            },
+                            "set_tab_style": {
+                                "doc": [
+                                    "The shape of the tabs: the theme's own row (`Auto`), Aurora's",
+                                    "curves, square tabs, or `Pills` - the theme's buttons in a row as",
+                                    "tall as a title bar, on one leather surface with the content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "style": "TabStyle"
+                                    }
+                                ],
+                                "fn_body": "object.set_tab_style(style)"
+                            },
+                            "with_reveal": {
+                                "doc": [
+                                    "[`Self::set_reveal`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "reveal": "TabReveal"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_reveal(reveal)"
+                            },
+                            "with_strip_end": {
+                                "doc": [
+                                    "[`Self::set_strip_end`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "dom": "Dom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_strip_end(dom)"
+                            },
+                            "with_tab_style": {
+                                "doc": [
+                                    "[`Self::set_tab_style`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "TabStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_tab_style(style)"
                             }
                         },
                         "repr": "C"
@@ -110539,6 +110879,18 @@
                                 ],
                                 "fn_args": [],
                                 "fn_body": "azul_layout::widgets::titlebar::TabsInTitlebar::platform()"
+                            },
+                            "button_row": {
+                                "doc": [
+                                    "This platform's offsets for a row of tab buttons that IS the title",
+                                    "bar (`TabStyle::Pills`): no grab strip above (the row is the title",
+                                    "bar's 28px, the window controls centred in it), and where the",
+                                    "controls sit before the first tab the buttons start",
+                                    "[`BUTTON_ROW_LEAD`] in - 14px after macOS's three traffic lights;",
+                                    "Linux's controls after the last tab keep their room."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::titlebar::TabsInTitlebar::button_row()"
                             }
                         },
                         "functions": {
@@ -111273,6 +111625,9 @@
                                 },
                                 "tab": {
                                     "type": "usize"
+                                },
+                                "reveal": {
+                                    "type": "OptionTabReveal"
                                 }
                             }
                         ],
@@ -111407,6 +111762,38 @@
                                     "type": "TabContent"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "set_reveal": {
+                                "doc": [
+                                    "The reveal its `TabHeader` was built with: the panel opens and closes",
+                                    "by its height as the reveal says, and the pointer on it keeps it open."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "reveal": "TabReveal"
+                                    }
+                                ],
+                                "fn_body": "object.set_reveal(reveal)"
+                            },
+                            "with_reveal": {
+                                "doc": [
+                                    "[`Self::set_reveal`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "reveal": "TabReveal"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabContent"
+                                },
+                                "fn_body": "object.with_reveal(reveal)"
                             }
                         },
                         "repr": "C"
@@ -111876,6 +112263,686 @@
                             {
                                 "ptr": {
                                     "type": "MapSeedTile",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabReveal": {
+                        "external": "azul_layout::widgets::tab_reveal::TabReveal",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "state": {
+                                    "type": "RefAny"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A strip following `behaviour`, its content on the first tab: closed,",
+                                    "unless it is always open."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "behaviour": "TabClickBehaviour"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tab_reveal::TabReveal::create(behaviour)"
+                            }
+                        },
+                        "functions": {
+                            "get_behaviour": {
+                                "doc": [
+                                    "The behaviour the strip follows."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabClickBehaviour"
+                                },
+                                "fn_body": "object.get_behaviour()"
+                            },
+                            "get_selected": {
+                                "doc": [
+                                    "The tab drawn selected: the shown one while the content is open,",
+                                    "none while it is closed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionUsize"
+                                },
+                                "fn_body": "object.get_selected()"
+                            },
+                            "is_locked": {
+                                "doc": [
+                                    "Whether the content is locked open."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_locked()"
+                            },
+                            "is_open": {
+                                "doc": [
+                                    "Whether the content shows: build the panel open or closed by it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PieMarker": {
+                        "external": "azul_layout::widgets::pie_marker::PieMarker",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "fraction": {
+                                    "type": "f32"
+                                },
+                                "tone": {
+                                    "type": "PieTone"
+                                },
+                                "label": {
+                                    "type": "String"
+                                },
+                                "on_click": {
+                                    "type": "OptionButtonOnClick"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create_space": {
+                                "doc": [
+                                    "The pie of a drive `used` full (0 to 1): the accent, amber above",
+                                    "85%, red above 97%."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "used": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::pie_marker::PieMarker::create_space(used)"
+                            },
+                            "create": {
+                                "doc": [
+                                    "A pie `fraction` full (0 to 1) in `tone`, unnamed, doing nothing on a",
+                                    "click."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "fraction": "f32"
+                                    },
+                                    {
+                                        "tone": "PieTone"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::pie_marker::PieMarker::create(fraction, tone)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "The marker: the hit area holding the disc, its ring and its wedge."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "set_label": {
+                                "doc": [
+                                    "What a screen reader says for the marker."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_label(label)"
+                            },
+                            "set_on_click": {
+                                "doc": [
+                                    "What a click on the marker runs."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_click(data, on_click)"
+                            },
+                            "with_label": {
+                                "doc": [
+                                    "[`Self::set_label`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PieMarker"
+                                },
+                                "fn_body": "object.with_label(label)"
+                            },
+                            "with_on_click": {
+                                "doc": [
+                                    "[`Self::set_on_click`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PieMarker"
+                                },
+                                "fn_body": "object.with_on_click(data, on_click)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PieTone": {
+                        "external": "azul_layout::widgets::pie_marker::PieTone",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Accent": {},
+                                "Busy": {},
+                                "Good": {},
+                                "Warning": {},
+                                "Danger": {}
+                            }
+                        ],
+                        "constructors": {
+                            "of_space": {
+                                "doc": [
+                                    "The tone of a drive `used` full (0 to 1): the accent, amber above",
+                                    "85%, red above 97%."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "used": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::pie_marker::PieTone::of_space(used)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TabOverview": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverview",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "items": {
+                                    "type": "TabOverviewItemVec"
+                                },
+                                "current": {
+                                    "type": "usize"
+                                },
+                                "highlighted": {
+                                    "type": "usize"
+                                },
+                                "title": {
+                                    "type": "String"
+                                },
+                                "new_tab": {
+                                    "type": "String"
+                                },
+                                "new_tab_key": {
+                                    "type": "String"
+                                },
+                                "footer": {
+                                    "type": "String"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                },
+                                "on_event": {
+                                    "type": "OptionTabOverviewOnEvent"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "The overview of `items`, `current` being the window's tab, nothing",
+                                    "highlighted, its words in English (set them from the app's own)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "items": "TabOverviewItemVec"
+                                    },
+                                    {
+                                        "current": "usize"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tab_overview::TabOverview::create(items, current)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "The scrim over the window with the list on it, under the tab button."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "What the overview reports the user did."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "cb": "TabOverviewOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, cb)"
+                            },
+                            "set_words": {
+                                "doc": [
+                                    "The header, the \"New tab\" row's words and shortcut, and the footer."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "new_tab": "String"
+                                    },
+                                    {
+                                        "new_tab_key": "String"
+                                    },
+                                    {
+                                        "footer": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_words(title, new_tab, new_tab_key, footer)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "cb": "TabOverviewOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverview"
+                                },
+                                "fn_body": "object.with_on_event(data, cb)"
+                            },
+                            "with_words": {
+                                "doc": [
+                                    "[`Self::set_words`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "new_tab": "String"
+                                    },
+                                    {
+                                        "new_tab_key": "String"
+                                    },
+                                    {
+                                        "footer": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverview"
+                                },
+                                "fn_body": "object.with_words(title, new_tab, new_tab_key, footer)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TabOverviewItem": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "name": {
+                                    "type": "String"
+                                },
+                                "path": {
+                                    "type": "String"
+                                },
+                                "key": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A tab of `name` at `path`, its place's `icon` and its `key`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "icon": "String"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "path": "String"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tab_overview::TabOverviewItem::create(icon, name, path, key)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TabOverviewOnEvent": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "TabOverviewOnEventCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabOverviewButton": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewButton",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "count": {
+                                    "type": "usize"
+                                },
+                                "on_click": {
+                                    "type": "OptionButtonOnClick"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "The button for `count` open tabs."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "count": "usize"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tab_overview::TabOverviewButton::create(count)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "The button, its badge over its top right corner."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "set_on_click": {
+                                "doc": [
+                                    "What a click runs."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_click(data, on_click)"
+                            },
+                            "with_on_click": {
+                                "doc": [
+                                    "[`Self::set_on_click`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverviewButton"
+                                },
+                                "fn_body": "object.with_on_click(data, on_click)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TabClickBehaviour": {
+                        "external": "azul_layout::widgets::tab_reveal::TabClickBehaviour",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "HoverRevealDoubleClickLock": {},
+                                "ClickToggle": {},
+                                "AlwaysOpen": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabOverviewEvent": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewEvent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "index": {
+                                    "type": "usize"
+                                },
+                                "kind": {
+                                    "type": "TabOverviewEventKind"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabOverviewEventKind": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewEventKind",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Pick": {},
+                                "Close": {},
+                                "NewTab": {},
+                                "Highlight": {},
+                                "Dismiss": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabOverviewItemVecSlice": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewItemVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TabOverviewItem",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -172422,6 +173489,217 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "TabOverviewItemVec": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewItemVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TabOverviewItem",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TabOverviewItemVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TabOverviewItemVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TabOverviewItemVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TabOverviewItemVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverviewItemVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tab_overview_item_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tab_overview_item_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "tab_overview_item_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TabOverviewItemVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TabOverviewItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverviewItemVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TabOverviewItemVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TabOverviewItem"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverviewItemVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabOverviewItem"
+                                },
+                                "fn_body": "tab_overview_item_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TabOverviewItemVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverviewItemVecSlice"
+                                },
+                                "fn_body": "tab_overview_item_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverviewItemVecSlice"
+                                },
+                                "fn_body": "tab_overview_item_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TabOverviewItemVecDestructor": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewItemVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TabOverviewItemVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TabOverviewItemVecDestructorType": {
+                        "external": "azul_layout::widgets::tab_overview::TabOverviewItemVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "TabOverviewItemVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
                     }
                 }
             },
@@ -183338,6 +184616,77 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionTabReveal": {
+                        "external": "azul_layout::widgets::tab_reveal::OptionTabReveal",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TabReveal"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTabOverviewOnEvent": {
+                        "external": "azul_layout::widgets::tab_overview::OptionTabOverviewOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TabOverviewOnEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTabOverviewItem": {
+                        "external": "azul_layout::widgets::tab_overview::OptionTabOverviewItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "TabOverviewItem",
+                                    "doc": [
+                                        "Some value of type TabOverviewItem"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -186186,6 +187535,9 @@
                                 "mode": {
                                     "type": "OptionDarkLightMode"
                                 },
+                                "light": {
+                                    "type": "Light"
+                                },
                                 "log_level": {
                                     "type": "AppLogLevel"
                                 },
@@ -186440,6 +187792,82 @@
                                     }
                                 ],
                                 "fn_body": "object.set_app_id(app_id)"
+                            },
+                            "add_font": {
+                                "doc": [
+                                    "Register a font face the app ships, under `family` (the name a",
+                                    "stylesheet's `font-family` uses), before the app runs: every window",
+                                    "draws with it. `bytes` is a TrueType or OpenType file. Call it once",
+                                    "per face - regular, italic, bold - with the same family: each face's",
+                                    "weight and style come from its own tables, and the face covers exactly",
+                                    "the code points of its cmap, so a character it lacks falls to the next",
+                                    "family of the stack. The face stands where its family stands in a",
+                                    "stack; an installed copy of the same family wins, as for the faces",
+                                    "azul bundles."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "family": "String"
+                                    },
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "fn_body": "object.add_font(family, bytes)"
+                            },
+                            "set_light": {
+                                "doc": [
+                                    "In-place [`Self::with_light`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "light": "Light"
+                                    }
+                                ],
+                                "fn_body": "object.set_light(light)"
+                            },
+                            "with_font": {
+                                "doc": [
+                                    "[`Self::add_font`] for a builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "family": "String"
+                                    },
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_font(family, bytes)"
+                            },
+                            "with_light": {
+                                "doc": [
+                                    "Light every window of the app with `light` (see [`Self::light`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "light": "Light"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_light(light)"
                             }
                         },
                         "repr": "C"
@@ -187367,6 +188795,134 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Light": {
+                        "external": "azul_core::light::Light",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Sun": {
+                                    "type": "SunLight"
+                                },
+                                "Point": {
+                                    "type": "PointLight"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "The default light."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::light::Light::create()"
+                            },
+                            "point": {
+                                "doc": [
+                                    "A point light at desktop point (`x`, `y`), `height` points in front of",
+                                    "the screen."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "x": "f32"
+                                    },
+                                    {
+                                        "y": "f32"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_core::light::Light::point(x, y, height)"
+                            },
+                            "sun": {
+                                "doc": [
+                                    "The sun at `azimuth_deg` (counter-clockwise from the right) and",
+                                    "`elevation_deg` over the screen."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "azimuth_deg": "f32"
+                                    },
+                                    {
+                                        "elevation_deg": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_core::light::Light::sun(azimuth_deg, elevation_deg)"
+                            }
+                        },
+                        "functions": {
+                            "depends_on_position": {
+                                "doc": [
+                                    "Whether the light's direction depends on where on the desktop a",
+                                    "surface is (a point light): a window that moves is then lit anew."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.depends_on_position()"
+                            }
+                        },
+                        "repr": "C, u8"
+                    },
+                    "PointLight": {
+                        "external": "azul_core::light::PointLight",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                },
+                                "height": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SunLight": {
+                        "external": "azul_core::light::SunLight",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "azimuth_deg": {
+                                    "type": "f32"
+                                },
+                                "elevation_deg": {
+                                    "type": "f32"
                                 }
                             }
                         ],

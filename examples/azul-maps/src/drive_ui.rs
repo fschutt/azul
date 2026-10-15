@@ -75,8 +75,8 @@ const BANNER: &str = "position: absolute; left: 50%; top: 48px; width: 460px; ma
                       padding: 12px 16px; border-radius: 12px; background: #0b6e4f; color: #ffffff; \
                       box-shadow: 0px 2px 10px rgba(0,0,0,0.35);";
 const BANNER_NIGHT: &str = "background: #1d2226; color: #e8eaed;";
-const BANNER_ICON: &str = "font-family: 'Material Icons'; font-size: 44px;";
-const BANNER_ICON_CAR: &str = "font-family: 'Material Icons'; font-size: 64px;";
+const BANNER_ICON: &str = "font-size: 44px;";
+const BANNER_ICON_CAR: &str = "font-size: 64px;";
 const BANNER_DISTANCE: &str = "font-size: 26px; font-weight: bold;";
 const BANNER_DISTANCE_CAR: &str = "font-size: 38px; font-weight: bold;";
 const BANNER_TEXT: &str = "font-size: 15px; white-space: normal;";
@@ -670,8 +670,6 @@ fn night(dark_window: bool) -> bool {
 pub(crate) struct Shown {
     /// What decides the banner's and the bar's nodes and styles.
     pub look: Look,
-    /// The next maneuver's arrow, a Material Icons name.
-    pub icon: String,
     /// How far the next maneuver is; empty when there is none to count down to.
     pub distance: String,
     /// What to do there.
@@ -698,6 +696,10 @@ pub(crate) struct Look {
     pub offline: bool,
     /// The fix indicator's dot colour; `None` without an indicator.
     pub indicator: Option<(u8, u8, u8)>,
+    /// The next maneuver's arrow, an icon of the icon set. An icon node is drawn at the
+    /// banner's size, which an icon that can be swapped in place is not, so a new maneuver
+    /// rebuilds the window: once per maneuver, not once per position.
+    pub icon: &'static str,
 }
 
 /// The banner and the bar at the moment `now_ts` (Unix seconds, for the arrival time); `None`
@@ -745,8 +747,8 @@ pub(crate) fn shown(s: &MapState, dark_window: bool, now_ts: i64) -> Option<Show
             distance: !distance.is_empty(),
             offline: nav.offline,
             indicator: indicator.as_ref().map(|(colour, _)| *colour),
+            icon,
         },
-        icon: icon.to_string(),
         distance,
         instruction,
         summary,
@@ -794,7 +796,9 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
         .with_child(
             Dom::create_div()
                 .with_css(if car { BANNER_ICON_CAR } else { BANNER_ICON })
-                .with_child(live_text(&shown.icon, ids::NAV_ICON_TEXT)),
+                // The maneuver as the icon set's glyph: a span in an icon font family shows
+                // the icon's name as text ("turn_right").
+                .with_child(Dom::create_icon(look.icon)),
         )
         .with_child(words);
 
@@ -877,7 +881,6 @@ fn show_in_place(app: &RefAny, info: &mut CallbackInfo) -> bool {
     }
     let _drawn = MapWidget::update_overlays(*info, map, MapOverlayVec::from_vec(overlays));
     let texts = [
-        (ids::NAV_ICON_TEXT, &before.icon, &now.icon),
         (ids::NAV_DISTANCE_TEXT, &before.distance, &now.distance),
         (ids::NAV_INSTRUCTION_TEXT, &before.instruction, &now.instruction),
         (ids::NAV_SUMMARY_TEXT, &before.summary, &now.summary),
