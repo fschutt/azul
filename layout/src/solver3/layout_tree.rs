@@ -1760,6 +1760,62 @@ impl LayoutTree {
         })
     }
 
+    /// Reads the margins, borders, paddings and layout style of the box
+    /// `node_index` from the cascade again, as a box built fresh gets them.
+    /// The retained tree of a pass that skips the reconcile (a frame of a
+    /// layout-property tween) still holds what the OLD cascade said; the
+    /// boxes its css dirt names are restyled with this before they are laid
+    /// out, or an animated margin would not move.
+    pub(crate) fn restyle_node(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_index: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        viewport_size: LogicalSize,
+    ) {
+        let Some((dom_id, is_root)) = self
+            .nodes
+            .get(node_index)
+            .and_then(|n| Some((n.dom_node_id?, n.parent.is_none())))
+        else {
+            return;
+        };
+        // An anonymous box or a pseudo element shares its DOM node with
+        // another box; only the element's own box is restyled here.
+        if self
+            .warm
+            .get(node_index)
+            .is_some_and(|w| w.pseudo_element.is_some())
+        {
+            return;
+        }
+        let collected = collect_box_props(styled_dom, dom_id, debug_messages, viewport_size);
+        if let Some(hot) = self.nodes.get_mut(node_index) {
+            hot.box_props = crate::solver3::geometry::PackedBoxProps::pack(&collected.resolved);
+        }
+        if let Some(cold) = self.cold.get_mut(node_index) {
+            cold.unresolved_box_props = collected.unresolved;
+        }
+        if let Some(warm) = self.warm.get_mut(node_index) {
+            let mut style = compute_layout_style(styled_dom, dom_id);
+            if is_root {
+                // The viewport's overflow, as `create_node_from_dom` reads it.
+                use azul_css::props::layout::LayoutOverflow;
+                if style.overflow_x == LayoutOverflow::Visible {
+                    style.overflow_x = LayoutOverflow::Auto;
+                } else if style.overflow_x == LayoutOverflow::Clip {
+                    style.overflow_x = LayoutOverflow::Hidden;
+                }
+                if style.overflow_y == LayoutOverflow::Visible {
+                    style.overflow_y = LayoutOverflow::Auto;
+                } else if style.overflow_y == LayoutOverflow::Clip {
+                    style.overflow_y = LayoutOverflow::Hidden;
+                }
+            }
+            warm.computed_style = style;
+        }
+    }
+
     /// Re-resolve box properties for a node with the actual containing block size.
     pub(crate) fn resolve_box_props(
         &mut self,

@@ -953,6 +953,26 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .iter()
             .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
         if needs_layout_work {
+            // A pass that skipped the reconcile kept the tree of the old
+            // cascade: the boxes the css dirt names read their margins,
+            // borders, paddings and layout style again, as the reconcile
+            // builds a restyled box fresh (an override-animated margin
+            // moves its box).
+            if cache.last_reconcile_was_skipped {
+                for (dom_id_dirty, scope) in css_dirty {
+                    if *scope == azul_css::props::property::RelayoutScope::None {
+                        continue;
+                    }
+                    let idx = new_tree
+                        .dom_to_layout
+                        .get(dom_id_dirty)
+                        .and_then(|v| v.first())
+                        .map(|id| id.index());
+                    if let Some(idx) = idx {
+                        new_tree.restyle_node(new_dom, idx, &mut None, viewport.size);
+                    }
+                }
+            }
             let any_columns = multicol::dom_declares_columns(new_dom);
             let node_of = |idx: usize| {
                 new_tree.nodes.get(idx).map(|n| {
