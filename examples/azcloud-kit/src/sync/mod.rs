@@ -1915,11 +1915,15 @@ fn run<R: SyncRemote + ?Sized>(
             return Ok(report);
         }
         if attempt == 1 {
-            // A file renamed or moved here is no change of a file: the guard does not see it.
+            // A file renamed or moved here is no change of a file, and deletes the user just
+            // confirmed in the mass-delete question were asked about: the guard sees neither.
             let moved = moves(&actions, &scan, base);
+            let confirmed = |a: &Action| {
+                opts.allow_mass_delete && matches!(a, Action::DeleteRemote { .. })
+            };
             let judged: Vec<Action> = actions
                 .iter()
-                .filter(|a| !moved.contains(a.key()))
+                .filter(|a| !moved.contains(a.key()) && !confirmed(a))
                 .cloned()
                 .collect();
             pause = guard::check_burst(
