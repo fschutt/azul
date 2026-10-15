@@ -167,3 +167,43 @@ fn csharp_takes_and_gives_nullables_and_registers_a_typed_resume_callback() {
         ],
     );
 }
+
+/// Java (and Scala, which compiles against the same classes).
+#[test]
+fn java_takes_the_value_or_null_and_gives_optionals_and_types_the_resume_callback() {
+    let file = |name: &str| (format!("java/{name}.java"), generated(&format!("java/{name}.java")));
+    let (path, dialog) = file("FileDialog");
+    assert_contains(
+        &path,
+        &dialog,
+        &[
+            // A static-only type has a class for its functions.
+            "public static RequestId openDirectory(java.lang.String title, java.lang.String default_path, \
+             RefAny data, ResumeCallback on_result) {",
+            "AzOptionString.ByValue __default_path_opt = AzulOptions.inOptionString(default_path);",
+            "public static <T> RequestId openDirectory(java.lang.String title, java.lang.String default_path, \
+             T data, AzulHostInvoker.ResumeCallbackWithData<T> on_result) {",
+        ],
+    );
+    let (path, picked) = file("FileOpenResult");
+    assert_contains(
+        &path,
+        &picked,
+        &[
+            "public static java.util.Optional<FileOpenResult> downcast(RefAny result) {",
+            // The engine's `result` is deep-copied into the downcast, never freed twice.
+            "AzRefAny.ByValue __result_raw = result.__takeRaw();",
+            "public java.util.Optional<FilePath> getPath() {",
+            "public void setPath(FilePath v) {",
+        ],
+    );
+    let (path, icons) = file("IconVariants");
+    assert_contains(
+        &path,
+        &icons,
+        &[
+            "public java.util.Optional<java.lang.String> getLight() {",
+            "public void setLight(java.lang.String v) {",
+        ],
+    );
+}
