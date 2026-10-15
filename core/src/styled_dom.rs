@@ -2251,6 +2251,63 @@ impl StyledDom {
         chain
     }
 
+    /// Raises `:focus-within` on `focused`, its ancestors and their parts,
+    /// flag by flag and without a restyle: for a DOM built at rest that the
+    /// window hands its runtime states before the layout (the focus, the
+    /// hovered nodes). [`Self::restyle_for_raised_states`] then lets the
+    /// rules that read those states see them.
+    pub fn raise_focus_within(&mut self, focused: NodeId) {
+        let chain = self.self_and_ancestors(focused);
+        let chain = self.with_parts(chain);
+        let mut nodes = self.styled_nodes.as_container_mut();
+        for node in chain {
+            if let Some(styled) = nodes.get_mut(node) {
+                styled.styled_node_state.focus_within = true;
+            }
+        }
+    }
+
+    /// Re-runs the cascade when one of its rules names, left of its subject,
+    /// a state some node is in now (`.btn:hover .ink`, `.frame:focus-within
+    /// .ring`). Such a rule holds by the states the cascade saw; a DOM built
+    /// at rest and given its states flag by flag afterwards has not seen them.
+    /// A DOM without such rules, or with none of their states raised, costs a
+    /// pass over its states. Returns whether the cascade ran.
+    pub fn restyle_for_raised_states(&mut self) -> bool {
+        use azul_css::dynamic_selector::PseudoStateType as P;
+        let mask = self.get_css_property_cache().left_state_mask;
+        if mask == 0 {
+            return false;
+        }
+        let states = [
+            P::Hover,
+            P::Active,
+            P::Focus,
+            P::FocusVisible,
+            P::FocusWithin,
+            P::SeatFocus,
+            P::Dragging,
+            P::DragOver,
+        ];
+        let raised = self
+            .styled_nodes
+            .as_container()
+            .internal
+            .iter()
+            .fold(0_u32, |bits, node| {
+                states
+                    .iter()
+                    .filter(|ty| state_is_raised(&node.styled_node_state, **ty))
+                    .fold(bits, |bits, ty| bits | crate::style::state_bit(*ty))
+            });
+        if mask & raised == 0 {
+            return false;
+        }
+        let css = self.get_css_property_cache().retained_author_css.clone();
+        self.restyle(css);
+        true
+    }
+
     /// Which nodes drop and which take `:focus-within` when the focus moves
     /// from `lost` to `gained`: the two ancestor chains without the part
     /// they share, which holds the focus before and after.

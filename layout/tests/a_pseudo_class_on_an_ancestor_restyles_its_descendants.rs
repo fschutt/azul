@@ -233,8 +233,6 @@ fn a_dom_given_its_states_after_the_cascade_catches_up_with_them() {
     assert_eq!(background(&styled, ring), Some(GREEN), "not cascaded yet");
     assert!(styled.restyle_for_raised_states(), "a left-state rule is live");
     assert_eq!(background(&styled, ring), Some(RED));
-    assert!(
-        !styled.restyle_for_raised_states() || background(&styled, ring) == Some(RED),
-        "running it again changes nothing"
-    );
+    let _ = styled.restyle_for_raised_states();
+    assert_eq!(background(&styled, ring), Some(RED), "running it again changes nothing");
 }
