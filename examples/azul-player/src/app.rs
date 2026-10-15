@@ -429,8 +429,8 @@ pub fn search_tiles(library: &Library, query: &str) -> Vec<Tile> {
     out
 }
 
-/// The time of day, "21:45" (UTC when the local offset is not known to the standard library:
-/// the clock asks the system for it through `date`'s format only where it can).
+/// The time of day, "21:45", in the system's time zone as it is now (a daylight saving change
+/// moves the clock while the app runs).
 #[must_use]
 pub fn wall_clock() -> String {
     let secs = std::time::SystemTime::now()
@@ -442,8 +442,10 @@ pub fn wall_clock() -> String {
 /// The time of day `utc_secs` (seconds since 1970, UTC) shows at `offset_s` from UTC.
 #[must_use]
 pub fn clock_text(utc_secs: u64, offset_s: i64) -> String {
-    let local = utc_secs.saturating_add_signed(offset_s);
-    format!("{}:{:02}", (local / 3600) % 24, (local / 60) % 60)
+    const DAY: i64 = 86_400;
+    let utc = i64::try_from(utc_secs % 86_400).unwrap_or(0);
+    let local = (utc + offset_s).rem_euclid(DAY);
+    format!("{}:{:02}", local / 3600, (local / 60) % 60)
 }
 
 #[cfg(test)]
@@ -459,24 +461,11 @@ mod clock_tests {
     }
 }
 
-/// The local time's offset from UTC in seconds, read once from the system (`date +%z`; 0 when
-/// it cannot be read).
+/// The local time's offset from UTC in seconds now: asked of the system at every tick, on
+/// every platform (a `date` process read once was missing on Windows and stale after a
+/// daylight saving change).
 fn local_offset_s() -> i64 {
-    static OFFSET: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
-    *OFFSET.get_or_init(|| {
-        let Ok(out) = std::process::Command::new("date").arg("+%z").output() else {
-            return 0;
-        };
-        let text = String::from_utf8_lossy(&out.stdout);
-        let t = text.trim();
-        if t.len() != 5 {
-            return 0;
-        }
-        let sign = if t.starts_with('-') { -1 } else { 1 };
-        let hours: i64 = t[1..3].parse().unwrap_or(0);
-        let minutes: i64 = t[3..5].parse().unwrap_or(0);
-        sign * (hours * 3600 + minutes * 60)
-    })
+    i64::from(chrono::Local::now().offset().local_minus_utc())
 }
 
 /// The app's start: switches, the kit (settings, data root), the window.
