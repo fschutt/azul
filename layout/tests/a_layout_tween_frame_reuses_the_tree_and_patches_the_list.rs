@@ -52,7 +52,7 @@ fn page() -> Dom {
         .with_child(card(2))
 }
 
-fn window() -> (LayoutWindow, NodeId) {
+pub(crate) fn window() -> (LayoutWindow, NodeId) {
     let mut dom = page();
     let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
@@ -85,7 +85,7 @@ fn window() -> (LayoutWindow, NodeId) {
 
 /// What the shells do for `ShouldIncrementalRelayout`: lay the EXISTING
 /// styled DOM out again through the relayout entry.
-fn relayout(lw: &mut LayoutWindow) {
+pub(crate) fn relayout(lw: &mut LayoutWindow) {
     let result = lw.layout_results.remove(&DomId::ROOT_ID).expect("laid out");
     let window_state = lw.current_window_state.clone();
     lw.layout_and_generate_display_list(
@@ -98,7 +98,7 @@ fn relayout(lw: &mut LayoutWindow) {
     .expect("the relayout runs");
 }
 
-fn knob_x(lw: &LayoutWindow, knob: NodeId) -> f32 {
+pub(crate) fn knob_x(lw: &LayoutWindow, knob: NodeId) -> f32 {
     lw.get_node_layout_rect(DomNodeId {
         dom: DomId::ROOT_ID,
         node: Some(knob).into(),
@@ -109,7 +109,7 @@ fn knob_x(lw: &LayoutWindow, knob: NodeId) -> f32 {
 }
 
 /// Toggle the knob to 16 px and settle the write's own relayout.
-fn toggled() -> (LayoutWindow, NodeId) {
+pub(crate) fn toggled() -> (LayoutWindow, NodeId) {
     let (mut lw, knob) = window();
     let _ = lw.apply_content_change(ContentChange::NodeCss {
         dom_id: DomId::ROOT_ID,
