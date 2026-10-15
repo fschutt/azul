@@ -296,13 +296,6 @@ pub fn family_css(family: &str) -> String {
         .join(", ")
 }
 
-impl_option!(
-    RichFont,
-    OptionRichFont,
-    copy = false,
-    [Debug, Clone, PartialEq, Eq, Hash]
-);
-
 // ==== Runs ====
 
 /// One stretch of text in one format (and, optionally, one link).
@@ -389,14 +382,16 @@ impl RichRun {
     /// Same formats and link (the text may differ).
     #[must_use]
     pub fn same_format(&self, other: &Self) -> bool {
-        self.formats == other.formats && self.link_str() == other.link_str()
+        self.formats == other.formats
+            && self.link_str() == other.link_str()
+            && self.font == other.font
     }
 
     /// No format, no link and the editor's own font: rendered as a bare
     /// text node.
     #[must_use]
     pub const fn is_plain(&self) -> bool {
-        self.formats.is_empty() && self.link.is_none()
+        self.formats.is_empty() && self.link.is_none() && self.font.is_default()
     }
 
     /// Replaces the run's text.
@@ -1381,7 +1376,9 @@ impl RichTextDoc {
         if let Some(style) = typing {
             template.formats = style;
         }
-        let _ = font;
+        if let Some(font) = font {
+            template.font = font;
+        }
         let replacement: Vec<RichRun> = if middle.is_empty() {
             Vec::new()
         } else {
@@ -1826,8 +1823,8 @@ impl RichTextDoc {
     /// before the caret's (the run after it at a block's start).
     #[must_use]
     pub fn font_at(&self, index: usize, at: usize) -> RichFont {
-        let _ = (index, at);
-        RichFont::create()
+        self.run_at(index, at)
+            .map_or_else(RichFont::create, |r| r.font.clone())
     }
 
     /// Sets the family (`family`, when given) and the size (`half_points`,
@@ -1841,8 +1838,45 @@ impl RichTextDoc {
         family: Option<OptionString>,
         half_points: Option<u16>,
     ) -> bool {
-        let _ = (index, start, end, family, half_points);
-        false
+        let Some(block) = self.block_mut(index) else {
+            return false;
+        };
+        if start >= end || block.kind.is_code() || !block.kind.has_text() {
+            return false;
+        }
+        let flat = block.flat();
+        let start = floor_char_boundary(&flat, start);
+        let end = floor_char_boundary(&flat, end).max(start);
+        if start == end {
+            return false;
+        }
+        // One spelling per family list, so equal fonts merge and compare.
+        let family = family.map(|f| match f.as_ref() {
+            Some(name) => normalize_family(name.as_str()),
+            None => OptionString::None,
+        });
+        let mut runs = block.runs_vec();
+        let covered = isolate(&mut runs, start, end);
+        let mut changed = false;
+        for run in &mut runs[covered] {
+            if let Some(family) = &family {
+                if run.font.family != *family {
+                    run.font.family = family.clone();
+                    changed = true;
+                }
+            }
+            if let Some(half_points) = half_points {
+                if run.font.half_points != half_points {
+                    run.font.half_points = half_points;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            normalize_runs(&mut runs);
+            block.set_runs(runs);
+        }
+        changed
     }
 
     /// The link under byte `at` of block `index` (the run before the caret).

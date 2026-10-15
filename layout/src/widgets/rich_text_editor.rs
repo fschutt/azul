@@ -857,6 +857,9 @@ struct RenderCtx<'a> {
     host_id: &'a str,
     images: &'a [RichImageSource],
     font_px: f32,
+    /// The point size `font_px` stands for: a run's own size in points
+    /// draws at `points / body_pt * font_px`.
+    body_pt: f32,
     spacing: f32,
     /// A line's height as a factor of `font_px`.
     line_height: f32,
@@ -873,6 +876,11 @@ fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>, range: Option<(usize
         host_id: editor.state.host_id.as_str(),
         images: editor.images.as_ref(),
         font_px: editor.font_size,
+        body_pt: if editor.body_points > 0.0 {
+            editor.body_points
+        } else {
+            editor.font_size * 0.75
+        },
         spacing: editor.paragraph_spacing,
         line_height: if editor.line_height > 0.0 {
             editor.line_height
@@ -989,6 +997,20 @@ fn run_dom(ctx: &RenderCtx<'_>, run: &RichRun) -> Dom {
         );
         classes.push(rich_html::RUN_CODE_CLASS);
     }
+    // The run's own font. Its size is drawn in px against the body (not
+    // in em), so a run inside a heading keeps the size it names, and a
+    // zoomed editor (a larger `font_px`) scales it with the body.
+    if let Some(family) = run.font.family_str().filter(|_| !f.code) {
+        css.push_str(&format!(
+            "font-family: {};",
+            crate::widgets::rich_text::doc::family_css(family)
+        ));
+    }
+    if let Some(points) = run.font.points() {
+        if ctx.body_pt > 0.0 {
+            css.push_str(&format!("font-size: {}px;", points / ctx.body_pt * ctx.font_px));
+        }
+    }
     let mut node = match run.link_str() {
         Some(url) => {
             css.push_str("color: system:link;");
@@ -1011,6 +1033,9 @@ fn run_dom(ctx: &RenderCtx<'_>, run: &RichRun) -> Dom {
     };
     for class in classes {
         node = node.with_class(AzString::from_const_str(class));
+    }
+    for class in rich_html::font_classes(&run.font) {
+        node = node.with_class(AzString::from(class));
     }
     node.with_css(&css).with_child(text)
 }
@@ -1484,7 +1509,7 @@ impl RichTextEditorState {
     /// size boxes). An empty family or a size of 0 is the editor's own.
     #[must_use]
     pub fn current_font(&self) -> RichFont {
-        RichFont::create()
+        self.font_at(self.caret_block, self.caret_byte)
     }
 
     /// The kind of the caret's block.
@@ -1778,6 +1803,16 @@ impl RichTextEditorState {
         self.doc.formats_at(block, at)
     }
 
+    /// The font text typed at byte `at` of block `block` takes.
+    fn font_at(&self, block: usize, at: usize) -> RichFont {
+        if let Some(typing) = self.typing.as_ref() {
+            if typing.block == block && typing.at == at {
+                return typing.font.clone();
+            }
+        }
+        self.doc.font_at(block, at)
+    }
+
     /// Remembers where the engine's caret is.
     fn track_caret(&mut self, info: &CallbackInfo) {
         if let Some((block, byte)) = caret_in(info, self.host_id.as_str()) {
@@ -1786,9 +1821,10 @@ impl RichTextEditorState {
         }
     }
 
-    /// The typing style for an edit of `block` from `old` to `new`, moved
-    /// past the inserted text; `None` (and dropped) for any other edit.
-    fn typing_for(&mut self, block: usize, old: &str, new: &str) -> Option<RichFormats> {
+    /// The typing style (formats and font) for an edit of `block` from
+    /// `old` to `new`, moved past the inserted text; `None` (and dropped)
+    /// for any other edit.
+    fn typing_for(&mut self, block: usize, old: &str, new: &str) -> Option<(RichFormats, RichFont)> {
         let typing = self.typing.as_ref().cloned()?;
         self.typing = OptionRichTypingStyle::None;
         let (prefix, suffix) = crate::widgets::rich_text::doc::text_diff(old, new);
@@ -1797,12 +1833,12 @@ impl RichTextEditorState {
         if typing.block != block || removed != 0 || inserted == 0 || prefix != typing.at {
             return None;
         }
-        let formats = typing.formats;
+        let style = (typing.formats, typing.font.clone());
         self.typing = OptionRichTypingStyle::Some(RichTypingStyle {
             at: prefix + inserted,
             ..typing
         });
-        Some(formats)
+        Some(style)
     }
 
     /// Folds the engine's unsynced text edits of the host into the document
@@ -1853,9 +1889,21 @@ impl RichTextEditorState {
             if old == new {
                 continue;
             }
+            // The font the engine drew the new text in: the run it was
+            // typed into continues (the run on the left).
+            let drawn_font = self
+                .doc
+                .font_at(block, crate::widgets::rich_text::doc::text_diff(&old, new).0);
             let typing = self.typing_for(block, &old, new);
             self.history.record(&self.doc, RichEditGroup::Typing(block));
-            if self.doc.sync_block_text(block, new, typing) {
+            let (typing_formats, typing_font) = match &typing {
+                Some((formats, font)) => (Some(*formats), Some(font.clone())),
+                None => (None, None),
+            };
+            if self
+                .doc
+                .sync_block_text_with(block, new, typing_formats, typing_font)
+            {
                 changed = true;
                 // The new text's bold / italic / underline / strike are the
                 // engine's (its typing style at a caret, a formatted paste):
@@ -1867,7 +1915,12 @@ impl RichTextEditorState {
                     new.len() - suffix,
                     &reported_spans(edit.runs.as_ref()),
                 );
-                if typing.is_some_and(|t| t.code) {
+                // A typing style the engine cannot paint in place: inline
+                // code, or a font other than the run's it typed into.
+                if typing
+                    .as_ref()
+                    .is_some_and(|(formats, font)| formats.code || *font != drawn_font)
+                {
                     rebuild = true;
                 }
                 if shortcuts {
@@ -2088,7 +2141,7 @@ impl RichTextEditorState {
                         block,
                         at: byte,
                         formats,
-                        font: RichFont::create(),
+                        font: self.font_at(block, byte),
                     });
                     if paint {
                         if let (Some(host), Some(f)) = (target, engine_format(*format)) {
@@ -2192,11 +2245,75 @@ impl RichTextEditorState {
             }
             RichTextCommand::RemoveLink => self.link_spans(&spans, block, byte, None),
             RichTextCommand::ToggleCheck => self.doc.toggle_check(block),
-            RichTextCommand::SetFontFamily(_)
-            | RichTextCommand::SetFontSize(_)
-            | RichTextCommand::Cut
-            | RichTextCommand::Copy
-            | RichTextCommand::Paste => false,
+            RichTextCommand::SetFontFamily(_) | RichTextCommand::SetFontSize(_) => {
+                let (family, half_points) = match command {
+                    RichTextCommand::SetFontFamily(family) => (Some(family.clone()), None),
+                    RichTextCommand::SetFontSize(size) => (None, Some(*size)),
+                    _ => (None, None),
+                };
+                if spans.is_empty() {
+                    // At a caret: the typing style of what is typed next,
+                    // the formats the caret has with the font changed.
+                    let target = caret_host(info, self.host_id.as_str()).or(host);
+                    let mut formats = self.formats_at(block, byte);
+                    if let Some(engine) =
+                        target.and_then(|h| info.get_typing_formats(h).into_option())
+                    {
+                        formats = with_engine_formats(formats, engine);
+                    }
+                    let mut font = self.font_at(block, byte);
+                    if let Some(family) = family {
+                        font.family = match family.as_ref() {
+                            Some(name) => {
+                                crate::widgets::rich_text::doc::normalize_family(name.as_str())
+                            }
+                            None => OptionString::None,
+                        };
+                    }
+                    if let Some(half_points) = half_points {
+                        font.half_points = half_points;
+                    }
+                    self.typing = OptionRichTypingStyle::Some(RichTypingStyle {
+                        block,
+                        at: byte,
+                        formats,
+                        font,
+                    });
+                    false
+                } else {
+                    let mut changed = false;
+                    for (b, s, e) in &spans {
+                        changed |= self.doc.set_font(*b, *s, *e, family.clone(), half_points);
+                    }
+                    changed
+                }
+            }
+            RichTextCommand::Copy | RichTextCommand::Cut => {
+                // The engine's copy of its selection (the text and its
+                // styled runs), then - for a cut - the engine's own delete
+                // of it: the deletion comes back as an edit the editor
+                // folds in like any other, with its undo step.
+                let target = caret_host(info, self.host_id.as_str()).or(host);
+                if let Some(target) = target {
+                    if let Some(content) = info.inspect_copy_changeset(target) {
+                        info.set_copy_content(target, content);
+                        if *command == RichTextCommand::Cut && !spans.is_empty() {
+                            info.delete_backward(target);
+                        }
+                    }
+                }
+                false
+            }
+            RichTextCommand::Paste => {
+                // The clipboard goes in where a Ctrl/Cmd+V would put it:
+                // the host takes the focus first (a ribbon button may hold
+                // it), then the engine pastes and reports the edit.
+                if let Some(target) = caret_host(info, self.host_id.as_str()).or(host) {
+                    info.set_focus(FocusTarget::Id(target));
+                    info.paste_from_clipboard();
+                }
+                false
+            }
         };
         if !changed {
             return Update::DoNothing;
