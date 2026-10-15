@@ -19,11 +19,19 @@
 //!
 //! Blocking: call it from an azul `Thread`, never from a UI callback.
 
-use std::{fmt, io::Read, path::Path, sync::Arc};
+use std::{
+    fmt,
+    io::Read,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use azul_storage::{
-    multipart::in_parallel, s3::parse_listing, transfer, ByteRange, Credentials, DriveError,
-    HttpReply, ListPage, Method, ObjectInfo, S3Config, S3Drive,
+    checked::{CheckedUpload, FileCheck},
+    multipart::in_parallel,
+    s3::parse_listing,
+    transfer, ByteRange, Credentials, DriveError, HttpReply, ListPage, Method, ObjectInfo,
+    S3Config, S3Drive,
 };
 
 use crate::{
@@ -63,6 +71,9 @@ pub struct Bucket {
     direct: S3Drive,
     part_size: usize,
     clock: Option<Clock>,
+    /// Where the state files of resumable uploads go instead of the app's resume folder
+    /// (azul-storage's `set_resume_folder`); `None`: the app's.
+    resume_dir: Option<PathBuf>,
 }
 
 impl fmt::Debug for Bucket {
@@ -84,10 +95,14 @@ fn open(
     failover: &Arc<Failover>,
     clock: Option<&Clock>,
     part_size: usize,
+    resume_dir: Option<&Path>,
 ) -> Result<(S3Drive, S3Drive), DriveError> {
     let mut drive = S3Drive::new(config.clone(), credentials.clone(), transports())?
         .with_router(failover.clone())
         .with_part_size(part_size);
+    if let Some(folder) = resume_dir {
+        drive = drive.with_resume_dir(folder);
+    }
     let mut direct = S3Drive::new(config.clone(), credentials.clone(), transports())?;
     if let Some(clock) = clock {
         let signing = clock.clone();
@@ -115,6 +130,7 @@ impl Bucket {
             &failover,
             None,
             PART_SIZE,
+            None,
         )?;
         Ok(Bucket {
             config,
@@ -125,6 +141,7 @@ impl Bucket {
             direct,
             part_size: PART_SIZE,
             clock: None,
+            resume_dir: None,
         })
     }
 
@@ -138,6 +155,7 @@ impl Bucket {
             &self.failover,
             self.clock.as_ref(),
             self.part_size,
+            self.resume_dir.as_deref(),
         ) {
             drive.set_parallel(parallel);
             self.drive = drive;
@@ -190,6 +208,13 @@ impl Bucket {
     #[must_use]
     pub fn failover(&self) -> &Arc<Failover> {
         &self.failover
+    }
+
+    /// Keeps the state files of resumable uploads in `folder` instead of the app's resume
+    /// folder: an upload cut off half way goes on from there next time.
+    pub fn set_resume_dir(&mut self, folder: impl Into<PathBuf>) {
+        self.resume_dir = Some(folder.into());
+        self.reopen();
     }
 
     /// Sets how many parts or ranges of one big object are in flight (at least one).
@@ -291,6 +316,21 @@ impl Bucket {
             path,
             progress,
         )?)
+    }
+
+    /// [`Bucket::put_file`] of a file that must be the one `check` describes until the upload
+    /// completes; `None` when it is not (nothing completed).
+    pub fn put_file_checked(
+        &self,
+        key: &str,
+        path: &Path,
+        check: &FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> CloudResult<Option<u64>> {
+        match azul_storage::Drive::put_file_checked(&self.drive, key, path, check, progress)? {
+            CheckedUpload::Sent(written) => Ok(Some(written)),
+            CheckedUpload::Changed => Ok(None),
+        }
     }
 
     /// GET of `key` into the file `dest`: ranged GETs several at once into a hidden file next
@@ -520,6 +560,10 @@ impl RemoteStore for Bucket {
 
     fn put_from(&self, key: &str, body: &mut dyn Read, _size: u64) -> CloudResult<String> {
         Bucket::put_from(self, key, body)
+    }
+
+    fn put_file(&self, key: &str, path: &Path, check: &FileCheck) -> CloudResult<Option<u64>> {
+        self.put_file_checked(key, path, check, &|_| {})
     }
 
     fn fetch_to(&self, key: &str, _size: u64, dest: &Path) -> CloudResult<bool> {

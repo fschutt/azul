@@ -185,6 +185,18 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         self.inner.put_file(&self.full_key(key)?, path, progress)
     }
 
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        check: &crate::checked::FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<crate::checked::CheckedUpload, DriveError> {
+        self.check_writable()?;
+        self.inner
+            .put_file_checked(&self.full_key(key)?, path, check, progress)
+    }
+
     fn put_from_if(
         &self,
         key: &str,

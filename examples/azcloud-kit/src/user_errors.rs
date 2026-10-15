@@ -94,11 +94,14 @@ pub enum Code {
     LastRecoveryKey,
     /// A recovery lookup's challenge ran out or is not the server's - `bad_challenge`.
     BadChallenge,
+    /// This computer's clock is too far off the node's for a signed request (S3's
+    /// `RequestTimeTooSkewed`) - the client's own: nothing works until the clock is set.
+    ClockSkew,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 20] = [
+    pub const ALL: [Code; 21] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -119,6 +122,7 @@ impl Code {
         Code::RecoveryKeyRequired,
         Code::LastRecoveryKey,
         Code::BadChallenge,
+        Code::ClockSkew,
     ];
 
     /// `quota_exceeded`, ...
@@ -143,6 +147,7 @@ impl Code {
             Code::RecoveryKeyRequired => "recovery_key_required",
             Code::LastRecoveryKey => "last_recovery_key",
             Code::BadChallenge => "bad_challenge",
+            Code::ClockSkew => "clock_skew",
             Code::Other => "other",
             Code::DriveBanned => "drive_banned",
         }
@@ -295,6 +300,15 @@ pub const ROWS: &[Row] = &[
              es zu synchronisieren - bis dahin bleibt es hier, wie es ist.",
     },
     Row {
+        code: Code::ClockSkew,
+        class: Class::Fatal,
+        behaviour: Behaviour::Nothing,
+        en: "This computer's clock is off by more than 15 minutes. Set the right date and time, \
+             and syncing goes on.",
+        de: "Die Uhr dieses Computers geht um mehr als 15 Minuten falsch. Stelle Datum und \
+             Uhrzeit richtig, dann geht die Synchronisierung weiter.",
+    },
+    Row {
         code: Code::Other,
         class: Class::Fatal,
         behaviour: Behaviour::Report,
@@ -436,6 +450,7 @@ impl UserError {
     fn from_service(service: &ServiceError) -> UserError {
         let code = match service.azlin_error.as_deref() {
             Some(code) => Code::parse(code).unwrap_or(Code::Other),
+            None if service.code == "RequestTimeTooSkewed" => Code::ClockSkew,
             None => busy_or_other(service.status),
         };
         UserError {

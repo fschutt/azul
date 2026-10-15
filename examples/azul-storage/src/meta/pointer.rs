@@ -49,6 +49,25 @@ pub const MAGIC: &str = "azlin-pointer 1";
 /// The first line of every pointer of a packed file.
 pub const MAGIC_PACKED: &str = "azlin-pointer 2";
 
+/// The format of a pointer newer than the ones this version reads (`azlin-pointer N`, N above
+/// 2): a newer version of the app wrote the drive index. `None` for a pointer this version
+/// reads, and for what is no pointer at all.
+#[must_use]
+pub fn newer_format(bytes: &[u8]) -> Option<u32> {
+    let first = std::str::from_utf8(bytes).ok()?.lines().next()?;
+    let format: u32 = first.strip_prefix("azlin-pointer ")?.trim().parse().ok()?;
+    (format > 2).then_some(format)
+}
+
+/// What a pointer of the newer `format` is, in words: never damage - an update opens it.
+#[must_use]
+pub fn newer_reason(format: u32) -> String {
+    format!(
+        "it was written by a newer version of the app (pointer format {format}): update the \
+         app to open it"
+    )
+}
+
 /// The pointer blob of `entry`.
 #[must_use]
 pub fn encode(entry: &IndexEntry) -> Vec<u8> {
@@ -114,7 +133,12 @@ pub fn decode(bytes: &[u8]) -> Result<IndexEntry, String> {
     let packed_format = match lines.next() {
         Some(MAGIC) => false,
         Some(MAGIC_PACKED) => true,
-        _ => return Err("not a pointer of this format".to_string()),
+        _ => {
+            return Err(match newer_format(bytes) {
+                Some(format) => newer_reason(format),
+                None => "not a pointer of this format".to_string(),
+            })
+        }
     };
     let mut size = None;
     let mut modified = None;

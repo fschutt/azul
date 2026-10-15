@@ -567,6 +567,14 @@ azdrive-sync-status-conflicts = Waiting for you: { $count ->
 azdrive-sync-status-failed = Not synced: { $error }
 azdrive-sync-status-never = Not synced yet
 azdrive-sync-status-up-to-date = Up to date
+azdrive-sync-status-skipped = Up to date, but { $count ->
+        [one] one file can't sync
+       *[other] { $count } files can't sync
+    }
+azdrive-sync-status-disk-full = This computer's disk is full: { $count ->
+        [one] one file waits
+       *[other] { $count } files wait
+    }
 azdrive-sync-state-cloud-only = Cloud only: downloaded when opened
 azdrive-sync-state-downloading = Downloading
 azdrive-sync-state-uploading = Uploading

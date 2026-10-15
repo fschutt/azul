@@ -10,7 +10,10 @@
 
 use std::{io::Read, path::Path, sync::Arc};
 
-use azul_storage::{ops, transfer, Drive, DriveError, Precondition};
+use azul_storage::{
+    checked::{CheckedUpload, FileCheck},
+    ops, transfer, Drive, DriveError, Precondition,
+};
 
 use crate::{
     error::CloudResult,
@@ -119,6 +122,13 @@ impl RemoteStore for DriveStore {
     fn put_from(&self, key: &str, body: &mut dyn Read, _size: u64) -> CloudResult<String> {
         self.drive.put_from(key, body)?;
         Ok(String::new())
+    }
+
+    fn put_file(&self, key: &str, path: &Path, check: &FileCheck) -> CloudResult<Option<u64>> {
+        match self.drive.put_file_checked(key, path, check, &|_| {})? {
+            CheckedUpload::Sent(written) => Ok(Some(written)),
+            CheckedUpload::Changed => Ok(None),
+        }
     }
 
     fn fetch_to(&self, key: &str, size: u64, dest: &Path) -> CloudResult<bool> {

@@ -147,7 +147,7 @@ pub(crate) fn parse_delete_errors(xml: &str) -> Result<Vec<(String, String, Stri
 }
 
 /// A name for an HTTP status, for error answers without a body (HEAD).
-fn status_code_name(status: u16) -> &'static str {
+pub(crate) fn status_code_name(status: u16) -> &'static str {
     match status {
         301 => "PermanentRedirect",
         307 => "TemporaryRedirect",

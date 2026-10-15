@@ -338,6 +338,22 @@ fn failure(reply: &HttpReply, key: Option<&str>) -> DriveError {
     if error.request_id.is_none() {
         error.request_id = header("x-amz-request-id");
     }
+    // A refusal without a code (a HEAD's answer has no body) dated far from this clock is the
+    // refusal of a request signed with a clock that is off: its Date is the node's clock.
+    let bare = error.code == crate::xml::status_code_name(reply.status);
+    if bare && matches!(reply.status, 400 | 403) && error.azlin_error.is_none() {
+        let served = header("date").and_then(|date| crate::time::parse_http_date(&date));
+        if let Some(served) = served {
+            let off = served.abs_diff(crate::time::now_unix());
+            if off > MAX_CLOCK_SKEW_SECS {
+                error.code = String::from("RequestTimeTooSkewed");
+                error.message = format!(
+                    "this computer's clock is {} minutes off the storage node's",
+                    off / 60
+                );
+            }
+        }
+    }
     match (error.code.as_str(), key) {
         ("NoSuchKey" | "NotFound", Some(key)) => DriveError::NotFound {
             key: key.to_string(),
@@ -348,6 +364,9 @@ fn failure(reply: &HttpReply, key: Option<&str>) -> DriveError {
         _ => DriveError::Service(error),
     }
 }
+
+/// How far a request's signed time may be off the node's clock (S3's 15 minutes).
+pub const MAX_CLOCK_SKEW_SECS: u64 = 15 * 60;
 
 /// The body of a ListObjectsV2 answer as a page, as [`Drive::list`] reads it (for a listing
 /// sent with [`S3Drive::send_raw`]).
@@ -1258,6 +1277,20 @@ impl Drive for S3Drive {
     ) -> Result<u64, DriveError> {
         check_s3_key(key)?;
         crate::multipart::upload_file(self, key, path, None, progress).map(|(written, _)| written)
+    }
+
+    /// [`Drive::put_file`] that never completes with bytes other than `check` names: the file
+    /// must be as scanned when the upload starts and when its parts are complete (hashed whole
+    /// once more then); a cut-off upload resumes from its state file with the missing parts.
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &Path,
+        check: &crate::checked::FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<crate::checked::CheckedUpload, DriveError> {
+        check_s3_key(key)?;
+        crate::multipart::upload_file_checked(self, key, path, check, progress)
     }
 
     /// One PutObject with `If-None-Match: *` or `If-Match: "<etag>"` (AWS S3, R2 and

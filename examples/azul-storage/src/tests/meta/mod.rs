@@ -7,6 +7,7 @@ mod git;
 /// The encrypted drive over the drive index (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod index;
+mod lost_answers;
 mod maintain;
 mod merge;
 mod objects;
@@ -14,6 +15,12 @@ mod pack;
 /// The policy and the member wraps (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod policy;
+/// Pointers of a newer format (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod pointer_versions;
+/// A big listing of the drive index in pages (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod index_paging;
 /// The local query cache (feature `index-cache`).
 #[cfg(feature = "index-cache")]
 mod query_cache;

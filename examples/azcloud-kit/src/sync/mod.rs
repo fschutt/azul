@@ -71,7 +71,7 @@ use std::{
     time::Duration,
 };
 
-use azul_storage::{Drive as _, LocalDrive};
+use azul_storage::{checked::FileCheck, Drive as _, LocalDrive};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -86,6 +86,7 @@ use crate::{
     error::{fail, CloudError, CloudResult, Context},
     state::{read_json, write_json},
     store::BIG_BLOB,
+    user_errors::{Class, UserError},
 };
 
 /// The data root of every Azlin app, in the drive.
@@ -102,8 +103,8 @@ pub const SETTLE_MAX: Duration = Duration::from_secs(30);
 /// Below this many deletes a plan is never stopped as a mass delete.
 pub const MASS_DELETE_MIN: usize = 10;
 /// The biggest file a sync takes by default: S3's largest object (5 TiB). A big file travels
-/// streamed - up in parts, its BLAKE3 checked as it is read; down into a file - never whole in
-/// memory.
+/// in parts - up from its file (an upload cut off goes on from the parts the bucket holds, and
+/// its BLAKE3 is checked again before it completes), down into a file - never whole in memory.
 pub const MAX_FILE_BYTES: u64 = 5 * (1 << 40);
 
 /// How a run behaves.
@@ -609,18 +610,11 @@ fn mass_delete(
             keys: here,
         });
     }
-    let moved: BTreeSet<&str> = actions
-        .iter()
-        .filter(|a| matches!(a, Action::Upload { .. }))
-        .filter_map(|a| scan.files.get(a.key()).map(|f| f.hash.as_str()))
-        .collect();
+    let moved = moves(actions, scan, base);
     let there: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteRemote { .. }))
-        .filter(|a| {
-            base.get(a.key())
-                .is_none_or(|entry| !moved.contains(entry.hash.as_str()))
-        })
+        .filter(|a| !moved.contains(a.key()))
         .map(|a| a.key().to_string())
         .collect();
     if there.len() > MASS_DELETE_MIN && there.len() * 2 > base.len() {
@@ -632,6 +626,34 @@ fn mass_delete(
         });
     }
     None
+}
+
+/// The deletes on the drive a plan makes whose bytes go up under another name in the same plan:
+/// files renamed or moved here (a folder renamed). They are no delete and no change of a file -
+/// neither the mass-delete guard nor the burst guard counts them.
+fn moves(actions: &[Action], scan: &Scan, base: &BTreeMap<String, BaseEntry>) -> BTreeSet<String> {
+    let mut arriving: BTreeMap<&str, usize> = BTreeMap::new();
+    for action in actions {
+        if let Action::Upload { key } = action {
+            if let Some(file) = scan.files.get(key) {
+                *arriving.entry(file.hash.as_str()).or_default() += 1;
+            }
+        }
+    }
+    let mut moved = BTreeSet::new();
+    for action in actions {
+        let Action::DeleteRemote { key } = action else {
+            continue;
+        };
+        let Some(entry) = base.get(key) else {
+            continue;
+        };
+        if let Some(left) = arriving.get_mut(entry.hash.as_str()).filter(|left| **left > 0) {
+            *left -= 1;
+            moved.insert(key.clone());
+        }
+    }
+    moved
 }
 
 /// The command line's stop of a mass delete.
@@ -851,6 +873,9 @@ struct BlobJob {
     key: String,
     hash: String,
     size: u64,
+    /// The file's modification time as the scan found it (nanoseconds; 0 for bytes made here):
+    /// a big file's resumable upload checks it is still that file.
+    mtime_ns: u64,
     source: BlobSource,
 }
 
@@ -927,19 +952,6 @@ impl std::io::Read for CheckedRead {
     }
 }
 
-/// The job's file opened for a streamed upload (a file above [`BIG_BLOB`]), checked against its
-/// hash as it is read; `None` for a job whose bytes are made here (small ones, JSON).
-fn streamed(job: &BlobJob) -> Option<Result<CheckedRead, String>> {
-    match &job.source {
-        BlobSource::File(path) if job.size > BIG_BLOB => Some(
-            fs::File::open(path)
-                .map(|file| CheckedRead::new(file, &job.hash))
-                .map_err(|e| format!("cannot be read ({e})")),
-        ),
-        _ => None,
-    }
-}
-
 /// A file in the system's temporary folder a big download comes into, named after what it
 /// holds (a download cut short resumes there next time); removed when dropped.
 struct TempBlob(PathBuf);
@@ -993,22 +1005,33 @@ fn upload_one<S: RemoteStore + ?Sized>(
     prefix: &str,
     job: &BlobJob,
 ) -> CloudResult<Outcome> {
-    if let Some(reader) = streamed(job) {
-        let key = remote::blob_key(prefix, &job.hash);
-        if store.head(&key)?.is_some() {
-            return Ok(Outcome::Existed);
+    // A big file goes up from its file, part by part: an upload a dropped connection or a
+    // killed app cut off goes on next time with the parts it lacks, and it never completes
+    // unless the file still holds the bytes its name says (hashed whole once more).
+    if let BlobSource::File(path) = &job.source {
+        if job.size > BIG_BLOB {
+            let key = remote::blob_key(prefix, &job.hash);
+            if store.head(&key)?.is_some() {
+                return Ok(Outcome::Existed);
+            }
+            let check = FileCheck {
+                size: job.size,
+                modified_ns: job.mtime_ns,
+                blake3: job.hash.clone(),
+            };
+            return match store.put_file(&key, path, &check) {
+                Ok(Some(sent)) => Ok(Outcome::Uploaded(sent)),
+                Ok(None) => Ok(Outcome::Changed(String::from(
+                    "changed while it was synced",
+                ))),
+                // A file that changed or vanished since the scan waits for the next run; any
+                // other failure is the upload's.
+                Err(e) => match fs::metadata(path) {
+                    Ok(meta) if check.matches(&meta) => Err(e),
+                    _ => Ok(Outcome::Changed(String::from("changed while it was synced"))),
+                },
+            };
         }
-        let mut reader = match reader {
-            Ok(reader) => reader,
-            Err(why) => return Ok(Outcome::Changed(why)),
-        };
-        return match store.put_from(&key, &mut reader, job.size) {
-            Ok(_) => Ok(Outcome::Uploaded(reader.bytes())),
-            Err(_) if reader.changed() => Ok(Outcome::Changed(String::from(
-                "changed while it was synced",
-            ))),
-            Err(e) => Err(e),
-        };
     }
     let bytes = match job_bytes(job) {
         Ok(bytes) => bytes,
@@ -1086,10 +1109,12 @@ fn blob_job(action: &Action, work: &Uploads<'_>, hash: &str) -> BlobJob {
             (file.blob_size, source)
         }
     };
+    let mtime_ns = work.scan.files.get(key).map_or(0, |f| f.mtime_ns);
     BlobJob {
         key: key.to_string(),
         hash: hash.to_string(),
         size,
+        mtime_ns,
         source,
     }
 }
@@ -1137,16 +1162,36 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
         outcomes.push((job.key.clone(), job.hash.clone(), outcome));
     }
     let mut abandoned = BTreeSet::new();
+    // The first upload that failed by itself (no connection, a busy node), and whether any
+    // went through.
+    let mut passing: Option<CloudError> = None;
+    let mut any_sent = false;
     for (key, hash, outcome) in outcomes {
-        match outcome? {
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            // A dropped connection, a busy node: this file waits for the next run with its
+            // reason, the others reach the drive now. What the user must act on (a full drive,
+            // a device removed) fails the run, which says it.
+            Err(e) if passes(&e) => {
+                report.errors.push(format!("upload {key}: {e}"));
+                report.file_errors.push((key.clone(), e.to_string()));
+                abandoned.insert(key);
+                passing.get_or_insert(e);
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        match outcome {
             Outcome::Uploaded(bytes) => {
                 known.insert(hash);
                 report.blobs_up += 1;
                 report.bytes_up += bytes;
+                any_sent = true;
             }
             Outcome::Existed => {
                 known.insert(hash);
                 report.blobs_reused += 1;
+                any_sent = true;
             }
             Outcome::Changed(why) => {
                 report.changed_during_sync.push(format!("{key}: {why}"));
@@ -1155,6 +1200,13 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
             Outcome::Cancelled => {
                 abandoned.insert(key);
             }
+        }
+    }
+    // Nothing went through at all: the run fails with it, and the app says the drive cannot be
+    // reached (a node down, no connection) instead of "files cannot sync".
+    if let Some(e) = passing {
+        if !any_sent {
+            return Err(e);
         }
     }
     // An action whose content no upload confirmed (its twin under another
@@ -1167,6 +1219,12 @@ fn upload_blobs<S: RemoteStore + ?Sized>(
         }
     }
     Ok(abandoned)
+}
+
+/// Whether `e` passes by itself (the errors table's retry class: no connection, a busy or
+/// updating node): one file's such failure is no failed run.
+fn passes(e: &CloudError) -> bool {
+    UserError::from_cloud_error(e).is_some_and(|user| user.class() == Class::Retry)
 }
 
 /// The index after `actions`: `remote` itself when they change nothing in it
@@ -1284,6 +1342,13 @@ fn apply_local<R: SyncRemote + ?Sized>(
         })
     };
     let mut downloads = Vec::new();
+    // What this run deletes here before its downloads are written: a file the drive renamed by
+    // case only comes down under its new name once the old one is gone.
+    let leaving: BTreeSet<&str> = actions
+        .iter()
+        .filter(|a| matches!(a, Action::DeleteLocal { .. }))
+        .map(Action::key)
+        .collect();
     for action in actions {
         let key = action.key();
         let moved_on = || format!("{key}: changed during the run; the next run takes it");
@@ -1336,12 +1401,26 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 }
             }
             Action::Download { .. } => {
+                let expect = scan.files.get(key).cloned();
+                if expect.is_none() {
+                    // A file new here whose name this disk already gives another file that
+                    // stays: it stays on the drive, said, and is not fetched again every run.
+                    let folder = key.rfind('/').map_or("", |i| &key[..=i]);
+                    let twin = local::other_spelling(&root.path, key)
+                        .filter(|other| !leaving.contains(format!("{folder}{other}").as_str()));
+                    if let Some(other) = twin {
+                        let why = same_name(&other);
+                        report.errors.push(format!("download {key}: {why}"));
+                        report.file_errors.push((key.to_string(), why));
+                        continue;
+                    }
+                }
                 if let Some(f) = committed.files.get(key) {
                     downloads.push(Download {
                         key: key.to_string(),
                         hash: f.hash.clone(),
                         size: f.size,
-                        expect: scan.files.get(key).cloned(),
+                        expect,
                     });
                 }
             }
@@ -1500,6 +1579,19 @@ fn write_download(
         other => other,
     };
     if !local::still_as_scanned(&root.path, &d.key, d.expect.as_ref()) {
+        // Another file of the drive came down under a name this disk takes for this one's.
+        let other = d
+            .expect
+            .is_none()
+            .then(|| local::other_spelling(&root.path, &d.key))
+            .flatten();
+        if let Some(other) = other {
+            let why = same_name(&other);
+            report.errors.push(format!("write {}: {why}", d.key));
+            report.file_errors.push((d.key.clone(), why.clone()));
+            finished(Some(why));
+            return;
+        }
         report.changed_during_sync.push(format!(
             "{}: changed during the run; the next run takes it",
             d.key
@@ -1528,6 +1620,14 @@ fn write_download(
             finished(Some(e.to_string()));
         }
     }
+}
+
+/// Why a file of the drive stays there: this disk gives its name to `other` already.
+fn same_name(other: &str) -> String {
+    format!(
+        "\"{other}\" here has the same name to this disk, which ignores case and accents; \
+         this one stays on the drive"
+    )
 }
 
 /// This device's files as the plan sees them: the ones on disk, and the ones it keeps in the
@@ -1815,9 +1915,19 @@ fn run<R: SyncRemote + ?Sized>(
             return Ok(report);
         }
         if attempt == 1 {
+            // A file renamed or moved here is no change of a file, and deletes the user just
+            // confirmed in the mass-delete question were asked about: the guard sees neither.
+            let moved = moves(&actions, &scan, base);
+            let confirmed =
+                |a: &Action| opts.allow_mass_delete && matches!(a, Action::DeleteRemote { .. });
+            let judged: Vec<Action> = actions
+                .iter()
+                .filter(|a| !moved.contains(a.key()) && !confirmed(*a))
+                .cloned()
+                .collect();
             pause = guard::check_burst(
                 &mut index.guard,
-                &actions,
+                &judged,
                 base,
                 &root.path,
                 crate::now(),

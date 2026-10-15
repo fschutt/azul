@@ -11,6 +11,8 @@ mod claim;
 mod claim_ticket;
 mod cloud_drive;
 mod drive;
+/// An Azlin drive under answers that say too little (a HEAD's refusal has no body).
+mod drive_chaos;
 #[cfg(feature = "encryption")]
 mod encryption;
 mod endpoints;
@@ -33,6 +35,8 @@ mod settings;
 mod share;
 mod state;
 mod sync;
+/// The sync under hostile conditions: failed passes, files it cannot take, twin names, clocks.
+mod sync_chaos;
 mod sync_format;
 mod sync_guard;
 mod sync_local;

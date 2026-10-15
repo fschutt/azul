@@ -1068,6 +1068,15 @@ impl RemoteStore for CloudDrive {
         CloudDrive::put_from(self, key, body)
     }
 
+    fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        check: &azul_storage::checked::FileCheck,
+    ) -> CloudResult<Option<u64>> {
+        RemoteStore::put_file(&self.bucket, key, path, check)
+    }
+
     fn fetch_to(&self, key: &str, size: u64, dest: &std::path::Path) -> CloudResult<bool> {
         RemoteStore::fetch_to(&self.bucket, key, size, dest)
     }
