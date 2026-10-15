@@ -34,7 +34,7 @@ down)` alternates. The node's side: `clock_offset` (seconds the node's clock is 
 signed more than 15 minutes off its clock is answered 403 RequestTimeTooSkewed with the node's
 Date), `set_quota(bucket, bytes, used)` (the write that crosses it answers quota_exceeded),
 `sink(pattern)` (uploads of matching keys are taken and hashed, never stored: a 50 GB upload on
-a laptop's disk).
+a laptop's disk), `authorize` (a hook that refuses a session as a node would: expired, revoked).
 
 Another process steers a running proxy over HTTP on the same port: `POST /__azchaos/` with
 {"add": {rule}}, {"clear": true}, {"release": true}, {"network": "down"}, {"flap": [up, down]},
@@ -526,6 +526,10 @@ class ChaosProxy:
         self.sinks = []
         self.clock_offset = 0
         self.quotas = {}
+        # A node's check of the credentials: request -> None (fine) or (status, S3 code, Azlin
+        # error or None). The mock S3 checks only the signature; the E2E knows each session's
+        # family and expiry.
+        self.authorize = None
         self._state = "up"
         self._log = []
         self._lock = threading.Lock()
@@ -875,6 +879,16 @@ class ChaosProxy:
                                    "MaxAllowedSkewMilliseconds": MAX_SKEW_SECONDS * 1000}),
                     {"Content-Type": "application/xml",
                      "Date": email.utils.formatdate(now, usegmt=True)})
+        if self.authorize is not None:
+            refused = self.authorize(request)
+            if refused:
+                status, s3_code, azlin = refused
+                headers = {"Content-Type": "application/xml"}
+                if azlin:
+                    headers["x-azlin-error"] = azlin
+                entry["fault"] = entry["fault"] or "credentials"
+                return self._answer(sock, request, entry, status, error_body(
+                    s3_code, "azchaos: the session is refused", request.path), headers)
         if action == "status":
             headers = {"Content-Type": "application/xml"}
             headers.update(fault.param("headers", {}) or {})
