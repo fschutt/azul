@@ -818,8 +818,7 @@ fn section_title(title: &str) -> Dom {
 
 fn problem_line(problem: &str, id: AzString) -> Dom {
     block(
-        "color: #b3261e; padding: 4px 0px; font-size: 13px; \
-         @media (prefers-color-scheme: dark) { color: #f2b8b5; }",
+        "color: system:danger; padding: 4px 0px; font-size: 13px;",
         text(problem),
     )
     .with_id(id)

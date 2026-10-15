@@ -579,7 +579,7 @@ pub(crate) fn drill_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (Str
                 .with_id(ids::DRILL_CODE),
         );
     if !error.is_empty() {
-        body.add_child(line(error).with_css("color: #C42B1C;"));
+        body.add_child(line(error).with_css("color: system:danger;"));
     }
     let may_stop =
         state_of(&s.settings.recovery.drives, drive_id).is_some_and(RecoveryState::may_stop_drills);
@@ -786,7 +786,7 @@ pub(crate) fn options_sections(s: &DriveState, app: &RefAny) -> Vec<(String, Dom
         if let Some(warning) = methods_warning(state) {
             block.add_child(
                 line(warning)
-                    .with_css("color: #C42B1C;")
+                    .with_css("color: system:danger;")
                     .with_id(ids::method_warning(&state.drive_id)),
             );
         }

@@ -66,8 +66,7 @@ pub(crate) fn note(content: &str) -> Dom {
 }
 
 /// A problem's ink: red in both modes; under flora its clay stone, by day and by night.
-pub(crate) const PROBLEM_INK: &str = "color: #d13438; @theme(flora) { color: #7E4A42; @media \
-                                      (prefers-color-scheme: dark) { color: #B3837A; } }";
+pub(crate) const PROBLEM_INK: &str = "color: system:danger;";
 
 /// A line that reports a problem: a key said, plain words as they are.
 pub(crate) fn problem(content: &str, id: AzString) -> Dom {

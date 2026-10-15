@@ -25,8 +25,7 @@ const NAME: &str = "font-size: 13px; font-weight: 600; overflow: hidden; white-s
                     text-overflow: ellipsis;";
 const DETAIL: &str = "font-size: 11px; opacity: 0.7; overflow: hidden; white-space: nowrap; \
                       text-overflow: ellipsis;";
-const ERROR: &str = "font-size: 11px; color: #b3261e; \
-                     @media (prefers-color-scheme: dark) { color: #f2b8b5; }";
+const ERROR: &str = "font-size: 11px; color: system:danger;";
 
 /// The page.
 pub(super) fn sources_page(s: &NewsApp, app: &RefAny) -> Dom {

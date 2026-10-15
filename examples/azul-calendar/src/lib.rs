@@ -207,16 +207,12 @@ pub(crate) const SELECTED_RING: &str = "box-shadow: 0px 0px 0px 2px #2f6db0; @me
                                         2px #8dbbff; } @theme(flora) { box-shadow: 0px 0px 0px \
                                         2px #2F4A85; @media (prefers-color-scheme: dark) { \
                                         box-shadow: 0px 0px 0px 2px #7A93C6; } }";
-/// The "now" line in today's column (under flora the clay stone, its glow at night).
-pub(crate) const NOW_LINE: &str = "background: #d93025; @theme(flora) { background: #7E4A42; \
-                                   @media (prefers-color-scheme: dark) { background: #B3837A; } }";
+/// The "now" line in today's column: the theme's danger ink, as Outlook draws it red.
+pub(crate) const NOW_LINE: &str = "background: system:danger;";
 /// Secondary lines: an event's time, what a form line means.
 pub(crate) const SECONDARY: &str = "color: system:secondary-text;";
 /// A form's error line.
-pub(crate) const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12px; @media \
-                                (prefers-color-scheme: dark) { color: #f2b8b5; } @theme(flora) { \
-                                color: #7E4A42; @media (prefers-color-scheme: dark) { color: \
-                                #B3837A; } }";
+pub(crate) const ERROR: &str = "font-size: 13px; color: system:danger; margin-top: 12px;";
 /// A block's title: one line, cut with an ellipsis at the block's edge.
 pub(crate) const CLIPPED_TITLE: &str = "font-weight: bold; white-space: nowrap; overflow: \
                                         hidden; text-overflow: ellipsis; flex-shrink: 0;";

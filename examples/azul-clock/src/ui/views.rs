@@ -567,12 +567,10 @@ fn stopwatch_view(s: &ClockApp, app: &RefAny) -> Dom {
         // night) - flora's alternates, not flat's green and red.
         let color = match r.mark {
             LapMark::Fastest => {
-                " color: #2e8b57; @theme(flora) { color: #44684F; @media (prefers-color-scheme: \
-                 dark) { color: #7FA98C; } }"
+                " color: system:success;"
             }
             LapMark::Slowest => {
-                " color: #d0453c; @theme(flora) { color: #7E4A42; @media (prefers-color-scheme: \
-                 dark) { color: #B3837A; } }"
+                " color: system:danger;"
             }
             LapMark::None => "",
         };

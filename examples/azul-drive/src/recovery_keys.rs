@@ -267,7 +267,7 @@ struct FoundRef {
 
 /// The dialog's title and content.
 pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String, Dom) {
-    let red = |text: &str| line(text).with_css("color: #C42B1C;");
+    let red = |text: &str| line(text).with_css("color: system:danger;");
     match page {
         Page::Kit { error, .. } => {
             let mut body = column(vec![

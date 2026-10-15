@@ -888,9 +888,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         children.push(
             // Under flora a problem is marked in its clay stone.
             column(
-                "padding: 6px 8px; border-left: 3px solid #c0392b; @theme(flora) { border-left: \
-                 3px solid #7E4A42; @media (prefers-color-scheme: dark) { border-left: 3px solid \
-                 #B3837A; } }",
+                "padding: 6px 8px; border-left: 3px solid system:danger;",
                 form.problems.iter().map(|p| Dom::create_div().with_child(text(t_text(p)))).collect(),
             )
                 .with_id(ids::EDIT_PROBLEMS),
