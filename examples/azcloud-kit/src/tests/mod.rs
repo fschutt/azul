@@ -33,6 +33,8 @@ mod settings;
 mod share;
 mod state;
 mod sync;
+/// The sync under hostile conditions: failed passes, files it cannot take, twin names, clocks.
+mod sync_chaos;
 mod sync_format;
 mod sync_guard;
 mod sync_local;
