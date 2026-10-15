@@ -1895,6 +1895,7 @@ extern "C" fn on_grid_event(
     let kind = event.kind;
     let index = event.index.into_option();
     let view = event.view;
+    let typed = event.text.as_str().to_string();
     with_state(&mut data, &mut info, |info, app, s| {
         let keys = s.visible_keys();
         let order: Vec<&str> = keys.iter().map(String::as_str).collect();
@@ -1924,6 +1925,20 @@ extern "C" fn on_grid_event(
             }
             IconGridEventKind::Scroll => {
                 actions::request_view_work(info, app, s);
+            }
+            // F2 on a tile: the grid shows its own name field (its view, kept above).
+            IconGridEventKind::Rename => {}
+            // Enter in that field: the file is renamed as Rename in Details renames it.
+            IconGridEventKind::Renamed => {
+                let item = index.and_then(|i| keys.get(i)).cloned();
+                if let Some((key, entry)) = item.and_then(|key| s.entry(&key).cloned().map(|e| (key, e))) {
+                    s.renaming = Some(crate::Renaming {
+                        key,
+                        text: typed.clone(),
+                        is_folder: entry.is_folder,
+                    });
+                    actions::commit_rename(info, app, s);
+                }
             }
             IconGridEventKind::Select | IconGridEventKind::Drag => {}
         }
