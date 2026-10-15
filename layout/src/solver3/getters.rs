@@ -3265,34 +3265,44 @@ fn get_inline_border_info(
 ) -> Option<crate::text3::cache::InlineBorderInfo> {
     use crate::text3::cache::InlineBorderInfo;
 
-    // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
-    // against the real viewport instead of being treated as raw pixels, and an
-    // `em` against the element's own font size (a label's `margin-right:
-    // -0.08em` gives back its tracking, which is 0.08em of ITS size).
-    fn resolve_padding(mv: MultiValue<PixelValue>, viewport: PhysicalSize, em: (f32, f32)) -> f32 {
-        match mv {
-            MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
-                &pv,
-                0.0,
-                em.0,
-                em.1,
-                viewport.width,
-                viewport.height,
-            ),
-            _ => 0.0,
-        }
-    }
+    // Every edge of the inline box in px, resolved like a block's: viewport
+    // units against the real viewport, an `em` against the element's own
+    // font size (a label's `margin-right: -0.08em` gives back its tracking,
+    // which is 0.08em of ITS size), a `rem` against the root's, and the
+    // result scaled by the box's zoom (`scale_length_for_zoom`, the one rule
+    // of every length the solver resolves).
     let em = (
         get_element_font_size_in_viewport(styled_dom, node_id, node_state, viewport),
         get_root_font_size(styled_dom, node_state),
     );
+    let zoom = (
+        get_effective_zoom(styled_dom, node_id),
+        get_effective_zoom(styled_dom, NodeId::new(0)),
+    );
+    let length_px = |pv: &PixelValue| {
+        let resolved = super::calc::resolve_pixel_value_with_viewport(
+            pv,
+            0.0,
+            em.0,
+            em.1,
+            viewport.width,
+            viewport.height,
+        );
+        scale_length_for_zoom(pv.metric, resolved, zoom.0, zoom.1)
+    };
+    let resolve_padding = |mv: MultiValue<PixelValue>, _viewport: PhysicalSize, _em: (f32, f32)| {
+        match mv {
+            MultiValue::Exact(pv) => length_px(&pv),
+            _ => 0.0,
+        }
+    };
 
     macro_rules! border_width_px {
         ($field:expr) => {
             $field
                 .as_ref()
                 .and_then(|v| v.get_property())
-                .map(|w| w.inner.number.get())
+                .map(|w| length_px(&w.inner))
                 .unwrap_or(0.0)
         };
     }
