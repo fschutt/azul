@@ -181,6 +181,137 @@ CABAL
     && "$(cabal list-bin smoke)" )
 }
 
+# ---- Zig ----------------------------------------------------------------------
+smoke_zig() {
+  local out="$WORK_DIR/zig"; rm -rf "$out"; mkdir -p "$out"
+  cp "$CODEGEN_DIR/azul.zig" "$out/" || return 1
+  cp "$SRC_DIR/zig.zig" "$out/main.zig" || return 1
+  ( cd "$out" && zig build-exe main.zig -lc -L"$LIB_DIR" -lazul -rpath "$LIB_DIR" -femit-bin=smoke ) || return 1
+  "$out/smoke"
+}
+
+# ---- Go -----------------------------------------------------------------------
+# A module next to the generated package, the way examples/go uses it.
+smoke_go() {
+  local out="$WORK_DIR/go"; rm -rf "$out"; mkdir -p "$out"
+  cp -R "$CODEGEN_DIR/go" "$out/azul-go" || return 1
+  cp "$SRC_DIR/go.go" "$out/main.go" || return 1
+  cat > "$out/go.mod" <<'GOMOD'
+module smoke
+
+go 1.21
+
+require azul.rs/ui/go v0.0.0
+
+require github.com/ebitengine/purego v0.10.2 // indirect
+
+replace azul.rs/ui/go => ./azul-go
+GOMOD
+  cp "$out/azul-go/go.sum" "$out/go.sum" 2>/dev/null
+  ( cd "$out" && GOFLAGS=-mod=mod go build -o smoke . ) || return 1
+  ( cd "$LIB_DIR" && AZ_LIB_DIR="$LIB_DIR/libazul.dylib" "$out/smoke" )
+}
+
+# ---- Node -----------------------------------------------------------------------
+# azul.js loads libazul through koffi (installed once into the work dir).
+smoke_node() {
+  local out="$WORK_DIR/node"; mkdir -p "$out"
+  cp "$CODEGEN_DIR/node/azul.js" "$SRC_DIR/node.js" "$out/" || return 1
+  [ -d "$out/node_modules/koffi" ] || ( cd "$out" && npm install --no-audit --no-fund koffi@2.16.3 >/dev/null 2>&1 ) || return 1
+  ( cd "$out" && AZ_LIB="$LIB_DIR/libazul.dylib" node node.js )
+}
+
+# ---- Ruby -----------------------------------------------------------------------
+# The ffi gem (the system Ruby's, under ~/.gem) loads libazul through AZ_LIB.
+smoke_ruby() {
+  local out="$WORK_DIR/ruby"; mkdir -p "$out"
+  cp "$CODEGEN_DIR/azul.rb" "$SRC_DIR/ruby.rb" "$out/" || return 1
+  ( cd "$out" && AZ_LIB_DIR="$LIB_DIR" "${RUBY:-ruby}" ruby.rb )
+}
+
+# ---- Lua ------------------------------------------------------------------------
+smoke_lua() {
+  local out="$WORK_DIR/lua"; mkdir -p "$out"
+  cp "$CODEGEN_DIR/azul.lua" "$SRC_DIR/lua.lua" "$out/" || return 1
+  ( cd "$out" && LUA_PATH="./?.lua;;" luajit lua.lua )
+}
+
+# ---- OCaml ----------------------------------------------------------------------
+# The generated units as one dune library next to the program (ctypes from opam).
+smoke_ocaml() {
+  local out="$WORK_DIR/ocaml"; rm -rf "$out"; mkdir -p "$out"
+  cp "$CODEGEN_DIR"/ocaml/*.ml "$CODEGEN_DIR"/ocaml/*.mli "$out/" 2>/dev/null
+  cp "$SRC_DIR/ocaml.ml" "$out/smoke.ml" || return 1
+  printf '(lang dune 3.0)\n' > "$out/dune-project"
+  cat > "$out/dune" <<'DUNE'
+(library
+ (name azul)
+ (flags (:standard -w -32-26-27-33-34-35-37-39))
+ (libraries ctypes ctypes-foreign)
+ (modules (:standard \ smoke)))
+
+(executable
+ (name smoke)
+ (modules smoke)
+ (libraries ctypes ctypes-foreign azul))
+DUNE
+  command -v opam >/dev/null && eval "$(opam env 2>/dev/null)"
+  ( cd "$out" && dune build ./smoke.exe ) || return 1
+  "$out/_build/default/smoke.exe"
+}
+
+# ---- C++ ------------------------------------------------------------------------
+# C++17 (std::optional both ways) and C++23 (std::expected for a Result).
+smoke_cpp() {
+  local out="$WORK_DIR/cpp"; mkdir -p "$out"
+  local CXX; CXX="$(command -v clang++ || command -v g++)"
+  local std hdr
+  for pair in "17:azul17.hpp" "2b:azul23.hpp"; do
+    std="${pair%%:*}"; hdr="${pair#*:}"
+    "$CXX" -std=c++"$std" -O0 -w -I"$CODEGEN_DIR" -DAZUL_HEADER="\"$hdr\"" "$SRC_DIR/cpp.cpp" \
+      -L"$LIB_DIR" -lazul -Wl,-rpath,"$LIB_DIR" -o "$out/smoke$std" || return 1
+    "$out/smoke$std" || return 1
+  done
+}
+
+# ---- C --------------------------------------------------------------------------
+smoke_c() {
+  local out="$WORK_DIR/c"; mkdir -p "$out"
+  local CC; CC="$(command -v clang || command -v gcc)"
+  "$CC" -std=c11 -O0 -w -I"$CODEGEN_DIR" "$SRC_DIR/c.c" -L"$LIB_DIR" -lazul -Wl,-rpath,"$LIB_DIR" \
+    -o "$out/smoke" || return 1
+  "$out/smoke"
+}
+
+smoke_pascal() {
+  local out="$WORK_DIR/pascal"; mkdir -p "$out"
+  cp "$CODEGEN_DIR/azul.pas" "$SRC_DIR/pascal.pas" "$out/" || return 1
+  (cd "$out" && fpc -O1 -v0 -Fl"$LIB_DIR" -k-rpath -k"$LIB_DIR" -opascal_smoke pascal.pas >/dev/null) || return 1
+  "$out/pascal_smoke"
+}
+
+# Needs the python-extension build (cargo build --release -p azul-dll
+# --no-default-features --features python-extension) as azul.so / azul.pyd
+# in AZ_PY_DIR (default: the library directory).
+smoke_python() {
+  local dir="${AZ_PY_DIR:-$LIB_DIR}"
+  if [ ! -e "$dir/azul.so" ] && [ ! -e "$dir/azul.pyd" ] && ! ls "$dir"/azul*.so >/dev/null 2>&1; then
+    echo "[python] SKIP: no python-extension build (azul.so) in $dir" >&2; return 0
+  fi
+  PYTHONPATH="$dir" python3 "$SRC_DIR/python.py"
+}
+
+# The binding's modules take a minute or two with gfortran; make -j builds
+# them in parallel.
+smoke_fortran() {
+  local out="$WORK_DIR/fortran"; mkdir -p "$out"
+  cp "$CODEGEN_DIR"/fortran/*.f90 "$CODEGEN_DIR/fortran/Makefile" "$out/" || return 1
+  (cd "$out" && make -s -j4 azul.o >/dev/null) || return 1
+  (cd "$out" && gfortran -O0 -std=f2008 -ffree-line-length-none -fimplicit-none \
+    "$SRC_DIR/fortran.f90" azul*.o -L"$LIB_DIR" -lazul -Wl,-rpath,"$LIB_DIR" -o smoke) || return 1
+  "$out/smoke"
+}
+
 status=0
 for lang in "${LANGS[@]}"; do
   echo "=== native optionals [$lang] ==="

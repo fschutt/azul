@@ -708,6 +708,9 @@ fn emit_field_accessor_pair(
                 getter = Some(if ctx.has_wrapper(t) {
                     let w = sanitize_identifier(t);
                     (String::new(), w.clone(), vec![format!("return {w}{{ .inner = {v} }};")])
+                } else if let Some(conv @ RetConv::Opt { .. }) = optional_return(ctx, t) {
+                    // An Option field reads as `?T` (a copy; the field stays).
+                    (String::new(), conv.zig_type(), vec![format!("return {};", conv.wrap(&v))])
                 } else {
                     (String::new(), zig_c_type(t), vec![format!("return {v};")])
                 });
@@ -1762,15 +1765,32 @@ enum RetConv {
     Wrapper(String),
     /// Typed verbatim (`C.Az*`, primitives, pointers).
     Plain(String),
+    /// An Option mirror (IR name): `?T`, the Some's payload converted as
+    /// `payload` (`orelse return .DoNothing` reads a missing value).
+    Opt { name: String, payload: Box<RetConv> },
+    /// A Result mirror (IR name): an error union, the Err freed and named
+    /// `error.<err>`, the Ok converted as `ok` (`try` / `catch`).
+    Res {
+        name: String,
+        ok: Option<Box<RetConv>>,
+        err: String,
+        delete: Option<String>,
+    },
 }
 
 impl RetConv {
-    fn zig_type(&self) -> &str {
+    fn zig_type(&self) -> String {
         match self {
-            RetConv::Void => "void",
-            RetConv::SelfWrapper => "Self",
-            RetConv::Wrapper(w) => w,
-            RetConv::Plain(t) => t,
+            RetConv::Void => "void".to_string(),
+            RetConv::SelfWrapper => "Self".to_string(),
+            RetConv::Wrapper(w) => w.clone(),
+            RetConv::Plain(t) => t.clone(),
+            RetConv::Opt { payload, .. } => format!("?{}", payload.zig_type()),
+            RetConv::Res { ok, err, .. } => format!(
+                "error{{{}}}!{}",
+                err,
+                ok.as_ref().map(|o| o.zig_type()).unwrap_or_else(|| "void".to_string())
+            ),
         }
     }
 
@@ -1779,8 +1799,68 @@ impl RetConv {
             RetConv::Void | RetConv::Plain(_) => call.to_string(),
             RetConv::SelfWrapper => format!("Self{{ .inner = {call} }}"),
             RetConv::Wrapper(w) => format!("{w}{{ .inner = {call} }}"),
+            RetConv::Opt { name, payload } => {
+                let some = format!("_optPayload({call}, C.{}_Tag_Some)", ffi_type_name(name));
+                match payload.as_ref() {
+                    RetConv::Plain(_) => some,
+                    p => format!("if ({some}) |__p| {} else null", p.wrap("__p")),
+                }
+            }
+            RetConv::Res {
+                name,
+                ok,
+                err,
+                delete,
+            } => {
+                let ffi = ffi_type_name(name);
+                let free = delete
+                    .as_ref()
+                    .map(|d| format!("var __m = __r; C.{d}(&__m); "))
+                    .unwrap_or_default();
+                let value = match ok {
+                    Some(o) => o.wrap("__r.Ok.payload"),
+                    None => "{}".to_string(),
+                };
+                format!(
+                    "blk: {{ const __r = {call}; if (__r.Ok.tag != C.{ffi}_Tag_Ok) {{ {free}break :blk error.{err}; }} break :blk {value}; }}"
+                )
+            }
         }
     }
+}
+
+/// How a payload of an Option / Result comes back: its wrapper, or the C value.
+fn payload_return(ctx: &Ctx, ty: &str) -> RetConv {
+    if ctx.has_wrapper(ty) {
+        RetConv::Wrapper(sanitize_identifier(ty))
+    } else {
+        RetConv::Plain(zig_c_type(ty))
+    }
+}
+
+/// The Option / Result shape of `rt`, if it is one: `?T` or an error union.
+fn optional_return(ctx: &Ctx, rt: &str) -> Option<RetConv> {
+    if let Some(payload) = ctx.ir.option_payload(rt) {
+        return Some(RetConv::Opt {
+            name: rt.to_string(),
+            payload: Box::new(payload_return(ctx, payload)),
+        });
+    }
+    let (ok, err) = ctx.ir.result_payloads(rt)?;
+    let err = err?;
+    // A string error has no type name worth reading; anything else is named
+    // after its type (`error.UrlParseError`).
+    let err = if ctx.category_of(err) == Some(TypeCategory::String) {
+        "Err".to_string()
+    } else {
+        sanitize_identifier(err)
+    };
+    Some(RetConv::Res {
+        name: rt.to_string(),
+        ok: ok.map(|o| Box::new(payload_return(ctx, o))),
+        err,
+        delete: destructor_of(rt, ctx.ir).map(|d| d.c_name.clone()),
+    })
 }
 
 fn classify_return(ctx: &Ctx, f: &FunctionDef) -> RetConv {
@@ -1792,6 +1872,9 @@ fn classify_return(ctx: &Ctx, f: &FunctionDef) -> RetConv {
     }
     if ctx.has_wrapper(rt) {
         return RetConv::Wrapper(sanitize_identifier(rt));
+    }
+    if let Some(conv) = optional_return(ctx, rt) {
+        return conv;
     }
     RetConv::Plain(zig_c_type(rt))
 }
