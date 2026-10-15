@@ -3975,6 +3975,14 @@ impl Runner {
         } else {
             None
         };
+        // An `autofocus` node that mounted takes the focus, as in the desktop shell.
+        if let Some(n) = pending.as_ref().and_then(|p| p.autofocus) {
+            self.layout_window
+                .focus_mounted_autofocus(azul_core::dom::DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+                });
+        }
 
         self.layout(styled_dom, true);
 

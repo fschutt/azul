@@ -13227,6 +13227,22 @@ impl LayoutWindow {
         }
     }
 
+    /// Gives the focus to `node`, an `autofocus` node that has just mounted. It is set at
+    /// once, so the new tree is styled with it before it is laid out, and parked as the
+    /// deferred target too, so the layout tail (`finalize_pending_focus_changes`) seeds a
+    /// caret in an editable node and starts its blink. Not indicated (no ring), as after
+    /// a click. A programmatic focus that still waits for its first layout wins: the app
+    /// asked for it after the attribute was written.
+    pub fn focus_mounted_autofocus(&mut self, node: DomNodeId) {
+        if self.focus_manager.has_deferred_focus_target() {
+            return;
+        }
+        self.focus_manager
+            .set_focused_node_with_visibility(Some(node), false);
+        self.focus_manager
+            .defer_focus_target(azul_core::callbacks::FocusTarget::Id(node));
+    }
+
     /// Finalize pending focus changes after layout pass (W3C "flag and defer" pattern)
     ///
     /// This method should be called AFTER the layout pass completes. It checks if
@@ -15760,7 +15776,9 @@ impl LayoutWindow {
 
         let new_node_data: Vec<azul_core::dom::NodeData> =
             styled_dom.node_data.as_ref().to_vec();
+        let autofocus = first_entered_autofocus(&new_node_data, unmatched_new.iter().copied());
         PendingReconciliation {
+            autofocus,
             node_moves: diff.node_moves,
             restyled,
             mounted,
@@ -27456,6 +27474,15 @@ impl LayoutWindow {
             now,
         );
         let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+        // A node of the view that entered and asks for focus (`autofocus`) takes it, as
+        // in the root DOM: a page that appears in a view takes the keys.
+        let matched_new: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.new_node_id).collect();
+        let entered_autofocus = first_entered_autofocus(
+            &new_node_data,
+            (0..new_node_data.len())
+                .map(NodeId::new)
+                .filter(|n| !matched_new.contains(n)),
+        );
         #[cfg(feature = "std")]
         if std::env::var("AZ_VV_RECONCILE_TRACE").is_ok() {
             eprintln!(
@@ -27468,6 +27495,12 @@ impl LayoutWindow {
         }
         if rematerialized {
             self.remap_node_ids(child_dom_id, &map);
+        }
+        if let Some(node) = entered_autofocus {
+            self.focus_mounted_autofocus(DomNodeId {
+                dom: child_dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            });
         }
         // The view's lifecycle, as the root's reconciliation queues it (the
         // shell's `regenerate_layout`): a node that entered hears its
@@ -31850,6 +31883,11 @@ fn sync_css_gpu_values(
 /// behaviour can silently go missing.
 #[derive(Debug, Default)]
 pub struct PendingReconciliation {
+    /// The first node in tree order that entered with this rebuild and asks for
+    /// focus (`autofocus`); on the first frame every node enters. The shell gives
+    /// it the focus ([`LayoutWindow::focus_mounted_autofocus`]) before the new
+    /// tree is styled, unless the window is a popup, which runs its own pass.
+    pub autofocus: Option<NodeId>,
     /// Matched pairs: this old `NodeId` became that new one.
     pub node_moves: Vec<azul_core::diff::NodeMove>,
     /// In the NEW tree with no counterpart in the old one — an ENTER.
@@ -31914,6 +31952,19 @@ pub struct PendingReconciliation {
     /// is that widget's nodes; the whole page here means every click pays
     /// for a full property diff. Read by tests.
     pub compared: usize,
+}
+
+/// The first of `entered` (new nodes with no counterpart in the old tree, in
+/// ascending order, which is tree order) that has the `autofocus` attribute.
+fn first_entered_autofocus(
+    node_data: &[azul_core::dom::NodeData],
+    entered: impl IntoIterator<Item = NodeId>,
+) -> Option<NodeId> {
+    entered.into_iter().find(|n| {
+        node_data
+            .get(n.index())
+            .is_some_and(azul_core::dom::NodeData::has_autofocus)
+    })
 }
 
 /// `LayoutRect` (integer origin, what the layout query returns) → `LogicalRect`

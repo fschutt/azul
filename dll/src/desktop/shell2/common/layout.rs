@@ -1270,6 +1270,19 @@ pub fn regenerate_layout(
             layout_window.focus_manager.set_focused_node(Some(node));
         }
     }
+    // A node with `autofocus` that mounted with this rebuild takes the focus; every node
+    // mounts on the window's first layout, so this is also "focus it when the window
+    // opens". Set before the runtime states below, so the first frame of the new tree is
+    // styled with it. A popup runs its own autofocus pass instead, which also carries the
+    // keyboard modality the popup was opened with (`process_window_events`).
+    if let Some(n) = pending.autofocus {
+        if super::transient::mailbox_of(current_window_state).is_none() {
+            layout_window.focus_mounted_autofocus(azul_core::dom::DomNodeId {
+                dom: azul_core::dom::DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+            });
+        }
+    }
     azul_layout::probe::emit_phase_heap("after_state_migrate");
     phases.mark("after_state_migrate");
 
