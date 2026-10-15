@@ -476,8 +476,9 @@ def thumbnail_sizes(app):
 
 
 def check_thumbnails_whole(app, icon_px, layout):
-    """Every picture of the rows fills its `icon_px` icon square on its longer side and keeps
-    its proportions: the 2:1 picture is twice as wide as tall, the 1:2 one twice as tall as wide
+    """The wide and the tall picture of the rows fill their `icon_px` icon square on the longer
+    side and keep their proportions: the 2:1 picture is twice as wide as tall, the 1:2 one twice
+    as tall as wide
     (Chrome's sizes for the same `<img>` under max-width / max-height). A sliver one or two
     pixels wide is the failure this guards."""
     def whole():
@@ -487,12 +488,20 @@ def check_thumbnails_whole(app, icon_px, layout):
         return sizes
     sizes = app.until("the %s pictures laid out" % layout, whole)
     for w, h in sizes:
-        if abs(max(w, h) - icon_px) > 1.0 or min(w, h) < icon_px / 2.0 - 1.0:
+        # No picture outgrows its square; a smaller one (the 16 px picture in List's 18 px
+        # square) keeps its own size, as max-width / max-height never scale up.
+        if max(w, h) > icon_px + 1.0 or min(w, h) < 2.0:
             raise Failure("%s: a thumbnail drawn %.1fx%.1f in a %.0f px icon square (all: %s)"
                           % (layout, w, h, icon_px, sizes))
-    if not any(w >= 1.8 * h for w, h in sizes) or not any(h >= 1.8 * w for w, h in sizes):
+    wide = [(w, h) for w, h in sizes if w >= 1.8 * h]
+    tall = [(w, h) for w, h in sizes if h >= 1.8 * w]
+    if not wide or not tall:
         raise Failure("%s: the wide and the tall picture do not keep their proportions: %s"
                       % (layout, sizes))
+    for w, h in wide + tall:
+        if abs(max(w, h) - icon_px) > 1.0 or min(w, h) < icon_px / 2.0 - 1.0:
+            raise Failure("%s: the %.1fx%.1f picture does not fill its %.0f px icon square on its "
+                          "longer side (all: %s)" % (layout, w, h, icon_px, sizes))
     log("%s: the pictures drawn whole: %s" % (layout, sizes))
 
 
