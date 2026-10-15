@@ -64,7 +64,10 @@ Scenarios (`--only NAME,...`, `--list`):
   encrypted-bulk    (encrypted, PACK22) unzip 10,000 files, mv the folder (no data/ write), rm -rf
                     it (one commit, no DeleteObject per file), rewrite 300 files (the guard)
   dns               the drive's node name never resolves (`.invalid`) and the node list carries
-                    its address: syncs; slow DNS needs /etc/resolver/azchaos.test (skipped without)
+                    its address: syncs
+  slow-dns          the node's name answers after 8 s: passes do not wait for it every time
+                    (needs /etc/resolver/azchaos.test - `nameserver 127.0.0.1`, `port 53535` -
+                    and is skipped, saying so, without it)
   iroh-lane         the node list names an iroh node at a UDP port that swallows everything: the
                     requests fall back to HTTPS at once, the lane rests, nothing is sent twice
   server-errors     503 SlowDown with Retry-After, 500 bursts, 409 with x-azlin-map (a stale map),
@@ -1445,13 +1448,50 @@ def dns(ctx):
         laptop.wait_settled("a file up without DNS", drive)
         expect("no-dns.txt" in stack.drive_tree(drive), "the file did not reach the drive")
         no_silent_failure(laptop, drive)
-        slow = os.path.exists("/etc/resolver/azchaos.test")
-        return "synced at the node's address; slow DNS %s" % (
-            "configured" if slow else "SKIPPED: needs /etc/resolver/azchaos.test (nameserver "
-            "127.0.0.1, port of azchaos.py slow-dns)")
+        return "synced at the node's address (the slow-dns scenario covers a slow name)"
     finally:
         if laptop:
             laptop.stop()
+        stack.stop()
+
+
+@scenario("slow-dns")
+def slow_dns(ctx):
+    """The node's name answers only after 8 s (a DNS server under load): the requests do not
+    wait for it every time - the node's address is used, or the answer kept."""
+    resolver = "/etc/resolver/azchaos.test"
+    try:
+        with open(resolver, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        raise Skip("needs %s (macOS, root): `nameserver 127.0.0.1` and `port 53535`, the port "
+                   "this scenario's slow DNS server listens on" % resolver)
+    found = re.search(r"^\s*port\s+(\d+)", text, re.M)
+    if not found:
+        raise Skip("%s names no port" % resolver)
+    host = "n1.azchaos.test"
+    stack = Stack(ctx.folder("slow-dns"))
+    dns_server = azchaos.SlowDns({host: "127.0.0.1"}, delay=8.0, port=int(found.group(1))).start()
+    laptop = None
+    try:
+        url = "http://%s:%d" % (host, stack.proxy.port)
+        stack.state.s3_url = url
+        stack.state.set_nodes([azlin_mock_stack.node_entry("n1", url, addresses=["127.0.0.1"])])
+        drive = stack.signup("Chaos drive")["drive"]["id"]
+        laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")], session_expires_in=120)
+        laptop.start()
+        laptop.wait_status("the first pass", UP_TO_DATE, drive, timeout=180)
+        write(os.path.join(laptop.folder(drive), "slow.txt"), b"over a slow name\n")
+        laptop.wait_settled("a file up", drive, timeout=180)
+        durations = pass_durations(laptop, drive)
+        slow = [d for d in durations[-3:] if d > 6]
+        expect(not slow, "passes wait for the slow name every time: %s s" % slow)
+        no_silent_failure(laptop, drive)
+        return "%d lookups; pass times %s" % (len(dns_server.queries), durations[-3:])
+    finally:
+        if laptop:
+            laptop.stop()
+        dns_server.stop()
         stack.stop()
 
 
