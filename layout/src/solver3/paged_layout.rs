@@ -767,8 +767,10 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         result.intrinsic_dirty = (0..n).collect::<std::collections::BTreeSet<_>>();
         (new_tree, result)
     } else {
-        // Incremental path: diff old tree vs new DOM
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, None)?
+        // Incremental path: diff old tree vs new DOM, with the CSS diff the
+        // caller handed over (a restyled node is built fresh).
+        let css_dirty = core::mem::take(&mut cache.paged_css_dirty);
+        cache::reconcile_and_invalidate_restyled(&mut ctx_temp, cache, viewport, None, &css_dirty)?
     };
 
     // Step 1.2: Clear Taffy Caches - ALL of them on this path.

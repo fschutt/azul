@@ -528,6 +528,12 @@ pub struct LayoutCache {
     /// DOM handed in (`OverridesOnlyStamp::of`); the css dirt of the pass
     /// names what to lay out again.
     pub overrides_only_hint: Option<OverridesOnlyStamp>,
+    /// The CSS diff for the next PAGED pass on this cache
+    /// (`paged_layout`), which has no `css_dirty` argument of its own: a
+    /// caller that keeps a paged cache across restyles puts the restyled
+    /// nodes here, and the paged reconcile builds them fresh with the new
+    /// cascade's box props, as `layout_document`'s does. Taken by the pass.
+    pub paged_css_dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     /// Census: did the LAST `layout_document` take a reconcile-skip branch
     /// (resize-only or overrides-only)? The external observable that
     /// distinguishes "skipped the walk" from "walked and found everything
