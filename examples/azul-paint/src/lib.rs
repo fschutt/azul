@@ -162,8 +162,19 @@ struct PaintState {
     /// settings page, the data root.
     kit: RefAny,
     about_open: bool,
-    /// Exports being written (data key, bytes), reported when written.
-    exports: Vec<(String, usize)>,
+    /// Exports being written (data key, bytes, the `edits` they hold), reported when written.
+    exports: Vec<(String, usize, u64)>,
+    /// Bumps with every change of the drawing (a stroke, an undo, a redo, a Clear).
+    edits: u64,
+    /// The `edits` the last export that landed holds: the drawing is unexported while they
+    /// differ, and closing the window asks first.
+    exported_edits: u64,
+    /// The window's close was held: the "Save changes?" question shows.
+    asking_close: bool,
+    /// "Save" on that question: the window closes once the PNG export landed.
+    close_after_export: bool,
+    /// A picture named on the command line, read once the window is up.
+    picture_to_open: Option<std::path::PathBuf>,
 }
 
 impl PaintState {
@@ -187,7 +198,29 @@ impl PaintState {
             kit: RefAny::new(()),
             about_open: false,
             exports: Vec::new(),
+            edits: 0,
+            exported_edits: 0,
+            asking_close: false,
+            close_after_export: false,
+            picture_to_open: None,
         }
+    }
+
+    /// The drawing changed since the last export that landed.
+    fn unexported(&self) -> bool {
+        false
+    }
+
+    /// An export of `key` (`size` bytes, the drawing as it is now) is on its way.
+    fn export_started(&mut self, key: String, size: usize) {
+        self.exports.push((key, size, self.edits));
+    }
+
+    /// The export of `key` was written (`ok`) or not: its size, when it was on its way.
+    fn export_answered(&mut self, key: &str, _ok: bool) -> Option<usize> {
+        let at = self.exports.iter().position(|(k, _, _)| k == key)?;
+        let (_, size, _) = self.exports.remove(at);
+        Some(size)
     }
 
     /// `--sample`: three strokes, so the canvas shows what the app does.
@@ -1687,7 +1720,7 @@ fn write_export(data: &RefAny, info: &mut CallbackInfo, key: String, bytes: Vec<
     let Some(root) = s.kit.clone().downcast_ref::<kit::Kit>().map(|k| k.data_root.clone()) else {
         return;
     };
-    s.exports.push((key.clone(), bytes.len()));
+    s.export_started(key.clone(), bytes.len());
     drop(s);
     kit::spawn_file_jobs(
         info,
@@ -1755,8 +1788,7 @@ extern "C" fn on_files_done(mut data: RefAny, mut msg: RefAny, _info: CallbackIn
     };
     for outcome in reply.outcomes {
         if let FileOutcome::Put { key, result } = outcome {
-            let size = s.exports.iter().find(|(k, _)| *k == key).map_or(0, |(_, n)| *n);
-            s.exports.retain(|(k, _)| *k != key);
+            let size = s.export_answered(&key, result.is_ok()).unwrap_or(0);
             match result {
                 Ok(()) => say(&format!("AZPAINT_EXPORTED {key} {size}")),
                 Err(e) => eprintln!("[azpaint] {key}: {e}"),
@@ -1822,6 +1854,39 @@ fn android_ctor() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stroke(s: &mut PaintState) {
+        let p = StrokePoint { x: 10.0, y: 10.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0, barrel_roll_rad: 0.0 };
+        s.begin_stroke(p, false);
+        s.end_stroke();
+    }
+
+    #[test]
+    fn a_drawing_is_unexported_until_an_export_of_it_landed() {
+        let mut s = PaintState::new();
+        assert!(!s.unexported(), "an empty canvas has nothing to lose");
+        stroke(&mut s);
+        assert!(s.unexported(), "a stroke is new");
+        s.export_started(String::from("paint/exports/a.png"), 10);
+        assert!(s.unexported(), "the export is on its way, not written");
+        assert_eq!(s.export_answered("paint/exports/a.png", true), Some(10));
+        assert!(!s.unexported(), "the export holds the drawing as it is");
+        assert!(s.undo());
+        assert!(s.unexported(), "an undo changes the drawing again");
+    }
+
+    #[test]
+    fn an_export_that_failed_or_holds_an_older_drawing_leaves_it_unexported() {
+        let mut s = PaintState::new();
+        stroke(&mut s);
+        s.export_started(String::from("a.png"), 10);
+        stroke(&mut s);
+        assert_eq!(s.export_answered("a.png", true), Some(10));
+        assert!(s.unexported(), "the second stroke is not in the export");
+        s.export_started(String::from("b.png"), 12);
+        assert_eq!(s.export_answered("b.png", false), Some(12));
+        assert!(s.unexported(), "the export was not written");
+    }
 
     #[test]
     fn flora_and_its_spins_are_flora_and_the_header_keeps_flats_bar() {
