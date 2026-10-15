@@ -3436,6 +3436,9 @@ impl Runner {
             // The e2e `paste` op: the content is handed in, so no OS
             // clipboard is needed - the rest is the dll's paste.
             CallbackChange::Paste { content } => self.apply_paste(content),
+            CallbackChange::PasteFromClipboard => {
+                self.unsupported("PasteFromClipboard", "no OS clipboard")
+            }
 
             // No OS integration.
             CallbackChange::SetCopyContent { .. } => {

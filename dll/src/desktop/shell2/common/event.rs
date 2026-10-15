@@ -7619,6 +7619,22 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::PasteFromClipboard => {
+                // An app's own Paste command (an editor's Paste button): what
+                // the OS clipboard holds takes the arm below, as a Ctrl+V's
+                // paste would. Nothing on the clipboard pastes nothing.
+                let pasted = self
+                    .read_clipboard_payload()
+                    .as_ref()
+                    .and_then(payload_to_clipboard_content);
+                match pasted {
+                    Some(content) => {
+                        self.apply_user_change(&CallbackChange::Paste { content })
+                    }
+                    None => ProcessEventResult::DoNothing,
+                }
+            }
+
             CallbackChange::Paste { content } => {
                 // The e2e `paste` op (`CallbackInfo::simulate_paste`): the
                 // deferred clipboard block of `process_window_events` for a

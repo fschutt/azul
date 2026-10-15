@@ -854,6 +854,10 @@ pub enum CallbackChange {
     Paste {
         content: ClipboardContent,
     },
+    /// Paste what the OS clipboard holds into the focused node, as a user's
+    /// Ctrl+V does (an editor's Paste command). It is applied in order with
+    /// the changes before it, so a focus set first decides where it lands.
+    PasteFromClipboard,
 
     // Hit Test Request (for Debug API)
     /// Request a hit test update at a specific position
@@ -7340,6 +7344,14 @@ impl CallbackInfo {
     /// door of the e2e `paste` op (`CallbackChange::Paste`); not in api.json.
     pub fn simulate_paste(&mut self, content: ClipboardContent) {
         self.push_change(CallbackChange::Paste { content });
+    }
+
+    /// Paste what the system clipboard holds into the focused node after the
+    /// callback returns, as a user's Ctrl+V would: the focused node's `Paste`
+    /// callbacks run first (and may `prevent_default` it), then the engine's
+    /// paste. Set the focus first to choose where the text lands.
+    pub fn paste_from_clipboard(&mut self) {
+        self.push_change(CallbackChange::PasteFromClipboard);
     }
 
     /// Request a hit test update at a specific position
