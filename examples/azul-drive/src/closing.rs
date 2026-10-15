@@ -68,6 +68,8 @@ pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: Callback
         return Update::DoNothing;
     };
     let s = &mut *guard;
+    // A picker closed before it answered: the request is cancelled.
+    crate::picker::on_close(s);
     let work = work_running(s);
     match drive_close(work, s.closing) {
         DriveClose::Close => Update::DoNothing,

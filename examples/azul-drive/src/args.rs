@@ -103,6 +103,8 @@ const AZDRIVE_HELP: &str = concat!(
     "                             else the profile's)\n",
     "    --profile <NAME>         local | trial | production: whose addresses are the defaults\n",
     "                             (default: $AZLIN_PROFILE, else the shared config's, else local)\n",
+    "    --pick                   Answer another app's file request (one JSON line on stdin) as\n",
+    "                             its file picker: one AZPICK line on stdout, then end\n",
 );
 
 /// AzDrive's own switches that take a value (after a space or an equals sign), and what the
@@ -143,6 +145,9 @@ pub struct Args {
     pub profile: Option<String>,
     /// `--cache-dir`: where the caches are kept (`<cache dir>/AzDrive` when absent).
     pub cache_dir: Option<PathBuf>,
+    /// `--pick`: AzDrive answers another app's file request (read from stdin) as its picker,
+    /// then ends (`picker`).
+    pub pick: bool,
     /// The switches every Azlin app understands (azul-appkit): `--theme`, `--mode`
     /// (`system` too), `--size`, `--shot`, `--sample`, `--data-dir`.
     pub kit: AppArgs,
@@ -187,6 +192,11 @@ impl Args {
                 Some((n, v)) => (n, Some(v.to_string())),
                 None => (arg, None),
             };
+            if arg == "--pick" {
+                args.pick = true;
+                i += 1;
+                continue;
+            }
             let Some(&(name, what)) = OWN.iter().find(|(n, _)| *n == name) else {
                 rest.push(argv[i].clone());
                 i += 1;
@@ -299,7 +309,7 @@ where
     while i < argv.len() {
         let arg = argv[i].as_str();
         let name = arg.split_once('=').map_or(arg, |(n, _)| n);
-        if arg == "--sample" {
+        if arg == "--sample" || arg == "--pick" {
             i += 1;
             continue;
         }

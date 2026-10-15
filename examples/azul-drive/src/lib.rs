@@ -75,6 +75,8 @@
 //! - `--dialogs inline` (`$AZDRIVE_DIALOGS=inline`): show the dialogs as a sheet inside the
 //!   window instead of a modal dialog window (scripts: the debug server drives the main window).
 //! - `--open <path>`: open at a place as the address bar names it (File > Open new window).
+//! - `--pick`: answer another app's file request (one JSON line on stdin) as its file picker:
+//!   one `AZPICK <json>` line on stdout, then the run ends (`picker`).
 //!
 //! On stdout, for scripts: `AZDRIVE_PLACE quick-access | this-pc | <drive id> <prefix or />`,
 //! `AZDRIVE_LISTED <drive id> <prefix or /> <entries>`, `AZDRIVE_TREE <drive id>
@@ -150,6 +152,8 @@
 mod actions;
 /// The window's close while transfers, sync passes or an encryption run.
 mod closing;
+/// AzDrive as another app's file picker (`--pick`): the request, the strip, the answer.
+mod picker;
 #[cfg(test)]
 mod fileops_batch_tests;
 #[cfg(test)]
@@ -999,6 +1003,9 @@ pub(crate) struct DriveState {
     /// The notices shown as toasts at the window's foot: each leaves by itself after a few
     /// seconds, or with its close button (`ui_view::on_toast_dismissed`).
     pub toasts: Notices,
+    /// The request of a `--pick` run (None in a normal run): the picker strip shows, the
+    /// filter thins the folder view, and the answer ends the run.
+    pub picker: Option<picker::Picker>,
     pub popup: Option<Popup>,
     pub popups_opened: u64,
     pub keyring_waiting: Option<KeyringOp>,
@@ -1121,6 +1128,8 @@ impl DriveState {
             .iter()
             .filter(|e| self.settings.show_hidden || !e.is_hidden())
             .filter(|e| browse::matches_search(e, &self.search))
+            // A picker's type filter: folders, and the files it lets through.
+            .filter(|e| self.picker.as_ref().map_or(true, |p| p.shows(&e.name, e.is_folder)))
             .collect()
     }
 
@@ -2095,6 +2104,10 @@ pub(crate) fn set_window_title(info: &mut CallbackInfo, s: &DriveState) {
 
 /// [`set_window_title`]'s text: `Home/Documents - AzDrive`.
 pub(crate) fn window_title(s: &DriveState) -> String {
+    // Another app's file picker keeps the request's title, as a system's dialog does.
+    if let Some(picker) = &s.picker {
+        return picker.title();
+    }
     let drive_name = s.drive_name(&s.place);
     let path_drive = match &s.place {
         Place::Folder { .. } => Some(drive_name.as_str()),
@@ -3185,6 +3198,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 ui_view::on_column_drag_end,
             );
     }
+    // A picker's strip at the window's foot, under the folders.
+    if let Some(strip) = picker::strip(s, &app) {
+        body.add_child(strip);
+    }
     // The location tabs' overview, Quick Look and the command palette over the window, while
     // they are open.
     if let Some(overview) = ui_tabs::overview(s, &app) {
@@ -3336,6 +3353,30 @@ pub fn start() {
         Some(file) => Some(file.clone()),
         None => config::drives_file(None, config_dir.clone()),
     };
+    // `--pick`: another app's request, read before the window opens (one line on stdin). A
+    // request this AzDrive does not answer gets its error line at once.
+    let picker = if args.pick {
+        let mut line = String::new();
+        let request = std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|e| e.to_string())
+            .and_then(|_| picker::parse_request(&line));
+        match request {
+            Ok(request) => Some(picker::Picker::new(request)),
+            Err(why) => {
+                println!("{}", picker::PickAnswer::error(why).line());
+                std::process::exit(2);
+            }
+        }
+    } else {
+        // Every normal run says where the picker is, beside the drives file (not a shot run's).
+        if args.kit.shot.is_none() {
+            if let Some(file) = &drives_file {
+                picker::register(file);
+            }
+        }
+        None
+    };
     // The Azlin token server (Buy storage; the refreshes of Azlin drives that name none):
     // `--token-url` / `--profile`, the environment, the shared Azlin config (`AZLIN_CONFIG`,
     // else ~/.azlin/config.json - not in a `--shot` run), the profile's address.
@@ -3469,6 +3510,24 @@ pub fn start() {
         .as_deref()
         .and_then(|text| browse::parse_path(text, &drive_names))
         .unwrap_or(place);
+    // A picker opens at its request's folder (when `--open` names none), in the drive of this
+    // computer that holds it.
+    let place = match picker.as_ref().and_then(|p| p.request.default_location.clone()) {
+        Some(folder) if args.open.is_none() => {
+            let roots: Vec<(String, PathBuf)> = slots
+                .iter()
+                .filter_map(|slot| match &slot.entry.location {
+                    DriveLocation::Local { root } => {
+                        Some((slot.entry.id.clone(), PathBuf::from(root)))
+                    }
+                    _ => None,
+                })
+                .collect();
+            picker::place_of_path(Path::new(&folder), &roots)
+                .map_or(place, |(id, prefix)| Place::folder(&id, &prefix))
+        }
+        _ => place,
+    };
     // The keyring as the worker threads use it (azul's blocking calls), with the locks of its
     // entries beside the drives file.
     let keyring = azcloud_kit::SharedKeyring::new(
@@ -3572,6 +3631,7 @@ pub fn start() {
         pending_sheets: Vec::new(),
         message,
         toasts: Notices::default(),
+        picker,
         popup: None,
         popups_opened: 0,
         keyring_waiting: None,
@@ -3622,13 +3682,14 @@ pub fn start() {
     azul_fonts_calmet::register(&mut config);
     // "Calmet everywhere" (SPEC 5): the theme's widgets set their words and capitals in it too.
     config.set_theme_font(AzString::from(azul_fonts_calmet::STACK));
-    let mut window = azul_appkit::ui::window_options(
-        &state.kit,
-        layout,
-        (1280.0, 800.0),
-        (640.0, 420.0),
-        startup,
-    );
+    // A picker is a smaller window (as a system's file dialog).
+    let size = if state.picker.is_some() {
+        (900.0, 600.0)
+    } else {
+        (1280.0, 800.0)
+    };
+    let mut window =
+        azul_appkit::ui::window_options(&state.kit, layout, size, (640.0, 420.0), startup);
     // The rows in view are estimated from the window's size until the folder view has drawn:
     // the size this run opens at (`--size`, else the default).
     let opens_at = window.window_state.size.dimensions;

@@ -281,6 +281,41 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
     if let Some(reason) = crate::ban::refuses(s, action) {
         return Some(reason);
     }
+    // Another app's file picker changes nothing and goes nowhere else: it picks (a new folder
+    // to save into is the one change it makes, as a system's dialog).
+    if s.picker.is_some()
+        && matches!(
+            action,
+            Action::Cut
+                | Action::Paste
+                | Action::MoveToMenu
+                | Action::CopyToMenu
+                | Action::MoveTo(_)
+                | Action::CopyTo(_)
+                | Action::ChooseLocation(_)
+                | Action::DeleteMenu
+                | Action::Delete
+                | Action::DeletePermanently
+                | Action::Rename
+                | Action::NewItemMenu
+                | Action::NewTextDocument
+                | Action::NewEmptyFile
+                | Action::Edit
+                | Action::Share
+                | Action::Email
+                | Action::Zip
+                | Action::Download
+                | Action::Upload
+                | Action::AddDrive
+                | Action::AddLocalDrive
+                | Action::RemoveDrive
+                | Action::Undo
+                | Action::NewWindow
+                | Action::OpenTerminal { .. }
+        )
+    {
+        return Some(String::from("azdrive-why-picking"));
+    }
     // A source AzDrive browses but does not write (a database, a web server).
     let read_only = s.current_drive().is_some_and(|i| s.slots[i].read_only());
     if read_only
@@ -1488,6 +1523,9 @@ pub(crate) fn run_command(
                 s.editing_path = false;
             } else if s.search_open || !s.search.is_empty() || s.find.is_some() {
                 escape_search(info, app, s);
+            } else if s.picker.is_some() {
+                // A file dialog's Escape: the request is called off.
+                crate::picker::cancel(info, s);
             } else {
                 s.selection.clear();
                 s.print_selection();
@@ -1842,6 +1880,11 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
         go(info, app, s, Place::folder(&drive_id, &entry.key), true);
         return;
     }
+    // Another app's file picker answers the file instead of opening it.
+    if s.picker.is_some() {
+        crate::picker::answer_keys(info, app, s, vec![entry.key.clone()]);
+        return;
+    }
     // A synced file in the cloud only (or an encrypted copy) comes down - and is decrypted -
     // first, through its pairing.
     if crate::sync_jobs::open_if_synced(info, app, s, &drive_id, &entry) {
@@ -2017,7 +2060,7 @@ pub(crate) fn enqueue_transfer(
 /// Queues a transfer between two opened drives (an OS folder for uploads
 /// and downloads).
 #[allow(clippy::too_many_arguments)]
-fn enqueue_with(
+pub(crate) fn enqueue_with(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
@@ -2306,6 +2349,13 @@ pub(crate) fn transfer_ran(
         "done"
     };
     println!("AZDRIVE_TRANSFER {id} {state} {}", report.done);
+    // The picker's fetch of a cloud object: its end answers the request.
+    if job
+        .as_ref()
+        .is_some_and(|j| j.target_id == crate::picker::COPY_TARGET)
+    {
+        crate::picker::copy_finished(info, s, state == "done");
+    }
     match (&failed, report.cancelled) {
         (_, true) => {
             s.info(Phrase::new("azdrive-transfer-cancelled-after").arg("count", report.done))
