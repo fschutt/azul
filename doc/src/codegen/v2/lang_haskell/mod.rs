@@ -173,6 +173,7 @@ impl Split {
 /// concatenated into a single `String` with file markers between
 /// chunks.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    record_field_owners(ir);
     let split = Split::new(ir);
     let mut files: Vec<HsFile> = Vec::new();
 
@@ -1072,10 +1073,60 @@ fn shadows_prelude_type(s: &str) -> bool {
 /// each accessor with the lowercased type name to avoid collisions:
 /// `App.foo` becomes `appFoo`.
 pub fn haskell_field_name(struct_name: &str, field_name: &str) -> String {
+    let combined = joined_field_name(struct_name, field_name);
+    // Two records can camel-join to the same selector (`RibbonTab.style` and
+    // `Ribbon.tab_style` are both `ribbonTabStyle`), and every record field is
+    // a top-level function the `Azul.Types` umbrella re-exports: GHC rejects
+    // the second one. The later record (by name) keeps the word boundary.
+    let taken_by_other = FIELD_NAME_OWNERS.with(|owners| {
+        owners
+            .borrow()
+            .get(&combined)
+            .is_some_and(|owner| owner != struct_name)
+    });
+    if taken_by_other {
+        return sanitize_value_identifier(&format!("{}_{}", lower_first(struct_name), field_name));
+    }
+    combined
+}
+
+fn joined_field_name(struct_name: &str, field_name: &str) -> String {
     let prefix = lower_first(struct_name);
     let suffix = upper_camel_first_word(field_name);
-    let combined = format!("{}{}", prefix, suffix);
-    sanitize_value_identifier(&combined)
+    sanitize_value_identifier(&format!("{}{}", prefix, suffix))
+}
+
+thread_local! {
+    /// Which record owns each camel-joined field selector: the first record
+    /// (by name) that produces it. Filled from the IR at the start of every
+    /// `generate` (which runs on one thread), before any selector is written.
+    static FIELD_NAME_OWNERS: std::cell::RefCell<std::collections::BTreeMap<String, String>> =
+        std::cell::RefCell::new(std::collections::BTreeMap::new());
+}
+
+fn record_field_owners(ir: &CodegenIR) {
+    let mut records: Vec<(String, Vec<String>)> = ir
+        .structs
+        .iter()
+        .map(|s| (s.name.clone(), s.fields.iter().map(|f| f.name.clone()).collect()))
+        .collect();
+    for ta in &ir.type_aliases {
+        if let Some(mono) = &ta.monomorphized_def {
+            if let super::ir::MonomorphizedKind::Struct { fields } = &mono.kind {
+                records.push((ta.name.clone(), fields.iter().map(|f| f.name.clone()).collect()));
+            }
+        }
+    }
+    records.sort();
+    let mut owners = std::collections::BTreeMap::new();
+    for (record, fields) in &records {
+        for f in fields {
+            owners
+                .entry(joined_field_name(record, f))
+                .or_insert_with(|| record.clone());
+        }
+    }
+    FIELD_NAME_OWNERS.with(|o| *o.borrow_mut() = owners);
 }
 
 /// Convert an IR enum + variant name to a Haskell constructor name.

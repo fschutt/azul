@@ -350,6 +350,18 @@ pub fn generate_facade(ctx: &Ctx, modules: &[String], bodies: &[&str]) -> String
     for item in reexports(ctx, &all_bodies) {
         b.line(&format!(", {}", item));
     }
+    let guards = callback_guards(ctx);
+    if !guards.is_empty() {
+        // `runMaybeT` / `runExceptT` are the record fields of the two
+        // types, exported with them.
+        for item in ["MaybeT(..)", "hoistMaybe", "ExceptT(..)", "except"] {
+            b.line(&format!(", {}", item));
+        }
+        for (name, _) in &guards {
+            b.line(&format!(", {}", name));
+            b.line(&format!(", {}OnError", name));
+        }
+    }
     b.line(") where");
     b.dedent();
     b.blank();
@@ -357,7 +369,58 @@ pub fn generate_facade(ctx: &Ctx, modules: &[String], bodies: &[&str]) -> String
         b.line(&format!("import {}", m));
     }
     b.line("import qualified Azul.Types as T");
+    if !guards.is_empty() {
+        b.line("import Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT, hoistMaybe)");
+        b.line("import Control.Monad.Trans.Except (ExceptT(..), runExceptT, except)");
+        b.line("import System.IO (hPutStrLn, stderr)");
+        b.blank();
+        for (name, (ty, fallback)) in &guards {
+            b.line("-- | Runs a handler body in 'MaybeT': a missing value (a 'Nothing' anywhere)");
+            b.line(&format!(
+                "-- ends the handler with the model unchanged and '{}', the answer the",
+                fallback.trim_start_matches("T.")
+            ));
+            b.line("-- engine gives a skipped callback.");
+            b.line(&format!(
+                "{name} :: model -> MaybeT IO (model, {ty}) -> IO (model, {ty})"
+            ));
+            b.line(&format!(
+                "{name} model body = maybe (model, {fallback}) id <$> runMaybeT body"
+            ));
+            b.blank();
+            b.line("-- | Runs a handler body in 'ExceptT': an error ends the handler the same way,");
+            b.line("-- written to stderr first.");
+            b.line(&format!(
+                "{name}OnError :: Show e => model -> ExceptT e IO (model, {ty}) -> IO (model, {ty})"
+            ));
+            b.line(&format!("{name}OnError model body = runExceptT body >>= either failed pure"));
+            b.line("  where");
+            b.line("    failed e = do");
+            b.line("        hPutStrLn stderr (\"azul: a callback failed: \" ++ show e)");
+            b.line(&format!("        pure (model, {fallback})"));
+            b.blank();
+        }
+    }
     b.finish()
+}
+
+/// The handler guards of the facade, one per unit enum a callback answers
+/// with (`Update`): `or<FirstVariant>` (`orDoNothing`) and its `OnError`
+/// twin, each with the enum's type and the first variant, which is what the
+/// engine answers for a skipped callback.
+fn callback_guards(ctx: &Ctx) -> Vec<(String, (String, String))> {
+    ctx.ir
+        .callback_return_unit_enums()
+        .into_iter()
+        .filter_map(|e| {
+            let first = e.variants.first()?;
+            let ty = ctx.value_type(&e.name)?;
+            Some((
+                format!("or{}", first.name),
+                (ty, format!("T.{}", super::haskell_variant_name(&e.name, &first.name))),
+            ))
+        })
+        .collect()
 }
 
 /// The pragma + import block every tier shares. `internal` are the
@@ -822,8 +885,52 @@ fn emit_prelude(b: &mut CodeBuilder, ctx: &Ctx) {
         b.line("pure str");
         b.dedent();
         b.blank();
+        b.line("-- | Take over an AzString value (the Some of an option): its text, the native string released.");
+        b.line("azulOwnString :: T.AzString -> IO String");
+        b.line("azulOwnString s = alloca $ \\p -> poke p s >> azulTakeString p");
+        b.blank();
     }
+    b.raw(OPTION_PRELUDE);
+    b.blank();
 }
+
+/// `Maybe` / `Either` at the boundary: every Option a function takes is a
+/// `Maybe`, every Option or Result it returns a `Maybe` / `Either` (see
+/// `HsOpt`, `HsRes`).
+const OPTION_PRELUDE: &str = r#"-- ---------------------------------------------------------------------------
+-- Maybe / Either at the boundary.
+-- ---------------------------------------------------------------------------
+
+-- | Lend a 'Maybe' to a call that takes an option by value: 'Nothing' is
+-- the option's None, 'Just' its Some, the value marshalled by @lend@ (and
+-- moved into the call, as every by-value argument is).
+withMaybeArg :: (Storable o, Storable p) => o -> (p -> o) -> (v -> (Ptr p -> IO a) -> IO a) -> Maybe v -> (Ptr o -> IO a) -> IO a
+withMaybeArg none _ _ Nothing k = alloca $ \po -> poke po none >> k po
+withMaybeArg _ some lend (Just v) k = lend v $ \pp -> do
+    x <- peek pp
+    alloca $ \po -> poke po (some x) >> k po
+
+-- | Lend a plain value to a call through a pointer.
+withValueArg :: Storable v => v -> (Ptr v -> IO a) -> IO a
+withValueArg v k = alloca $ \p -> poke p v >> k p
+
+-- | Take apart an option the C side wrote: None is 'Nothing'; the Some's
+-- payload is handed to @own@, which takes it over.
+takeMaybe :: Storable o => (o -> Maybe p) -> (p -> IO v) -> Ptr o -> IO (Maybe v)
+takeMaybe pick own po = do
+    o <- peek po
+    case pick o of
+        Nothing -> pure Nothing
+        Just x -> Just <$> own x
+
+-- | Take apart a result the C side wrote: Err is 'Left', Ok 'Right'.
+takeEither :: Storable r => (r -> Either e t) -> (e -> IO e') -> (t -> IO t') -> Ptr r -> IO (Either e' t')
+takeEither pick ownErr ownOk po = do
+    r <- peek po
+    case pick r of
+        Left e -> Left <$> ownErr e
+        Right t -> Right <$> ownOk t
+"#;
 
 /// The static part of `Azul.Internal.Runtime`: the host-handle table, the
 /// ownership state every wrapper carries, the binding's exception type, the
@@ -1755,6 +1862,141 @@ fn emit_layout_factory(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx, module: &s
 // Per-function wrappers
 // ============================================================================
 
+/// How the value inside an Option or a Result crosses the surface: the type
+/// user code sees, the bracket that lends it to a by-value C parameter
+/// (moved in), and the function that takes over one the C side returned.
+#[derive(Clone)]
+struct HsPayload {
+    /// `String`, a wrapper (`FilePath`), or an `Azul.Types` value (`T.ColorU`).
+    user: String,
+    /// `withAzStringArg`, `moveFilePath`, `withValueArg`.
+    lend: String,
+    /// `azulOwnString`, `filePathFromValue`, `pure`.
+    own: String,
+}
+
+/// An Option mirror shown as `Maybe`: its two constructors and its payload.
+#[derive(Clone)]
+struct HsOpt {
+    /// The option's `Azul.Types` type (`T.OptionString`).
+    raw: String,
+    none: String,
+    some: String,
+    payload: HsPayload,
+}
+
+impl HsOpt {
+    /// `\o -> case o of ...`: the payload of a Some, `Nothing` for None.
+    fn pick(&self) -> String {
+        format!("(\\__o -> case __o of {{ {} __x -> Just __x; _ -> Nothing }})", self.some)
+    }
+}
+
+/// A Result mirror shown as `Either`: Err is `Left`, Ok `Right` (a unit Ok
+/// is `()`).
+#[derive(Clone)]
+struct HsRes {
+    ok_ctor: String,
+    err_ctor: String,
+    ok: Option<HsPayload>,
+    err: HsPayload,
+}
+
+impl HsRes {
+    fn user(&self) -> String {
+        format!(
+            "Either {} {}",
+            paren(&self.err.user),
+            self.ok.as_ref().map(|p| paren(&p.user)).unwrap_or_else(|| "()".to_string())
+        )
+    }
+
+    fn pick(&self) -> String {
+        let ok = match &self.ok {
+            Some(_) => format!("{} __x -> Right __x", self.ok_ctor),
+            None => format!("{} -> Right ()", self.ok_ctor),
+        };
+        format!(
+            "(\\__o -> case __o of {{ {}; {} __e -> Left __e }})",
+            ok, self.err_ctor
+        )
+    }
+}
+
+/// The payload shape of `t`, or `None` when it has none on this surface (a
+/// callback, the type-erased handle: those are wired by the closures).
+fn hs_payload(t: &str, ctx: &Ctx) -> Option<HsPayload> {
+    let t = t.trim();
+    if managed_host_invoker::is_callback_wrapper(ctx.ir, t)
+        || managed_lang_helpers::is_refany_type(t, ctx.ir)
+        || ctx.ir.callback_typedefs.iter().any(|c| c.name.trim() == t)
+    {
+        return None;
+    }
+    if ctx.is_string(t) {
+        ctx.string_from_bytes.as_ref()?;
+        ctx.string_delete.as_ref()?;
+        return Some(HsPayload {
+            // allow-api-name: Haskell's own `String`.
+            user: "String".to_string(),
+            lend: "withAzStringArg".to_string(),
+            own: "azulOwnString".to_string(),
+        });
+    }
+    if ctx.wrapped.contains(t) {
+        let w = haskell_data_name(t);
+        let bracket = if ctx.deletable.contains(t) { "move" } else { "with" };
+        return Some(HsPayload {
+            user: w.clone(),
+            lend: format!("{}{}", bracket, w),
+            own: format!("{}FromValue", lower_first(&w)),
+        });
+    }
+    let user = if super::cshim::is_c_primitive(t) {
+        if matches!(t, "c_void" | "void" | "()") {
+            return None;
+        }
+        super::types::map_owned_type(t, ctx.ir)
+    } else {
+        ctx.value_type(t)?
+    };
+    Some(HsPayload {
+        user,
+        lend: "withValueArg".to_string(),
+        own: "pure".to_string(),
+    })
+}
+
+/// `t` as a `Maybe`, when it is an Option mirror with a payload shape.
+fn hs_option(t: &str, ctx: &Ctx) -> Option<HsOpt> {
+    let t = t.trim();
+    let payload = ctx.ir.option_payload(t)?;
+    let raw = ctx.value_type(t)?;
+    Some(HsOpt {
+        raw,
+        none: format!("T.{}", super::haskell_variant_name(t, "None")),
+        some: format!("T.{}", super::haskell_variant_name(t, "Some")),
+        payload: hs_payload(payload, ctx)?,
+    })
+}
+
+/// `t` as an `Either`, when it is a Result mirror whose sides have shapes.
+fn hs_result(t: &str, ctx: &Ctx) -> Option<HsRes> {
+    let t = t.trim();
+    let (ok, err) = ctx.ir.result_payloads(t)?;
+    ctx.value_type(t)?;
+    let ok = match ok {
+        Some(o) => Some(hs_payload(o, ctx)?),
+        None => None,
+    };
+    Some(HsRes {
+        ok_ctor: format!("T.{}", super::haskell_variant_name(t, "Ok")),
+        err_ctor: format!("T.{}", super::haskell_variant_name(t, "Err")),
+        ok,
+        err: hs_payload(err?, ctx)?,
+    })
+}
+
 /// How one argument is marshalled.
 #[derive(Clone)]
 enum ArgPlan {
@@ -1779,6 +2021,8 @@ enum ArgPlan {
     Value { hs: String },
     /// A host-invoker callback: a closure.
     Closure { kind: String, hs: String },
+    /// An Option by value: a `Maybe` (`Nothing` is None).
+    Opt(HsOpt),
 }
 
 enum RetPlan {
@@ -1787,6 +2031,10 @@ enum RetPlan {
     HsString,
     Wrapper(String),
     Value(String),
+    /// An Option: a `Maybe` that owns what the Some held.
+    Opt(HsOpt),
+    /// A Result: an `Either`, Err on the `Left`.
+    Res(HsRes),
 }
 
 fn arg_plan(a: &FunctionArg, ctx: &Ctx) -> Option<ArgPlan> {
@@ -1852,6 +2100,11 @@ fn arg_plan(a: &FunctionArg, ctx: &Ctx) -> Option<ArgPlan> {
             }
         });
     }
+    if by_value {
+        if let Some(o) = hs_option(t, ctx) {
+            return Some(ArgPlan::Opt(o));
+        }
+    }
     if ctx.wrapped.contains(t) {
         // Only a type that owns heap memory (`_delete`) moves: passing it
         // by value hands that memory over. A by-value POD is a bitwise copy,
@@ -1895,6 +2148,12 @@ fn ret_plan(func: &FunctionDef, ctx: &Ctx) -> Option<RetPlan> {
     }
     if ctx.wrapped.contains(t) {
         return Some(RetPlan::Wrapper(haskell_data_name(t)));
+    }
+    if let Some(o) = hs_option(t, ctx) {
+        return Some(RetPlan::Opt(o));
+    }
+    if let Some(r) = hs_result(t, ctx) {
+        return Some(RetPlan::Res(r));
     }
     ctx.value_type(t).map(RetPlan::Value)
 }
@@ -2026,6 +2285,28 @@ fn emit_class_functions(b: &mut CodeBuilder, class: &str, ctx: &Ctx, module: &st
             ctx.record_alias(class, &name, &lower_first(short), &func.doc);
         }
 
+        // Any other call taking a data `RefAny` and the callback that gets
+        // it (`FileDialog.openDirectory title path data onResult`) also gets
+        // `<name>WithModel`, the data bound to the model of the running
+        // callback, so the resume callback receives and updates the app's
+        // own model.
+        let data_slot = (1..plans.len()).find(|&i| {
+            matches!(plans[i - 1], ArgPlan::RefAnyClone) && matches!(plans[i], ArgPlan::Closure { .. })
+        });
+        if let (Some(i), None) = (data_slot, managed_host_invoker::smart_callback_setter_info(func)) {
+            let bound_name = ctx.unique_name(module, &format!("{}WithModel", name));
+            let mut bound_plans = plans.clone();
+            bound_plans[i - 1] = ArgPlan::CurrentModel;
+            b.line(&format!(
+                "-- | '{}' with the data bound to the model of the running callback.",
+                name
+            ));
+            emit_function(b, func, &bound_name, receiver, &bound_plans, &ret, None, ctx);
+            if let Some(short) = bound_name.strip_prefix(&class_prefix) {
+                ctx.record_alias(class, &bound_name, &lower_first(short), &func.doc);
+            }
+        }
+
         // `with_on_click(data, callback)` -> `buttonOnClick callback`: the
         // same call with the data bound to the model of the running callback
         // (the shared smart-setter rule every managed binding follows).
@@ -2068,6 +2349,10 @@ enum FieldShape {
     /// An `Azul.Types` value: read with `peek` (through the deep copy when
     /// the type owns heap memory), written with `poke`.
     Value { hs: String, delete: Option<String>, clone: Option<String> },
+    /// An Option: read as a `Maybe` (through the deep copy when the option
+    /// owns heap memory), written from a `Maybe` after the old value is
+    /// released.
+    Opt { opt: HsOpt, delete: Option<String>, clone: Option<String> },
 }
 
 /// The `_delete` FFI binding of `class`, when it has one.
@@ -2113,6 +2398,9 @@ fn field_shape(f: &FieldDef, ctx: &Ctx) -> Option<FieldShape> {
     }
     let delete = delete_binding_of(t, ctx);
     let clone = clone_binding_of(t, ctx).map(|c| format!("FFI.{}", c));
+    if let Some(opt) = hs_option(t, ctx) {
+        return Some(FieldShape::Opt { opt, delete, clone });
+    }
     if ctx.wrapped.contains(t) {
         return Some(FieldShape::Wrapper {
             hs: haskell_data_name(t),
@@ -2153,6 +2441,7 @@ fn emit_field_accessors(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx, module: &
             FieldShape::Str { hs, .. } => hs.clone(),
             FieldShape::Wrapper { hs, .. } => format!("T.{}", hs),
             FieldShape::Value { hs, .. } => hs.clone(),
+            FieldShape::Opt { opt, .. } => opt.raw.clone(),
         };
         // The field's address inside the handle's buffer `p`.
         let fp = format!("(castPtr (p `plusPtr` ({})) :: Ptr {})", off, paren(&raw_ty));
@@ -2163,6 +2452,7 @@ fn emit_field_accessors(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx, module: &
             FieldShape::Str { .. } => "String".to_string(),
             FieldShape::Wrapper { hs, .. } => hs.clone(),
             FieldShape::Value { hs, .. } => hs.clone(),
+            FieldShape::Opt { opt, .. } => format!("Maybe {}", paren(&opt.payload.user)),
         };
         let doc: Vec<String> = f.doc.iter().map(|d| sanitize_doc(d)).collect();
 
@@ -2192,6 +2482,18 @@ fn emit_field_accessors(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx, module: &
             ]),
             FieldShape::Value { delete: Some(_), clone: Some(c), .. } => Some(vec![format!(
                 "{wx} self $ \\p -> alloca $ \\__po -> {c} {fp} __po >> peek __po"
+            )]),
+            // The Some's payload is taken over by the `Maybe`: a deep copy
+            // when the option owns heap memory, the bytes themselves when not.
+            FieldShape::Opt { opt, delete: None, .. } => Some(vec![format!(
+                "{wx} self $ \\p -> takeMaybe {} {} {fp}",
+                opt.pick(),
+                opt.payload.own
+            )]),
+            FieldShape::Opt { opt, delete: Some(_), clone: Some(c) } => Some(vec![format!(
+                "{wx} self $ \\p -> alloca $ \\__po -> {c} {fp} __po >> takeMaybe {} {} __po",
+                opt.pick(),
+                opt.payload.own
             )]),
             _ => None,
         };
@@ -2228,6 +2530,15 @@ fn emit_field_accessors(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx, module: &
                 setter.push(format!(">let __fp = {fp}"));
                 release(delete, &mut setter);
                 setter.push(">poke __fp v".to_string());
+            }
+            FieldShape::Opt { opt, delete, .. } => {
+                setter.push(format!(
+                    "withMaybeArg {} {} {} v $ \\__vp -> {wx} self $ \\p -> do",
+                    opt.none, opt.some, opt.payload.lend
+                ));
+                setter.push(format!(">let __fp = {fp}"));
+                release(delete, &mut setter);
+                setter.push(format!(">copyBytes __fp __vp (sizeOf (undefined :: {}))", opt.raw));
             }
         }
 
@@ -2349,6 +2660,7 @@ fn emit_function(
             ArgPlan::Wrapper { hs, .. } => hs.clone(),
             ArgPlan::Value { hs } => hs.clone(),
             ArgPlan::Closure { .. } => format!("h{}", i),
+            ArgPlan::Opt(o) => format!("Maybe {}", paren(&o.payload.user)),
         }
     };
     let constraints: Vec<String> = plans
@@ -2377,6 +2689,8 @@ fn emit_function(
         RetPlan::HsString => "String".to_string(),
         RetPlan::Wrapper(w) => w.clone(),
         RetPlan::Value(t) => t.clone(),
+        RetPlan::Opt(o) => format!("Maybe {}", paren(&o.payload.user)),
+        RetPlan::Res(r) => r.user(),
     };
     let mut sig_parts: Vec<String> = order.iter().map(|&i| paren(&param_ty(i))).collect();
     sig_parts.push(format!("IO {}", paren(&ret_ty)));
@@ -2457,6 +2771,16 @@ fn emit_function(
                 ));
                 call_args.push(ptr);
             }
+            ArgPlan::Opt(o) => {
+                openers.push((
+                    format!(
+                        "withMaybeArg {} {} {} {} $ \\{} -> do",
+                        o.none, o.some, o.payload.lend, p, ptr
+                    ),
+                    vec![],
+                ));
+                call_args.push(ptr);
+            }
         }
     }
     let mut tail: Vec<String> = Vec::new();
@@ -2489,6 +2813,23 @@ fn emit_function(
             b.line(&format!("__out <- alloc{}", w));
             openers.push((format!("with{} __out $ \\__po -> do", w), vec![]));
             call_args.push("__po".to_string());
+        }
+        RetPlan::Opt(o) => {
+            captures = true;
+            openers.push(("alloca $ \\__po -> do".to_string(), vec![]));
+            call_args.push("__po".to_string());
+            tail.push(format!("takeMaybe {} {} __po", o.pick(), o.payload.own));
+        }
+        RetPlan::Res(r) => {
+            captures = true;
+            openers.push(("alloca $ \\__po -> do".to_string(), vec![]));
+            call_args.push("__po".to_string());
+            tail.push(format!(
+                "takeEither {} {} {} __po",
+                r.pick(),
+                r.err.own,
+                r.ok.as_ref().map(|p| p.own.as_str()).unwrap_or("pure")
+            ));
         }
     }
     debug_assert_eq!(
@@ -2534,7 +2875,9 @@ fn emit_function(
                 b.line("pure __r");
             }
         }
-        RetPlan::HsString | RetPlan::Value(_) => b.line("pure __r"),
+        RetPlan::HsString | RetPlan::Value(_) | RetPlan::Opt(_) | RetPlan::Res(_) => {
+            b.line("pure __r")
+        }
         RetPlan::Wrapper(_) => b.line("pure __out"),
     }
     b.dedent();
