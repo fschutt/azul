@@ -501,6 +501,28 @@ class Laptop:
                            text, re.M)
         return ["%s %s" % (kind, rest) for kind, rest in found]
 
+    def status_after_last_pass(self, drive_id=None):
+        """The status line AzDrive printed right after its last pass ended (a long pass's poll
+        starts the next one in the same breath, so the latest line is often "Syncing")."""
+        drive_id = drive_id or self.drives[0]
+        if not self.app:
+            return None
+        try:
+            with open(self.app.out_path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            return None
+        said = None
+        ended = False
+        for line in text.splitlines():
+            if line.startswith(("AZDRIVE_SYNC_DONE %s" % drive_id,
+                                "AZDRIVE_SYNC_FAILED %s" % drive_id)):
+                ended, said = True, None
+            elif ended and said is None and line.startswith(
+                    "AZDRIVE_SYNC_STATUS %s " % drive_id):
+                said = line.split(" ", 2)[2]
+        return said
+
     def failures(self, drive_id=None):
         return self.lines("AZDRIVE_SYNC_FAILED", drive_id)
 
@@ -547,16 +569,17 @@ class Laptop:
             moved = re.search(r"up=([1-9]|\d\d)|down=([1-9]|\d\d)|deleted=([1-9]|\d\d)", lines[-1])
             # The status line follows the pass's line: give it a moment.
             said_by = time.time() + 2
-            while self.status(drive_id) != UP_TO_DATE and time.time() < said_by:
+            while self.status_after_last_pass(drive_id) is None and time.time() < said_by:
                 time.sleep(0.05)
-            if not moved and "FAILED" not in lines[-1] and self.status(drive_id) == UP_TO_DATE:
+            said = self.status_after_last_pass(drive_id)
+            if not moved and not lines[-1].startswith("FAILED") and said == UP_TO_DATE:
                 calm += 1
                 if calm >= quiet:
                     return
             else:
                 calm = 0
-        raise Failure("%s: never settled (status %s, last passes %s)" % (
-            what, self.status(drive_id), self.passes(drive_id)[-3:]))
+        raise Failure("%s: never settled (status after the last pass %s, last passes %s)" % (
+            what, self.status_after_last_pass(drive_id), self.passes(drive_id)[-3:]))
 
 
 def status_after_passes(laptop, drive_id, count=2, timeout=None):
@@ -565,14 +588,7 @@ def status_after_passes(laptop, drive_id, count=2, timeout=None):
     laptop.wait_passes("%d passes" % count, count, drive_id, timeout)
     deadline = time.time() + 5
     while time.time() < deadline:
-        said = None
-        ended = False
-        for _, line in laptop.timeline():
-            if line.startswith(("AZDRIVE_SYNC_DONE %s" % drive_id,
-                                "AZDRIVE_SYNC_FAILED %s" % drive_id)):
-                ended, said = True, None
-            elif ended and said is None and line.startswith("AZDRIVE_SYNC_STATUS %s " % drive_id):
-                said = line.split(" ", 2)[2]
+        said = laptop.status_after_last_pass(drive_id)
         if said is not None:
             return said
         time.sleep(0.05)
