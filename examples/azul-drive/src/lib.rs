@@ -857,6 +857,12 @@ pub(crate) struct DriveState {
     pub tabs: location_tabs::LocationTabs,
     /// The tab overview is showing (the strip's tab button, Ctrl+Shift+A).
     pub tab_overview: bool,
+    /// The overview row the keyboard highlights (`usize::MAX`: none); the widget reports each
+    /// move and the window is rebuilt with it.
+    pub tab_overview_highlight: usize,
+    /// The ribbon's reveal machine (a hovered tab opens its commands, a double click locks them
+    /// open): one handle kept for the window's life, so a rebuild keeps what is open.
+    pub ribbon_reveal: azul::widgets::TabReveal,
     /// The search view is open: from the first key typed into the search box until Escape on
     /// an empty box (or another place). An empty query shows the recent and saved searches.
     pub search_open: bool,
@@ -3383,6 +3389,10 @@ pub fn start() {
         scroll_when_listed: None,
         tabs: location_tabs::LocationTabs::new(first_tab),
         tab_overview: false,
+        tab_overview_highlight: usize::MAX,
+        ribbon_reveal: azul::widgets::TabReveal::create(
+            azul::widgets::TabClickBehaviour::HoverRevealDoubleClickLock,
+        ),
         search_open: false,
         quick_look: false,
         quick_look_when_listed: false,

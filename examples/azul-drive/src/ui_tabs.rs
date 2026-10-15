@@ -17,8 +17,8 @@ use azul::{
     callbacks::TabOverviewOnEventCallbackType,
     prelude::*,
     str::String as AzString,
-    vec::TabOverviewRowVec,
-    widgets::{TabOverview, TabOverviewEvent, TabOverviewEventKind, TabOverviewRow},
+    vec::TabOverviewItemVec,
+    widgets::{TabOverview, TabOverviewEvent, TabOverviewEventKind, TabOverviewItem},
 };
 use azul_appkit::l10n::{label, t_args, Arg, Phrase, Text};
 
@@ -119,6 +119,7 @@ pub(crate) fn close_tab(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveStat
 /// The tab overview opens, or closes when it is open.
 pub(crate) fn toggle_overview(s: &mut DriveState) {
     s.tab_overview = !s.tab_overview;
+    s.tab_overview_highlight = usize::MAX;
     println!(
         "AZDRIVE_TAB_OVERVIEW {}",
         if s.tab_overview { "open" } else { "closed" }
@@ -175,14 +176,14 @@ pub(crate) fn overview(s: &DriveState, app: &RefAny) -> Option<Dom> {
     if !s.tab_overview {
         return None;
     }
-    let rows: Vec<TabOverviewRow> = s
+    let rows: Vec<TabOverviewItem> = s
         .tabs
         .snapshot(live_tab(s))
         .iter()
         .enumerate()
         .map(|(index, tab)| {
             let digit = shortcut_digit(index).map_or_else(String::new, |d| format!("\u{2303}{d}"));
-            TabOverviewRow::create(
+            TabOverviewItem::create(
                 AzString::from(tab_icon(s, tab)),
                 AzString::from(tab_title(s, tab)),
                 AzString::from(tab_path(s, tab)),
@@ -191,11 +192,14 @@ pub(crate) fn overview(s: &DriveState, app: &RefAny) -> Option<Dom> {
         })
         .collect();
     Some(
-        TabOverview::create(TabOverviewRowVec::from(rows))
-            .with_current(s.tabs.current())
-            .with_title(label("azdrive-loctabs-title"))
-            .with_new_tab_label(label("azdrive-loctab-new"))
-            .with_hint(label("azdrive-loctabs-hint"))
+        TabOverview::create(TabOverviewItemVec::from(rows), s.tabs.current())
+            .with_highlighted(s.tab_overview_highlight)
+            .with_words(
+                label("azdrive-loctabs-title"),
+                label("azdrive-loctab-new"),
+                AzString::from("\u{2303}T"),
+                label("azdrive-loctabs-hint"),
+            )
             .with_on_event(app.clone(), on_overview as TabOverviewOnEventCallbackType)
             .dom()
             .with_id(ids::TAB_OVERVIEW),
@@ -212,6 +216,8 @@ extern "C" fn on_overview(mut data: RefAny, mut info: CallbackInfo, event: TabOv
         }
         TabOverviewEventKind::Close => close_tab(info, app, s, event.index),
         TabOverviewEventKind::NewTab => new_tab(info, app, s),
+        // The keyboard moved the highlight: the window is drawn again with it.
+        TabOverviewEventKind::Highlight => s.tab_overview_highlight = event.index,
         TabOverviewEventKind::Dismiss => {
             s.tab_overview = false;
             println!("AZDRIVE_TAB_OVERVIEW closed");

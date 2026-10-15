@@ -51,7 +51,7 @@ use azul::{
         CheckBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonFileMenu,
         RibbonFileMenuCommand, RibbonFileMenuEvent, RibbonFileMenuEventKind,
         RibbonFileMenuPlace, RibbonGallery, RibbonGalleryCell, RibbonItem, RibbonRow, RibbonTab,
-        TabClickBehaviour, TabStyle,
+        TabOverviewButton, TabStyle,
     },
 };
 use azul_appkit::{
@@ -981,13 +981,16 @@ pub(crate) fn ribbon(s: &DriveState, app: &RefAny) -> Dom {
         // The design's tab area: the tabs are buttons (flora's submit and plain buttons) on
         // the leather, the content opens while a tab is hovered and a double click locks it.
         .with_tab_style(TabStyle::Pills)
-        .with_click_behaviour(TabClickBehaviour::HoverRevealDoubleClickLock)
+        .with_reveal(s.ribbon_reveal.clone())
         // The strip's tab button: the location tabs' count, the overview on a click.
-        .with_tab_overview(
-            s.tabs.len(),
-            AzString::from(crate::ui_tabs::count_label(s)),
-            action_ref(app, Action::TabOverview),
-            on_action as ButtonOnClickCallbackType,
+        .with_strip_end(
+            TabOverviewButton::create(s.tabs.len())
+                .with_on_click(
+                    action_ref(app, Action::TabOverview),
+                    on_action as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_accessibility_name(AzString::from(crate::ui_tabs::count_label(s))),
         )
         .dom_desktop()
         .with_id(ids::RIBBON)

@@ -13,7 +13,7 @@ use azul::{
     misc::TransientAnchor,
     prelude::*,
     str::String as AzString,
-    widgets::{ButtonType, Dialog, DialogClosedBy, PieMarker, PieMarkerTone},
+    widgets::{ButtonType, Dialog, DialogClosedBy, PieMarker, PieTone as MarkerTone},
 };
 use azul_appkit::l10n::{label, t, t_args, t_text, Arg};
 
@@ -201,11 +201,13 @@ fn space_words(s: &DriveState, drive_id: &str) -> String {
 
 /// One pie in its 15 x 25 hit area, its words as its accessible name.
 fn pie_dom(id: AzString, pie: Pie, words: &str) -> Dom {
+    // A pie at work breathes: the widget's Busy tone is the accent, breathing.
     let tone = match pie.tone {
-        PieTone::Accent => PieMarkerTone::Accent,
-        PieTone::Good => PieMarkerTone::Good,
-        PieTone::Warn => PieMarkerTone::Warn,
-        PieTone::Bad => PieMarkerTone::Bad,
+        PieTone::Accent if pie.breathing => MarkerTone::Busy,
+        PieTone::Accent => MarkerTone::Accent,
+        PieTone::Good => MarkerTone::Good,
+        PieTone::Warn => MarkerTone::Warning,
+        PieTone::Bad => MarkerTone::Danger,
     };
     Dom::create_div()
         .with_id(id)
@@ -213,9 +215,7 @@ fn pie_dom(id: AzString, pie: Pie, words: &str) -> Dom {
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_name(AzString::from(words))
         .with_child(
-            PieMarker::create(pie.fraction, tone)
-                .with_breathing(pie.breathing)
-                .dom(),
+            PieMarker::create(pie.fraction, tone).dom(),
         )
 }
 

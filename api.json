@@ -112695,6 +112695,68 @@
                                     "type": "TabOverview"
                                 },
                                 "fn_body": "object.with_words(title, new_tab, new_tab_key, footer)"
+                            },
+                            "set_highlighted": {
+                                "doc": [
+                                    "The row the keyboard highlights."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "row": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_highlighted(row)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_highlighted": {
+                                "doc": [
+                                    "[`Self::set_highlighted`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "row": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverview"
+                                },
+                                "fn_body": "object.with_highlighted(row)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabOverview"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
