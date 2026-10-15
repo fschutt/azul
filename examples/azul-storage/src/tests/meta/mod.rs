@@ -15,6 +15,9 @@ mod pack;
 /// The policy and the member wraps (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod policy;
+/// Pointers of a newer format (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod pointer_versions;
 /// The local query cache (feature `index-cache`).
 #[cfg(feature = "index-cache")]
 mod query_cache;
