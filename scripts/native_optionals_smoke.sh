@@ -55,6 +55,39 @@ smoke_rust() {
   "$out/nightly"
 }
 
+# ---- Swift ------------------------------------------------------------------
+# The Azul module from the generated package sources, then the program.
+smoke_swift() {
+  local out="$WORK_DIR/swift"; rm -rf "$out"; mkdir -p "$out"
+  cp -R "$CODEGEN_DIR/swift/Sources/Azul" "$out/Azul" || return 1
+  cp "$CODEGEN_DIR/azul.h" "$CODEGEN_DIR/module.modulemap" "$out/" || return 1
+  ( cd "$out" \
+    && swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j4 -I. Azul/*.swift \
+         -L"$LIB_DIR" -lazul -o libAzulSwift.dylib \
+    && swiftc -I. "$SRC_DIR/swift.swift" -L. -lAzulSwift -L"$LIB_DIR" -lazul \
+         -Xlinker -rpath -Xlinker "$LIB_DIR" -Xlinker -rpath -Xlinker "$out" -o smoke ) || return 1
+  "$out/smoke"
+}
+
+# ---- D ----------------------------------------------------------------------
+smoke_d() {
+  local out="$WORK_DIR/d"; mkdir -p "$out"
+  local DC=ldc2; command -v ldc2 >/dev/null || DC=dmd
+  "$DC" -I"$CODEGEN_DIR/d/source" "$SRC_DIR/d.d" "$CODEGEN_DIR"/d/source/azul/*.d \
+    -L-L"$LIB_DIR" -L-lazul -L-rpath -L"$LIB_DIR" -od="$out" -of="$out/smoke" || return 1
+  "$out/smoke"
+}
+
+# ---- Crystal ----------------------------------------------------------------
+# The shard laid out the way `shards install` does (lib/azul).
+smoke_crystal() {
+  local out="$WORK_DIR/crystal"; rm -rf "$out"; mkdir -p "$out/lib"
+  cp -R "$CODEGEN_DIR/crystal" "$out/lib/azul" || return 1
+  cp "$SRC_DIR/crystal.cr" "$out/" || return 1
+  ( cd "$out" && crystal build crystal.cr -o smoke --link-flags "-L$LIB_DIR -Wl,-rpath,$LIB_DIR" ) || return 1
+  "$out/smoke"
+}
+
 status=0
 for lang in "${LANGS[@]}"; do
   echo "=== native optionals [$lang] ==="
