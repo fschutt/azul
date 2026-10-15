@@ -165,26 +165,39 @@ impl Command {
         }
     }
 
-    /// The keys, as the palette and the shortcuts page show them ("Cmd" is Ctrl off macOS).
+    /// The keys in the kit's form (`Mod` is Cmd on macOS, Ctrl elsewhere; ` / ` between two
+    /// ways); [`Command::shown_shortcut`] writes them as this platform does.
     #[must_use]
     pub fn shortcut(self) -> &'static str {
         match self {
-            Command::NewTask => "N / Cmd+N",
+            Command::NewTask => "N / Mod+N",
             Command::Complete => "Space",
             Command::Delete => "Delete",
             Command::MoveUp => "Alt+Up",
             Command::MoveDown => "Alt+Down",
-            Command::Show(Smart::Today) => "Cmd+1",
-            Command::Show(Smart::Upcoming) => "Cmd+2",
-            Command::Show(Smart::Scheduled) => "Cmd+3",
-            Command::Show(Smart::Flagged) => "Cmd+4",
-            Command::Show(Smart::All) => "Cmd+5",
-            Command::Show(Smart::Completed) => "Cmd+6",
-            Command::Search => "Cmd+F",
-            Command::Settings => "Cmd+,",
-            Command::Palette => "Cmd+K",
+            Command::Show(Smart::Today) => "Mod+1",
+            Command::Show(Smart::Upcoming) => "Mod+2",
+            Command::Show(Smart::Scheduled) => "Mod+3",
+            Command::Show(Smart::Flagged) => "Mod+4",
+            Command::Show(Smart::All) => "Mod+5",
+            Command::Show(Smart::Completed) => "Mod+6",
+            Command::Search => "Mod+F",
+            Command::Settings => "Mod+,",
+            Command::Palette => "Mod+K",
             _ => "",
         }
+    }
+
+    /// The keys as the palette and the shortcuts page show them: the Mac's symbols, elsewhere
+    /// the key names in the window's language.
+    #[must_use]
+    pub fn shown_shortcut(self, mac: bool) -> String {
+        self.shortcut()
+            .split(" / ")
+            .filter(|keys| !keys.is_empty())
+            .map(|keys| azul_appkit::ui::shown_keys(keys, mac))
+            .collect::<Vec<_>>()
+            .join(" / ")
     }
 
     /// The command's group in the palette and on the shortcuts page, in the window's language.
@@ -631,7 +644,7 @@ pub fn palette(s: &Tasks, app: &RefAny) -> Dom {
         p = p.with_command(
             ShellPaletteCommand::create(command.label())
                 .with_icon(command.icon())
-                .with_shortcut(command.shortcut())
+                .with_shortcut(command.shown_shortcut(cfg!(target_os = "macos")))
                 .with_category(command.category()),
         );
     }
@@ -738,7 +751,9 @@ mod tests {
         unique.sort();
         unique.dedup();
         assert_eq!(unique.len(), labels.len());
-        assert_eq!(Command::Show(Smart::Upcoming).shortcut(), "Cmd+2");
+        assert_eq!(Command::Show(Smart::Upcoming).shown_shortcut(false), "Ctrl+2");
+        assert_eq!(Command::Show(Smart::Upcoming).shown_shortcut(true), "\u{2318}2");
+        assert_eq!(Command::NewTask.shown_shortcut(true), "N / \u{2318}N");
         assert_eq!(Command::NewTask.category(), "Task");
     }
 }

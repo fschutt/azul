@@ -73,7 +73,7 @@ use crate::{
     options::{categories, category_id, category_index, notice_after_save, Category, Snapshot},
     qr::QrCode,
     settings::{AppSettings, SETTINGS_FILE},
-    shortcuts::{display_keys, groups, Shortcut, KIT_SHORTCUTS},
+    shortcuts::{display_keys_with, groups, Shortcut, KIT_SHORTCUTS},
     window_place::{self, Seen, WindowPlace},
 };
 
@@ -1610,26 +1610,23 @@ fn category_label(name: &str) -> &str {
 /// The kit's category of the shortcuts (F1).
 const SHORTCUTS_CATEGORY: &str = "Shortcuts";
 
-/// The keys of a shortcut as the user reads them, the modifier and key names in the window's
-/// language (`Ctrl` is `Strg` in German).
-fn shown_keys(keys: &str, mac: bool) -> String {
-    display_keys(keys, mac)
-        .split('+')
-        .map(|part| {
-            let key = format!("kit-key-{}", part.to_ascii_lowercase());
-            if part.len() > 1 && l10n::is_key(&key) {
-                let shown = l10n::t(&key);
-                if shown == key {
-                    part.to_string()
-                } else {
-                    shown
-                }
-            } else {
+/// The keys of a shortcut as the user reads them: the Mac's symbols, or the modifier and key
+/// names in the window's language (`Ctrl` is `Strg` in German).
+#[must_use]
+pub fn shown_keys(keys: &str, mac: bool) -> String {
+    display_keys_with(keys, mac, &|part: &str| {
+        let key = format!("kit-key-{}", part.to_ascii_lowercase());
+        if part.len() > 1 && l10n::is_key(&key) {
+            let shown = l10n::t(&key);
+            if shown == key {
                 part.to_string()
+            } else {
+                shown
             }
-        })
-        .collect::<Vec<_>>()
-        .join("+")
+        } else {
+            part.to_string()
+        }
+    })
 }
 
 extern "C" fn on_category(mut data: RefAny, _info: CallbackInfo) -> Update {

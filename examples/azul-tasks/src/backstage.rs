@@ -359,7 +359,7 @@ fn shortcuts() -> Dom {
         .iter()
         .chain(std::iter::once(&Command::Palette))
         .filter(|c| !c.shortcut().is_empty())
-        .map(|c| (c.shortcut().to_string(), c.label()))
+        .map(|c| (c.shown_shortcut(cfg!(target_os = "macos")), c.label()))
         .collect();
     rows.extend(
         [
