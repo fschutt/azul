@@ -1260,6 +1260,20 @@ impl Drive for S3Drive {
         crate::multipart::upload_file(self, key, path, None, progress).map(|(written, _)| written)
     }
 
+    /// [`Drive::put_file`] that never completes with bytes other than `check` names: the file
+    /// must be as scanned when the upload starts and when its parts are complete (hashed whole
+    /// once more then); a cut-off upload resumes from its state file with the missing parts.
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &Path,
+        check: &crate::checked::FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<crate::checked::CheckedUpload, DriveError> {
+        check_s3_key(key)?;
+        crate::multipart::upload_file_checked(self, key, path, check, progress)
+    }
+
     /// One PutObject with `If-None-Match: *` or `If-Match: "<etag>"` (AWS S3, R2 and
     /// MinIO honour both); a 412 is [`DriveError::Conflict`].
     fn put_if(

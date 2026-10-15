@@ -47,6 +47,7 @@
 
 pub mod base32;
 pub mod catalog;
+pub mod checked;
 pub mod config;
 pub mod ids;
 pub mod key;
@@ -684,6 +685,36 @@ pub trait Drive: Send + Sync {
         self.put_from(key, &mut reader)
     }
 
+    /// [`Drive::put_file`] of a file that must be the one `check` describes from the upload's
+    /// start to its completion (a sync names the object by the file's BLAKE3):
+    /// [`checked::CheckedUpload::Changed`], nothing completed, when it is not. By default the
+    /// file is streamed in and hashed as it is read (a read that fails at its end stops the
+    /// upload before it completes); a bucket sends a big file's parts several at once, resumes
+    /// an upload a killed app or a dropped connection left unfinished, and hashes the whole file
+    /// once more before it completes.
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &Path,
+        check: &checked::FileCheck,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<checked::CheckedUpload, DriveError> {
+        if !check.matches(&std::fs::metadata(path)?) {
+            return Ok(checked::CheckedUpload::Changed);
+        }
+        let file = std::fs::File::open(path)?;
+        let mut hashed = checked::HashCheck::new(file, &check.blake3);
+        let sent = {
+            let mut reader = transfer::ProgressReader::new(&mut hashed, progress);
+            self.put_from(key, &mut reader)
+        };
+        match sent {
+            Ok(written) => Ok(checked::CheckedUpload::Sent(written)),
+            Err(_) if hashed.changed() => Ok(checked::CheckedUpload::Changed),
+            Err(e) => Err(e),
+        }
+    }
+
     /// [`Drive::put_from`], only when `condition` holds ([`Drive::put_if`]'s rules): the new
     /// version's entity tag when the drive tells it; [`DriveError::Conflict`] when the
     /// condition did not hold. By default the body is read into memory and written with
@@ -827,6 +858,15 @@ macro_rules! forward_drive {
                 progress: &(dyn Fn(u64) + Sync),
             ) -> Result<u64, DriveError> {
                 (**self).put_file(key, path, progress)
+            }
+            fn put_file_checked(
+                &self,
+                key: &str,
+                path: &Path,
+                check: &checked::FileCheck,
+                progress: &(dyn Fn(u64) + Sync),
+            ) -> Result<checked::CheckedUpload, DriveError> {
+                (**self).put_file_checked(key, path, check, progress)
             }
             fn put_from_if(
                 &self,

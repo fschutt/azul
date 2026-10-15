@@ -36,7 +36,12 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 pub use crate::s3::{PARALLEL_PARTS, PART_SIZE};
-use crate::{local::write_atomically, s3::S3Drive, DriveError, Precondition};
+use crate::{
+    checked::{CheckedUpload, FileCheck},
+    local::write_atomically,
+    s3::S3Drive,
+    DriveError, Precondition,
+};
 
 /// An unfinished upload older than this is not resumed: aborted and started again (buckets
 /// commonly drop unfinished uploads after a week).
@@ -358,17 +363,64 @@ pub(crate) fn upload_file(
     condition: Option<&Precondition>,
     progress: &(dyn Fn(u64) + Sync),
 ) -> Result<(u64, Option<String>), DriveError> {
+    match upload_file_with(drive, key, path, condition, progress, None)? {
+        FileUpload::Done(written, etag) => Ok((written, etag)),
+        FileUpload::Changed => Err(DriveError::Io(format!(
+            "{} changed while it was uploaded; it is sent again next time",
+            path.display()
+        ))),
+    }
+}
+
+/// [`upload_file`] of a file that must be the one `check` describes: as scanned when the upload
+/// starts, and hashed whole once more before it completes ([`crate::Drive::put_file_checked`]).
+pub(crate) fn upload_file_checked(
+    drive: &S3Drive,
+    key: &str,
+    path: &Path,
+    check: &FileCheck,
+    progress: &(dyn Fn(u64) + Sync),
+) -> Result<CheckedUpload, DriveError> {
+    match upload_file_with(drive, key, path, None, progress, Some(check))? {
+        FileUpload::Done(written, _) => Ok(CheckedUpload::Sent(written)),
+        FileUpload::Changed => Ok(CheckedUpload::Changed),
+    }
+}
+
+/// How an upload of a file ended.
+enum FileUpload {
+    /// The bytes sent, and the new version's entity tag when the service said it.
+    Done(u64, Option<String>),
+    /// The file is not the one whose parts were sent (or not the checked one): nothing was
+    /// completed, and the upload was aborted.
+    Changed,
+}
+
+fn upload_file_with(
+    drive: &S3Drive,
+    key: &str,
+    path: &Path,
+    condition: Option<&Precondition>,
+    progress: &(dyn Fn(u64) + Sync),
+    check: Option<&FileCheck>,
+) -> Result<FileUpload, DriveError> {
     let part_size = drive.part_size() as u64;
     let before = fingerprint(path)?;
+    if check.is_some_and(|c| c.size != before.size || c.modified_ns != before.modified_ns) {
+        return Ok(FileUpload::Changed);
+    }
     let size = before.size;
     if size <= part_size {
         let bytes = fs::read(path)?;
+        if check.is_some_and(|c| !c.names(&bytes)) {
+            return Ok(FileUpload::Changed);
+        }
         let etag = match condition {
             Some(condition) => crate::Drive::put_if(drive, key, &bytes, condition)?,
             None => drive.put_object(key, bytes)?,
         };
         progress(size);
-        return Ok((size, etag));
+        return Ok(FileUpload::Done(size, etag));
     }
     let count = usize::try_from(size.div_ceil(part_size)).unwrap_or(usize::MAX);
     if count > MAX_PARTS {
@@ -480,19 +532,22 @@ pub(crate) fn upload_file(
         }
         return Err(e);
     }
-    // The file must still be the one whose parts were sent.
-    if fingerprint(path)? != before {
+    // The file must still be the one whose parts were sent - checked, its bytes hashed whole
+    // once more, as the parts of an earlier run were read before this one started.
+    let named = check.is_none_or(|c| {
+        File::open(path)
+            .and_then(crate::checked::hash_file)
+            .is_ok_and(|hash| hash == c.blake3)
+    });
+    if !named || fingerprint(path)? != before {
         let _ = drive.abort_multipart(key, &upload_id);
         forget(&state_file);
-        return Err(DriveError::Io(format!(
-            "{} changed while it was uploaded; it is sent again next time",
-            path.display()
-        )));
+        return Ok(FileUpload::Changed);
     }
     match drive.complete_multipart(key, &upload_id, &numbered(&state.parts), condition) {
         Ok(etag) => {
             forget(&state_file);
-            Ok((size, etag))
+            Ok(FileUpload::Done(size, etag))
         }
         Err(e) => {
             if matches!(e, DriveError::Conflict { .. }) || state_file.is_none() {
