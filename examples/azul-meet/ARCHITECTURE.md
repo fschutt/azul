@@ -122,38 +122,41 @@ A direct call reaches one other computer by its iroh address, with no meetings s
 point. It is not practical for meetings - there is no room, no link and no history - but it shows
 that two AzMeets can find each other with nothing in between, so it stays small and tucked away,
 like AzMail's direct sending: a "Direct call..." button in Settings > Meetings with a plain note on
-what it means. It is designed, not built.
+what it means (`direct.rs` is the protocol, `direct_call.rs` wires it to the endpoint and the
+window).
 
-- **Your address.** The dialog shows this computer's iroh address as text to copy and as a QR
+- **Your address.** The screen shows this computer's iroh address as text to copy and as a QR
   code, in one of two forms, said plainly next to the switch: "With direct addresses" (the
-  default: faster, but it shows your IP addresses to whoever has it) or "Id only" (found through
-  the configured relay; it shows no IP address).
-- **Calling.** A field for the other person's address and a Call button. AzMeet dials it over
-  iroh with the configured relay (any of the three; with `--relay off`, direct addresses only).
-- **Being called.** An incoming direct call is never accepted by itself: AzMeet shows a prompt
-  with Accept and Decline and a short safety code, a few words derived from both endpoint ids,
-  which both people read to each other to be sure they reached each other. Calls arrive only
-  while AzMeet runs; a background listener could come later.
+  default: the full ticket, faster, but it shows your IP addresses to whoever has it) or "Id
+  only" (the bare endpoint id, found through the configured relay; it shows no IP address). A
+  ticket too long for a QR code is there as text only.
+- **Calling.** A field for the other person's address and a Call button (Cancel while it rings).
+  AzMeet dials it over iroh with the configured relay (any of the three; with `--relay off`,
+  direct addresses only) and, once connected, says hello: its name and its own ticket. A call
+  nobody takes within 45 seconds is given up.
+- **Being called.** An incoming direct call is never accepted by itself: a connection from an id
+  nobody expects waits for its hello (ten seconds at most), then AzMeet shows a prompt over
+  every screen with the caller's name, Accept and Decline, and four safety words, picked from a
+  list of 256 words by the first four bytes of `SHA-256("azmeet/v1/direct-call" || the smaller
+  id || the larger id)`. Both people read them to each other: the same words on both screens
+  mean they reached each other. While AzMeet is in a meeting of the meetings service, a direct
+  call is answered "busy". Calls arrive only while AzMeet runs.
 - **Keys.** The iroh connection is already end-to-end encrypted and authenticated by both
   endpoint ids, so the media needs no room key and nothing from a server. Chat in a direct call
   waits for chat over the peers and then uses the same records.
-- **Two people only.** Adding more people (the caller handing the others the roster) and a list
-  of recent direct calls could come later.
+- **More than two.** Whoever takes a third person into a call hands them the roster (everyone
+  else's id, name and ticket) and tells the others to expect them; the newcomer dials each, and
+  a connection from an expected id joins without a prompt.
+- **Recent calls.** The screen lists the last ten direct calls (who, when, which way) with Call
+  again; they are kept in this device's settings (`meet/settings.json`, `direct_calls`), never
+  sent anywhere.
 
-What building it needs, besides the dialog and the prompt:
-
-- an id-only address with the relay but without direct addresses: the iroh endpoint hands out
-  its full ticket and its bare id today (`IrohEndpoint::ticket`, `endpoint_id`), and dials both;
-  a ticket with only the relay is one more small call on `IrohEndpoint`;
-- a first message on the connection that says "direct call" (and the caller's name), so the
-  callee tells it apart from a room peer, which today must be announced on the service before
-  any media flows;
-- a call that runs without a room on the service: the call screen, the routing and the media
-  work per connection already, but the call's state starts from a meetings-service room today
-  (its announcements and its polls of the peers list), and a direct call must skip them.
-
-None of it is safe to build without a compiled build to test the incoming-call path against, so
-it is the next step after chat over the peers.
+On the wire every direct-call message is a reliable iroh message of kind `9` (next to the media
+kinds; `8` is kept for chat records): the kind byte, a version byte, then JSON - `hello {name,
+ticket}`, `accept {name, ticket}`, `decline {busy}`, `roster {peers}`, `expect {peer}`. A taken
+call puts the room session into the call stage with no room behind it: the call screen, the
+routing and the media run per connection as they do in a meeting, and nothing is announced,
+polled or left on a meetings service.
 
 ## Next steps
 
@@ -180,8 +183,7 @@ Decided, built one at a time after an integration build, because each step needs
       sender's outbox (see above).
    7. The wire version moves (`azmeet/5`), and once every client speaks it the service drops its
       message endpoints and table.
-2. **Direct calls** (see above).
-3. **Recording, transcript, summary** (see "Recording and transcripts").
+2. **Recording, transcript, summary** (see "Recording and transcripts").
 
 ## Open
 
