@@ -777,7 +777,7 @@ extern "C" fn on_reveal_deadline(mut data: RefAny, info: TimerCallbackInfo) -> T
         if let Some(mut shared) = state.downcast_mut::<RevealShared>() {
             // This timer ends here: `feed` must not remove it again.
             shared.timer = None;
-        }
+        };
     }
     let mut callback_info = *info.get_callback_info();
     let update = reveal.feed(&mut callback_info, &owner, RevealEvent::Tick);

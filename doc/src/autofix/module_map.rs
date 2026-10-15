@@ -1227,6 +1227,10 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_dll::unified::iroh::") {
         return Some("iroh".to_string());
     }
+    // The app's one light (sun or point) its materials and shadows are lit by.
+    if path.starts_with("azul_core::light::") {
+        return Some("app".to_string());
+    }
     // Text said aloud and speech heard, on the platform's own engines.
     if path.starts_with("azul_dll::unified::speech::")
         || path.starts_with("azul_dll::desktop::extra::speech::")
