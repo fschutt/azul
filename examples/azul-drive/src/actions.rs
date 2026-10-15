@@ -1931,6 +1931,11 @@ pub(crate) fn item_location(s: &DriveState, drive_id: &str, item_key: &str) -> S
 }
 
 /// Copy path: the selected items' locations on the system clipboard.
+/// The keys Copy path copies: the selected items', else the open folder's own.
+pub(crate) fn keys_to_copy(selected: Vec<String>, _folder: &str) -> Vec<String> {
+    selected
+}
+
 fn copy_path(info: &mut CallbackInfo, s: &mut DriveState) {
     let Some(drive_id) = s.current_drive_id() else {
         return;
