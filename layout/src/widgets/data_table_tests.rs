@@ -1033,3 +1033,97 @@ fn a_flora_table_heads_its_columns_in_capitals_and_stripes_and_selects_as_flora_
     assert_eq!(ink(&look.row_selected, false), Some(flora::LIGHT_DEEP), "the selection's ink");
     assert_eq!(ink(&look.row_selected, true), Some(flora::DARK_ON_ACC));
 }
+
+// ---- icon cells, the context menu, rows dragged out ----
+
+extern "C" fn file_cells(_: RefAny, at: DataTableCellRef) -> DataTableCell {
+    match at.column {
+        0 => DataTableCell::create_text(AzString::from(alloc::format!("File {}.pdf", at.row)))
+            .with_icon(AzString::from("picture_as_pdf")),
+        _ => DataTableCell::create_text(AzString::from("x")),
+    }
+}
+
+/// A file list's Name column shows each file's type icon before its name.
+#[test]
+fn a_cell_with_an_icon_shows_the_glyph_before_its_text() {
+    fn first_icon_cell(node: &Dom) -> Option<&Dom> {
+        let kids = node.children.as_ref();
+        if kids.len() >= 2
+            && matches!(kids[0].root.get_node_type(), NodeType::Icon(i) if i.as_str() == "picture_as_pdf")
+        {
+            return Some(node);
+        }
+        kids.iter().find_map(first_icon_cell)
+    }
+    let t = small().with_data_source(RefAny::new(()), file_cells as DataTableDataSourceCallbackType);
+    let dom = t.with_theme(UiTheme::Flat).dom();
+    let cell = first_icon_cell(&dom).expect("a cell starting with its icon");
+    let mut words = Vec::new();
+    texts(&cell.children.as_ref()[1], &mut words);
+    assert_eq!(words, vec![String::from("File 0.pdf")], "the text after the icon");
+}
+
+/// A right click on a row not selected selects it alone and asks for a
+/// menu; on a selected row the selection stays; on empty space it goes.
+/// The Menu key asks for the cursor's cell.
+#[test]
+fn a_right_click_or_the_menu_key_asks_for_a_context_menu() {
+    let t = small();
+    let selected = click_select(&t, &t.view, 1, false, false);
+    let t = t.with_view(selected.clone());
+    let e = context_menu_at(&t, Hit::Cell(3, 2), 50.0, 120.0).expect("a menu");
+    assert_eq!(e.kind, DataTableEventKind::ContextMenu);
+    let row = t.view.row_at(3, t.row_count).into_option().expect("a row shown at 3");
+    assert_eq!(e.cell, DataTableCellRef::create(row, 2));
+    assert_eq!(e.view.selection.keys.as_slice(), &[u64::from(row)], "the row alone");
+    assert_eq!((e.x, e.y), (50.0, 120.0));
+    let kept = context_menu_at(&t, Hit::Cell(1, 0), 5.0, 5.0).expect("a menu");
+    assert_eq!(kept.view.selection.keys.as_slice(), selected.selection.keys.as_slice(), "a selected row keeps it");
+    let empty = context_menu_at(&t, Hit::Nothing, 5.0, 500.0).expect("a menu for the table");
+    assert!(empty.view.selection.is_empty());
+    assert_eq!(empty.cell.row, u32::MAX);
+    let geo = geometry(&t);
+    let key = table_key(&t, &geo, K::Apps, false, false).expect("the Menu key");
+    assert_eq!(key.kind, DataTableEventKind::ContextMenu);
+}
+
+/// A file list's rows drag out: a press on a selected row keeps the
+/// selection until the release, a drag from a row carries the selected
+/// rows and tells the app.
+#[test]
+fn rows_dragged_out_carry_the_selected_rows_and_tell_the_app() {
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    let t = logged(&log).with_rows_draggable(true);
+    let v = click_select(&t, &t.view, 1, false, false);
+    let v = click_select(&t, &v, 2, false, true);
+    let t = t.with_view(v);
+    let geo = geometry(&t);
+    let e = press(&t, &geo, Hit::Cell(2, 0), false, false, (0.0, 0.0)).expect("a press");
+    assert_eq!(e.view.selection.len(), 2, "the selection stays for a drag out");
+    assert_eq!(e.view.drag.kind, DataTableDragKind::Pending);
+    let up = drag_end(&t.clone().with_view(e.view)).expect("the release");
+    assert_eq!(up.view.selection.len(), 1, "a release without a drag: that row alone");
+
+    let styled = StyledDom::create_from_dom(t.with_theme(UiTheme::Flat).dom());
+    let rows = nodes_with(&styled, ROW_CLASS_NAME);
+    let source = rows
+        .iter()
+        .copied()
+        .find(|n| {
+            styled.node_data.as_ref()[n.index()]
+                .get_callbacks()
+                .as_ref()
+                .iter()
+                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::DragStart))
+        })
+        .expect("a draggable row");
+    let (_, changes) = rv::fire(&styled, id(source), EventFilter::Hover(HoverEventFilter::DragStart))
+        .expect("a drag source");
+    assert!(changes.iter().any(|c| matches!(
+        c,
+        crate::callbacks::CallbackChange::SetDragData { mime_type, .. }
+            if mime_type.as_str() == DATA_TABLE_DRAG_MIME
+    )));
+    assert!(events(&log).iter().any(|e| e.kind == DataTableEventKind::DragStart));
+}

@@ -6,8 +6,9 @@
 //! `AzWriter`'s naive writer turned `*x*` into italics on the next load
 //! (`scripts/DEDUP_EDITORS` A1). Underline is `<u>..</u>`, a check item
 //! `- [ ]` / `- [x]`, a quoted block `> ` per quote level, a table a GFM
-//! pipe table, a page break the comment `<!-- pagebreak -->`. Alignment has
-//! no Markdown form and is not written.
+//! pipe table, a page break the comment `<!-- pagebreak -->`, a run in its
+//! own font a `<span style="font-family: ..; font-size: ..pt">`. Alignment
+//! has no Markdown form and is not written.
 //!
 //! The reader (feature `rich_text_markdown`, pulldown-cmark with
 //! strikethrough, task lists and tables) reads `CommonMark` from any editor
@@ -24,7 +25,7 @@ use azul_css::AzString;
 
 use super::doc::{RichBlock, RichBlockKind, RichRun, RichTableRow, RichTextDoc};
 #[cfg(feature = "rich_text_markdown")]
-use super::doc::{push_run, RichCheck, RichFormats, RichTableRowVec};
+use super::doc::{push_run, RichCheck, RichFont, RichFormats, RichTableRowVec};
 
 /// The comment a page break is written as.
 pub const PAGE_BREAK_COMMENT: &str = "<!-- pagebreak -->";
@@ -64,6 +65,9 @@ struct Builder {
     strike: usize,
     underline: usize,
     links: Vec<String>,
+    /// One entry per open `span`: the font inside it (a span without a
+    /// font keeps the one around it), so `</span>` restores the outer one.
+    fonts: Vec<RichFont>,
     /// An open fenced / indented code block: language and text.
     code: Option<(String, String)>,
     /// An open image: its src and the alt text collected so far.
@@ -88,6 +92,7 @@ impl Builder {
             strike: 0,
             underline: 0,
             links: Vec::new(),
+            fonts: Vec::new(),
             code: None,
             image: None,
             table: None,
@@ -126,7 +131,10 @@ impl Builder {
             strike: self.strike > 0,
             code,
         };
-        let run = RichRun::plain(text).with_formats(formats);
+        let mut run = RichRun::plain(text).with_formats(formats);
+        if let Some(font) = self.fonts.last() {
+            run = run.with_font(font.clone());
+        }
         match self.links.last() {
             Some(url) => run.with_link(AzString::from(url.as_str())),
             None => run,
@@ -352,6 +360,25 @@ pub fn markdown_to_doc(markdown: &str) -> RichTextDoc {
                 match tag.as_str() {
                     "<u>" | "<ins>" => b.underline += 1,
                     "</u>" | "</ins>" => b.underline = b.underline.saturating_sub(1),
+                    t if t.starts_with("<span") && t.ends_with('>') => {
+                        // The font a span names on top of the one around it.
+                        let outer = b.fonts.last().cloned().unwrap_or_default();
+                        let own = span_style(html.trim())
+                            .map(RichFont::from_style_attr)
+                            .unwrap_or_default();
+                        let font = RichFont {
+                            family: if own.family.is_some() { own.family } else { outer.family },
+                            half_points: if own.half_points > 0 {
+                                own.half_points
+                            } else {
+                                outer.half_points
+                            },
+                        };
+                        b.fonts.push(font);
+                    }
+                    "</span>" => {
+                        b.fonts.pop();
+                    }
                     "<br>" | "<br/>" | "<br />" => {
                         if b.sink.is_some() {
                             b.push_text("\n", false);
@@ -399,6 +426,18 @@ pub fn markdown_to_doc(markdown: &str) -> RichTextDoc {
         block.set_runs(runs);
     }
     RichTextDoc::from_blocks(b.blocks)
+}
+
+/// The value of the `style` attribute of an opening tag (`<span
+/// style="...">`), quoted with `"` or `'`.
+#[cfg(feature = "rich_text_markdown")]
+fn span_style(tag: &str) -> Option<&str> {
+    let at = tag.find("style=")?;
+    let rest = &tag[at + "style=".len()..];
+    let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+    let rest = &rest[1..];
+    let end = rest.find(quote)?;
+    Some(&rest[..end])
 }
 
 // ==== RichTextDoc -> Markdown ====
@@ -540,10 +579,22 @@ fn emphasis_markdown(runs: &[RichRun]) -> String {
                 open.push(m);
             }
         }
+        // A run in its own font: a span around the text, inside the
+        // emphasis, with only the font's declarations (sanitized by the
+        // model, no quote or `;` in a family).
+        let style = run.font.style_attr();
+        if !style.is_empty() {
+            out.push_str("<span style=\"");
+            out.push_str(&style);
+            out.push_str("\">");
+        }
         if run.formats.code {
             out.push_str(&code_span(core));
         } else {
             out.push_str(&escape_inline(core));
+        }
+        if !style.is_empty() {
+            out.push_str("</span>");
         }
         pending.push_str(trail);
     }
@@ -853,6 +904,35 @@ mod tests {
     #[test]
     fn the_sample_note_round_trips() {
         round_trip(SAMPLE);
+    }
+
+    /// Markdown has no fonts: a run in its own family or size is written as
+    /// a `span` with exactly those two declarations (HTML Markdown keeps),
+    /// and reads back as the same run - AzWriter's file keeps its fonts.
+    #[test]
+    fn a_run_in_its_own_font_round_trips_as_a_styled_span() {
+        use crate::widgets::rich_text::doc::{RichBlock, RichFont};
+        use azul_css::OptionString;
+
+        let font = RichFont::create()
+            .with_family(OptionString::Some(AzString::from("EB Garamond")))
+            .with_half_points(21);
+        let doc = RichTextDoc::from_blocks(vec![RichBlock::new(
+            RichBlockKind::Paragraph,
+            vec![
+                plain("Set in "),
+                plain("Garamond").with_format(RichFormat::Bold).with_font(font.clone()),
+                plain(" and "),
+                plain("big").with_font(RichFont::create().with_half_points(48)),
+            ],
+        )]);
+        let markdown = doc_to_markdown(&doc);
+        assert_eq!(
+            markdown,
+            "Set in **<span style=\"font-family: 'EB Garamond'; font-size: 10.5pt\">Garamond</span>** \
+             and <span style=\"font-size: 24pt\">big</span>\n"
+        );
+        assert_eq!(markdown_to_doc(&markdown), doc);
     }
 
     #[test]

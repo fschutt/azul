@@ -32,8 +32,8 @@ use azul_core::dom::{AttributeType, Dom, NodeType};
 use azul_css::AzString;
 
 use super::doc::{
-    push_run, PastedBlock, RichBlock, RichBlockKind, RichCheck, RichFormats, RichRun, RichTable,
-    RichTableRow, RichTableRowVec, RichTextDoc,
+    push_run, PastedBlock, RichBlock, RichBlockKind, RichCheck, RichFont, RichFormats, RichRun,
+    RichTable, RichTableRow, RichTableRowVec, RichTextDoc,
 };
 
 // ==== The classes the editor's elements carry (read back from clones) ====
@@ -61,6 +61,47 @@ pub const CHECKED_CLASS: &str = "__azul-rte-checked";
 /// An element of the editor that is not text (a check item's box, an
 /// image): `contenteditable=false`, skipped when content is read back.
 pub const ISLAND_CLASS: &str = "__azul-rte-island";
+/// The prefix of the class naming a run's own family list, as the model
+/// keeps it (`__azul-rte-font-family-EB Garamond, serif`).
+pub const RUN_FONT_FAMILY_CLASS_PREFIX: &str = "__azul-rte-font-family-";
+/// The prefix of the class naming a run's own size in half points
+/// (`__azul-rte-font-size-21`).
+pub const RUN_FONT_SIZE_CLASS_PREFIX: &str = "__azul-rte-font-size-";
+
+/// The classes that let a clone of a run read back its font: one per part
+/// the font sets (none for the editor's own font).
+#[must_use]
+pub fn font_classes(font: &RichFont) -> Vec<String> {
+    let mut classes = Vec::new();
+    if let Some(family) = font.family_str() {
+        classes.push(format!("{RUN_FONT_FAMILY_CLASS_PREFIX}{family}"));
+    }
+    if font.half_points > 0 {
+        classes.push(format!("{RUN_FONT_SIZE_CLASS_PREFIX}{}", font.half_points));
+    }
+    classes
+}
+
+/// The font the classes of `dom` name (the editor's own when none does).
+fn class_font(dom: &Dom) -> Option<RichFont> {
+    let mut font = RichFont::create();
+    let mut any = false;
+    for attr in dom.root.attributes().as_ref() {
+        let AttributeType::Class(c) = attr else {
+            continue;
+        };
+        if let Some(family) = c.as_str().strip_prefix(RUN_FONT_FAMILY_CLASS_PREFIX) {
+            font.family = super::doc::normalize_family(family);
+            any = true;
+        } else if let Some(size) = c.as_str().strip_prefix(RUN_FONT_SIZE_CLASS_PREFIX) {
+            if let Ok(size) = size.parse::<u16>() {
+                font.half_points = size;
+                any = true;
+            }
+        }
+    }
+    any.then_some(font)
+}
 
 /// The class of a list item at `indent`.
 #[must_use]
@@ -130,6 +171,12 @@ pub fn is_safe_link(link: &str) -> bool {
 /// the link around it, inside out.
 fn run_html(run: &RichRun) -> String {
     let mut html = encode_text(run.as_str()).replace('\n', "<br>");
+    // The font innermost: its declarations are sanitized by the model
+    // (no quote or `;` in a family), so the attribute needs no escaping.
+    let style = run.font.style_attr();
+    if !style.is_empty() {
+        html = format!("<span style=\"{style}\">{html}</span>");
+    }
     let f = run.formats;
     if f.code {
         html = format!("<code>{html}</code>");
@@ -416,11 +463,16 @@ pub fn html_to_doc(html: &str) -> RichTextDoc {
 struct Inline {
     formats: RichFormats,
     link: Option<String>,
+    /// The font the editor's own classes named (a clone of its run); a
+    /// pasted page's styles do not set it.
+    font: RichFont,
 }
 
 impl Inline {
     fn run(&self, text: &str) -> RichRun {
-        let run = RichRun::plain(text).with_formats(self.formats);
+        let run = RichRun::plain(text)
+            .with_formats(self.formats)
+            .with_font(self.font.clone());
         match &self.link {
             Some(url) => run.with_link(AzString::from(url.as_str())),
             None => run,
@@ -528,6 +580,9 @@ impl Collector {
             if dom.root.has_class(class) {
                 style.formats.set(format, true);
             }
+        }
+        if let Some(font) = class_font(dom) {
+            style.font = font;
         }
         // A block of the editor quoted deeper than the blocks around it.
         let quoted = class_number(dom, "__azul-rte-quote-");
@@ -775,6 +830,28 @@ mod tests {
             vec![plain("https://example.org").with_link(AzString::from("https://example.org"))],
         )]);
         assert_eq!(doc_to_plain_text(&link_is_text), "https://example.org\n");
+    }
+
+    /// A mail written in a family or a size of its own carries it: the run
+    /// is a `span` with the font's declarations inside its other tags.
+    #[test]
+    fn a_run_in_its_own_font_is_a_styled_span_in_the_html_part() {
+        use crate::widgets::rich_text::doc::RichFont;
+
+        let font = RichFont::create()
+            .with_family(azul_css::OptionString::Some(AzString::from("Georgia")))
+            .with_half_points(28);
+        let doc = RichTextDoc::from_blocks(vec![RichBlock::new(
+            RichBlockKind::Paragraph,
+            vec![plain("Dear "), bold("Ann").with_font(font)],
+        )]);
+        let html = doc_to_html(&doc);
+        assert!(
+            html.contains(
+                "<div>Dear <b><span style=\"font-family: 'Georgia'; font-size: 14pt\">Ann</span></b></div>"
+            ),
+            "{html}"
+        );
     }
 
     #[test]

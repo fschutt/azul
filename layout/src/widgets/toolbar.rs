@@ -24,11 +24,14 @@
 //! activation. An icon-only tool is named by its label and shows it as a
 //! tooltip under the pointer.
 //!
-//! OVERFLOW: the app says how wide the bar may be
-//! ([`Toolbar::with_available_width`], 0 = no limit, like the data table's
-//! viewport). The toolbar estimates each item's width ([`item_width`]: the
-//! padding, the 20 px icon, the label at 0.6 em a character, the menu
-//! arrow), and when they do not fit the items at the END move, one by one,
+//! OVERFLOW: the bar measures itself. After every layout that changes its
+//! size it reports a `Resize` event with its width and its tools' measured
+//! widths; the app stores them and builds the bar with them
+//! ([`Toolbar::with_available_width`], [`Toolbar::with_measured_widths`];
+//! 0 = no limit, like the data table's viewport). An item not measured yet
+//! counts its estimate ([`item_width`]: the padding, the 20 px icon, the
+//! label at 0.6 em a character, the menu arrow). When they do not fit, the
+//! items at the END move, one by one,
 //! into the menu of a "more" button (`more_horiz`) at the end of the bar -
 //! except the ones marked [`ToolbarItem::never_overflow`] (the search
 //! field). In the menu a button is an entry, a toggle a check entry, a menu
@@ -56,6 +59,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::{
+    corety::U32Vec,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq,
     props::{
@@ -377,6 +381,10 @@ pub enum ToolbarEventKind {
     Toggle,
     /// A choice of a menu button was picked: `choice` is its index.
     Choose,
+    /// The bar was laid out at a new width, or its tools measured other
+    /// than the widths it was built with: store `width` and `widths` and
+    /// rebuild with them (`with_available_width`, `with_measured_widths`).
+    Resize,
 }
 
 /// One action in the toolbar.
@@ -393,6 +401,11 @@ pub struct ToolbarEvent {
     pub kind: ToolbarEventKind,
     /// `Toggle`: the toggle's new state.
     pub pressed: bool,
+    /// `Resize`: the bar's laid-out width, whole px.
+    pub width: u32,
+    /// `Resize`: every item's measured width, whole px, by item index (0:
+    /// not measured - the item was in the "more" menu; its estimate counts).
+    pub widths: U32Vec,
 }
 
 impl ToolbarEvent {
@@ -405,6 +418,8 @@ impl ToolbarEvent {
             choice: 0,
             kind,
             pressed: false,
+            width: 0,
+            widths: U32Vec::from_const_slice(&[]),
         }
     }
 }
@@ -448,6 +463,9 @@ pub struct Toolbar {
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme.
     pub theme: OptionUiTheme,
+    /// The items' widths as the bar last measured them (a `Resize` event's
+    /// `widths`), whole px by item index; 0 or missing: the estimate.
+    pub measured_widths: U32Vec,
 }
 
 impl Toolbar {
@@ -460,7 +478,20 @@ impl Toolbar {
             on_event: OptionToolbarOnEvent::None,
             available_width: 0.0,
             theme: OptionUiTheme::None,
+            measured_widths: U32Vec::from_const_slice(&[]),
         }
+    }
+
+    /// The items' measured widths (a `Resize` event's `widths`).
+    pub fn set_measured_widths(&mut self, widths: U32Vec) {
+        self.measured_widths = widths;
+    }
+
+    /// [`Self::set_measured_widths`] for the builder chain.
+    #[must_use]
+    pub fn with_measured_widths(mut self, widths: U32Vec) -> Self {
+        self.set_measured_widths(widths);
+        self
     }
 
     /// Adds an item at the end.
@@ -606,6 +637,70 @@ fn label_px(label: &str) -> f32 {
     label.chars().count() as f32 * TOOLBAR_FONT_PX * TOOLBAR_CHAR_EM
 }
 
+/// [`fit`] with the widths the bar measured (`measured`, whole px by item
+/// index) in place of the estimates.
+#[must_use]
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn fit_measured(items: &[ToolbarItem], measured: &[u32], available: f32) -> ToolbarFit {
+    let widths: Vec<f32> = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| match measured.get(index).copied().filter(|w| *w > 0) {
+            Some(w) => w as f32,
+            None => item_width(item),
+        })
+        .collect();
+    fit_widths(items, &widths, available)
+}
+
+/// What the bar reports after a layout at `bar_width` px, its shown items
+/// (`shown`, item indices in order) measured `node_widths` px wide: a
+/// `Resize` event when the width or a measured width differs from what the
+/// bar was built with (`available`, `measured`), else nothing.
+#[must_use]
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn resize_report(
+    items: &[ToolbarItem],
+    shown: &[usize],
+    available: f32,
+    measured: &[u32],
+    bar_width: f32,
+    node_widths: &[f32],
+) -> Option<ToolbarEvent> {
+    let before: Vec<u32> = (0..items.len()).map(|i| measured.get(i).copied().unwrap_or(0)).collect();
+    let mut widths = before.clone();
+    for (position, &index) in shown.iter().enumerate() {
+        let Some(item) = items.get(index) else {
+            continue;
+        };
+        // The tools and the embedded controls; a separator and a spacer
+        // keep their fixed widths.
+        let measurable = matches!(
+            item.kind,
+            ToolbarItemKind::Button
+                | ToolbarItemKind::Toggle
+                | ToolbarItemKind::MenuButton
+                | ToolbarItemKind::Custom
+        );
+        let Some(&node) = node_widths.get(position) else {
+            continue;
+        };
+        if measurable && node.is_finite() && node > 0.0 {
+            // The tool and the gap after it, whole px rounded up.
+            widths[index] = (node + TOOLBAR_ITEM_GAP_PX).ceil() as u32;
+        }
+    }
+    let whole = |px: f32| if px.is_finite() && px > 0.0 { px.round() as u32 } else { 0 };
+    let width = whole(bar_width);
+    if width == whole(available) && widths == before {
+        return None;
+    }
+    let mut event = ToolbarEvent::create(ToolbarEventKind::Resize, 0, AzString::from_const_str(""));
+    event.width = width;
+    event.widths = U32Vec::from_vec(widths);
+    Some(event)
+}
+
 /// Which of `items` fit into `available` px (0 = everything): from the
 /// end, the items that do not fit move into the "more" menu (whose button
 /// then takes [`TOOLBAR_MORE_PX`]), except `never_overflow` ones and the
@@ -613,6 +708,11 @@ fn label_px(label: &str) -> f32 {
 #[must_use]
 pub(crate) fn fit(items: &[ToolbarItem], available: f32) -> ToolbarFit {
     let widths: Vec<f32> = items.iter().map(item_width).collect();
+    fit_widths(items, &widths, available)
+}
+
+/// [`fit`] with each item `widths[index]` px wide.
+fn fit_widths(items: &[ToolbarItem], widths: &[f32], available: f32) -> ToolbarFit {
     let total: f32 = widths.iter().sum();
     let mut shown = alloc::vec![true; items.len()];
     if available.is_finite() && available > 0.0 && total > available {
@@ -865,6 +965,13 @@ struct ToolbarShared {
     on_event: OptionToolbarOnEvent,
     items: Vec<ToolbarItem>,
     overflow: Vec<usize>,
+    /// The items in the bar, in order: the root's children, the "more"
+    /// button after them (the resize handler measures them).
+    shown: Vec<usize>,
+    /// The width the bar was built for (0: no limit).
+    available: f32,
+    /// The measured widths it was built with, by item index.
+    measured: Vec<u32>,
 }
 
 /// A tool's payload: its index (or [`MORE_INDEX`]) and the shared part.
@@ -885,9 +992,11 @@ pub(crate) fn build(toolbar: Toolbar, look: &ToolbarLook) -> Dom {
         on_event,
         available_width,
         theme,
+        measured_widths,
     } = toolbar;
     let mut items = items.into_library_owned_vec();
-    let fitted = fit(&items, available_width);
+    let measured = measured_widths.into_library_owned_vec();
+    let fitted = fit_measured(&items, &measured, available_width);
     // The embedded controls go into the DOM; the shared items keep the rest.
     let mut contents: Vec<Option<Dom>> = items
         .iter_mut()
@@ -897,6 +1006,9 @@ pub(crate) fn build(toolbar: Toolbar, look: &ToolbarLook) -> Dom {
         on_event,
         items: items.clone(),
         overflow: fitted.overflow.clone(),
+        shown: fitted.shown.clone(),
+        available: available_width,
+        measured,
     });
 
     let mut children: Vec<Dom> = Vec::with_capacity(fitted.shown.len() + 1);
@@ -960,7 +1072,33 @@ pub(crate) fn build(toolbar: Toolbar, look: &ToolbarLook) -> Dom {
             accessibility_name: Some(accessibility_name).into(),
             ..Default::default()
         })
+        // The bar hears its own size: it measures itself after a layout.
+        .with_callback(
+            EventFilter::Component(azul_core::dom::ComponentEventFilter::NodeResized),
+            shared.clone(),
+            on_toolbar_resized as usize,
+        )
         .with_children(DomVec::from_vec(children))
+}
+
+/// The bar was laid out at a new size: it measures itself and its items
+/// and reports them when they differ from what it was built with.
+extern "C" fn on_toolbar_resized(mut data: RefAny, info: CallbackInfo) -> Update {
+    let bar = info.get_hit_node();
+    let Some(size) = info.get_node_size(bar) else {
+        return Update::DoNothing;
+    };
+    let node_widths: Vec<f32> = crate::widgets::roving::children_of(&info, bar)
+        .into_iter()
+        .map(|node| info.get_node_size(node).map_or(0.0, |s| s.width))
+        .collect();
+    let event = data.downcast_ref::<ToolbarShared>().and_then(|s| {
+        resize_report(&s.items, &s.shown, s.available, &s.measured, size.width, &node_widths)
+    });
+    match event {
+        Some(event) => emit(&mut data, info, event),
+        None => Update::DoNothing,
+    }
 }
 
 /// One tool: the `Button` widget in the toolbar's look (a quiet key; a
@@ -1524,6 +1662,54 @@ mod toolbar_tests {
         let f = fit(&items, 180.0);
         assert_eq!(f.shown, vec![0, 3]);
         assert_eq!(f.overflow, vec![1, 2]);
+    }
+
+    /// What the bar measured counts, not the estimate: five icon tools
+    /// estimated 34 px fit 200 px, but measured 60 px wide only two do.
+    #[test]
+    fn the_measured_widths_replace_the_estimates() {
+        let items: Vec<ToolbarItem> = ["a", "b", "c", "d", "e"].iter().map(|i| icon_button(i)).collect();
+        assert_eq!(fit_measured(&items, &[], 200.0).shown, vec![0, 1, 2, 3, 4], "estimated: all fit");
+        let f = fit_measured(&items, &[60, 60, 60, 60, 60], 200.0);
+        assert_eq!(f.shown, vec![0, 1], "measured: 200 - 34 for the more button leaves room for two");
+        assert_eq!(f.overflow, vec![2, 3, 4]);
+    }
+
+    /// After a layout the bar reports its width and its tools' widths when
+    /// they differ from what it was built with, and nothing when they do
+    /// not (no rebuild loop).
+    #[test]
+    fn the_bar_reports_its_laid_out_width_and_its_measured_tools() {
+        let items: Vec<ToolbarItem> = ["a", "b", "c"].iter().map(|i| icon_button(i)).collect();
+        let e = resize_report(&items, &[0, 1, 2], 0.0, &[], 320.4, &[40.0, 41.2, 40.0])
+            .expect("a new width");
+        assert_eq!(e.kind, ToolbarEventKind::Resize);
+        assert_eq!(e.width, 320);
+        // A tool's width and the gap after it, rounded up.
+        assert_eq!(e.widths.as_slice(), &[42, 44, 42]);
+        assert_eq!(
+            resize_report(&items, &[0, 1, 2], 320.0, &[42, 44, 42], 320.4, &[40.0, 41.2, 40.0]),
+            None,
+            "the same width and widths: nothing to rebuild"
+        );
+        // An item in the "more" menu keeps what it measured when it showed.
+        let e = resize_report(&items, &[0], 320.0, &[42, 44, 42], 150.0, &[40.0]).expect("narrower");
+        assert_eq!(e.widths.as_slice(), &[42, 44, 42]);
+        assert_eq!(e.width, 150);
+    }
+
+    /// The bar hears its own size: a `NodeResized` handler on its root.
+    #[test]
+    fn the_bar_listens_for_its_own_size() {
+        use azul_core::dom::ComponentEventFilter;
+        let log = log();
+        let dom = bar(&log).with_theme(UiTheme::Flat).dom();
+        assert!(dom
+            .root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .any(|cb| cb.event == EventFilter::Component(ComponentEventFilter::NodeResized)));
     }
 
     #[test]

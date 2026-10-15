@@ -439,6 +439,12 @@ const fn system_color_ref_variant(r: crate::props::basic::color::SystemColorRef)
         SystemColorRef::PlaceholderText => "PlaceholderText",
         SystemColorRef::TextSelectionBackground => "TextSelectionBackground",
         SystemColorRef::Icon => "Icon",
+        SystemColorRef::Danger => "Danger",
+        SystemColorRef::DangerText => "DangerText",
+        SystemColorRef::Warning => "Warning",
+        SystemColorRef::WarningText => "WarningText",
+        SystemColorRef::Success => "Success",
+        SystemColorRef::SuccessText => "SuccessText",
     }
 }
 

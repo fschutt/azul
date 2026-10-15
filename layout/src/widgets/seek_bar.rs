@@ -25,7 +25,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq,
     props::{
         basic::{length::FloatValue, pixel::PixelValue},
         layout::{
@@ -36,7 +36,7 @@ use azul_css::{
         property::CssProperty,
         style::{StyleCursor, StyleTransform, StyleTransformVec, StyleUserSelect},
     },
-    AzString, F32Vec, OptionString,
+    AzString, F32Vec, OptionString, StringVec,
 };
 
 use crate::{
@@ -164,6 +164,12 @@ pub struct SeekBar {
     pub theme: OptionUiTheme,
     /// The time labels either side of the trough (on by default).
     pub show_times: bool,
+    /// The chapters' titles, one per start in `chapters`: the hover tip
+    /// names the chapter under the pointer.
+    pub chapter_titles: StringVec,
+    /// Pictures of the media at times (a video's frames): the hover tip
+    /// shows the one standing under the pointer.
+    pub thumbnails: SeekThumbnailVec,
 }
 
 impl SeekBar {
@@ -179,7 +185,33 @@ impl SeekBar {
             accessibility_name: OptionString::None,
             theme: OptionUiTheme::None,
             show_times: true,
+            chapter_titles: StringVec::from_const_slice(&[]),
+            thumbnails: SeekThumbnailVec::from_const_slice(&[]),
         }
+    }
+
+    /// The chapters' titles, one per start in `chapters`.
+    pub fn set_chapter_titles(&mut self, titles: StringVec) {
+        self.chapter_titles = titles;
+    }
+
+    /// [`Self::set_chapter_titles`] for the builder chain.
+    #[must_use]
+    pub fn with_chapter_titles(mut self, titles: StringVec) -> Self {
+        self.set_chapter_titles(titles);
+        self
+    }
+
+    /// Pictures of the media at times, for the hover tip.
+    pub fn set_thumbnails(&mut self, thumbnails: SeekThumbnailVec) {
+        self.thumbnails = thumbnails;
+    }
+
+    /// [`Self::set_thumbnails`] for the builder chain.
+    #[must_use]
+    pub fn with_thumbnails(mut self, thumbnails: SeekThumbnailVec) -> Self {
+        self.set_thumbnails(thumbnails);
+        self
     }
 
     /// How far the media is loaded.
@@ -311,7 +343,7 @@ pub(crate) fn move_surface(info: &mut CallbackInfo, node: DomNodeId, position_s:
     let Some(mut data) = info.get_dataset(node) else {
         return false;
     };
-    let (state, surface) = {
+    let (old, state, surface, paint) = {
         let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
             return false;
         };
@@ -319,11 +351,12 @@ pub(crate) fn move_surface(info: &mut CallbackInfo, node: DomNodeId, position_s:
             // The user holds the thumb: the player must not pull it away.
             return true;
         }
+        let old = w.inner;
         w.inner.position_s = position_s;
 
-        (w.inner, w.surface)
+        (old, w.inner, w.surface, w.paint.clone())
     };
-    show_position(info, node, state, surface);
+    show_position(info, node, old, state, surface, paint.as_ref());
     true
 }
 
@@ -357,11 +390,94 @@ pub(crate) enum SeekSurface {
     Waveform,
 }
 
+/// A picture of the media at a time, shown over the seek bar where the
+/// pointer hovers (a video's frame every few seconds).
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeekThumbnail {
+    /// From when the picture stands, seconds.
+    pub at_s: f32,
+    /// The picture.
+    pub image: azul_core::resources::ImageRef,
+}
+
+impl SeekThumbnail {
+    /// The picture `image`, standing from `at_s` seconds.
+    #[must_use]
+    pub const fn create(at_s: f32, image: azul_core::resources::ImageRef) -> Self {
+        Self { at_s, image }
+    }
+}
+
+impl_option!(
+    SeekThumbnail,
+    OptionSeekThumbnail,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+impl_vec!(
+    SeekThumbnail,
+    SeekThumbnailVec,
+    SeekThumbnailVecDestructor,
+    SeekThumbnailVecDestructorType,
+    SeekThumbnailVecSlice,
+    OptionSeekThumbnail
+);
+impl_vec_clone!(SeekThumbnail, SeekThumbnailVec, SeekThumbnailVecDestructor);
+impl_vec_debug!(SeekThumbnail, SeekThumbnailVec);
+impl_vec_partialeq!(SeekThumbnail, SeekThumbnailVec);
+impl_vec_mut!(SeekThumbnail, SeekThumbnailVec);
+
+/// What the hover tip says at `t` seconds: the chapter it is in (its
+/// title, when `chapters` - the starts - have `titles`) and the time.
+#[must_use]
+pub fn hover_text(t: f64, chapters: &[f32], titles: &[AzString]) -> String {
+    let chapter = chapters.iter().rposition(|start| f64::from(*start) <= t);
+    match chapter.and_then(|c| titles.get(c)).filter(|title| !title.as_str().is_empty()) {
+        Some(title) => alloc::format!("{} \u{00B7} {}", title.as_str(), media_time(t)),
+        None => media_time(t),
+    }
+}
+
+/// The thumbnail standing at `t` seconds: the last one from before it.
+#[must_use]
+pub fn thumbnail_index(thumbnails: &[SeekThumbnail], t: f64) -> Option<usize> {
+    thumbnails.iter().rposition(|thumb| f64::from(thumb.at_s) <= t)
+}
+
+/// What the hover tip of a seek bar knows: the chapters' starts and
+/// titles, the thumbnails, and which thumbnail it shows.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SeekHover {
+    pub chapters: Vec<f32>,
+    pub titles: Vec<AzString>,
+    pub thumbnails: Vec<SeekThumbnail>,
+    /// The thumbnail the tip's picture holds now.
+    pub shown: Option<usize>,
+}
+
+/// What a waveform's bars look like unplayed and played, and their
+/// heights: what a move of the play head repaints them with.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct WaveformPaint {
+    pub bar: Vec<CssPropertyWithConditions>,
+    pub played: Vec<CssPropertyWithConditions>,
+    /// Each bar's height, percent of the waveform.
+    pub heights: Vec<f32>,
+}
+
+/// The class of the tip over the trough where the pointer hovers.
+pub(crate) const HOVER_CLASS: &str = "__azul-native-seek-bar-hover";
+
 /// The seek surface's dataset: the hook, where it is, and which widget it is.
 pub(crate) struct SeekBarWrapper {
     pub on_seek: OptionSeekBarOnSeek,
     pub inner: SeekBarState,
     pub surface: SeekSurface,
+    /// A seek bar's hover tip.
+    pub hover: SeekHover,
+    /// A waveform's bars.
+    pub paint: Option<WaveformPaint>,
 }
 
 /// Whether `node` is a seek bar's trough (it carries the bar's dataset).
@@ -387,15 +503,33 @@ pub(crate) fn value_text(state: SeekBarState) -> String {
 fn show_position(
     info: &mut CallbackInfo,
     track: DomNodeId,
+    old: SeekBarState,
     state: SeekBarState,
     surface: SeekSurface,
+    paint: Option<&WaveformPaint>,
 ) {
     use azul_css::props::{layout::LayoutLeft, property::CssProperty};
     let percent = seek_fraction(state.position_s, state.duration_s) * 100.0;
     if surface == SeekSurface::Waveform {
-        // [bars.., playhead]: the playhead moves; the bars' colours follow at the next build.
+        // [bars.., playhead]: the playhead moves, and the bars it passed
+        // take their new colour (their whole style, dark twin included).
         if let Some(head) = info.get_last_child(track) {
             info.set_css_property(head, CssProperty::const_left(LayoutLeft::percent(percent)));
+        }
+        if let Some(paint) = paint {
+            let bars = crate::widgets::roving::children_of(info, track);
+            let n = paint.heights.len();
+            let from = seek_fraction(old.position_s, old.duration_s);
+            let to = seek_fraction(state.position_s, state.duration_s);
+            for (index, played) in crate::widgets::waveform::bars_to_repaint(n, from, to) {
+                if let (Some(bar), Some(height)) = (bars.get(index), paint.heights.get(index)) {
+                    let style = crate::widgets::waveform::bar_style(
+                        if played { &paint.played } else { &paint.bar },
+                        *height,
+                    );
+                    info.set_node_style(*bar, CssPropertyWithConditionsVec::from_vec(style).into());
+                }
+            }
         }
         info.set_accessibility_value(track, AzString::from(value_text(state)));
         return;
@@ -445,9 +579,10 @@ fn seek_to_pointer(w: &mut SeekBarWrapper, info: &mut CallbackInfo) -> Update {
     {
         return Update::DoNothing;
     }
+    let old = w.inner;
     w.inner.position_s = time_at(pos.x, width, w.inner.duration_s);
     let track = info.get_hit_node();
-    show_position(info, track, w.inner, w.surface);
+    show_position(info, track, old, w.inner, w.surface, w.paint.as_ref());
     report(w, info)
 }
 
@@ -467,10 +602,71 @@ pub extern "C" fn on_seek_bar_pointer_move(mut data: RefAny, mut info: CallbackI
     let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
         return Update::DoNothing;
     };
+    show_hover(&mut w, &mut info);
     if !w.inner.dragging {
         return Update::DoNothing;
     }
     seek_to_pointer(&mut w, &mut info)
+}
+
+/// The hover tip of a seek bar's trough follows the pointer: the time (and
+/// the chapter) under it, the thumbnail standing then. Restyled in place.
+fn show_hover(w: &mut SeekBarWrapper, info: &mut CallbackInfo) {
+    use azul_css::props::{layout::LayoutLeft, property::CssProperty};
+    if w.surface != SeekSurface::Bar {
+        return;
+    }
+    let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
+        return;
+    };
+    let width = info.get_hit_node_rect().map_or(0.0, |r| r.size.width);
+    let duration = w.inner.duration_s;
+    if !(width > 0.0 && duration > 0.0) {
+        return;
+    }
+    let t = time_at(pos.x, width, duration);
+    let track = info.get_hit_node();
+    // [fills, tip, ticks.., rail]: the tip is the fills' next sibling.
+    let Some(tip) = info.get_first_child(track).and_then(|fills| info.get_next_sibling(fills)) else {
+        return;
+    };
+    info.set_css_property(tip, CssProperty::const_display(LayoutDisplay::Flex));
+    info.set_css_property(
+        tip,
+        CssProperty::const_left(LayoutLeft::percent(seek_fraction(t, duration) * 100.0)),
+    );
+    // [picture?, label > text]
+    if let Some(text) = info.get_last_child(tip).and_then(|label| info.get_first_child(label)) {
+        info.change_node_text(
+            text,
+            AzString::from(hover_text(t, &w.hover.chapters, &w.hover.titles)),
+        );
+    }
+    if let Some(index) = thumbnail_index(&w.hover.thumbnails, t) {
+        let picture = info
+            .get_first_child(tip)
+            .filter(|p| Some(*p) != info.get_last_child(tip));
+        if let (Some(picture), true) = (picture, w.hover.shown != Some(index)) {
+            if let Some(node) = picture.node.into_crate_internal() {
+                info.change_node_image(
+                    picture.dom,
+                    node,
+                    w.hover.thumbnails[index].image.clone(),
+                    azul_core::resources::UpdateImageType::Content,
+                );
+                w.hover.shown = Some(index);
+            }
+        }
+    }
+}
+
+/// The hover tip goes when the pointer leaves the trough.
+fn hide_hover(info: &mut CallbackInfo) {
+    use azul_css::props::property::CssProperty;
+    let track = info.get_hit_node();
+    if let Some(tip) = info.get_first_child(track).and_then(|fills| info.get_next_sibling(fills)) {
+        info.set_css_property(tip, CssProperty::const_display(LayoutDisplay::None));
+    }
 }
 
 /// Pointer up: the scrub ends where it is (reported with `dragging` false: seek now).
@@ -502,6 +698,12 @@ pub extern "C" fn on_seek_bar_pointer_leave(mut data: RefAny, mut info: Callback
     if still_inside {
         return Update::DoNothing;
     }
+    let is_bar = data
+        .downcast_ref::<SeekBarWrapper>()
+        .is_some_and(|w| w.surface == SeekSurface::Bar);
+    if is_bar {
+        hide_hover(&mut info);
+    }
     on_seek_bar_pointer_up(data, info)
 }
 
@@ -525,10 +727,11 @@ pub extern "C" fn on_seek_bar_key(mut data: RefAny, mut info: CallbackInfo) -> U
     };
     // The arrow must not also scroll the page under the bar.
     info.prevent_default();
+    let old = w.inner;
     w.inner.position_s = target;
     w.inner.dragging = false;
     let track = info.get_hit_node();
-    show_position(&mut info, track, w.inner, w.surface);
+    show_position(&mut info, track, old, w.inner, w.surface, w.paint.as_ref());
     report(&mut w, &info)
 }
 
@@ -659,6 +862,26 @@ fn fill_shift(percent: f32) -> CssProperty {
 }
 
 /// The thumb: a 12 px knob centred on the play head (the rail's start).
+/// The hover tip: over the trough at the pointer, centred on it, a picture
+/// over the time on a dark leaf, hidden at rest.
+pub(crate) static SEEK_HOVER_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_bottom(azul_css::props::layout::LayoutInsetBottom {
+        inner: PixelValue::const_percent(100),
+    })),
+    simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+    simple(CssProperty::const_display(LayoutDisplay::None)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The tip's picture: a 160 x 90 frame.
+pub(crate) static SEEK_HOVER_PICTURE_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_width(LayoutWidth::const_px(160))),
+    simple(CssProperty::const_height(LayoutHeight::const_px(90))),
+];
+
 pub(crate) static SEEK_THUMB_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_position(LayoutPosition::Absolute)),
     simple(CssProperty::const_left(LayoutLeft::const_px(0))),
@@ -738,6 +961,8 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
         accessibility_name,
         theme: _,
         show_times,
+        chapter_titles,
+        thumbnails,
     } = bar;
     let state = SeekBarState {
         position_s,
@@ -784,6 +1009,27 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
                     .with_css_props(props(played)),
             ])),
     );
+    // The hover tip, right after the fills (the handlers find it there):
+    // hidden until the pointer is over the trough.
+    let thumbnails = thumbnails.into_library_owned_vec();
+    let mut tip_parts: Vec<Dom> = Vec::with_capacity(2);
+    if let Some(first) = thumbnails.first() {
+        tip_parts.push(
+            Dom::create_image(first.image.clone())
+                .with_css_props(props(SEEK_HOVER_PICTURE_BASE.to_vec())),
+        );
+    }
+    tip_parts.push(
+        crate::widgets::widget_p_with_text(AzString::from_const_str(""))
+            .with_css_props(props(part(SEEK_TIME_BASE, &look.time))),
+    );
+    parts.push(
+        Dom::create_div()
+            .with_class(AzString::from_const_str(HOVER_CLASS))
+            .with_css_props(props(SEEK_HOVER_BASE.to_vec()))
+            .with_children(DomVec::from_vec(tip_parts)),
+    );
+    let chapters_kept: Vec<f32> = chapters.as_ref().to_vec();
     for chapter in chapters.as_ref() {
         let mut tick = part(SEEK_TICK_BASE, &look.tick);
         tick.push(left(percent(f64::from(*chapter))));
@@ -811,6 +1057,13 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
         on_seek,
         inner: state,
         surface: SeekSurface::Bar,
+        hover: SeekHover {
+            chapters: chapters_kept,
+            titles: chapter_titles.into_library_owned_vec(),
+            thumbnails,
+            shown: Some(0),
+        },
+        paint: None,
     });
     let callbacks = seek_callbacks(&data);
     let track = Dom::create_div()
@@ -925,9 +1178,12 @@ mod seek_bar_tests {
         );
     }
 
+    /// The texts `node` shows (the hover tip's label is empty at rest).
     fn texts(node: &Dom, out: &mut Vec<String>) {
         if let NodeType::Text(s) = node.root.get_node_type() {
-            out.push(s.as_ref().as_str().to_string());
+            if !s.as_ref().as_str().is_empty() {
+                out.push(s.as_ref().as_str().to_string());
+            }
         }
         for c in node.children.as_ref() {
             texts(c, out);
@@ -1060,5 +1316,38 @@ mod seek_bar_tests {
             || bar().dom(),
             |t: UiTheme| bar().with_theme(t).dom(),
         );
+    }
+}
+
+#[cfg(test)]
+mod seek_hover_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_checks as tc, UiTheme};
+
+    /// Where the pointer hovers, the tip says when that is - and in which
+    /// chapter, when the chapters have titles; a video's thumbnail is the
+    /// last one from before that time.
+    #[test]
+    fn the_hover_tip_names_the_time_its_chapter_and_its_thumbnail() {
+        let chapters = [0.0_f32, 60.0, 150.0];
+        let titles = [
+            AzString::from("Intro"),
+            AzString::from("Verse"),
+            AzString::from("Chorus"),
+        ];
+        assert_eq!(hover_text(75.0, &chapters, &titles), "Verse \u{00B7} 1:15");
+        assert_eq!(hover_text(10.0, &chapters, &[]), "0:10", "no titles: the time alone");
+        let image = azul_core::resources::ImageRef::null_image(1, 1, azul_core::resources::RawImageFormat::R8, Vec::new());
+        let thumbs = [
+            SeekThumbnail::create(0.0, image.clone()),
+            SeekThumbnail::create(10.0, image.clone()),
+            SeekThumbnail::create(20.0, image),
+        ];
+        assert_eq!(thumbnail_index(&thumbs, 15.0), Some(1));
+        assert_eq!(thumbnail_index(&thumbs, 99.0), Some(2));
+        assert_eq!(thumbnail_index(&thumbs[1..], 5.0), None, "before the first picture");
+
+        let bar = SeekBar::create(30.0, 200.0).with_theme(UiTheme::Flat).dom();
+        assert!(tc::find(&bar, HOVER_CLASS).is_some(), "the trough carries its hover tip");
     }
 }

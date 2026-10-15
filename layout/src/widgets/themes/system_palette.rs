@@ -26,7 +26,9 @@
 //!   items on [`SELECTION_BACKGROUND`] with [`SELECTION_TEXT`]; text is
 //!   [`TEXT`], captions and dim labels [`SECONDARY_TEXT`], rules and outlines
 //!   [`SEPARATOR`], links [`LINK`], checked / active indicators [`ACCENT`]
-//!   with [`ACCENT_TEXT`] on them.
+//!   with [`ACCENT_TEXT`] on them; an error, a caution and a done state are
+//!   [`DANGER`], [`WARNING`] and [`SUCCESS`] (as ink, or as a fill under
+//!   their `_TEXT` inks).
 
 use azul_css::{
     dynamic_selector::CssPropertyWithConditions,
@@ -68,6 +70,18 @@ pub const LINK: ColorU = SystemColorRef::Link.to_color_token();
 pub const SEPARATOR: ColorU = SystemColorRef::Separator.to_color_token();
 /// `system:grid` - table and grid lines.
 pub const GRID: ColorU = SystemColorRef::Grid.to_color_token();
+/// `system:danger` - an error line, a destructive command, a failed job.
+pub const DANGER: ColorU = SystemColorRef::Danger.to_color_token();
+/// `system:danger-text` - text on a [`DANGER`] fill.
+pub const DANGER_TEXT: ColorU = SystemColorRef::DangerText.to_color_token();
+/// `system:warning` - a caution, a limit coming close.
+pub const WARNING: ColorU = SystemColorRef::Warning.to_color_token();
+/// `system:warning-text` - text on a [`WARNING`] fill.
+pub const WARNING_TEXT: ColorU = SystemColorRef::WarningText.to_color_token();
+/// `system:success` - a finished or passed state.
+pub const SUCCESS: ColorU = SystemColorRef::Success.to_color_token();
+/// `system:success-text` - text on a [`SUCCESS`] fill.
+pub const SUCCESS_TEXT: ColorU = SystemColorRef::SuccessText.to_color_token();
 
 // ---------------------------------------------------------------------------
 // Background layers

@@ -5163,6 +5163,22 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
         search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
         search_field: Vec::new(),
         search_icon: None,
+        // A small key cap: the system face, the soft ink, a round hairline.
+        search_hint: {
+            let mut v = vec![
+                C::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+                C::simple(CssProperty::const_font_size(StyleFontSize::px(10.5))),
+                C::simple(CssProperty::const_line_height(StyleLineHeight::Length(
+                    PixelValue::const_px(15),
+                ))),
+            ];
+            v.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+            v.extend(decl::border(1));
+            v.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+            v.extend(decl::radius(4));
+            v.extend(decl::padding(0, 4, 0, 4));
+            v
+        },
         marker: None,
     }
 }

@@ -103,6 +103,14 @@ pub struct Waveform {
 }
 
 impl Waveform {
+    /// `samples` (interleaved, `channels` of them, `-1.0..=1.0`) as a 16-bit
+    /// PCM WAV file at `sample_rate` Hz ([`wav_pcm16`]): a recording, a test
+    /// tone, a sample sound.
+    #[must_use]
+    pub fn encode_wav(samples: azul_css::F32Vec, sample_rate: u32, channels: u16) -> azul_css::U8Vec {
+        azul_css::U8Vec::from_vec(wav_pcm16(samples.as_ref(), sample_rate, channels))
+    }
+
     /// A waveform of `peaks`, at `position_s` of `duration_s`.
     #[must_use]
     pub const fn create(peaks: azul_css::F32Vec, position_s: f64, duration_s: f64) -> Self {
@@ -275,11 +283,7 @@ pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom 
     };
     use azul_css::{
         dynamic_selector::{CssPropertyWithConditions as P, CssPropertyWithConditionsVec},
-        props::{
-            basic::pixel::PixelValue,
-            layout::{LayoutHeight, LayoutLeft},
-            property::CssProperty,
-        },
+        props::{layout::LayoutLeft, property::CssProperty},
         AzString,
     };
 
@@ -313,6 +317,7 @@ pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom 
     let peaks = peaks.as_ref();
     let n = peaks.len().max(1) as f32;
     let mut children: Vec<Dom> = Vec::with_capacity(peaks.len() + 1);
+    let mut heights: Vec<f32> = Vec::with_capacity(peaks.len());
     for (i, peak) in peaks.iter().enumerate() {
         let played = (i as f32 + 0.5) / n <= fraction;
         let height = if peak.is_finite() {
@@ -320,13 +325,8 @@ pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom 
         } else {
             2.0
         };
-        let mut props = part(
-            WAVEFORM_BAR_BASE,
-            if played { &look.played } else { &look.bar },
-        );
-        props.push(P::simple(CssProperty::const_height(LayoutHeight::Px(
-            PixelValue::percent(height),
-        ))));
+        heights.push(height);
+        let props = bar_style(if played { &look.played } else { &look.bar }, height);
         let mut classes = alloc::vec![Class(BAR)];
         if played {
             classes.push(Class(PLAYED));
@@ -351,6 +351,13 @@ pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom 
         on_seek,
         inner: state,
         surface: SeekSurface::Waveform,
+        hover: crate::widgets::seek_bar::SeekHover::default(),
+        // What a move of the play head repaints the bars it passed with.
+        paint: Some(crate::widgets::seek_bar::WaveformPaint {
+            bar: look.bar.clone(),
+            played: look.played.clone(),
+            heights,
+        }),
     });
     let mut classes: Vec<IdOrClass> = ROOT.to_vec();
     if let Some(marker) = look.marker {
@@ -375,6 +382,69 @@ pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom 
             ..Default::default()
         })
         .with_children(DomVec::from_vec(children))
+}
+
+/// The bars of an `n`-bar waveform whose played part changes from
+/// `old_fraction` to `new_fraction` of its length, each with whether it is
+/// played now: the only bars a move repaints.
+#[must_use]
+#[allow(clippy::cast_precision_loss)] // a waveform has far fewer than 2^24 bars
+pub(crate) fn bars_to_repaint(n: usize, old_fraction: f32, new_fraction: f32) -> Vec<(usize, bool)> {
+    let count = n.max(1) as f32;
+    (0..n)
+        .filter_map(|i| {
+            let centre = (i as f32 + 0.5) / count;
+            let was = centre <= old_fraction;
+            let now = centre <= new_fraction;
+            (was != now).then_some((i, now))
+        })
+        .collect()
+}
+
+/// A bar's style: its base, the look of its state (played or not) and its
+/// height (percent of the waveform).
+pub(crate) fn bar_style(
+    look: &[azul_css::dynamic_selector::CssPropertyWithConditions],
+    height: f32,
+) -> Vec<azul_css::dynamic_selector::CssPropertyWithConditions> {
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions as P,
+        props::{basic::pixel::PixelValue, layout::LayoutHeight, property::CssProperty},
+    };
+    let mut props = crate::widgets::themes::decl::on_base(WAVEFORM_BAR_BASE, look);
+    props.push(P::simple(CssProperty::const_height(LayoutHeight::Px(PixelValue::percent(
+        height,
+    )))));
+    props
+}
+
+/// `samples` (interleaved, `channels` of them, `-1.0..=1.0`) as a 16-bit
+/// PCM WAV file at `sample_rate` Hz - the one WAV writer the apps share
+/// (a recording, a test tone, a sample sound).
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // a clamped sample fits an i16
+pub fn wav_pcm16(samples: &[f32], sample_rate: u32, channels: u16) -> Vec<u8> {
+    let channels = channels.max(1);
+    let data_len = u32::try_from(samples.len().saturating_mul(2)).unwrap_or(u32::MAX);
+    let block_align = channels.saturating_mul(2);
+    let mut out = Vec::with_capacity(44 + samples.len() * 2);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&data_len.saturating_add(36).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&sample_rate.saturating_mul(u32::from(block_align)).to_le_bytes());
+    out.extend_from_slice(&block_align.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for sample in samples {
+        let clamped = if sample.is_finite() { sample.clamp(-1.0, 1.0) } else { 0.0 };
+        out.extend_from_slice(&((clamped * f32::from(i16::MAX)).round() as i16).to_le_bytes());
+    }
+    out
 }
 
 /// What a theme decides about a waveform: the SKIN of each part.
@@ -512,5 +582,40 @@ mod peaks_tests {
         );
         assert_eq!(resample_peaks(&[], 3), vec![0.0, 0.0, 0.0]);
         assert!(resample_peaks(&peaks, 0).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod waveform_paint_tests {
+    use super::*;
+
+    /// A move of the play head repaints only the bars it passed: forward
+    /// they become played, back they become unplayed again.
+    #[test]
+    fn a_move_repaints_only_the_bars_the_play_head_passed() {
+        // 10 bars, centres at 0.05, 0.15, ...: from 0.2 (bars 0, 1 played)
+        // to 0.5 (bars 0..=4).
+        assert_eq!(bars_to_repaint(10, 0.2, 0.5), vec![(2, true), (3, true), (4, true)]);
+        assert_eq!(bars_to_repaint(10, 0.5, 0.2), vec![(2, false), (3, false), (4, false)]);
+        assert!(bars_to_repaint(10, 0.31, 0.33).is_empty(), "within a bar: nothing");
+    }
+
+    /// The one WAV writer: a RIFF / WAVE header for 16-bit PCM, the data
+    /// as little-endian samples, clamped.
+    #[test]
+    fn samples_become_a_16_bit_pcm_wav() {
+        let wav = wav_pcm16(&[0.0, 1.0, -1.0, 2.0], 8000, 2);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..16], b"WAVEfmt ");
+        assert_eq!(u16::from_le_bytes([wav[20], wav[21]]), 1, "PCM");
+        assert_eq!(u16::from_le_bytes([wav[22], wav[23]]), 2, "two channels");
+        assert_eq!(u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]), 8000);
+        assert_eq!(u32::from_le_bytes([wav[28], wav[29], wav[30], wav[31]]), 8000 * 2 * 2, "bytes per second");
+        assert_eq!(u16::from_le_bytes([wav[34], wav[35]]), 16);
+        assert_eq!(&wav[36..40], b"data");
+        assert_eq!(u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]), 8);
+        assert_eq!(wav.len(), 44 + 8);
+        let sample = |i: usize| i16::from_le_bytes([wav[44 + 2 * i], wav[45 + 2 * i]]);
+        assert_eq!((sample(0), sample(1), sample(2), sample(3)), (0, 32767, -32767, 32767));
     }
 }

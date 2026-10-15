@@ -97,6 +97,18 @@ pub enum MoneySymbolPosition {
     After,
 }
 
+/// How the whole part of an amount is grouped.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum MoneyGrouping {
+    /// Groups of three (`1,234,567`).
+    #[default]
+    Thousands,
+    /// The Indian system: the last three digits, then groups of two
+    /// (`12,34,567` - lakhs and crores).
+    Indian,
+}
+
 /// How a locale writes an amount: its decimal point, its grouping separator
 /// and where the currency goes. Separators are Unicode code points (`u32`,
 /// as `TextInputState::text` holds them); a grouping separator of `0` means
@@ -114,6 +126,8 @@ pub struct MoneyLocale {
     /// A space between the amount and the currency (`1,00 EUR`, not
     /// `1,00EUR`).
     pub symbol_spaced: bool,
+    /// How the whole part is grouped (by thousands, or the Indian way).
+    pub grouping: MoneyGrouping,
 }
 
 impl Default for MoneyLocale {
@@ -220,6 +234,7 @@ impl MoneyLocale {
             group_separator,
             symbol_position,
             symbol_spaced: true,
+            grouping: MoneyGrouping::Thousands,
         }
     }
 
@@ -231,7 +246,22 @@ impl MoneyLocale {
             group_separator: ',' as u32,
             symbol_position: MoneySymbolPosition::Before,
             symbol_spaced: false,
+            grouping: MoneyGrouping::Thousands,
         }
+    }
+
+    /// `12,34,567.89`, the rupee sign before it (English and the languages
+    /// of India: the Indian grouping, lakhs and crores).
+    #[must_use]
+    pub const fn en_in() -> Self {
+        Self::en_us().with_grouping(MoneyGrouping::Indian)
+    }
+
+    /// The same locale grouped `grouping`.
+    #[must_use]
+    pub const fn with_grouping(mut self, grouping: MoneyGrouping) -> Self {
+        self.grouping = grouping;
+        self
     }
 
     /// `1.234,56`, `1.234,56 EUR` (German and most of continental Europe).
@@ -279,6 +309,16 @@ impl MoneyLocale {
         let comma_dot_before = Self::create(',' as u32, '.' as u32, MoneySymbolPosition::Before);
         if matches!(region, "ch" | "li") {
             return Self::de_ch();
+        }
+        // India writes lakhs and crores, in English and in its languages.
+        if region == "in"
+            || (region.is_empty()
+                && matches!(
+                    lang,
+                    "hi" | "bn" | "mr" | "ta" | "te" | "gu" | "kn" | "ml" | "pa" | "or" | "as"
+                ))
+        {
+            return Self::en_in();
         }
         match lang {
             "de" | "it" | "da" | "el" | "id" | "tr" | "ro" | "hr" | "sl" | "sr" | "ca" | "gl"
@@ -340,6 +380,16 @@ impl MoneyLocale {
             _ => 0,
         };
         let english = decimal == '.' && group == ',' as u32;
+        // Two digits between the last two grouping separators: the Indian
+        // way (`12,34,567.89`), not thousands.
+        let group_at: Vec<usize> = seps
+            .iter()
+            .filter(|(i, c)| *i < at && *c as u32 == group)
+            .map(|(i, _)| *i)
+            .collect();
+        let indian = group != 0
+            && group_at.len() >= 2
+            && group_at[group_at.len() - 1] - group_at[group_at.len() - 2] == 3;
         Self {
             decimal_separator: decimal as u32,
             group_separator: group,
@@ -349,6 +399,11 @@ impl MoneyLocale {
                 MoneySymbolPosition::Before
             },
             symbol_spaced: !english,
+            grouping: if indian {
+                MoneyGrouping::Indian
+            } else {
+                MoneyGrouping::Thousands
+            },
         }
     }
 
@@ -695,15 +750,20 @@ fn read_number(
     let mut incomplete = false;
     if runs.len() > 1 {
         let last = runs.len() - 1;
+        // Thousands: 1-3 digits, then threes. The Indian way: 1-2 digits,
+        // pairs, and the last group three.
+        let indian = locale.grouping == MoneyGrouping::Indian;
+        let (first_max, middle) = if indian { (2, 2) } else { (3, 3) };
         for (i, run) in runs.iter().enumerate() {
             let ok = match i {
-                0 => (1..=3).contains(&run.len()),
+                0 => (1..=first_max).contains(&run.len()),
                 _ if i == last && point.is_none() && run.len() < 3 => {
                     // `1,234,5` / `1,`: the last group is still being typed.
                     incomplete = true;
                     true
                 }
-                _ => run.len() == 3,
+                _ if i == last => run.len() == 3,
+                _ => run.len() == middle,
             };
             if !ok {
                 return Err(MoneyInputError::Invalid);
@@ -752,6 +812,26 @@ fn read_number(
 /// thousands grouping (the money input, the data table's counts, the
 /// chart's values).
 #[must_use]
+/// [`group_digits`] grouped `grouping`.
+pub(crate) fn group_digits_as(digits: &str, separator: Option<char>, grouping: MoneyGrouping) -> String {
+    if grouping == MoneyGrouping::Thousands {
+        return group_digits(digits, separator);
+    }
+    // The Indian way: the last three digits, then pairs.
+    let count = digits.chars().count();
+    let mut out = String::with_capacity(digits.len() + count / 2 * 3);
+    for (i, c) in digits.chars().enumerate() {
+        let left = count - i;
+        if i > 0 && left >= 3 && (left == 3 || (left - 3).is_multiple_of(2)) {
+            if let Some(g) = separator {
+                out.push(g);
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 pub(crate) fn group_digits(digits: &str, separator: Option<char>) -> String {
     let count = digits.chars().count();
     let mut out = String::with_capacity(digits.len() + count / 3 * 3);
@@ -783,7 +863,7 @@ pub(crate) fn format_money(
     let scale = 10_u64.pow(minor);
     let (whole, fraction) = (magnitude / scale, magnitude % scale);
 
-    let mut number = group_digits(&alloc::format!("{whole}"), locale.group());
+    let mut number = group_digits_as(&alloc::format!("{whole}"), locale.group(), locale.grouping);
     if minor > 0 {
         number.push(locale.decimal());
         let _ = write!(number, "{fraction:0width$}", width = minor as usize);
@@ -1634,6 +1714,27 @@ mod money_tests {
         );
         let ungrouped = MoneyLocale::en_us().with_separators('.' as u32, 0);
         assert_eq!(format_money(123_456, &ungrouped, 2, None), "1234.56");
+    }
+
+    /// India groups the last three digits, then pairs: lakhs and crores,
+    /// written, read, named by its tags and read off a sample.
+    #[test]
+    fn an_indian_locale_groups_in_lakhs_and_crores() {
+        assert_eq!(group_digits_as("1234567", Some(','), MoneyGrouping::Indian), "12,34,567");
+        assert_eq!(group_digits_as("123456789", Some(','), MoneyGrouping::Indian), "12,34,56,789");
+        assert_eq!(group_digits_as("123", Some(','), MoneyGrouping::Indian), "123");
+        assert_eq!(group_digits_as("1234", Some(','), MoneyGrouping::Indian), "1,234");
+        let india = MoneyLocale::en_in();
+        let inr = MoneyCurrency::create(AzString::from("INR"), AzString::from("\u{20B9}"), 2);
+        assert_eq!(format_money(123_456_789, &india, 2, None), "12,34,567.89");
+        assert_eq!(parse_money("12,34,567.89", &india, &inr), Ok(Some(123_456_789)));
+        assert_eq!(parse_money("1,234,567.89", &india, &inr), Err(MoneyInputError::Invalid));
+        assert_eq!(parse_money("12,34,5", &india, &inr), Err(MoneyInputError::Incomplete));
+        for tag in ["en-IN", "hi-IN", "hi"] {
+            assert_eq!(MoneyLocale::from_tag(AzString::from(tag)).grouping, MoneyGrouping::Indian, "{tag}");
+        }
+        assert_eq!(MoneyLocale::from_sample(AzString::from("12,34,567.89")).grouping, MoneyGrouping::Indian);
+        assert_eq!(MoneyLocale::from_sample(AzString::from("1,234,567.89")).grouping, MoneyGrouping::Thousands);
     }
 
     #[test]

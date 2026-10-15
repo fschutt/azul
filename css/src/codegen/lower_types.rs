@@ -7696,6 +7696,12 @@ impl Lower for crate::props::basic::color::SystemColorRef {
             Self::PlaceholderText => "PlaceholderText",
             Self::TextSelectionBackground => "TextSelectionBackground",
             Self::Icon => "Icon",
+            Self::Danger => "Danger",
+            Self::DangerText => "DangerText",
+            Self::Warning => "Warning",
+            Self::WarningText => "WarningText",
+            Self::Success => "Success",
+            Self::SuccessText => "SuccessText",
         };
         Expr::unit("SystemColorRef", EnumShape::CLike, variant)
     }

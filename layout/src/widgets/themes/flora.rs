@@ -8784,6 +8784,23 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
             v.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
             v
         }),
+        // The design's key cap: the system face at 10.5px in the soft ink,
+        // a 4px-round hairline of `--fl-bd4`.
+        search_hint: {
+            let mut v = vec![
+                C::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+                C::simple(CssProperty::const_font_size(StyleFontSize::px(10.5))),
+                C::simple(CssProperty::const_line_height(StyleLineHeight::Length(
+                    PixelValue::const_px(15),
+                ))),
+            ];
+            v.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+            v.extend(decl::border(1));
+            v.extend(decl::themed_border_color(LIGHT_BD4, DARK_BD4));
+            v.extend(decl::radius(4));
+            v.extend(decl::padding(0, 4, 0, 4));
+            v
+        },
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }

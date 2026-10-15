@@ -38,10 +38,7 @@ use azul_core::{
     window::{RawWindowHandle, VirtualKeyCode},
 };
 use azul_css::{
-    props::{
-        layout::LayoutDisplay,
-        property::{CssProperty, CssPropertyType},
-    },
+    props::property::{CssProperty, CssPropertyType},
     system::SystemStyle,
     AzString, StringVec,
 };
@@ -133,6 +130,17 @@ fn handler(lw: &LayoutWindow, node: NodeId, event: EventFilter) -> (Callback, Re
         .expect("harness: the node handles the event")
 }
 
+std::thread_local! {
+    /// The popup windows the handlers opened or closed, as (node, open): the
+    /// harness lands no window changes, so the tests read them here.
+    static POPUPS: std::cell::RefCell<Vec<(NodeId, bool)>> = std::cell::RefCell::new(Vec::new());
+}
+
+/// The popup requests since the last call, as (node, open).
+fn popup_requests() -> Vec<(NodeId, bool)> {
+    POPUPS.with(|p| core::mem::take(&mut *p.borrow_mut()))
+}
+
 /// Runs `callback` on `node` the way the shell runs a handler, in a window
 /// whose state is `ws`, and lands its style writes through the content
 /// chokepoint the shell applies them through. What the handler returned.
@@ -160,6 +168,12 @@ fn run(
         &RendererResources::default(),
     );
     for change in changes {
+        if let CallbackChange::SetTransientWindowOpen { node, open } = &change {
+            if let Some(n) = node.node.into_crate_internal() {
+                POPUPS.with(|p| p.borrow_mut().push((n, *open)));
+            }
+            continue;
+        }
         let content = match change {
             CallbackChange::ChangeNodeCssProperties {
                 dom_id,
@@ -338,10 +352,10 @@ fn an_unpinned_file_menu_pin_lights_under_the_pointer_after_the_apps_rebuild() {
 
 // ---- the token input: its list of suggestions ----
 
-/// The classes the token input gives its entry and its list of suggestions
-/// (`widgets/token_input.rs`).
+/// The classes the token input gives its entry and the popup window its
+/// suggestions float in (`widgets/token_input.rs`).
 const ENTRY_CLASS: &str = "__azul-native-token-input-entry";
-const LIST_CLASS: &str = "__azul-native-token-input-suggestions";
+const POPUP_CLASS: &str = "__azul-native-token-input-popup";
 
 /// Every event the app heard.
 type Heard = Arc<Mutex<Vec<TokenInputEvent>>>;
@@ -435,38 +449,21 @@ fn an_escaped_suggestion_list_comes_back_with_the_next_character() {
     let heard: Heard = Arc::new(Mutex::new(Vec::new()));
     let mut lw = window(recipients(&heard, "a"));
     let entry = with_class(&lw, ENTRY_CLASS)[0];
-    let list = with_class(&lw, LIST_CLASS)[0];
-    let hidden = Some(CssProperty::const_display(LayoutDisplay::None));
-    assert_ne!(
-        resolved(&lw, list, CssPropertyType::Display, false),
-        hidden,
-        "harness: \"a\" shows suggestions"
-    );
+    let popup = with_class(&lw, POPUP_CLASS);
+    assert_eq!(popup.len(), 1, "harness: \"a\" shows suggestions in their popup");
+    let _ = popup_requests();
 
-    // Escape: the list goes, and the app is not asked.
+    // Escape: the popup closes, and the app is not asked.
     let _ = press(&mut lw, entry, VirtualKeyCode::Escape);
-    assert_eq!(
-        resolved(&lw, list, CssPropertyType::Display, false),
-        hidden,
-        "harness: Escape hides the list"
-    );
+    assert_eq!(popup_requests(), vec![(popup[0], false)], "Escape closes the popup");
     assert!(heard.lock().expect("heard").is_empty(), "harness: Escape tells the app nothing");
 
     // The next character: the app hears the new text and rebuilds the field
-    // with it - and with the suggestions for it.
+    // with it - and the popup Escape closed opens again, not closed for good.
     let update = type_until(&mut lw, entry, "al");
     assert_eq!(update, Update::RefreshDom, "harness: the app rebuilds for the new text");
-    rebuild(&mut lw, recipients(&heard, "al"));
-
-    let twin = window(recipients(&heard, "al"));
-    let twin_list = with_class(&twin, LIST_CLASS);
-    assert_eq!(twin_list.len(), 1, "harness: \"al\" has suggestions");
-    let list = with_class(&lw, LIST_CLASS);
-    assert_eq!(list.len(), 1, "the rebuilt field has its list");
-    assert_eq!(
-        resolved(&lw, list[0], CssPropertyType::Display, false),
-        resolved(&twin, twin_list[0], CssPropertyType::Display, false),
-        "the field the app rebuilt for the next character shows its suggestions again: the list \
-         Escape hid must not stay hidden for good"
+    assert!(
+        popup_requests().contains(&(popup[0], true)),
+        "the field the app rebuilds for the next character shows its suggestions again"
     );
 }

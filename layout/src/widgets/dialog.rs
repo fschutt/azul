@@ -2489,3 +2489,41 @@ mod theme_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod invoker_face_tests {
+    use super::*;
+    use crate::widgets::{
+        button::{Button, ButtonType},
+        themes::{theme_checks as tc, UiTheme},
+    };
+
+    /// A Danger button as a modal dialog's invoker (AzWidgets' "Delete
+    /// file...") has a painted face in both modes and both themes, inside
+    /// the invoker's wrapper: the CPU and the GPU paint the same display
+    /// list, so a capture without the face points at the renderer.
+    #[test]
+    fn a_danger_invoker_keeps_its_face_in_both_modes() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = Dialog::create(Dom::create_div())
+                .with_title(AzString::from("Delete?"))
+                .with_invoker(
+                    Button::with_type(AzString::from("Delete file\u{2026}"), ButtonType::Danger)
+                        .with_theme(theme)
+                        .dom(),
+                )
+                .with_modal(true)
+                .with_theme(theme)
+                .dom();
+            let button = tc::find(&dom, "__azul-btn-danger").expect("the danger button");
+            for dark in [false, true] {
+                let face = tc::background(button, dark).expect("a face");
+                let painted = tc::bg_color(&face).is_some_and(|c| c.a > 0)
+                    || tc::bg_layers(&face).iter().any(|layer| {
+                        !matches!(layer, azul_css::props::style::StyleBackgroundContent::Color(c) if c.a == 0)
+                    });
+                assert!(painted, "{theme:?} dark {dark}: {face:?}");
+            }
+        }
+    }
+}

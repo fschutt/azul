@@ -21,9 +21,9 @@ pub mod markdown;
 
 pub use self::{
     doc::{
-        RichAlign, RichBlock, RichBlockKind, RichBlockVec, RichCheck, RichFormat, RichFormats,
-        RichImage, RichRun, RichRunVec, RichTable, RichTableRow, RichTableRowVec, RichTextDoc,
-        RichTextDocVec,
+        RichAlign, RichBlock, RichBlockKind, RichBlockVec, RichCheck, RichFont,
+        RichFormat, RichFormats, RichImage, RichRun, RichRunVec, RichTable, RichTableRow,
+        RichTableRowVec, RichTextDoc, RichTextDocVec,
     },
     history::RichTextHistory,
 };
