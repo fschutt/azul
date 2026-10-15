@@ -11,7 +11,7 @@ use azul::{
         ButtonOnClickCallbackType, CallbackInfo, RefAny, RichTextEditorOnChangeCallbackType,
         StatusBarOnViewSelectCallbackType, Update,
     },
-    dom::Dom,
+    dom::{AttributeType, Dom},
     shells::ShellEmptyState,
     str::String as AzString,
     widgets::{
@@ -59,6 +59,16 @@ fn sheet(page: Dom, width: f32, min_height: f32, margin: f32) -> Dom {
         .with_child(page)
 }
 
+/// Page `index`'s editing host; the first one takes the keyboard when it mounts, so a
+/// document opens with the caret in its text.
+fn first_takes_the_keyboard(index: usize, page: &Dom) -> Dom {
+    if index == 0 {
+        page.clone().with_attribute(AttributeType::Autofocus)
+    } else {
+        page.clone()
+    }
+}
+
 /// The document area for the app's state (`window_width`: the room the
 /// web layout's sheet may take).
 #[must_use]
@@ -84,9 +94,9 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
             let starts = st.pages.starts_for(doc.doc().block_count());
             let count = starts.len();
             let pages = editor.page_doms(starts, 0, count);
-            for page in pages.as_slice() {
+            for (i, page) in pages.as_slice().iter().enumerate() {
                 canvas.add_child(sheet(
-                    page.clone(),
+                    first_takes_the_keyboard(i, page),
                     (paginate::A4_W * zoom).round(),
                     (paginate::A4_H * zoom).round(),
                     margin,
@@ -96,8 +106,13 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         View::Web => {
             let pages = editor.page_doms(vec![0u32], 0, 1);
             let width = (window_width - 48.0).clamp(320.0, 1200.0 * zoom);
-            for page in pages.as_slice() {
-                canvas.add_child(sheet(page.clone(), width.round(), 0.0, (margin / 2.0).round()));
+            for (i, page) in pages.as_slice().iter().enumerate() {
+                canvas.add_child(sheet(
+                    first_takes_the_keyboard(i, page),
+                    width.round(),
+                    0.0,
+                    (margin / 2.0).round(),
+                ));
             }
         }
     }
