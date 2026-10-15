@@ -1143,3 +1143,5 @@ mod a_pie_marker_paints_its_disc_and_wedge;
 mod focus_within_holds_on_every_ancestor_of_the_focused_node;
 #[path = "a_pseudo_class_on_an_ancestor_restyles_its_descendants.rs"]
 mod a_pseudo_class_on_an_ancestor_restyles_its_descendants;
+#[path = "before_and_after_generate_content.rs"]
+mod before_and_after_generate_content;

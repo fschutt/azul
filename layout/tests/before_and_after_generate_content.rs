@@ -122,10 +122,10 @@ fn css2_spells_the_pseudo_elements_with_one_colon() {
 #[test]
 fn content_joins_strings_and_the_hosts_attributes() {
     let styled = styled(
-        r#"<style>
+        r##"<style>
             .tag::before { content: "#" attr(data-n) " - " attr(data-missing) "\2022"; }
         </style>
-        <div class="tag" data-n="42">x</div>"#,
+        <div class="tag" data-n="42">x</div>"##,
     );
     let host = with_class(&styled, "tag");
     assert_eq!(
