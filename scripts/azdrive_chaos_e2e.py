@@ -1492,6 +1492,322 @@ def iroh_lane(ctx):
         stack.stop()
 
 
+def encrypted_world(ctx, name, poll=1, laptop_env=None):
+    """A stack, an ENCRYPTED drive made by the azcloud CLI (the desktop: it keeps the drive key;
+    its recovery code in a file), AzDrive paired with it and unlocked with that code: (stack,
+    drive id, laptop, desktop, code) - the first pass done."""
+    stack = Stack(ctx.folder(name))
+    desktop = Desktop(ctx, stack)
+    laptop = None
+    try:
+        drive = desktop.signup("Encrypted drive", plaintext=False)
+        code = read(os.path.join(desktop.root, "recovery.txt")).decode("utf-8").strip()
+        laptop = Laptop(ctx, stack, "laptop", [(drive, "Encrypted drive")], env=laptop_env,
+                        poll=poll)
+        os.makedirs(laptop.folder(drive), exist_ok=True)
+        laptop.start()
+        unlock(laptop, drive, code)
+        laptop.wait_status("the first pass after the unlock", UP_TO_DATE, drive)
+    except BaseException:
+        if laptop:
+            laptop.stop()
+        stack.stop()
+        raise
+    return stack, drive, laptop, desktop, code
+
+
+def unlock(laptop, drive_id, code):
+    """AzDrive's "Unlock with the recovery code..." of the drive's menu, the code typed."""
+    from azdrive_add_e2e import drive_menu, side_drive  # noqa: PLC0415
+    app = laptop.app
+    app.until("the debug server", lambda: app.op("get_dom_tree"))
+    app.must("resize", width=1280.0, height=800.0)
+    app.frame(3)
+    app.until("the drive's row", lambda: app.has(side_drive(drive_id)))
+    drive_menu(app, drive_id, "Unlock with the recovery code…")
+    app.frame(3)
+    box = "#" + I("unlock-code")
+    app.until("the code's box", lambda: app.has(box) or len(app.window_ids()) > 1)
+    window = app if app.has(box) else e2e.modal_window(app)
+    window.until("the code's box", lambda: window.has(box))
+    window.text_input(box, code)
+    window.click_exact("Unlock")
+    app.until("the drive unlocked", lambda: any(
+        "is unlocked on this computer" in t for t in app.texts(True)))
+
+
+def bucket_keys(stack, drive_id, prefix=""):
+    return [k for k in stack.stack.s3.store.keys(stack.bucket(drive_id)) if k.startswith(prefix)]
+
+
+def data_writes(stack, since=0.0):
+    """The proxy's writes under data/ (an encrypted drive's objects) after `since`."""
+    return [e for e in stack.proxy.requests(op=("PutObject", "CopyObject",
+                                                "CompleteMultipartUpload"))
+            if e["key"].startswith("data/") and e["t"] >= since and e["forwarded"]]
+
+
+@scenario("encrypted-bulk")
+def encrypted_bulk(ctx):
+    """PACK22's bulk steps on an encrypted drive: unzip 10,000 files, move the folder, delete it,
+    rewrite 300 synced files with random bytes."""
+    import zipfile  # noqa: PLC0415
+    stack, drive, laptop, desktop, _ = encrypted_world(ctx, "encrypted-bulk")
+    try:
+        folder = laptop.folder(drive)
+        many = 10000
+        archive = os.path.join(stack.base, "big.zip")
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as z:
+            for i in range(many):
+                z.writestr("big/d%02d/f%05d.txt" % (i % 50, i), ("file %d\n" % i) * (1 + i % 7))
+        log_before = len(bucket_keys(stack, drive, ".azlin/meta/log/"))
+        data_before = len(bucket_keys(stack, drive, "data/"))
+        started = time.time()
+        with zipfile.ZipFile(archive) as z:
+            z.extractall(folder)
+        laptop.wait_settled("10,000 files up", drive, timeout=max(ctx.args.timeout, 900))
+        took = time.time() - started
+        on_device = [k for k, v in laptop.file_states(drive).items()
+                     if k.startswith("big/") and v == "on-device"]
+        log_after = len(bucket_keys(stack, drive, ".azlin/meta/log/"))
+        data_after = len(bucket_keys(stack, drive, "data/"))
+        notes = ["unzip: %d files on-device in %.0f s, log +%d, data/ +%d objects" % (
+            len(on_device), took, log_after - log_before, data_after - data_before)]
+        expect(len(on_device) == many, "%d of %d files said on-device" % (len(on_device), many))
+        expect(log_after - log_before <= 5, "the drive index grew by %d log entries for one "
+                                            "unzip (<= 5 expected)" % (log_after - log_before))
+        expect(data_after - data_before <= 50, "%d new objects in data/ for 10,000 small files "
+                                               "(packs expected)" % (data_after - data_before))
+        # mv: the index only.
+        moved_at = time.time()
+        log_before = log_after
+        os.rename(os.path.join(folder, "big"), os.path.join(folder, "big2"))
+        laptop.wait_settled("the move", drive, timeout=600)
+        log_after = len(bucket_keys(stack, drive, ".azlin/meta/log/"))
+        writes = data_writes(stack, moved_at)
+        listed = desktop.az("ls", "big2/").get("objects", [])
+        notes.append("mv: log +%d, %d data/ writes, %d files under big2/ at the desktop" % (
+            log_after - log_before, len(writes), len(listed)))
+        expect(not writes, "the move wrote %d objects under data/ (a rename moves no bytes)"
+               % len(writes))
+        expect(log_after - log_before <= 2, "the move took %d log entries" % (
+            log_after - log_before))
+        # rm -rf: one commit, after the mass-delete question.
+        deleted_at = time.time()
+        log_before = log_after
+        shutil.rmtree(os.path.join(folder, "big2"))
+        laptop.app.until("the mass-delete question", lambda: laptop.app.has(
+            "#" + I("sync-mass")))
+        laptop.app.must("click", selector="#" + I("sync-mass-delete"))
+        laptop.app.frame()
+        laptop.wait_settled("the delete", drive, timeout=600)
+        log_after = len(bucket_keys(stack, drive, ".azlin/meta/log/"))
+        single_deletes = [e for e in stack.proxy.requests(op="DeleteObject")
+                          if e["t"] >= deleted_at and e["key"].startswith("data/")]
+        notes.append("rm -rf: log +%d, %d single DeleteObjects" % (
+            log_after - log_before, len(single_deletes)))
+        expect(log_after - log_before <= 2, "the delete took %d log entries" % (
+            log_after - log_before))
+        expect(len(single_deletes) <= 50, "%d DeleteObject requests, one per file" % len(
+            single_deletes))
+        # 300 files rewritten with random bytes: the guard holds the uploads.
+        for i in range(300):
+            write(os.path.join(folder, "text", "t%03d.txt" % i), ("a note %d\n" % i).encode() * 20)
+        laptop.wait_settled("300 text files up", drive, timeout=600)
+        rewritten_at = time.time()
+        for i in range(300):
+            write(os.path.join(folder, "text", "t%03d.txt" % i), os.urandom(2000))
+        laptop.app.until("the guard's question or status", lambda: laptop.app.has(
+            "#" + I("sync-burst")) or "paused" in (laptop.status(drive) or "") or
+            "encrypted" in (laptop.status(drive) or "") or "burst" in (laptop.status(drive) or ""))
+        time.sleep(3)
+        status = laptop.status(drive)
+        sample = desktop.az("down", "text/t007.txt", os.path.join(desktop.root, "t007.txt"))
+        kept = read(os.path.join(desktop.root, "t007.txt"))
+        notes.append("rewrite: status %s; the drive's t007.txt is %s" % (
+            status, "the old note" if kept == ("a note 7\n").encode() * 20 else "REPLACED"))
+        expect(kept == ("a note 7\n").encode() * 20,
+               "the drive took the random bytes of a ransomware-like rewrite")
+        return "; ".join(notes)
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("rotation")
+def rotation(ctx):
+    """Another device rotates the drive key ("I was hacked") while AzDrive uploads."""
+    stack, drive, laptop, desktop, _ = encrypted_world(ctx, "rotation")
+    try:
+        stack.enforce_sessions = True
+        folder = laptop.folder(drive)
+        for i in range(5):
+            write(os.path.join(folder, "before%d.txt" % i), b"before the rotation %d\n" % i)
+        laptop.wait_settled("files before", drive)
+        here_before = tree(folder)
+        random_file(os.path.join(folder, "during.bin"), 40 * MIB)
+        stack.proxy.add(op=("UploadPart", "PutObject"), key=r"^data/", action="stall", nth=1)
+        deadline = time.time() + 120
+        while stack.proxy.held() == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        rotated = desktop.az("rotate", "--yes", "--out", os.path.join(desktop.root, "new.txt"))
+        rotated_at = time.time()
+        stack.proxy.clear()
+        stack.proxy.release()
+        status = status_after_passes(laptop, drive, 2, timeout=180)
+        here = tree(folder)
+        for key, digest in here_before.items():
+            expect(here.get(key) == digest, "the rotation changed %s here" % key)
+        landed = [e for e in data_writes(stack, rotated_at + 1)
+                  if 200 <= (e.get("status") or 0) < 300]
+        expect(not landed, "AzDrive wrote %d objects after the rotation (under the old key, "
+                           "with revoked credentials?)" % len(landed))
+        expect(status != UP_TO_DATE, "after the rotation the status says Up to date")
+        raw = raw_errors(statuses_seen(laptop, drive))
+        expect(not raw, "the rotation showed as a technical error: %s" % raw[:2])
+        return "rotated (%s); status %s" % (rotated.get("ok"), status)
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("ransomware")
+def ransomware(ctx):
+    """300 files rewritten with random bytes while a big upload runs under latency."""
+    stack, drive, laptop, _ = plain_world(ctx, "ransomware")
+    try:
+        folder = laptop.folder(drive)
+        versions = {}
+        for i in range(300):
+            data = ("a letter, number %d\n" % i).encode() * 30
+            write(os.path.join(folder, "letters", "l%03d.txt" % i), data)
+            versions["l%03d" % i] = hashlib.sha256(data).hexdigest()
+        laptop.wait_settled("300 letters up", drive, timeout=300)
+        before = {k: v for k, v in stack.drive_tree(drive).items() if k.startswith("letters/")}
+        random_file(os.path.join(folder, "video.bin"), 64 * MIB)
+        stack.proxy.add(action="delay", ms=40)
+        time.sleep(1.5)
+        for i in range(300):
+            write(os.path.join(folder, "letters", "l%03d.txt" % i), os.urandom(3000))
+        laptop.app.until("the guard", lambda: laptop.app.printed(
+            "AZDRIVE_SYNC_BURST", re.escape(drive) + r" .*"))
+        stack.proxy.clear()
+        status = status_after_passes(laptop, drive, 2, timeout=300)
+        after = {k: v for k, v in stack.drive_tree(drive).items() if k.startswith("letters/")}
+        expect(after == before, "the drive took %d of the random rewrites" % sum(
+            1 for k in before if after.get(k) != before[k]))
+        expect("burst" in status or "encrypted" in status,
+               "the status does not say the uploads are paused: %s" % status)
+        return "guard: %s; the drive kept all 300 letters" % status
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("many-small")
+def many_small(ctx):
+    """100,000 small files on an encrypted drive (packing)."""
+    stack, drive, laptop, _, _ = encrypted_world(ctx, "many-small")
+    try:
+        folder = laptop.folder(drive)
+        count = ctx.args.many
+        for i in range(count):
+            write(os.path.join(folder, "m%03d" % (i % 500), "s%06d.txt" % i),
+                  ("small file %d\n" % i).encode())
+        started = time.time()
+        peak = [0.0]
+
+        def watch():
+            while laptop.app and laptop.app.alive() and not getattr(watch, "done", False):
+                peak[0] = max(peak[0], laptop.rss_mb())
+                time.sleep(1)
+
+        threading.Thread(target=watch, daemon=True).start()
+        laptop.wait_settled("%d files up" % count, drive, timeout=max(ctx.args.timeout, 3600))
+        watch.done = True
+        took = time.time() - started
+        data = len(bucket_keys(stack, drive, "data/"))
+        logs = len(bucket_keys(stack, drive, ".azlin/meta/log/"))
+        expect(peak[0] < 2048, "AzDrive used %.0f MB for %d small files" % (peak[0], count))
+        expect(data <= count // 100, "%d objects in data/ for %d small files" % (data, count))
+        return "%d files in %.0f s, peak %.0f MB, %d data/ objects, %d log entries" % (
+            count, took, peak[0], data, logs)
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+def sparse_file(path, size, seed=7):
+    """A file of `size` bytes that takes little disk: zeros with a random MiB every GiB (APFS
+    keeps the holes); its SHA-256, computed as the bytes would read."""
+    import random as _random  # noqa: PLC0415
+    rng = _random.Random(seed)
+    digest = hashlib.sha256()
+    with open(path, "wb") as f:
+        f.truncate(size)
+        position = 0
+        while position < size:
+            block = bytes(rng.getrandbits(8) for _ in range(4096)) * 256
+            block = block[:min(MIB, size - position)]
+            f.seek(position)
+            f.write(block)
+            position += GIB
+    with open(path, "rb") as f:
+        for piece in iter(lambda: f.read(8 * MIB), b""):
+            digest.update(piece)
+    return digest.hexdigest()
+
+
+@scenario("fifty-gb")
+def fifty_gb(ctx):
+    """A 50 GB file: streamed in parts, memory bounded, resumed after a kill, its hash whole."""
+    size = int(ctx.args.big_gb * GIB)
+    stack, drive, laptop, _ = plain_world(ctx, "fifty-gb")
+    try:
+        sink = stack.proxy.sink(r"^\.azlin/blobs/")
+        folder = laptop.folder(drive)
+        path = os.path.join(folder, "huge.bin")
+        laptop.stop()
+        digest = sparse_file(path, size)
+        laptop.start()
+        peak = [0.0]
+        parts_target = 40
+
+        def held_parts():
+            return len([e for e in stack.proxy.requests(op="UploadPart") if e["status"] == 200])
+
+        deadline = time.time() + max(ctx.args.timeout, 1800)
+        while held_parts() < parts_target and time.time() < deadline:
+            peak[0] = max(peak[0], laptop.rss_mb())
+            time.sleep(1)
+        laptop.kill()
+        before_kill = held_parts()
+        laptop.start()
+        while time.time() < deadline:
+            peak[0] = max(peak[0], laptop.rss_mb())
+            if any(k.startswith(".azlin/blobs/") for k in sink.objects):
+                break
+            time.sleep(2)
+        laptop.wait_settled("the 50 GB file", drive, timeout=1800)
+        objects = {k: v for k, v in sink.objects.items()}
+        expect(objects, "the big file never completed")
+        whole = list(objects.values())[0]
+        parts = held_parts()
+        expected = (size + 16 * MIB - 1) // (16 * MIB)
+        expect(whole["size"] == size, "the object holds %d bytes of %d" % (whole["size"], size))
+        expect(whole["sha256"] in (digest, None), "the object's bytes are not the file's")
+        expect(peak[0] < 1536, "AzDrive used %.0f MB while sending a %d GB file" % (
+            peak[0], size // GIB))
+        expect(parts <= expected + 8,
+               "%d parts sent for %d (%d before the kill): the upload started again after the "
+               "kill instead of resuming" % (parts, expected, before_kill))
+        return "%d GB: %d parts (%d before the kill), peak %.0f MB" % (
+            size // GIB, parts, before_kill, peak[0])
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
 class CaseSensitiveImage:
     """A small case-sensitive APFS disk image, attached without root (hdiutil)."""
 
