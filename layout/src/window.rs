@@ -11090,6 +11090,17 @@ impl LayoutWindow {
                 "VirtualView ({parent_dom_id:?}, {node_id:?}) - Reason: {reason:?}"
             )));
         }
+        // `AZ_VV_TRACE=1`: one line per render of a view and why it ran - the
+        // question behind "this view renders N times a second while idle" (a new
+        // generation of its host, a queued re-render, an edge, a box that moved).
+        #[cfg(feature = "std")]
+        if virtual_view_trace() {
+            eprintln!(
+                "[vv] render ({parent_dom_id:?}, {node_id:?}) reason={reason:?} carried={carried} \
+                 box={:.1}x{:.1}",
+                bounds.size.width, bounds.size.height
+            );
+        }
 
         let scroll_offset = self
             .scroll_manager
@@ -32190,6 +32201,13 @@ pub struct PendingReconciliation {
     /// is that widget's nodes; the whole page here means every click pays
     /// for a full property diff. Read by tests.
     pub compared: usize,
+}
+
+/// Whether `AZ_VV_TRACE` asks for a line per `VirtualView` render, read once.
+#[cfg(feature = "std")]
+fn virtual_view_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_VV_TRACE").is_some())
 }
 
 /// The first of `entered` (new nodes with no counterpart in the old tree, in
