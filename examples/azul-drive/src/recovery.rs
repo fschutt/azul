@@ -34,6 +34,7 @@ use azul::{
 use azul_appkit::{
     l10n::{t, t_args, t_label, Arg, Phrase, Text},
     qr::QrCode,
+    ui::qr_dom,
 };
 use azul_storage::{
     config::DriveLocation,
@@ -47,7 +48,7 @@ use crate::{
     encryption::{Dialog, EncryptionJob},
     ids,
     jobs::Job,
-    paper::{paper_pdf, print_copy, qr_dom, write_private},
+    paper::{paper_pdf, print_copy, write_private},
     recovery_health::{
         health_line, methods_list, methods_warning, state_mut, state_of, Method, MethodAction,
         RecoveryState,

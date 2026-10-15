@@ -19,6 +19,7 @@ use azul::{pdf::Pdf, prelude::*, str::String as AzString};
 use azul_appkit::{
     l10n::{t, t_label},
     qr::QrCode,
+    ui::qr_dom,
 };
 
 /// A4 at 96 dpi in CSS px (the page AzMail prints on).
@@ -31,39 +32,6 @@ pub(crate) fn block(text: &str, css: &str) -> Dom {
     Dom::create_div()
         .with_css(css.to_string())
         .with_child(Dom::create_span_with_text(AzString::from(text)))
-}
-
-/// A QR symbol as boxes, `module` px a module, with its quiet zone (four light modules) on
-/// white: a row of dark runs and the light gaps between them for each row of modules.
-pub(crate) fn qr_dom(symbol: &QrCode, module: usize) -> Dom {
-    let side = symbol.size() * module;
-    let quiet = 4 * module;
-    let mut rows = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: column; flex-shrink: 0; width: {side}px; padding: \
-         {quiet}px; background: #ffffff;"
-    ));
-    for y in 0..symbol.size() {
-        let mut row = Dom::create_div().with_css(format!(
-            "display: flex; flex-direction: row; flex-shrink: 0; width: {side}px; height: \
-             {module}px;"
-        ));
-        let mut at = 0;
-        for (start, len) in symbol.dark_runs(y) {
-            if start > at {
-                row.add_child(Dom::create_div().with_css(format!(
-                    "flex-shrink: 0; width: {}px; height: {module}px;",
-                    (start - at) * module
-                )));
-            }
-            row.add_child(Dom::create_div().with_css(format!(
-                "flex-shrink: 0; width: {}px; height: {module}px; background: #000000;",
-                len * module
-            )));
-            at = start + len;
-        }
-        rows.add_child(row);
-    }
-    rows
 }
 
 /// A page of paper with a secret on it: the recovery code's kit, a trusted contact's share, cash

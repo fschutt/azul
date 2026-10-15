@@ -71,6 +71,7 @@ use crate::{
     look::{self, CategoryItem},
     migrate,
     options::{categories, category_id, category_index, notice_after_save, Category, Snapshot},
+    qr::QrCode,
     settings::{AppSettings, SETTINGS_FILE},
     shortcuts::{display_keys, groups, Shortcut, KIT_SHORTCUTS},
     window_place::{self, Seen, WindowPlace},
@@ -461,10 +462,54 @@ pub fn title_insets(info: &LayoutCallbackInfo) -> TitleInsets {
     title_insets_of(info.get_system_style_untracked())
 }
 
-/// The [`TitleInsets`] a system `style` gives.
+/// The [`TitleInsets`] a system `style` gives: the sides as azul's tab strip in the title bar
+/// keeps them, the height as azul's own title bar has it (the platform's when the system
+/// reports none). Both are the engine's computation, so an app's strip and azul's title bar
+/// never disagree about where the controls are.
 #[must_use]
-pub fn title_insets_of(_style: SystemStyle) -> TitleInsets {
-    TitleInsets { left: 0.0, right: 0.0, height: 0.0 }
+pub fn title_insets_of(style: SystemStyle) -> TitleInsets {
+    let height = Titlebar::from_system_style("", style.clone()).height;
+    let sides = TabsInTitlebar::from_system_style(style);
+    TitleInsets {
+        left: sides.left,
+        right: sides.right,
+        height,
+    }
+}
+
+/// A QR symbol as boxes, `module` px a module, with its quiet zone (four light modules) on
+/// white: a row of dark runs and the light gaps between them for each row of modules. Black on
+/// white whatever the mode, so a camera reads it off the screen as off paper.
+#[must_use]
+pub fn qr_dom(symbol: &QrCode, module: usize) -> Dom {
+    let side = symbol.size() * module;
+    let quiet = 4 * module;
+    let mut rows = Dom::create_div().with_css(format!(
+        "display: flex; flex-direction: column; flex-shrink: 0; width: {side}px; padding: \
+         {quiet}px; background: #ffffff;"
+    ));
+    for y in 0..symbol.size() {
+        let mut row = Dom::create_div().with_css(format!(
+            "display: flex; flex-direction: row; flex-shrink: 0; width: {side}px; height: \
+             {module}px;"
+        ));
+        let mut at = 0;
+        for (start, len) in symbol.dark_runs(y) {
+            if start > at {
+                row.add_child(Dom::create_div().with_css(format!(
+                    "flex-shrink: 0; width: {}px; height: {module}px;",
+                    (start - at) * module
+                )));
+            }
+            row.add_child(Dom::create_div().with_css(format!(
+                "flex-shrink: 0; width: {}px; height: {module}px; background: #000000;",
+                len * module
+            )));
+            at = start + len;
+        }
+        rows.add_child(row);
+    }
+    rows
 }
 
 /// The standard "Save changes?" guard around a window's `content`, for the open `document`,
