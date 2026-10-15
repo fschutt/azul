@@ -320,6 +320,10 @@ azdrive-preview-folder = A folder: open it to see what it holds.
 azdrive-queue-waiting = { $count } waiting
 azdrive-queue-progress = { $done } of { $total } ({ $percent }%)
 azdrive-undo-rename = Undo rename of "{ $name }"
+azdrive-close-waits = { $count ->
+    [one] A transfer or sync still runs: AzDrive closes when it ends. Close again to stop it.
+   *[other] { $count } transfers or syncs still run: AzDrive closes when they end. Close again to stop them.
+ }
 azdrive-undo-delete = Undo delete of { $count ->
         [one] one item
        *[other] { $count } items
@@ -1877,3 +1881,22 @@ azdrive-palette-search-all = Search all drives: “{ $text }”
 azdrive-palette-keys = ↑ ↓ move · ↩ open · ⌘↩ show in folder · esc close
 azdrive-shortcut-quick-look = Quick Look
 azdrive-shortcut-palette = The command palette
+
+# The file picker of other apps (--pick)
+azdrive-why-picking = Not while choosing a file for another app.
+azdrive-pick-title-open = Open
+azdrive-pick-title-folder = Select a folder
+azdrive-pick-title-save = Save as
+azdrive-pick-file-name = File name:
+azdrive-pick-type = File type
+azdrive-pick-all-files = All files
+azdrive-pick-open = Open
+azdrive-pick-save = Save
+azdrive-pick-select-folder = Select folder
+azdrive-pick-cancel = Cancel
+azdrive-pick-name-needed = Type a name for the file.
+azdrive-pick-local-only = Choose a file on this computer.
+azdrive-pick-cloud-only = Choose a file of a cloud drive.
+azdrive-pick-fetching = Fetching the file...
+azdrive-pick-fetch-failed = The file could not be fetched.
+azdrive-pick-drive-closed = The drive could not be opened.

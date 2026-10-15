@@ -259,7 +259,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 .with_child(label("azdrive-location-folder"))
                 .with_child(input(app, text, "Home/docs", ids::LOCATION_PATH));
             if !error.is_empty() {
-                body.add_child(text_line(error).with_css("color: #C42B1C;"));
+                body.add_child(text_line(error).with_css("color: system:danger;"));
             }
             let (here, title) = if moves {
                 ("azdrive-location-move-here", "azdrive-location-move-title")
@@ -294,7 +294,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 body.add_child(line("azdrive-voucher-redeeming"));
             }
             if !error.is_empty() {
-                body.add_child(text_line(error).with_css("color: #C42B1C;"));
+                body.add_child(text_line(error).with_css("color: system:danger;"));
             }
             body.add_child(buttons(vec![
                 button("kit-button-cancel", app, on_cancel_popup),
@@ -338,7 +338,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 body.add_child(line("azdrive-restore-restoring"));
             }
             if !error.is_empty() {
-                body.add_child(text_line(error).with_css("color: #C42B1C;"));
+                body.add_child(text_line(error).with_css("color: system:danger;"));
             }
             body.add_child(buttons(vec![
                 button("kit-button-cancel", app, on_cancel_popup),

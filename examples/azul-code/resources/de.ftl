@@ -149,3 +149,5 @@ azcode-file-unread = { $file } konnte nicht gelesen werden: { $why }
 azcode-file-unsaved = { $file } konnte nicht gespeichert werden: { $why }
 azcode-index-failed = Die Dateien des Ordners konnten nicht aufgelistet werden: { $why }
 azcode-index-first = Schnell öffnen durchsucht die ersten { $count } Dateien des Ordners.
+azcode-search-failed = Der Ordner konnte nicht durchsucht werden: { $why }
+azcode-sample-failed = Das Beispiel konnte nicht geschrieben werden: { $why }

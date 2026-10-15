@@ -116,6 +116,9 @@ pub struct Tasks {
     /// The data folder (the drive's root).
     pub root: PathBuf,
     pub queue: WriteQueue,
+    /// The window's close, held while the queue's writes land (`jobs.rs` closes the window
+    /// once they did); writes that failed are said once, and the next close passes.
+    pub close_hold: store::CloseHold,
     pub files: FileWork,
     /// The appearance kept across restarts (`aztasks/settings.json`, `appearance.rs`).
     pub appearance: azul_appkit::settings::AppSettings,
@@ -235,6 +238,7 @@ impl Tasks {
             drive,
             root,
             queue: WriteQueue::new(),
+            close_hold: store::CloseHold::default(),
             files: FileWork::default(),
             appearance: azul_appkit::settings::AppSettings::default(),
             language: azul_appkit::args::LanguagePref::System,

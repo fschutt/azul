@@ -153,6 +153,9 @@ pub(crate) fn open_form(
     window.window_state.title = AzString::from(title.as_str());
     window.window_state.window_id = AzString::from(EDITOR_WINDOW_ID);
     window.window_state.flags.decorations = WindowDecorations::NoTitle;
+    // The editor belongs to the calendar: above it, minimised with it, asked to close with
+    // it (its own "save changes?" still answers).
+    window.owned = true;
     info.create_window(window);
     Update::RefreshDom
 }

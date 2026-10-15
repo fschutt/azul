@@ -9,8 +9,17 @@ use crate::model::ViewLayout;
 
 // ==== ids ====
 
-/// The InfoBar over the content (errors, notices).
+/// The InfoBar over the content (an error, until it is dismissed).
 pub const INFO_BAR: AzString = AzString::from_const_str("__azdrive_info_bar");
+/// The notices' toast stack at the window's foot.
+pub const TOASTS: AzString = AzString::from_const_str("__azdrive_toasts");
+/// A picker's strip (`--pick`): the strip, the file name, the type filter, Open (Save, Select
+/// folder) and Cancel.
+pub const PICK_STRIP: AzString = AzString::from_const_str("__azdrive_pick_strip");
+pub const PICK_NAME: AzString = AzString::from_const_str("__azdrive_pick_name");
+pub const PICK_FILTER: AzString = AzString::from_const_str("__azdrive_pick_filter");
+pub const PICK_OK: AzString = AzString::from_const_str("__azdrive_pick_ok");
+pub const PICK_CANCEL: AzString = AzString::from_const_str("__azdrive_pick_cancel");
 /// The content column (the InfoBar and the view).
 pub const CONTENT: AzString = AzString::from_const_str("__azdrive_content");
 /// The scrolling view of the place.

@@ -88,6 +88,7 @@ azvideocut-importing =
     }
 azvideocut-in-i = In (I)
 azvideocut-inf-db = -inf dB
+azvideocut-peak-db = { $db } dB
 azvideocut-insert = Insert (,)
 azvideocut-make-the-sample-project = Make the sample project
 azvideocut-mark-in-i = Mark In (I)
@@ -95,7 +96,6 @@ azvideocut-mark-out-o = Mark Out (O)
 azvideocut-missing-media = (missing media)
 azvideocut-mit-license = MIT license
 azvideocut-new-empty-project = New empty project
-azvideocut-no-audio-decoder = no audio decoder
 azvideocut-no-clip-selected = No clip selected
 azvideocut-no-media = No media
 azvideocut-no-project-yet = No project yet
@@ -119,6 +119,11 @@ azvideocut-range-first-second = First second
 azvideocut-range-in-out = In to Out
 azvideocut-range-sequence = Sequence
 azvideocut-ready = Ready.
+azvideocut-save-failed = The project could not be saved: { $why }
+azvideocut-changes-not-saved = { $count ->
+    [one] 1 save did not land. Close the window again to quit without it.
+   *[other] { $count } saves did not land. Close the window again to quit without them.
+ }
 azvideocut-redo = Redo
 azvideocut-redo-edit = Redo { $edit }
 azvideocut-reset-effects = Reset effects
@@ -160,4 +165,4 @@ azvideocut-transition-at-the-clip-s-head = Transition at the clip's head
 azvideocut-transition-none = None
 azvideocut-undo = Undo
 azvideocut-undo-edit = Undo { $edit }
-azvideocut-video-files = Video
+azvideocut-video-files = Video and sound

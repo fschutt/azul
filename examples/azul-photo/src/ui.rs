@@ -26,6 +26,7 @@ use azul::{
 
 use azul_appkit::{
     l10n::{label, t_args, Arg},
+    pieces::Clickable,
     ui as kit,
 };
 
@@ -552,7 +553,7 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
             .with_css("position: relative; width: 30px; height: 30px;")
             .with_child(chip(a.s.bg, ids::BG_CHIP).with_css("position: absolute; left: 10px; top: 10px;"))
             .with_child(chip(a.s.fg, ids::FG_CHIP).with_css("position: absolute; left: 0px; top: 0px;"))
-            .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::SwapColors), commands::on_command),
+            .clickable("azphoto-swap-colours-x", cmd(app, Command::SwapColors), commands::on_command),
     );
     col
 }
@@ -624,7 +625,7 @@ fn color_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                     hex(*c),
                     p.line
                 ))
-                .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::Swatch(i)), commands::on_command),
+                .clickable(&hex(*c), cmd(app, Command::Swatch(i)), commands::on_command),
         );
     }
     let body = column("")
@@ -733,6 +734,8 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         .with_id(ids::numbered(ids::LAYER_ROW_PREFIX, id))
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), cmd(app, Command::LayerPress(id)), commands::on_command)
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::LayerRelease(id)), commands::on_command)
+        // The pointer selects by pressing (and drags from there); Tab + Enter selects too.
+        .clickable(l.name.as_str(), cmd(app, Command::SelectLayer(id)), commands::on_command)
         .with_child(icon_button(
             app,
             if l.visible { "visibility" } else { "visibility_off" },
@@ -855,7 +858,7 @@ fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         list.add_child(
             text(label, &css)
                 .with_id(ids::numbered(ids::HISTORY_PREFIX, i))
-                .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), cmd(app, Command::HistoryJump(i)), commands::on_command),
+                .clickable(label, cmd(app, Command::HistoryJump(i)), commands::on_command),
         );
     }
     // Undo / redo sit in the title row: below the list they ended under the

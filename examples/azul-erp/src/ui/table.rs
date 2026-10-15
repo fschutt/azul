@@ -62,6 +62,7 @@ pub extern "C" fn cell(mut source: RefAny, at: DataTableCellRef) -> DataTableCel
     DataTableCell {
         text: AzString::from(text),
         value,
+        icon: AzString::from_const_str(""),
     }
 }
 

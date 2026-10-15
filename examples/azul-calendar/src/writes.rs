@@ -18,7 +18,7 @@ use azul_appkit::{
     l10n::{t_args, Arg},
     ui as kit,
 };
-use azul_pim::write_queue::Write;
+use azul_pim::write_queue::{MainClose, Write};
 
 use crate::{store, CalState};
 
@@ -209,20 +209,18 @@ extern "C" fn on_writes_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         _ => return Update::DoNothing,
     }
     pump(s, &mut info, &handle);
-    if s.closing && s.writes_idle() {
-        s.closing = false;
-        if s.write_failures() == 0 {
+    let (waiting, failures) = (!s.writes_idle(), s.write_failures());
+    match s.close_hold.landed(waiting, failures) {
+        Some(MainClose::Close) => {
             eprintln!("[azcalendar] every write landed: the window closes");
             info.close_window();
-        } else {
+        }
+        Some(_) => {
             // Not lost without a word: the window stays, says so, and closes on the next try.
-            s.close_despite_failures = true;
-            s.notice = t_args(
-                "azcalendar-changes-not-written",
-                &[("count", Arg::from(s.write_failures()))],
-            );
+            s.notice = t_args("azcalendar-changes-not-written", &[("count", Arg::from(failures))]);
             refresh = true;
         }
+        None => {}
     }
     if refresh {
         Update::RefreshDom

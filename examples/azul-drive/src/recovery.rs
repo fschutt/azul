@@ -34,6 +34,7 @@ use azul::{
 use azul_appkit::{
     l10n::{t, t_args, t_label, Arg, Phrase, Text},
     qr::QrCode,
+    ui::qr_dom,
 };
 use azul_storage::{
     config::DriveLocation,
@@ -47,7 +48,7 @@ use crate::{
     encryption::{Dialog, EncryptionJob},
     ids,
     jobs::Job,
-    paper::{paper_pdf, print_copy, qr_dom, write_private},
+    paper::{paper_pdf, print_copy, write_private},
     recovery_health::{
         health_line, methods_list, methods_warning, state_mut, state_of, Method, MethodAction,
         RecoveryState,
@@ -578,7 +579,7 @@ pub(crate) fn drill_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (Str
                 .with_id(ids::DRILL_CODE),
         );
     if !error.is_empty() {
-        body.add_child(line(error).with_css("color: #C42B1C;"));
+        body.add_child(line(error).with_css("color: system:danger;"));
     }
     let may_stop =
         state_of(&s.settings.recovery.drives, drive_id).is_some_and(RecoveryState::may_stop_drills);
@@ -785,7 +786,7 @@ pub(crate) fn options_sections(s: &DriveState, app: &RefAny) -> Vec<(String, Dom
         if let Some(warning) = methods_warning(state) {
             block.add_child(
                 line(warning)
-                    .with_css("color: #C42B1C;")
+                    .with_css("color: system:danger;")
                     .with_id(ids::method_warning(&state.drive_id)),
             );
         }

@@ -50,7 +50,7 @@ use crate::vault::{sections, Kind, Scope, Vault};
 // The pieces every Azlin app shares (azul_appkit::pieces); ui_item.rs imports them from here.
 // A flex row is `flex_row` (appkit's `ui::row` is the settings row).
 pub(crate) use azul_appkit::pieces::{
-    block, button, column, flex_row, icon_button, primary, strs, text,
+    block, button, column, flex_row, icon_button, primary, strs, text, Clickable,
 };
 
 /// Quiet text (a note, a subtitle, a field's label) fades the ink in flat; under flora it is
@@ -66,8 +66,7 @@ pub(crate) fn note(content: &str) -> Dom {
 }
 
 /// A problem's ink: red in both modes; under flora its clay stone, by day and by night.
-pub(crate) const PROBLEM_INK: &str = "color: #d13438; @theme(flora) { color: #7E4A42; @media \
-                                      (prefers-color-scheme: dark) { color: #B3837A; } }";
+pub(crate) const PROBLEM_INK: &str = "color: system:danger;";
 
 /// A line that reports a problem: a key said, plain words as they are.
 pub(crate) fn problem(content: &str, id: AzString) -> Dom {
@@ -839,9 +838,8 @@ fn item_row(session: &Session, app: &RefAny, index: usize, position: usize) -> D
     )
     .with_id(ids::row(position))
     .with_class(ids::ROW_CLASS)
-    .with_accessibility_name(item.title.as_str())
-    .with_callback(
-        EventFilter::Hover(HoverEventFilter::MouseUp),
+    .clickable(
+        item.title.as_str(),
         RefAny::new(RowRef {
             app: app.clone(),
             id: item.id.clone(),

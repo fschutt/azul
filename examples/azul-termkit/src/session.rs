@@ -122,6 +122,32 @@ enum Backend {
     },
 }
 
+/// The process group running in the foreground of a terminal, from its shell's `ps -o
+/// tpgid=,pgid=` line: `Some` when it is not the shell's own group, so a program the shell
+/// started holds the terminal (an editor, a build) and closing it would cut that off.
+#[must_use]
+pub fn foreground_group(ps_line: &str) -> Option<u32> {
+    let mut numbers = ps_line.split_whitespace().map(str::parse::<i64>);
+    let terminal = numbers.next()?.ok()?;
+    let shell = numbers.next()?.ok()?;
+    if terminal <= 0 || terminal == shell {
+        return None;
+    }
+    u32::try_from(terminal).ok()
+}
+
+/// One line of `ps` for `pid` with `columns` (`tpgid=,pgid=`, `comm=`); `None` when it could
+/// not be asked.
+fn ps_line(pid: u32, columns: &str) -> Option<String> {
+    let out = std::process::Command::new("ps")
+        .args(["-o", columns, "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 /// One shell and its screen.
 pub struct Session {
     /// The engine (the event loop thread writes into it).
@@ -130,6 +156,9 @@ pub struct Session {
     pub signals: Arc<Signals>,
     backend: Backend,
     size: GridSize,
+    /// The shell's process on its PTY (`None` for a recording, and on Windows, where no
+    /// process group holds the console): what [`Session::foreground_job`] asks `ps` about.
+    shell_pid: Option<u32>,
 }
 
 /// The PTY's window size for `size`.
@@ -187,6 +216,10 @@ impl Session {
             .env
             .insert("TERM_PROGRAM".to_string(), term_program.to_string());
         let pty = tty::new(&options, window_size(size), 0)?;
+        #[cfg(unix)]
+        let shell_pid = Some(pty.child().id());
+        #[cfg(not(unix))]
+        let shell_pid = None;
         let event_loop =
             EventLoop::new(term.clone(), Listener(signals.clone()), pty, false, false)?;
         let sender = event_loop.channel();
@@ -201,6 +234,7 @@ impl Session {
             signals,
             backend: Backend::Pty(Notifier(sender)),
             size,
+            shell_pid,
         })
     }
 
@@ -220,7 +254,19 @@ impl Session {
                 stream: None,
             },
             size,
+            shell_pid: None,
         }
+    }
+
+    /// The program in the foreground of this shell's terminal, by its name (`vim`): closing
+    /// the session would stop it. `None` while the shell itself waits for input, for a
+    /// recording, and where it cannot be told.
+    #[must_use]
+    pub fn foreground_job(&self) -> Option<String> {
+        let group = foreground_group(&ps_line(self.shell_pid?, "tpgid=,pgid=")?)?;
+        let name = ps_line(group, "comm=").unwrap_or_default();
+        let name = name.rsplit('/').next().unwrap_or("").trim().to_string();
+        Some(if name.is_empty() { group.to_string() } else { name })
     }
 
     /// Whether the sample shell runs a command that is still writing.
@@ -346,6 +392,16 @@ impl Drop for Session {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_program_holds_the_terminal_when_its_group_is_not_the_shells() {
+        use super::foreground_group;
+        assert_eq!(foreground_group("  4321   4300\n"), Some(4321), "vim started by the shell");
+        assert_eq!(foreground_group("  4300   4300\n"), None, "the shell waits for input");
+        assert_eq!(foreground_group("    -1   4300"), None, "no terminal");
+        assert_eq!(foreground_group(""), None, "the shell is gone");
+        assert_eq!(foreground_group("tpgid pgid"), None);
+    }
+
     use super::*;
 
     fn text(session: &Session) -> Vec<String> {

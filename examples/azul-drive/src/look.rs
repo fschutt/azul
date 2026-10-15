@@ -225,13 +225,8 @@ pub(crate) const ACTIVITY_LINE: &str =
     "padding: 1px 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;";
 
 /// A failed transfer's line.
-pub(crate) const ACTIVITY_ERROR: &str = themed!(
-    "padding: 1px 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
-    "color: #B3261E;",
-    "color: #F1707B;",
-    "color: #A33A2E;",
-    "color: #E8847A;",
-);
+pub(crate) const ACTIVITY_ERROR: &str = "padding: 1px 10px; overflow: hidden; white-space: nowrap; \
+                                         text-overflow: ellipsis; color: system:danger;";
 
 /// The bar under the list: + and the actions.
 pub(crate) const SIDEBAR_FOOT: &str = themed!(

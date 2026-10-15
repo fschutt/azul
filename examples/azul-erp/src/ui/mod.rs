@@ -483,8 +483,7 @@ pub fn text(content: &str) -> Dom {
 
 /// A problem's ink: flat's red; under flora the clay stone, by day and by night (flat's red
 /// reads at 2.8:1 on flora's night leaf).
-pub const PROBLEM_INK: &str = "color: #c42b1c; @theme(flora) { color: #7E4A42; @media \
-                               (prefers-color-scheme: dark) { color: #B3837A; } }";
+pub const PROBLEM_INK: &str = "color: system:danger;";
 /// Quiet text (a field's label, a figure's caption, a subtitle): flat fades the ink; under
 /// flora it is the label ink, unfaded.
 pub const QUIET_FLORA: &str = "@theme(flora) { opacity: 1; color: system:secondary-text; }";

@@ -30,32 +30,32 @@ pub const STEPS: [Step; 8] = [
 ];
 
 impl Step {
-    /// The step's label on the rail / side panel.
+    /// The step's label on the rail / side panel (a key of the resources).
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Welcome => "Welcome",
-            Self::License => "License",
-            Self::Destination => "Destination",
-            Self::Components => "Components",
-            Self::Options => "Options",
-            Self::Ready => "Ready to install",
-            Self::Installing => "Installing",
-            Self::Finish => "Done",
+            Self::Welcome => "azsetup-step-welcome",
+            Self::License => "azsetup-step-license",
+            Self::Destination => "azsetup-step-destination",
+            Self::Components => "azsetup-step-components",
+            Self::Options => "azsetup-step-options",
+            Self::Ready => "azsetup-step-ready",
+            Self::Installing => "azsetup-step-installing",
+            Self::Finish => "azsetup-step-finish",
         }
     }
 
-    /// The banner's subtitle for the step.
+    /// The banner's subtitle for the step (a key of the resources; none on the outer pages).
     #[must_use]
     pub const fn subtitle(self) -> &'static str {
         match self {
             Self::Welcome => "",
-            Self::License => "Please review the license terms before installing AzOffice.",
-            Self::Destination => "Where should AzOffice be installed?",
-            Self::Components => "Which parts of AzOffice should be installed?",
-            Self::Options => "Which additional tasks should Setup perform?",
-            Self::Ready => "Setup is ready to install AzOffice on your computer.",
-            Self::Installing => "Please wait while Setup installs AzOffice.",
+            Self::License => "azsetup-sub-license",
+            Self::Destination => "azsetup-sub-destination",
+            Self::Components => "azsetup-sub-components",
+            Self::Options => "azsetup-sub-options",
+            Self::Ready => "azsetup-sub-ready",
+            Self::Installing => "azsetup-sub-installing",
             Self::Finish => "",
         }
     }
@@ -103,32 +103,19 @@ impl Step {
 }
 
 /// One component of the fake AzOffice: `(label, size in MB, depth,
-/// ticked, required, description)`.
+/// ticked, required, description)`; the label and the description are keys of the resources,
+/// or names as they are (AzWriter, a language's own name).
 pub type ComponentRow = (&'static str, u64, u32, bool, bool, &'static str);
 
 /// The components AzSetup offers, in tree order.
 pub const COMPONENTS: &[ComponentRow] = &[
-    (
-        "AzOffice core",
-        180,
-        0,
-        true,
-        true,
-        "The shared libraries every program needs.",
-    ),
-    ("Applications", 0, 0, true, false, ""),
-    ("AzWriter", 120, 1, true, false, "Letters, reports, books."),
-    ("AzSheets", 90, 1, true, false, "Tables, charts, budgets."),
-    ("AzSlides", 70, 1, true, false, "Presentations."),
-    (
-        "Templates and clip art",
-        45,
-        0,
-        true,
-        false,
-        "Invoices, CVs, calendars.",
-    ),
-    ("Proofing tools", 30, 0, true, false, ""),
+    ("azsetup-comp-core", 180, 0, true, true, "azsetup-comp-core-text"),
+    ("azsetup-comp-apps", 0, 0, true, false, ""),
+    ("AzWriter", 120, 1, true, false, "azsetup-comp-writer-text"),
+    ("AzSheets", 90, 1, true, false, "azsetup-comp-sheets-text"),
+    ("AzSlides", 70, 1, true, false, "azsetup-comp-slides-text"),
+    ("azsetup-comp-templates", 45, 0, true, false, "azsetup-comp-templates-text"),
+    ("azsetup-comp-proofing", 30, 0, true, false, ""),
     ("English", 12, 1, true, false, ""),
     ("Deutsch", 12, 1, false, false, ""),
 ];
@@ -156,6 +143,15 @@ This is a demonstration: AzSetup installs nothing.";
 // The simulated copying
 // ---------------------------------------------------------------------------
 
+/// A line of the copying's log ("Show details"), said in the window's language when shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Logged {
+    /// The destination folder was made.
+    Created(String),
+    /// A file was copied to this path.
+    Copied(String),
+}
+
 /// The copying the progress page shows: a queue of fake files, copied a
 /// few per timer tick.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -167,7 +163,7 @@ pub struct Copier {
     /// The bytes of every file.
     pub total_bytes: u64,
     /// What was done, oldest first.
-    pub log: Vec<String>,
+    pub log: Vec<Logged>,
     /// The file copied last.
     pub current: String,
 }
@@ -208,7 +204,7 @@ impl Copier {
             queue,
             done_bytes: 0,
             total_bytes,
-            log: vec![format!("Created {folder}")],
+            log: vec![Logged::Created(folder.to_string())],
             current: String::new(),
         }
     }
@@ -221,7 +217,7 @@ impl Copier {
             }
             let (path, bytes) = self.queue.remove(0);
             self.done_bytes += bytes;
-            self.log.push(format!("Copied {path}"));
+            self.log.push(Logged::Copied(path.clone()));
             self.current = path;
         }
         self.is_done()
@@ -366,10 +362,10 @@ where
 // stdout, for the scripts
 // ---------------------------------------------------------------------------
 
-/// `AZSETUP_STEP <index> <label>`.
+/// `AZSETUP_STEP <index> <screen>`: the step's `--screen` name, the same in every language.
 #[must_use]
 pub fn step_line(step: Step) -> String {
-    format!("AZSETUP_STEP {} {}", step.index(), step.label())
+    format!("AZSETUP_STEP {} {}", step.index(), SCREENS[step.index()])
 }
 
 /// `AZSETUP_TOTAL <bytes>`.
@@ -485,7 +481,7 @@ mod model_tests {
 
     #[test]
     fn the_stdout_lines_name_the_step_the_total_and_the_progress() {
-        assert_eq!(step_line(Step::Destination), "AZSETUP_STEP 2 Destination");
+        assert_eq!(step_line(Step::Destination), "AZSETUP_STEP 2 destination");
         assert_eq!(total_line(5), "AZSETUP_TOTAL 5");
         assert_eq!(progress_line(99.6), "AZSETUP_PROGRESS 100");
         assert_eq!(progress_line(-3.0), "AZSETUP_PROGRESS 0");

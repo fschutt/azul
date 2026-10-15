@@ -42,7 +42,7 @@ use azul::{
         ButtonOnClickCallbackType, CallbackType, LayoutCallbackType, SegmentedOnChangeCallbackType,
         TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType,
     },
-    css::{DarkLightMode, PhysicalPositionI32, WindowPosition},
+    css::{DarkLightMode, PhysicalPositionI32, SystemStyle, SystemStyleDependency, WindowPosition},
     dom::{DomId, DomNodeId, NodeId, VirtualKeyCode},
     file::FilePath,
     option::{OptionDarkLightMode, OptionLogicalSize},
@@ -71,8 +71,9 @@ use crate::{
     look::{self, CategoryItem},
     migrate,
     options::{categories, category_id, category_index, notice_after_save, Category, Snapshot},
+    qr::QrCode,
     settings::{AppSettings, SETTINGS_FILE},
-    shortcuts::{display_keys, groups, Shortcut, KIT_SHORTCUTS},
+    shortcuts::{display_keys_with, groups, Shortcut, KIT_SHORTCUTS},
     window_place::{self, Seen, WindowPlace},
 };
 
@@ -434,6 +435,81 @@ pub fn title_row(title: &str) -> Dom {
 #[must_use]
 pub fn tabs_in_titlebar() -> TabsInTitlebar {
     TabsInTitlebar::platform()
+}
+
+/// The room a strip an app draws along the window's top edge leaves for the window's own
+/// controls. The window is `NoTitle`, so whatever the app puts at the top is the title bar: the
+/// traffic lights sit over its left end on macOS, the caption buttons over its right end on
+/// Windows when the content runs under them, the drawn controls on Linux. A strip that pads
+/// itself by these keeps its buttons clear of the controls on every platform.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TitleInsets {
+    /// Px to keep free at the strip's left end: the controls when they sit on the left (with
+    /// the title bar's padding beside them) and the safe area there (a camera housing).
+    pub left: f32,
+    /// Px to keep free at the strip's right end, the same on the other side.
+    pub right: f32,
+    /// The title bar's height: a strip carrying the controls is at least this tall, so they
+    /// sit inside it.
+    pub height: f32,
+}
+
+/// The window's [`TitleInsets`], from the title-bar metrics the system reports. Reading them
+/// makes a change of the system's metrics (another display, a theme) rebuild the window.
+#[must_use]
+pub fn title_insets(info: &LayoutCallbackInfo) -> TitleInsets {
+    info.depends_on_system_style(SystemStyleDependency::Metrics);
+    title_insets_of(info.get_system_style_untracked())
+}
+
+/// The [`TitleInsets`] a system `style` gives: the sides as azul's tab strip in the title bar
+/// keeps them, the height as azul's own title bar has it (the platform's when the system
+/// reports none). Both are the engine's computation, so an app's strip and azul's title bar
+/// never disagree about where the controls are.
+#[must_use]
+pub fn title_insets_of(style: SystemStyle) -> TitleInsets {
+    let height = Titlebar::from_system_style("", style.clone()).height;
+    let sides = TabsInTitlebar::from_system_style(style);
+    TitleInsets {
+        left: sides.left,
+        right: sides.right,
+        height,
+    }
+}
+
+/// A QR symbol as boxes, `module` px a module, with its quiet zone (four light modules) on
+/// white: a row of dark runs and the light gaps between them for each row of modules. Black on
+/// white whatever the mode, so a camera reads it off the screen as off paper.
+#[must_use]
+pub fn qr_dom(symbol: &QrCode, module: usize) -> Dom {
+    let side = symbol.size() * module;
+    let quiet = 4 * module;
+    let mut rows = Dom::create_div().with_css(format!(
+        "display: flex; flex-direction: column; flex-shrink: 0; width: {side}px; padding: \
+         {quiet}px; background: #ffffff;"
+    ));
+    for y in 0..symbol.size() {
+        let mut row = Dom::create_div().with_css(format!(
+            "display: flex; flex-direction: row; flex-shrink: 0; width: {side}px; height: \
+             {module}px;"
+        ));
+        let mut at = 0;
+        for (start, len) in symbol.dark_runs(y) {
+            if start > at {
+                row.add_child(Dom::create_div().with_css(format!(
+                    "flex-shrink: 0; width: {}px; height: {module}px;",
+                    (start - at) * module
+                )));
+            }
+            row.add_child(Dom::create_div().with_css(format!(
+                "flex-shrink: 0; width: {}px; height: {module}px; background: #000000;",
+                len * module
+            )));
+            at = start + len;
+        }
+        rows.add_child(row);
+    }
+    rows
 }
 
 /// The standard "Save changes?" guard around a window's `content`, for the open `document`,
@@ -1534,26 +1610,23 @@ fn category_label(name: &str) -> &str {
 /// The kit's category of the shortcuts (F1).
 const SHORTCUTS_CATEGORY: &str = "Shortcuts";
 
-/// The keys of a shortcut as the user reads them, the modifier and key names in the window's
-/// language (`Ctrl` is `Strg` in German).
-fn shown_keys(keys: &str, mac: bool) -> String {
-    display_keys(keys, mac)
-        .split('+')
-        .map(|part| {
-            let key = format!("kit-key-{}", part.to_ascii_lowercase());
-            if part.len() > 1 && l10n::is_key(&key) {
-                let shown = l10n::t(&key);
-                if shown == key {
-                    part.to_string()
-                } else {
-                    shown
-                }
-            } else {
+/// The keys of a shortcut as the user reads them: the Mac's symbols, or the modifier and key
+/// names in the window's language (`Ctrl` is `Strg` in German).
+#[must_use]
+pub fn shown_keys(keys: &str, mac: bool) -> String {
+    display_keys_with(keys, mac, &|part: &str| {
+        let key = format!("kit-key-{}", part.to_ascii_lowercase());
+        if part.len() > 1 && l10n::is_key(&key) {
+            let shown = l10n::t(&key);
+            if shown == key {
                 part.to_string()
+            } else {
+                shown
             }
-        })
-        .collect::<Vec<_>>()
-        .join("+")
+        } else {
+            part.to_string()
+        }
+    })
 }
 
 extern "C" fn on_category(mut data: RefAny, _info: CallbackInfo) -> Update {

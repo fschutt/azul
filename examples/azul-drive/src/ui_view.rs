@@ -5,7 +5,8 @@
 //! (the file-type icon and name, Date modified, Type, Size under sortable headers on a raised
 //! face, the rows in quiet stripes), the icon layouts on azul's IconGrid - grouped or not, with
 //! item check boxes or not (a selected hand-built icon cell or tile lifts off the paper) -
-//! with the InfoBar over it (no path bar or status line at its foot). Every item takes
+//! with the InfoBar over it for an error (no path bar or status line at its foot; notices are
+//! toasts at the window's foot). Every item takes
 //! a click (Ctrl / Shift too), a double-click, a right-click (the context menu), a drag (a
 //! folder takes the drop: a move, Ctrl a copy) and F2's rename field.
 //!
@@ -24,7 +25,7 @@ use azul::{
         AccordionOnToggleCallbackType, ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
         IconGridDataSourceCallbackType, IconGridOnEventCallbackType,
         TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
-        TextInputOnVirtualKeyDownCallbackType, TileOnClickCallbackType,
+        TextInputOnVirtualKeyDownCallbackType, TileOnClickCallbackType, ToastOnDismissCallbackType,
     },
     dom::{AttributeType, DomId, FocusTarget, NodeId, VirtualKeyCode},
     prelude::*,
@@ -33,7 +34,7 @@ use azul::{
     widgets::{
         Accordion, AccordionSection, AccordionVariant, CheckBoxState, IconGrid, IconGridEvent,
         IconGridEventKind, IconGridItem, InfoBar, OnTextInputReturn, TextInputState,
-        TextInputValid, Tile, TileCapacity,
+        TextInputValid, Tile, TileCapacity, Toast, ToastStack, ToastState,
     },
 };
 use azul_appkit::l10n::{t_args, Arg};
@@ -156,6 +157,45 @@ fn info_bar(message: &Message, app: &RefAny) -> Dom {
 
 extern "C" fn on_dismiss(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |_info, _app, s| s.message = None)
+}
+
+/// How long a notice stays, ms.
+const TOAST_MS: u32 = 3200;
+
+/// The notices as azul's ToastStack at the window's foot: the newest three, each leaving by
+/// itself after [`TOAST_MS`].
+pub(crate) fn toasts(s: &DriveState, app: &RefAny) -> Dom {
+    let mut stack = ToastStack::create().with_max_visible(3).with_bottom_inset(66);
+    for notice in &s.toasts.list {
+        let toast = Toast::with_kind(
+            AzString::from(azul_appkit::l10n::t_text(&notice.message.text)),
+            notice.message.kind.toast(),
+        )
+        .with_auto_dismiss(TOAST_MS)
+        .with_on_dismiss(
+            RefAny::new(ToastRef {
+                app: app.clone(),
+                id: notice.id,
+            }),
+            on_toast_dismissed as ToastOnDismissCallbackType,
+        );
+        stack.add_toast(toast);
+    }
+    stack.dom().with_id(ids::TOASTS)
+}
+
+/// The notice a toast shows: the dismiss takes it out of the state by its id.
+struct ToastRef {
+    app: RefAny,
+    id: u64,
+}
+
+/// A toast left (its time ran out, or its close button): its notice goes.
+extern "C" fn on_toast_dismissed(mut data: RefAny, mut info: CallbackInfo, _state: ToastState) -> Update {
+    let Some((mut app, id)) = data.downcast_ref::<ToastRef>().map(|r| (r.app.clone(), r.id)) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |_info, _app, s| s.toasts.dismiss(id))
 }
 
 /// Whether the folder shows as azul's IconGrid: an icon layout, not grouped, without item
@@ -1895,6 +1935,7 @@ extern "C" fn on_grid_event(
     let kind = event.kind;
     let index = event.index.into_option();
     let view = event.view;
+    let typed = event.text.as_str().to_string();
     with_state(&mut data, &mut info, |info, app, s| {
         let keys = s.visible_keys();
         let order: Vec<&str> = keys.iter().map(String::as_str).collect();
@@ -1924,6 +1965,20 @@ extern "C" fn on_grid_event(
             }
             IconGridEventKind::Scroll => {
                 actions::request_view_work(info, app, s);
+            }
+            // F2 on a tile: the grid shows its own name field (its view, kept above).
+            IconGridEventKind::Rename => {}
+            // Enter in that field: the file is renamed as Rename in Details renames it.
+            IconGridEventKind::Renamed => {
+                let item = index.and_then(|i| keys.get(i)).cloned();
+                if let Some((key, entry)) = item.and_then(|key| s.entry(&key).cloned().map(|e| (key, e))) {
+                    s.renaming = Some(crate::Renaming {
+                        key,
+                        text: typed.clone(),
+                        is_folder: entry.is_folder,
+                    });
+                    actions::commit_rename(info, app, s);
+                }
             }
             IconGridEventKind::Select | IconGridEventKind::Drag => {}
         }

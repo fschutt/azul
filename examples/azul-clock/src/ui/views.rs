@@ -24,6 +24,7 @@ use azul::{
 };
 use azul_appkit::{
     l10n::{self, label, t, t_args, Arg, DateStyle},
+    pieces::Clickable,
     ui::{self as kit, AppSection},
 };
 use chrono::{DateTime, Local, Timelike, Utc};
@@ -321,11 +322,7 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
                         .with_css(format!("{COLUMN} flex-grow: 1; cursor: pointer;"))
                         .with_child(line(&r.name, "font-size: 15px;"))
                         .with_child(line(&when, SECONDARY))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            act(app, Action::FaceCity(Some(i))),
-                            actions::on_act,
-                        ),
+                        .clickable(&r.name, act(app, Action::FaceCity(Some(i))), actions::on_act),
                 )
                 .with_child(line(
                     &fmt::clock(r.hour, r.minute, twelve),
@@ -407,8 +404,8 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
                                 ))
                                 .with_child(line(&detail, SECONDARY)),
                         )
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
+                        .clickable(
+                            if a.label.is_empty() { "azclock-alarm" } else { a.label.as_str() },
                             act(app, Action::EditAlarm(a.id.clone())),
                             actions::on_act,
                         ),
@@ -528,11 +525,7 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
                         .with_css(format!("{} flex-grow: 1; cursor: pointer;{mark}", row_css(12)))
                         .with_child(line(&name, "font-size: 14px;"))
                         .with_child(line(&state, SECONDARY))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            act(app, Action::TimerSelect(t.id.clone())),
-                            actions::on_act,
-                        ),
+                        .clickable(&name, act(app, Action::TimerSelect(t.id.clone())), actions::on_act),
                 )
                 .with_child(button(
                     if t.is_running() { "azclock-pause" } else { "azclock-start" },
@@ -574,12 +567,10 @@ fn stopwatch_view(s: &ClockApp, app: &RefAny) -> Dom {
         // night) - flora's alternates, not flat's green and red.
         let color = match r.mark {
             LapMark::Fastest => {
-                " color: #2e8b57; @theme(flora) { color: #44684F; @media (prefers-color-scheme: \
-                 dark) { color: #7FA98C; } }"
+                " color: system:success;"
             }
             LapMark::Slowest => {
-                " color: #d0453c; @theme(flora) { color: #7E4A42; @media (prefers-color-scheme: \
-                 dark) { color: #B3837A; } }"
+                " color: system:danger;"
             }
             LapMark::None => "",
         };
@@ -643,11 +634,7 @@ pub fn overlays(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Vec<Dom> {
                      color: #ffffff; font-size: 13px;",
                 )
                 .with_child(text(message))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    act(app, Action::DismissNotice),
-                    actions::on_act,
-                ),
+                .clickable(message, act(app, Action::DismissNotice), actions::on_act),
         );
     }
     out

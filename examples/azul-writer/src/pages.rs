@@ -1,7 +1,8 @@
 //! The document area and the status bar.
 //!
 //! Print layout: the A4 sheets on the canvas, each sheet ONE page of the
-//! shared editor (`RichTextEditor::page_doms`) - every page edits the one
+//! shared editor (`RichTextEditor::page_doms_at`; a paragraph a page cuts
+//! shows its head on one sheet and its tail on the next) - every page edits the one
 //! document and its one history. Web layout: one sheet with every block.
 //! The paper follows the mode (the mode's background and text colours, as
 //! the editor's own content colours do); the PDF is black on white.
@@ -11,7 +12,7 @@ use azul::{
         ButtonOnClickCallbackType, CallbackInfo, RefAny, RichTextEditorOnChangeCallbackType,
         StatusBarOnViewSelectCallbackType, Update,
     },
-    dom::Dom,
+    dom::{AttributeType, Dom},
     shells::ShellEmptyState,
     str::String as AzString,
     widgets::{
@@ -59,6 +60,16 @@ fn sheet(page: Dom, width: f32, min_height: f32, margin: f32) -> Dom {
         .with_child(page)
 }
 
+/// Page `index`'s editing host; the first one takes the keyboard when it mounts, so a
+/// document opens with the caret in its text.
+fn first_takes_the_keyboard(index: usize, page: &Dom) -> Dom {
+    if index == 0 {
+        page.clone().with_attribute(AttributeType::Autofocus)
+    } else {
+        page.clone()
+    }
+}
+
 /// The document area for the app's state (`window_width`: the room the
 /// web layout's sheet may take).
 #[must_use]
@@ -71,6 +82,8 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         .with_id(ids::DOC_HOST)
         .with_accessibility_name(s("azwriter-document"))
         .with_font_size((paginate::FONT_PX * zoom).round())
+        // The body is 11 pt (FONT_PX at 100 %): a run's own size in points scales with it.
+        .with_body_points(crate::ribbon::DEFAULT_FONT_SIZE)
         .with_paragraph_spacing((paginate::SPACING_PX * zoom).round())
         .with_on_change(app.clone(), on_editor_change as RichTextEditorOnChangeCallbackType);
     let mut canvas = Dom::create_div().with_id(ids::CANVAS).with_css(
@@ -83,10 +96,10 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         View::Print => {
             let starts = st.pages.starts_for(doc.doc().block_count());
             let count = starts.len();
-            let pages = editor.page_doms(starts, 0, count);
-            for page in pages.as_slice() {
+            let pages = editor.page_doms_at(paginate::Pages::page_starts(&starts), 0, count);
+            for (i, page) in pages.as_slice().iter().enumerate() {
                 canvas.add_child(sheet(
-                    page.clone(),
+                    first_takes_the_keyboard(i, page),
                     (paginate::A4_W * zoom).round(),
                     (paginate::A4_H * zoom).round(),
                     margin,
@@ -96,8 +109,13 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         View::Web => {
             let pages = editor.page_doms(vec![0u32], 0, 1);
             let width = (window_width - 48.0).clamp(320.0, 1200.0 * zoom);
-            for page in pages.as_slice() {
-                canvas.add_child(sheet(page.clone(), width.round(), 0.0, (margin / 2.0).round()));
+            for (i, page) in pages.as_slice().iter().enumerate() {
+                canvas.add_child(sheet(
+                    first_takes_the_keyboard(i, page),
+                    width.round(),
+                    0.0,
+                    (margin / 2.0).round(),
+                ));
             }
         }
     }
@@ -159,7 +177,11 @@ pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
     let (page_label, words) = match st.doc.as_ref() {
         Some(doc) => {
             let pages = st.pages.starts_for(doc.doc().block_count()).len();
-            let page = st.pages.page_of(doc.editor.caret_block).min(pages.saturating_sub(1)) + 1;
+            let page = st
+                .pages
+                .page_of(doc.editor.caret_block, doc.editor.caret_byte)
+                .min(pages.saturating_sub(1))
+                + 1;
             (
                 azul_appkit::l10n::t_args(
                     "azwriter-status-page",

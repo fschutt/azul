@@ -483,6 +483,18 @@ impl Project {
         self.media.iter().find(|m| m.id == id)
     }
 
+    /// The track a clip of media `id` goes on from the source monitor: V1 for pictures, the
+    /// first audio track for sound alone.
+    #[must_use]
+    pub fn target_track(&self, id: u64) -> Option<usize> {
+        let kind = if self.media(id)?.has_video {
+            TrackKind::Video
+        } else {
+            TrackKind::Audio
+        };
+        self.sequence.tracks.iter().position(|t| t.kind == kind)
+    }
+
     /// A media item's length in frames (very long when it is unknown).
     fn media_frames(&self, id: u64) -> Frame {
         self.media(id).map_or(Frame::MAX / 4, |m| m.frames)

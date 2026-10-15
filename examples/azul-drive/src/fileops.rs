@@ -12,7 +12,7 @@ use std::{
 };
 
 use azul_appkit::l10n::{Phrase, Text};
-use azul_storage::{key, ops as storage_ops, transfer, Drive, DriveError};
+use azul_storage::{key, ops as storage_ops, transfer, BatchDelete, BatchMove, Drive, DriveError};
 
 use crate::browse;
 
@@ -506,7 +506,11 @@ pub fn run_transfer(
         out.cancelled = true;
         return out;
     }
-    for (from, to) in &plan.moves {
+    // A folder is renamed as a whole; the files go in one batch (an encrypted drive changes
+    // its index once for all of them, a bucket copies them side by side).
+    let (folder_moves, file_moves): (Vec<&(String, String)>, Vec<&(String, String)>) =
+        plan.moves.iter().partition(|(from, _)| from.ends_with('/'));
+    for (from, to) in folder_moves {
         if cancel.load(Ordering::SeqCst) {
             out.cancelled = true;
             return out;
@@ -517,6 +521,22 @@ pub fn run_transfer(
             Err(e) => out.failed.push((from.clone(), crate::l10n::drive_error_text(&e))),
         }
         progress.files_done += 1;
+        report(&progress);
+    }
+    if !file_moves.is_empty() {
+        if cancel.load(Ordering::SeqCst) {
+            out.cancelled = true;
+            return out;
+        }
+        let batch: Vec<BatchMove<'_>> =
+            file_moves.iter().map(|(from, to)| BatchMove::new(from, to)).collect();
+        for ((from, _), result) in file_moves.iter().zip(source.move_many(&batch)) {
+            match result {
+                Ok(()) => out.done += 1,
+                Err(e) => out.failed.push((from.clone(), crate::l10n::drive_error_text(&e))),
+            }
+            progress.files_done += 1;
+        }
         report(&progress);
     }
     for folder in &plan.folders {
@@ -576,12 +596,15 @@ pub fn run_transfer(
         progress.files_done += 1;
         report(&progress);
     }
-    if kind.removes_source() && !out.cancelled {
-        for key in &copied {
-            if let Err(e) = source.delete(key) {
+    if kind.removes_source() && !out.cancelled && !copied.is_empty() {
+        let batch: Vec<BatchDelete<'_>> = copied.iter().map(|key| BatchDelete::new(key)).collect();
+        for (key, result) in copied.iter().zip(source.delete_many(&batch)) {
+            if let Err(e) = result {
                 out.failed.push((key.clone(), crate::l10n::drive_error_text(&e)));
             }
         }
+    }
+    if kind.removes_source() && !out.cancelled {
         // A folder goes only when everything in it went.
         if out.failed.is_empty() && out.skipped == 0 {
             for folder in &plan.source_folders {
@@ -627,30 +650,53 @@ pub fn trash_folder_of(trash_key: &str) -> Option<String> {
     Some(format!("{TRASH_FOLDER}{stamp}/"))
 }
 
-/// Deletes `items`: into the trash of the delete `stamp` (each renamed to
-/// [`trash_key`]), or for good with `None`. Returns `(key, where it went)`
-/// for every item (an empty place for good), what [`restore_items`] undoes.
+/// Deletes `items`: into the trash of the delete `stamp` (each moved to
+/// [`trash_key`]), or for good with `None`. A folder goes as a whole; the files go in one
+/// batch each way (an encrypted drive changes its index once, a bucket deletes a thousand
+/// keys a request). Returns `(key, where it went)` for every item (an empty place for good),
+/// what [`restore_items`] undoes.
 pub fn delete_items(
     drive: &dyn Drive,
     items: &[SourceItem],
     stamp: Option<&str>,
 ) -> Result<Vec<(String, String)>, DriveError> {
     let mut gone = Vec::new();
+    let mut into_trash: Vec<(String, String)> = Vec::new();
+    let mut for_good: Vec<String> = Vec::new();
     for item in items {
         match stamp {
             Some(stamp) if !is_in_trash(&item.key) => {
                 let to = trash_key(&item.key, stamp);
-                drive.rename(&item.key, &to)?;
-                gone.push((item.key.clone(), to));
+                if item.is_folder {
+                    drive.rename(&item.key, &to)?;
+                    gone.push((item.key.clone(), to));
+                } else {
+                    into_trash.push((item.key.clone(), to));
+                }
             }
             _ => {
                 if item.is_folder {
                     drive.delete_folder(&item.key)?;
+                    gone.push((item.key.clone(), String::new()));
                 } else {
-                    drive.delete(&item.key)?;
+                    for_good.push(item.key.clone());
                 }
-                gone.push((item.key.clone(), String::new()));
             }
+        }
+    }
+    if !into_trash.is_empty() {
+        let batch: Vec<BatchMove<'_>> =
+            into_trash.iter().map(|(from, to)| BatchMove::new(from, to)).collect();
+        for ((from, to), result) in into_trash.iter().zip(drive.move_many(&batch)) {
+            result?;
+            gone.push((from.clone(), to.clone()));
+        }
+    }
+    if !for_good.is_empty() {
+        let batch: Vec<BatchDelete<'_>> = for_good.iter().map(|key| BatchDelete::new(key)).collect();
+        for (key, result) in for_good.iter().zip(drive.delete_many(&batch)) {
+            result?;
+            gone.push((key.clone(), String::new()));
         }
     }
     Ok(gone)
@@ -660,15 +706,26 @@ pub fn delete_items(
 /// folder in the trash removed when it is empty.
 pub fn restore_items(drive: &dyn Drive, gone: &[(String, String)]) -> Result<(), DriveError> {
     let mut folders = Vec::new();
+    let mut files: Vec<(&str, &str)> = Vec::new();
     for (key, trashed) in gone {
         if trashed.is_empty() {
             continue;
         }
-        drive.rename(trashed, key)?;
+        if key.ends_with('/') {
+            drive.rename(trashed, key)?;
+        } else {
+            files.push((trashed.as_str(), key.as_str()));
+        }
         if let Some(folder) = trash_folder_of(trashed) {
             if !folders.contains(&folder) {
                 folders.push(folder);
             }
+        }
+    }
+    if !files.is_empty() {
+        let batch: Vec<BatchMove<'_>> = files.iter().map(|(from, to)| BatchMove::new(from, to)).collect();
+        for result in drive.move_many(&batch) {
+            result?;
         }
     }
     for folder in folders {

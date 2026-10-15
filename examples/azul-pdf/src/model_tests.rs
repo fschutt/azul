@@ -226,6 +226,20 @@ fn the_page_cache_keeps_one_entry_per_page_and_width() {
     assert!(!cache.has(0, 1280));
 }
 
+/// A drag never lays a page's text out again: without a picture at the settled scale (a zoom
+/// just changed it, or the drag settled for a moment) the page shows the picture it has
+/// nearest that width, scaled, while the sharp one is made.
+#[test]
+fn a_drag_shows_the_nearest_picture_while_the_sharp_one_is_made() {
+    let mut cache = PageCache::new(4);
+    assert_eq!(drag_picture(&mut cache, 0, 1600), None, "no picture yet: the DOM it has");
+    cache.insert(0, 800, "fit width");
+    assert_eq!(drag_picture(&mut cache, 0, 1600), Some("fit width"));
+    cache.insert(0, 1600, "zoomed");
+    assert_eq!(drag_picture(&mut cache, 0, 1600), Some("zoomed"), "the sharp one once it is there");
+    assert_eq!(drag_picture(&mut cache, 1, 1600), None, "another page's picture is not this one");
+}
+
 #[test]
 fn a_page_without_its_width_shows_the_nearest_render_meanwhile() {
     let mut cache = PageCache::new(4);
@@ -699,6 +713,24 @@ fn the_form_values_know_what_the_user_changed() {
     assert_eq!(form.changed().len(), 1, "back to the file's value is no change");
     assert_eq!(form.all().len(), 2);
     assert_eq!(form.get("unknown"), "");
+}
+
+#[test]
+fn filled_values_are_unsaved_until_a_filled_copy_with_them_is_saved() {
+    let fields = vec![text_field("name", "Grace"), text_field("city", "")];
+    let mut form = FormValues::new(&fields);
+    assert!(!form.unsaved(), "the file's own values");
+    form.set("city", "London");
+    assert!(form.unsaved(), "a value the user typed");
+    let saved = form.all();
+    form.keep(&saved);
+    assert!(!form.unsaved(), "the filled copy holds it");
+    form.set("name", "Ada");
+    assert!(form.unsaved(), "typed after the copy was saved");
+    form.keep(&saved);
+    assert!(form.unsaved(), "an older copy does not hold it");
+    form.set("name", "Grace");
+    assert!(!form.unsaved(), "back to what the copy holds");
 }
 
 #[test]

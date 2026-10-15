@@ -321,9 +321,9 @@ pub(crate) fn state_word(state: &FileState) -> &'static str {
 /// The tint of a state's icon: a conflict amber, an error red, the rest quiet.
 fn state_tint(state: &FileState) -> &'static str {
     match state {
-        FileState::Conflict => "color: #C77700;",
-        FileState::Error(_) => "color: #C42B1C;",
-        FileState::OnDevice | FileState::Pinned => "color: #2E9E5B;",
+        FileState::Conflict => "color: system:warning;",
+        FileState::Error(_) => "color: system:danger;",
+        FileState::OnDevice | FileState::Pinned => "color: system:success;",
         _ => "opacity: 0.6;",
     }
 }
@@ -973,7 +973,7 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                     .with_id(ids::SYNC_PREFIX),
             ]);
             if !error.is_empty() {
-                body.add_child(text_line(error).with_css("color: #C42B1C;"));
+                body.add_child(text_line(error).with_css("color: system:danger;"));
             }
             body.add_child(buttons(vec![
                 button("kit-button-cancel", app, on_cancel_popup),

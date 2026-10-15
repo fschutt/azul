@@ -195,6 +195,10 @@ azcontacts-not-written = { $count ->
     [one] 1 file could not be written - see the log
    *[other] { $count } files could not be written - see the log
  }
+azcontacts-not-written-close = { $count ->
+    [one] 1 file could not be written. Close the window again to quit without it.
+   *[other] { $count } files could not be written. Close the window again to quit without them.
+ }
 azcontacts-copied-vcard = Copied { $name } as vCard { $version }
 azcontacts-copied = Copied { $what }
 azcontacts-deleted = Deleted { $name }

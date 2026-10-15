@@ -599,6 +599,14 @@ pub fn page_face<D, P>(resizing: bool, dom: Option<D>, picture: Option<P>) -> Pa
     }
 }
 
+/// What page `page` shows while the window is dragged: its picture at `width` (the settled
+/// scale's), else the one it has nearest that width, drawn scaled for a moment. A drag never
+/// lays the page's text out again: a zoom change or a drag that settled for a moment moves the
+/// settled width before its sharp picture is made.
+pub fn drag_picture<T: Clone>(cache: &mut PageCache<T>, page: usize, width: u32) -> Option<T> {
+    cache.get(page, width).or_else(|| cache.nearest(page, width))
+}
+
 /// The widest a page's picture is drawn, px: a picture is RGBA, so a page
 /// 1600 px wide is ~13 MB. A drag at a higher zoom shows it scaled up.
 pub const MAX_PICTURE_WIDTH: u32 = 1600;
@@ -834,6 +842,9 @@ impl Field {
 pub struct FormValues {
     values: BTreeMap<String, String>,
     original: BTreeMap<String, String>,
+    /// The values the last filled copy was saved with (the file's until then): the form has
+    /// unsaved values while they differ, and closing the window asks first.
+    kept: BTreeMap<String, String>,
 }
 
 impl FormValues {
@@ -846,6 +857,7 @@ impl FormValues {
             .collect();
         FormValues {
             values: original.clone(),
+            kept: original.clone(),
             original,
         }
     }
@@ -888,6 +900,17 @@ impl FormValues {
     #[must_use]
     pub fn is_dirty(&self) -> bool {
         !self.changed().is_empty()
+    }
+
+    /// Whether values were filled in that no saved copy holds.
+    #[must_use]
+    pub fn unsaved(&self) -> bool {
+        self.values != self.kept
+    }
+
+    /// A filled copy with `values` was saved.
+    pub fn keep(&mut self, values: &[(String, String)]) {
+        self.kept = values.iter().cloned().collect();
     }
 }
 

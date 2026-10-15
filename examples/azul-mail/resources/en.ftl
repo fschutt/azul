@@ -218,6 +218,7 @@ azmail-new-messages = { $count ->
  }
 azmail-sign-in-failed = Sign-in failed: { $why }
 azmail-send-receive-error = Send/Receive error: { $why }
+azmail-send-receive-stopped = Send/Receive stopped. What arrived until then is kept.
 azmail-outbox-empty-no-account = Nothing waits in the Outbox. To receive mail, add an account: File > Info > Add Account.
 azmail-outbox-empty-local = Nothing waits in the Outbox of Local Folders.
 azmail-sending-outbox = Sending the Outbox…
@@ -507,3 +508,4 @@ azmail-sync-auth = the server refused the sign-in: { $detail }
 azmail-sync-protocol = the server answered unexpectedly: { $detail }
 azmail-sync-storage = could not write the mail folder: { $detail }
 azmail-sync-stopped = stopped
+azmail-sent-notice = Sent: { $subject }

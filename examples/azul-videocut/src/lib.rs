@@ -19,6 +19,11 @@
 //! thread. Export renders on a worker, encodes with `VideoEncoder::encode_at`
 //! and muxes with `Mp4Muxer` (Y4M where there is no H.264 encoder).
 //!
+//! The sound (see `levels`): a file with audio (a sound file, or an MP4 with a
+//! sound track) goes on the audio tracks; a worker reads each such file once
+//! with `AudioFileDecoder` into its levels per channel, and the meters show
+//! the level of the clips under the playhead.
+//!
 //! The project is files on a Drive (`store`): `videocut/<uuid>/project.json`
 //! and `media/`, `exports/`, saved after every edit by a job.
 //!
@@ -27,11 +32,13 @@
 //! `AZVIDEOCUT_EDIT <edit> <clips> <frames>`, `AZVIDEOCUT_PLAYHEAD <frame>`,
 //! `AZVIDEOCUT_FRAME <frame>` (a program frame shown), `AZVIDEOCUT_SAVED
 //! <id>`, `AZVIDEOCUT_EXPORT <done> <total>`, `AZVIDEOCUT_EXPORTED <key>
-//! <bytes> <format>`, `AZVIDEOCUT_ERROR <message>`.
+//! <bytes> <format>`, `AZVIDEOCUT_LEVELS <media> <slices>` (a file's levels
+//! read), `AZVIDEOCUT_ERROR <message>`.
 
 pub mod args;
 pub mod decode;
 pub mod export;
+pub mod levels;
 /// AzVideoCut's words in English and German.
 mod l10n;
 #[cfg(test)]
@@ -42,7 +49,7 @@ pub mod sample;
 pub mod store;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -73,6 +80,7 @@ use azul::{
         StatusBarSegmentVec, StringVec, TimelineClipVec, TimelineTrackVec,
         U8Vec, U8VecRef,
     },
+    audio::AudioFileDecoder,
     video::{VideoDecoder, VideoEncoder},
     widgets::{
         AboutDialog, ButtonType, Dialog, DialogState, NumberInputState, ProgressDialog, Segmented,
@@ -85,9 +93,11 @@ use azul_appkit::{
     about::AboutInfo,
     args::LanguagePref,
     l10n::{named, t, t_args, t_label, Arg},
+    pieces::Clickable,
     shortcuts::Shortcut,
     ui as kit,
 };
+use azul_pim::write_queue::{run_batch, BatchResult, CloseHold, MainClose, Write, WriteQueue};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
@@ -240,8 +250,18 @@ pub struct VideoCut {
     source_frame: Option<(u64, Frame, Canvas)>,
     program_job: Coalesce,
     source_job: Coalesce,
+    /// The project's saves: one batch in flight, the newest project waiting behind it, so an
+    /// older snapshot never lands after a newer one.
+    writes: WriteQueue,
+    /// The window's close, held while saves land; a save that failed is said once.
+    close_hold: CloseHold,
     /// The bin's thumbnails and the clips' heads.
     thumbs: HashMap<u64, ImageRef>,
+    /// The levels of each media item with sound that were read, for the meters.
+    levels: HashMap<u64, levels::Envelope>,
+    /// The media items whose levels were asked for (read or on their way), so each file is
+    /// read once.
+    levels_asked: HashSet<u64>,
     playback: Option<Playback>,
     export: ExportState,
     /// azul-appkit's kit: settings (theme and mode remembered), the
@@ -314,8 +334,8 @@ enum Job {
         sample_id: Option<String>,
         project: Option<String>,
     },
-    /// Write `project.json`.
-    Save { project: Project },
+    /// A batch of the write queue (`project.json` saves).
+    Write(Vec<Write>),
     /// The program picture at `frame`.
     Render {
         project: Project,
@@ -334,6 +354,8 @@ enum Job {
     },
     /// Probe and add the files at `paths`.
     Import { paths: Vec<String>, fps: u32 },
+    /// Read the levels of `media`'s sound for the meters.
+    Levels { media: MediaItem },
     /// Render, encode, mux and store an export.
     Export {
         project: Project,
@@ -357,10 +379,7 @@ enum Outcome {
         sample_encoded: Option<bool>,
     },
     NoProject,
-    Saved {
-        id: String,
-        result: Result<(), String>,
-    },
+    Written(BatchResult),
     Rendered {
         frame: Frame,
         revision: u64,
@@ -376,6 +395,10 @@ enum Outcome {
     Imported {
         items: Vec<(MediaItem, Option<Canvas>)>,
         errors: Vec<String>,
+    },
+    Levels {
+        media: u64,
+        result: Result<levels::Envelope, String>,
     },
     Exported {
         result: Result<(String, usize, OutputFormat), String>,
@@ -450,10 +473,7 @@ fn run_job(job: Job, drive: &Arc<dyn Drive>, files: &Arc<MediaFiles>) -> Outcome
                 sample_encoded: None,
             }
         }
-        Job::Save { project } => Outcome::Saved {
-            id: project.id.clone(),
-            result: store::save_project(drive.as_ref(), &project),
-        },
+        Job::Write(batch) => Outcome::Written(run_batch(drive.as_ref(), batch)),
         Job::Render {
             project,
             frame,
@@ -498,8 +518,11 @@ fn run_job(job: Job, drive: &Arc<dyn Drive>, files: &Arc<MediaFiles>) -> Outcome
                 let probed = std::fs::read(&path)
                     .map_err(|e| format!("{name}: {e}"))
                     .and_then(|bytes| decode::probe(&bytes, THUMB_W, THUMB_H).map_err(|e| format!("{name}: {e}")));
-                match probed {
-                    Ok(probe) => {
+                // The sound: an MP4's sound track, or a file that is sound alone.
+                let sound = AudioFileDecoder::open(AzString::from(path.as_str()));
+                let sound = sound.is_open().then(|| sound.info());
+                match (probed, sound) {
+                    (Ok(probe), sound) => {
                         #[allow(clippy::cast_possible_truncation)]
                         let frames = (probe.duration_ms / 1000.0 * f64::from(fps)).floor() as Frame;
                         items.push((
@@ -513,15 +536,72 @@ fn run_job(job: Job, drive: &Arc<dyn Drive>, files: &Arc<MediaFiles>) -> Outcome
                                 fps: f64::from(probe.fps),
                                 codec: String::from("H.264"),
                                 has_video: true,
-                                has_audio: false,
+                                has_audio: sound.is_some(),
                             },
                             probe.thumbnail,
                         ));
                     }
-                    Err(e) => errors.push(e),
+                    (Err(_), Some(sound)) => {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let frames = (sound.duration_s * f64::from(fps)).floor() as Frame;
+                        items.push((
+                            MediaItem {
+                                id: 0,
+                                name,
+                                source: MediaSource::Path { path },
+                                frames: frames.max(1),
+                                width: 0,
+                                height: 0,
+                                fps: 0.0,
+                                codec: sound.codec.as_str().to_string(),
+                                has_video: false,
+                                has_audio: true,
+                            },
+                            None,
+                        ));
+                    }
+                    (Err(e), None) => errors.push(e),
                 }
             }
             Outcome::Imported { items, errors }
+        }
+        Job::Levels { media } => {
+            let mut decoder = match &media.source {
+                MediaSource::Path { path } => AudioFileDecoder::open(AzString::from(path.as_str())),
+                MediaSource::Stored { key } => {
+                    let extension = key.rsplit_once('.').map_or("", |(_, ext)| ext).to_string();
+                    match files.bytes(&media, drive.as_ref()) {
+                        Ok(bytes) => AudioFileDecoder::create(
+                            U8Vec::from_vec(bytes.to_vec()),
+                            AzString::from(extension),
+                        ),
+                        Err(e) => {
+                            return Outcome::Levels {
+                                media: media.id,
+                                result: Err(e),
+                            }
+                        }
+                    }
+                }
+                MediaSource::Generated { .. } => {
+                    return Outcome::Levels {
+                        media: media.id,
+                        result: Err(String::from("a generated item has no sound")),
+                    }
+                }
+            };
+            let result = if decoder.is_open() {
+                Ok(levels::envelope_from(&mut decoder))
+            } else {
+                Err(decoder
+                    .error_message()
+                    .into_option()
+                    .map_or_else(|| String::from("no sound"), |why| why.as_str().to_string()))
+            };
+            Outcome::Levels {
+                media: media.id,
+                result,
+            }
         }
         Job::Export {
             project,
@@ -567,6 +647,21 @@ extern "C" fn job_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: 
     )));
 }
 
+/// Reads the levels of every media item with sound not asked for yet, each on a worker.
+fn request_levels(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) {
+    let wanted: Vec<MediaItem> = app.project.as_ref().map_or_else(Vec::new, |p| {
+        p.media
+            .iter()
+            .filter(|m| m.has_audio && !m.is_generated() && !app.levels_asked.contains(&m.id))
+            .cloned()
+            .collect()
+    });
+    for media in wanted {
+        app.levels_asked.insert(media.id);
+        spawn(info, app_ref, app, Job::Levels { media });
+    }
+}
+
 /// Starts `job` on a worker.
 fn spawn(info: &mut CallbackInfo, app_ref: &RefAny, app: &VideoCut, job: Job) {
     info.add_thread(
@@ -583,10 +678,45 @@ fn spawn(info: &mut CallbackInfo, app_ref: &RefAny, app: &VideoCut, job: Job) {
     );
 }
 
-/// Saves the project (after an edit).
-fn save(info: &mut CallbackInfo, app_ref: &RefAny, app: &VideoCut) {
-    if let Some(project) = app.project.clone() {
-        spawn(info, app_ref, app, Job::Save { project });
+/// Saves the project (after an edit) through the write queue: one save in flight, the newest
+/// project waiting behind it.
+fn save(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) {
+    if let Some(project) = app.project.as_ref() {
+        store::queue_project(&mut app.writes, project);
+    }
+    pump_writes(info, app_ref, app);
+}
+
+/// Starts the write queue's next batch when none is in flight.
+fn pump_writes(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) {
+    if let Some(batch) = app.writes.take() {
+        spawn(info, app_ref, app, Job::Write(batch));
+    }
+}
+
+/// The window is asked to close: it waits for the saves on their way (`on_job_done` closes it
+/// once they landed), and says once what did not land.
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
+        return Update::DoNothing;
+    };
+    let app = &mut *guard;
+    let failures = app.writes.failures().len();
+    match app.close_hold.request(!app.writes.is_idle(), failures) {
+        MainClose::Close => Update::DoNothing,
+        MainClose::Wait => {
+            announce("CLOSE_WAITS");
+            pump_writes(&mut info, &app_ref, app);
+            // Last: the veto rides on whatever this callback queued.
+            info.prevent_window_close();
+            Update::DoNothing
+        }
+        MainClose::Tell => {
+            app.status = t_args("azvideocut-changes-not-saved", &[("count", Arg::from(failures))]);
+            info.prevent_window_close();
+            Update::RefreshDom
+        }
     }
 }
 
@@ -632,6 +762,7 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
                         });
                     }
                     request_program_frame(&mut info, &app_ref, app);
+                    request_levels(&mut info, &app_ref, app);
                 }
                 Err(e) => {
                     app.status = e.clone();
@@ -644,15 +775,40 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
             app.loading = false;
             Update::RefreshDom
         }
-        Outcome::Saved { id, result } => {
-            match result {
-                Ok(()) => announce(&format!("SAVED {id}")),
-                Err(e) => {
-                    app.status = e.clone();
-                    announce(&format!("ERROR {e}"));
+        Outcome::Written(result) => {
+            for key in &result.done {
+                if let Some(id) = store::project_id_of(key) {
+                    announce(&format!("SAVED {id}"));
                 }
             }
-            Update::DoNothing
+            let mut refresh = false;
+            for (_, why) in &result.failed {
+                app.status = t_args("azvideocut-save-failed", &[("why", Arg::from(why.as_str()))]);
+                announce(&format!("ERROR {why}"));
+                refresh = true;
+            }
+            app.writes.finish(result.failed);
+            pump_writes(&mut info, &app_ref, app);
+            let failures = app.writes.failures().len();
+            match app.close_hold.landed(!app.writes.is_idle(), failures) {
+                Some(MainClose::Close) => {
+                    announce("CLOSED_AFTER_SAVE");
+                    info.close_window();
+                }
+                Some(_) => {
+                    // Not lost without a word: the window stays, says so, and the next close
+                    // passes.
+                    app.status =
+                        t_args("azvideocut-changes-not-saved", &[("count", Arg::from(failures))]);
+                    refresh = true;
+                }
+                None => {}
+            }
+            if refresh {
+                Update::RefreshDom
+            } else {
+                Update::DoNothing
+            }
         }
         Outcome::Rendered {
             frame,
@@ -720,8 +876,30 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
                 )
             };
             save(&mut info, &app_ref, app);
+            request_levels(&mut info, &app_ref, app);
             Update::RefreshDom
         }
+        Outcome::Levels { media, result } => match result {
+            Ok(envelope) => {
+                announce(&format!("LEVELS {media} {}", envelope.peaks.len()));
+                app.levels.insert(media, envelope);
+                // The meters change only when the file sounds at the playhead.
+                let sounds = app.project.as_ref().is_some_and(|p| {
+                    levels::sounding_at(p, app.playhead)
+                        .iter()
+                        .any(|(m, _)| *m == media)
+                });
+                if sounds {
+                    Update::RefreshDom
+                } else {
+                    Update::DoNothing
+                }
+            }
+            Err(e) => {
+                announce(&format!("ERROR levels {media}: {e}"));
+                Update::DoNothing
+            }
+        },
         Outcome::Exported { result } => {
             match result {
                 Ok((key, bytes, format)) => {
@@ -840,6 +1018,10 @@ fn start_source_render(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut Vide
     let Some(media) = app.project.as_ref().and_then(|p| p.media(marks.media)).cloned() else {
         return;
     };
+    // Sound alone has no picture to show.
+    if !media.has_video {
+        return;
+    }
     let fps = app.fps();
     app.source_job.running = true;
     spawn(
@@ -1087,8 +1269,8 @@ const METERS_CSS: &str = "display: flex; flex-direction: column; align-items: ce
      padding: 6px 4px; background-color: system:window-background;";
 const METER_ROW_CSS: &str = "display: flex; flex-direction: row; flex-grow: 1; min-height: 40px; \
      margin: 6px 0px;";
-const METER_CSS: &str = "width: 8px; margin: 0px 3px; background-color: system:control-background; \
-     border-radius: 2px;";
+const METER_CSS: &str = "position: relative; overflow: hidden; width: 8px; margin: 0px 3px; \
+     background-color: system:control-background; border-radius: 2px;";
 const TOOLBAR_CSS: &str = "display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; \
      padding: 4px 8px; background-color: system:window-background; @theme(flora) { \
      background-color: #E9E7E2; border-bottom: 1px solid system:separator; @media \
@@ -1208,6 +1390,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app_ref.clone(),
             on_key,
         )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app_ref.clone(),
+            on_close_requested,
+        )
 }
 
 /// No project yet: make the sample or start an empty one.
@@ -1239,7 +1426,7 @@ fn editor(app: &VideoCut, app_ref: &RefAny) -> Dom {
         timeline_pane(app, app_ref),
     )
     .with_menu_bar(menu_row(app, app_ref))
-    .with_meters(meters())
+    .with_meters(meters(app))
     .office_shell()
     .with_status_bar(status_bar(app))
     .dom()
@@ -1342,11 +1529,7 @@ fn media_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
                         .with_child(text(&m.name, BIN_NAME_CSS))
                         .with_child(text(&media_line(app, m), NOTE_CSS)),
                 )
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    item_data.clone(),
-                    on_bin_click,
-                )
+                .clickable(&m.name, item_data.clone(), on_bin_click)
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::DoubleClick),
                     item_data,
@@ -1687,21 +1870,41 @@ fn timeline_pane(app: &VideoCut, app_ref: &RefAny) -> Dom {
         )
 }
 
-/// The audio meters. azul decodes no audio (AudioSink plays PCM, there is
-/// no audio decoder), so the A tracks hold clips that play silent and the
-/// meters say so.
-fn meters() -> Dom {
+/// The audio meters: the left and right level of the clips under the playhead (on the
+/// unmuted audio tracks), each a bar on a 60 dB scale - green, then yellow from -18 dB, red
+/// from -6 dB - and the louder channel's peak in dB under them. While playing they follow
+/// the playhead with the window's refreshes.
+fn meters(app: &VideoCut) -> Dom {
+    let level = app
+        .project
+        .as_ref()
+        .map_or([0.0; 2], |p| levels::reading(p, app.playhead, &app.levels));
+    let bar = |level: f32| {
+        let colour = match levels::peak_db(level) {
+            Some(db) if db >= -6 => "system:danger",
+            Some(db) if db >= -18 => "system:warning",
+            _ => "system:success",
+        };
+        Dom::create_div().with_css(METER_CSS).with_child(Dom::create_div().with_css(format!(
+            "position: absolute; left: 0px; right: 0px; bottom: 0px; height: {:.1}%; \
+             background-color: {colour};",
+            levels::fill(level) * 100.0
+        )))
+    };
+    let peak = match levels::peak_db(level[0].max(level[1])) {
+        Some(db) => t_args("azvideocut-peak-db", &[("db", Arg::from(db))]),
+        None => t("azvideocut-inf-db"),
+    };
     Dom::create_div()
         .with_css(METERS_CSS)
         .with_child(text("L  R", NOTE_CSS))
         .with_child(
             Dom::create_div()
                 .with_css(METER_ROW_CSS)
-                .with_child(Dom::create_div().with_css(METER_CSS))
-                .with_child(Dom::create_div().with_css(METER_CSS)),
+                .with_child(bar(level[0]))
+                .with_child(bar(level[1])),
         )
-        .with_child(text("azvideocut-inf-db", NOTE_CSS))
-        .with_child(text("azvideocut-no-audio-decoder", NOTE_CSS))
+        .with_child(Dom::create_p_with_text(AzString::from(peak)).with_css(NOTE_CSS))
 }
 
 /// The status bar: the last message, the tool, the snapping, the format.
@@ -2048,7 +2251,8 @@ fn open_in_source(
     Update::RefreshDom
 }
 
-/// Puts the source monitor's marked range on V1 at the playhead.
+/// Puts the source monitor's marked range at the playhead: on V1, or for sound alone on the
+/// first audio track.
 fn source_to_timeline(
     info: &mut CallbackInfo,
     app_ref: &RefAny,
@@ -2060,15 +2264,20 @@ fn source_to_timeline(
         return Update::RefreshDom;
     };
     let at = app.playhead;
+    let track = app
+        .project
+        .as_ref()
+        .and_then(|p| p.target_track(marks.media))
+        .unwrap_or(0);
     let Some(clip) = app.project.as_mut().and_then(|p| p.clip_from_marks(&marks)) else {
         app.status = t("azvideocut-out-before-in");
         return Update::RefreshDom;
     };
     let length = clip.length;
     let edit = if insert {
-        Edit::Insert { track: 0, at, clip }
+        Edit::Insert { track, at, clip }
     } else {
-        Edit::Overwrite { track: 0, at, clip }
+        Edit::Overwrite { track, at, clip }
     };
     let update = apply_edit(info, app_ref, app, edit);
     app.playhead = at + length;
@@ -2513,11 +2722,12 @@ extern "C" fn on_redo(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 extern "C" fn on_import(data: RefAny, _info: CallbackInfo) -> Update {
     let filter = OptionFileTypeList::Some(FileTypeList {
-        document_types: StringVec::from_vec(vec![
-            AzString::from("mp4"),
-            AzString::from("m4v"),
-            AzString::from("mov"),
-        ]),
+        document_types: StringVec::from_vec(
+            ["mp4", "m4v", "mov", "wav", "mp3", "flac", "m4a", "aac", "ogg", "opus"]
+                .into_iter()
+                .map(AzString::from)
+                .collect(),
+        ),
         document_descriptor: AzString::from(t("azvideocut-video-files")),
     });
     let _request = FileDialog::open_multiple_files(
@@ -3046,7 +3256,7 @@ extern "C" fn on_new_project(mut data: RefAny, mut info: CallbackInfo) -> Update
     app.project = Some(Project::create(id.clone(), String::from("Untitled"), 1280, 720, 25));
     app.revision += 1;
     announce(&format!("PROJECT {id} 0 0"));
-    save(&mut info, &app_ref, &app);
+    save(&mut info, &app_ref, &mut app);
     Update::RefreshDom
 }
 
@@ -3240,7 +3450,11 @@ pub fn start() {
         source_frame: None,
         program_job: Coalesce::default(),
         source_job: Coalesce::default(),
+        writes: WriteQueue::new(),
+        close_hold: CloseHold::default(),
         thumbs: HashMap::new(),
+        levels: HashMap::new(),
+        levels_asked: HashSet::new(),
         playback: None,
         export: ExportState {
             open: args.screen == Screen::Export,

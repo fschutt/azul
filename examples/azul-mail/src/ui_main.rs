@@ -168,8 +168,7 @@ const FLORA_PAPER: &str =
     "@theme(flora) { background: system:background; color: system:text; }";
 /// An error line in the reading pane: Material red under flat; flora's clay stone by day and
 /// its glow at night under flora (the red read 2.4:1 on the night leaf).
-const ERROR_LINE: &str = "padding: 16px; color: #b3261e; @theme(flora) { color: #7E4A42; \
-                          @media (prefers-color-scheme: dark) { color: #B3837A; } }";
+const ERROR_LINE: &str = "padding: 16px; color: system:danger;";
 /// The plain-text paper's font size and a line's height at 100 %.
 const PAPER_FONT_SIZE: f32 = 14.0;
 const PAPER_LINE_HEIGHT: f32 = 18.0;

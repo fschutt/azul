@@ -2,6 +2,8 @@
 //! WAV files in the data tree (`music/sample/...`) and their library entries - so the player, the
 //! queue and the now-playing bar can be tried (and the E2E script can run) without any music.
 
+use azul::{vec::F32Vec, widgets::Waveform};
+
 use crate::library::Track;
 
 /// One sample track: where it goes in the data tree, its bytes, its library entry (without a
@@ -27,30 +29,20 @@ pub const SAMPLE_RATE: u32 = 8_000;
 pub fn wav_tone(seconds: f64, freq: f64) -> Vec<u8> {
     let rate = SAMPLE_RATE;
     let frames = (seconds.max(0.0) * f64::from(rate)).round() as usize;
-    let data_len = (frames * 2) as u32;
-    let mut out = Vec::with_capacity(44 + frames * 2);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data_len).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    out.extend_from_slice(&1u16.to_le_bytes()); // mono
-    out.extend_from_slice(&rate.to_le_bytes());
-    out.extend_from_slice(&(rate * 2).to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_len.to_le_bytes());
     // 50 ms fades at each end.
     let fade = ((f64::from(rate) * 0.05) as usize).clamp(1, (frames / 2).max(1));
-    for i in 0..frames {
-        let gain = (i as f64 / fade as f64)
-            .min((frames - 1 - i) as f64 / fade as f64)
-            .min(1.0);
-        let v = (2.0 * std::f64::consts::PI * freq * i as f64 / f64::from(rate)).sin() * 0.5 * gain;
-        out.extend_from_slice(&((v * 32767.0).round() as i16).to_le_bytes());
-    }
-    out
+    let samples: Vec<f32> = (0..frames)
+        .map(|i| {
+            let gain = (i as f64 / fade as f64)
+                .min((frames - 1 - i) as f64 / fade as f64)
+                .min(1.0);
+            ((2.0 * std::f64::consts::PI * freq * i as f64 / f64::from(rate)).sin() * 0.5 * gain)
+                as f32
+        })
+        .collect();
+    Waveform::encode_wav(F32Vec::from(samples), rate, 1)
+        .as_ref()
+        .to_vec()
 }
 
 /// The sample tracks: two albums of three tones.

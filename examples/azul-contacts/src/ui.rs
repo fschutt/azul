@@ -60,11 +60,13 @@ use azul_appkit::{
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
     l10n::{date_text, label, named, t, t_args, t_text, Arg, DateStyle, Phrase, Text},
-    pieces::{block, button, column, flex_row, primary, strs, text},
+    pieces::{block, button, column, flex_row, primary, strs, text, Clickable},
     settings::AppSettings,
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
 };
+
+use azul_pim::write_queue::MainClose;
 
 use crate::book::{self, Filter, SortBy, ALPHABET};
 use crate::contact::{Address, Birthday, Contact, Labeled};
@@ -222,6 +224,9 @@ pub struct ContactsApp {
     /// The navigation pane's two groups.
     pub nav_open: [bool; 2],
     pub notice: String,
+    /// The contact files on their way to the drive, and the window's close held while they
+    /// land (a close no longer drops a save that was still being written).
+    pub writes: azul_appkit::files::PendingWrites,
     /// Delete was pressed: ask first.
     pub confirm_delete: bool,
     /// Pairs the user said are not duplicates (by UID).
@@ -283,6 +288,7 @@ impl ContactsApp {
             reading: Reading::Card,
             nav_open: [true, true],
             notice: String::new(),
+            writes: azul_appkit::files::PendingWrites::default(),
             confirm_delete: false,
             ignored,
             export_version: version,
@@ -453,9 +459,8 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
         children,
     )
     .with_class(ids::CONTACT_ROW_CLASS)
-    .with_accessibility_name(shown_name(c))
-    .with_callback(
-        EventFilter::Hover(HoverEventFilter::MouseUp),
+    .clickable(
+        &shown_name(c),
         RefAny::new(RowRef {
             app: app.clone(),
             uid: c.uid.clone(),
@@ -470,20 +475,19 @@ fn jump_bar(present: &[char]) -> Dom {
         .with_css("display: flex; flex-direction: column; width: 18px; flex-shrink: 0; font-size: 10px; padding-top: 4px;");
     for letter in ALPHABET {
         let has = present.contains(&letter);
-        bar.add_child(
-            Dom::create_div()
-                .with_id(ids::jump(letter))
-                .with_css(format!(
-                    "text-align: center; cursor: pointer; {}",
-                    if has { "font-weight: 700;" } else { "opacity: 0.35;" }
-                ))
-                .with_child(text(letter.to_string()))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    RefAny::new(LetterRef { letter }),
-                    on_jump,
-                ),
-        );
+        let cell = Dom::create_div()
+            .with_id(ids::jump(letter))
+            .with_css(format!(
+                "text-align: center; cursor: pointer; {}",
+                if has { "font-weight: 700;" } else { "opacity: 0.35;" }
+            ))
+            .with_child(text(letter.to_string()));
+        // Only a letter with contacts is a stop: the others jump nowhere.
+        bar.add_child(if has {
+            cell.clickable(&letter.to_string(), RefAny::new(LetterRef { letter }), on_jump)
+        } else {
+            cell
+        });
     }
     bar
 }
@@ -884,9 +888,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         children.push(
             // Under flora a problem is marked in its clay stone.
             column(
-                "padding: 6px 8px; border-left: 3px solid #c0392b; @theme(flora) { border-left: \
-                 3px solid #7E4A42; @media (prefers-color-scheme: dark) { border-left: 3px solid \
-                 #B3837A; } }",
+                "padding: 6px 8px; border-left: 3px solid system:danger;",
                 form.problems.iter().map(|p| Dom::create_div().with_child(text(t_text(p)))).collect(),
             )
                 .with_id(ids::EDIT_PROBLEMS),
@@ -1471,10 +1473,33 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     ShellThemeScope::create(root)
         .with_accent(ShellThemeAccent::Blue)
         .body()
-        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app.clone(), on_key)
+        .with_callback(EventFilter::Window(WindowEventFilter::CloseRequested), app, on_close_requested)
 }
 
 // ==== Callbacks: files ====
+
+/// The window is asked to close: it waits for the contact files on their way (their answer
+/// closes it, `on_files_done`), and says once what could not be written.
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<ContactsApp>() else {
+        return Update::DoNothing;
+    };
+    match s.writes.close_requested() {
+        MainClose::Close => Update::DoNothing,
+        MainClose::Wait => {
+            println!("AZCONTACTS_CLOSE_WAITS");
+            info.prevent_window_close();
+            Update::DoNothing
+        }
+        MainClose::Tell => {
+            let failed = s.writes.failed();
+            s.notice = t_args("azcontacts-not-written-close", &[("count", Arg::from(failed))]);
+            info.prevent_window_close();
+            Update::RefreshDom
+        }
+    }
+}
 
 /// Runs `f` on the app's state; the window is rebuilt afterwards.
 fn with_app(
@@ -1536,7 +1561,11 @@ fn avatar(s: &ContactsApp, c: &Contact, size: AvatarSize) -> Dom {
     a.dom()
 }
 
-fn write_files(s: &ContactsApp, info: &mut CallbackInfo, app: &RefAny, jobs: Vec<FileJob>, tag: u64) {
+fn write_files(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, jobs: Vec<FileJob>, tag: u64) {
+    if jobs.is_empty() {
+        return;
+    }
+    s.writes.started();
     kit::spawn_file_jobs(info, &s.data_root, jobs, app.clone(), tag, on_files_done);
 }
 
@@ -1790,6 +1819,17 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
             }
             if failed > 0 {
                 s.notice = t_args("azcontacts-not-written", &[("count", Arg::from(failed))]);
+            }
+            match s.writes.answered(&reply.outcomes) {
+                Some(MainClose::Close) => {
+                    println!("AZCONTACTS_CLOSED_AFTER_WRITES");
+                    info.close_window();
+                }
+                Some(_) => {
+                    let failed = s.writes.failed();
+                    s.notice = t_args("azcontacts-not-written-close", &[("count", Arg::from(failed))]);
+                }
+                None => {}
             }
         }
         _ => {}

@@ -165,7 +165,11 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
                 return Update::RefreshDomAllWindows;
             }
             PAGE_EXIT => {
-                info.close_window();
+                if s.composes.is_empty() {
+                    info.close_window();
+                } else {
+                    crate::ui_compose::quit_after_messages(s, &mut info, &app);
+                }
             }
             PAGE_PRINT => {
                 s.editor = None;

@@ -6,7 +6,8 @@
        editor no title or tag field; creates a note (the "New note" button) and types it: its
        first line is its title, then the body WITH MARKDOWN SHORTCUTS - "# " (heading), "- "
        (bullets), Enter on an empty item (out of the list), "[ ] " (a check item) - and an inline
-       "#errands" (its tag); the list names it by its first line; pins it;
+       "#errands" (its tag); the list names it by its first line; then a paragraph in Arabic,
+       which must stand at the note's right edge (the Latin one above it at the left); pins it;
     3. waits for the autosave and reads the note's FILE back from disk:
        notes/Notes/<id>.md with its front matter (title, tags, pinned) and Markdown body;
     4. searches the list ("bakery" finds the note, "bakeryzz" finds nothing);
@@ -174,6 +175,10 @@ class App:
     def shows(self, text):
         return any(text in t for t in self.texts())
 
+    def has_id(self, name):
+        """Whether a node of the window has the id `name` (without the '#')."""
+        return any(d.get("id") == name for d in dicts(self.op("get_node_hierarchy")))
+
     def classes(self):
         out = set()
         for d in dicts(self.op("get_node_hierarchy")):
@@ -304,6 +309,7 @@ def first_session(app, data, out):
     app.type("for the weekend #errands")
     app.until("the tag in the navigation", lambda: app.shows("#errands (1)"))
     app.until("the list names the note by its first line", lambda: app.shows("Shopping list"))
+    arabic_reads_from_the_right(app, out)
 
     # The pin.
     app.click("#__aznotes_pin-note")
@@ -356,6 +362,76 @@ def first_session(app, data, out):
     app.screenshot(os.path.join(out, "settings.png"))
     app.key("escape")
     return note_id
+
+
+# "Hello, world" in Arabic: a paragraph in a right-to-left script.
+ARABIC = "\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645"
+
+
+def ink_columns(path, rect, scale):
+    """The leftmost and rightmost pixel columns (logical px) of the screenshot at `path` inside
+    the logical `rect` that differ clearly from the rect's most common colour (its paper), or
+    None when nothing is drawn there."""
+    _, _, rows = azlin_e2e.read_png(path)
+    x0, y0 = int(rect["x"] * scale), int(rect["y"] * scale)
+    x1, y1 = int((rect["x"] + rect["width"]) * scale), int((rect["y"] + rect["height"]) * scale)
+    counts = {}
+    for y in range(max(y0, 0), min(y1, len(rows))):
+        for x in range(max(x0, 0), min(x1, len(rows[y]))):
+            counts[rows[y][x][:3]] = counts.get(rows[y][x][:3], 0) + 1
+    if not counts:
+        return None
+    paper = max(counts, key=counts.get)
+    columns = [x for y in range(max(y0, 0), min(y1, len(rows)))
+               for x in range(max(x0, 0), min(x1, len(rows[y])))
+               if sum(abs(a - b) for a, b in zip(rows[y][x][:3], paper)) > 150]
+    if not columns:
+        return None
+    return min(columns) / scale, max(columns) / scale
+
+
+def arabic_reads_from_the_right(app, out):
+    """A paragraph typed in Arabic stands at the note's right edge on its own (its direction
+    comes from its first strong letter, as `dir=auto` does in a browser), while the Latin
+    paragraph above it stays at the left edge."""
+    app.key("return")
+    app.type(ARABIC)
+    app.frame(3)
+    nodes = list(dicts(app.op("get_node_hierarchy")))
+    by_index = {d.get("index"): d for d in nodes}
+
+    def block_of(text):
+        # The editor's blocks are `<host id>-<index>`; the list's preview shows the same words.
+        for d in nodes:
+            if text in (d.get("text") or ""):
+                block = by_index.get(d.get("parent"))
+                if (block and block.get("rect")
+                        and (block.get("id") or "").startswith("__aznotes_note-body-")):
+                    return block["rect"]
+        raise Failure("no block of the note holds %r" % text)
+
+    arabic, latin = block_of(ARABIC), block_of("for the weekend")
+    path = os.path.join(out, "arabic.png")
+    app.screenshot(path)
+    width = azlin_e2e.read_png(path)[0]
+    scale = width / 1200.0
+    found = []
+    for name, rect, side in (("Arabic", arabic, "right"), ("Latin", latin, "left")):
+        ink = ink_columns(path, rect, scale)
+        if ink is None:
+            found.append("the %s paragraph draws nothing in its block %s" % (name, rect))
+            continue
+        left, right = ink
+        if side == "right" and (rect["x"] + rect["width"] - right > 24 or left < rect["x"] + rect["width"] / 2):
+            found.append("the Arabic paragraph's ink spans x %.0f..%.0f in its block x %.0f..%.0f: "
+                         "it does not stand at the right edge"
+                         % (left, right, rect["x"], rect["x"] + rect["width"]))
+        if side == "left" and left - rect["x"] > 24:
+            found.append("the Latin paragraph's ink starts at x %.0f, %.0f px into its block"
+                         % (left, left - rect["x"]))
+    if found:
+        raise Failure("; ".join(found) + " (screenshot %s)" % path)
+    log("the Arabic paragraph stands at the right edge, the Latin one at the left")
 
 
 def looks(app, out):

@@ -22,6 +22,9 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-storage = { path = "../azul-storage", features = ["azul"] }
 # The app skeleton: switches, data root, settings, shortcuts, About, UndoHistory.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The write queue the PIM apps save through: one save in flight, the newest waiting, and the
+# close held while saves land. In the tree, no new crates.
+azul-pim = { path = "../azul-pim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

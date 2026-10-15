@@ -51,6 +51,7 @@ use azul::{
     str::String as AzString,
     time::SystemTimeDiff,
     vec::StringVec,
+    widgets::{CloseGuardEvent, CloseGuardEventKind},
 };
 use azul_appkit::{
     about::AboutInfo,
@@ -232,10 +233,16 @@ pub struct AppState {
     pub search: SearchState,
     /// The form's values as the user has them.
     pub form: FormValues,
+    /// The window's close was held: the "Save changes?" question shows.
+    pub asking_close: bool,
+    /// "Save" on that question: the window closes once the filled copy is saved.
+    pub close_after_fill: bool,
     /// Scroll to this page once the view has laid out (after an open or a
     /// zoom change).
     pub pending_scroll: Option<usize>,
     pub status: String,
+    /// The toolbar's measured fit (its Resize events).
+    pub toolbar_fit: azul_appkit::pieces::ToolbarFit,
     pub pump: TimerId,
     /// From the command line: a PDF to open, the sample to make.
     pub open_on_start: Option<String>,
@@ -275,8 +282,11 @@ impl AppState {
             last_recent_save: StdInstant::now(),
             search: SearchState::default(),
             form: FormValues::default(),
+            asking_close: false,
+            close_after_fill: false,
             pending_scroll: None,
             status: String::new(),
+            toolbar_fit: azul_appkit::pieces::ToolbarFit::default(),
             pump: TimerId::unique(),
             open_on_start,
             sample,
@@ -893,11 +903,13 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
         Outcome::Filled {
             generation,
             name,
+            values,
             result,
         } => {
             if generation != s.generation {
                 return Update::DoNothing;
             }
+            let mut saved = false;
             match result {
                 Ok(bytes) => {
                     let len = bytes.len();
@@ -905,9 +917,16 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                     {
                         println!("AZPDF_FILLED {len}");
                         s.status = t_args("azpdf-saved", &[("name", Arg::from(&name))]);
+                        s.form.keep(&values);
+                        saved = true;
                     }
                 }
                 Err(why) => s.status = t_args("azpdf-not-filled", &[("why", Arg::from(why))]),
+            }
+            if std::mem::take(&mut s.close_after_fill) && saved && !s.form.unsaved() {
+                // "Save" on the close's question: the filled copy is saved, the window goes.
+                println!("AZPDF_CLOSED_AFTER_FILL");
+                info.close_window();
             }
             Update::RefreshDom
         }
@@ -1252,8 +1271,37 @@ pub extern "C" fn on_export_filled(mut data: RefAny, mut info: CallbackInfo) -> 
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    let Some((pdf, title)) = s.doc.as_ref().map(|d| (d.pdf.clone(), d.title.clone())) else {
+    if export_filled(&mut s, &mut info, &handle) {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// The close guard: a close was asked while the form holds values no saved copy has, or the
+/// question was answered (Save makes the filled copy and closes once it is saved).
+pub extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: CloseGuardEvent) -> Update {
+    let handle = data.clone();
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
+    };
+    match event.kind {
+        CloseGuardEventKind::Ask => s.asking_close = true,
+        CloseGuardEventKind::Save => {
+            s.asking_close = false;
+            let started = export_filled(&mut s, &mut info, &handle);
+            s.close_after_fill = started;
+        }
+        CloseGuardEventKind::Discard | CloseGuardEventKind::Cancel => s.asking_close = false,
+    }
+    Update::RefreshDom
+}
+
+/// Starts the filled copy of the open document (on a Thread, then offered in a save dialog);
+/// `false` without a document.
+fn export_filled(s: &mut AppState, info: &mut CallbackInfo, handle: &RefAny) -> bool {
+    let Some((pdf, title)) = s.doc.as_ref().map(|d| (d.pdf.clone(), d.title.clone())) else {
+        return false;
     };
     s.status = t("azpdf-filling-form");
     let job = Job::Fill {
@@ -1263,8 +1311,8 @@ pub extern "C" fn on_export_filled(mut data: RefAny, mut info: CallbackInfo) -> 
         stamps: Vec::new(),
         name: filled_name(&title),
     };
-    spawn(&mut info, &handle, job);
-    Update::RefreshDom
+    spawn(info, handle, job);
+    true
 }
 
 /// The toolbar's gear: azul-appkit's settings page.

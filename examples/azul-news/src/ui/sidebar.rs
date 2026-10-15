@@ -287,7 +287,7 @@ fn source_section(s: &NewsApp, app: &RefAny, i: usize) -> Dom {
     if !f.meta.error.is_empty() {
         tail.push(
             Dom::create_icon("error")
-                .with_css("font-size: 13px; flex-shrink: 0; color: #c0392b;"),
+                .with_css("font-size: 13px; flex-shrink: 0; color: system:danger;"),
         );
     }
     if f.sub.paused {

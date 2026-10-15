@@ -11,6 +11,7 @@
 //! `S3Drive` replaces it with no other change. Every call blocks, so the app
 //! makes them on an azul `Thread`, never in a callback.
 
+use azul_pim::write_queue::WriteQueue;
 use azul_storage::Drive;
 
 use crate::model::Project;
@@ -56,6 +57,11 @@ pub fn project_id_of(key: &str) -> Option<&str> {
     let rest = key.strip_prefix(APP_FOLDER)?.strip_prefix('/')?;
     let (id, file) = rest.split_once('/')?;
     (file == "project.json" && !id.is_empty()).then_some(id)
+}
+
+/// Queues a save of `project.json` on the app's write queue.
+pub fn queue_project(queue: &mut WriteQueue, project: &Project) {
+    queue.put(project_key(&project.id), project.to_json().into_bytes());
 }
 
 /// Writes `project.json`.

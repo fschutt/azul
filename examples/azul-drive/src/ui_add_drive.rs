@@ -149,7 +149,7 @@ fn line(text: &str) -> Dom {
 fn error_line(text: &str) -> Dom {
     line(text)
         .with_id(ids::ADD_ERROR)
-        .with_css("color: #C42B1C;")
+        .with_css("color: system:danger;")
 }
 
 fn heading(text: &str) -> Dom {
@@ -1140,7 +1140,7 @@ fn sign_in_row(
     );
     let mut status = note(&text).with_id(ids::ADD_SIGN_IN_STATUS);
     if failed {
-        status = status.with_css("color: #C42B1C; opacity: 1;");
+        status = status.with_css("color: system:danger; opacity: 1;");
     }
     column(vec![
         Dom::create_div()
@@ -1208,7 +1208,7 @@ fn form(d: &AddDialog, sign_in: &SignInSettings, app: &RefAny) -> Dom {
     if let Some((text, failed)) = status {
         let mut status = line(&text).with_id(ids::ADD_STATUS);
         if failed {
-            status = status.with_css("color: #C42B1C;");
+            status = status.with_css("color: system:danger;");
         }
         children.push(status);
     }

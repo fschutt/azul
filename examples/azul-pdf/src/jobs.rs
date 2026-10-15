@@ -160,10 +160,11 @@ pub enum Outcome {
     Sample {
         result: Result<Vec<u8>, String>,
     },
-    /// The filled PDF's bytes, to save as `name`.
+    /// The filled PDF's bytes, to save as `name`, and the values it was filled with.
     Filled {
         generation: u64,
         name: String,
+        values: Vec<(String, String)>,
         result: Result<Vec<u8>, String>,
     },
 }
@@ -254,6 +255,7 @@ pub extern "C" fn job_thread(
                 Outcome::Filled {
                     generation,
                     name,
+                    values,
                     result,
                 },
             );

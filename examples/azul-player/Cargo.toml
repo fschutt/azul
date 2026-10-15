@@ -25,6 +25,8 @@ azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The history file (already in the tree).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The local time zone for the clock (as AzNotes and azul-appkit build it; in the tree).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
 [lib]
 name = "azplayer"

@@ -38,3 +38,20 @@ fn switching_the_language_changes_a_label_of_azcode() {
     assert_eq!(t("azcode-menu-file"), "Datei");
     set_locale("en-US");
 }
+
+/// AzCode's notices are said in the window's language, the drive's own words inside them.
+#[test]
+fn the_search_and_sample_notices_are_said_in_the_windows_language() {
+    crate::l10n::in_english();
+    assert_eq!(crate::commands::search_failed("denied"), "The folder could not be searched: denied");
+    set_locale("de-DE");
+    assert_eq!(
+        crate::commands::search_failed("denied"),
+        "Der Ordner konnte nicht durchsucht werden: denied"
+    );
+    assert_eq!(
+        crate::commands::sample_failed("full"),
+        "Das Beispiel konnte nicht geschrieben werden: full"
+    );
+    set_locale("en-US");
+}

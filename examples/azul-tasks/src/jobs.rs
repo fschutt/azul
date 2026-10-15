@@ -317,6 +317,21 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
         }
     }
     pump(&mut info, &handle, s);
+    let failures = s.queue.failures().len();
+    match s.close_hold.landed(!s.queue.is_idle(), failures) {
+        Some(store::MainClose::Close) => {
+            println!("AZTASKS_CLOSED_AFTER_WRITES");
+            info.close_window();
+        }
+        Some(_) => {
+            // Not lost without a word: the window stays, says so, and the next close passes.
+            s.files.last_error = azul_appkit::l10n::t_args(
+                "aztasks-changes-not-written",
+                &[("count", azul_appkit::l10n::Arg::from(failures))],
+            );
+        }
+        None => {}
+    }
     Update::RefreshDom
 }
 

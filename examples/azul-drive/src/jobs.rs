@@ -485,10 +485,12 @@ pub(crate) enum Outcome {
         drive_id: String,
         counts: Vec<(String, usize)>,
     },
-    /// A tree node's folders (sorted, without case) and how many items it holds in all.
+    /// A tree node's folders (sorted, without case) and how many items it holds in all, and
+    /// (on this computer) which of those folders hold no folder: the tree's leaves.
     Folders {
         node: TreeKey,
         result: Result<(Vec<String>, usize), DriveError>,
+        leaves: Vec<String>,
     },
     Planned {
         id: u64,
@@ -1140,6 +1142,25 @@ fn count_items(root: &Path, key: &str, show_hidden: bool) -> Option<usize> {
 /// The most pages a tree node's listing of a bucket reads (a folder's subfolders come with its
 /// first keys; a folder of millions of objects is not walked to its end to expand a node).
 const TREE_PAGES: usize = 20;
+
+/// Whether the folder at `dir` on this computer holds a folder: one `read_dir`, ended at the
+/// first one. A hidden folder counts (the tree may show it), a temporary file's never does.
+pub(crate) fn has_subfolder(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| listing::listed_name(name, false))
+            && entry_kind(&entry) == Some(true)
+    })
+}
+
+/// The most folders of one listing whose own folders are looked for (a folder of thousands of
+/// folders keeps its expanders until each is opened).
+const LEAF_CHECKS: usize = 256;
 
 /// A tree node's folders, sorted without case, and how many items the node holds: on this
 /// computer one `read_dir` with the kinds it reports - no stat per entry -, in a bucket its
@@ -2591,10 +2612,22 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 .collect(),
             drive_id,
         },
-        Job::Folders { drive, dir, node } => Outcome::Folders {
-            result: tree_folders(&*drive, dir.as_deref(), &node),
-            node,
-        },
+        Job::Folders { drive, dir, node } => {
+            let result = tree_folders(&*drive, dir.as_deref(), &node);
+            let leaves = match (&result, dir.as_deref()) {
+                (Ok((folders, _)), Some(dir)) if folders.len() <= LEAF_CHECKS => folders
+                    .iter()
+                    .filter(|f| !has_subfolder(&dir.join(azul_storage::key::last_segment(f))))
+                    .cloned()
+                    .collect(),
+                _ => Vec::new(),
+            };
+            Outcome::Folders {
+                result,
+                node,
+                leaves,
+            }
+        }
         Job::Plan {
             id,
             source,

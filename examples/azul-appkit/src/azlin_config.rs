@@ -557,6 +557,21 @@ impl EndpointsSection {
         }
     }
 
+    /// The address of the service `name` (`token`, `tiles`): a known endpoint's checked value
+    /// ([`EndpointsSection::get`]), another key's string as written (trimmed); `None` = no
+    /// opinion.
+    #[must_use]
+    pub fn named(&self, name: &str) -> Option<&str> {
+        if let Some(endpoint) = Endpoint::ALL.iter().find(|e| e.key() == name) {
+            return self.get(*endpoint);
+        }
+        self.rest
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
+
     /// Sets (with `None`: clears) the address of `endpoint`; a value the file
     /// held that could not be used goes too.
     ///
@@ -1161,6 +1176,20 @@ pub fn resolve_endpoints(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_service_is_read_by_its_key_known_ones_checked_others_as_written() {
+        let (config, _) = AzlinConfig::parse(
+            r#"{"endpoints": {"token": "https://t.example/", "tiles": " http://127.0.0.1:8099/tiles/{z}/{x}/{y}.pbf ", "s3": "not an address"}}"#,
+        );
+        assert_eq!(config.endpoints.named("token"), Some("https://t.example"));
+        assert_eq!(
+            config.endpoints.named("tiles"),
+            Some("http://127.0.0.1:8099/tiles/{z}/{x}/{y}.pbf")
+        );
+        assert_eq!(config.endpoints.named("s3"), None, "no address: reported, never used");
+        assert_eq!(config.endpoints.named("meet"), None, "a service the section does not name");
+    }
 
     #[test]
     fn the_config_lives_in_the_home_folder_unless_the_environment_says_otherwise() {

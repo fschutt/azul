@@ -22,31 +22,6 @@ pub const TAG_IMPORT: u64 = 4;
 /// The folder an export goes to, in the data folder (the data tree is what a sync sees).
 pub const EXPORTS_DIR: &str = "exports";
 
-/// What a close request does to the main window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MainClose {
-    /// Nothing waits (or the user was told what did not land): the window closes.
-    Close,
-    /// Writes wait or are on their way: the close is held, and the window closes once they
-    /// landed.
-    Wait,
-    /// Writes did not land: the close is held once, and the user is told.
-    Tell,
-}
-
-/// What a close request does to the main window: `waiting` writes are queued or on their way,
-/// `failures` did not land, and the user was `told` about them already.
-#[must_use]
-pub fn main_close(waiting: bool, failures: usize, told: bool) -> MainClose {
-    if waiting {
-        MainClose::Wait
-    } else if failures > 0 && !told {
-        MainClose::Tell
-    } else {
-        MainClose::Close
-    }
-}
-
 /// The file jobs that write `batch`, in order.
 #[must_use]
 pub fn jobs_of(batch: &[Write]) -> Vec<FileJob> {
@@ -171,17 +146,6 @@ mod tests {
         let failed = failures_of(&batch, &short);
         assert_eq!(failed.len(), 1);
         assert_eq!(failed[0].0.key(), "events/b.json");
-    }
-
-    /// Closing the calendar loses no change: it waits for the writes on their way, and a write
-    /// that did not land is said once before the window goes.
-    #[test]
-    fn the_main_window_closes_once_every_write_landed_or_the_user_was_told() {
-        assert_eq!(main_close(false, 0, false), MainClose::Close);
-        assert_eq!(main_close(true, 0, false), MainClose::Wait);
-        assert_eq!(main_close(true, 2, true), MainClose::Wait, "new writes wait too");
-        assert_eq!(main_close(false, 1, false), MainClose::Tell);
-        assert_eq!(main_close(false, 1, true), MainClose::Close);
     }
 
     #[test]

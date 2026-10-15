@@ -13,7 +13,7 @@ use azul_appkit::{
     update::{read_json, unix_now, AzulEngine, Registration, Release, Staged, UpdateEngine},
 };
 
-use crate::model::{self, AppEntry, Fetching, Installed, Status};
+use crate::model::{self, AppEntry, Fetching, Installed, PackageManager, Status};
 
 /// One piece of work.
 pub(crate) enum Job {
@@ -41,6 +41,12 @@ pub(crate) enum Job {
     Requests,
     /// A change of the update policy, into the config.
     Config(ConfigChange),
+    /// The first install through the system's package manager: its commands, one after the
+    /// other.
+    ThroughManager {
+        manager: PackageManager,
+        runs: Vec<Vec<String>>,
+    },
 }
 
 /// Which kind of job finished.
@@ -146,6 +152,11 @@ pub(crate) enum Progress {
     Requested {
         key: String,
         result: Result<Registration, String>,
+    },
+    /// A command of the package manager ran: its output's lines, or why it failed.
+    RanManager {
+        command: String,
+        result: Result<Vec<String>, String>,
     },
     /// The job is done.
     Finished { kind: JobKind },
@@ -260,6 +271,14 @@ pub(crate) fn run(
                 .map(|c| c.updates)
                 .map_err(|e| format!("{}: {e}", fetching.places.config.display()));
             send(Progress::Configured { result });
+        }
+        Job::ThroughManager { manager, runs } => {
+            for run in runs {
+                let command = model::shell_words(&run);
+                eprintln!("[installmgr] {}: {command}", manager.name());
+                let result = model::run_command(&run);
+                send(Progress::RanManager { command, result });
+            }
         }
     }
 }

@@ -195,6 +195,10 @@ azcontacts-not-written = { $count ->
     [one] 1 Datei konnte nicht geschrieben werden - siehe das Protokoll
    *[other] { $count } Dateien konnten nicht geschrieben werden - siehe das Protokoll
  }
+azcontacts-not-written-close = { $count ->
+    [one] 1 Datei konnte nicht geschrieben werden. Schließe das Fenster noch einmal, um ohne sie zu beenden.
+   *[other] { $count } Dateien konnten nicht geschrieben werden. Schließe das Fenster noch einmal, um ohne sie zu beenden.
+ }
 azcontacts-copied-vcard = { $name } als vCard { $version } kopiert
 azcontacts-copied = { $what } kopiert
 azcontacts-deleted = { $name } gelöscht

@@ -169,6 +169,8 @@ pub fn start_show(s: &mut AppState, info: &mut CallbackInfo, from_current: bool)
         options.window_state.size.dimensions.height = 700.0;
         options.window_state.flags.decorations = WindowDecorations::NoTitle;
         options.create_callback = Some(Callback::create(crate::on_presenter_created)).into();
+        // The presenter's console belongs to the show: it closes with it.
+        options.owned = true;
         // On a screen of its own, or the one picked under Slide Show > Monitors.
         let monitors: Vec<u32> = crate::app::PresenterMonitor::choices(&info.get_monitors())
             .into_iter()

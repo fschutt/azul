@@ -20,14 +20,13 @@
 //! (the local stack's profile); the file is found as the kit finds it
 //! ([`crate::azlin_config::config_path`]).
 //!
-//! Read through the config's own reader and its JSON text, so whatever else
-//! the file says is left to it; a missing section, a missing name, a blank or
-//! a non-string value is no opinion. No azul types here: tested without a
-//! window.
+//! Read through the config's own reader of the section
+//! ([`crate::azlin_config::EndpointsSection::named`]): a known service's
+//! address is checked there, another key is taken as written; a missing
+//! section, a missing name, a blank or a non-string value is no opinion. No
+//! azul types here: tested without a window.
 
 use std::path::Path;
-
-use serde_json::Value;
 
 use crate::azlin_config::{self, AzlinConfig};
 
@@ -37,13 +36,7 @@ pub const SECTION: &str = "endpoints";
 /// `endpoints.<name>` of `config`, trimmed; `None` when it names none.
 #[must_use]
 pub fn of(config: &AzlinConfig, name: &str) -> Option<String> {
-    let json: Value = serde_json::from_str(&config.to_json()).ok()?;
-    json.get(SECTION)?
-        .get(name)?
-        .as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(String::from)
+    config.endpoints.named(name).map(String::from)
 }
 
 /// `endpoints.<name>` of the shared config the kit reads: `var` is

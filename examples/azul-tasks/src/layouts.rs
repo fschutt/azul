@@ -288,9 +288,7 @@ const CARD_TITLE_DONE: &str = "font-size: 13px; color: system:secondary-text; te
                                line-through;";
 const CARD_META: &str = "display: flex; flex-direction: row; flex-wrap: wrap; align-items: \
                          center; gap: 6px; font-size: 11px; color: system:secondary-text;";
-const CARD_PRIORITY: &str = "font-weight: bold; color: #c25e00; @media (prefers-color-scheme: \
-                             dark) { color: #ffb366; } @theme(flora) { color: #7E4A42; @media \
-                             (prefers-color-scheme: dark) { color: #B3837A; } }";
+const CARD_PRIORITY: &str = "font-weight: bold; color: system:warning;";
 
 /// What a column's callbacks carry.
 struct ColumnRef {

@@ -149,3 +149,5 @@ azcode-file-unread = { $file } could not be read: { $why }
 azcode-file-unsaved = { $file } could not be saved: { $why }
 azcode-index-failed = The folder's files could not be listed: { $why }
 azcode-index-first = Quick open searches the first { $count } files of the folder.
+azcode-search-failed = The folder could not be searched: { $why }
+azcode-sample-failed = The sample could not be written: { $why }

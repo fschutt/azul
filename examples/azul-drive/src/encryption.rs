@@ -681,7 +681,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
             }
             body.add_child(boxes);
             if !sheet.error.is_empty() {
-                body.add_child(line(&sheet.error).with_css("color: #C42B1C;"));
+                body.add_child(line(&sheet.error).with_css("color: system:danger;"));
             }
             body.add_child(buttons(vec![typed_button(
                 "azdrive-enc-written-down",
@@ -705,7 +705,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                     .with_id(crate::ids::UNLOCK_CODE),
             ]);
             if !error.is_empty() {
-                body.add_child(line(error).with_css("color: #C42B1C;"));
+                body.add_child(line(error).with_css("color: system:danger;"));
             }
             body.add_child(buttons(vec![
                 button("kit-button-cancel", app, on_cancel_popup),
@@ -728,7 +728,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                     .dom(),
             ]);
             if !error.is_empty() {
-                body.add_child(line(error).with_css("color: #C42B1C;"));
+                body.add_child(line(error).with_css("color: system:danger;"));
             }
             body.add_child(buttons(vec![
                 button("kit-button-cancel", app, on_cancel_popup),
@@ -772,7 +772,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                     .with_id(crate::ids::LOCKDOWN_CANCEL_CODE),
             ]);
             if !error.is_empty() {
-                body.add_child(line(error).with_css("color: #C42B1C;"));
+                body.add_child(line(error).with_css("color: system:danger;"));
             }
             body.add_child(buttons(vec![
                 button("azdrive-button-close", app, on_cancel_popup),
@@ -806,7 +806,7 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                     .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
                     .dom()
                     .with_id(crate::ids::ROTATE_CODE),
-                line(error).with_css("color: #C42B1C;"),
+                line(error).with_css("color: system:danger;"),
                 buttons(vec![
                     button("kit-button-cancel", app, on_cancel_popup),
                     typed_button(

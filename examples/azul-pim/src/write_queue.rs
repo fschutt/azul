@@ -144,6 +144,70 @@ pub fn run_batch(drive: &dyn Drive, batch: Vec<Write>) -> BatchResult {
     out
 }
 
+/// What a close request does to a window whose changes go through write queues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MainClose {
+    /// Nothing waits (or the user was told what did not land): the window closes.
+    Close,
+    /// Writes wait or are on their way: the close is held, and the window closes once they
+    /// landed.
+    Wait,
+    /// Writes did not land: the close is held once, and the user is told.
+    Tell,
+}
+
+/// What a close request does: `waiting` writes are queued or on their way, `failures` did not
+/// land, and the user was `told` about them already.
+#[must_use]
+pub fn main_close(waiting: bool, failures: usize, told: bool) -> MainClose {
+    if waiting {
+        MainClose::Wait
+    } else if failures > 0 && !told {
+        MainClose::Tell
+    } else {
+        MainClose::Close
+    }
+}
+
+/// A window's close, held while its writes land: an app keeps one, asks it on every close
+/// request ([`CloseHold::request`]) and after every batch ([`CloseHold::landed`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CloseHold {
+    /// A close was held for writes on their way: the window closes once they landed.
+    pub closing: bool,
+    /// The user was told what did not land: the next close passes.
+    pub told: bool,
+}
+
+impl CloseHold {
+    /// A close request, with `waiting` writes and `failures` kept for a retry.
+    pub fn request(&mut self, waiting: bool, failures: usize) -> MainClose {
+        let step = main_close(waiting, failures, self.told);
+        match step {
+            MainClose::Wait => self.closing = true,
+            MainClose::Tell => self.told = true,
+            MainClose::Close => {}
+        }
+        step
+    }
+
+    /// A batch landed: `Some(Close)` when the held close goes now, `Some(Tell)` when writes
+    /// failed (the window stays and says so), `None` when no close is held or writes still wait.
+    pub fn landed(&mut self, waiting: bool, failures: usize) -> Option<MainClose> {
+        if !self.closing || waiting {
+            return None;
+        }
+        self.closing = false;
+        if failures == 0 {
+            Some(MainClose::Close)
+        } else {
+            // Not lost without a word: the window stays, says so, and the next close passes.
+            self.told = true;
+            Some(MainClose::Tell)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use azul_storage::LocalDrive;
@@ -215,5 +279,40 @@ mod tests {
         let r = run_batch(&drive, q.take().unwrap());
         assert!(r.failed.is_empty(), "{:?}", r.failed);
         assert!(drive.get("events/a.json").is_err());
+    }
+
+    /// Closing loses no change: the window waits for the writes on their way, and a write that
+    /// did not land is said once before the window goes.
+    #[test]
+    fn the_window_closes_once_every_write_landed_or_the_user_was_told() {
+        assert_eq!(main_close(false, 0, false), MainClose::Close);
+        assert_eq!(main_close(true, 0, false), MainClose::Wait);
+        assert_eq!(main_close(true, 2, true), MainClose::Wait, "new writes wait too");
+        assert_eq!(main_close(false, 1, false), MainClose::Tell);
+        assert_eq!(main_close(false, 1, true), MainClose::Close);
+    }
+
+    #[test]
+    fn a_held_close_goes_when_the_last_batch_landed() {
+        let mut hold = CloseHold::default();
+        assert_eq!(hold.landed(false, 0), None, "no close was asked for");
+        assert_eq!(hold.request(true, 0), MainClose::Wait);
+        assert!(hold.closing);
+        assert_eq!(hold.landed(true, 0), None, "a newer write still waits");
+        assert_eq!(hold.landed(false, 0), Some(MainClose::Close));
+        assert!(!hold.closing);
+    }
+
+    #[test]
+    fn a_held_close_with_failed_writes_tells_once_and_the_next_close_passes() {
+        let mut hold = CloseHold::default();
+        assert_eq!(hold.request(true, 0), MainClose::Wait);
+        assert_eq!(hold.landed(false, 1), Some(MainClose::Tell), "the window says what is lost");
+        assert!(!hold.closing && hold.told);
+        assert_eq!(hold.request(false, 1), MainClose::Close, "told: the next close passes");
+
+        let mut hold = CloseHold::default();
+        assert_eq!(hold.request(false, 2), MainClose::Tell);
+        assert_eq!(hold.request(false, 2), MainClose::Close);
     }
 }

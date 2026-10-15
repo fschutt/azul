@@ -435,7 +435,7 @@ fn column(children: Vec<Dom>) -> Dom {
 }
 
 fn red(text: &str) -> Dom {
-    line(text).with_css("color: #C42B1C;")
+    line(text).with_css("color: system:danger;")
 }
 
 fn small(text: &str) -> Dom {

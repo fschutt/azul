@@ -32,4 +32,25 @@ e azsheets 300 python3 scripts/azsheets_e2e.py --bin $B/AzSheets --out $L/azshee
 e azpdf 240 python3 scripts/azpdf_e2e.py --bin $B/AzPdf --out $L/azpdf-shots
 e azpdf_resize 240 python3 scripts/azpdf_resize_e2e.py --bin $B/AzPdf
 e installmgr 420 python3 scripts/installmgr_e2e.py --bin $B/AzInstallManager --writer-bin $B/AzWriter --out $L/installmgr-shots
+# The other apps (each one window under the capped runner; AzMeet starts two apps under its own
+# runner, so it runs outside this batch).
+e azcalculator 240 python3 scripts/azcalculator_e2e.py --bin $B/AzCalculator --out $L/azcalculator-shots
+e azcalendar 300 python3 scripts/azcalendar_e2e.py --bin $B/AzCalendar --out $L/azcalendar-shots
+e azclock 300 python3 scripts/azclock_e2e.py --bin $B/AzClock --out $L/azclock-shots
+e azcode 300 python3 scripts/azcode_e2e.py --bin $B/AzCode --out $L/azcode-shots
+e azcontacts 300 python3 scripts/azcontacts_e2e.py --bin $B/AzContacts --out $L/azcontacts-shots
+e azdashboard 240 python3 scripts/azdashboard_e2e.py --bin $B/AzDashboard --out $L/azdashboard-shots
+e azerp 240 python3 scripts/azerp_e2e.py --bin $B/AzERP --out $L/azerp-shots
+e azkeys 240 python3 scripts/azkeys_e2e.py --bin $B/AzKeys --out $L/azkeys-shots
+e azmonitor 240 python3 scripts/azmonitor_e2e.py --bin $B/AzMonitor --out $L/azmonitor-shots
+e azmusic 300 python3 scripts/azmusic_e2e.py --bin $B/AzMusic --out $L/azmusic-shots
+e aznews 300 python3 scripts/aznews_e2e.py --bin $B/AzNews --out $L/aznews-shots
+e aznotes 300 python3 scripts/aznotes_e2e.py --bin $B/AzNotes --out $L/aznotes-shots
+e azpaint 240 python3 scripts/azpaint_e2e.py --bin $B/AzPaint --out $L/azpaint-shots
+e azphoto 300 python3 scripts/azphoto_e2e.py --bin $B/AzPhoto --out $L/azphoto-shots
+e azsetup 240 python3 scripts/azsetup_e2e.py --bin $B/AzSetup --out $L/azsetup-shots
+e aztasks 300 python3 scripts/aztasks_e2e.py --bin $B/AzTasks --out $L/aztasks-shots
+e azterm 240 python3 scripts/azterm_e2e.py --bin $B/AzTerm --out $L/azterm-shots
+e azvideocut 300 python3 scripts/azvideocut_e2e.py --bin $B/AzVideoCut --out $L/azvideocut-shots
+e azdrive_pick 300 python3 scripts/azdrive_pick_e2e.py --bin $B/AzDrive
 echo DONE >> $L/summary.txt

@@ -165,6 +165,12 @@ impl AppEntry {
     pub fn flatpak_id(&self) -> String {
         format!("app.azlin.{}", self.short_name())
     }
+
+    /// The winget package id (`Azlin.AzWriter`).
+    #[must_use]
+    pub fn winget_id(&self) -> String {
+        format!("Azlin.{}", self.name)
+    }
 }
 
 /// The operating system, for the file names and the shortcuts.
@@ -325,21 +331,27 @@ impl Step {
     }
 }
 
-/// The steps of a first run: the package-manager page only when one is found.
+/// The steps of a first run: the package-manager page only when one is found; `through_manager`
+/// says the apps are installed through it.
 #[must_use]
-pub fn steps(package_manager: Option<PackageManager>) -> Vec<Step> {
+pub fn steps(package_manager: Option<PackageManager>, through_manager: bool) -> Vec<Step> {
     let mut steps = vec![Step::Welcome];
     if package_manager.is_some() {
         steps.push(Step::PackageManager);
     }
-    steps.extend([
-        Step::Destination,
-        Step::Components,
-        Step::Channel,
-        Step::Ready,
-        Step::Installing,
-        Step::Finish,
-    ]);
+    if package_manager.is_some() && through_manager {
+        // The package manager decides where the apps go and how they are updated.
+        steps.extend([Step::Components, Step::Ready, Step::Installing, Step::Finish]);
+    } else {
+        steps.extend([
+            Step::Destination,
+            Step::Components,
+            Step::Channel,
+            Step::Ready,
+            Step::Installing,
+            Step::Finish,
+        ]);
+    }
     steps
 }
 
@@ -369,7 +381,10 @@ pub fn previous_step(steps: &[Step], step: Step) -> Step {
 pub enum PackageManager {
     Homebrew,
     Apt,
+    Dnf,
+    Pacman,
     Flatpak,
+    Winget,
 }
 
 impl PackageManager {
@@ -379,7 +394,10 @@ impl PackageManager {
         match self {
             PackageManager::Homebrew => "Homebrew",
             PackageManager::Apt => "apt",
+            PackageManager::Dnf => "dnf",
+            PackageManager::Pacman => "pacman",
             PackageManager::Flatpak => "Flatpak",
+            PackageManager::Winget => "winget",
         }
     }
 
@@ -389,47 +407,145 @@ impl PackageManager {
         match self {
             PackageManager::Homebrew => "brew",
             PackageManager::Apt => "apt",
+            PackageManager::Dnf => "dnf",
+            PackageManager::Pacman => "pacman",
             PackageManager::Flatpak => "flatpak",
+            PackageManager::Winget => "winget",
         }
     }
 
-    /// The command that installs `apps` through it. The manager shows it with a Copy button and
-    /// never runs it: a package manager asks for its own rights.
+    /// The commands (program and arguments) that install `apps` through it, run one after the
+    /// other.
+    #[must_use]
+    pub fn install_runs(self, apps: &[&AppEntry]) -> Vec<Vec<String>> {
+        let apps: Vec<&&AppEntry> = apps.iter().filter(|a| !a.is_runtime()).collect();
+        if apps.is_empty() {
+            return Vec::new();
+        }
+        let packages: Vec<String> = apps.iter().map(|a| a.package()).collect();
+        let run = |head: &[&str], tail: Vec<String>| -> Vec<String> {
+            head.iter().map(|w| (*w).to_string()).chain(tail).collect()
+        };
+        match self {
+            PackageManager::Homebrew => vec![run(&["brew", "install", "--cask"], packages)],
+            PackageManager::Apt => vec![run(
+                &["pkexec", "sh", "-c"],
+                vec![format!("apt update && apt install -y {}", packages.join(" "))],
+            )],
+            PackageManager::Dnf => vec![run(&["pkexec", "dnf", "install", "-y"], packages)],
+            PackageManager::Pacman => vec![run(&["pkexec", "pacman", "-S", "--noconfirm"], packages)],
+            PackageManager::Flatpak => vec![run(
+                &["flatpak", "install", "--user", "-y", "azlin"],
+                apps.iter().map(|a| a.flatpak_id()).collect(),
+            )],
+            PackageManager::Winget => apps
+                .iter()
+                .map(|a| {
+                    run(
+                        &["winget", "install", "--id"],
+                        vec![
+                            a.winget_id(),
+                            String::from("-e"),
+                            String::from("--accept-package-agreements"),
+                            String::from("--accept-source-agreements"),
+                        ],
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// The file that shows it is installed, on `os`'s search path.
+    #[must_use]
+    pub fn program_file(self, os: Os) -> String {
+        if os == Os::Windows {
+            format!("{}.exe", self.program())
+        } else {
+            self.program().to_string()
+        }
+    }
+
+    /// The commands that install `apps` through it, as the page shows them (the manager runs
+    /// the same, [`PackageManager::install_runs`]); joined by `&&`.
     #[must_use]
     pub fn install_command(self, apps: &[&AppEntry]) -> String {
-        let apps: Vec<&&AppEntry> = apps.iter().filter(|a| !a.is_runtime()).collect();
-        match self {
-            PackageManager::Homebrew => {
-                let names: Vec<String> = apps.iter().map(|a| a.package()).collect();
-                format!("brew install --cask {}", names.join(" "))
+        self.install_runs(apps)
+            .iter()
+            .map(|run| shell_words(run))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    }
+}
+
+/// A command as a shell line: a word with a space in double quotes.
+#[must_use]
+pub fn shell_words(run: &[String]) -> String {
+    run.iter()
+        .map(|word| {
+            if word.contains(' ') {
+                format!("\"{word}\"")
+            } else {
+                word.clone()
             }
-            PackageManager::Apt => {
-                let names: Vec<String> = apps.iter().map(|a| a.package()).collect();
-                format!("sudo apt update && sudo apt install {}", names.join(" "))
-            }
-            PackageManager::Flatpak => {
-                let ids: Vec<String> = apps.iter().map(|a| a.flatpak_id()).collect();
-                format!("flatpak install --user azlin {}", ids.join(" "))
-            }
-        }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Runs one of [`PackageManager::install_runs`]' commands and waits for it (on a worker
+/// thread): its output's lines, or why it failed (its exit and its last line). The package
+/// manager asks for its own rights (pkexec's dialog).
+pub fn run_command(run: &[String]) -> Result<Vec<String>, String> {
+    let Some((program, args)) = run.split_first() else {
+        return Ok(Vec::new());
+    };
+    let out = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("{program}: {e}"))?;
+    let mut lines: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .chain(String::from_utf8_lossy(&out.stderr).lines())
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    if lines.len() > 200 {
+        lines.drain(..lines.len() - 200);
+    }
+    if out.status.success() {
+        Ok(lines)
+    } else {
+        let last = lines.last().cloned().unwrap_or_default();
+        Err(match out.status.code() {
+            Some(code) => format!("{program} ended with {code}: {last}"),
+            None => format!("{program} was stopped: {last}"),
+        })
     }
 }
 
 /// The first package manager the search path `path_var` (`PATH`) has, in the order the
-/// platform's users expect: Homebrew on macOS; apt, then Flatpak elsewhere.
+/// platform's users expect: Homebrew on macOS; apt, dnf, pacman, then Flatpak on Linux;
+/// winget on Windows.
 #[must_use]
 pub fn detect_package_manager(path_var: &str, os: Os) -> Option<PackageManager> {
     let order: &[PackageManager] = match os {
         Os::MacOs => &[PackageManager::Homebrew],
-        Os::Linux => &[PackageManager::Apt, PackageManager::Flatpak],
-        Os::Windows => &[],
+        Os::Linux => &[
+            PackageManager::Apt,
+            PackageManager::Dnf,
+            PackageManager::Pacman,
+            PackageManager::Flatpak,
+        ],
+        Os::Windows => &[PackageManager::Winget],
     };
     let separator = if os == Os::Windows { ';' } else { ':' };
     order.iter().copied().find(|pm| {
         path_var
             .split(separator)
             .filter(|dir| !dir.is_empty())
-            .any(|dir| Path::new(dir).join(pm.program()).is_file())
+            .any(|dir| Path::new(dir).join(pm.program_file(os)).is_file())
     })
 }
 
@@ -1538,16 +1654,16 @@ mod model_tests {
         );
         assert_eq!(
             PackageManager::Apt.install_command(&[writer()]),
-            "sudo apt update && sudo apt install azlin-writer"
+            "pkexec sh -c \"apt update && apt install -y azlin-writer\""
         );
         assert_eq!(
             PackageManager::Flatpak.install_command(&[writer()]),
-            "flatpak install --user azlin app.azlin.Writer"
+            "flatpak install --user -y azlin app.azlin.Writer"
         );
     }
 
     #[test]
-    fn a_package_manager_on_the_path_adds_its_page_to_the_wizard() {
+    fn the_system_package_manager_is_found_in_the_order_each_platform_expects() {
         let dir = TempDir::new("installmgr-path");
         let bin = dir.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
@@ -1555,20 +1671,74 @@ mod model_tests {
         assert_eq!(detect_package_manager(&path_var, Os::Linux), None);
         std::fs::write(bin.join("flatpak"), "").unwrap();
         assert_eq!(detect_package_manager(&path_var, Os::Linux), Some(PackageManager::Flatpak));
+        std::fs::write(bin.join("pacman"), "").unwrap();
+        assert_eq!(detect_package_manager(&path_var, Os::Linux), Some(PackageManager::Pacman));
+        std::fs::write(bin.join("dnf"), "").unwrap();
+        assert_eq!(detect_package_manager(&path_var, Os::Linux), Some(PackageManager::Dnf));
         std::fs::write(bin.join("apt"), "").unwrap();
         assert_eq!(detect_package_manager(&path_var, Os::Linux), Some(PackageManager::Apt));
         assert_eq!(detect_package_manager(&path_var, Os::MacOs), None, "brew is macOS's");
+        let windows = format!("C:\\nowhere;{}", bin.display());
+        assert_eq!(detect_package_manager(&windows, Os::Windows), None);
+        std::fs::write(bin.join("winget.exe"), "").unwrap();
+        assert_eq!(detect_package_manager(&windows, Os::Windows), Some(PackageManager::Winget));
+    }
 
-        let plain = steps(None);
-        assert_eq!(plain[1], Step::Destination);
-        let with_pm = steps(Some(PackageManager::Apt));
-        assert_eq!(with_pm[1], Step::PackageManager);
-        assert_eq!(next_step(&with_pm, Step::Welcome), Step::PackageManager);
+    /// The manager is a window over the system's package manager: it runs it itself, the
+    /// system's rights asked for by pkexec where the package manager needs root.
+    #[test]
+    fn a_package_manager_installs_the_ticked_apps_itself() {
+        let apps = [&RUNTIME, writer()];
+        let runs = |pm: PackageManager| pm.install_runs(&apps);
+        let words = |run: &[&str]| run.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert_eq!(runs(PackageManager::Homebrew), vec![words(&["brew", "install", "--cask", "azlin-writer"])]);
+        assert_eq!(
+            runs(PackageManager::Apt),
+            vec![words(&["pkexec", "sh", "-c", "apt update && apt install -y azlin-writer"])]
+        );
+        assert_eq!(runs(PackageManager::Dnf), vec![words(&["pkexec", "dnf", "install", "-y", "azlin-writer"])]);
+        assert_eq!(
+            runs(PackageManager::Pacman),
+            vec![words(&["pkexec", "pacman", "-S", "--noconfirm", "azlin-writer"])]
+        );
+        assert_eq!(
+            runs(PackageManager::Flatpak),
+            vec![words(&["flatpak", "install", "--user", "-y", "azlin", "app.azlin.Writer"])]
+        );
+        let two = PackageManager::Winget.install_runs(&[writer(), entry("azmail").unwrap()]);
+        assert_eq!(two.len(), 2, "winget installs one package per call");
+        assert_eq!(&two[0][..4], &words(&["winget", "install", "--id", "Azlin.AzWriter"])[..]);
+        assert_eq!(
+            PackageManager::Homebrew.install_command(&apps),
+            "brew install --cask azlin-writer",
+            "what the page shows is what runs"
+        );
+        assert_eq!(
+            PackageManager::Apt.install_command(&apps),
+            "pkexec sh -c \"apt update && apt install -y azlin-writer\""
+        );
+    }
+
+    #[test]
+    fn with_a_package_manager_the_wizard_installs_through_it_and_azlins_own_way_is_the_fallback() {
+        let through = steps(Some(PackageManager::Apt), true);
+        assert_eq!(
+            through,
+            vec![Step::Welcome, Step::PackageManager, Step::Components, Step::Ready, Step::Installing, Step::Finish],
+            "no install folder and no update channel: the package manager's"
+        );
+        let own = steps(Some(PackageManager::Apt), false);
+        assert_eq!(own[1], Step::PackageManager, "the page where the choice is made");
+        assert!(own.contains(&Step::Destination) && own.contains(&Step::Channel));
+        let plain = steps(None, true);
+        assert_eq!(plain[1], Step::Destination, "no package manager: Azlin's own way only");
+        assert!(!plain.contains(&Step::PackageManager));
+        assert_eq!(next_step(&through, Step::PackageManager), Step::Components);
         assert_eq!(next_step(&plain, Step::Welcome), Step::Destination);
         assert_eq!(previous_step(&plain, Step::Destination), Step::Welcome);
         assert_eq!(previous_step(&plain, Step::Installing), Step::Installing);
         assert_eq!(next_step(&plain, Step::Finish), Step::Finish);
-        assert_eq!(step_line(&with_pm, Step::Components), "AZINSTALLMGR_STEP 3 components");
+        assert_eq!(step_line(&own, Step::Components), "AZINSTALLMGR_STEP 3 components");
     }
 
     #[test]

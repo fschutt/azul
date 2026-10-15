@@ -121,3 +121,4 @@ azreader-not-added = Das Buch konnte nicht hinzugefügt werden: { $why }
 azreader-not-opened = Das Buch konnte nicht geöffnet werden: { $why }
 azreader-removed = Das Buch wurde entfernt.
 azreader-not-removed = Das Buch konnte nicht entfernt werden: { $why }
+azreader-chapter-n = Kapitel { $number }

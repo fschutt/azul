@@ -156,7 +156,44 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     ShellThemeScope::create(root)
         .with_accent(ShellThemeAccent::Leaf)
         .body()
-        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app.clone(), on_key)
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app,
+            on_close_requested,
+        )
+}
+
+/// The window is asked to close (its close button, Cmd+Q): what was typed into the detail pane
+/// is kept first (a close is no blur), then the close waits until the queued writes landed
+/// (`jobs.rs` closes the window then) and says once what did not land. Without the hold the
+/// batch in flight was stopped and every write queued behind it was lost.
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<Tasks>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    s.commit_drafts();
+    let failures = s.queue.failures().len();
+    match s.close_hold.request(!s.queue.is_idle(), failures) {
+        store::MainClose::Close => Update::DoNothing,
+        store::MainClose::Wait => {
+            println!("AZTASKS_CLOSE_WAITS {}", s.queue.pending() + s.queue.in_flight());
+            jobs::pump(&mut info, &app, s);
+            // Last: the veto rides on whatever this callback queued.
+            info.prevent_window_close();
+            Update::DoNothing
+        }
+        store::MainClose::Tell => {
+            s.files.last_error = azul_appkit::l10n::t_args(
+                "aztasks-changes-not-written",
+                &[("count", azul_appkit::l10n::Arg::from(failures))],
+            );
+            info.prevent_window_close();
+            Update::RefreshDom
+        }
+    }
 }
 
 // ==== Keyboard ====

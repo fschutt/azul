@@ -33,13 +33,14 @@ use azul::{
 };
 use azul_appkit::{
     l10n::{begin_layout, labels, t, t_args, Arg},
+    pieces::Clickable,
     ui as kit,
 };
 
 use crate::{
     ids,
     model::{
-        file_title, page_face, size_label, Field, FieldKind, FieldWidget, PageArt, PageFace,
+        drag_picture, file_title, page_face, size_label, Field, FieldKind, FieldWidget, PageArt, PageFace,
         PageSize, Strip, Zoom, PAGE_GAP, VIEW_PAD,
     },
     AppState, Nav,
@@ -119,6 +120,14 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_status_bar(status_bar(&s))
             .dom()
     };
+    // Values typed into the form that no saved filled copy holds ask "Save changes?" before
+    // the window closes; Save makes the filled copy and closes once it is saved.
+    let document = s.doc.as_ref().map_or_else(|| String::from("AzPdf"), |d| d.title.clone());
+    let content = kit::close_guard(content, &document)
+        .with_dirty(s.form.unsaved())
+        .with_asking(s.asking_close)
+        .with_on_event(data.clone(), crate::on_close_guard)
+        .dom();
     ShellThemeScope::create(Dom::create_div().with_css(COLUMN).with_child(content))
         .with_accent(ShellThemeAccent::Clay)
         .body()
@@ -177,12 +186,7 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
                  8px 12px; border-bottom: 1px solid system:separator;",
             )
             .with_dataset(tag(i))
-            .with_accessibility_name(doc.title.as_str())
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
-                data.clone(),
-                crate::on_recent,
-            );
+            .clickable(doc.title.as_str(), data.clone(), crate::on_recent);
         row.add_child(
             Dom::create_icon("picture_as_pdf").with_css("font-size: 18px; color: system:accent;"),
         );
@@ -219,8 +223,8 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
 /// (never in the "more" menu) and the settings gear. Each tool's `id` is its
 /// DOM-id name from [`ids`]: what [`on_toolbar`] matches.
 fn toolbar(s: &AppState, data: &RefAny) -> Dom {
-    Toolbar::create(t("azpdf-document"))
-        .with_items(toolbar_items(s, data))
+    s.toolbar_fit
+        .apply(Toolbar::create(t("azpdf-document")).with_items(toolbar_items(s, data)))
         .with_on_event(data.clone(), on_toolbar as ToolbarOnEventCallbackType)
         .dom()
         .with_id(ids::TOOLBAR)
@@ -309,7 +313,13 @@ fn toolbar_items(s: &AppState, data: &RefAny) -> Vec<ToolbarItem> {
 }
 
 /// A tool was pressed: the tool's `id` names the command.
-extern "C" fn on_toolbar(data: RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
+extern "C" fn on_toolbar(mut data: RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
+    // The bar measured itself: it is built again to fit when that changed.
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        if s.toolbar_fit.take(&event) {
+            return Update::RefreshDom;
+        }
+    }
     if event.kind != ToolbarEventKind::Activate {
         return Update::DoNothing;
     }
@@ -455,7 +465,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         // built here is styled and laid out again at every step of a drag.
         let picture = if resizing {
             let width = s.picture_width_of(page);
-            s.pictures.get(page, width)
+            drag_picture(&mut s.pictures, page, width)
         } else {
             None
         };
@@ -844,7 +854,6 @@ fn thumb_frame(
     };
     let mut frame = Dom::create_div()
         .with_id(ids::numbered(ids::THUMB_PREFIX, page + 1))
-        .with_accessibility_name(t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str())
         .with_dataset(tag(page))
         .with_css(
             format!(
@@ -854,8 +863,8 @@ fn thumb_frame(
             )
             .as_str(),
         )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
+        .clickable(
+            t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str(),
             app.clone(),
             crate::on_go_to_page,
         );
@@ -892,11 +901,7 @@ fn outline(s: &AppState, data: &RefAny) -> Dom {
                 "display: flex; flex-direction: row; gap: 8px; padding: 4px 12px; font-size: \
                  12px;",
             )
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
-                data.clone(),
-                crate::on_go_to_page,
-            );
+            .clickable(title.as_str(), data.clone(), crate::on_go_to_page);
         row.add_child(
             Dom::create_span_with_text(title.as_str())
                 .with_css("flex-grow: 1; min-width: 0px; overflow: hidden;"),
@@ -949,8 +954,8 @@ fn hits_pane(s: &AppState, data: &RefAny) -> Dom {
                 "display: flex; flex-direction: column; gap: 2px; padding: 6px 12px; \
                  border-bottom: 1px solid system:separator;",
             )
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+            .clickable(
+                t_args("azpdf-page-n", &[("page", Arg::from(hit.page + 1))]).as_str(),
                 data.clone(),
                 crate::on_go_to_page,
             );

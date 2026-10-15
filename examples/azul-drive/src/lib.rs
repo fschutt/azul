@@ -5,7 +5,7 @@
 //! mini backstage in a popup under its tab -, Home, Share, View; Computer at This PC) whose tab
 //! strip is the window's title bar - its tabs are buttons on the leather whose content opens
 //! while a tab is hovered and locks on a double click, and its right end holds the location
-//! tabs' button -, over the address row (round Back / Forward, Recent locations, Up, the
+//! tabs' button -, over the address row (round Back / Forward, Up, the
 //! breadcrumb box - a chevron per crumb dropping its folders, the first crumbs folded into «
 //! when the path is long, a click on its empty part for the typed path -, Refresh, "Search
 //! <folder>"). The strip shows no title; the window's title (the open place's path) is what the
@@ -75,6 +75,8 @@
 //! - `--dialogs inline` (`$AZDRIVE_DIALOGS=inline`): show the dialogs as a sheet inside the
 //!   window instead of a modal dialog window (scripts: the debug server drives the main window).
 //! - `--open <path>`: open at a place as the address bar names it (File > Open new window).
+//! - `--pick`: answer another app's file request (one JSON line on stdin) as its file picker:
+//!   one `AZPICK <json>` line on stdout, then the run ends (`picker`).
 //!
 //! On stdout, for scripts: `AZDRIVE_PLACE quick-access | this-pc | <drive id> <prefix or />`,
 //! `AZDRIVE_LISTED <drive id> <prefix or /> <entries>`, `AZDRIVE_TREE <drive id>
@@ -148,6 +150,18 @@
 //! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
 
 mod actions;
+/// The window's close while transfers, sync passes or an encryption run.
+mod closing;
+/// AzDrive as another app's file picker (`--pick`): the request, the strip, the answer.
+mod picker;
+#[cfg(test)]
+mod fileops_batch_tests;
+#[cfg(test)]
+mod copy_path_tests;
+#[cfg(test)]
+mod tree_leaves_tests;
+#[cfg(test)]
+mod notices_tests;
 /// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
 mod ban;
 #[cfg(test)]
@@ -281,7 +295,7 @@ use azul::{
     shells::{BrowserShell, ShellPane, ShellPaneKind, ShellThemeScope},
     str::String as AzString,
     url::Url,
-    widgets::{AlertKind, Dialog, IconGridView},
+    widgets::{AlertKind, Dialog, IconGridView, ToastKind},
 };
 use azul_storage::{
     azul_transport::AzulTransport,
@@ -594,7 +608,70 @@ impl MessageKind {
     }
 }
 
-/// What the InfoBar over the content says (its words in the window's language when shown).
+/// The most notices kept for the toast stack (it shows the newest three).
+const MAX_TOASTS: usize = 6;
+
+/// A notice of the toast stack.
+#[derive(Clone, Debug)]
+pub(crate) struct Notice {
+    /// Its id: the toast's dismiss callback finds it by it, as the list shifts meanwhile.
+    pub id: u64,
+    /// What it says, in which colours.
+    pub message: Message,
+}
+
+/// The toast stack's notices, oldest first.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Notices {
+    /// The notices still showing (or waiting behind the newest three).
+    pub list: Vec<Notice>,
+    /// The id the last notice took; ids never repeat, so a late dismiss cannot hit a newer one.
+    pub last_id: u64,
+}
+
+impl Notices {
+    /// Adds `message` as the newest notice and returns its id. Only the newest few are kept:
+    /// the stack shows three, and older ones would have left by themselves anyway.
+    pub fn push(&mut self, message: Message) -> u64 {
+        self.last_id += 1;
+        self.list.push(Notice {
+            id: self.last_id,
+            message,
+        });
+        if self.list.len() > MAX_TOASTS {
+            self.list.remove(0);
+        }
+        self.last_id
+    }
+
+    /// Takes the notice `id` out (its toast left); an id already gone changes nothing.
+    pub fn dismiss(&mut self, id: u64) {
+        self.list.retain(|n| n.id != id);
+    }
+
+    pub fn clear(&mut self) {
+        self.list.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+}
+
+impl MessageKind {
+    /// The toast's colours for the kind.
+    pub fn toast(self) -> ToastKind {
+        match self {
+            MessageKind::Info => ToastKind::Info,
+            MessageKind::Success => ToastKind::Success,
+            MessageKind::Warning => ToastKind::Warning,
+            MessageKind::Error => ToastKind::Danger,
+        }
+    }
+}
+
+/// What a notice toast or the InfoBar over the content says (its words in the window's
+/// language when shown).
 #[derive(Clone, Debug)]
 pub(crate) struct Message {
     pub kind: MessageKind,
@@ -902,6 +979,9 @@ pub(crate) struct DriveState {
     /// The Azlin Bridge's settings (Options > Drives), read when the Options open.
     pub(crate) bridge: ui_bridge::BridgeView,
     pub clipboard: Option<ClipboardItems>,
+    /// A close was held while work ran (`closing`): the window closes once it ended, and a
+    /// second close stops it.
+    pub closing: bool,
     pub queue: TransferQueue,
     pub transfers: HashMap<u64, TransferJob>,
     pub undo: Vec<UndoOp>,
@@ -920,6 +1000,12 @@ pub(crate) struct DriveState {
     #[cfg(feature = "encryption")]
     pub pending_sheets: Vec<encryption::Sheet>,
     pub message: Option<Message>,
+    /// The notices shown as toasts at the window's foot: each leaves by itself after a few
+    /// seconds, or with its close button (`ui_view::on_toast_dismissed`).
+    pub toasts: Notices,
+    /// The request of a `--pick` run (None in a normal run): the picker strip shows, the
+    /// filter thins the folder view, and the answer ends the run.
+    pub picker: Option<picker::Picker>,
     pub popup: Option<Popup>,
     pub popups_opened: u64,
     pub keyring_waiting: Option<KeyringOp>,
@@ -1042,6 +1128,8 @@ impl DriveState {
             .iter()
             .filter(|e| self.settings.show_hidden || !e.is_hidden())
             .filter(|e| browse::matches_search(e, &self.search))
+            // A picker's type filter: folders, and the files it lets through.
+            .filter(|e| self.picker.as_ref().map_or(true, |p| p.shows(&e.name, e.is_folder)))
             .collect()
     }
 
@@ -1166,24 +1254,21 @@ impl DriveState {
     }
 
     pub fn info(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
-        self.message = Some(Message {
-            kind: MessageKind::Info,
-            text: text.into(),
-        });
+        self.notice(MessageKind::Info, text.into());
     }
 
     pub fn success(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
-        self.message = Some(Message {
-            kind: MessageKind::Success,
-            text: text.into(),
-        });
+        self.notice(MessageKind::Success, text.into());
     }
 
     pub fn warn(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
-        self.message = Some(Message {
-            kind: MessageKind::Warning,
-            text: text.into(),
-        });
+        self.notice(MessageKind::Warning, text.into());
+    }
+
+    /// A notice as a toast at the window's foot (the design's place for them); an error stays
+    /// in the InfoBar over the content until it is dismissed.
+    fn notice(&mut self, kind: MessageKind, text: azul_appkit::l10n::Text) {
+        self.toasts.push(Message { kind, text });
     }
 
     pub fn error(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
@@ -1195,8 +1280,9 @@ impl DriveState {
         });
     }
 
-    /// Clears a message that was not an error.
+    /// Clears the notices (not an error).
     pub fn clear_notice(&mut self) {
+        self.toasts.clear();
         if self
             .message
             .as_ref()
@@ -2018,6 +2104,10 @@ pub(crate) fn set_window_title(info: &mut CallbackInfo, s: &DriveState) {
 
 /// [`set_window_title`]'s text: `Home/Documents - AzDrive`.
 pub(crate) fn window_title(s: &DriveState) -> String {
+    // Another app's file picker keeps the request's title, as a system's dialog does.
+    if let Some(picker) = &s.picker {
+        return picker.title();
+    }
     let drive_name = s.drive_name(&s.place);
     let path_drive = match &s.place {
         Place::Folder { .. } => Some(drive_name.as_str()),
@@ -2565,8 +2655,16 @@ pub(crate) extern "C" fn on_job_done(
                 }
             }
         }
-        Outcome::Folders { node, result } => {
+        Outcome::Folders {
+            node,
+            result,
+            leaves,
+        } => {
             s.tree.listing.remove(&node);
+            // The folders that hold no folder show no expander: their (empty) listing is known.
+            for leaf in leaves {
+                s.tree.loaded.entry((node.0.clone(), leaf)).or_default();
+            }
             match result {
                 Ok((folders, items)) => {
                     if node.1.is_empty() {
@@ -2917,6 +3015,7 @@ pub(crate) extern "C" fn on_job_done(
     }
     #[cfg(feature = "encryption")]
     encryption::show_pending_sheet(s);
+    closing::after_job(&mut info, s);
     Update::RefreshDom
 }
 
@@ -3049,7 +3148,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         // lacks), 15 px on 1.3, tabular figures so sizes and dates line up.
         .with_css(
             "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px; \
-             font-family: system:ui; color: system:text; @theme(flora) { font-family: \
+             position: relative; font-family: system:ui; color: system:text; @theme(flora) { font-family: \
              \"Calmet UI\", \"EB Garamond\", \"Hoefler Text\", Georgia, serif; \
              font-size: 15px; line-height: 1.3; font-variant-numeric: tabular-nums; }",
         )
@@ -3080,6 +3179,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             EventFilter::Window(WindowEventFilter::Resized),
             app.clone(),
             actions::on_resized,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app.clone(),
+            closing::on_close_requested,
         );
     if s.column_drag.is_some() {
         body = body
@@ -3094,6 +3198,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 ui_view::on_column_drag_end,
             );
     }
+    // A picker's strip at the window's foot, under the folders.
+    if let Some(strip) = picker::strip(s, &app) {
+        body.add_child(strip);
+    }
     // The location tabs' overview, Quick Look and the command palette over the window, while
     // they are open.
     if let Some(overview) = ui_tabs::overview(s, &app) {
@@ -3104,6 +3212,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     }
     if let Some(palette) = ui_overlays::palette(s, &app) {
         body.add_child(palette);
+    }
+    // The notices at the window's foot, above where the status bar would be.
+    if !s.toasts.is_empty() {
+        body.add_child(ui_view::toasts(s, &app));
     }
     if let Some(popup) = &s.popup {
         let (title, panel) = ui_dialogs::popup_parts(popup, s, &app);
@@ -3241,6 +3353,30 @@ pub fn start() {
         Some(file) => Some(file.clone()),
         None => config::drives_file(None, config_dir.clone()),
     };
+    // `--pick`: another app's request, read before the window opens (one line on stdin). A
+    // request this AzDrive does not answer gets its error line at once.
+    let picker = if args.pick {
+        let mut line = String::new();
+        let request = std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|e| e.to_string())
+            .and_then(|_| picker::parse_request(&line));
+        match request {
+            Ok(request) => Some(picker::Picker::new(request)),
+            Err(why) => {
+                println!("{}", picker::PickAnswer::error(why).line());
+                std::process::exit(2);
+            }
+        }
+    } else {
+        // Every normal run says where the picker is, beside the drives file (not a shot run's).
+        if args.kit.shot.is_none() {
+            if let Some(file) = &drives_file {
+                picker::register(file);
+            }
+        }
+        None
+    };
     // The Azlin token server (Buy storage; the refreshes of Azlin drives that name none):
     // `--token-url` / `--profile`, the environment, the shared Azlin config (`AZLIN_CONFIG`,
     // else ~/.azlin/config.json - not in a `--shot` run), the profile's address.
@@ -3374,6 +3510,24 @@ pub fn start() {
         .as_deref()
         .and_then(|text| browse::parse_path(text, &drive_names))
         .unwrap_or(place);
+    // A picker opens at its request's folder (when `--open` names none), in the drive of this
+    // computer that holds it.
+    let place = match picker.as_ref().and_then(|p| p.request.default_location.clone()) {
+        Some(folder) if args.open.is_none() => {
+            let roots: Vec<(String, PathBuf)> = slots
+                .iter()
+                .filter_map(|slot| match &slot.entry.location {
+                    DriveLocation::Local { root } => {
+                        Some((slot.entry.id.clone(), PathBuf::from(root)))
+                    }
+                    _ => None,
+                })
+                .collect();
+            picker::place_of_path(Path::new(&folder), &roots)
+                .map_or(place, |(id, prefix)| Place::folder(&id, &prefix))
+        }
+        _ => place,
+    };
     // The keyring as the worker threads use it (azul's blocking calls), with the locks of its
     // entries beside the drives file.
     let keyring = azcloud_kit::SharedKeyring::new(
@@ -3464,6 +3618,7 @@ pub fn start() {
             ui_bridge::BridgeView::default()
         },
         clipboard: None,
+        closing: false,
         queue: TransferQueue::default(),
         transfers: HashMap::new(),
         undo: Vec::new(),
@@ -3475,6 +3630,8 @@ pub fn start() {
         #[cfg(feature = "encryption")]
         pending_sheets: Vec::new(),
         message,
+        toasts: Notices::default(),
+        picker,
         popup: None,
         popups_opened: 0,
         keyring_waiting: None,
@@ -3525,13 +3682,14 @@ pub fn start() {
     azul_fonts_calmet::register(&mut config);
     // "Calmet everywhere" (SPEC 5): the theme's widgets set their words and capitals in it too.
     config.set_theme_font(AzString::from(azul_fonts_calmet::STACK));
-    let mut window = azul_appkit::ui::window_options(
-        &state.kit,
-        layout,
-        (1280.0, 800.0),
-        (640.0, 420.0),
-        startup,
-    );
+    // A picker is a smaller window (as a system's file dialog).
+    let size = if state.picker.is_some() {
+        (900.0, 600.0)
+    } else {
+        (1280.0, 800.0)
+    };
+    let mut window =
+        azul_appkit::ui::window_options(&state.kit, layout, size, (640.0, 420.0), startup);
     // The rows in view are estimated from the window's size until the folder view has drawn:
     // the size this run opens at (`--size`, else the default).
     let opens_at = window.window_state.size.dimensions;

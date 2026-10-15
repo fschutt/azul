@@ -44,6 +44,12 @@ fn with_images(mut editor: RichTextEditor, s: &AppState, note: &Note, doc: &Rich
     editor
 }
 
+/// Each block of a note takes its direction from its first strong letter, as `dir=auto` does
+/// in a browser: a paragraph written in Arabic or Hebrew stands at the right edge and runs
+/// right to left, a Latin one beside it stays at the left. `unicode-bidi` is not inherited, so
+/// the rule names the editor's blocks (the widget's block class) rather than the host.
+const BLOCK_DIRECTION_CSS: &str = ".__azul-rte-block { unicode-bidi: plaintext; }";
+
 /// The editing host of the open note (the note pane draws its own paper
 /// around it). Its text takes the theme scope's hand - flora's Garamond, at
 /// flora's reading size under `flora` (`TextSize::px_for`).
@@ -55,7 +61,9 @@ pub fn editor_dom(s: &AppState, app: &RefAny, note: &Note, flora: bool) -> Dom {
         .with_font_size(s.settings.text_size.px_for(flora))
         .with_on_change(app.clone(), on_editor_change as RichTextEditorOnChangeCallbackType)
         .with_on_link(app.clone(), on_editor_link as RichTextEditorOnLinkCallbackType);
-    with_images(editor, s, note, &note.doc).content_dom()
+    with_images(editor, s, note, &note.doc)
+        .content_dom()
+        .with_css(BLOCK_DIRECTION_CSS)
 }
 
 /// `doc` read-only, with `title` over it (a version in the history, the PDF
@@ -78,7 +86,11 @@ pub fn print_dom(s: &AppState, note: &Note, doc: &RichTextDoc, title: &str, font
             Dom::create_h1_with_text(title)
                 .with_css(format!("margin: 0px; margin-bottom: 14px; font-size: {}px;", (font_px * 2.0).round())),
         )
-        .with_child(with_images(editor, s, note, doc).content_dom())
+        .with_child(
+            with_images(editor, s, note, doc)
+                .content_dom()
+                .with_css(BLOCK_DIRECTION_CSS),
+        )
 }
 
 /// `on_change`: the editor's new state is kept; its document is the open

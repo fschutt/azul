@@ -1,9 +1,11 @@
-//! The first run: azul's wizard pages for the real install. Welcome; the package manager's
-//! command when brew, apt or flatpak is on the PATH (shown with Copy, never run); the install
-//! folder with the space needed and free; the apps (the runtime required, the apps in groups);
-//! the channel (stable or beta) and auto-update; the summary; the install itself on a `Thread`
-//! (fetch, verify, put in place, shortcuts) with its log; the end, which shows the installed
-//! apps.
+//! The first run: azul's wizard pages for the real install. Welcome; when the system has a
+//! package manager (brew, apt, dnf, pacman, flatpak, winget) the apps are installed through it
+//! - the manager is a window over it: it shows the command, runs it and shows its output -
+//! unless the user picks Azlin's own way on its page. Azlin's own way (the only one without a
+//! package manager): the install folder with the space needed and free; the apps (the runtime
+//! required, the apps in groups); the channel (stable or beta), auto-update and the update
+//! source; the summary; the install itself on a `Thread` (fetch, verify, put in place,
+//! shortcuts) with its log; the end, which shows the installed apps.
 
 use azul::{
     dom::ClipboardContent,
@@ -13,7 +15,8 @@ use azul::{
     str::String as AzString,
     vec::{StringPairVec, StringVec, StyledTextRunVec, WizardComponentVec, WizardOptionVec},
     widgets::{
-        Button, WizardComponent, WizardComponentsPage, WizardDestinationPage,
+        Button, RadioGroup, RadioGroupState, WizardComponent, WizardComponentsPage,
+        WizardDestinationPage,
         WizardEvent, WizardEventKind, WizardFinishPage, WizardLayout, WizardLayoutStyle,
         WizardOption, WizardOptionsPage, WizardPageEvent, WizardPageEventKind,
         WizardProgressPage, WizardSummaryPage, WizardWelcomePage,
@@ -43,6 +46,9 @@ pub(crate) struct Wizard {
     pub(crate) step: Step,
     /// The package manager on the PATH, for its page.
     pub(crate) package_manager: Option<PackageManager>,
+    /// The apps are installed through the package manager (its page's choice; the default
+    /// when there is one): no install folder, channel or update source then.
+    pub(crate) through_manager: bool,
     /// The install folder as typed or browsed.
     pub(crate) path: String,
     /// The free bytes on the folder's drive, when known.
@@ -97,9 +103,10 @@ impl Wizard {
     pub(crate) fn new(path: String, package_manager: Option<PackageManager>) -> Wizard {
         let rows = component_rows();
         Wizard {
-            steps: model::steps(package_manager),
+            steps: model::steps(package_manager, true),
             step: Step::Welcome,
             package_manager,
+            through_manager: package_manager.is_some(),
             available: None,
             components: components_page(&rows),
             rows,
@@ -150,6 +157,18 @@ impl Wizard {
 
     fn announce(&self) {
         println!("{}", model::step_line(&self.steps, self.step));
+    }
+
+    /// The package manager the apps are installed through now (`None`: Azlin's own way).
+    pub(crate) fn installing_through(&self) -> Option<PackageManager> {
+        self.package_manager.filter(|_| self.through_manager)
+    }
+
+    /// The choice on the package manager's page: the steps follow it.
+    pub(crate) fn choose_manager(&mut self, through: bool) {
+        self.through_manager = through && self.package_manager.is_some();
+        self.steps = model::steps(self.package_manager, self.through_manager);
+        println!("AZINSTALLMGR_THROUGH {}", self.installing_through().map_or("azlin", PackageManager::name));
     }
 }
 
@@ -210,13 +229,31 @@ pub(crate) fn free_space(path: &str) -> Option<u64> {
         .map(|d| d.free)
 }
 
-/// The package manager's page: its command for the ticked apps, Copy, and the way on.
+/// The package manager's page: the choice between it (the default) and Azlin's own way, and
+/// the command it runs for the ticked apps, with Copy.
 fn package_manager_page(w: &Wizard, pm: PackageManager, app: &RefAny) -> Dom {
     let command = pm.install_command(&w.selected());
     let paragraph = |text: String| pieces::block("margin-bottom: 10px;", pieces::text(text));
+    let choice = RadioGroup::create(StringVec::from_vec(vec![
+        s(&t_args("azinstallmgr-pm-choose-manager", &[("manager", Arg::from(pm.name()))])),
+        s(&t("azinstallmgr-pm-choose-azlin")),
+    ]))
+    .with_selected_index(usize::from(!w.through_manager))
+    .with_accessibility_name(s(&t("azinstallmgr-step-package-manager")))
+    .with_on_change(app.clone(), on_choose_manager)
+    .dom()
+    .with_id(s("installmgr-pm-choice"));
     let mut children = vec![
         paragraph(t_args("azinstallmgr-pm-found", &[("manager", Arg::from(pm.name()))])),
-        paragraph(t("azinstallmgr-pm-how")),
+        pieces::block("margin-bottom: 12px;", choice),
+        paragraph(t_args(
+            if w.through_manager {
+                "azinstallmgr-pm-runs"
+            } else {
+                "azinstallmgr-pm-how"
+            },
+            &[("manager", Arg::from(pm.name()))],
+        )),
         pieces::block(
             "font-family: monospace; padding: 8px; margin-bottom: 8px; border: 1px solid #c8c8c8; \
              background: rgba(127, 127, 127, 0.08); user-select: text;",
@@ -235,8 +272,32 @@ fn package_manager_page(w: &Wizard, pm: PackageManager, app: &RefAny) -> Dom {
     if w.copied {
         children.push(paragraph(t("azinstallmgr-copied")));
     }
-    children.push(paragraph(t("azinstallmgr-pm-or-direct")));
     pieces::column("padding: 4px 0px;", children)
+}
+
+/// The choice on the package manager's page: through it (0) or Azlin's own way (1).
+extern "C" fn on_choose_manager(mut data: RefAny, _info: CallbackInfo, state: RadioGroupState) -> Update {
+    let Some(mut m) = data.downcast_mut::<Manager>() else {
+        return Update::DoNothing;
+    };
+    m.wizard.choose_manager(state.selected_index == 0);
+    Update::RefreshDom
+}
+
+/// The summary before an install through the package manager: who installs, which apps, and
+/// the command it runs.
+fn manager_summary(w: &Wizard, pm: PackageManager) -> Dom {
+    let names: Vec<&str> = w
+        .selected()
+        .iter()
+        .filter(|e| !e.is_runtime())
+        .map(|e| e.name)
+        .collect();
+    WizardSummaryPage::create(StringPairVec::from_vec(Vec::new()))
+        .with_intro(s(&t_args("azinstallmgr-ready-manager-intro", &[("manager", Arg::from(pm.name()))])))
+        .with_row(s(&t("azinstallmgr-ready-apps")), s(&names.join(", ")))
+        .with_row(s(&t("azinstallmgr-ready-command")), s(&pm.install_command(&w.selected())))
+        .dom()
 }
 
 /// The current page and the reason Next is held on it (empty: it may go).
@@ -297,6 +358,15 @@ fn page(m: &Manager, app: &RefAny) -> (Dom, String) {
             ),
             String::new(),
         ),
+        Step::Ready if w.installing_through().is_some() => {
+            let pm = w.installing_through().unwrap_or(PackageManager::Homebrew);
+            let reason = if w.selected().iter().any(|e| !e.is_runtime()) {
+                String::new()
+            } else {
+                t("azinstallmgr-ready-no-apps")
+            };
+            (manager_summary(w, pm), reason)
+        }
         Step::Ready => {
             let names: Vec<&str> = w
                 .selected()
@@ -418,6 +488,17 @@ pub(crate) fn wizard(m: &Manager, app: &RefAny) -> Dom {
 /// Starts the install of the ticked apps: the choices go into the config on the worker, the
 /// apps are fetched one after the other.
 fn start_install(m: &mut Manager, info: &mut CallbackInfo, app: &RefAny) {
+    if let Some(pm) = m.wizard.installing_through() {
+        let runs = pm.install_runs(&m.wizard.selected());
+        m.wizard.progress = InstallProgress {
+            total: runs.len(),
+            current: t_args("azinstallmgr-installing-through", &[("manager", Arg::from(pm.name()))]),
+            ..InstallProgress::default()
+        };
+        m.busy = true;
+        jobs::spawn(info, app, Job::ThroughManager { manager: pm, runs }, m.fetching());
+        return;
+    }
     let apps = m.wizard.selected();
     m.wizard.progress = InstallProgress {
         total: apps.len(),
@@ -573,6 +654,24 @@ pub(crate) fn installed(w: &mut Wizard, key: &str, result: &Result<String, Strin
                 &[("app", Arg::from(name)), ("reason", Arg::from(why.as_str()))],
             ));
             println!("AZINSTALLMGR_INSTALL_FAILED {key} {why}");
+        }
+    }
+    println!("AZINSTALLMGR_PROGRESS {}", w.progress.percent().round());
+}
+
+/// A command of the package manager ran: its output into the log, the step counted.
+pub(crate) fn ran_manager(w: &mut Wizard, command: &str, result: &Result<Vec<String>, String>) {
+    w.progress.done += 1;
+    w.progress.log.push(command.to_string());
+    match result {
+        Ok(lines) => {
+            w.progress.log.extend(lines.iter().cloned());
+            println!("AZINSTALLMGR_MANAGER_RAN {command}");
+        }
+        Err(why) => {
+            w.progress.failed += 1;
+            w.progress.log.push(why.clone());
+            println!("AZINSTALLMGR_MANAGER_FAILED {why}");
         }
     }
     println!("AZINSTALLMGR_PROGRESS {}", w.progress.percent().round());

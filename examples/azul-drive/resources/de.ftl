@@ -318,6 +318,10 @@ azdrive-preview-folder = Ein Ordner: Öffne ihn, um zu sehen, was er enthält.
 azdrive-queue-waiting = { $count } in der Warteschlange
 azdrive-queue-progress = { $done } von { $total } ({ $percent } %)
 azdrive-undo-rename = Umbenennen von „{ $name }“ rückgängig machen
+azdrive-close-waits = { $count ->
+    [one] Eine Übertragung oder Synchronisierung läuft noch: AzDrive schließt, wenn sie endet. Schließe noch einmal, um sie anzuhalten.
+   *[other] { $count } Übertragungen oder Synchronisierungen laufen noch: AzDrive schließt, wenn sie enden. Schließe noch einmal, um sie anzuhalten.
+ }
 azdrive-undo-delete = Löschen von { $count ->
         [one] einem Element
        *[other] { $count } Elementen
@@ -1875,3 +1879,22 @@ azdrive-palette-search-all = Alle Laufwerke durchsuchen: „{ $text }“
 azdrive-palette-keys = ↑ ↓ wählen · ↩ öffnen · ⌘↩ im Ordner zeigen · esc schließen
 azdrive-shortcut-quick-look = Übersicht
 azdrive-shortcut-palette = Die Befehlspalette
+
+# Die Dateiauswahl anderer Apps (--pick)
+azdrive-why-picking = Nicht während der Auswahl einer Datei für eine andere App.
+azdrive-pick-title-open = Öffnen
+azdrive-pick-title-folder = Ordner auswählen
+azdrive-pick-title-save = Speichern unter
+azdrive-pick-file-name = Dateiname:
+azdrive-pick-type = Dateityp
+azdrive-pick-all-files = Alle Dateien
+azdrive-pick-open = Öffnen
+azdrive-pick-save = Speichern
+azdrive-pick-select-folder = Ordner auswählen
+azdrive-pick-cancel = Abbrechen
+azdrive-pick-name-needed = Geben Sie einen Namen für die Datei ein.
+azdrive-pick-local-only = Wählen Sie eine Datei auf diesem Computer.
+azdrive-pick-cloud-only = Wählen Sie eine Datei eines Cloud-Laufwerks.
+azdrive-pick-fetching = Die Datei wird geholt...
+azdrive-pick-fetch-failed = Die Datei konnte nicht geholt werden.
+azdrive-pick-drive-closed = Das Laufwerk konnte nicht geöffnet werden.

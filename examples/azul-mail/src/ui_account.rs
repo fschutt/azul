@@ -77,8 +77,7 @@ const LABEL: &str = "font-size: 12px; margin-top: 12px; margin-bottom: 4px; \
                      @theme(flora) { font-size: 11px; font-weight: bold; text-transform: uppercase; \
                      letter-spacing: 0.1em; color: system:secondary-text; }";
 /// An error line: Material red under flat; flora's clay stone by day, its glow at night.
-const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12px; @theme(flora) { \
-                     color: #7E4A42; @media (prefers-color-scheme: dark) { color: #B3837A; } }";
+const ERROR: &str = "font-size: 13px; color: system:danger; margin-top: 12px;";
 const PAGE: &str = "display: flex; flex-direction: column; max-width: 520px;";
 
 /// An account being added or edited.
@@ -491,8 +490,7 @@ pub(crate) fn settings_page(s: &MailApp, app: &RefAny) -> Dom {
         footer.add_child(
             Dom::create_span_with_text(editor.error.as_str())
                 .with_css(
-                    "flex-grow: 1; font-size: 13px; color: #b3261e; @theme(flora) { color: \
-                     #7E4A42; @media (prefers-color-scheme: dark) { color: #B3837A; } }",
+                    "flex-grow: 1; font-size: 13px; color: system:danger;",
                 ),
         );
     } else {

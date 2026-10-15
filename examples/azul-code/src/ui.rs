@@ -933,7 +933,7 @@ extern "C" fn on_find_tool(mut data: RefAny, mut info: CallbackInfo, event: Tool
                 Update::DoNothing
             }
         }
-        ToolbarEventKind::Choose => Update::DoNothing,
+        ToolbarEventKind::Choose | ToolbarEventKind::Resize => Update::DoNothing,
     }
 }
 

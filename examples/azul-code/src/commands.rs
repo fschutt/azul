@@ -21,7 +21,7 @@ use azul::{
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
 };
-use azul_appkit::{shortcuts::display_keys, ui as kit};
+use azul_appkit::ui as kit;
 
 use azul_appkit::l10n::{label, t_args, Arg};
 
@@ -40,13 +40,13 @@ pub const TAG_SAMPLE: u64 = 1;
 /// The settings value that keeps the recent folders (a JSON array).
 pub const RECENT_KEY: &str = "recent_folders";
 
-/// `keys` (`Mod+O`, a chord `Mod+K Mod+O`) as this platform writes them
-/// (`Cmd+O` on macOS).
+/// `keys` (`Mod+O`, a chord `Mod+K Mod+O`) as this platform writes them (the Mac's symbols,
+/// elsewhere the key names in the window's language).
 #[must_use]
 pub fn keys(keys: &str) -> String {
     let mac = cfg!(target_os = "macos");
     keys.split(' ')
-        .map(|part| display_keys(part, mac))
+        .map(|part| kit::shown_keys(part, mac))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -748,7 +748,7 @@ pub extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, _info: Callba
     st.search.searched = outcome.searched;
     st.search.complete = outcome.complete;
     if let Some(e) = outcome.error {
-        st.notice = format!("The folder could not be searched: {e}");
+        st.notice = search_failed(&e.to_string());
     }
     println!("AZCODE_SEARCHED {} {}", st.search.hit_count(), st.search.results.len());
     Update::RefreshDom
@@ -771,7 +771,7 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
     // Written once: an empty listing after this is not a reason to write again.
     st.sample = false;
     if let Some(e) = reply.outcomes.iter().find_map(|o| o.error()) {
-        st.notice = format!("The sample could not be written: {e}");
+        st.notice = sample_failed(&e);
     }
     if let Some(root) = st.workspace.as_ref().map(|w| w.root.clone()) {
         storage::spawn_drive_jobs(
@@ -877,7 +877,20 @@ mod tests {
         assert_eq!(root.drive_root, PathBuf::from("/home/me/project"));
         assert_eq!(root.name, "project");
         assert_eq!(root.drive_root.display().to_string(), "/home/me/project");
-        assert_eq!(keys("Mod+K Mod+O"), if cfg!(target_os = "macos") { "Cmd+K Cmd+O" } else { "Ctrl+K Ctrl+O" });
+        assert_eq!(
+            keys("Mod+K Mod+O"),
+            if cfg!(target_os = "macos") { "\u{2318}K \u{2318}O" } else { "Ctrl+K Ctrl+O" }
+        );
         assert_eq!(keys("F3 / Shift+F3"), "F3 / Shift+F3");
     }
+}
+
+/// The notice when the folder could not be searched (`why`: the drive's own words).
+pub(crate) fn search_failed(why: &str) -> String {
+    t_args("azcode-search-failed", &[("why", Arg::from(why))])
+}
+
+/// The notice when the sample's files could not be written.
+pub(crate) fn sample_failed(why: &str) -> String {
+    t_args("azcode-sample-failed", &[("why", Arg::from(why))])
 }

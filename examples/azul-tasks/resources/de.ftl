@@ -154,6 +154,10 @@ aztasks-exported = { $count ->
 aztasks-load-failed = Die Aufgaben konnten nicht gelesen werden: { $why }
 aztasks-attach-failed = „{ $name }“ konnte nicht angehängt werden: { $why }
 aztasks-files-failed = Das Verschieben oder Löschen der Anhänge ist fehlgeschlagen: { $why }
+aztasks-changes-not-written = { $count ->
+    [one] 1 Änderung konnte nicht geschrieben werden. Schließe das Fenster noch einmal, um ohne sie zu beenden.
+   *[other] { $count } Änderungen konnten nicht geschrieben werden. Schließe das Fenster noch einmal, um ohne sie zu beenden.
+ }
 aztasks-imported = { $count ->
     [one] 1 Aufgabe aus { $file } importiert.
    *[other] { $count } Aufgaben aus { $file } importiert.

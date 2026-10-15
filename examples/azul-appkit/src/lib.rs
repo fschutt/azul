@@ -91,8 +91,14 @@ pub mod update;
 pub mod window_place;
 #[cfg(test)]
 mod l10n_tests;
+#[cfg(test)]
+mod danger_ink_tests;
 #[cfg(all(test, feature = "azul"))]
 mod l10n_switch_tests;
+#[cfg(all(test, feature = "azul"))]
+mod title_insets_tests;
+#[cfg(all(test, feature = "azul"))]
+mod clickable_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;

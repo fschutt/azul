@@ -51,3 +51,13 @@ fn switching_the_language_changes_a_label_of_azmail() {
     assert_eq!(t("azmail-tab-home"), "Start");
     set_locale("en-US");
 }
+
+/// The status bar names a sent mail in the window's language.
+#[test]
+fn a_sent_mail_is_named_in_the_windows_language() {
+    crate::l10n::in_english();
+    assert_eq!(crate::ui_compose::sent_notice("Garden"), "Sent: Garden");
+    set_locale("de-DE");
+    assert_eq!(crate::ui_compose::sent_notice("Garden"), "Gesendet: Garden");
+    set_locale("en-US");
+}

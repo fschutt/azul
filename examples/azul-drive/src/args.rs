@@ -103,6 +103,8 @@ const AZDRIVE_HELP: &str = concat!(
     "                             else the profile's)\n",
     "    --profile <NAME>         local | trial | production: whose addresses are the defaults\n",
     "                             (default: $AZLIN_PROFILE, else the shared config's, else local)\n",
+    "    --pick                   Answer another app's file request (one JSON line on stdin) as\n",
+    "                             its file picker: one AZPICK line on stdout, then end\n",
 );
 
 /// AzDrive's own switches that take a value (after a space or an equals sign), and what the
@@ -143,6 +145,9 @@ pub struct Args {
     pub profile: Option<String>,
     /// `--cache-dir`: where the caches are kept (`<cache dir>/AzDrive` when absent).
     pub cache_dir: Option<PathBuf>,
+    /// `--pick`: AzDrive answers another app's file request (read from stdin) as its picker,
+    /// then ends (`picker`).
+    pub pick: bool,
     /// The switches every Azlin app understands (azul-appkit): `--theme`, `--mode`
     /// (`system` too), `--size`, `--shot`, `--sample`, `--data-dir`.
     pub kit: AppArgs,
@@ -187,6 +192,11 @@ impl Args {
                 Some((n, v)) => (n, Some(v.to_string())),
                 None => (arg, None),
             };
+            if arg == "--pick" {
+                args.pick = true;
+                i += 1;
+                continue;
+            }
             let Some(&(name, what)) = OWN.iter().find(|(n, _)| *n == name) else {
                 rest.push(argv[i].clone());
                 i += 1;
@@ -299,7 +309,7 @@ where
     while i < argv.len() {
         let arg = argv[i].as_str();
         let name = arg.split_once('=').map_or(arg, |(n, _)| n);
-        if arg == "--sample" {
+        if arg == "--sample" || arg == "--pick" {
             i += 1;
             continue;
         }
@@ -346,34 +356,23 @@ const SAMPLE_PNG: &[u8] = &[
 ];
 
 /// A short fading 440 Hz tone as a 16-bit mono WAV: the sample sound.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+#[allow(clippy::cast_precision_loss)]
 fn chime_wav() -> Vec<u8> {
     const RATE: u32 = 8_000;
     const COUNT: u32 = RATE * 3 / 10;
     const SECONDS: f32 = COUNT as f32 / RATE as f32;
-    let data: Vec<u8> = (0..COUNT)
-        .flat_map(|i| {
+    // 12000 of i16's 32767: a quiet chime, not a full-scale tone.
+    const LEVEL: f32 = 12_000.0 / 32_767.0;
+    let samples: Vec<f32> = (0..COUNT)
+        .map(|i| {
             let t = i as f32 / RATE as f32;
             let fade = 1.0 - t / SECONDS;
-            let sample = ((t * 440.0 * std::f32::consts::TAU).sin() * fade * 12_000.0) as i16;
-            sample.to_le_bytes()
+            (t * 440.0 * std::f32::consts::TAU).sin() * fade * LEVEL
         })
         .collect();
-    let mut out = Vec::with_capacity(44 + data.len());
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    out.extend_from_slice(&1u16.to_le_bytes()); // mono
-    out.extend_from_slice(&RATE.to_le_bytes());
-    out.extend_from_slice(&(RATE * 2).to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    out.extend_from_slice(&data);
-    out
+    azul::widgets::Waveform::encode_wav(azul::vec::F32Vec::from(samples), RATE, 1)
+        .as_ref()
+        .to_vec()
 }
 
 /// The sample files: (key, bytes). A key ending in `/` is an empty folder.
@@ -435,6 +434,17 @@ mod tests {
 
     fn parse(args: &[&str]) -> Result<Args, String> {
         Args::parse(args.iter().map(|s| s.to_string()))
+    }
+
+    /// `--pick` starts AzDrive as another app's file picker; a new window is never one.
+    #[test]
+    fn pick_starts_the_file_picker_and_a_new_window_is_none() {
+        assert!(parse(&["--pick"]).unwrap().pick);
+        assert!(!parse(&[]).unwrap().pick);
+        assert_eq!(
+            new_window_args(["--pick", "--home", "/h"], "Home"),
+            vec!["--home", "/h", "--open", "Home"]
+        );
     }
 
     /// `--open` names the place as the address bar does; an empty one is an error.

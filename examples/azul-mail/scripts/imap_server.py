@@ -51,6 +51,8 @@ SPECIAL_USE = {
 }
 MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 SYSTEM_FLAGS = '(\\Answered \\Flagged \\Deleted \\Seen \\Draft)'
+# A stalled session waits at most this many 0.1 s steps (ten minutes) before it answers.
+STALL_LIMIT_STEPS = 6000
 
 
 # ---- modified UTF-7 (RFC 3501, 5.1.3) ----
@@ -331,6 +333,7 @@ class Session(socketserver.StreamRequestHandler):
             tag, command, args = tokens[0], tokens[1].upper(), tokens[2:]
             if command == 'UID' and args:
                 command, args = 'UID ' + args[0].upper(), args[1:]
+            self.stall(command)
             try:
                 if not self.dispatch(tag, command, args):
                     return
@@ -338,6 +341,22 @@ class Session(socketserver.StreamRequestHandler):
                 self.send(f'{tag} BAD {e}')
             except OSError:
                 return
+
+    def stall(self, command):
+        """While the server's stall file exists, a signed-in session's commands get no answer:
+        a server that hangs in the middle of a sync, as the client sees one (Cancel must still
+        free Send / Receive at once)."""
+        path = self.server.stall_file
+        if not path or self.user is None or command in ('LOGOUT', 'CAPABILITY'):
+            return
+        logged = False
+        for _ in range(STALL_LIMIT_STEPS):
+            if not os.path.exists(path):
+                return
+            if not logged:
+                self.log(stalled=command)
+                logged = True
+            time.sleep(0.1)
 
     def dispatch(self, tag, command, args):
         """Runs one command; False ends the connection."""
@@ -592,8 +611,11 @@ class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, address, store, user, password, log_path=None, ssl_context=None):
+    def __init__(self, address, store, user, password, log_path=None, ssl_context=None,
+                 stall_file=None):
         self.store = store
+        # While this file exists, signed-in sessions get no answers (`Session.stall`).
+        self.stall_file = stall_file
         self.user = user
         self.password = password
         self.log_path = log_path
@@ -643,10 +665,12 @@ def server_ssl_context(cert_path, key_path):
     return context
 
 
-def start(root, host, port, user, password, log_path=None, ssl_context=None, special_use=True):
+def start(root, host, port, user, password, log_path=None, ssl_context=None, special_use=True,
+          stall_file=None):
     """Starts a server on a background thread and returns it (`server.server_address` has the
     port; `server.shutdown()` stops it)."""
-    server = Server((host, port), Store(root, special_use), user, password, log_path, ssl_context)
+    server = Server((host, port), Store(root, special_use), user, password, log_path, ssl_context,
+                    stall_file)
     thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.05},
                               daemon=True)
     thread.start()
@@ -664,6 +688,9 @@ def main():
     parser.add_argument('--log', default=None, help='JSON lines of the commands')
     parser.add_argument('--tls', action='store_true', help='implicit TLS with a generated cert')
     parser.add_argument('--no-special-use', action='store_true')
+    parser.add_argument('--stall-file', default=None,
+                        help='while this file exists, signed-in sessions get no answers (a '
+                             'server hanging in the middle of a sync)')
     args = parser.parse_args()
     password = args.password or os.environ.get('AZMAIL_TEST_PASSWORD')
     if not password:
@@ -677,7 +704,7 @@ def main():
         cert, key = make_self_signed_cert(cert_dir)
         context = server_ssl_context(cert, key)
     server = start(args.root, args.host, args.port, args.user, password, args.log, context,
-                   not args.no_special_use)
+                   not args.no_special_use, args.stall_file)
     print(f'IMAP_SERVER_PORT {server.server_address[1]}', flush=True)
     if args.tls:
         print(f'IMAP_SERVER_CA {cert}', flush=True)

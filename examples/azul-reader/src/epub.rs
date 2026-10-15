@@ -594,7 +594,7 @@ fn spine_toc(container: &Container, spine: &[SpineItem]) -> Vec<TocEntry> {
                 .text(&item.path)
                 .map(|t| chapter_label(&t, item.is_html()))
                 .filter(|l| !l.is_empty())
-                .unwrap_or_else(|| format!("Chapter {}", i + 1));
+                .unwrap_or_else(|| chapter_fallback(i + 1));
             TocEntry {
                 label,
                 path: item.path.clone(),
@@ -976,4 +976,9 @@ mod tests {
             "The Tale of Two Files"
         );
     }
+}
+
+/// The table of contents' name for chapter `n` when its file names none.
+pub(crate) fn chapter_fallback(n: usize) -> String {
+    azul_appkit::l10n::t_args("azreader-chapter-n", &[("number", azul_appkit::l10n::Arg::from(n))])
 }

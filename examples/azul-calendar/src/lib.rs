@@ -119,7 +119,7 @@ use azul::{
     window::WindowDecorations,
 };
 use azul_appkit::args::LanguagePref;
-use azul_pim::write_queue::WriteQueue;
+use azul_pim::write_queue::{CloseHold, MainClose, WriteQueue};
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
 use crate::{
@@ -207,16 +207,12 @@ pub(crate) const SELECTED_RING: &str = "box-shadow: 0px 0px 0px 2px #2f6db0; @me
                                         2px #8dbbff; } @theme(flora) { box-shadow: 0px 0px 0px \
                                         2px #2F4A85; @media (prefers-color-scheme: dark) { \
                                         box-shadow: 0px 0px 0px 2px #7A93C6; } }";
-/// The "now" line in today's column (under flora the clay stone, its glow at night).
-pub(crate) const NOW_LINE: &str = "background: #d93025; @theme(flora) { background: #7E4A42; \
-                                   @media (prefers-color-scheme: dark) { background: #B3837A; } }";
+/// The "now" line in today's column: the theme's danger ink, as Outlook draws it red.
+pub(crate) const NOW_LINE: &str = "background: system:danger;";
 /// Secondary lines: an event's time, what a form line means.
 pub(crate) const SECONDARY: &str = "color: system:secondary-text;";
 /// A form's error line.
-pub(crate) const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12px; @media \
-                                (prefers-color-scheme: dark) { color: #f2b8b5; } @theme(flora) { \
-                                color: #7E4A42; @media (prefers-color-scheme: dark) { color: \
-                                #B3837A; } }";
+pub(crate) const ERROR: &str = "font-size: 13px; color: system:danger; margin-top: 12px;";
 /// A block's title: one line, cut with an ellipsis at the block's edge.
 pub(crate) const CLIPPED_TITLE: &str = "font-weight: bold; white-space: nowrap; overflow: \
                                         hidden; text-overflow: ellipsis; flex-shrink: 0;";
@@ -326,11 +322,9 @@ pub(crate) struct CalState {
     pub(crate) task_flight: writes::InFlight,
     /// The settings file's text as last written (a setting replaces its line in it).
     pub(crate) settings_text: String,
-    /// The main window was asked to close while writes waited: it closes once they landed.
-    pub(crate) closing: bool,
-    /// Writes failed when the window was to close, and the user was told: the next close
-    /// passes.
-    pub(crate) close_despite_failures: bool,
+    /// The main window's close, held while writes land (`writes.rs` closes it once they
+    /// landed); writes that failed are said once, and the next close passes.
+    pub(crate) close_hold: CloseHold,
     /// Lines for stdout once the write of their key landed (`AZCAL_SAVED <path>`, ...).
     pub(crate) on_landing: Vec<(String, String)>,
     /// The import file being read.
@@ -687,17 +681,16 @@ extern "C" fn on_main_close_requested(mut data: RefAny, mut info: CallbackInfo) 
     };
     let s = &mut *guard;
     let failures = s.write_failures();
-    match store::main_close(!s.writes_idle(), failures, s.close_despite_failures) {
-        store::MainClose::Close => Update::DoNothing,
-        store::MainClose::Wait => {
+    let waiting = !s.writes_idle();
+    match s.close_hold.request(waiting, failures) {
+        MainClose::Close => Update::DoNothing,
+        MainClose::Wait => {
             eprintln!("[azcalendar] the window closes once the waiting writes landed");
-            s.closing = true;
             info.prevent_window_close();
             writes::pump(s, &mut info, &app);
             Update::DoNothing
         }
-        store::MainClose::Tell => {
-            s.close_despite_failures = true;
+        MainClose::Tell => {
             s.notice = azul_appkit::l10n::t_args(
                 "azcalendar-changes-not-written",
                 &[("count", azul_appkit::l10n::Arg::from(failures))],
@@ -1476,8 +1469,7 @@ pub fn start() {
         data_flight: writes::InFlight::default(),
         task_flight: writes::InFlight::default(),
         settings_text: text.to_string(),
-        closing: false,
-        close_despite_failures: false,
+        close_hold: CloseHold::default(),
         on_landing: Vec::new(),
         import_pending: None,
         import_path: String::new(),
