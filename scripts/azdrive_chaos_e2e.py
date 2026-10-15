@@ -522,6 +522,10 @@ class Laptop:
         while time.time() < deadline:
             lines = self.wait_passes(what, 1, drive_id, max(1, deadline - time.time()))
             moved = re.search(r"up=([1-9]|\d\d)|down=([1-9]|\d\d)|deleted=([1-9]|\d\d)", lines[-1])
+            # The status line follows the pass's line: give it a moment.
+            said_by = time.time() + 2
+            while self.status(drive_id) != UP_TO_DATE and time.time() < said_by:
+                time.sleep(0.05)
             if not moved and "FAILED" not in lines[-1] and self.status(drive_id) == UP_TO_DATE:
                 calm += 1
                 if calm >= quiet:
@@ -1289,8 +1293,13 @@ def revoked(ctx):
         stack.proxy.clear()
         stack.proxy.release()
         revoked_at = time.time()
-        laptop.wait_passes("passes after the removal", 3, drive)
+        laptop.app.until("a pass refused", lambda: laptop.failures(drive))
+        time.sleep(1)
         status = laptop.status(drive)
+        # A removed device stops: it does not knock every second with refused credentials.
+        passes_before = len(laptop.passes(drive))
+        time.sleep(10)
+        knocked = len(laptop.passes(drive)) - passes_before
         here = tree(folder)
         for key in local_before:
             expect(key in here, "the removal deleted %s here" % key)
@@ -1298,8 +1307,10 @@ def revoked(ctx):
                  if e["t"] > revoked_at + 1 and 200 <= (e.get("status") or 0) < 300]
         expect(not later, "writes landed after the removal: %s" % later[:3])
         expect(status != UP_TO_DATE, "removed, the status says Up to date")
-        raw = raw_errors([status])
-        expect(not raw, "the removal showed as a technical error: %s" % status)
+        raw = raw_errors(statuses_seen(laptop, drive))
+        expect(not raw, "the removal showed as a technical error: %s" % raw[:2])
+        expect(knocked <= 2, "a removed device ran %d passes in 10 s against refused "
+                             "credentials" % knocked)
         return "status %s" % status
     finally:
         laptop.stop()
