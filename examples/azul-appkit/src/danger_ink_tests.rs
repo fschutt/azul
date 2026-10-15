@@ -19,7 +19,10 @@ fn rust_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             rust_files(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs")
+            && !path.to_string_lossy().ends_with("_tests.rs")
+        {
+            // A test may name a red to check it is gone (this one does).
             out.push(path);
         }
     }
