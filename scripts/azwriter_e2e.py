@@ -4,7 +4,7 @@
     1. starts AzWriter on an empty, temporary data folder with --sample: the sample document opens,
        is saved as writer/<uuid>.md and spans two A4 pages (a page break), each page an editing
        host of the shared editor (#__azwriter_doc-page-<first block>);
-    2. types into the second block, saves (Ctrl/Cmd+S) and reads the FILE back;
+    2. the first page has the keyboard as it opens (its autofocus); types into the second block, saves (Ctrl/Cmd+S) and reads the FILE back;
     3. undoes the typing with Ctrl/Cmd+Z (the editor's ONE history, not the engine's text undo),
        saves, and the file no longer has the text;
     4. makes the caret's block a heading 2 (Ctrl/Cmd+2), saves: "## " in the file;
@@ -79,6 +79,16 @@ def first_session(app, data, out):
     if not app.has_id(PAGE0[1:]):
         raise e.Failure("no first page host %s" % PAGE0)
     app.log("pages laid out (%s)" % app.printed("AZWRITER_PAGES", r"\d+")[-1])
+
+    # The first page has the keyboard as the document opens (its autofocus): the caret is in
+    # the text without a click.
+    def focused():
+        answer = app.must("get_focus_state", seat=0)
+        data_ = answer.get("data") if isinstance(answer, dict) else None
+        value = data_.get("value") if isinstance(data_, dict) and "value" in data_ else data_
+        return ((value or {}).get("focused_node") or {}).get("selector") or ""
+    app.until("the first page to take the keyboard", lambda: "doc-page-0" in focused())
+    app.log("the document opens with the caret in its first page")
 
     # HOME fits a 1280 px window: the styles gallery shows a row of a few
     # styles (More shows all), so the Editing group's Undo is on screen.
