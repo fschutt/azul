@@ -2498,11 +2498,10 @@ mod invoker_face_tests {
         themes::{theme_checks as tc, UiTheme},
     };
 
-    /// AzWidgets' "Delete file..." - a Danger button as a modal dialog's
-    /// invoker - was seen once without its face in a GPU capture in the dark
-    /// mode. The cascade gives it its red face in both modes and both
-    /// themes, invoker wrapper or not: what paints it is the same display
-    /// list on the CPU and the GPU.
+    /// A Danger button as a modal dialog's invoker (AzWidgets' "Delete
+    /// file...") has a painted face in both modes and both themes, inside
+    /// the invoker's wrapper: the CPU and the GPU paint the same display
+    /// list, so a capture without the face points at the renderer.
     #[test]
     fn a_danger_invoker_keeps_its_face_in_both_modes() {
         for theme in [UiTheme::Flat, UiTheme::Flora] {

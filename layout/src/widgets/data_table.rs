@@ -1615,8 +1615,8 @@ pub struct DataTable {
     /// selecting, resizing and copying still work).
     pub read_only: bool,
     /// The rows drag out of the table (a file list): a press on a selected
-    /// row keeps the selection until the release, a drag from a row carries
-    /// the selected rows (`DragStart`); a drag no longer extends the
+    /// row keeps the selection until the release, and a drag from a row
+    /// carries the selected rows out (`DragStart`) instead of extending the
     /// selection.
     pub rows_draggable: bool,
 }
