@@ -1151,3 +1151,5 @@ mod a_parent_grows_with_its_restyled_child;
 mod a_tweened_block_margin_moves_its_box_on_the_retained_tree;
 #[path = "a_superscript_rises_by_its_parent_inline_boxs_font_size.rs"]
 mod a_superscript_rises_by_its_parent_inline_boxs_font_size;
+#[path = "an_inline_boxs_edges_resolve_their_units_and_zoom.rs"]
+mod an_inline_boxs_edges_resolve_their_units_and_zoom;
