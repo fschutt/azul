@@ -104,6 +104,9 @@ pub(crate) struct Compose {
     pub(crate) asking_close: bool,
     /// "Save" on that bar: the window closes once the draft is saved.
     pub(crate) close_after_save: bool,
+    /// The window's close came while the mail was being sent: the send's answer comes to this
+    /// window, so the close waits for it (`closes_after_send`).
+    pub(crate) close_after_send: bool,
 }
 
 /// A file to attach, read when the mail is saved or sent (on the thread).
@@ -184,6 +187,22 @@ impl Compose {
     /// saved, and it is not on its way out (being sent).
     fn close_asks(&self) -> bool {
         self.edited && !matches!(self.status, ComposeStatus::Sending | ComposeStatus::Queued(_))
+    }
+
+    /// Closing the window waits: the mail is being sent, and the answer (sent, in the Outbox,
+    /// refused) comes to this window.
+    fn close_waits(&self) -> bool {
+        false
+    }
+
+    /// Whether the answer `done` to Send closes the window.
+    fn closes_after_send(&self, done: &send::SendStatus) -> bool {
+        matches!(done, send::SendStatus::Sent { .. })
+    }
+
+    /// Whether File > Exit (`quitting`) closes this window now.
+    pub(crate) fn closes_for_quit(&self, _quitting: bool) -> bool {
+        false
     }
 
     /// Sending, or sent to the Outbox: Send would send it twice.
@@ -323,6 +342,7 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         edited: false,
         asking_close: false,
         close_after_save: false,
+        close_after_send: false,
     });
     let mut window = WindowCreateOptions::create(layout_compose);
     window.window_state.layout_callback.ctx = OptionRefAny::Some(RefAny::new(ComposeKey(id)));
@@ -1483,6 +1503,7 @@ mod tests {
             edited: false,
             asking_close: false,
             close_after_save: false,
+            close_after_send: false,
         }
     }
 
@@ -1503,5 +1524,40 @@ mod tests {
         assert!(!c.close_asks(), "in the Outbox");
         c.status = ComposeStatus::Failed(String::from("refused"));
         assert!(c.close_asks(), "not sent: still the only copy");
+    }
+
+    #[test]
+    fn closing_a_message_window_while_it_sends_waits_for_the_answer() {
+        let mut c = compose();
+        assert!(!c.close_waits(), "nothing on its way");
+        c.status = ComposeStatus::Sending;
+        assert!(c.close_waits(), "the answer comes to this window");
+        c.status = ComposeStatus::Queued(String::from("no route"));
+        assert!(!c.close_waits(), "already in the Outbox");
+    }
+
+    #[test]
+    fn a_held_close_goes_once_the_mail_is_sent_or_queued_and_stays_on_a_failure() {
+        let sent = send::SendStatus::Sent { message_id: String::from("a@example.org") };
+        let queued = send::SendStatus::Queued { reason: String::from("no route") };
+        let failed = send::SendStatus::Failed { reason: String::from("refused") };
+        let mut c = compose();
+        assert!(c.closes_after_send(&sent), "a sent mail's window always goes");
+        assert!(!c.closes_after_send(&queued), "the window says it waits in the Outbox");
+        c.close_after_send = true;
+        assert!(c.closes_after_send(&queued), "closed while sending: the Outbox has it");
+        assert!(!c.closes_after_send(&failed), "the window must say why it was refused");
+    }
+
+    #[test]
+    fn file_exit_closes_each_message_window_through_its_own_guard_once() {
+        let mut c = compose();
+        assert!(!c.closes_for_quit(false));
+        assert!(c.closes_for_quit(true));
+        c.asking_close = true;
+        assert!(!c.closes_for_quit(true), "it asks Save changes? already");
+        c.asking_close = false;
+        c.close_after_send = true;
+        assert!(!c.closes_for_quit(true), "it closes once the send is answered");
     }
 }
