@@ -16,7 +16,9 @@ publish = false
 [dependencies]
 # Both already in the tree: the tiles are gzipped (the protobuf reader is our
 # own, wire.rs), the manifest is JSON, and an OSM extract's blocks are zlib.
-serde_json = "1"
+# float_roundtrip: a manifest read back holds the very bounds it was written with (the default
+# parser may land one bit off); a feature of serde_json, no other crate.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 flate2 = "1"
 # The times of public transport journeys (RFC 3339 in, unix seconds out): the chrono most of the
 # apps already build, no crate enters Cargo.lock.

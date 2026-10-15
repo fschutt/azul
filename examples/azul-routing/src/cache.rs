@@ -302,7 +302,9 @@ mod tests {
     use super::*;
 
     fn folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("azul-routing-cache-{name}-{}", std::process::id()));
+        // `answers`, not `cache`: the tile cache's tests name their folders `azul-routing-cache-*`,
+        // and two tests of one run sharing a folder delete each other's files.
+        let dir = std::env::temp_dir().join(format!("azul-routing-answers-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
