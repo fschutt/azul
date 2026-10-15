@@ -3130,13 +3130,24 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
 // ==== Start ====
 
+/// The folder of the drives' node lists: `nodes` in the run's cache folder (`--cache-dir` too),
+/// set at the start; unset, AzDrive's own in the user's cache folder.
+static NODES_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Keeps the drives' node lists in `folder` from now on (the start: the run's cache folder).
+fn set_nodes_root(folder: PathBuf) {
+    let _ = NODES_ROOT.set(folder);
+}
+
 /// Where an Azlin drive keeps the node list of its last credential refresh (not secret).
 fn nodes_file(drive_id: &str) -> PathBuf {
-    path_of(FilePath::get_cache_dir().into_option())
-        .unwrap_or_else(std::env::temp_dir)
-        .join("AzDrive")
-        .join("nodes")
-        .join(format!("{}.json", azul_storage::key::safe_file_name(drive_id).unwrap_or_default()))
+    let root = NODES_ROOT.get().cloned().unwrap_or_else(|| {
+        path_of(FilePath::get_cache_dir().into_option())
+            .unwrap_or_else(std::env::temp_dir)
+            .join("AzDrive")
+            .join("nodes")
+    });
+    root.join(format!("{}.json", azul_storage::key::safe_file_name(drive_id).unwrap_or_default()))
 }
 
 fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
@@ -3399,6 +3410,10 @@ pub fn start() {
     // A big upload outlives the app: its state file in the cache, resumed by the next upload of
     // the same file to the same drive (azul-storage's multipart).
     azul_storage::multipart::set_resume_folder(cache_dir.as_ref().map(|dir| dir.join("uploads")));
+    // The drives' node lists beside them: a run with its own cache folder keeps its own.
+    if let Some(dir) = &cache_dir {
+        set_nodes_root(dir.join("nodes"));
+    }
     // The first location tab, on the place the window opens at.
     let first_tab = location_tabs::TabState::at(place.clone(), settings.layout);
     let mut state = DriveState {
