@@ -165,6 +165,40 @@ function _moveArg(v) {
     return v;
 }
 
+// The native Option for a parameter or a field: `null` / `undefined` is
+// None, an Option wrapper is moved in as it is, anything else becomes the
+// Some of `map(v)` (`_azString` for text, `_moveArg` for a wrapper).
+function _optIn(cls, ffi, v, map) {
+    if (v === null || v === undefined) return lib[ffi + '_none']();
+    if (cls && v instanceof cls) return _moveArg(v);
+    return lib[ffi + '_some'](map(v));
+}
+
+// Takes a native Option apart: `null` for None, `wrap(payload)` for Some.
+// `wrap` copies what it keeps, so the option is released afterwards.
+function _optTake(raw, del, wrap) {
+    if (raw == null || raw.Some.tag === 0) {
+        if (raw != null && del) del(raw);
+        return null;
+    }
+    const v = wrap(raw.Some.payload);
+    if (del) del(raw);
+    return v;
+}
+
+function _identity(v) {
+    return v;
+}
+
+// A RefAny argument after a callback's data, such as a resume callback's
+// result: the JS value it was made from, or - a value libazul made - an owned
+// RefAny (a clone) that the matching `<Type>.downcast` takes.
+function _refanyArg(ptr) {
+    const v = _refanyFromPtr(ptr);
+    if (v !== null) return v;
+    return new RefAny(lib.AzRefAny_clone(ptr));
+}
+
 // A view of the struct field `parent._ptr[field]`, as an instance of `cls`.
 // Reads and writes go to the parent's field in place (so
 // `opts.windowState.title = 'x'` changes `opts`); `_ptr` is looked up on
@@ -896,6 +930,42 @@ fn emit_field_accessors(
         }
         let f = &field.name;
         let path = format!("{}.{}", class, js);
+        // An Option field reads as `null` / the value (a copy) and is written
+        // from `null` / the value.
+        if let Some(o) = node_option(&field.type_name, ir) {
+            let has = |suffix: &str| {
+                ir.functions_for_class(field.type_name.trim())
+                    .any(|g| g.c_name == format!("{}_{}", o.ffi, suffix))
+            };
+            let del = if has("delete") {
+                format!("lib.{}_delete", o.ffi)
+            } else {
+                "null".to_string()
+            };
+            let copy = if has("clone") {
+                format!("lib.{}_clone(this._ptr.{})", o.ffi, f)
+            } else {
+                format!("this._ptr.{}", f)
+            };
+            b.line(&format!(
+                "get {}() {{ return _optTake({}, {}, {}); }}",
+                js, copy, if has("clone") { del.as_str() } else { "null" }, o.wrap_out
+            ));
+            let release = if has("delete") {
+                format!("lib.{}_delete(this._ptr.{}); ", o.ffi, f)
+            } else {
+                String::new()
+            };
+            b.line(&format!(
+                "set {}(v) {{ const nv = {}; {}this._ptr.{} = nv; _consume(v); }}",
+                js,
+                o.into_raw("v"),
+                release,
+                f
+            ));
+            b.blank();
+            continue;
+        }
         match kind {
             NodeField::Scalar => {
                 b.line(&format!("get {}() {{ return this._ptr.{}; }}", js, f));
@@ -1931,8 +2001,11 @@ fn emit_instance_alias(b: &mut CodeBuilder, f: &FunctionDef, alias: &str, class:
 /// user's wrapper: `render_call_args` creates a fresh host-handle
 /// RefAny from the user's JS value, and that value must stay intact.
 fn consumed_wrapper_args(args: &[&FunctionArg], ir: &CodegenIR) -> Vec<String> {
+    // A by-value RefAny is consumed too: `refanyCreate` hands over a RefAny
+    // wrapper's own bytes (a plain JS value is not a wrapper: no-op).
+    let _ = ir;
     args.iter()
-        .filter(|a| matches!(a.ref_kind, ArgRefKind::Owned) && !is_refany_type(&a.type_name, ir))
+        .filter(|a| matches!(a.ref_kind, ArgRefKind::Owned))
         .map(|a| js_arg_name(a))
         .collect()
 }
@@ -2160,6 +2233,12 @@ fn render_call_args(args: &[&FunctionArg], ir: &CodegenIR) -> String {
             if is_refany_type(&a.type_name, ir) {
                 return format!("refanyCreate({n})", n = n);
             }
+            // An Option takes `null` / `undefined` for None, or the value.
+            if matches!(a.ref_kind, ArgRefKind::Owned) {
+                if let Some(o) = node_option(&a.type_name, ir) {
+                    return o.into_raw(&n);
+                }
+            }
             // If the arg is a wrapper-class instance the user will pass
             // the wrapper directly; pull `._ptr` out so the FFI gets a
             // raw pointer. We use a permissive `?._ptr ?? value` guard
@@ -2174,6 +2253,54 @@ fn render_call_args(args: &[&FunctionArg], ir: &CodegenIR) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// An Option mirror the JS surface shows as `null` / the value: its FFI
+/// name, its wrapper class (an Option object is passed through as it is),
+/// the function a non-null value goes through (`_azString`, `_moveArg`,
+/// `_identity`) and the one that turns a Some's payload into what a getter
+/// returns.
+struct NodeOpt {
+    ffi: String,
+    class: Option<String>,
+    map_in: &'static str,
+    wrap_out: String,
+}
+
+fn node_option(t: &str, ir: &CodegenIR) -> Option<NodeOpt> {
+    let t = t.trim();
+    let payload = ir.option_payload(t)?;
+    if is_refany_type(payload, ir) || is_callback_wrapper(ir, payload) {
+        return None;
+    }
+    let (map_in, wrap_out) = if ir
+        .find_struct(payload)
+        .is_some_and(|s| matches!(s.category, TypeCategory::String))
+    {
+        ("_azString", "_azStringDecode".to_string())
+    } else if let Some(c) = node_wrapper_class_for(payload, ir) {
+        ("_moveArg", format!("(p) => new {c}({c}._cloneRaw ? {c}._cloneRaw(p) : p)"))
+    } else {
+        ("_identity", "_identity".to_string())
+    };
+    Some(NodeOpt {
+        ffi: ffi_type_name(t),
+        class: node_wrapper_class_for(t, ir),
+        map_in,
+        wrap_out,
+    })
+}
+
+impl NodeOpt {
+    fn into_raw(&self, v: &str) -> String {
+        format!(
+            "_optIn({}, '{}', {}, {})",
+            self.class.as_deref().unwrap_or("null"),
+            self.ffi,
+            v,
+            self.map_in
+        )
+    }
 }
 
 /// Auto-string-conversion rule (mirrors Java/Kotlin/C#/Ruby): any Owned

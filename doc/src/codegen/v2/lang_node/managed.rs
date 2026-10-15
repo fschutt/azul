@@ -388,7 +388,11 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
         for (i, a) in cb.args.iter().enumerate() {
             let var_name = closure_args[i + 1].clone();
             if is_refany_type(&a.type_name, ir) {
-                user_args.push(format!("_refanyFromPtr({})", var_name));
+                // The data is the user's own value; a later RefAny (a resume
+                // callback's result) may hold a value libazul made, which the
+                // callback gets as a RefAny for `<Type>.downcast`.
+                let resolve = if i == 0 { "_refanyFromPtr" } else { "_refanyArg" };
+                user_args.push(format!("{}({})", resolve, var_name));
             } else {
                 user_args.push(var_name);
             }
