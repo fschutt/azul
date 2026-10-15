@@ -31,7 +31,7 @@ const FRAME_BUDGET: Duration = Duration::from_millis(8);
 
 /// AzWidgets' shape: a scrolling column holding a closed one-section
 /// accordion (80 px of content) above `cards` settings cards.
-fn accordion_page(cards: usize) -> Dom {
+pub(crate) fn accordion_page(cards: usize) -> Dom {
     let section = AccordionSection::new("Details", Dom::create_div().with_css("height: 80px;"));
     let mut page = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
@@ -55,7 +55,7 @@ fn accordion_page(cards: usize) -> Dom {
 
 /// One frame of the frame driver: tick the tweens by 16 ms, relayout when a
 /// layout property moved.
-fn step(lw: &mut LayoutWindow) {
+pub(crate) fn step(lw: &mut LayoutWindow) {
     lw.tick_animations(0.016);
     if lw.take_transition_relayout() {
         relayout(lw);

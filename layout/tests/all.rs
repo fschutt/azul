@@ -1141,3 +1141,5 @@ mod tab_buttons_and_leather_commands_answer_every_state;
 mod a_pie_marker_paints_its_disc_and_wedge;
 #[path = "a_closing_window_never_waits_for_its_workers.rs"]
 mod a_closing_window_never_waits_for_its_workers;
+#[path = "an_accordion_tween_frame_builds_its_display_list_once.rs"]
+mod an_accordion_tween_frame_builds_its_display_list_once;
