@@ -914,6 +914,22 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
         "[collect_inline_span_recursive] Processing inline span {:?}",
         span_dom_id
     );
+    // The span's text carries the boxes around it and, when the span moves
+    // the pen itself, the span's own edge last (`StyleProperties::
+    // inline_boxes`).
+    let own_box = text3::cache::InlineBoxEdge::of(span_dom_id, span_style);
+    let with_own_box;
+    let span_style = match own_box {
+        Some(edge) => {
+            let mut style = span_style.clone();
+            let mut boxes = style.inline_boxes.to_vec();
+            boxes.push(edge);
+            style.inline_boxes = boxes.into();
+            with_own_box = style;
+            &with_own_box
+        }
+        None => span_style,
+    };
 
     // Get DOM children of this span
     let span_dom_children: Vec<NodeId> = span_dom_id
@@ -1208,6 +1224,8 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 // 3 §2.1: an inline box decorates everything in it).
                 child_style.text_decoration =
                     child_style.text_decoration.with(span_style.text_decoration);
+                // And sits inside this span's box and the ones around it.
+                child_style.inline_boxes = span_style.inline_boxes.clone();
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -1282,6 +1300,7 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 child_style.vertical_align = nested_align(child_style.vertical_align);
                 child_style.text_decoration =
                     child_style.text_decoration.with(span_style.text_decoration);
+                child_style.inline_boxes = span_style.inline_boxes.clone();
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,

@@ -120,11 +120,13 @@ fn inline_pipeline_struct_sizes_are_pinned() {
     assert_size!(VisualItem, 168, "Stage 2 (bidi) output.");
     assert_size!(
         StyleProperties,
-        264,
+        280,
         "Shared behind an Arc, so one per distinct style - NOT per glyph. GREW 248 -> 256 \
          (2026-10-03, 753dbc393): InlineBorderInfo gained `margin_left` / `margin_right` (an \
          inline box's horizontal margins move the pen, CSS 2.2 s10.3.1), 60 -> 68 B. GREW \
-         256 -> 264 (2026-10-15): font-variant-caps and font-feature-settings reach the shaper."
+         256 -> 264 (2026-10-15): font-variant-caps and font-feature-settings reach the shaper. \
+         GREW 264 -> 280: `inline_boxes`, the spans around the text that move the pen (one \
+         Arc<[InlineBoxEdge]>), so nested spans keep their outer span's edges."
     );
 }
 

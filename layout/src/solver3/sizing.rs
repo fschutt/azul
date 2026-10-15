@@ -1832,9 +1832,9 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 /// (`fc::collect_inline_span_recursive`): the text of an inline box takes
 /// the BOX's style - its border, padding and horizontal margins are not
 /// inherited, yet they belong to its runs and widen the line - any other
-/// text its own (memoised) style. An inline box's style is a fresh `Arc`
-/// per text node, like the line layout's: the line tells inline boxes apart
-/// by `Arc` identity (`inline_offsets` in text3's `position_one_line`).
+/// text its own (memoised) style. The box's style carries the chain of
+/// inline boxes around the text ([`inline_box_chain`]), by which the line
+/// tells the boxes apart (`inline_offsets` in text3's `position_one_line`).
 ///
 /// A parent the layout blockified (a `<span>` that is a flex item, a float,
 /// an absolutely positioned box) is no inline box although its `display`
@@ -1857,12 +1857,12 @@ fn text_run_style<T: ParsedFontTrait>(
                 && !laid_out_as_block(tree, parent)
         });
     match inline_box {
-        Some(parent) => Arc::new(get_style_properties(
-            ctx.styled_dom,
-            parent,
-            ctx.system_style.as_ref(),
-            viewport,
-        )),
+        Some(parent) => {
+            let mut style =
+                get_style_properties(ctx.styled_dom, parent, ctx.system_style.as_ref(), viewport);
+            style.inline_boxes = inline_box_chain(ctx, tree, parent);
+            Arc::new(style)
+        }
         None => crate::solver3::getters::get_style_properties_cached(
             &mut ctx.style_cache,
             ctx.styled_dom,
@@ -1871,6 +1871,44 @@ fn text_run_style<T: ParsedFontTrait>(
             viewport,
         ),
     }
+}
+
+/// The inline boxes around the text of the inline box `innermost`, that
+/// box included, that move the pen, the outermost first: the same chain the
+/// line layout gives its runs (`fc::collect_inline_span_recursive`), walked
+/// up from the box to the first ancestor that is no inline box.
+fn inline_box_chain<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    innermost: NodeId,
+) -> Arc<[crate::text3::cache::InlineBoxEdge]> {
+    let viewport = azul_css::props::basic::PhysicalSize::new(
+        ctx.viewport_size.width,
+        ctx.viewport_size.height,
+    );
+    let mut boxes = Vec::new();
+    let mut node = Some(innermost);
+    while let Some(id) = node {
+        let is_inline_box = get_display_property(ctx.styled_dom, Some(id)).unwrap_or_default()
+            == LayoutDisplay::Inline
+            && !laid_out_as_block(tree, id);
+        if !is_inline_box {
+            break;
+        }
+        let style = crate::solver3::getters::get_style_properties_cached(
+            &mut ctx.style_cache,
+            ctx.styled_dom,
+            id,
+            ctx.system_style.as_ref(),
+            viewport,
+        );
+        if let Some(edge) = crate::text3::cache::InlineBoxEdge::of(id, &style) {
+            boxes.push(edge);
+        }
+        node = ctx.styled_dom.node_hierarchy.as_container()[id].parent_id();
+    }
+    boxes.reverse();
+    boxes.into()
 }
 
 /// Whether the layout made `dom_id` a block-level box although its

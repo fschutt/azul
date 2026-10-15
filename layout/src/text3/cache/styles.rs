@@ -404,6 +404,13 @@ pub struct StyleProperties {
     pub background_content: Vec<StyleBackgroundContent>,
     /// Border information for inline elements
     pub border: Option<InlineBorderInfo>,
+    /// The inline boxes the text sits in whose margin, border or padding
+    /// move the pen, the outermost first (its own span last). Two clusters
+    /// side by side are in the same box when both chains name its node, so
+    /// a span's start edge is added where its first cluster begins and its
+    /// end edge after its last one, also across the nested spans inside it
+    /// (`measure::inline_box_edge_advances`). Empty outside such boxes.
+    pub inline_boxes: Arc<[InlineBoxEdge]>,
     // +spec:text-alignment-spacing:b39a04 - word-spacing and letter-spacing control text spacing
     pub letter_spacing: Spacing,
     pub word_spacing: Spacing,
@@ -453,6 +460,7 @@ impl Default for StyleProperties {
             background_color: None,
             background_content: Vec::new(),
             border: None,
+            inline_boxes: Arc::from(Vec::new()),
             letter_spacing: Spacing::default(), // Px(0)
             word_spacing: Spacing::default(),   // Px(0)
             line_height: LineHeight::Normal,
@@ -574,6 +582,48 @@ impl Hash for StyleProperties {
                 b.hash_bits(state);
             }
         }
+        for edge in self.inline_boxes.iter() {
+            edge.hash_bits(state);
+        }
+    }
+}
+
+/// One inline box (a `<span>`) whose margin, border and padding move the pen
+/// ([`StyleProperties::inline_boxes`]): the box's identity and how far its
+/// left and right edges push the text, in px.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InlineBoxEdge {
+    /// The inline element. Clusters compare it to tell whether they sit in
+    /// the same box; the display list paints the box's fragments by it.
+    pub node: NodeId,
+    /// Left margin + border + padding: the pen moves this far before the
+    /// box's first cluster.
+    pub left: f32,
+    /// Right padding + border + margin: the pen moves this far after the
+    /// box's last cluster.
+    pub right: f32,
+}
+
+impl InlineBoxEdge {
+    /// The edge of the span `node` styled `style` (its own decoration in
+    /// `style.border`), `None` when it moves the pen nowhere.
+    #[must_use]
+    pub fn of(node: NodeId, style: &StyleProperties) -> Option<Self> {
+        let border = style.border.as_ref()?;
+        let edge = Self {
+            node,
+            left: border.left_advance(),
+            right: border.right_advance(),
+        };
+        (edge.left.abs() > f32::EPSILON || edge.right.abs() > f32::EPSILON).then_some(edge)
+    }
+
+    /// The fields into `state`, the floats by their bits (the style's
+    /// `Hash` is a cache key).
+    pub fn hash_bits<H: Hasher>(&self, state: &mut H) {
+        self.node.index().hash(state);
+        self.left.to_bits().hash(state);
+        self.right.to_bits().hash(state);
     }
 }
 
@@ -646,6 +696,10 @@ impl StyleProperties {
         });
         start.to_bits().hash(&mut hasher);
         end.to_bits().hash(&mut hasher);
+        // So do the boxes around it, and which boxes they are.
+        for edge in self.inline_boxes.iter() {
+            edge.hash_bits(&mut hasher);
+        }
 
         hasher.finish()
     }
