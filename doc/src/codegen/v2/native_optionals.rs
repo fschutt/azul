@@ -103,3 +103,42 @@ fn swift_takes_and_gives_optionals_throws_errors_and_lets_a_callback_throw() {
         ],
     );
 }
+
+#[test]
+fn d_takes_and_gives_nullables_throws_errors_and_downcasts_the_engines_refany() {
+    let path = "azul.d";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "static RequestId openDirectory(T)(string title, Nullable!(string) defaultPath, T data, \
+             Update function(T, CallbackInfo, RefAny) onResult) if (is(T == class))",
+            "Nullable!(FilePath) path() const",
+            "void path(Nullable!(FilePath) v)",
+            "Throws: `ResultException!(UrlParseError)` when the Rust `Result` is `Err`.",
+            // The resume callback's `RefAny result` goes straight into `downcast`.
+            "static Nullable!(FileOpenResult) downcast(Object result)",
+            "alias _asObject this;",
+            "if (auto shared_ = cast(_AzulSharedRefAny) object)",
+        ],
+    );
+}
+
+#[test]
+fn crystal_takes_and_gives_nil_and_raises_errors() {
+    let path = "azul.cr";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "def self.open_directory(title : ::String, default_path : (::String | ::Nil), data : T, \
+             &on_result : T, Azul::CallbackInfo, Azul::RefAny -> Azul::Update) : Azul::RequestId forall T",
+            "def self.downcast(result : ::Reference) : (Azul::FileOpenResult | ::Nil)",
+            "def path : (Azul::FilePath | ::Nil)",
+            "def path=(value : (Azul::FilePath | ::Nil)) : ::Nil",
+            "raise Azul::ResultError(Azul::UrlParseError).new(Azul::UrlParseError.__own(__e))",
+        ],
+    );
+}
