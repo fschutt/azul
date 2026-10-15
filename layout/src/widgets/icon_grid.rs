@@ -801,6 +801,98 @@ pub(crate) struct Geometry {
     pub cell_height: f32,
     /// The scroll bar, when not every row fits.
     pub vbar: Option<ScrollBar>,
+    /// A grouped grid's lines, top to bottom (its headers and its rows of
+    /// items; `rows` counts them and `top` is one of them); empty for a
+    /// grid without groups, whose lines are its uniform rows.
+    pub lines: Vec<GridLine>,
+    /// Where each of `lines` starts, px from the first line.
+    pub tops: Vec<f32>,
+}
+
+/// One line of a grouped grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GridLine {
+    /// The header of group `.0`.
+    Header(usize),
+    /// A row of `count` items from item `first`.
+    Items { first: usize, count: usize },
+}
+
+impl Geometry {
+    /// Where line (or row) `line` starts, px from the first one.
+    #[allow(clippy::cast_precision_loss)] // rows in a grid: far fewer than 2^24
+    pub(crate) fn line_y(&self, line: usize) -> f32 {
+        if self.lines.is_empty() {
+            line as f32 * self.cell_height
+        } else {
+            self.tops.get(line).copied().unwrap_or_else(|| self.tops.last().copied().unwrap_or(0.0))
+        }
+    }
+
+    /// The height of line `line`.
+    fn line_height(&self, line: usize) -> f32 {
+        match self.lines.get(line) {
+            Some(GridLine::Header(_)) => GROUP_HEADER_PX,
+            _ => self.cell_height,
+        }
+    }
+
+    /// The line of a grouped grid holding item `index`, and its column.
+    fn line_of(&self, index: usize) -> Option<(usize, usize)> {
+        self.lines.iter().enumerate().find_map(|(l, line)| match *line {
+            GridLine::Items { first, count } if index >= first && index < first + count => {
+                Some((l, index - first))
+            }
+            _ => None,
+        })
+    }
+
+    /// The line a grouped grid shows `y` px below its top line at.
+    fn line_at(&self, y: f32) -> Option<usize> {
+        let content = self.line_y(self.top) + y;
+        (self.top..self.lines.len())
+            .find(|l| content >= self.tops[*l] && content < self.tops[*l] + self.line_height(*l))
+    }
+}
+
+/// The lines of `count` items in `columns` columns, grouped as `groups`
+/// says: the items before the first group, then each group's header and
+/// its rows (a group starts a row).
+fn group_lines(groups: &[IconGridGroup], count: usize, columns: usize) -> Vec<GridLine> {
+    fn rows(lines: &mut Vec<GridLine>, from: usize, to: usize, columns: usize) {
+        let mut first = from;
+        while first < to {
+            let n = (to - first).min(columns);
+            lines.push(GridLine::Items { first, count: n });
+            first += n;
+        }
+    }
+    let columns = columns.max(1);
+    let starts: Vec<usize> = groups.iter().map(|g| g.start.min(count)).collect();
+    let mut lines = Vec::new();
+    rows(&mut lines, 0, starts.first().copied().unwrap_or(count), columns);
+    for (k, &start) in starts.iter().enumerate() {
+        let end = starts.get(k + 1).copied().unwrap_or(count).max(start);
+        lines.push(GridLine::Header(k));
+        rows(&mut lines, start, end, columns);
+    }
+    lines
+}
+
+/// Where each of `lines` starts, px from the first.
+fn line_tops(lines: &[GridLine], cell_height: f32) -> Vec<f32> {
+    let mut y = 0.0_f32;
+    lines
+        .iter()
+        .map(|line| {
+            let top = y;
+            y += match line {
+                GridLine::Header(_) => GROUP_HEADER_PX,
+                GridLine::Items { .. } => cell_height,
+            };
+            top
+        })
+        .collect()
 }
 
 /// What a point in the grid is over.
@@ -836,6 +928,9 @@ pub(crate) fn geometry(g: &IconGrid) -> Geometry {
     let cell_width = g.cell_width.max(1.0);
     let cell_height = g.cell_height.max(1.0);
     let count = g.count;
+    if !g.groups.as_ref().is_empty() {
+        return grouped_geometry(g, width, height, cell_width, cell_height);
+    }
     let rows_for = |columns: usize| count.div_ceil(columns);
     let page_rows = steps(height, cell_height, true);
     let mut body_width = width;
@@ -877,6 +972,83 @@ pub(crate) fn geometry(g: &IconGrid) -> Geometry {
         cell_width,
         cell_height,
         vbar,
+        lines: Vec::new(),
+        tops: Vec::new(),
+    }
+}
+
+/// [`geometry`] of a grid with groups: its lines (headers and rows) of
+/// their own heights, `top` the first line in view.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+fn grouped_geometry(g: &IconGrid, width: f32, height: f32, cell_width: f32, cell_height: f32) -> Geometry {
+    use crate::widgets::data_table::{thumb, SCROLLBAR_PX};
+
+    let count = g.count;
+    let groups = g.groups.as_ref();
+    let page_rows = steps(height, cell_height, true);
+    let mut body_width = width;
+    let mut columns = steps(body_width, cell_width, true);
+    let mut lines = group_lines(groups, count, columns);
+    let mut tops = line_tops(&lines, cell_height);
+    let total = |lines: &[GridLine], tops: &[f32]| match (lines.last(), tops.last()) {
+        (Some(GridLine::Header(_)), Some(t)) => t + GROUP_HEADER_PX,
+        (Some(_), Some(t)) => t + cell_height,
+        _ => 0.0,
+    };
+    let overflows = total(&lines, &tops) > height;
+    if overflows {
+        body_width = (width - SCROLLBAR_PX).max(0.0);
+        columns = steps(body_width, cell_width, true);
+        lines = group_lines(groups, count, columns);
+        tops = line_tops(&lines, cell_height);
+    }
+    let full = total(&lines, &tops);
+    // The last top whose lines fill the view to the end.
+    let max_top = (0..lines.len()).find(|t| full - tops[*t] <= height).unwrap_or(0);
+    let top = g.view.top_row.min(max_top);
+    let origin = tops.get(top).copied().unwrap_or(0.0);
+    let mut first = count;
+    let mut end = 0;
+    for (l, line) in lines.iter().enumerate().skip(top) {
+        if tops[l] - origin >= height {
+            break;
+        }
+        if let GridLine::Items { first: f, count: n } = *line {
+            first = first.min(f);
+            end = end.max(f + n);
+        }
+    }
+    if end < first {
+        first = 0;
+        end = 0;
+    }
+    let rows = lines.len();
+    let vbar = overflows.then(|| {
+        let clamp = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        let (thumb_start, thumb_len) =
+            thumb(height, page_rows as f32, rows as f32, clamp(top), clamp(max_top));
+        ScrollBar {
+            track: (body_width, 0.0, SCROLLBAR_PX.min(width), height),
+            thumb_start,
+            thumb_len,
+        }
+    });
+    Geometry {
+        count,
+        columns,
+        rows,
+        page_rows,
+        top,
+        max_top,
+        first,
+        end,
+        body_width,
+        height,
+        cell_width,
+        cell_height,
+        vbar,
+        lines,
+        tops,
     }
 }
 
@@ -897,6 +1069,14 @@ pub(crate) fn hit_test(geo: &Geometry, x: f32, y: f32) -> Hit {
     if !(x.is_finite() && y.is_finite()) || x < 0.0 || y < 0.0 || x >= geo.body_width || y >= geo.height {
         return Hit::Nothing;
     }
+    if !geo.lines.is_empty() {
+        // A header is no item; past a row's items is empty space.
+        let column = steps(x, geo.cell_width, false);
+        return match geo.line_at(y).map(|l| geo.lines[l]) {
+            Some(GridLine::Items { first, count }) if column < count => Hit::Item(first + column),
+            _ => Hit::Empty,
+        };
+    }
     let column = steps(x, geo.cell_width, false);
     if column >= geo.columns {
         return Hit::Empty;
@@ -915,6 +1095,15 @@ pub(crate) fn hit_test(geo: &Geometry, x: f32, y: f32) -> Hit {
 pub(crate) fn item_rect(geo: &Geometry, index: usize) -> Option<(f32, f32, f32, f32)> {
     if index < geo.first || index >= geo.end {
         return None;
+    }
+    if !geo.lines.is_empty() {
+        let (line, column) = geo.line_of(index)?;
+        return Some((
+            column as f32 * geo.cell_width,
+            geo.line_y(line) - geo.line_y(geo.top),
+            geo.cell_width,
+            geo.cell_height,
+        ));
     }
     let row = index / geo.columns - geo.top;
     let column = index % geo.columns;
@@ -941,6 +1130,21 @@ pub(crate) fn band_keys(geo: &Geometry, x0: f32, y0: f32, x1: f32, y1: f32) -> V
         return Vec::new();
     }
     let last_column = steps(right, geo.cell_width, false).min(geo.columns - 1);
+    if !geo.lines.is_empty() {
+        // The rows of items the band's height overlaps.
+        let mut keys = Vec::new();
+        for (l, line) in geo.lines.iter().enumerate() {
+            let (line_top, line_bottom) = (geo.tops[l], geo.tops[l] + geo.line_height(l));
+            if let GridLine::Items { first, count } = *line {
+                if line_bottom > top && line_top <= bottom && first_column < count {
+                    for column in first_column..=last_column.min(count - 1) {
+                        keys.push((first + column) as u64);
+                    }
+                }
+            }
+        }
+        return keys;
+    }
     let first_row = steps(top, geo.cell_height, false);
     let last_row = steps(bottom, geo.cell_height, false).min(geo.rows - 1);
     let mut keys = Vec::new();
@@ -966,6 +1170,27 @@ pub(crate) fn scroll_by(g: &IconGrid, geo: &Geometry, rows: i64) -> IconGridView
 
 /// `view` scrolled so that item `index`'s row is in view.
 fn reveal(view: &mut IconGridView, geo: &Geometry, index: usize) {
+    if !geo.lines.is_empty() {
+        let Some((line, _)) = geo.line_of(index) else {
+            return;
+        };
+        // A group's first row shows with its header.
+        let from = if line > 0 && matches!(geo.lines[line - 1], GridLine::Header(_)) {
+            line - 1
+        } else {
+            line
+        };
+        let bottom = geo.line_y(line) + geo.cell_height;
+        if from < view.top_row {
+            view.top_row = from;
+        } else if bottom - geo.line_y(view.top_row) > geo.height {
+            view.top_row = (view.top_row..=line)
+                .find(|t| bottom - geo.line_y(*t) <= geo.height)
+                .unwrap_or(line);
+        }
+        view.top_row = view.top_row.min(geo.max_top);
+        return;
+    }
     let row = index / geo.columns.max(1);
     let page = geo.page_rows.max(1);
     if row < view.top_row {
@@ -1082,11 +1307,11 @@ pub(crate) fn drag_move(g: &IconGrid, geo: &Geometry, x: f32, y: f32, window_y: 
             if rows != 0 {
                 next.top_row = scroll_by(g, geo, rows).top_row;
             }
-            let top = next.top_row.min(geo.max_top) as f32;
+            let top = next.top_row.min(geo.max_top);
             // The band from the first row down: its anchor where it was
             // pressed, its end under the pointer.
-            let anchor_y = d.start_y + d.start_top * geo.cell_height;
-            let end_y = y + top * geo.cell_height;
+            let anchor_y = d.start_y + geo.line_y(d.start_top as usize);
+            let end_y = y + geo.line_y(top);
             let mut keys = d.base.as_slice().to_vec();
             keys.extend(band_keys(geo, d.start_x, anchor_y, x, end_y));
             next.drag.x = x;
@@ -1148,6 +1373,20 @@ fn named_with(label: &str, letter: char) -> bool {
         .is_some_and(|c| c.to_lowercase().next() == Some(letter))
 }
 
+/// The item in the same column of the row above (`down` false) or below
+/// item `index` in a grouped grid, across headers; a shorter row's last
+/// item when the column is past its end. `None` at the first / last row.
+fn row_neighbour(geo: &Geometry, index: usize, down: bool) -> Option<usize> {
+    let (line, column) = geo.line_of(index)?;
+    let mut l = line;
+    loop {
+        l = if down { l + 1 } else { l.checked_sub(1)? };
+        if let GridLine::Items { first, count } = *geo.lines.get(l)? {
+            return Some(first + column.min(count.saturating_sub(1)));
+        }
+    }
+}
+
 /// What `key` does (`shift`, `ctrl` = the primary modifier).
 pub(crate) fn grid_key(g: &IconGrid, geo: &Geometry, key: VirtualKeyCode, shift: bool, ctrl: bool) -> Option<IconGridEvent> {
     use VirtualKeyCode as K;
@@ -1165,9 +1404,31 @@ pub(crate) fn grid_key(g: &IconGrid, geo: &Geometry, key: VirtualKeyCode, shift:
     let columns = i64::try_from(geo.columns.max(1)).unwrap_or(1);
     let page = i64::try_from(geo.page_rows.max(1)).unwrap_or(1) * columns;
     let all = i64::try_from(count).unwrap_or(i64::MAX);
+    // A grouped grid: Up / Down go to the row above or below in the same
+    // column (across a header, onto a shorter row's last item).
+    let vertical = |down: bool, times: i64| -> Option<i64> {
+        let start = usize::try_from(focus?).ok()?;
+        let mut at = start;
+        for _ in 0..times.max(1) {
+            match row_neighbour(geo, at, down) {
+                Some(next) => at = next,
+                None => break,
+            }
+        }
+        if at == start {
+            return None;
+        }
+        Some(i64::try_from(at).ok()? - i64::try_from(start).ok()?)
+    };
+    let grouped = !geo.lines.is_empty();
+    let page_lines = i64::try_from(geo.page_rows.max(1)).unwrap_or(1);
     let delta = match key {
         K::Left => Some(-1),
         K::Right => Some(1),
+        K::Up if grouped => vertical(false, 1),
+        K::Down if grouped => vertical(true, 1),
+        K::PageUp if grouped => vertical(false, page_lines),
+        K::PageDown if grouped => vertical(true, page_lines),
         K::Up => Some(-columns),
         K::Down => Some(columns),
         K::PageUp => Some(-page),
@@ -1457,7 +1718,7 @@ struct ItemData {
 /// band while one is drawn, the scroll bar when the rows overflow. An item
 /// is [thumb [picture | glyph, badge?], label, line..]: its extra lines
 /// and its placeholder tile in `extras` (only an item that has them).
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
 pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtrasLook) -> Dom {
     use crate::widgets::themes::decl;
 
@@ -1597,12 +1858,34 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
         );
     }
 
+    // The headers of the groups in view, across the grid.
+    for (l, line) in geo.lines.iter().enumerate().skip(geo.top) {
+        let y = geo.line_y(l) - geo.line_y(geo.top);
+        if y >= geo.height {
+            break;
+        }
+        if let GridLine::Header(group) = *line {
+            let label = grid
+                .groups
+                .as_ref()
+                .get(group)
+                .map_or_else(|| AzString::from_const_str(""), |g| g.label.clone());
+            let mut style = placed(0.0, y, geo.body_width, GROUP_HEADER_PX).to_vec();
+            style.extend(group_header_style());
+            children.push(
+                crate::widgets::widget_p_with_text(label)
+                    .with_class(AzString::from_const_str(GROUP_HEADER_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(style)),
+            );
+        }
+    }
+
     // The rubber band, while one is drawn.
     let drag = &view.drag;
     if drag.kind == IconGridDragKind::Marquee {
         // The anchor moves with its row when the grid scrolled under the
         // band; the band stays inside the grid.
-        let anchor_y = drag.start_y + (drag.start_top - geo.top as f32) * geo.cell_height;
+        let anchor_y = drag.start_y + geo.line_y(drag.start_top as usize) - geo.line_y(geo.top);
         let (left, top) = (drag.start_x.min(drag.x).max(0.0), anchor_y.min(drag.y).max(0.0));
         let (right, bottom) = (drag.start_x.max(drag.x), anchor_y.max(drag.y).min(geo.height));
         children.push(
@@ -1649,6 +1932,34 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
         .with_callbacks(grid_callbacks(&shared).into())
         .with_component_css(focus_ring_sheet(&look.item_focused))
         .with_children(DomVec::from_vec(children))
+}
+
+/// A group header: its label in the secondary ink, bold and small, on the
+/// header's midline, over a rule in the separator colour - the desktop's
+/// (and flora's) `system:` colours, so it sits with either theme.
+fn group_header_style() -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::{
+        basic::pixel::PixelValue,
+        style::{StyleBorderBottomColor, StyleBorderBottomStyle, StyleLineHeight, BorderStyle, LayoutBorderBottomWidth},
+    };
+
+    use crate::widgets::themes::{decl, system_palette};
+    alloc::vec![
+        decl::simple(CssProperty::const_font_size(StyleFontSize::const_px(12))),
+        decl::bold(),
+        decl::simple(CssProperty::const_line_height(StyleLineHeight::Length(PixelValue::const_px(27)))),
+        decl::px_padding_left(8.0),
+        decl::simple(decl::ink(system_palette::SECONDARY_TEXT)),
+        decl::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+        decl::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        })),
+        decl::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+            inner: system_palette::SEPARATOR,
+        })),
+        decl::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        decl::simple(CssProperty::user_select(azul_css::props::style::StyleUserSelect::None)),
+    ]
 }
 
 /// The focused item's ring as the grid's own rules: `.grid:focus
