@@ -363,6 +363,9 @@ class Laptop:
         self.app = None
         self.runs = 0
         self.outputs = []
+        # (seconds since 1970, line) of every line AzDrive printed, as the watcher saw it.
+        self._timeline = []
+        self._watching = None
 
     def switches(self):
         return ["--screen", "this-pc", "--theme", "flat", "--mode", "light", "--language", "en",
@@ -378,9 +381,41 @@ class Laptop:
         self.app = Drive(tag, self.ctx.binary, self.switches(), self.port, self.base,
                          self.ctx.args.timeout, extra_env=self.env)
         self.outputs.append(self.app.out_path)
+        self._watch(self.app.out_path)
         if wait:
             self.app.until("AzDrive up", lambda: self.app.printed("AZDRIVE_PLACE", r"this-pc"))
         return self
+
+    def _watch(self, path):
+        """Timestamps every line the app prints (a thread reading its stdout file)."""
+        if self._watching:
+            self._watching.set()
+        stop = threading.Event()
+        self._watching = stop
+
+        def run():
+            position = 0
+            pending = b""
+            while not stop.is_set():
+                try:
+                    with open(path, "rb") as f:
+                        f.seek(position)
+                        data = f.read()
+                        position += len(data)
+                except OSError:
+                    data = b""
+                if data:
+                    now = time.time()
+                    pending += data
+                    *lines, pending = pending.split(b"\n")
+                    for line in lines:
+                        self._timeline.append((now, line.decode("utf-8", "replace")))
+                stop.wait(0.05)
+
+        threading.Thread(target=run, name="laptop-watch", daemon=True).start()
+
+    def timeline(self):
+        return list(self._timeline)
 
     def kill(self):
         """SIGKILL: no shutdown, no save - a crash, or a power cut."""
@@ -397,6 +432,8 @@ class Laptop:
     def stop(self):
         if self.app:
             self.app.stop()
+        if self._watching:
+            self._watching.set()
 
     def pid(self):
         return self.app.process.pid
@@ -947,6 +984,471 @@ def kill_every_step(ctx):
         return "; ".join(notes) + "; small blobs sent again after a kill: %d" % small_twice
     finally:
         laptop.stop()
+        stack.stop()
+
+
+@scenario("offline-conflict")
+def offline_conflict(ctx):
+    """Both devices edit one file while the laptop is offline; AzDrive asks; Keep both."""
+    stack, drive, laptop, desktop = plain_world(ctx, "offline-conflict", desktop=True)
+    desk = os.path.join(desktop.root, "folder")
+    try:
+        folder = laptop.folder(drive)
+        write(os.path.join(folder, "plan.txt"), b"version 1\n")
+        laptop.wait_settled("plan.txt up", drive)
+        desktop.sync(desk)
+        expect(read(os.path.join(desk, "plan.txt")) == b"version 1\n", "the desktop lacks v1")
+        stack.proxy.network("down")
+        write(os.path.join(folder, "plan.txt"), b"version 2 from the laptop, offline\n")
+        write(os.path.join(desk, "plan.txt"), b"version 2 from the desktop\n")
+        desktop.sync(desk)
+        laptop.wait_passes("passes while offline", 2, drive)
+        offline_status = laptop.status(drive)
+        expect(offline_status != UP_TO_DATE, "offline, the status says Up to date")
+        stack.proxy.network("up")
+        laptop.app.until("the conflict question", lambda: laptop.app.printed(
+            "AZDRIVE_SYNC_CONFLICT", re.escape(drive) + r" plan\.txt"))
+        expect(read(os.path.join(folder, "plan.txt")) ==
+               b"version 2 from the laptop, offline\n",
+               "the laptop's version changed before the question was answered")
+        laptop.app.until("the question shows", lambda: laptop.app.has("#" + I("sync-conflict")))
+        laptop.app.must("click", selector="#" + I("sync-keep-both"))
+        laptop.app.frame()
+        laptop.wait_settled("after Keep both", drive)
+        desktop.sync(desk)
+        versions = {"laptop": hashlib.sha256(b"version 2 from the laptop, offline\n").hexdigest(),
+                    "desktop": hashlib.sha256(b"version 2 from the desktop\n").hexdigest()}
+        here, theirs = tree(folder), tree(desk)
+        nothing_lost(versions, [here])
+        nothing_lost(versions, [theirs])
+        expect(here == theirs, "the devices differ: %s" % sorted(set(here) ^ set(theirs)))
+        no_silent_failure(laptop, drive)
+        return "offline status %s; both versions on both devices: %s" % (offline_status,
+                                                                         sorted(here))
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("delete-vs-edit")
+def delete_vs_edit(ctx):
+    """A delete on one device against an edit on the other, both ways: the edit wins."""
+    stack, drive, laptop, desktop = plain_world(ctx, "delete-vs-edit", desktop=True)
+    desk = os.path.join(desktop.root, "folder")
+    try:
+        folder = laptop.folder(drive)
+        write(os.path.join(folder, "a.txt"), b"a, first\n")
+        write(os.path.join(folder, "b.txt"), b"b, first\n")
+        laptop.wait_settled("a and b up", drive)
+        desktop.sync(desk)
+        stack.proxy.network("down")
+        os.remove(os.path.join(folder, "a.txt"))
+        write(os.path.join(folder, "b.txt"), b"b, edited on the laptop\n")
+        write(os.path.join(desk, "a.txt"), b"a, edited on the desktop\n")
+        os.remove(os.path.join(desk, "b.txt"))
+        desktop.sync(desk)
+        laptop.wait_passes("passes while offline", 2, drive)
+        stack.proxy.network("up")
+        laptop.wait_settled("after the network came back", drive)
+        desktop.sync(desk)
+        here, theirs, there = tree(folder), tree(desk), stack.drive_tree(drive)
+        want = {"a.txt": hashlib.sha256(b"a, edited on the desktop\n").hexdigest(),
+                "b.txt": hashlib.sha256(b"b, edited on the laptop\n").hexdigest()}
+        for place, name in ((here, "the laptop"), (theirs, "the desktop"), (there, "the drive")):
+            for key, digest in want.items():
+                expect(place.get(key) == digest, "%s: %s is %s, the edit should have won" % (
+                    name, key, "gone" if key not in place else "another version"))
+        no_silent_failure(laptop, drive)
+        return "the edits won on both sides"
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("rename-storm")
+def rename_storm(ctx):
+    """100 renames and folder moves while a slow pass runs: the new names arrive, no blob goes
+    up again, nothing is lost."""
+    stack, drive, laptop, desktop = plain_world(ctx, "rename-storm", desktop=True)
+    desk = os.path.join(desktop.root, "folder")
+    try:
+        folder = laptop.folder(drive)
+        versions = {}
+        for d in range(10):
+            for i in range(20):
+                data = ("folder %d file %d\n" % (d, i)).encode("utf-8") * (20 + i)
+                write(os.path.join(folder, "f%d" % d, "n%02d.txt" % i), data)
+                versions["f%d/n%02d" % (d, i)] = hashlib.sha256(data).hexdigest()
+        laptop.wait_settled("200 files up", drive, timeout=180)
+        uploaded = sum(blob_writes(stack, drive).values())
+        stack.proxy.add(action="delay", ms=150)
+        # The storm: files renamed in their folders, folders renamed and moved into others.
+        for d in range(0, 10, 2):
+            for i in range(0, 20, 2):
+                os.rename(os.path.join(folder, "f%d" % d, "n%02d.txt" % i),
+                          os.path.join(folder, "f%d" % d, "renamed-%02d.txt" % i))
+        for d in range(1, 10, 2):
+            os.rename(os.path.join(folder, "f%d" % d), os.path.join(folder, "moved-%d" % d))
+        os.makedirs(os.path.join(folder, "nest"))
+        for d in range(1, 10, 4):
+            os.rename(os.path.join(folder, "moved-%d" % d), os.path.join(folder, "nest",
+                                                                         "m%d" % d))
+        time.sleep(3)
+        stack.proxy.clear()
+        laptop.wait_settled("after the storm", drive, timeout=240)
+        desktop.sync(desk)
+        here, there, theirs = tree(folder), stack.drive_tree(drive), tree(desk)
+        nothing_lost(versions, [here])
+        expect(here == there, "the folder and the drive differ: %s" % sorted(
+            set(here.items()) ^ set(there.items()))[:6])
+        expect(here == theirs, "the desktop differs: %s" % sorted(set(here) ^ set(theirs))[:6])
+        again = sum(blob_writes(stack, drive).values()) - uploaded
+        expect(again == 0, "the renames uploaded %d blobs again (a rename moves no bytes)" % again)
+        no_silent_failure(laptop, drive)
+        return "200 files, 100 moved; no blob uploaded again"
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("changed-during")
+def changed_during(ctx):
+    """A 120 MiB file rewritten while its upload runs: never a torn upload."""
+    stack, drive, laptop, _ = plain_world(ctx, "changed-during")
+    try:
+        folder = laptop.folder(drive)
+        path = os.path.join(folder, "movie.bin")
+        first = random_file(path, 120 * MIB)
+        stack.proxy.add(op="UploadPart", action="stall", nth=3)
+        stack.proxy.add(op="PutObject", key=r"^\.azlin/blobs/", action="stall", nth=1)
+        deadline = time.time() + 120
+        while stack.proxy.held() == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        expect(stack.proxy.held() > 0, "the upload never started")
+        second = random_file(path, 120 * MIB)
+        stack.proxy.clear()
+        stack.proxy.release()
+        laptop.wait_settled("after the rewrite", drive, timeout=300)
+        there = stack.drive_tree(drive)
+        expect(there.get("movie.bin") in (first, second),
+               "TORN: the drive's movie.bin is neither version (%s)" % there.get("movie.bin"))
+        expect(there.get("movie.bin") == second, "the drive kept the old version")
+        for key in stack.proxy.writes(key=r"^\.azlin/blobs/"):
+            blob = os.path.join(stack.bucket_dir(drive), *key.split("/"))
+            if os.path.getsize(blob) == 120 * MIB:
+                expect(sha256_file(blob) in (first, second),
+                       "TORN: the blob %s holds parts of both versions" % key)
+        expect(not stack.unfinished_uploads(), "unfinished uploads stay")
+        no_silent_failure(laptop, drive)
+        return "no torn upload; the second version is on the drive"
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("long-names")
+def long_names(ctx):
+    """Long and odd names: they sync, or they are named as not syncable."""
+    stack, drive, laptop, _ = plain_world(ctx, "long-names")
+    try:
+        folder = laptop.folder(drive)
+        made = {}
+        names = [
+            "a" * 250 + ".txt",                                   # 254 bytes
+            ("é" * 120) + ".txt",                            # 244 bytes, 124 characters
+            "with space and #hash %percent ?question +plus.txt",
+            "emoji \U0001F680\U0001F30D.txt",
+            "trailing dot.",
+            "  leading spaces.txt",
+            "CON",
+            "x" * 20 + "/" + "deep/" * 60 + "bottom.txt",          # 60 folders deep
+            "/".join(["p%03d-" % i + "q" * 40 for i in range(22)]) + "/long-path.txt",
+        ]
+        for name in names:
+            data = ("content of %s\n" % name[:40]).encode("utf-8")
+            path = os.path.join(folder, *name.split("/"))
+            try:
+                write(path, data)
+                made[name.strip("/")] = hashlib.sha256(data).hexdigest()
+            except OSError as e:
+                log("cannot make %r here: %s" % (name[:60], e))
+        laptop.wait_passes("passes over the names", 4, drive)
+        there = stack.drive_tree(drive)
+        missing = [n for n in made if n not in there]
+        status = laptop.status(drive)
+        if missing:
+            expect(status != UP_TO_DATE,
+                   "silent failure: Up to date while %d names never sync: %s" % (
+                       len(missing), [m[:50] for m in missing]))
+        return "%d of %d names on the drive; status %s; missing %s" % (
+            len(made) - len(missing), len(made), status, [m[:40] for m in missing])
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("clock-skew")
+def clock_skew(ctx):
+    """The node's clock 20 minutes ahead; a file dated a day in the future."""
+    stack, drive, laptop, _ = plain_world(ctx, "clock-skew")
+    try:
+        folder = laptop.folder(drive)
+        stack.proxy.clock_offset = 20 * 60
+        write(os.path.join(folder, "skewed.txt"), b"signed with a clock 20 minutes off\n")
+        laptop.wait_passes("passes against a skewed node", 2, drive)
+        skewed = laptop.status(drive)
+        expect(skewed != UP_TO_DATE, "the status says Up to date while every request is refused")
+        stack.proxy.clock_offset = 0
+        laptop.wait_settled("the clocks agree again", drive)
+        future = os.path.join(folder, "from-the-future.txt")
+        write(future, b"made on a computer whose clock is a day ahead\n")
+        ahead = time.time() + 86400
+        os.utime(future, (ahead, ahead))
+        laptop.wait_settled("the future file", drive, timeout=180)
+        durations = pass_durations(laptop, drive)
+        slow = [d for d in durations[-3:] if d > 10]
+        no_silent_failure(laptop, drive)
+        raw = raw_errors([skewed])
+        expect(not raw, "the skew showed as a technical error: %s" % skewed)
+        expect(not slow, "a file dated in the future makes every pass wait: %s s" % slow)
+        return "skew status: %s; last pass times %s" % (skewed, durations[-3:])
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+def pass_durations(laptop, drive_id):
+    """Seconds each pass of `drive_id` took (AZDRIVE_SYNC_STARTED to its DONE / FAILED), by the
+    times the laptop's watcher saw the lines."""
+    out, started = [], None
+    for at, line in laptop.timeline():
+        if line.startswith("AZDRIVE_SYNC_STARTED %s" % drive_id):
+            started = at
+        elif started is not None and (line.startswith("AZDRIVE_SYNC_DONE %s" % drive_id) or
+                                      line.startswith("AZDRIVE_SYNC_FAILED %s" % drive_id)):
+            out.append(round(at - started, 1))
+            started = None
+    return out
+
+
+@scenario("quota")
+def quota(ctx):
+    """The drive's quota is reached mid-sync; then raised."""
+    stack, drive, laptop, _ = plain_world(ctx, "quota")
+    try:
+        folder = laptop.folder(drive)
+        bucket = stack.bucket(drive)
+        used = lambda: stack.stack.s3.store.stored_bytes(bucket)  # noqa: E731
+        stack.proxy.set_quota(bucket, used() + 3 * MIB + 500 * 1024, used)
+        versions = {}
+        for i in range(8):
+            data = os.urandom(MIB)
+            write(os.path.join(folder, "q%d.bin" % i), data)
+            versions["q%d" % i] = hashlib.sha256(data).hexdigest()
+        laptop.wait_passes("passes against the quota", 3, drive)
+        full = laptop.status(drive)
+        expect(full != UP_TO_DATE, "the drive is full and the status says Up to date")
+        nothing_lost(versions, [tree(folder)])
+        raw = raw_errors([full])
+        stack.proxy.set_quota(bucket, None)
+        laptop.wait_settled("the quota raised", drive)
+        nothing_lost(versions, [stack.drive_tree(drive)])
+        no_silent_failure(laptop, drive)
+        expect(not raw, "the full drive showed as a technical error: %s" % full)
+        return "full status: %s" % full
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("revoked")
+def revoked(ctx):
+    """This device is removed at the token server mid-sync."""
+    stack, drive, laptop, _ = plain_world(ctx, "revoked")
+    try:
+        stack.enforce_sessions = True
+        folder = laptop.folder(drive)
+        for i in range(5):
+            write(os.path.join(folder, "before%d.txt" % i), b"before %d\n" % i)
+        laptop.wait_settled("files before", drive)
+        local_before = tree(folder)
+        random_file(os.path.join(folder, "big.bin"), 48 * MIB)
+        stack.proxy.add(op="UploadPart", action="stall", nth=2)
+        deadline = time.time() + 120
+        while stack.proxy.held() == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        with stack.state.lock:
+            stack.state.revoke_all(stack.state.drives[drive], lambda f: f["member"] == "laptop")
+        stack.proxy.clear()
+        stack.proxy.release()
+        revoked_at = time.time()
+        laptop.wait_passes("passes after the removal", 3, drive)
+        status = laptop.status(drive)
+        here = tree(folder)
+        for key in local_before:
+            expect(key in here, "the removal deleted %s here" % key)
+        later = [e for e in stack.proxy.requests(op=azchaos.WRITES)
+                 if e["t"] > revoked_at + 1 and 200 <= (e.get("status") or 0) < 300]
+        expect(not later, "writes landed after the removal: %s" % later[:3])
+        expect(status != UP_TO_DATE, "removed, the status says Up to date")
+        raw = raw_errors([status])
+        expect(not raw, "the removal showed as a technical error: %s" % status)
+        return "status %s" % status
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("sleep")
+def sleep_mid_upload(ctx):
+    """The laptop sleeps mid-upload longer than its credentials live, then wakes."""
+    stack, drive, laptop, _ = plain_world(ctx, "sleep", ttl=25)
+    try:
+        stack.enforce_sessions = True
+        folder = laptop.folder(drive)
+        digest = random_file(os.path.join(folder, "dream.bin"), 64 * MIB)
+        stack.proxy.add(op="UploadPart", action="stall", nth=2)
+        deadline = time.time() + 120
+        while stack.proxy.held() == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        expect(stack.proxy.held() > 0, "the upload never started")
+        laptop.suspend()
+        stack.proxy.clear()
+        stack.proxy.release()
+        time.sleep(40)
+        laptop.resume()
+        laptop.wait_settled("after waking", drive, timeout=240)
+        there = stack.drive_tree(drive)
+        expect(there.get("dream.bin") == digest, "dream.bin is not on the drive after waking")
+        parts = [p for p in stack.proxy.requests(op="UploadPart") if p["forwarded"]]
+        expect(len(parts) <= 2 * 4, "the 4 parts were sent %d times" % len(parts))
+        expect(not stack.unfinished_uploads(), "unfinished uploads stay")
+        no_silent_failure(laptop, drive)
+        return "woke, refreshed, %d part uploads for 4 parts" % len(parts)
+    finally:
+        laptop.stop()
+        stack.stop()
+
+
+@scenario("disk-full")
+def disk_full(ctx):
+    """The folder's disk fills up while files come down."""
+    stack = Stack(ctx.folder("disk-full"))
+    image = None
+    laptop = None
+    try:
+        desktop = Desktop(ctx, stack)
+        drive = desktop.signup("Chaos drive")
+        image = CaseSensitiveImage(ctx.folder("disk-full/image"), size_mb=24,
+                                   case_sensitive=False)
+        # Leave about 6 MiB free.
+        free = shutil.disk_usage(image.mount).free
+        with open(os.path.join(image.mount, "filler.bin"), "wb") as f:
+            f.truncate(0)
+            left = max(0, free - 6 * MIB)
+            while left > 0:
+                n = min(left, 4 * MIB)
+                f.write(b"\0" * n)
+                left -= n
+        desk = os.path.join(desktop.root, "folder")
+        versions = {}
+        for i in range(5):
+            data = os.urandom(64 * 1024)
+            write(os.path.join(desk, "small%d.bin" % i), data)
+            versions["small%d" % i] = hashlib.sha256(data).hexdigest()
+        versions["big"] = random_file(os.path.join(desk, "big.bin"), 12 * MIB)
+        desktop.sync(desk)
+        laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")],
+                        folder_root=os.path.join(image.mount, "AzDrive"))
+        laptop.start()
+        laptop.wait_passes("passes onto the full disk", 3, drive)
+        folder = laptop.folder(drive)
+        here = tree(folder)
+        for i in range(5):
+            expect(here.get("small%d.bin" % i) == versions["small%d" % i],
+                   "small%d.bin did not come down" % i)
+        partial = [n for n in os.listdir(folder) if n not in here]
+        expect("big.bin" not in here or here["big.bin"] == versions["big"],
+               "a partial big.bin is in the folder")
+        status = laptop.status(drive)
+        expect(status != UP_TO_DATE, "the disk is full, big.bin is not here, and the status "
+                                     "says Up to date")
+        nothing_lost(versions, [stack.drive_tree(drive)])
+        desktop.sync(desk)
+        nothing_lost(versions, [tree(desk)])
+        raw = raw_errors([status])
+        expect(not raw, "the full disk showed as a technical error: %s" % status)
+        return "status %s; leftovers %s" % (status, partial)
+    finally:
+        if laptop:
+            laptop.stop()
+        if image:
+            image.detach()
+        stack.stop()
+
+
+@scenario("dns")
+def dns(ctx):
+    """The node's name never resolves; the node list carries its address."""
+    stack = Stack(ctx.folder("dns"))
+    laptop = None
+    try:
+        host = "n1.azchaos.invalid"
+        url = "http://%s:%d" % (host, stack.proxy.port)
+        stack.state.s3_url = url
+        stack.state.set_nodes([azlin_mock_stack.node_entry("n1", url, addresses=["127.0.0.1"])])
+        drive = stack.signup("Chaos drive")["drive"]["id"]
+        laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")])
+        laptop.start()
+        laptop.wait_status("the first pass", UP_TO_DATE, drive, timeout=120)
+        write(os.path.join(laptop.folder(drive), "no-dns.txt"), b"over the node's address\n")
+        laptop.wait_settled("a file up without DNS", drive)
+        expect("no-dns.txt" in stack.drive_tree(drive), "the file did not reach the drive")
+        no_silent_failure(laptop, drive)
+        slow = os.path.exists("/etc/resolver/azchaos.test")
+        return "synced at the node's address; slow DNS %s" % (
+            "configured" if slow else "SKIPPED: needs /etc/resolver/azchaos.test (nameserver "
+            "127.0.0.1, port of azchaos.py slow-dns)")
+    finally:
+        if laptop:
+            laptop.stop()
+        stack.stop()
+
+
+@scenario("iroh-lane")
+def iroh_lane(ctx):
+    """The node list names an iroh node at a UDP port that swallows everything."""
+    import azlin_ed25519  # noqa: PLC0415
+    stack = Stack(ctx.folder("iroh-lane"))
+    sink = azchaos.UdpSink().start()
+    laptop = None
+    try:
+        secret = os.urandom(32)
+        node_id = azlin_ed25519.public_key(secret).hex()
+        stack.state.set_nodes([azlin_mock_stack.node_entry(
+            "n1", stack.proxy.url, iroh_id=node_id,
+            iroh_addrs=["%s:%d" % sink.address])])
+        drive = stack.signup("Chaos drive")["drive"]["id"]
+        laptop = Laptop(ctx, stack, "laptop", [(drive, "Chaos drive")],
+                        env={"AZCLOUD_TRANSPORT": "auto"})
+        started = time.time()
+        laptop.start()
+        laptop.wait_status("the first pass", UP_TO_DATE, drive, timeout=300)
+        first = time.time() - started
+        write(os.path.join(laptop.folder(drive), "lane.txt"), b"over https after the lane\n")
+        started = time.time()
+        laptop.wait_settled("a file up", drive, timeout=300)
+        second = time.time() - started
+        expect(sink.datagrams > 0, "the lane was never dialed (no datagram reached the sink)")
+        expect(first < 30, "the first pass waited %.0f s for a lane that never answers" % first)
+        expect(second < 15, "a later pass waited %.0f s: the lane did not rest" % second)
+        no_silent_failure(laptop, drive)
+        return "first pass %.0f s, later %.0f s, %d datagrams swallowed" % (
+            first, second, sink.datagrams)
+    finally:
+        if laptop:
+            laptop.stop()
+        sink.stop()
         stack.stop()
 
 
