@@ -168,6 +168,7 @@ azmeet-room-mismatch = Der Besprechungsserver hat einen Raum gesendet, der nicht
 azmeet-answer-unreadable = Der Besprechungsserver hat eine Antwort gesendet, die AzMeet nicht lesen kann.
 azmeet-not-server-address = Das ist keine Adresse eines Besprechungsdienstes: Sie beginnt mit https:// oder http://.
 azmeet-asking-server = { $server } wird gefragt ...
+azmeet-asking-server-from = { $server } ({ $from }) wird gefragt ...
 azmeet-server-answers = Der Besprechungsserver antwortet.
 azmeet-no-server = Kein Besprechungsdienst festgelegt: Gib seine Adresse unter Einstellungen > Besprechungen ein und drücke die Eingabetaste, oder starte AzMeet mit --worker <url>.
 azmeet-left-room = Du hast den Raum verlassen.
@@ -202,10 +203,8 @@ azmeet-keyring-run-only = Der Systemschlüsselbund { $why }: Der Schlüssel dies
 azmeet-leaving-room = Der Raum wird verlassen...
 azmeet-members-only-call = Nur ein Mitglied des Raums tritt seinem Anruf bei.
 azmeet-left-meeting = Du hast die Besprechung verlassen.
-azmeet-not-http = keine http(s)-Adresse
 azmeet-server-saved = in den Einstellungen gespeichert
 azmeet-server-built-in = eingebaut (AZMEET_DEFAULT_WORKER)
-azmeet-server-silent = Der Besprechungsdienst unter { $server } ({ $from }) antwortet nicht ({ $why }). AzMeet fragt alle { $seconds } Sekunden erneut; „Erneut versuchen“ fragt sofort, oder gib einen anderen ein und drücke die Eingabetaste.
 azmeet-no-network = Keine Netzwerkverbindung, daher ist niemand erreichbar: { $why }
 
 ## AzMeet: rooms, identity, times

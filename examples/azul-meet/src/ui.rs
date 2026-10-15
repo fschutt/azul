@@ -1442,7 +1442,7 @@ const PROBLEM_LINE: &str = "font-size: 12px; color: system:accent; @theme(flora)
 pub(crate) fn server_problem(lobby: &LobbyView) -> Option<String> {
     if lobby.server_unset {
         Some(t("azmeet-lobby-no-server"))
-    } else if lobby.server_ok {
+    } else if lobby.server_ok || lobby.server_pending {
         None
     } else {
         Some(t("azmeet-lobby-server-silent"))

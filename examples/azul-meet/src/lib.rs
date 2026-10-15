@@ -5580,6 +5580,7 @@ fn commit_server(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Upda
         room.server_text = text.to_string();
         let Some(server) = rooms::normalize_server(text) else {
             room.server_ok = false;
+            room.server_pending = false;
             room.server_status = t("azmeet-not-server-address");
             return Update::RefreshDom;
         };
@@ -5590,6 +5591,7 @@ fn commit_server(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Upda
         room.worker = server;
         room.checks = room.checks.wrapping_add(1);
         room.server_ok = false;
+        room.server_pending = true;
         room.server_status = t_args("azmeet-asking-server", &[("server", Arg::from(&room.worker))]);
         let job = HttpJob::health(room);
         rebind_for_server(s);
@@ -5783,6 +5785,7 @@ extern "C" fn on_health(data: RefAny, mut info: CallbackInfo, result: RefAny) ->
         // The answer to an address typed over since.
         return Update::DoNothing;
     }
+    room.server_pending = false;
     if !matches!(answer, Ok((200, _))) {
         room.server_ok = false;
         room.server_status = server_trouble(&room.worker, &answer);
@@ -6805,9 +6808,11 @@ fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         }
         return begin_join(data, info, &link, straight_in);
     }
-    let server_ok = data
+    // The service is being asked as this runs: a meeting it does not make in the end is made
+    // here (`open_local_meeting`), so a service that is set is tried.
+    let has_server = data
         .downcast_ref::<MeetState>()
-        .is_some_and(|s| s.room.as_ref().is_some_and(|room| room.server_ok));
+        .is_some_and(|s| s.room.as_ref().is_some_and(|room| !room.worker.is_empty()));
     let kind = if setting_on("AZMEET_CHAT_ROOM") {
         chatroom::RoomKind::Chat
     } else {
@@ -6815,7 +6820,7 @@ fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     };
     match launch_args().screen {
         args::Screen::Call => begin_new_room(data, info, straight_in, kind, launch_times()),
-        args::Screen::Waiting if server_ok => {
+        args::Screen::Waiting if has_server => {
             begin_new_room(data, info, false, kind, launch_times())
         }
         args::Screen::Waiting => preview_waiting_room(data),
@@ -7317,6 +7322,11 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Timer::create(data.clone(), chat_tick, get_time)
             .with_interval(Duration::System(SystemTimeDiff::from_millis(CHAT_TICK_MS))),
     );
+    // The meetings service is asked now that the window is up: the window never waits for it.
+    let first_check = data.downcast_mut::<MeetState>().and_then(|mut s| server_retry(&mut s));
+    if let Some(job) = first_check {
+        spawn_http(&mut info, data.clone(), job);
+    }
     load_identity(&mut data, &mut info);
     autostart(&mut data, &mut info)
 }
@@ -7874,32 +7884,6 @@ fn server_address(url: &str) -> Option<(String, u16)> {
     Some((host, parsed.effective_port()))
 }
 
-/// Whether something accepts a TCP connection at the meeting server's address, within 2.5 s.
-/// Runs before any window opens, so it blocks no callback.
-fn probe(url: &str) -> Result<(), String> {
-    use std::net::{TcpStream, ToSocketAddrs};
-    let (host, port) = server_address(url).ok_or_else(|| t("azmeet-not-http"))?;
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let outcome = (host.as_str(), port)
-            .to_socket_addrs()
-            .map_err(|e| e.to_string())
-            .and_then(|addrs| {
-                let mut last = String::from("no address");
-                for addr in addrs {
-                    match TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(800)) {
-                        Ok(_) => return Ok(()),
-                        Err(e) => last = e.to_string(),
-                    }
-                }
-                Err(last)
-            });
-        let _ = tx.send(outcome);
-    });
-    rx.recv_timeout(std::time::Duration::from_millis(2500))
-        .unwrap_or_else(|_| Err(t("azmeet-no-answer")))
-}
-
 /// Where the Azlin services are for this run, as azul-appkit's shared config resolves them
 /// (`azlin_config::resolve_endpoints`): the profile's addresses (`local`, the default: the local
 /// stack's; `production`: n0's relays, no meeting server yet), under the config file's
@@ -7967,14 +7951,14 @@ fn shared_endpoint(endpoint: azlin_config::Endpoint) -> Option<(&'static str, St
     Some((value, resolved.source.label()))
 }
 
-/// The meetings service at start, where it came from (for the log and the settings), and
-/// whether it accepts a connection: `--worker` (this run only), else the one saved last time
+/// The meetings service at start and where it came from (for the log and the settings), asked
+/// nothing yet: `--worker` (this run only), else the one saved last time
 /// (the settings' field), else the shared Azlin config's (`AZMEET_WORKER`, else its file's
 /// `endpoints.meet`), else one built in at build time (`AZMEET_DEFAULT_WORKER`), else the config
 /// profile's (`local`: the local stack's `http://127.0.0.1:8790`), else none - the settings ask
 /// for one. A headless run without a data root of its own reads no settings, so nothing
 /// saved outranks the configuration there.
-fn meeting_server() -> (String, String, Result<(), String>) {
+fn meeting_server() -> (String, String) {
     let saved = store::Prefs::read(saved_settings()).server;
     let flag = launch_args().switch("AZMEET_WORKER");
     let shared = shared_endpoint(azlin_config::Endpoint::Meet).filter(|_| {
@@ -7997,12 +7981,7 @@ fn meeting_server() -> (String, String, Result<(), String>) {
         rooms::ServerSource::BuiltIn => t("azmeet-server-built-in"),
         rooms::ServerSource::Unset => t("azmeet-server-none-set"),
     };
-    let answer = if url.is_empty() {
-        Err(String::from("none is set"))
-    } else {
-        probe(&url)
-    };
-    (url, from, answer)
+    (url, from)
 }
 
 /// The command line this run was started with (`args.rs`), read once by [`start`].
@@ -8067,8 +8046,8 @@ pub fn start() {
         .language
         .unwrap_or_else(|| saved_settings().language());
     crate::l10n::speak(language);
-    let (worker, from, answer) = meeting_server();
-    start_rooms(worker, &from, answer);
+    let (worker, from) = meeting_server();
+    start_rooms(worker, &from);
 }
 
 /// The relays for a meetings service at `worker`: `--relay` (this run only), else `saved` (the
@@ -8096,17 +8075,27 @@ fn relay_for(worker: &str, saved: Option<&str>) -> Relay {
 
 /// The room session the window starts with, for the meetings service at `worker` (`from`:
 /// where its address came from) and the relays `relay`.
-fn room_at_start(worker: String, relay: Relay, _from: &str) -> RoomSession {
+fn room_at_start(worker: String, relay: Relay, from: &str) -> RoomSession {
     let mut room = RoomSession::new(worker, relay);
-    room.checked_at = wall_ms();
+    // Never checked: the first room tick (and the window's start) asks at once.
+    room.checked_at = 0;
+    room.server_pending = !room.worker.is_empty();
+    room.server_status = if room.worker.is_empty() {
+        no_server_notice()
+    } else {
+        t_args(
+            "azmeet-asking-server-from",
+            &[("server", Arg::from(room.worker.as_str())), ("from", Arg::from(from))],
+        )
+    };
     room
 }
 
 /// The window with the start screen, talking to the meeting server at `worker` (none when
-/// empty; `from`: where its address came from); `answer` says whether it accepted a connection
-/// at start. An unreachable or missing server is said on the start screen and, with a Retry
+/// empty; `from`: where its address came from). The server is asked once the window is up
+/// (`startup`); an unreachable or missing one is said on the start screen and, with a Retry
 /// button, under the settings' field: nothing else opens instead.
-fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
+fn start_rooms(worker: String, from: &str) {
     let relay = relay_for(&worker, store::Prefs::read(saved_settings()).relay.as_deref());
     let name = display_name();
     if relay_only() && relay == Relay::Off {
@@ -8122,22 +8111,7 @@ fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
         rooms::transport_label(&relay, relay_only())
     );
     let mut me = MeetState::new(&name, make_kit());
-    let mut room = RoomSession::new(worker.clone(), relay.clone());
-    room.server_ok = answer.is_ok();
-    room.checked_at = wall_ms();
-    room.server_status = match &answer {
-        Ok(()) => t("azmeet-server-answers"),
-        Err(_) if worker.is_empty() => no_server_notice(),
-        Err(e) => t_args(
-            "azmeet-server-silent",
-            &[
-                ("server", Arg::from(worker.as_str())),
-                ("from", Arg::from(from)),
-                ("why", Arg::from(e.as_str())),
-                ("seconds", Arg::from((SERVER_RETRY_MS / 1000).to_string())),
-            ],
-        ),
-    };
+    let mut room = room_at_start(worker.clone(), relay.clone(), from);
     if worker.is_empty() {
         me.notice = no_server_notice();
     }

@@ -168,6 +168,7 @@ azmeet-room-mismatch = The meeting server sent a room that does not match this l
 azmeet-answer-unreadable = The meeting server sent an answer AzMeet cannot read.
 azmeet-not-server-address = That is no meetings service address: it starts with https:// or http://.
 azmeet-asking-server = Asking { $server } ...
+azmeet-asking-server-from = Asking { $server } ({ $from }) ...
 azmeet-server-answers = The meeting server answers.
 azmeet-no-server = No meetings service is set: type its address in Settings > Meetings and press Enter, or start AzMeet with --worker <url>.
 azmeet-left-room = You left the room.
@@ -202,10 +203,8 @@ azmeet-keyring-run-only = The system keyring { $why }: this device's key lives o
 azmeet-leaving-room = Leaving the room...
 azmeet-members-only-call = Only a member of the room joins its call.
 azmeet-left-meeting = You left the meeting.
-azmeet-not-http = not an http(s) address
 azmeet-server-saved = saved in the settings
 azmeet-server-built-in = built in (AZMEET_DEFAULT_WORKER)
-azmeet-server-silent = The meetings service at { $server } ({ $from }) does not answer ({ $why }). AzMeet asks again every { $seconds } seconds; Retry asks now, or type another one and press Enter.
 azmeet-no-network = No network link, so nobody can be reached: { $why }
 
 ## AzMeet: rooms, identity, times
