@@ -50,7 +50,7 @@ use crate::vault::{sections, Kind, Scope, Vault};
 // The pieces every Azlin app shares (azul_appkit::pieces); ui_item.rs imports them from here.
 // A flex row is `flex_row` (appkit's `ui::row` is the settings row).
 pub(crate) use azul_appkit::pieces::{
-    block, button, column, flex_row, icon_button, primary, strs, text,
+    block, button, column, flex_row, icon_button, primary, strs, text, Clickable,
 };
 
 /// Quiet text (a note, a subtitle, a field's label) fades the ink in flat; under flora it is
@@ -839,9 +839,8 @@ fn item_row(session: &Session, app: &RefAny, index: usize, position: usize) -> D
     )
     .with_id(ids::row(position))
     .with_class(ids::ROW_CLASS)
-    .with_accessibility_name(item.title.as_str())
-    .with_callback(
-        EventFilter::Hover(HoverEventFilter::MouseUp),
+    .clickable(
+        item.title.as_str(),
         RefAny::new(RowRef {
             app: app.clone(),
             id: item.id.clone(),

@@ -21,11 +21,28 @@ pub fn strs(items: &[&str]) -> StringVec {
     crate::l10n::labels(items)
 }
 
-/// `dom` as a control the keyboard reaches too: a tab stop called `name` that runs
-/// `callback` on a click.
+/// `dom` as a control the keyboard reaches too: a tab stop called `name` (words as they are,
+/// or a key of the resources) that runs `callback` on a click - a press and release on it, or
+/// Enter / Space while it has the focus. A row with a bare MouseUp callback answers the mouse
+/// only: it is no tab stop, and the keyboard's activation is a click, which MouseUp never
+/// hears.
 #[must_use]
-pub fn clickable(dom: Dom, _name: &str, _data: RefAny, _callback: CallbackType) -> Dom {
-    dom
+pub fn clickable(dom: Dom, name: &str, data: RefAny, callback: CallbackType) -> Dom {
+    dom.with_tab_index(azul::dom::TabIndex::Auto)
+        .with_accessibility_name(crate::l10n::label(name))
+        .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, callback)
+}
+
+/// [`clickable`] at the end of a builder chain: `.clickable(name, data, callback)`.
+pub trait Clickable {
+    #[must_use]
+    fn clickable(self, name: &str, data: RefAny, callback: CallbackType) -> Dom;
+}
+
+impl Clickable for Dom {
+    fn clickable(self, name: &str, data: RefAny, callback: CallbackType) -> Dom {
+        clickable(self, name, data, callback)
+    }
 }
 
 /// A run of text (an inline span).

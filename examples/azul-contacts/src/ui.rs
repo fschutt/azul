@@ -60,7 +60,7 @@ use azul_appkit::{
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
     l10n::{date_text, label, named, t, t_args, t_text, Arg, DateStyle, Phrase, Text},
-    pieces::{block, button, column, flex_row, primary, strs, text},
+    pieces::{block, button, column, flex_row, primary, strs, text, Clickable},
     settings::AppSettings,
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
@@ -459,9 +459,8 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
         children,
     )
     .with_class(ids::CONTACT_ROW_CLASS)
-    .with_accessibility_name(shown_name(c))
-    .with_callback(
-        EventFilter::Hover(HoverEventFilter::MouseUp),
+    .clickable(
+        &shown_name(c),
         RefAny::new(RowRef {
             app: app.clone(),
             uid: c.uid.clone(),
@@ -476,20 +475,19 @@ fn jump_bar(present: &[char]) -> Dom {
         .with_css("display: flex; flex-direction: column; width: 18px; flex-shrink: 0; font-size: 10px; padding-top: 4px;");
     for letter in ALPHABET {
         let has = present.contains(&letter);
-        bar.add_child(
-            Dom::create_div()
-                .with_id(ids::jump(letter))
-                .with_css(format!(
-                    "text-align: center; cursor: pointer; {}",
-                    if has { "font-weight: 700;" } else { "opacity: 0.35;" }
-                ))
-                .with_child(text(letter.to_string()))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    RefAny::new(LetterRef { letter }),
-                    on_jump,
-                ),
-        );
+        let cell = Dom::create_div()
+            .with_id(ids::jump(letter))
+            .with_css(format!(
+                "text-align: center; cursor: pointer; {}",
+                if has { "font-weight: 700;" } else { "opacity: 0.35;" }
+            ))
+            .with_child(text(letter.to_string()));
+        // Only a letter with contacts is a stop: the others jump nowhere.
+        bar.add_child(if has {
+            cell.clickable(&letter.to_string(), RefAny::new(LetterRef { letter }), on_jump)
+        } else {
+            cell
+        });
     }
     bar
 }

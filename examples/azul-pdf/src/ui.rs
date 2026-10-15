@@ -33,6 +33,7 @@ use azul::{
 };
 use azul_appkit::{
     l10n::{begin_layout, labels, t, t_args, Arg},
+    pieces::Clickable,
     ui as kit,
 };
 
@@ -185,12 +186,7 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
                  8px 12px; border-bottom: 1px solid system:separator;",
             )
             .with_dataset(tag(i))
-            .with_accessibility_name(doc.title.as_str())
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
-                data.clone(),
-                crate::on_recent,
-            );
+            .clickable(doc.title.as_str(), data.clone(), crate::on_recent);
         row.add_child(
             Dom::create_icon("picture_as_pdf").with_css("font-size: 18px; color: system:accent;"),
         );
@@ -852,7 +848,6 @@ fn thumb_frame(
     };
     let mut frame = Dom::create_div()
         .with_id(ids::numbered(ids::THUMB_PREFIX, page + 1))
-        .with_accessibility_name(t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str())
         .with_dataset(tag(page))
         .with_css(
             format!(
@@ -862,8 +857,8 @@ fn thumb_frame(
             )
             .as_str(),
         )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
+        .clickable(
+            t_args("azpdf-page-n", &[("page", Arg::from(page + 1))]).as_str(),
             app.clone(),
             crate::on_go_to_page,
         );
@@ -900,11 +895,7 @@ fn outline(s: &AppState, data: &RefAny) -> Dom {
                 "display: flex; flex-direction: row; gap: 8px; padding: 4px 12px; font-size: \
                  12px;",
             )
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
-                data.clone(),
-                crate::on_go_to_page,
-            );
+            .clickable(title.as_str(), data.clone(), crate::on_go_to_page);
         row.add_child(
             Dom::create_span_with_text(title.as_str())
                 .with_css("flex-grow: 1; min-width: 0px; overflow: hidden;"),
@@ -957,8 +948,8 @@ fn hits_pane(s: &AppState, data: &RefAny) -> Dom {
                 "display: flex; flex-direction: column; gap: 2px; padding: 6px 12px; \
                  border-bottom: 1px solid system:separator;",
             )
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+            .clickable(
+                t_args("azpdf-page-n", &[("page", Arg::from(hit.page + 1))]).as_str(),
                 data.clone(),
                 crate::on_go_to_page,
             );

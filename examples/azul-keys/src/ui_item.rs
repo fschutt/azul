@@ -22,7 +22,10 @@ use azul::{
     },
 };
 
-use azul_appkit::l10n::{label, t, t_args, t_text, Arg, Text};
+use azul_appkit::{
+    l10n::{label, t, t_args, t_text, Arg, Text},
+    pieces::Clickable,
+};
 
 use crate::app::{now, KeysApp};
 use crate::audit::{self, Filter};
@@ -1665,8 +1668,8 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
                 ],
             )
             .with_id(ids::audit_row(shown))
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+            .clickable(
+                item.title.as_str(),
                 RefAny::new(AuditRef {
                     app: app.clone(),
                     id: item.id.clone(),
