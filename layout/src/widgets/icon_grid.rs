@@ -116,6 +116,8 @@ pub(crate) const MARQUEE_CLASS: &str = "__azul-native-icon-grid-marquee";
 pub(crate) const TRACK_CLASS: &str = "__azul-native-icon-grid-track";
 /// The scroll bar's thumb.
 pub(crate) const SCROLL_THUMB_CLASS: &str = "__azul-native-icon-grid-scroll-thumb";
+/// The field an item's name is edited in (F2), in the label's place.
+pub(crate) const RENAME_CLASS: &str = "__azul-native-icon-grid-rename";
 
 /// How far a press on a selected item may move before it is a drag (and no
 /// longer a click that collapses the selection), px.
@@ -342,6 +344,8 @@ pub struct IconGridView {
     pub drag: IconGridDrag,
     /// The first row in view.
     pub top_row: usize,
+    /// The item whose name is being edited in place (F2), if any.
+    pub renaming: OptionUsize,
 }
 
 impl IconGridView {
@@ -352,6 +356,7 @@ impl IconGridView {
             selection: ListSelection::create(),
             drag: IconGridDrag::default(),
             top_row: 0,
+            renaming: OptionUsize::None,
         }
     }
 
@@ -406,6 +411,12 @@ pub enum IconGridEventKind {
     /// A drag inside the grid (the rubber band, the scroll thumb) moved:
     /// store the view.
     Drag,
+    /// Editing a name in place started (F2 on item `index`) or was given up
+    /// (Escape): store the view, whose `renaming` says which.
+    Rename,
+    /// The name of item `index` was edited to `text` (Enter, or the field
+    /// lost the focus): rename the item, store the view.
+    Renamed,
 }
 
 /// One action in the grid.
@@ -426,6 +437,8 @@ pub struct IconGridEvent {
     pub shift: bool,
     /// The primary modifier was held: Cmd on macOS, Ctrl elsewhere.
     pub ctrl: bool,
+    /// `Renamed`: the new name.
+    pub text: AzString,
 }
 
 impl IconGridEvent {
@@ -440,8 +453,16 @@ impl IconGridEvent {
             kind,
             shift: false,
             ctrl: false,
+            text: AzString::from_const_str(""),
         }
     }
+}
+
+/// The event that ends an edit in place with the name `text`: `Renamed`
+/// with the new name, or `None` when nothing is being renamed.
+pub(crate) fn rename_commit(g: &IconGrid, text: &str) -> Option<IconGridEvent> {
+    let _ = (g, text);
+    None
 }
 
 /// Callback invoked for an action in the grid.
@@ -1257,6 +1278,11 @@ fn thumb_base(size: f32) -> Vec<CssPropertyWithConditions> {
     ]
 }
 
+/// An item's name: as [`label_base`] for now.
+fn name_base() -> Vec<CssPropertyWithConditions> {
+    label_base()
+}
+
 /// The label: the cell's width, centred, on one line, clipped.
 fn label_base() -> Vec<CssPropertyWithConditions> {
     use crate::widgets::themes::decl;
@@ -1843,6 +1869,111 @@ mod icon_grid_tests {
         let geo = geometry(&grid(&asked, &log));
         assert_eq!(marquee_keys(&geo, 150.0, 120.0, 10.0, 10.0), vec![0, 1, 4, 5]);
         assert_eq!(marquee_keys(&geo, 386.0, 10.0, 387.0, 20.0), Vec::<u64>::new(), "past the columns");
+    }
+
+    // ---- the rubber band past an edge, renaming, names, the focus ring ----
+
+    /// Explorer: a rubber band dragged past the grid's bottom edge scrolls
+    /// the rows up under it, and the band stays anchored to the item it
+    /// started on; past the top edge it scrolls back.
+    #[test]
+    fn a_rubber_band_past_an_edge_scrolls_the_grid_and_keeps_its_anchor() {
+        let (asked, log) = fresh();
+        let mut g = grid(&asked, &log);
+        let geo = geometry(&g);
+        let start = press(&g, &geo, Hit::Empty, 386.0, 10.0, 10.0, false, false).expect("a band");
+        g = g.with_view(start.view);
+        // 50 px under the bottom edge: one row further down.
+        let e = drag_move(&g, &geometry(&g), 10.0, geo.height + 50.0, 0.0).expect("the band moves");
+        assert_eq!(e.view.top_row, 1, "the grid scrolled a row");
+        let keys = selected(&e.view);
+        assert!(keys.contains(&3), "the band still holds its first row: {keys:?}");
+        assert!(keys.contains(&16), "and reaches the row under the pointer (row 4): {keys:?}");
+        g = g.with_view(e.view);
+        // 30 px over the top edge: back up a row, the anchor kept.
+        let e = drag_move(&g, &geometry(&g), 10.0, -30.0, 0.0).expect("the band moves");
+        assert_eq!(e.view.top_row, 0, "scrolled back");
+        assert!(selected(&e.view).contains(&3), "{:?}", selected(&e.view));
+    }
+
+    /// F2 edits the focused item's name in place; Enter (or leaving the
+    /// field) reports the new name, and the edit ends.
+    #[test]
+    fn f2_renames_the_focused_item_in_place() {
+        let (asked, log) = fresh();
+        let g = with_selection(grid(&asked, &log), &[5], 5);
+        let geo = geometry(&g);
+        let e = grid_key(&g, &geo, K::F2, false, false).expect("F2 is the grid's");
+        assert_eq!(e.kind, IconGridEventKind::Rename);
+        assert_eq!(e.view.renaming.into_option(), Some(5));
+        assert_eq!(e.index.into_option(), Some(5));
+
+        let renaming = g.clone().with_view(e.view.clone());
+        let dom = renaming.clone().with_theme(UiTheme::Flat).dom();
+        let item = dom
+            .children
+            .as_ref()
+            .iter()
+            .find(|c| theme_checks::find(c, RENAME_CLASS).is_some())
+            .expect("the item being renamed holds the name field");
+        assert!(theme_checks::find(item, LABEL_CLASS).is_none(), "the field takes the label's place");
+
+        let done = rename_commit(&renaming, "Holiday.jpg").expect("an edit to end");
+        assert_eq!(done.kind, IconGridEventKind::Renamed);
+        assert_eq!(done.index.into_option(), Some(5));
+        assert_eq!(done.text.as_str(), "Holiday.jpg");
+        assert_eq!(done.view.renaming.into_option(), None);
+        assert!(rename_commit(&g, "x").is_none(), "nothing to commit when nothing is renamed");
+    }
+
+    /// A name wraps to two lines and ends in an ellipsis where it goes on
+    /// (the design's `-webkit-line-clamp: 2`); a long word breaks.
+    #[test]
+    fn an_items_name_wraps_to_two_lines_and_ends_in_an_ellipsis() {
+        use azul_css::props::style::{StyleLineClamp, StyleOverflowWrap, StyleWhiteSpace};
+        let name: Vec<CssProperty> = name_base().into_iter().map(|p| p.property).collect();
+        assert!(name.contains(&CssProperty::from(StyleLineClamp { max_lines: 2 })), "{name:?}");
+        assert!(name.contains(&CssProperty::from(StyleOverflowWrap::Anywhere)), "{name:?}");
+        assert!(
+            !name.iter().any(|p| matches!(p, CssProperty::WhiteSpace(v) if v.get_property() == Some(&StyleWhiteSpace::Nowrap))),
+            "a name wraps"
+        );
+    }
+
+    /// The focused item's ring shows only while the grid has the focus: it
+    /// is the grid's rule for `:focus` on itself, not the item's own style.
+    #[test]
+    fn the_focused_items_ring_shows_only_while_the_grid_has_the_focus() {
+        use azul_css::css::{CssPathPseudoSelector, CssPathSelector};
+        let (asked, log) = fresh();
+        let g = with_selection(grid(&asked, &log), &[1], 1).with_theme(UiTheme::Flat);
+        let look = look_for(OptionUiTheme::Some(UiTheme::Flat));
+        let dom = g.dom();
+        let focused = dom
+            .children
+            .as_ref()
+            .iter()
+            .find(|c| theme_checks::has_class(c, ITEM_FOCUSED_CLASS))
+            .expect("the focused item");
+        let own: Vec<CssProperty> =
+            focused.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect();
+        for ring in &look.item_focused {
+            assert!(!own.contains(&ring.property), "the ring is not the item's own: {:?}", ring.property);
+        }
+        let want = [
+            CssPathSelector::Class(AzString::from_const_str(GRID_CLASS)),
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
+            CssPathSelector::Children,
+            CssPathSelector::Class(AzString::from_const_str(ITEM_FOCUSED_CLASS)),
+        ];
+        let rules: Vec<_> = dom
+            .css
+            .as_ref()
+            .iter()
+            .flat_map(|sheet| sheet.rules.as_ref().iter())
+            .filter(|rule| rule.path.selectors.as_ref().ends_with(&want))
+            .collect();
+        assert_eq!(rules.len(), look.item_focused.len(), "one rule per ring declaration");
     }
 
     // ---- the pointer ----
