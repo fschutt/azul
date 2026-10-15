@@ -365,6 +365,12 @@ class TheServerSide(ProxyCase):
         self.proxy.clock_offset = 0
         self.assertEqual(self.put("skew.txt", b"x")[0], 200)
 
+    def test_a_request_signed_now_is_within_a_node_clock_a_minute_ahead(self):
+        # The signed time is UTC: a local-time reading would be off by the zone (and by daylight
+        # saving time), and every request would look an hour skewed.
+        self.proxy.clock_offset = 60
+        self.assertEqual(self.put("on-time.txt", b"x")[0], 200)
+
     def test_a_quota_refuses_the_write_that_crosses_it_and_reads_go_on(self):
         self.proxy.set_quota(BUCKET, 10, used=lambda: self.server.store.stored_bytes(BUCKET))
         self.assertEqual(self.put("a", b"123456")[0], 200)
