@@ -53,6 +53,8 @@ fn window() -> WindowCreateOptions {
         OptionLogicalSize::Some(LogicalSize::create(560.0, 420.0));
     window.window_state.flags.decorations = WindowDecorations::NoTitle;
     window.create_callback = Some(Callback::create(on_options_created)).into();
+    // Outlook's Options belong to the main window: above it, minimised and closed with it.
+    window.owned = true;
     window
 }
 
