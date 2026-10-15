@@ -1151,3 +1151,11 @@ mod a_workers_send_wakes_the_ui_thread;
 mod a_node_in_a_virtual_view_comes_in_with_its_animation;
 #[path = "a_layout_tween_frame_patches_its_nodes_compact_entry.rs"]
 mod a_layout_tween_frame_patches_its_nodes_compact_entry;
+#[path = "focus_within_holds_on_every_ancestor_of_the_focused_node.rs"]
+mod focus_within_holds_on_every_ancestor_of_the_focused_node;
+#[path = "a_pseudo_class_on_an_ancestor_restyles_its_descendants.rs"]
+mod a_pseudo_class_on_an_ancestor_restyles_its_descendants;
+#[path = "before_and_after_generate_content.rs"]
+mod before_and_after_generate_content;
+#[path = "inline_list_items_carry_their_marker.rs"]
+mod inline_list_items_carry_their_marker;

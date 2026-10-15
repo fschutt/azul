@@ -136,6 +136,61 @@ mod autotest_generated {
         )
     }
 
+    /// [`matches`] with the states the compounds left of the subject read.
+    fn matches_in(
+        selectors: Vec<CssPathSelector>,
+        node_index: usize,
+        states: Option<&[StyledNodeState]>,
+    ) -> bool {
+        let hierarchy = sample_hierarchy();
+        let hier_items = items(&hierarchy);
+        let data = sample_node_data();
+
+        let hierarchy_ref = NodeHierarchyRef::from_slice(&hierarchy);
+        let data_ref = NodeDataContainerRef::from_slice(&data);
+        let depths = hierarchy_ref.get_parents_sorted_by_depth();
+        let cascade = construct_html_cascade_tree(&hierarchy_ref, &depths, &data_ref);
+
+        matches_html_element_in(
+            &CssPath::new(selectors),
+            NodeId::new(node_index),
+            &NodeDataContainerRef::from_slice(&hier_items),
+            &data_ref,
+            &cascade.as_ref(),
+            None,
+            states.map(|nodes| AncestorStates {
+                nodes,
+                window_inactive: false,
+                every_state: false,
+            }),
+        )
+    }
+
+    #[test]
+    fn a_compound_left_of_the_subject_holds_by_the_state_its_node_is_in() {
+        // `.b:hover .inner`: p.inner (4) inside div.b (3).
+        let path = vec![
+            CssPathSelector::Class("b".into()),
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover),
+            CssPathSelector::Children,
+            CssPathSelector::Class("inner".into()),
+        ];
+        assert!(
+            !matches_in(path.clone(), 4, None),
+            "without states no ancestor is in a state"
+        );
+        let mut states = vec![StyledNodeState::default(); 6];
+        assert!(!matches_in(path.clone(), 4, Some(&states)), "div.b rests");
+        states[3].hover = true;
+        assert!(matches_in(path.clone(), 4, Some(&states)), "div.b is hovered");
+        states[3].hover = false;
+        states[4].hover = true;
+        assert!(
+            !matches_in(path, 4, Some(&states)),
+            "the subject's own hover is not the ancestor's"
+        );
+    }
+
     // ---------------------------------------------------------------------
     // CascadeInfoVec::as_container  (getter)
     // ---------------------------------------------------------------------
@@ -332,6 +387,7 @@ mod autotest_generated {
             CssPathPseudoSelector::Hover,
             CssPathPseudoSelector::Active,
             CssPathPseudoSelector::Focus,
+            CssPathPseudoSelector::FocusWithin,
             CssPathPseudoSelector::Backdrop,
             CssPathPseudoSelector::Dragging,
             CssPathPseudoSelector::DragOver,
@@ -634,6 +690,7 @@ mod autotest_generated {
             CssPathPseudoSelector::Hover,
             CssPathPseudoSelector::Active,
             CssPathPseudoSelector::Focus,
+            CssPathPseudoSelector::FocusWithin,
             CssPathPseudoSelector::Backdrop,
             CssPathPseudoSelector::Dragging,
             CssPathPseudoSelector::DragOver,

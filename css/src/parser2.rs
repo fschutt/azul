@@ -451,6 +451,74 @@ impl DynamicCssParseErrorOwned {
     }
 }
 
+/// The node type a generated pseudo-element stands for: `::before` and
+/// `::after`. CSS 2 wrote them with one colon and browsers still take that,
+/// so both spellings arrive here.
+#[must_use]
+pub fn generated_pseudo_element(name: &str) -> Option<NodeTypeTag> {
+    match name.trim_start_matches(':') {
+        "before" => Some(NodeTypeTag::Before),
+        "after" => Some(NodeTypeTag::After),
+        _ => None,
+    }
+}
+
+const fn is_combinator(selector: &CssPathSelector) -> bool {
+    matches!(
+        selector,
+        CssPathSelector::Children
+            | CssPathSelector::DirectChildren
+            | CssPathSelector::AdjacentSibling
+            | CssPathSelector::GeneralSibling
+    )
+}
+
+/// Appends a generated pseudo-element to a selector being parsed:
+/// `.go:hover::after` becomes `.go > ::after:hover`.
+///
+/// The pseudo-element is a node of its own, its host's first or last child,
+/// made before the cascade, so a child combinator and its node type select
+/// it. It is a part of its host and takes the host's interaction states, so
+/// the host compound's state pseudo-classes move onto it, and the rule takes
+/// part in that state's cascade pass like any rule ending in `:hover`. A bare
+/// `::before` has any element for its host.
+pub fn push_generated_pseudo_element(path: &mut Vec<CssPathSelector>, tag: NodeTypeTag) {
+    let compound = path.iter().rposition(is_combinator).map_or(0, |i| i + 1);
+    let mut states = Vec::new();
+    let mut i = compound;
+    while i < path.len() {
+        let is_state = matches!(
+            &path[i],
+            CssPathSelector::PseudoSelector(p) if p.dynamic_state().is_some()
+        );
+        if is_state {
+            states.push(path.remove(i));
+        } else {
+            i += 1;
+        }
+    }
+    if path.len() == compound {
+        path.push(CssPathSelector::Global);
+    }
+    path.push(CssPathSelector::DirectChildren);
+    path.push(CssPathSelector::Type(tag));
+    path.extend(states);
+}
+
+/// The pseudo-element of a selector that is nothing but one (a bare
+/// `::before` parses as `* > ::before`), so that a nested one can attach to
+/// its parent rule.
+fn bare_generated_pseudo_element(path: &[CssPathSelector]) -> Option<NodeTypeTag> {
+    match path {
+        [CssPathSelector::Global, CssPathSelector::DirectChildren, CssPathSelector::Type(tag), ..]
+            if matches!(tag, NodeTypeTag::Before | NodeTypeTag::After) =>
+        {
+            Some(*tag)
+        }
+        _ => None,
+    }
+}
+
 /// "selector" contains the actual selector such as "nth-child" while "value" contains
 /// an optional value - for example "nth-child(3)" would be: selector: "nth-child", value: "3".
 /// # Errors
@@ -474,6 +542,7 @@ pub fn pseudo_selector_from_str<'a>(
         "active" => Ok(CssPathPseudoSelector::Active),
         "focus" => Ok(CssPathPseudoSelector::Focus),
         "focus-visible" => Ok(CssPathPseudoSelector::FocusVisible),
+        "focus-within" => Ok(CssPathPseudoSelector::FocusWithin),
         "seat-focus" => Ok(CssPathPseudoSelector::SeatFocus),
         "dragging" => Ok(CssPathPseudoSelector::Dragging),
         "drag-over" => Ok(CssPathPseudoSelector::DragOver),
@@ -1011,10 +1080,13 @@ pub fn parse_css_path(input: &str) -> Result<CssPath, CssPathParseError<'_>> {
             Token::Combinator(Combinator::Tilde) => {
                 selectors.push(CssPathSelector::GeneralSibling);
             }
-            Token::PseudoClass { selector, value } => {
-                selectors.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(
-                    selector, value,
-                )?));
+            Token::PseudoClass { selector, value } | Token::DoublePseudoClass { selector, value } => {
+                match generated_pseudo_element(selector).filter(|_| value.is_none()) {
+                    Some(tag) => push_generated_pseudo_element(&mut selectors, tag),
+                    None => selectors.push(CssPathSelector::PseudoSelector(
+                        pseudo_selector_from_str(selector, value)?,
+                    )),
+                }
             }
             Token::EndOfStream => {
                 break;
@@ -1982,6 +2054,17 @@ fn new_from_str_inner<'a>(
                                 let mut result = Vec::new();
                                 for parent in &parent_paths {
                                     for child in &current_paths {
+                                        // A bare `::before` nested in a rule is the
+                                        // PARENT's pseudo-element, as a bare `:hover`
+                                        // is the parent's state (`with_css` wraps a
+                                        // node's own `::after { .. }` this way).
+                                        if let Some(tag) = bare_generated_pseudo_element(child) {
+                                            let mut combined = parent.clone();
+                                            push_generated_pseudo_element(&mut combined, tag);
+                                            combined.extend(child[3..].iter().cloned());
+                                            result.push(combined);
+                                            continue;
+                                        }
                                         // Check if child starts with pseudo-selector
                                         let is_pseudo_only = child.first().is_some_and(|s| {
                                             matches!(s, CssPathSelector::PseudoSelector(_))
@@ -2133,6 +2216,14 @@ fn new_from_str_inner<'a>(
             }
             Token::Combinator(Combinator::Tilde) => {
                 last_path.push(CssPathSelector::GeneralSibling);
+            }
+            Token::PseudoClass { selector, value }
+            | Token::DoublePseudoClass { selector, value }
+                if value.is_none() && generated_pseudo_element(selector).is_some() =>
+            {
+                if let Some(tag) = generated_pseudo_element(selector) {
+                    push_generated_pseudo_element(&mut last_path, tag);
+                }
             }
             Token::PseudoClass { selector, value }
             | Token::DoublePseudoClass { selector, value } => {
@@ -5420,5 +5511,47 @@ mod invalid_selector_tests {
             pseudo_selector_from_str("last-child", None),
             Ok(CssPathPseudoSelector::Last)
         );
+    }
+
+    #[test]
+    fn a_generated_pseudo_element_is_a_child_of_its_host() {
+        use crate::css::CssPathSelector::{Class, DirectChildren, Global, PseudoSelector, Type};
+        let (rules, warnings) = parse(
+            "div::before { content: \"a\"; } p:after { content: \"b\"; } \
+             ::after { content: \"c\"; } .go:hover::after { content: \"d\"; }",
+        );
+        assert_eq!(warnings, 0, "both spellings parse");
+        assert_eq!(
+            rules[0].path.selectors.as_ref(),
+            &[Type(NodeTypeTag::Div), DirectChildren, Type(NodeTypeTag::Before)]
+        );
+        assert_eq!(
+            rules[2].path.selectors.as_ref(),
+            &[Global, DirectChildren, Type(NodeTypeTag::After)],
+            "a bare pseudo-element has any element for its host"
+        );
+        assert_eq!(
+            rules[3].path.selectors.as_ref(),
+            &[
+                Class("go".into()),
+                DirectChildren,
+                Type(NodeTypeTag::After),
+                PseudoSelector(CssPathPseudoSelector::Hover),
+            ],
+            "the host's state moves onto the pseudo-element, which shares it"
+        );
+        assert_eq!(
+            paths(&rules),
+            ["div::before", "p::after", "*::after", ".go::after:hover"]
+        );
+        assert_eq!(
+            parse_css_path(".go::after:hover").map(|p| p.selectors.as_ref().to_vec()),
+            Ok(rules[3].path.selectors.as_ref().to_vec()),
+            "the printed path parses back to the same path"
+        );
+
+        // Nested, a bare pseudo-element is the parent rule's own.
+        let (nested, _) = parse(".card { ::after { content: \"x\"; } }");
+        assert_eq!(paths(&nested), [".card::after"]);
     }
 }

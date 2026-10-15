@@ -4615,6 +4615,7 @@ impl Lower for crate::css::CssPathPseudoSelector {
             Self::Root => Expr::unit("CssPathPseudoSelector", EnumShape::Tagged, "Root"),
             Self::Placeholder => Expr::unit("CssPathPseudoSelector", EnumShape::Tagged, "Placeholder"),
             Self::FocusVisible => Expr::unit("CssPathPseudoSelector", EnumShape::Tagged, "FocusVisible"),
+            Self::FocusWithin => Expr::unit("CssPathPseudoSelector", EnumShape::Tagged, "FocusWithin"),
         }
     }
 }
@@ -5115,6 +5116,7 @@ impl Lower for crate::props::layout::display::LayoutDisplay {
             Self::Grid => "Grid",
             Self::InlineGrid => "InlineGrid",
             Self::Contents => "Contents",
+            Self::InlineListItem => "InlineListItem",
         };
         Expr::unit("LayoutDisplay", EnumShape::CLike, variant)
     }
