@@ -1173,3 +1173,5 @@ mod inline_list_items_carry_their_marker;
 mod an_svg_stroke_without_a_width_is_one_unit_wide;
 #[path = "a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part.rs"]
 mod a_span_broken_around_a_block_draws_its_edges_on_its_first_and_last_part;
+#[path = "a_relayout_that_changes_nothing_takes_the_retained_tree.rs"]
+mod a_relayout_that_changes_nothing_takes_the_retained_tree;
