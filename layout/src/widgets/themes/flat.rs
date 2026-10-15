@@ -5158,9 +5158,11 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
         chevron_icon,
         overflow: address_bar_control(Some(20), 20),
         refresh,
+        refresh_apart: false,
         refresh_icon,
         search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
         search_field: Vec::new(),
+        search_icon: None,
         marker: None,
     }
 }

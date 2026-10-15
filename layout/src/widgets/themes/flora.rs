@@ -8728,18 +8728,10 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
         vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14)))];
     chevron_icon.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
 
-    // Refresh closes the box past a --fl-bd hairline; it lifts like the
-    // segments and keeps its rule.
-    let mut refresh = vec![
-        C::simple(CssProperty::const_width(LayoutWidth::const_px(26))),
-        C::simple(CssProperty::const_height(LayoutHeight::const_px(24))),
-    ];
-    refresh.extend(decl::border_left(1));
-    refresh.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
-    refresh.push(C::simple(decl::fill(ColorU::TRANSPARENT)));
-    refresh.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
-    refresh.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
-    refresh.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+    // Refresh: a round stone of its own between the crumbs field and the
+    // search box, like Back and Forward (no gold edge).
+    let mut refresh = round.clone();
+    refresh.extend(decl::margin(0, 8, 0, 0));
 
     let mut refresh_icon =
         vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(15)))];
@@ -8760,15 +8752,38 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
         field: decl::padding(0, 1, 0, 1).to_vec(),
         edit: Vec::new(),
         crumb,
-        current: Vec::new(),
+        // The place itself: its crumb in bold.
+        current: vec![decl::bold()],
         label,
         chevron: address_bar_control(Some(16), 22),
         chevron_icon,
         overflow: address_bar_control(Some(22), 22),
         refresh,
+        refresh_apart: true,
         refresh_icon,
-        search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
-        search_field: decl::radius(ADDRESS_FIELD_RADIUS).to_vec(),
+        search: vec![
+            C::simple(CssProperty::const_width(LayoutWidth::const_px(220))),
+            decl::position(LayoutPosition::Relative),
+        ],
+        // The field's corners, and room for the magnifier at its start.
+        search_field: {
+            let mut v = decl::radius(ADDRESS_FIELD_RADIUS).to_vec();
+            v.push(decl::px_padding_left(26.0));
+            v
+        },
+        search_icon: Some({
+            let mut v = vec![
+                decl::position(LayoutPosition::Absolute),
+                decl::px_left(7.0),
+                decl::px_top(0.0),
+                decl::px_bottom(0.0),
+                C::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+                C::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+                C::simple(CssProperty::const_font_size(StyleFontSize::const_px(15))),
+            ];
+            v.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+            v
+        }),
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }

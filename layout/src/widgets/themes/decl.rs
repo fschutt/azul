@@ -819,6 +819,12 @@ pub(crate) fn px_padding_right(px: f32) -> CssPropertyWithConditions {
     simple(CssProperty::const_padding_right(LayoutPaddingRight::px(px)))
 }
 
+/// `padding-left: <px>px`, fractional.
+#[must_use]
+pub(crate) fn px_padding_left(px: f32) -> CssPropertyWithConditions {
+    simple(CssProperty::const_padding_left(LayoutPaddingLeft::px(px)))
+}
+
 /// `margin-right: <px>px`, fractional (negative pulls the next box closer).
 #[must_use]
 pub(crate) fn px_margin_right(px: f32) -> CssPropertyWithConditions {

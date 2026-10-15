@@ -271,8 +271,12 @@ pub(crate) struct AddressBarLook {
     pub chevron_icon: Vec<Cond>,
     /// The « of a folded trail.
     pub overflow: Vec<Cond>,
-    /// Refresh at the box's end.
+    /// Refresh at the box's end, or of its own between the box and the
+    /// search box where [`Self::refresh_apart`] says so.
     pub refresh: Vec<Cond>,
+    /// Refresh stands apart from the crumbs field, between it and the search
+    /// box (flora's round button), instead of closing the field.
+    pub refresh_apart: bool,
     /// Refresh's glyph.
     pub refresh_icon: Vec<Cond>,
     /// The box around the search input.
@@ -281,6 +285,10 @@ pub(crate) struct AddressBarLook {
     /// the bar's corners where the theme gives the search box the crumbs
     /// field's; empty leaves the field as the input draws it.
     pub search_field: Vec<Cond>,
+    /// The magnifier at the search field's start, if the theme draws one:
+    /// its style (it stands over the field, which leaves room for it in
+    /// [`Self::search_field`]).
+    pub search_icon: Option<Vec<Cond>>,
     /// The theme's marker class on the bar, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -1084,7 +1092,12 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
         AzString::from_const_str("Refresh"),
     );
     refresh.root.add_class(AzString::from_const_str(REFRESH_CLASS));
-    box_children.push(refresh);
+    let refresh_apart = if look.refresh_apart {
+        Some(refresh)
+    } else {
+        box_children.push(refresh);
+        None
+    };
     let mut field_box = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(BOX_CLASS))
         .with_css_props(part(
@@ -1136,10 +1149,17 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
             field.root.set_css_props(CssPropertyWithConditionsVec::from_vec(v));
         }
     }
-    let search_box = Dom::create_div()
+    let mut search_box = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SEARCH_CLASS))
         .with_css_props(part(ADDRESS_BAR_SEARCH_BASE, &look.search))
         .with_child(search_dom);
+    if let Some(style) = &look.search_icon {
+        // Over the field, after it so it paints on the field's paper.
+        search_box.add_child(
+            Dom::create_icon(AzString::from_const_str("search"))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(style.clone())),
+        );
+    }
 
     let mut parts = alloc::vec![
         nav(
@@ -1171,6 +1191,9 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
     }
     parts.push(nav("arrow_upward", "Up", can_go_up, &look.arrow, None, on_up));
     parts.push(field_box);
+    if let Some(refresh) = refresh_apart {
+        parts.push(refresh);
+    }
     parts.push(search_box);
 
     let mut classes: Vec<IdOrClass> = BAR_CLASS.to_vec();
@@ -1436,7 +1459,9 @@ mod address_bar_tests {
         for theme in checks::BOTH {
             let dom = bar(&log).with_theme(theme).dom();
             let parts = dom.children.as_ref();
-            assert_eq!(parts.len(), 5, "{}", theme.name());
+            // Flora's Refresh stands apart, between the box and the search.
+            let apart = theme == UiTheme::Flora;
+            assert_eq!(parts.len(), if apart { 6 } else { 5 }, "{}", theme.name());
             for i in [0, 1, 2] {
                 assert!(
                     has_class(&parts[i], "__azul-native-address-bar-nav"),
@@ -1460,13 +1485,19 @@ mod address_bar_tests {
                 "{}: without an icon the box starts with the trail",
                 theme.name()
             );
+            let refresh = if apart { &parts[4] } else { inside.last().expect("the box has parts") };
             assert!(
-                has_class(inside.last().expect("the box has parts"), REFRESH_CLASS),
-                "{}: Refresh is at the box's end",
+                has_class(refresh, REFRESH_CLASS),
+                "{}: Refresh at the box's end, or after it",
                 theme.name()
             );
-            assert!(has_class(&parts[4], "__azul-native-address-bar-search"));
-            assert_eq!(parts[4].children.as_ref().len(), 1, "the search input");
+            let search = parts.last().expect("the search box");
+            assert!(has_class(search, "__azul-native-address-bar-search"));
+            assert_eq!(
+                search.children.as_ref().len(),
+                if apart { 2 } else { 1 },
+                "the search input (and flora's magnifier)"
+            );
             assert_eq!(
                 dom.root.get_accessibility_info().map(|i| i.role),
                 Some(azul_core::a11y::AccessibilityRole::Toolbar)
@@ -1714,7 +1745,8 @@ mod address_bar_tests {
                 .with_theme(theme)
                 .dom();
             let inside = dom.children.as_ref()[3].children.as_ref();
-            assert_eq!(inside.len(), 3, "{}: icon, field, Refresh", theme.name());
+            let refresh_inside = usize::from(theme != UiTheme::Flora);
+            assert_eq!(inside.len(), 2 + refresh_inside, "{}: icon, field, Refresh", theme.name());
             assert!(has_class(&inside[0], "__azul-native-address-bar-icon"), "{}", theme.name());
             assert!(has_class(&inside[1], "__azul-native-address-bar-field"), "{}", theme.name());
         }
