@@ -979,8 +979,9 @@ def flap_upload(ctx):
         forwarded = [p for p in parts if p["forwarded"]]
         expected_parts = (120 * MIB + 16 * MIB - 1) // (16 * MIB)
         checks.expect(len(forwarded) <= 2 * expected_parts,
-               "the 120 MiB file's parts were sent %d times for %d parts: an upload is not "
-               "resumed per part after a network drop" % (len(forwarded), expected_parts))
+                      "the 120 MiB file's parts were sent %d times for %d parts: an upload is "
+                      "not resumed per part after a network drop" % (len(forwarded),
+                                                                    expected_parts))
         checks.expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
                       stack.unfinished_uploads())
         raw = raw_errors(statuses_seen(laptop, drive))
@@ -1831,8 +1832,8 @@ def many_small(ctx):
         checks.expect(data <= count // 100, "%d objects in data/ for %d small files" % (
             data, count))
         checks.expect(all(d < 15 for d in quiet),
-               "a pass that finds nothing new over %d files takes %s s: with the 30 s poll "
-               "AzDrive is busy all the time" % (count, quiet))
+                      "a pass that finds nothing new over %d files takes %s s: with the 30 s "
+                      "poll AzDrive is busy all the time" % (count, quiet))
         return checks.done("%d files in %.0f s, peak %.0f MB, %d data/ objects, %d log "
                            "entries, quiet passes %s s" % (count, took, peak[0], data, logs,
                                                            quiet))
@@ -1905,8 +1906,8 @@ def fifty_gb(ctx):
         checks.expect(peak[0] < 1536, "AzDrive used %.0f MB while sending a %d GB file" % (
             peak[0], size // GIB))
         checks.expect(parts <= expected + 8,
-               "%d parts sent for %d (%d before the kill): the upload started again after the "
-               "kill instead of resuming" % (parts, expected, before_kill))
+                      "%d parts sent for %d (%d before the kill): the upload started again "
+                      "after the kill instead of resuming" % (parts, expected, before_kill))
         return checks.done("%d GB: %d parts (%d before the kill), peak %.0f MB" % (
             size // GIB, parts, before_kill, peak[0]))
     finally:
