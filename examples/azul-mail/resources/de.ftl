@@ -508,3 +508,4 @@ azmail-sync-auth = der Server hat die Anmeldung abgelehnt: { $detail }
 azmail-sync-protocol = der Server hat unerwartet geantwortet: { $detail }
 azmail-sync-storage = der E-Mail-Ordner konnte nicht geschrieben werden: { $detail }
 azmail-sync-stopped = angehalten
+azmail-sent-notice = Gesendet: { $subject }

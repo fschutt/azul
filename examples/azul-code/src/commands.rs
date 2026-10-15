@@ -884,10 +884,10 @@ mod tests {
 
 /// The notice when the folder could not be searched (`why`: the drive's own words).
 pub(crate) fn search_failed(why: &str) -> String {
-    format!("The folder could not be searched: {why}")
+    t_args("azcode-search-failed", &[("why", Arg::from(why))])
 }
 
 /// The notice when the sample's files could not be written.
 pub(crate) fn sample_failed(why: &str) -> String {
-    format!("The sample could not be written: {why}")
+    t_args("azcode-sample-failed", &[("why", Arg::from(why))])
 }

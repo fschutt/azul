@@ -1464,7 +1464,7 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
 
 /// The status bar's word once a mail went out.
 pub(crate) fn sent_notice(subject: &str) -> String {
-    format!("Sent: {subject}")
+    t_args("azmail-sent-notice", &[("subject", Arg::from(subject))])
 }
 
 /// Save or Send is done, on the compose window.

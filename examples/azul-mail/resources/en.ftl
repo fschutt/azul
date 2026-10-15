@@ -508,3 +508,4 @@ azmail-sync-auth = the server refused the sign-in: { $detail }
 azmail-sync-protocol = the server answered unexpectedly: { $detail }
 azmail-sync-storage = could not write the mail folder: { $detail }
 azmail-sync-stopped = stopped
+azmail-sent-notice = Sent: { $subject }

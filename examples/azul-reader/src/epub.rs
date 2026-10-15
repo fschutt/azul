@@ -980,5 +980,5 @@ mod tests {
 
 /// The table of contents' name for chapter `n` when its file names none.
 pub(crate) fn chapter_fallback(n: usize) -> String {
-    format!("Chapter {n}")
+    azul_appkit::l10n::t_args("azreader-chapter-n", &[("number", azul_appkit::l10n::Arg::from(n))])
 }
