@@ -5049,23 +5049,28 @@ fn server_trouble(worker: &str, answer: &Result<(u16, Option<Json>), String>) ->
     }
 }
 
-/// What the header says when the meetings service failed a request.
+/// What the header says when the meetings service failed a request: that it does not answer,
+/// or what it answered. Never its address or the network's reason, which name the address too:
+/// Settings > Meetings shows those ([`server_trouble`]).
 fn service_notice(answer: &Result<(u16, Option<Json>), String>) -> String {
-    server_trouble("", answer)
+    match answer {
+        Err(_) => t("azmeet-service-down"),
+        answered => server_trouble("", answered),
+    }
 }
 
 /// The header of a waiting room shown with no meetings service answering (`--screen waiting`).
 fn preview_notice(room: &RoomSession) -> String {
-    if room.worker.is_empty() {
-        t("azmeet-preview-no-server")
+    t(if room.worker.is_empty() {
+        "azmeet-preview-no-server"
     } else {
-        t_args("azmeet-preview-silent-server", &[("server", Arg::from(&room.worker))])
-    }
+        "azmeet-preview-silent-server"
+    })
 }
 
 /// What "Join now" says in a waiting room of a meeting made here: nobody can join it.
-fn cannot_join_notice(room: &RoomSession) -> String {
-    t_args("azmeet-preview-cannot-join", &[("server", Arg::from(&room.worker))])
+fn cannot_join_notice(_room: &RoomSession) -> String {
+    t("azmeet-preview-cannot-join")
 }
 
 /// The room is gone from the server: back to the start screen, unless people are connected.

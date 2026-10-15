@@ -1585,7 +1585,8 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                     .with_on_click(data.clone(), actions.preview_retry)
                     .dom()
                     .with_id(ids::SERVICE_RETRY)
-                    .with_css(WIDE),
+                    // Clear of the name's label under it, as the other blocks of the column are.
+                    .with_css(format!("{WIDE} margin-bottom: 16px;").as_str()),
             );
     }
     let join = Button::with_type(AzString::from(waiting_button_label(created, knock)), ButtonType::Primary);
