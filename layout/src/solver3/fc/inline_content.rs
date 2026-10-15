@@ -332,6 +332,13 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 continue;
             };
 
+            // A part of an inline box broken around a block it holds (CSS
+            // 2.2 s9.2.1.1): the child sits in that box, whose edges move the
+            // pen on its first and last part.
+            let split_chain = split_inline_parent(ctx.styled_dom, dom_id)
+                .map(|parent| crate::solver3::sizing::inline_box_chain(ctx, tree, parent, dom_id))
+                .filter(|chain| !chain.is_empty());
+
             let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
 
             // Check if this is a text node
@@ -352,20 +359,11 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
-                // A part of an inline box broken around a block it holds
-                // (CSS 2.2 s9.2.1.1): the text sits in that box, whose
-                // edges move the pen on its first and last part.
-                let style = match split_inline_parent(ctx.styled_dom, dom_id) {
-                    Some(parent) => {
-                        let chain =
-                            crate::solver3::sizing::inline_box_chain(ctx, tree, parent, dom_id);
-                        if chain.is_empty() {
-                            style
-                        } else {
-                            let mut own = (*style).clone();
-                            own.inline_boxes = chain;
-                            Arc::new(own)
-                        }
+                let style = match split_chain.clone() {
+                    Some(chain) => {
+                        let mut own = (*style).clone();
+                        own.inline_boxes = chain;
+                        Arc::new(own)
                     }
                     None => style,
                 };
@@ -425,9 +423,8 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
                 // Inside a part of a broken inline box, as text is above.
-                if let Some(parent) = split_inline_parent(ctx.styled_dom, dom_id) {
-                    span_style.inline_boxes =
-                        crate::solver3::sizing::inline_box_chain(ctx, tree, parent, dom_id);
+                if let Some(chain) = split_chain.clone() {
+                    span_style.inline_boxes = chain;
                 }
                 collect_inline_span_recursive(
                     ctx,
