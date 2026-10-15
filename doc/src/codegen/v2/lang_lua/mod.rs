@@ -554,6 +554,21 @@ function azul._take(v, tn)
     return v
 end
 
+-- The native Option of C type `ct` for a parameter or a field: nil is None,
+-- an Option cdata passes as it is, anything else becomes the Some of `map(v)`
+-- (`azul._az_string` for text). A cdata payload is moved in.
+function azul._opt_in(ct, v, map)
+    if v == nil then return C[ct .. '_none']() end
+    if ffi.istype(ct, v) then return v end
+    local o = C[ct .. '_some'](map(v))
+    azul._consume(v)
+    return o
+end
+
+function azul._identity(v)
+    return v
+end
+
 -- `struct[k] = v` for a field of C type `tn`: a Lua string becomes a fresh
 -- AzString, any other value goes through `_take`; the field's old value is
 -- released (`_delete`) before the new bytes are written.
