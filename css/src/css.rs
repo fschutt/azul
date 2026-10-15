@@ -2152,8 +2152,19 @@ impl CssPath {
 
 impl fmt::Display for CssPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for selector in self.selectors.as_ref() {
-            write!(f, "{selector}")?;
+        let selectors = self.selectors.as_ref();
+        for (i, selector) in selectors.iter().enumerate() {
+            // A generated pseudo-element is kept as a child of its host
+            // (`div > ::before`) and written the way CSS spells it,
+            // `div::before`, which parses back to the same path.
+            let leads_to_pseudo_element = matches!(selector, CssPathSelector::DirectChildren)
+                && matches!(
+                    selectors.get(i + 1),
+                    Some(CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After))
+                );
+            if !leads_to_pseudo_element {
+                write!(f, "{selector}")?;
+            }
         }
         Ok(())
     }

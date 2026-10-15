@@ -451,6 +451,60 @@ impl DynamicCssParseErrorOwned {
     }
 }
 
+/// The node type a generated pseudo-element stands for: `::before` and
+/// `::after`. CSS 2 wrote them with one colon and browsers still take that,
+/// so both spellings arrive here.
+#[must_use]
+pub fn generated_pseudo_element(name: &str) -> Option<NodeTypeTag> {
+    match name.trim_start_matches(':') {
+        "before" => Some(NodeTypeTag::Before),
+        "after" => Some(NodeTypeTag::After),
+        _ => None,
+    }
+}
+
+const fn is_combinator(selector: &CssPathSelector) -> bool {
+    matches!(
+        selector,
+        CssPathSelector::Children
+            | CssPathSelector::DirectChildren
+            | CssPathSelector::AdjacentSibling
+            | CssPathSelector::GeneralSibling
+    )
+}
+
+/// Appends a generated pseudo-element to a selector being parsed:
+/// `.go:hover::after` becomes `.go > ::after:hover`.
+///
+/// The pseudo-element is a node of its own, its host's first or last child,
+/// made before the cascade, so a child combinator and its node type select
+/// it. It is a part of its host and takes the host's interaction states, so
+/// the host compound's state pseudo-classes move onto it, and the rule takes
+/// part in that state's cascade pass like any rule ending in `:hover`. A bare
+/// `::before` has any element for its host.
+pub fn push_generated_pseudo_element(path: &mut Vec<CssPathSelector>, tag: NodeTypeTag) {
+    let compound = path.iter().rposition(is_combinator).map_or(0, |i| i + 1);
+    let mut states = Vec::new();
+    let mut i = compound;
+    while i < path.len() {
+        let is_state = matches!(
+            &path[i],
+            CssPathSelector::PseudoSelector(p) if p.dynamic_state().is_some()
+        );
+        if is_state {
+            states.push(path.remove(i));
+        } else {
+            i += 1;
+        }
+    }
+    if path.len() == compound {
+        path.push(CssPathSelector::Global);
+    }
+    path.push(CssPathSelector::DirectChildren);
+    path.push(CssPathSelector::Type(tag));
+    path.extend(states);
+}
+
 /// "selector" contains the actual selector such as "nth-child" while "value" contains
 /// an optional value - for example "nth-child(3)" would be: selector: "nth-child", value: "3".
 /// # Errors
@@ -1012,10 +1066,13 @@ pub fn parse_css_path(input: &str) -> Result<CssPath, CssPathParseError<'_>> {
             Token::Combinator(Combinator::Tilde) => {
                 selectors.push(CssPathSelector::GeneralSibling);
             }
-            Token::PseudoClass { selector, value } => {
-                selectors.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(
-                    selector, value,
-                )?));
+            Token::PseudoClass { selector, value } | Token::DoublePseudoClass { selector, value } => {
+                match generated_pseudo_element(selector).filter(|_| value.is_none()) {
+                    Some(tag) => push_generated_pseudo_element(&mut selectors, tag),
+                    None => selectors.push(CssPathSelector::PseudoSelector(
+                        pseudo_selector_from_str(selector, value)?,
+                    )),
+                }
             }
             Token::EndOfStream => {
                 break;
@@ -2134,6 +2191,14 @@ fn new_from_str_inner<'a>(
             }
             Token::Combinator(Combinator::Tilde) => {
                 last_path.push(CssPathSelector::GeneralSibling);
+            }
+            Token::PseudoClass { selector, value }
+            | Token::DoublePseudoClass { selector, value }
+                if value.is_none() && generated_pseudo_element(selector).is_some() =>
+            {
+                if let Some(tag) = generated_pseudo_element(selector) {
+                    push_generated_pseudo_element(&mut last_path, tag);
+                }
             }
             Token::PseudoClass { selector, value }
             | Token::DoublePseudoClass { selector, value } => {
