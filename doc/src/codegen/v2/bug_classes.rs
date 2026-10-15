@@ -1689,7 +1689,11 @@ fn newest_emitter_mtime() -> Option<std::time::SystemTime> {
         .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
         // These tests do not produce any output; editing them must not make
         // every generated file look stale.
-        .filter(|e| e.path().file_name().is_some_and(|n| n != "bug_classes.rs"))
+        .filter(|e| {
+            e.path()
+                .file_name()
+                .is_some_and(|n| n != "bug_classes.rs" && n != "native_optionals.rs")
+        })
         .filter_map(|e| e.metadata().ok()?.modified().ok())
         .chain(std::fs::metadata(repo_root().join("api.json")).ok()?.modified().ok())
         .max()
@@ -1698,7 +1702,7 @@ fn newest_emitter_mtime() -> Option<std::time::SystemTime> {
 /// A generated file's text. A missing file, or (outside CI, where the
 /// checkout's mtimes are meaningless) one older than the emitter sources, is a
 /// test failure with the command that fixes it - never a silent pass.
-fn generated(rel: &str) -> String {
+pub(super) fn generated(rel: &str) -> String {
     let path = codegen_dir().join(rel);
     let modified = std::fs::metadata(&path)
         .and_then(|m| m.modified())
@@ -1719,7 +1723,7 @@ fn generated(rel: &str) -> String {
 }
 
 /// Every file under `dir` (relative to target/codegen) with one of `exts`.
-fn generated_tree(dir: &str, exts: &[&str]) -> Vec<(String, String)> {
+pub(super) fn generated_tree(dir: &str, exts: &[&str]) -> Vec<(String, String)> {
     let root = codegen_dir().join(dir);
     let mut out: Vec<(String, String)> = walkdir::WalkDir::new(&root)
         .into_iter()
