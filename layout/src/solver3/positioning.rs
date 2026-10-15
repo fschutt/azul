@@ -1060,9 +1060,11 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 
         // +spec:block-formatting-context:faa1cf - static boxes: top/right/bottom/left do not apply
         // Early continue for non-relative positioning
-        // +spec:overflow:cfb09a - Sticky positioning uses relative-like offsets, clamped to nearest
-        // scrollport at scroll time
-        if position_type != LayoutPosition::Relative && position_type != LayoutPosition::Sticky {
+        // +spec:overflow:cfb09a - a sticky box's insets are no offset: they are the edges it
+        // keeps from its scrollport (`adjust_sticky_positions`), so where normal flow already
+        // put it inside them it stays. Shifted here too, a folder head with `top: 20px` under
+        // a 20px column header sat 20px low in an unscrolled list.
+        if position_type != LayoutPosition::Relative {
             continue;
         }
 
@@ -2942,17 +2944,12 @@ mod autotest_generated {
         }
 
         #[test]
-        fn relative_also_offsets_sticky_boxes() {
-            // Sticky deliberately shares the relative path (the pre-scroll offset);
-            // adjust_sticky_positions then clamps it. Pinning this so the two passes
-            // can't silently start disagreeing.
-            let (mut env, tree, mut pos) = rel_fixture(".child { position: relative; top: 10px; }");
-            run_rel(&mut env, &tree, &mut pos);
-            let relative_y = pos[1].y;
-
+        fn a_sticky_box_is_not_offset_by_its_insets() {
+            // A sticky box's insets are the edges it keeps from its scrollport,
+            // which `adjust_sticky_positions` applies; normal flow's place stands.
             let (mut env, tree, mut pos) = rel_fixture(".child { position: sticky; top: 10px; }");
             run_rel(&mut env, &tree, &mut pos);
-            assert_eq!(pos[1].y, relative_y);
+            assert_eq!(pos[1], LogicalPosition::new(100.0, 100.0));
         }
 
         #[test]

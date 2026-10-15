@@ -125,9 +125,14 @@ fn scroll_to(lw: &mut LayoutWindow, y: f32) {
 #[test]
 fn premise_unscrolled_everything_is_where_normal_flow_put_it() {
     let lw = list();
-    assert!(on_screen_y(&lw, HEADER_CELL).abs() < 0.5);
-    assert!((on_screen_y(&lw, FOLDER_CELL) - HEADER).abs() < 0.5);
-    assert!((on_screen_y(&lw, FIRST_ROW) - (HEADER + FOLDER)).abs() < 0.5);
+    let (header, folder, row) = (
+        on_screen_y(&lw, HEADER_CELL),
+        on_screen_y(&lw, FOLDER_CELL),
+        on_screen_y(&lw, FIRST_ROW),
+    );
+    assert!(header.abs() < 0.5, "the header at the top: {header}");
+    assert!((folder - HEADER).abs() < 0.5, "the folder head under the header: {folder}");
+    assert!((row - (HEADER + FOLDER)).abs() < 0.5, "the first row under the folder head: {row}");
 }
 
 #[test]
