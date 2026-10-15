@@ -122,6 +122,14 @@ enum Backend {
     },
 }
 
+/// The process group running in the foreground of a terminal, from its shell's `ps -o
+/// tpgid=,pgid=` line: `Some` when it is not the shell's own group, so a program the shell
+/// started holds the terminal (an editor, a build) and closing it would cut that off.
+#[must_use]
+pub fn foreground_group(_ps_line: &str) -> Option<u32> {
+    None
+}
+
 /// One shell and its screen.
 pub struct Session {
     /// The engine (the event loop thread writes into it).
@@ -346,6 +354,16 @@ impl Drop for Session {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_program_holds_the_terminal_when_its_group_is_not_the_shells() {
+        use super::foreground_group;
+        assert_eq!(foreground_group("  4321   4300\n"), Some(4321), "vim started by the shell");
+        assert_eq!(foreground_group("  4300   4300\n"), None, "the shell waits for input");
+        assert_eq!(foreground_group("    -1   4300"), None, "no terminal");
+        assert_eq!(foreground_group(""), None, "the shell is gone");
+        assert_eq!(foreground_group("tpgid pgid"), None);
+    }
+
     use super::*;
 
     fn text(session: &Session) -> Vec<String> {

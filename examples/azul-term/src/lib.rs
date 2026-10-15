@@ -295,6 +295,17 @@ pub struct AppState {
     /// Whether the active view follows the output, as last printed
     /// (`AZTERM_FOLLOW`).
     pub follow_reported: Option<bool>,
+    /// A close that would stop a running program, asked about before it happens.
+    pub asking: Option<CloseQuestion>,
+}
+
+/// What closing would cut off, shown as a question before it happens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CloseQuestion {
+    /// Tab `index`, `program` running in it.
+    Tab { index: usize, program: String },
+    /// The window, these programs running in its tabs.
+    Window { programs: Vec<String> },
 }
 
 impl AppState {
@@ -312,6 +323,7 @@ impl AppState {
             reveal_ticks: 0,
             since_render: 0,
             follow_reported: None,
+            asking: None,
         }
     }
 
@@ -380,6 +392,12 @@ impl AppState {
         self.touch_active();
         println!("AZTERM_TABS {}", self.tabs.len());
         self.tabs.is_empty()
+    }
+
+    /// Closes tab `index` unless `job` (the program in its terminal's foreground) runs: then
+    /// the close is asked about first. Returns whether the window closes.
+    pub fn request_close_tab(&mut self, index: usize, _job: Option<String>) -> bool {
+        self.close_tab(index)
     }
 
     /// Activates tab `index`.
@@ -1477,6 +1495,24 @@ mod tests {
         assert_eq!(screen.lines.as_slice().len(), 30);
         let st = data.downcast_ref::<AppState>().expect("the app");
         assert_eq!(st.tabs[0].session.size(), GridSize::new(100, 30));
+    }
+
+    #[test]
+    fn closing_a_tab_with_a_program_running_asks_first() {
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        st.open_tab();
+        assert!(!st.request_close_tab(1, Some(String::from("vim"))));
+        assert_eq!(st.tabs.len(), 2, "vim keeps running until the user says");
+        assert_eq!(
+            st.asking,
+            Some(CloseQuestion::Tab {
+                index: 1,
+                program: String::from("vim")
+            })
+        );
+        assert!(!st.request_close_tab(1, None), "nothing runs in it: it closes");
+        assert_eq!(st.tabs.len(), 1);
     }
 
     #[test]
