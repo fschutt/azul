@@ -680,7 +680,12 @@ class App:
         # A tap of the chord: the key and its modifiers come up together. An op's `modifiers`
         # are the whole modifier state at its key (layout/src/e2e/full.rs), so a key_up with the
         # chord's modifiers would leave them held - every later click a Cmd / Shift + click.
-        self.must("key_up", key=key, modifiers=RELEASED)
+        answer = self.op("key_up", key=key, modifiers=RELEASED)
+        # The key may have closed the window it went to (Escape on a popover of its own): its
+        # key_up has nowhere to go and nothing to release there.
+        if (isinstance(answer, dict) and answer.get("status") == "error"
+                and "No window has the id" not in str(answer.get("message"))):
+            raise Failure("key_up %s failed: %s" % (key, json.dumps(answer)[:300]))
         self.frame(frames)
 
     def drag(self, x0, y0, x1, y1, steps=8):

@@ -285,8 +285,14 @@ class Drive(e2e.App):
         """Clicks the ribbon's tab `name` (Home, Share, View, Computer) and waits for the app to
         take it - and for its content to show: the pointer stays on the tab, which opens it; if
         it does not open by itself, a double click on the tab locks it open."""
-        self.after("the %s tab" % name, "AZDRIVE_RIBBON_TAB", re.escape(name),
-                   lambda: self.ribbon(name))
+        before = self.count("AZDRIVE_RIBBON_TAB", re.escape(name))
+        self.ribbon(name)
+        # A click on the tab the ribbon shows already (a place whose tabs start with it, the
+        # content locked open) switches nothing and the app hears nothing: its content counts.
+        end = time.time() + 2.0
+        while time.time() < end and self.count("AZDRIVE_RIBBON_TAB", re.escape(name)) <= before:
+            self.frame(1)
+            time.sleep(0.05)
         self.content_open(name)
 
     def content_shows(self):
@@ -343,10 +349,15 @@ def item_labels(app):
         for n in nodes:
             classes = n.get("classes") or []
             if C("name") in classes or GRID_LABEL in classes:
-                # A search's result marks the terms in its name: the name is its spans' texts.
-                own = n.get("text")
-                parts = [by_index.get(c, {}).get("text") for c in n.get("children") or []]
-                name = own or "".join(t for t in parts if t)
+                # A search's result marks the terms in its name: the name is its spans' texts
+                # (each span holds a text node).
+                def texts_under(i):
+                    node = by_index.get(i, {})
+                    if node.get("text"):
+                        return [node["text"]]
+                    return [t for c in node.get("children") or [] for t in texts_under(c)]
+
+                name = "".join(texts_under(n["index"]))
                 if name:
                     found.append((dom, n["index"], name))
     return found
@@ -669,16 +680,18 @@ def run(args, logs):
             raise Failure("the crumb has no chevron")
         if not app.nodes_with_class(BAR_REFRESH):
             raise Failure("no Refresh in the address row")
-        # Refresh is a round button of its own between the breadcrumb box and the search box.
+        # Refresh after the trail and before the search box: flat ends the breadcrumb box with it
+        # (Explorer), flora stands it apart as a round button (SPEC 2.6).
         def node_rect(node):
             r = (app.value("get_node_layout", node_id=node) or {}).get("rect") or {}
             return {k: float(r.get(k, 0)) for k in ("x", "y", "width", "height")}
         crumb_box = node_rect(app.nodes_with_class(BAR_BOX)[0])
         refresh = node_rect(app.nodes_with_class(BAR_REFRESH)[0])
         search_box = node_rect(app.nodes_with_class(BAR + "-search")[0])
-        if not (crumb_box["x"] + crumb_box["width"] <= refresh["x"] + 0.5
+        box_end = crumb_box["x"] + crumb_box["width"]
+        if not (refresh["x"] + 0.5 >= box_end - refresh["width"] - 2.0
                 and refresh["x"] + refresh["width"] <= search_box["x"] + 0.5):
-            raise Failure("Refresh is not between the breadcrumb box and the search box: box %s, "
+            raise Failure("Refresh is not at the end of the trail before the search box: box %s, "
                           "refresh %s, search %s" % (crumb_box, refresh, search_box))
         app.until("the navigation pane", lambda: app.has("#" + I("nav-pane")))
         # Finder's source list (src/ui_sidebar.rs): the section titles, the places that are
@@ -1949,9 +1962,12 @@ def sync_step(args, logs, binary, out):
             raise Failure("the freed file is still on this computer")
         app.until("its row stays", lambda: "notes.txt" in item_names(app))
         app.screenshot(os.path.join(out, "25-sync-cloud-only.png"))
-        # Its preview is a sentence: its bytes are not here.
-        app.after("the preview pane", "AZDRIVE_PANES", r"\w+ true \w+",
-                  lambda: app.key("p", alt=True))
+        # Its preview is a sentence: its bytes are not here. (The preview pane is on by
+        # default; Alt+P shows it where it was switched off.)
+        panes = app.last("AZDRIVE_PANES")
+        if panes is not None and panes.split()[1:2] != ["true"]:
+            app.after("the preview pane", "AZDRIVE_PANES", r"\w+ true \w+",
+                      lambda: app.key("p", alt=True))
         app.until("a cloud-only preview", lambda: app.printed(
             "AZDRIVE_PREVIEW", r"synced .*notes\.txt"))
         app.after("opening it downloads it first", "AZDRIVE_SYNC_OPENED",

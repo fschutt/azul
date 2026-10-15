@@ -232,6 +232,19 @@ class Dialog:
         self.win.screenshot(path)
 
 
+def usage_size(n):
+    """A size as a drive's usage line says it (azcloud-kit `usage::size_text`): decimal, MB under
+    a GB, one decimal from 1 to 10 GB."""
+    mb, gb, tb = 1_000_000, 1_000_000_000, 1_000_000_000_000
+    if n >= tb:
+        return "%d TB" % (n // tb) if n % tb == 0 else "%.1f TB" % (n / tb)
+    if n >= 10 * gb:
+        return "%d GB" % ((n + gb // 2) // gb)
+    if n >= gb:
+        return "%.1f GB" % (n / gb)
+    return "%d MB" % ((n + mb // 2) // mb)
+
+
 def open_dialog(app, how, action):
     """Opens the dialog with `action` and waits for its two choices."""
     app.after("the dialog from %s" % how, "AZDRIVE_ADD_PAGE", r"choose", action)
@@ -1327,6 +1340,8 @@ def run(args, logs):
         # 3. This PC's ribbon -> a folder on this computer.
         app.after("This PC", "AZDRIVE_PLACE", r"this-pc",
                   lambda: app.click(selector="#" + I("side-this-pc")))
+        # The tab content is closed at rest (hover reveals it, a double click locks it).
+        app.tab("Computer")
         dialog = open_dialog(app, "This PC's ribbon", lambda: app.ribbon("Add drive"))
         dialog.page("sources", lambda: dialog.click("choice_connect"))
         dialog.page("form local", lambda: dialog.click("service_local"))
@@ -1511,11 +1526,18 @@ def run(args, logs):
         if int(counted[2]) != quota or not 0 < used <= stack.s3.store.stored_bytes(bucket_of(
                 stack, paid)) + (1 << 20):
             raise Failure("the node's count %r is not the bucket's (quota %d)" % (counted, quota))
-        available = "%d GB available" % ((quota - used + 500_000_000) // 1_000_000_000)
-        app.until("the status line's space, as the node counts it", lambda: app.shows(available))
-        if app.shows("about " + available):
+        # No status line (SPEC 2.10): the space pie's popover says it, in the usage line's words.
+        words = "%s used of %s" % (usage_size(used), usage_size(quota))
+        windows_before = len(app.window_ids())
+        app.click(selector="#" + I("space-pie"))
+        pop = e2e.modal_window(app)
+        pop.until("the space pie's popover: %s, as the node counts it" % words,
+                  lambda: any(words in t for t in pop.texts()))
+        if any("about " + words in t for t in pop.texts()):
             raise Failure("the node's count is shown as an estimate")
         app.screenshot(os.path.join(out, "6-claimed.png"))
+        pop.key("escape")
+        app.until("the popover closed", lambda: len(app.window_ids()) <= windows_before)
         log("6b. Buy -> Stop waiting -> AzDrive closed -> paid -> AzDrive started: %s arrived at "
             "the start under the name typed, its session in the keyring, its period tokens "
             "kept, its checkout off the keyring's list, its bucket listed, its space as its node "
