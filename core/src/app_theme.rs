@@ -133,8 +133,9 @@ fn report_theme_choice(name: &str) {
     }
 }
 
-/// Publish the typeface the app sets its theme in (`AppConfig::theme_font`), a
-/// CSS `font-family` list such as `"Calmet UI", "EB Garamond"`: a theme's
+/// Publish the typeface the app sets its theme in (`AppConfig::theme_font`).
+///
+/// A CSS `font-family` list such as `"Calmet UI", "EB Garamond"`: a theme's
 /// widgets set their words and capitals in it, the theme's own faces after it
 /// for what it lacks. Empty gives the theme its own face back. Widgets read it
 /// when they build their DOM, so a window takes it at its next rebuild.

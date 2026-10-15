@@ -128,6 +128,8 @@ impl Light {
     /// with the light's [`ShadowDirection::length`] - a box's shadow; without
     /// it only turns - the 1 px highlight of pressed text.
     #[must_use]
+    // `f32::mul_add` needs std; the crate builds without it.
+    #[allow(clippy::suboptimal_flops)]
     pub fn follow_offset(&self, offset: [f32; 2], at: [f32; 2], stretch: bool) -> [f32; 2] {
         let s = self.shadow_at(at[0], at[1]);
         let k = if stretch { s.length } else { 1.0 };
@@ -140,7 +142,7 @@ impl Light {
 
     /// The light as bit patterns, for a cache key: a new light is a new key.
     #[must_use]
-    pub fn key_bits(&self) -> [u32; 4] {
+    pub const fn key_bits(&self) -> [u32; 4] {
         match *self {
             Self::Sun(s) => [0, s.azimuth_deg.to_bits(), s.elevation_deg.to_bits(), 0],
             Self::Point(p) => [1, p.x.to_bits(), p.y.to_bits(), p.height.to_bits()],
@@ -182,6 +184,8 @@ pub fn sun_vector(azimuth_deg: f32, elevation_deg: f32) -> [f32; 3] {
     [cos_el * libm::cosf(az), -cos_el * libm::sinf(az), sin_el]
 }
 
+// `f32::mul_add` needs std; the crate builds without it.
+#[allow(clippy::suboptimal_flops)]
 fn normalize3(v: [f32; 3]) -> [f32; 3] {
     let len = libm::sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
     if len > 1e-12 {
@@ -253,9 +257,10 @@ pub fn app_light_with_generation() -> (Light, u64) {
 }
 
 /// The light a display list being built on this thread is lit by, and
-/// where its window sits on the desktop (desktop points): the entered
-/// [`LightScope`]'s, else the app's light at the desktop's origin. The
-/// light-following box-shadows and text-shadows read it.
+/// where its window sits on the desktop (desktop points).
+///
+/// The entered [`LightScope`]'s, else the app's light at the desktop's
+/// origin. The light-following box-shadows and text-shadows read it.
 #[must_use]
 pub fn current_light_frame() -> (Light, [f32; 2]) {
     #[cfg(feature = "std")]
@@ -268,11 +273,13 @@ pub fn current_light_frame() -> (Light, [f32; 2]) {
 }
 
 /// While alive, [`current_light_frame`] answers this scope's light and
-/// window origin on this thread; dropping it restores the previous answer.
-/// The engine enters one around every display-list build of a window, with
-/// the window's light (the app's, or the window's own) and its place on the
-/// desktop.
+/// window origin on this thread.
+///
+/// Dropping it restores the previous answer. The engine enters one around
+/// every display-list build of a window, with the window's light (the app's,
+/// or the window's own) and its place on the desktop.
 #[must_use = "the light applies only while the scope is alive"]
+#[derive(Debug)]
 pub struct LightScope {
     /// What to restore when the scope ends (nested scopes unwind in order).
     /// Unused without `std`.

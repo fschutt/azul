@@ -397,9 +397,9 @@ impl GpuValueCache {
     }
 
     /// Gives every `position: sticky` node of `styled_dom` a key in the
-    /// sticky channel - its value the identity until a scroll moves the box
-    /// - and drops the keys of nodes that are no longer sticky. Read from
-    /// the compact cache where it exists (one byte per node); a node in an
+    /// sticky channel (its value the identity until a scroll moves the box)
+    /// and drops the keys of nodes that are no longer sticky. Read from the
+    /// compact cache where it exists (one byte per node); a node in an
     /// interaction state, or a DOM without the cache, walks the cascade.
     fn sync_sticky_keys(&mut self, styled_dom: &StyledDom) {
         use azul_css::props::layout::LayoutPosition;
@@ -429,8 +429,12 @@ impl GpuValueCache {
         self.sticky_current_transform_values
             .retain(|node, _| sticky.contains(node));
         for node in sticky {
-            if !self.sticky_transform_keys.contains_key(&node) {
-                self.sticky_transform_keys.insert(node, TransformKey::unique());
+            let mut fresh = false;
+            self.sticky_transform_keys.entry(node).or_insert_with(|| {
+                fresh = true;
+                TransformKey::unique()
+            });
+            if fresh {
                 self.sticky_current_transform_values
                     .insert(node, ComputedTransform3D::IDENTITY);
             }

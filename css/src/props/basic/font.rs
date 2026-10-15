@@ -357,7 +357,9 @@ pub fn parse_style_font_variant_numeric(
 // --- Font Variant Caps ---
 
 /// The `font-variant-caps` property (CSS Fonts 4 s6.6): which capital forms
-/// the text asks the font for - `small-caps` (`smcp`: lowercase letters as
+/// the text asks the font for.
+///
+/// `small-caps` (`smcp`: lowercase letters as
 /// small capitals), `all-small-caps` (`smcp` and `c2sc`: every letter),
 /// `petite-caps` / `all-petite-caps` (`pcap`, `c2pc`), `unicase` (`unic`)
 /// and `titling-caps` (`titl`). Inherited.
@@ -440,9 +442,10 @@ pub fn parse_style_font_variant_caps(
 // --- Font Feature Settings ---
 
 /// The `font-feature-settings` property (CSS Fonts 4 s6.12): OpenType
-/// features turned on, off or to an alternate by their tag, on top of what
-/// the shaper and the `font-variant-*` properties ask for - `"tnum"`,
-/// `"liga" 0`, `"salt" 2`. Inherited.
+/// features turned on, off or to an alternate by their tag.
+///
+/// On top of what the shaper and the `font-variant-*` properties ask for -
+/// `"tnum"`, `"liga" 0`, `"salt" 2`. Inherited.
 ///
 /// Held as its canonical CSS text (`normal`, or the tags in double quotes,
 /// each followed by its value unless that is 1, separated by `, `): one
@@ -516,7 +519,7 @@ fn parse_feature_tag_values(input: &str) -> Option<Vec<([u8; 4], u32)>> {
         let quote = item.chars().next().filter(|c| *c == '"' || *c == '\'')?;
         let rest = &item[1..];
         let end = rest.find(quote)?;
-        let bytes = rest[..end].as_bytes();
+        let bytes = &rest.as_bytes()[..end];
         if bytes.len() != 4 || !bytes.iter().all(|b| (0x20..=0x7E).contains(b)) {
             return None;
         }
