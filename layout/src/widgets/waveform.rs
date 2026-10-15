@@ -377,6 +377,24 @@ pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom 
         .with_children(DomVec::from_vec(children))
 }
 
+/// The bars of an `n`-bar waveform whose played part changes from
+/// `old_fraction` to `new_fraction` of its length, each with whether it is
+/// played now: the only bars a move repaints.
+#[must_use]
+pub(crate) fn bars_to_repaint(n: usize, old_fraction: f32, new_fraction: f32) -> Vec<(usize, bool)> {
+    let _ = (n, old_fraction, new_fraction);
+    Vec::new()
+}
+
+/// `samples` (interleaved, `channels` of them, `-1.0..=1.0`) as a 16-bit
+/// PCM WAV file at `sample_rate` Hz - the one WAV writer the apps share
+/// (a recording, a test tone, a sample sound).
+#[must_use]
+pub fn wav_pcm16(samples: &[f32], sample_rate: u32, channels: u16) -> Vec<u8> {
+    let _ = (samples, sample_rate, channels);
+    Vec::new()
+}
+
 /// What a theme decides about a waveform: the SKIN of each part.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct WaveformLook {
@@ -512,5 +530,40 @@ mod peaks_tests {
         );
         assert_eq!(resample_peaks(&[], 3), vec![0.0, 0.0, 0.0]);
         assert!(resample_peaks(&peaks, 0).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod waveform_paint_tests {
+    use super::*;
+
+    /// A move of the play head repaints only the bars it passed: forward
+    /// they become played, back they become unplayed again.
+    #[test]
+    fn a_move_repaints_only_the_bars_the_play_head_passed() {
+        // 10 bars, centres at 0.05, 0.15, ...: from 0.2 (bars 0, 1 played)
+        // to 0.5 (bars 0..=4).
+        assert_eq!(bars_to_repaint(10, 0.2, 0.5), vec![(2, true), (3, true), (4, true)]);
+        assert_eq!(bars_to_repaint(10, 0.5, 0.2), vec![(2, false), (3, false), (4, false)]);
+        assert!(bars_to_repaint(10, 0.31, 0.33).is_empty(), "within a bar: nothing");
+    }
+
+    /// The one WAV writer: a RIFF / WAVE header for 16-bit PCM, the data
+    /// as little-endian samples, clamped.
+    #[test]
+    fn samples_become_a_16_bit_pcm_wav() {
+        let wav = wav_pcm16(&[0.0, 1.0, -1.0, 2.0], 8000, 2);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..16], b"WAVEfmt ");
+        assert_eq!(u16::from_le_bytes([wav[20], wav[21]]), 1, "PCM");
+        assert_eq!(u16::from_le_bytes([wav[22], wav[23]]), 2, "two channels");
+        assert_eq!(u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]), 8000);
+        assert_eq!(u32::from_le_bytes([wav[28], wav[29], wav[30], wav[31]]), 8000 * 2 * 2, "bytes per second");
+        assert_eq!(u16::from_le_bytes([wav[34], wav[35]]), 16);
+        assert_eq!(&wav[36..40], b"data");
+        assert_eq!(u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]), 8);
+        assert_eq!(wav.len(), 44 + 8);
+        let sample = |i: usize| i16::from_le_bytes([wav[44 + 2 * i], wav[45 + 2 * i]]);
+        assert_eq!((sample(0), sample(1), sample(2), sample(3)), (0, 32767, -32767, 32767));
     }
 }

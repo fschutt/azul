@@ -357,6 +357,62 @@ pub(crate) enum SeekSurface {
     Waveform,
 }
 
+/// A picture of the media at a time, shown over the seek bar where the
+/// pointer hovers (a video's frame every few seconds).
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeekThumbnail {
+    /// From when the picture stands, seconds.
+    pub at_s: f32,
+    /// The picture.
+    pub image: azul_core::resources::ImageRef,
+}
+
+impl SeekThumbnail {
+    /// The picture `image`, standing from `at_s` seconds.
+    #[must_use]
+    pub const fn create(at_s: f32, image: azul_core::resources::ImageRef) -> Self {
+        Self { at_s, image }
+    }
+}
+
+azul_css::impl_option!(
+    SeekThumbnail,
+    OptionSeekThumbnail,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+azul_css::impl_vec!(
+    SeekThumbnail,
+    SeekThumbnailVec,
+    SeekThumbnailVecDestructor,
+    SeekThumbnailVecDestructorType,
+    SeekThumbnailVecSlice,
+    OptionSeekThumbnail
+);
+azul_css::impl_vec_clone!(SeekThumbnail, SeekThumbnailVec, SeekThumbnailVecDestructor);
+azul_css::impl_vec_debug!(SeekThumbnail, SeekThumbnailVec);
+azul_css::impl_vec_partialeq!(SeekThumbnail, SeekThumbnailVec);
+azul_css::impl_vec_mut!(SeekThumbnail, SeekThumbnailVec);
+
+/// What the hover tip says at `t` seconds: the chapter it is in (its
+/// title, when `chapters` - the starts - have `titles`) and the time.
+#[must_use]
+pub fn hover_text(t: f64, chapters: &[f32], titles: &[AzString]) -> String {
+    let _ = (chapters, titles);
+    media_time(t)
+}
+
+/// The thumbnail standing at `t` seconds: the last one from before it.
+#[must_use]
+pub fn thumbnail_index(thumbnails: &[SeekThumbnail], t: f64) -> Option<usize> {
+    let _ = (thumbnails, t);
+    None
+}
+
+/// The class of the tip over the trough where the pointer hovers.
+pub(crate) const HOVER_CLASS: &str = "__azul-native-seek-bar-hover";
+
 /// The seek surface's dataset: the hook, where it is, and which widget it is.
 pub(crate) struct SeekBarWrapper {
     pub on_seek: OptionSeekBarOnSeek,
@@ -1060,5 +1116,38 @@ mod seek_bar_tests {
             || bar().dom(),
             |t: UiTheme| bar().with_theme(t).dom(),
         );
+    }
+}
+
+#[cfg(test)]
+mod seek_hover_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_checks as tc, UiTheme};
+
+    /// Where the pointer hovers, the tip says when that is - and in which
+    /// chapter, when the chapters have titles; a video's thumbnail is the
+    /// last one from before that time.
+    #[test]
+    fn the_hover_tip_names_the_time_its_chapter_and_its_thumbnail() {
+        let chapters = [0.0_f32, 60.0, 150.0];
+        let titles = [
+            AzString::from("Intro"),
+            AzString::from("Verse"),
+            AzString::from("Chorus"),
+        ];
+        assert_eq!(hover_text(75.0, &chapters, &titles), "Verse \u{00B7} 1:15");
+        assert_eq!(hover_text(10.0, &chapters, &[]), "0:10", "no titles: the time alone");
+        let image = azul_core::resources::ImageRef::null_image(1, 1, azul_core::resources::RawImageFormat::R8, Vec::new());
+        let thumbs = [
+            SeekThumbnail::create(0.0, image.clone()),
+            SeekThumbnail::create(10.0, image.clone()),
+            SeekThumbnail::create(20.0, image),
+        ];
+        assert_eq!(thumbnail_index(&thumbs, 15.0), Some(1));
+        assert_eq!(thumbnail_index(&thumbs, 99.0), Some(2));
+        assert_eq!(thumbnail_index(&thumbs[1..], 5.0), None, "before the first picture");
+
+        let bar = SeekBar::create(30.0, 200.0).with_theme(UiTheme::Flat).dom();
+        assert!(tc::find(&bar, HOVER_CLASS).is_some(), "the trough carries its hover tip");
     }
 }

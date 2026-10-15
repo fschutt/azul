@@ -56,6 +56,21 @@ pub enum MediaControlsAction {
     Volume,
 }
 
+/// How big the controls are and what they sit on.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum MediaControlsSize {
+    /// A player's transport bar (16px icons).
+    #[default]
+    Regular,
+    /// A mini player or a list row (14px icons).
+    Compact,
+    /// A full-screen player (24px icons, a 32px play button).
+    Large,
+    /// Over a video: the large controls in white on a dark translucent pill.
+    Overlay,
+}
+
 /// How a queue repeats.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -138,6 +153,8 @@ pub struct MediaControls {
     pub show_skip: bool,
     /// Show the shuffle and repeat toggles (a music queue).
     pub show_shuffle_repeat: bool,
+    /// How big the controls are and what they sit on.
+    pub size: MediaControlsSize,
 }
 
 impl MediaControls {
@@ -154,7 +171,20 @@ impl MediaControls {
             shuffle: false,
             show_skip: false,
             show_shuffle_repeat: false,
+            size: MediaControlsSize::Regular,
         }
+    }
+
+    /// How big the controls are and what they sit on.
+    pub const fn set_size(&mut self, size: MediaControlsSize) {
+        self.size = size;
+    }
+
+    /// [`Self::set_size`] for the builder chain.
+    #[must_use]
+    pub const fn with_size(mut self, size: MediaControlsSize) -> Self {
+        self.set_size(size);
+        self
     }
 
     /// A volume slider at `volume` (`0.0..=1.0`; negative hides it).
@@ -384,6 +414,7 @@ pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
         shuffle,
         show_skip,
         show_shuffle_repeat,
+        size: _,
     } = controls;
     let shared = RefAny::new(ControlsShared { on_action });
     let button = |icon: &'static str,
@@ -667,5 +698,64 @@ mod media_controls_tests {
             || controls().dom(),
             |t: UiTheme| controls().with_theme(t).dom(),
         );
+    }
+}
+
+#[cfg(test)]
+mod media_controls_size_tests {
+    use azul_core::dom::NodeType;
+    use azul_css::props::{basic::StyleFontSize, property::CssProperty};
+
+    use super::*;
+
+    /// The font size the `name` icon of `dom` declares, px.
+    fn icon_px(dom: &Dom, name: &str) -> Option<f32> {
+        if matches!(dom.root.get_node_type(), NodeType::Icon(i) if i.as_str() == name) {
+            return dom.root.style.iter_inline_properties().find_map(|(p, conds)| match p {
+                CssProperty::FontSize(v) if conds.as_ref().is_empty() => {
+                    v.get_property().map(|s| s.inner.number.get())
+                }
+                _ => None,
+            });
+        }
+        dom.children.as_ref().iter().find_map(|c| icon_px(c, name))
+    }
+
+    /// Compact, regular, large and overlay controls: the icons grow, the
+    /// play button most; over a video they sit on a dark pill.
+    #[test]
+    fn the_sizes_scale_the_icons_and_the_overlay_sits_on_a_dark_pill() {
+        let play = |size: MediaControlsSize| {
+            icon_px(
+                &MediaControls::create(false)
+                    .with_size(size)
+                    .with_theme(UiTheme::Flat)
+                    .dom(),
+                "play_arrow",
+            )
+        };
+        assert_eq!(play(MediaControlsSize::Compact), Some(14.0));
+        assert_eq!(play(MediaControlsSize::Regular), Some(16.0));
+        assert_eq!(play(MediaControlsSize::Large), Some(32.0));
+        assert_eq!(play(MediaControlsSize::Overlay), Some(32.0));
+        let next = icon_px(
+            &MediaControls::create(false)
+                .with_size(MediaControlsSize::Large)
+                .with_theme(UiTheme::Flat)
+                .dom(),
+            "skip_next",
+        );
+        assert_eq!(next, Some(24.0));
+        let overlay = MediaControls::create(true)
+            .with_size(MediaControlsSize::Overlay)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let pill = overlay
+            .root
+            .style
+            .iter_inline_properties()
+            .any(|(p, _)| matches!(p, CssProperty::BackgroundContent(_)));
+        assert!(pill, "the overlay row has a face of its own");
+        let _ = StyleFontSize::const_px(0);
     }
 }
