@@ -9,7 +9,10 @@ receiver, the cache without a network, a Google Takeout import.
     simulate  a car route (FOSSGIS' Valhalla) navigated by a simulated car (--simulate-route,
               --navigate): the banner and the bar show, the prompts are said (AZMAPS_SAY, and
               azul's headless speech log AZ_SPEECH), the car takes its wrong turn, one new route
-              is asked for and followed (AZMAPS_REROUTE, AZMAPS_REROUTED 1), the car arrives.
+              is asked for and followed (AZMAPS_REROUTE, AZMAPS_REROUTED 1), the car arrives;
+              no position update rebuilds the window (AZMAPS_LAYOUT between the AZMAPS_NAV
+              lines, AZMAPS_STATS=1) but the one with a new maneuver: the map follows the car
+              and the banner counts down in place.
     replay    the same kind of route driven by an NMEA replay (--gps replay:<fixture>
               --replay-speed 10): fixes (AZMAPS_GPS) with their quality, the guidance counting
               down, arrival.
@@ -112,11 +115,41 @@ def transit(args, logs, out):
         app.stop()
 
 
+# What may rebuild the window while navigating: a new route asked for or followed, arrival.
+NAV_EVENTS = ("AZMAPS_REROUTE", "AZMAPS_REROUTED", "AZMAPS_REROUTE_FAILED", "AZMAPS_ARRIVED")
+
+
+def rebuilds_per_position(out_path):
+    """The window rebuilds (AZMAPS_LAYOUT, printed with AZMAPS_STATS) after each position update
+    (AZMAPS_NAV) up to the next one, for the updates that came with no navigation event: a list
+    of (update number, rebuilds). The first update is left out, it follows the start's rebuild.
+    A new maneuver is an event too: the banner's arrow is an icon node, drawn anew."""
+    with open(out_path, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.read().splitlines()
+    spans = []
+    current = None
+    step = None
+    for line in lines:
+        key = line.split(" ", 1)[0]
+        if key == "AZMAPS_NAV":
+            if current is not None:
+                spans.append(current)
+            fields = line.split()
+            new_step = fields[1] if len(fields) > 1 else None
+            current = {"n": len(spans) + 1, "layouts": 0, "event": new_step != step}
+            step = new_step
+        elif current is not None and key == "AZMAPS_LAYOUT":
+            current["layouts"] += 1
+        elif current is not None and key in NAV_EVENTS:
+            current["event"] = True
+    return [(s["n"], s["layouts"]) for s in spans[1:] if not s["event"]]
+
+
 def simulate(args, logs, out):
     speech_log = os.path.join(logs, "speech.log")
     app = start(args, logs, "simulate", os.path.join(logs, "simulate-data"),
                 ["--simulate-route", "--simulate-speed", "250", "--navigate"],
-                env={"AZ_SPEECH_LOG": speech_log})
+                env={"AZ_SPEECH_LOG": speech_log, "AZMAPS_STATS": "1"})
     try:
         type_ends(app, DRIVE_FROM, DRIVE_TO)
         started = app.until("the navigation", lambda: app.printed("AZMAPS_NAV_START", r"\d+ \d+ simulated .*"))
@@ -136,6 +169,15 @@ def simulate(args, logs, out):
         if "AZ_SPEECH en-US You have arrived." not in spoken:
             raise Failure("azul's speech did not log the prompts: %r" % spoken[:400])
         app.screenshot(os.path.join(out, "simulate-3-arrived.png"))
+        # The map follows the car and the banner counts down in place: a position update
+        # rebuilds nothing.
+        updates = rebuilds_per_position(app.out_path)
+        rebuilt = [(n, layouts) for n, layouts in updates if layouts > 0]
+        app.log("position updates: %d, with a window rebuild: %s" % (len(updates), rebuilt))
+        if len(updates) < 5:
+            raise Failure("too few position updates to judge: %d" % len(updates))
+        if rebuilt:
+            raise Failure("position updates rebuilt the window: %s" % rebuilt)
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise

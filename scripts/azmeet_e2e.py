@@ -103,13 +103,29 @@ Phase `crypto` (three devices in one encrypted chat room; CRYPTO.md):
        them;
    10. screenshots (azmeet-crypto-*.png), stops the apps.
 
+Every chat message of a call also travels over the call's connections (kind 8): the receiver
+prints AZMEET_PEER_CHAT for it before the meetings service brings it (ARCHITECTURE.md, "Chat
+over the peers").
+
+Phase `dial` (a direct call: no meetings service at any point, ARCHITECTURE.md "Direct calls"):
+    1. starts Ada and Ben with a meetings service address nothing answers at and no relay;
+    2. reads Ada's address (AZMEET_DIRECT_ADDRESS <ticket>, her endpoint's full ticket);
+    3. in Ben's window: the gear, Settings > Meetings, "Direct call...", Ada's address in the
+       Call field, Call;
+    4. Ada's window shows the incoming call with Ben's name and four safety words
+       (AZMEET_DIRECT_INCOMING <words> <name>); Ben's shows the same words while it rings
+       (AZMEET_DIRECT_RINGING <words>); the words are the same on both sides;
+    5. Ada presses Accept: both are in the call (AZMEET_DIRECT_CALL <words> <name>), each shows
+       the other's camera tile and decodes the other's video;
+    6. screenshots (azmeet-dial-*.png), stops the apps.
+
 Usage (from the azul repository, after building libazul with the debug server and AzMeet):
 
     python3 scripts/azmeet_e2e.py [--bin target/release/AzMeet]
         [--worker-dir ../azul-apps/cf-workers/meet] [--capped <run_capped.sh>]
         [--port-a 8781] [--port-b 8782] [--worker-port 8790] [--timeout 150]
         [--app-seconds 140] [--require-h264] [--skip rejoin,waiting,relay] [--out <dir>] [--keep-logs]
-        [--phases direct,relay,crypto] [--relay-bin <iroh-relay>] [--relay-port 0] [--relay-metrics-port 0]
+        [--phases direct,relay,crypto,dial] [--relay-bin <iroh-relay>] [--relay-port 0] [--relay-metrics-port 0]
         [--relay-port-a 8793] [--relay-port-b 8794] [--relay-timeout 150] [--min-relayed-kib 256]
         [--crypto-ports 8795,8796,8797] [--crypto-timeout 300]
         [--worker-url <url> [--sqld-url <url> [--sqld-token-file <jwt>] | --db-file <sqlite>]]
@@ -145,6 +161,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import sqlite3
 import stat
 import subprocess
@@ -641,6 +658,10 @@ def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
           lambda: "%s: %s" % (sender_name, text) in receiver.printed("AZMEET_CHAT"),
           deadline, procs)
     log("%s printed AZMEET_CHAT %s: %s" % (receiver.tag, sender_name, text))
+    # It came over the call's connections, before the meetings service brought it.
+    until("%s's message from the peers (AZMEET_PEER_CHAT) on %s's stdout" % (sender_name, receiver.tag),
+          lambda: "%s: %s" % (sender_name, text) in receiver.printed("AZMEET_PEER_CHAT"),
+          deadline, procs)
     if not any(t.startswith("Chat (") for t in receiver.texts()):
         # The receiver's chat may already be open (the answer goes to Ada, whose chat is open).
         if not any(text in t for t in receiver.texts()):
@@ -1309,7 +1330,82 @@ def crypto_phase(args, binary, worker, logs, out, capped, procs):
     log("crypto phase passed")
 
 
-PHASES = ("direct", "relay", "crypto")
+PHASES = ("direct", "relay", "crypto", "dial")
+# The phases that need the meet Worker; `dial` needs none.
+WORKER_PHASES = ("direct", "relay", "crypto")
+
+
+def dial_phase(args, binary, logs, out, capped, procs):
+    """Ben calls Ada directly by her address, with no meetings service: both show the same safety
+    words, Ada accepts, and both see and decode each other (the `dial` phase in the docstring)."""
+    deadline = time.time() + args.timeout
+    nowhere = closed_port_url()
+    apps = []
+    for tag, name, port in (("dial-ada", "Ada", args.port_a), ("dial-ben", "Ben", args.port_b)):
+        data = os.path.join(logs, tag + "-data")
+        os.makedirs(data, exist_ok=True)
+        flags = app_flags(nowhere, name, "off", ["--data-dir", data, "--identity-file", identity_file(logs, tag)])
+        app = start_app(tag, binary, port, flags, logs, args, capped)
+        procs.append(app)
+        apps.append(app)
+    ada, ben = apps
+    for app in apps:
+        until("%s's debug server" % app.tag, lambda app=app: app.op("wait_frame") is not None, deadline, procs)
+        app.must("resize", width=args.width, height=args.height)
+        app.frame()
+    address = until("Ada's address (AZMEET_DIRECT_ADDRESS)",
+                    lambda: (ada.printed("AZMEET_DIRECT_ADDRESS") or [None])[-1], deadline, procs)
+    log("Ada's address: %s..." % address[:24])
+
+    # Ben: the gear, Settings > Meetings, "Direct call...", Ada's address, Call.
+    ben.click(selector="#" + ben.id("settings"))
+    until("Ben's settings page", lambda: any("Meetings" in t for t in ben.texts(every_dom=True)), deadline, procs)
+    ben.click_exact("Meetings")
+    until("the Direct call button", lambda: ben.node_rect(ben.id("direct-open"))[0] is not None, deadline, procs)
+    ben.click(selector="#" + ben.id("direct-open"))
+    until("Ben's direct call screen", lambda: ben.node_rect(ben.id("direct-field"))[0] is not None,
+          deadline, procs)
+    ben.text_input("#" + ben.id("direct-field"), address)
+    ben.click(selector="#" + ben.id("direct-call"))
+
+    incoming = until("Ada's incoming call (AZMEET_DIRECT_INCOMING)",
+                     lambda: (ada.printed("AZMEET_DIRECT_INCOMING") or [None])[-1], deadline, procs)
+    ringing = until("Ben ringing (AZMEET_DIRECT_RINGING)",
+                    lambda: (ben.printed("AZMEET_DIRECT_RINGING") or [None])[-1], deadline, procs)
+    ada_words = " ".join(incoming.split()[:4])
+    ben_words = " ".join(ringing.split()[:4])
+    log("Ada sees %r from %r; Ben sees %r" % (ada_words, incoming.split(" ", 4)[-1], ben_words))
+    if ada_words != ben_words or len(ada_words.split()) != 4:
+        raise Failure("the safety words differ: Ada %r, Ben %r" % (ada_words, ben_words))
+    if not incoming.endswith(" Ben"):
+        raise Failure("Ada's prompt does not name Ben: %r" % incoming)
+    until("the words in Ada's window", lambda: any(ada_words in t for t in ada.texts()), deadline, procs)
+    until("the words in Ben's window", lambda: any(ben_words in t for t in ben.texts()), deadline, procs)
+    ada.screenshot(os.path.join(out, "azmeet-dial-ada-prompt.png"))
+    ben.screenshot(os.path.join(out, "azmeet-dial-ben-ringing.png"))
+
+    ada.click(selector="#" + ada.id("direct-accept"))
+    for app, other in ((ada, "Ben"), (ben, "Ada")):
+        got = until("%s in the direct call (AZMEET_DIRECT_CALL)" % app.tag,
+                    lambda app=app: (app.printed("AZMEET_DIRECT_CALL") or [None])[-1], deadline, procs)
+        if not got.endswith(" " + other) or " ".join(got.split()[:4]) != ada_words:
+            raise Failure("%s's call line %r does not name %s with the words %r" % (app.tag, got, other, ada_words))
+    see_each_other(ada, ben, args, deadline, procs)
+    for app in apps:
+        app.screenshot(os.path.join(out, "azmeet-%s.png" % app.tag))
+    if ada.printed("AZMEET_ROOM") or ben.printed("AZMEET_ROOM"):
+        raise Failure("a direct call entered a meetings-service room")
+    stop(procs, ada, ben)
+    log("dial: Ben called Ada by her address with no meetings service; both read %r" % ada_words)
+
+
+def closed_port_url():
+    """An http address nothing listens on: a meetings service that never answers."""
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return "http://127.0.0.1:%d" % port
 
 
 def main():
@@ -1367,7 +1463,10 @@ def main():
         else:
             log("WARNING: no capped runner (--capped / AZ_RUN_CAPPED): the apps run uncapped")
 
-        if args.worker_url:
+        worker = None
+        if not any(p in WORKER_PHASES for p in phases):
+            args.db = None
+        elif args.worker_url:
             worker = args.worker_url.rstrip("/")
             if args.sqld_url:
                 token = None
@@ -1403,6 +1502,9 @@ def main():
         if "crypto" in phases:
             crypto_phase(args, binary, worker, logs, out, capped, procs)
             ran.append("crypto")
+        if "dial" in phases:
+            dial_phase(args, binary, logs, out, capped, procs)
+            ran.append("dial")
         if args.db is not None:
             # Every message of every phase went through the meeting server: none in clear.
             texts = []

@@ -13,7 +13,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use azul_appkit::l10n::{Phrase, Text};
@@ -277,6 +277,46 @@ pub(crate) struct WireMessage {
     pub sig: String,
 }
 
+/// The number a message from a peer carries until the Worker's copy numbers it: none (the
+/// Worker numbers from 1).
+const UNNUMBERED: u64 = 0;
+
+/// Kind byte of a chat record between peers (`ARCHITECTURE.md`, "Chat over the peers").
+pub const KIND_CHAT: u8 = 8;
+/// Version byte of a chat record between peers.
+pub const CHAT_VERSION: u8 = 1;
+
+/// A message as it travels between the peers: exactly the signed, sealed record the meet Worker
+/// gets, with its room and its sender. Checked as a synced message is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatRecord {
+    pub room: String,
+    pub id: String,
+    pub sender: String,
+    pub key_id: String,
+    pub body: String,
+    pub sig: String,
+}
+
+impl ChatRecord {
+    /// The record on the wire: the kind byte, the version byte, the JSON.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut bytes = vec![KIND_CHAT, CHAT_VERSION];
+        bytes.extend(serde_json::to_vec(self).unwrap_or_default());
+        bytes
+    }
+
+    /// A record read back; `None` for any other kind, another version, or bad JSON.
+    #[must_use]
+    pub fn decode(bytes: &[u8]) -> Option<ChatRecord> {
+        match bytes {
+            [KIND_CHAT, CHAT_VERSION, json @ ..] => serde_json::from_slice(json).ok(),
+            _ => None,
+        }
+    }
+}
+
 /// A room as `POST /rooms`, `GET /rooms/<key>` and `/sync` answer it.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WireRoom {
@@ -335,9 +375,13 @@ struct Posted {
     seq: u64,
 }
 
+/// The name a person without one goes by on the wire: the Worker's word, the same in every
+/// language. The window shows it in its own (`ui::person_name`).
+pub const GUEST: &str = "Guest";
+
 /// A name as the Worker keeps a knock's: control, zero-width and bidi-override characters out,
-/// whitespace runs one space, at most [`MAX_NAME_CHARS`] characters, "Guest" when nothing is left
-/// (the Worker's `cleanName`, so its `validName` takes it unchanged).
+/// whitespace runs one space, at most [`MAX_NAME_CHARS`] characters, [`GUEST`] when nothing is
+/// left (the Worker's `cleanName`, so its `validName` takes it unchanged).
 #[must_use]
 pub fn clean_name(raw: &str) -> String {
     let forbidden = |c: char| {
@@ -352,7 +396,7 @@ pub fn clean_name(raw: &str) -> String {
     let clipped: String = collapsed.chars().take(MAX_NAME_CHARS).collect();
     let clipped = clipped.trim();
     if clipped.is_empty() {
-        String::from("Guest")
+        String::from(GUEST)
     } else {
         clipped.to_string()
     }
@@ -402,6 +446,12 @@ pub struct ChatRoom {
     /// Messages written before this device could read them (no copy of their key for it).
     before_join: u32,
     outbox: VecDeque<Outgoing>,
+    /// Messages written here not handed to the peers yet: sealed for them as soon as a key for
+    /// the current members is held ([`ChatRoom::peer_records`]).
+    peer_out: VecDeque<Outgoing>,
+    /// The newest time of an unnumbered message read here: a peer's record is unread until the
+    /// chat is read, as a numbered one is until `read_seq`.
+    read_ts: u64,
     admit_queue: VecDeque<String>,
     /// Make a new key at the next chance (after letting someone in).
     rotate: bool,
@@ -461,6 +511,8 @@ impl ChatRoom {
             unreadable: 0,
             before_join: 0,
             outbox: VecDeque::new(),
+            peer_out: VecDeque::new(),
+            read_ts: 0,
             admit_queue: VecDeque::new(),
             rotate: false,
             rejoin: false,
@@ -517,7 +569,7 @@ impl ChatRoom {
     pub fn unread(&self) -> usize {
         self.messages
             .iter()
-            .filter(|m| !m.mine && m.seq.is_some_and(|s| s > self.read_seq))
+            .filter(|m| !m.mine && m.seq.map_or(m.ts > self.read_ts, |s| s > self.read_seq))
             .count()
     }
 
@@ -529,11 +581,23 @@ impl ChatRoom {
             .filter_map(|m| m.seq)
             .max()
             .unwrap_or(0);
+        let newest_unnumbered = self
+            .messages
+            .iter()
+            .filter(|m| m.seq.is_none())
+            .map(|m| m.ts)
+            .max()
+            .unwrap_or(0);
+        let mut changed = false;
         if top > self.read_seq {
             self.read_seq = top;
-            return true;
+            changed = true;
         }
-        false
+        if newest_unnumbered > self.read_ts {
+            self.read_ts = newest_unnumbered;
+            changed = true;
+        }
+        changed
     }
 
     /// Messages and keys that failed a check.
@@ -638,6 +702,7 @@ impl ChatRoom {
         ) {
             self.state = Membership::Leaving;
             self.outbox.clear();
+            self.peer_out.clear();
             self.retry_at = 0;
             self.failures = 0;
         }
@@ -682,8 +747,59 @@ impl ChatRoom {
         self.seen.insert(id.clone());
         self.messages.push(message.clone());
         self.trim_listed();
+        self.peer_out.push_back(Outgoing {
+            id: id.clone(),
+            text: text.clone(),
+            ts,
+        });
         self.outbox.push_back(Outgoing { id, text, ts });
         Some(message)
+    }
+
+    /// This device's messages sealed for the peers, each once, as soon as a key for the current
+    /// members is held (the meet Worker gets them too, from the outbox).
+    pub fn peer_records(&mut self, me: &Identity) -> Vec<ChatRecord> {
+        let Some(key) = self.usable_key(me.device()).map(|k| k.key.clone()) else {
+            return Vec::new();
+        };
+        let mut records = Vec::new();
+        while let Some(out) = self.peer_out.pop_front() {
+            // One that cannot be sealed is not handed out; the Worker still gets it.
+            if let Some((body, sig)) = self.seal_outgoing(me, &key, &out) {
+                records.push(ChatRecord {
+                    room: self.room.clone(),
+                    id: out.id,
+                    sender: me.device().to_string(),
+                    key_id: key.id().to_string(),
+                    body,
+                    sig,
+                });
+            }
+        }
+        records
+    }
+
+    /// A record from a peer, through the checks a synced message goes through: listed (unnumbered
+    /// until the Worker's copy numbers it), waiting for its key, or counted unreadable. With
+    /// whether it was new here (a peer passes on only what was new to it).
+    pub fn take_record(&mut self, me: &Identity, record: ChatRecord) -> (Changes, bool) {
+        let mut changes = Changes::default();
+        let known = self.seen.contains(&record.id) || self.waiting.iter().any(|(m, _)| m.id == record.id);
+        if record.room != self.room || known {
+            return (changes, false);
+        }
+        let id = record.id.clone();
+        let message = WireMessage {
+            seq: UNNUMBERED,
+            id: record.id,
+            sender: record.sender,
+            key_id: record.key_id,
+            body: record.body,
+            sig: record.sig,
+        };
+        self.take_message(me, message, &mut changes, 0);
+        let new = self.seen.contains(&id) || self.waiting.iter().any(|(m, _)| m.id == id);
+        (changes, new)
     }
 
     // ---- the requests ----
@@ -869,21 +985,23 @@ impl ChatRoom {
         Some(Call::signed("POST", self.path("keys"), &body, what))
     }
 
-    fn message_call(&self, me: &Identity) -> Option<Call> {
-        let out = self.outbox.front()?;
-        let key = self.usable_key(me.device())?;
+    /// `out` sealed with `key` and signed: its body and signature, as the Worker and the peers get
+    /// them.
+    fn seal_outgoing(&self, me: &Identity, key: &RoomKey, out: &Outgoing) -> Option<(String, String)> {
         let plain = Plain {
             text: out.text.clone(),
             name: self.name.clone(),
             ts: out.ts,
         };
-        let body = crypto::seal_message(&key.key, &self.room, &out.id, me.device(), &plain).ok()?;
-        let sig = me.sign(&crypto::message_input(
-            &self.room,
-            &out.id,
-            key.key.id(),
-            &body,
-        ));
+        let body = crypto::seal_message(key, &self.room, &out.id, me.device(), &plain).ok()?;
+        let sig = me.sign(&crypto::message_input(&self.room, &out.id, key.id(), &body));
+        Some((body, sig))
+    }
+
+    fn message_call(&self, me: &Identity) -> Option<Call> {
+        let out = self.outbox.front()?;
+        let key = self.usable_key(me.device())?;
+        let (body, sig) = self.seal_outgoing(me, &key.key, out)?;
         Some(Call::signed(
             "POST",
             self.path("messages"),
@@ -1105,6 +1223,7 @@ impl ChatRoom {
     fn close(&mut self, changes: &mut Changes, why: impl Into<Text>) {
         self.state = Membership::Closed;
         self.outbox.clear();
+        self.peer_out.clear();
         changes.problem = Some(why.into());
         changes.shown = true;
     }
@@ -1425,7 +1544,7 @@ impl ChatRoom {
             // This device's own message, back from the Worker: its number.
             let mut numbered = false;
             if let Some(own) = self.messages.iter_mut().find(|x| x.id == m.id) {
-                if own.seq.is_none() {
+                if own.seq.is_none() && m.seq != UNNUMBERED {
                     own.seq = Some(m.seq);
                     numbered = true;
                 }
@@ -1467,7 +1586,7 @@ impl ChatRoom {
         let mine = m.sender == me.device();
         let message = RoomMessage {
             id: m.id.clone(),
-            seq: Some(m.seq),
+            seq: (m.seq != UNNUMBERED).then_some(m.seq),
             sender: m.sender,
             name: clean_name(&plain.name),
             text: plain.text,
@@ -2586,5 +2705,73 @@ mod tests {
             .room
             .on_answer(&ada.me, &CallKind::Sync, Some(200), "{}", 1000 + STUCK_MS);
         assert_eq!(late, Changes::default());
+    }
+
+    /// Ada's message reaches Ben from Ada herself, as a call carries it, with no request to the
+    /// Worker: listed at once with her name, and numbered later by the Worker's copy without being
+    /// listed twice.
+    #[test]
+    fn a_message_handed_to_a_peer_opens_there_before_the_worker_numbers_it() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, _, _) = ada_and_ben(&mut w);
+        // A first message through the Worker makes the room's key, and Ben holds it.
+        ada.room.send(&ada.me, "First", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        let _ = ada.room.peer_records(&ada.me);
+        ada.room.send(&ada.me, "Straight to you", w.now).unwrap();
+        let records = ada.room.peer_records(&ada.me);
+        assert_eq!(records.len(), 1, "the new message, sealed for the peers");
+        assert!(ada.room.peer_records(&ada.me).is_empty(), "each once");
+        let record = records[0].clone();
+        assert_eq!(ChatRecord::decode(&record.encode()), Some(record.clone()));
+        assert_eq!(record.encode()[..2], [KIND_CHAT, CHAT_VERSION]);
+        let (changes, new) = ben.room.take_record(&ben.me, record.clone());
+        assert!(new);
+        assert_eq!(texts(&changes), vec![pair("Ada", "Straight to you")]);
+        let listed = ben.room.messages().last().unwrap();
+        assert_eq!((listed.text.as_str(), listed.seq), ("Straight to you", None));
+        assert_eq!(ben.room.unread(), 2, "the first and the one from Ada herself");
+        let (again, new) = ben.room.take_record(&ben.me, record);
+        assert!(!new, "a repeat is not new: it is not passed on again");
+        assert_eq!(again, Changes::default());
+        // The Worker's copy numbers it, and it is not listed twice.
+        settle(&mut ada, &mut w);
+        let synced = settle(&mut ben, &mut w);
+        assert!(texts(&synced).is_empty(), "{synced:?}");
+        let numbered: Vec<_> = ben.room.messages().iter().filter(|m| m.text == "Straight to you").collect();
+        assert_eq!(numbered.len(), 1);
+        assert!(numbered[0].seq.is_some());
+    }
+
+    /// A record whose body was changed on the way, or from a stranger, is not listed.
+    #[test]
+    fn a_changed_or_strangers_record_is_counted_unreadable_and_not_listed() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, id, _) = ada_and_ben(&mut w);
+        ada.room.send(&ada.me, "First", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        let _ = ada.room.peer_records(&ada.me);
+        ada.room.send(&ada.me, "Untouched?", w.now).unwrap();
+        let mut record = ada.room.peer_records(&ada.me).remove(0);
+        record.body.push('A');
+        let before = ben.room.unreadable();
+        let (changes, _) = ben.room.take_record(&ben.me, record);
+        assert!(changes.arrived.is_empty());
+        assert_eq!(ben.room.unreadable(), before + 1);
+        // Another room's record is not this room's.
+        let stranger = device(9, "Eve", &id, None);
+        let forged = ChatRecord {
+            room: id.clone(),
+            id: random_id().unwrap(),
+            sender: stranger.me.device().to_string(),
+            key_id: String::from("nokey"),
+            body: String::from("x"),
+            sig: stranger.me.sign("not the message"),
+        };
+        let (changes, _) = ben.room.take_record(&ben.me, forged);
+        assert!(changes.arrived.is_empty());
+        assert!(ChatRecord::decode(&[KIND_CHAT, CHAT_VERSION + 1, b'{', b'}']).is_none());
     }
 }

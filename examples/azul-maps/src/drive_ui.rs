@@ -7,10 +7,13 @@
 //!
 //! The position comes from the source of Settings > Location (`location.rs`): the platform's,
 //! gpsd, an NMEA device or a replay file - or from a simulated drive (`--simulate-route`).
-//! The app's timer ([`tick`]) feeds it; the window is rebuilt once a second while navigating
-//! (the map follows the car by its viewport).
+//! The app's timer ([`tick`]) feeds it about once a second. The map follows the car in place
+//! (`MapWidget::update_camera` / `update_overlays`) and the banner's and the bar's texts are
+//! rewritten in place; the window is rebuilt only when what they look like changes (night, the
+//! car layout, the distance line, the offline tag, the fix indicator, arrival).
 
 use std::{
+    cell::RefCell,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -23,12 +26,13 @@ use azul::{
         ButtonOnClickCallbackType, DropDownOnChoiceChangeCallbackType, SegmentedOnChangeCallbackType,
         TextInputOnTextInputCallbackType,
     },
+    option::OptionString,
     prelude::*,
     str::String as AzString,
     task::{Thread, ThreadId},
-    vec::{MapLatLonVec, StringVec},
+    vec::{MapLatLonVec, MapOverlayVec, StringVec},
     widgets::{
-        Button, ButtonType, DropDown, MapMarker, MapOverlay, OnTextInputReturn, Segmented,
+        Button, ButtonType, DropDown, MapMarker, MapOverlay, MapWidget, OnTextInputReturn, Segmented,
         SegmentedState, TextInputState, TextInputValid,
     },
 };
@@ -56,7 +60,7 @@ use crate::{
     voice, MapState,
 };
 
-/// How often the window is rebuilt while navigating (the map follows the car by a rebuild).
+/// How often the navigation shows where the car is.
 const SHOW_EVERY: Duration = Duration::from_millis(950);
 
 /// How old an external fix may be and still be the position, seconds.
@@ -114,8 +118,12 @@ pub(crate) struct DriveState {
     pub location_latest: Arc<AtomicU64>,
     /// The newest request for a new route.
     pub reroute_latest: Arc<AtomicU64>,
-    /// When the window was last rebuilt for the navigation.
+    /// When the navigation last showed where the car is.
     pub last_shown: Option<Instant>,
+    /// What the banner and the bar of the last window build show; `None` without them. A tick
+    /// whose moment looks the same rewrites only the texts that differ. Written by
+    /// [`banner`] during the build, hence the cell.
+    pub banner_shown: RefCell<Option<Shown>>,
     /// Whether the sidebar was open when the navigation started (it is closed meanwhile).
     pub sidebar_was_open: bool,
     /// The settings' text field for a device or a replay file.
@@ -140,6 +148,7 @@ impl DriveState {
             location_latest: Arc::new(AtomicU64::new(0)),
             reroute_latest: Arc::new(AtomicU64::new(0)),
             last_shown: None,
+            banner_shown: RefCell::new(None),
             sidebar_was_open: false,
             source_text,
         }
@@ -223,11 +232,26 @@ extern "C" fn on_source_ended(mut app: RefAny, mut msg: RefAny, _info: CallbackI
 /// The fix-quality indicator: a dot of the grade's colour and the fix's line; while an
 /// external source is chosen or a navigation runs.
 pub(crate) fn indicator(s: &MapState, platform_accuracy: Option<f32>) -> Option<Dom> {
+    let (colour, text) = indicator_line(s, platform_accuracy)?;
+    Some(indicator_dom(colour, Dom::create_span_with_text(text)))
+}
+
+/// The indicator of a dot in `colour` and the line `text`.
+fn indicator_dom((r, g, b): (u8, u8, u8), text: Dom) -> Dom {
+    Dom::create_div()
+        .with_css(INDICATOR)
+        .with_id(ids::GPS_INDICATOR)
+        .with_child(Dom::create_div().with_css(format!("{DOT} background: rgb({r}, {g}, {b});").as_str()))
+        .with_child(text)
+}
+
+/// The indicator's colour and line, when it shows.
+fn indicator_line(s: &MapState, platform_accuracy: Option<f32>) -> Option<((u8, u8, u8), String)> {
     let external = s.drive.source != Source::Platform;
     if !external && s.drive.nav.is_none() {
         return None;
     }
-    let (colour, text) = if s.drive.nav.as_ref().is_some_and(|n| n.drive.is_some()) {
+    let line = if s.drive.nav.as_ref().is_some_and(|n| n.drive.is_some()) {
         (grade_colour(gnss::Grade::Good), t_args("azmaps-gps-simulated", &[]))
     } else if external {
         match &s.drive.external {
@@ -239,14 +263,7 @@ pub(crate) fn indicator(s: &MapState, platform_accuracy: Option<f32>) -> Option<
         let accuracy = platform_accuracy.unwrap_or(f32::NAN);
         (grade_colour(platform_grade(accuracy)), platform_quality_text(accuracy))
     };
-    let (r, g, b) = colour;
-    Some(
-        Dom::create_div()
-            .with_css(INDICATOR)
-            .with_id(ids::GPS_INDICATOR)
-            .with_child(Dom::create_div().with_css(format!("{DOT} background: rgb({r}, {g}, {b});").as_str()))
-            .with_child(Dom::create_span_with_text(text)),
-    )
+    Some(line)
 }
 
 /// The indicator where it floats on the map, bottom left.
@@ -501,7 +518,8 @@ extern "C" fn on_car_mode(mut app: RefAny, _info: CallbackInfo) -> Update {
 
 /// One tick of the app's timer while navigating: the fix of the moment (the simulated car's,
 /// else the external source's, else the platform's `platform`), the guidance, what to say, a
-/// new route to ask for, the camera. Whether the window is to be rebuilt.
+/// new route to ask for, the camera. Whether the window is to be rebuilt: only when the moment
+/// cannot be shown in place ([`show_in_place`]).
 pub(crate) fn tick(app: &RefAny, info: &mut CallbackInfo, platform: Option<(f64, f64, f32, f32, f32)>) -> bool {
     let mut state = app.clone();
     let (events, voice_on, reroute) = {
@@ -601,7 +619,7 @@ pub(crate) fn tick(app: &RefAny, info: &mut CallbackInfo, platform: Option<(f64,
             Thread::create(RefAny::new(request), app.clone(), route_worker),
         );
     }
-    true
+    !show_in_place(app, info)
 }
 
 /// The new route arrived: the guidance follows it; without one the next request waits longer.
@@ -646,16 +664,51 @@ fn night(dark_window: bool) -> bool {
     dark_window || is_night(chrono::Local::now().hour())
 }
 
-/// The banner and the bar while navigating; nothing otherwise.
-pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> {
-    let Some(nav) = s.drive.nav.as_ref() else {
-        return Vec::new();
-    };
-    let night = night(dark_window);
-    let car = nav.car_mode;
+/// What the banner and the bar show at one moment of the navigation: the texts a tick
+/// rewrites in place, and the look that needs the window rebuilt when it changes.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Shown {
+    /// What decides the banner's and the bar's nodes and styles.
+    pub look: Look,
+    /// How far the next maneuver is; empty when there is none to count down to.
+    pub distance: String,
+    /// What to do there.
+    pub instruction: String,
+    /// The bar's arrival time, time left and distance left; empty after arrival.
+    pub summary: String,
+    /// The fix indicator's line.
+    pub indicator: String,
+}
+
+/// What the banner and the bar look like, apart from their texts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Look {
+    /// Whether the window was dark at the build: a tick has no other way to know it, and a
+    /// switch of mode rebuilds the window anyway.
+    pub dark_window: bool,
+    /// The night colours.
+    pub night: bool,
+    /// The big-type car layout.
+    pub car: bool,
+    /// Whether the banner has a distance line.
+    pub distance: bool,
+    /// Whether the bar has the offline tag.
+    pub offline: bool,
+    /// The fix indicator's dot colour; `None` without an indicator.
+    pub indicator: Option<(u8, u8, u8)>,
+    /// The next maneuver's arrow, an icon of the icon set. An icon node is drawn at the
+    /// banner's size, which an icon that can be swapped in place is not, so a new maneuver
+    /// rebuilds the window: once per maneuver, not once per position.
+    pub icon: &'static str,
+}
+
+/// The banner and the bar at the moment `now_ts` (Unix seconds, for the arrival time); `None`
+/// while not navigating.
+pub(crate) fn shown(s: &MapState, dark_window: bool, now_ts: i64) -> Option<Shown> {
+    let nav = s.drive.nav.as_ref()?;
     let progress = nav.progress;
     // The next maneuver: its arrow, how far, what to do.
-    let (icon, distance, text) = match progress {
+    let (icon, distance, instruction) = match progress {
         _ if nav.arrived() => ("flag", String::new(), t_args("azmaps-nav-arrived", &[])),
         None => ("navigation", String::new(), t_args("azmaps-nav-waiting", &[])),
         Some(p) => {
@@ -670,39 +723,10 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
             (icon, banner_distance(p.to_next_m), text)
         }
     };
-    let banner_css = if night { format!("{BANNER} {BANNER_NIGHT}") } else { BANNER.to_string() };
-    let mut words = Dom::create_div().with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;");
-    if !distance.is_empty() {
-        words.add_child(
-            Dom::create_div()
-                .with_css(if car { BANNER_DISTANCE_CAR } else { BANNER_DISTANCE })
-                .with_id(ids::NAV_DISTANCE)
-                .with_child(Dom::create_span_with_text(distance)),
-        );
-    }
-    words.add_child(
-        Dom::create_div()
-            .with_css(if car { BANNER_TEXT_CAR } else { BANNER_TEXT })
-            .with_id(ids::NAV_INSTRUCTION)
-            .with_child(Dom::create_span_with_text(text)),
-    );
-    let top = Dom::create_div()
-        .with_css(banner_css.as_str())
-        .with_id(ids::NAV_BANNER)
-        .with_accessibility_name(label("azmaps-nav-banner"))
-        .with_child(
-            Dom::create_div()
-                .with_css(if car { BANNER_ICON_CAR } else { BANNER_ICON })
-                // The maneuver as the icon set's glyph: a span in an icon font family shows
-                // the icon's name as text ("turn_right").
-                .with_child(Dom::create_icon(icon)),
-        )
-        .with_child(words);
-
-    // The bar: arrival, time and distance left, the switches.
+    // The bar: arrival, time and distance left.
     let summary = match progress {
         Some(p) if !nav.arrived() => {
-            let arrival = chrono::Local::now().timestamp() + p.remaining_s.round() as i64;
+            let arrival = now_ts + p.remaining_s.round() as i64;
             t_args(
                 "azmaps-nav-summary",
                 &[
@@ -714,7 +738,72 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
         }
         _ => String::new(),
     };
-    let bar_css = if night { format!("{BAR} {BAR_NIGHT}") } else { BAR.to_string() };
+    let indicator = indicator_line(s, None);
+    Some(Shown {
+        look: Look {
+            dark_window,
+            night: night(dark_window),
+            car: nav.car_mode,
+            distance: !distance.is_empty(),
+            offline: nav.offline,
+            indicator: indicator.as_ref().map(|(colour, _)| *colour),
+            icon,
+        },
+        distance,
+        instruction,
+        summary,
+        indicator: indicator.map(|(_, line)| line).unwrap_or_default(),
+    })
+}
+
+/// A text the navigation rewrites in place: a span around the text node marked `marker`.
+fn live_text(text: &str, marker: AzString) -> Dom {
+    Dom::create_span().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper(text).with_marker(OptionString::Some(marker)),
+    )
+}
+
+/// The banner and the bar while navigating; nothing otherwise. What they show is kept for
+/// the ticks that follow ([`show_in_place`]).
+pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> {
+    let shown = shown(s, dark_window, chrono::Local::now().timestamp());
+    *s.drive.banner_shown.borrow_mut() = shown.clone();
+    let (Some(nav), Some(shown)) = (s.drive.nav.as_ref(), shown) else {
+        return Vec::new();
+    };
+    let look = shown.look;
+    let car = look.car;
+    let banner_css = if look.night { format!("{BANNER} {BANNER_NIGHT}") } else { BANNER.to_string() };
+    let mut words = Dom::create_div().with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;");
+    if look.distance {
+        words.add_child(
+            Dom::create_div()
+                .with_css(if car { BANNER_DISTANCE_CAR } else { BANNER_DISTANCE })
+                .with_id(ids::NAV_DISTANCE)
+                .with_child(live_text(&shown.distance, ids::NAV_DISTANCE_TEXT)),
+        );
+    }
+    words.add_child(
+        Dom::create_div()
+            .with_css(if car { BANNER_TEXT_CAR } else { BANNER_TEXT })
+            .with_id(ids::NAV_INSTRUCTION)
+            .with_child(live_text(&shown.instruction, ids::NAV_INSTRUCTION_TEXT)),
+    );
+    let top = Dom::create_div()
+        .with_css(banner_css.as_str())
+        .with_id(ids::NAV_BANNER)
+        .with_accessibility_name(label("azmaps-nav-banner"))
+        .with_child(
+            Dom::create_div()
+                .with_css(if car { BANNER_ICON_CAR } else { BANNER_ICON })
+                // The maneuver as the icon set's glyph: a span in an icon font family shows
+                // the icon's name as text ("turn_right").
+                .with_child(Dom::create_icon(look.icon)),
+        )
+        .with_child(words);
+
+    // The bar: arrival, time and distance left, the switches.
+    let bar_css = if look.night { format!("{BAR} {BAR_NIGHT}") } else { BAR.to_string() };
     let mut bar = Dom::create_div()
         .with_css(bar_css.as_str())
         .with_id(ids::NAV_BAR)
@@ -722,13 +811,13 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
             Dom::create_div()
                 .with_css(if car { BAR_TEXT_CAR } else { BAR_TEXT })
                 .with_id(ids::NAV_SUMMARY)
-                .with_child(Dom::create_span_with_text(summary)),
+                .with_child(live_text(&shown.summary, ids::NAV_SUMMARY_TEXT)),
         );
-    if nav.offline {
+    if look.offline {
         bar.add_child(Dom::create_div().with_css(OFFLINE_TAG).with_child(Dom::create_span_with_text(t_args("azmaps-offline", &[]))));
     }
-    if let Some(indicator) = indicator(s, None) {
-        bar.add_child(indicator);
+    if let Some(colour) = look.indicator {
+        bar.add_child(indicator_dom(colour, live_text(&shown.indicator, ids::NAV_INDICATOR_TEXT)));
     }
     let switch = |icon: &str, name: &str, on: bool, id: AzString, cb: ButtonOnClickCallbackType| {
         Button::create("")
@@ -763,6 +852,55 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
     vec![top, bar]
 }
 
+/// Shows the moment of the navigation without a window rebuild: the map's camera and
+/// overlays move in place and the banner's and the bar's texts that changed are rewritten.
+/// False when that cannot be done (the banner looks different now, or the map or a text is
+/// not in the window): the window is rebuilt then.
+fn show_in_place(app: &RefAny, info: &mut CallbackInfo) -> bool {
+    let mut state = app.clone();
+    let (before, now, viewport, overlays) = {
+        let Some(s) = state.downcast_ref::<MapState>() else {
+            return false;
+        };
+        let Some(before) = s.drive.banner_shown.borrow().clone() else {
+            return false;
+        };
+        let Some(now) = shown(&s, before.look.dark_window, chrono::Local::now().timestamp()) else {
+            return false;
+        };
+        if now.look != before.look {
+            return false;
+        }
+        (before, now, s.viewport, crate::map_overlays(&s, app))
+    };
+    let Some(map) = info.get_node_id_by_marker(ids::MAP_VIEW).into_option() else {
+        return false;
+    };
+    if !MapWidget::update_camera(*info, map, viewport) {
+        return false;
+    }
+    let _drawn = MapWidget::update_overlays(*info, map, MapOverlayVec::from_vec(overlays));
+    let texts = [
+        (ids::NAV_DISTANCE_TEXT, &before.distance, &now.distance),
+        (ids::NAV_INSTRUCTION_TEXT, &before.instruction, &now.instruction),
+        (ids::NAV_SUMMARY_TEXT, &before.summary, &now.summary),
+        (ids::NAV_INDICATOR_TEXT, &before.indicator, &now.indicator),
+    ];
+    for (marker, old, new) in texts {
+        if old == new {
+            continue;
+        }
+        let Some(node) = info.get_node_id_by_marker(marker).into_option() else {
+            return false;
+        };
+        info.change_node_text(node, AzString::from(new.as_str()));
+    }
+    if let Some(s) = state.downcast_ref::<MapState>() {
+        *s.drive.banner_shown.borrow_mut() = Some(now);
+    }
+    true
+}
+
 /// The navigation on the map: its route (the new one after a reroute) and the car, an arrow
 /// pointing where it goes.
 pub(crate) fn overlays(s: &MapState) -> Vec<MapOverlay> {
@@ -773,7 +911,7 @@ pub(crate) fn overlays(s: &MapState) -> Vec<MapOverlay> {
     let line = &nav.guidance.line().points;
     if line.len() >= 2 {
         let points = MapLatLonVec::from_vec(line.iter().copied().map(at).collect());
-        out.push(MapOverlay::Polyline(crate::travel_polyline(points, true)));
+        out.push(MapOverlay::Polyline(crate::travel_polyline(points, true, nav.mode)));
     }
     if let Some(p) = nav.progress {
         // The arrow turns by the heading less the map's own turn.

@@ -380,6 +380,31 @@ impl CachedTiles<HttpTiles> {
             Err(e) => copy.and_then(|copy| Manifest::read_file(&copy).ok()).ok_or(e),
         }
     }
+
+    /// The hosting's tile list (`tiles.txt`, which the manifest names):
+    /// every routing tile there is and its size, what an offline area is
+    /// planned with. From the network, with a copy kept in the cache folder
+    /// for when the network is gone.
+    ///
+    /// # Errors
+    /// The tile set lists no tiles, or neither the network nor the copy has
+    /// the list.
+    pub fn index(&self) -> Result<BTreeMap<TileId, u64>, String> {
+        let copy = self.dir.as_ref().map(|dir| dir.join("tiles.txt"));
+        match self.inner.index() {
+            Ok(index) => {
+                if let Some(copy) = &copy {
+                    store(copy, offline::write_index(&index).as_bytes());
+                }
+                Ok(index)
+            }
+            Err(e) => copy
+                .and_then(|copy| std::fs::read_to_string(copy).ok())
+                .map(|text| offline::parse_index(&text))
+                .filter(|index| !index.is_empty())
+                .ok_or(e),
+        }
+    }
 }
 
 impl CachedTiles<FolderTiles> {
@@ -479,6 +504,20 @@ impl HttpTiles {
             *slot = Some(Manifest::parse(&String::from_utf8_lossy(&bytes))?);
         }
         slot.as_ref().map(f).ok_or_else(|| "no manifest".to_string())
+    }
+
+    /// The hosting's tile list (`tiles.txt`, which the manifest names):
+    /// every routing tile there is and its size.
+    ///
+    /// # Errors
+    /// The manifest could not be had, names no list, or the list is not
+    /// there.
+    pub fn index(&self) -> Result<BTreeMap<TileId, u64>, String> {
+        let url = self
+            .with_manifest(|m| m.index_url(&self.url))?
+            .ok_or_else(|| format!("{}: the tile set lists no tiles", self.url))?;
+        let bytes = self.get(&url)?.ok_or_else(|| format!("{url}: no tile list there"))?;
+        Ok(offline::parse_index(&String::from_utf8_lossy(&bytes)))
     }
 
     /// The bytes at `url`; `None` on a 404.

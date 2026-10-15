@@ -100,3 +100,61 @@ fn a_download_fetches_every_tile_once_and_counts_its_bytes() {
     let stopped = offline::download(&source, &wanted, 1, &mut |_| false);
     assert!(stopped.is_err());
 }
+
+/// The hosting's tile list: read over the network from where the manifest says, and kept in
+/// the cache folder so that an offline area can be planned again without the network.
+#[cfg(feature = "http")]
+mod the_hostings_tile_list {
+    use crate::{
+        manifest::FORMAT,
+        source::{CachedTiles, HttpTiles},
+        test_server::{closed_port, Server},
+        tile::TileId,
+    };
+
+    fn manifest(index: Option<&str>) -> String {
+        let index = index.map_or_else(String::new, |i| format!(r#","index":"{i}""#));
+        format!(
+            r#"{{"format":"{FORMAT}","version":{},"tiles":"tiles/{{z}}/{{x}}/{{y}}.pbf"{index}}}"#,
+            crate::format::VERSION
+        )
+    }
+
+    fn hosting(index: Option<&'static str>) -> Server {
+        Server::start(move |seen| match seen.target.as_str() {
+            "/manifest.json" => (200, Vec::new(), manifest(index)),
+            "/tiles.txt" => (200, Vec::new(), "14/8530/5973 1234\n8/133/93 99\n".to_string()),
+            _ => (404, Vec::new(), String::new()),
+        })
+    }
+
+    #[test]
+    fn the_tile_list_the_manifest_names_is_read_and_kept_for_offline() {
+        let server = hosting(Some("tiles.txt"));
+        let dir = super::temp("index");
+        let tiles = CachedTiles::new(
+            HttpTiles::new(format!("{}/manifest.json", server.base), "test"),
+            Some(dir.clone()),
+            1 << 20,
+        );
+        let index = tiles.index().expect("the tile list");
+        assert_eq!(index.get(&TileId::new(14, 8530, 5973)), Some(&1234));
+        assert_eq!(index.len(), 2);
+        // The hosting gone: the copy in the cache folder answers.
+        let gone = CachedTiles::new(
+            HttpTiles::new(format!("{}/manifest.json", closed_port()), "test"),
+            Some(dir.clone()),
+            1 << 20,
+        );
+        assert_eq!(gone.index().expect("the kept tile list"), index);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_tile_set_without_a_tile_list_says_so() {
+        let server = hosting(None);
+        let tiles = CachedTiles::new(HttpTiles::new(format!("{}/manifest.json", server.base), "test"), None, 1 << 20);
+        let why = tiles.index().expect_err("no list to plan with");
+        assert!(why.contains("lists no tiles"), "{why}");
+    }
+}

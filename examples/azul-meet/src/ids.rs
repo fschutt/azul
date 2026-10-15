@@ -111,3 +111,26 @@ pub const TEST_MIC: AzString = AzString::from_const_str("__azmeet_test_mic");
 /// A tile's id is this, then who (`me`, or the name in lower case with every other character an
 /// underscore), an underscore and the picture (`camera`, `screen`): `__azmeet_tile_ben_camera`.
 pub const TILE_PREFIX: &str = "__azmeet_tile_";
+
+// ==== Direct calls (`direct_call.rs`) ====
+
+/// Settings > Meetings' "Direct call...".
+pub const DIRECT_OPEN: AzString = AzString::from_const_str("__azmeet_direct_open");
+/// The direct-call screen's card, its address form switch, the address, Copy, the Call field,
+/// Call, Cancel, the line under them, the recent calls and Back.
+pub const DIRECT: AzString = AzString::from_const_str("__azmeet_direct");
+pub const DIRECT_FORM: AzString = AzString::from_const_str("__azmeet_direct_form");
+pub const DIRECT_ADDRESS: AzString = AzString::from_const_str("__azmeet_direct_address");
+pub const DIRECT_COPY: AzString = AzString::from_const_str("__azmeet_direct_copy");
+pub const DIRECT_FIELD: AzString = AzString::from_const_str("__azmeet_direct_field");
+pub const DIRECT_CALL: AzString = AzString::from_const_str("__azmeet_direct_call");
+pub const DIRECT_CANCEL: AzString = AzString::from_const_str("__azmeet_direct_cancel");
+pub const DIRECT_STATUS: AzString = AzString::from_const_str("__azmeet_direct_status");
+pub const DIRECT_RECENTS: AzString = AzString::from_const_str("__azmeet_direct_recents");
+/// A recent call's Call button is this and its place in the list: `__azmeet_direct_recent_0`.
+pub const DIRECT_RECENT_PREFIX: &str = "__azmeet_direct_recent_";
+pub const DIRECT_BACK: AzString = AzString::from_const_str("__azmeet_direct_back");
+/// The prompt of a direct call coming in, and its Accept and Decline.
+pub const DIRECT_INCOMING: AzString = AzString::from_const_str("__azmeet_direct_incoming");
+pub const DIRECT_ACCEPT: AzString = AzString::from_const_str("__azmeet_direct_accept");
+pub const DIRECT_DECLINE: AzString = AzString::from_const_str("__azmeet_direct_decline");

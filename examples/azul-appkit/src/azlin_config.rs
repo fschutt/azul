@@ -436,10 +436,11 @@ impl Profile {
     /// and live token servers are the Workers' routes in
     /// `iso/azworker/token/wrangler.toml`.
     ///
-    /// The relay is Azlin's own ([`AZLIN_RELAY`]) for Azlin's customers, the
-    /// trial and the production profile, and n0's public relays (`default`)
-    /// for the local one. The local stack names its own `iroh-relay --dev` in
-    /// its profile's file (azul-apps `local/mkprofile.py`).
+    /// The relay is n0's public relays (`default`) for every profile: Azlin's
+    /// own ([`AZLIN_RELAY`]) is not hosted yet, so a profile that named it
+    /// would leave every relayed connection without a relay. It stays a
+    /// choice by its word and its address. The local stack names its own
+    /// `iroh-relay --dev` in its profile's file (azul-apps `local/mkprofile.py`).
     #[must_use]
     pub fn default_for(self, endpoint: Endpoint) -> Option<&'static str> {
         match (self, endpoint) {
@@ -447,8 +448,7 @@ impl Profile {
             (Profile::Local, Endpoint::Meet) => Some("http://127.0.0.1:8790"),
             (Profile::Trial, Endpoint::Token) => Some("https://token-trial.azlin.io"),
             (Profile::Production, Endpoint::Token) => Some("https://token.azlin.io"),
-            (Profile::Trial | Profile::Production, Endpoint::Relay) => Some(AZLIN_RELAY),
-            (Profile::Local, Endpoint::Relay) => Some("default"),
+            (_, Endpoint::Relay) => Some("default"),
             _ => None,
         }
     }
@@ -488,8 +488,8 @@ pub fn normalize_url(input: &str) -> Result<String, String> {
     Ok(s.to_string())
 }
 
-/// Azlin's own iroh relay: the trial and production profiles' default, and
-/// what the relay setting's word `azlin` stands for.
+/// Azlin's own iroh relay: what the relay setting's word `azlin` stands for.
+/// No profile names it until it is hosted.
 pub const AZLIN_RELAY: &str = "https://connect.azlin.io";
 
 /// A relay setting: `off` (also `0`), `default` (n0's public relays; also
@@ -1219,12 +1219,12 @@ mod tests {
         assert!(normalize_endpoint(Endpoint::Meet, "azlin").is_err());
     }
 
-    /// Azlin's customers (the trial and the production profile) relay through Azlin's relay;
-    /// everyone else, and a local stack, through n0's public relays.
+    /// Every profile relays through n0's public relays until Azlin's own relay is hosted; Azlin's
+    /// stays a choice by name (`azlin`) and by address.
     #[test]
-    fn azlins_profiles_relay_through_azlins_relay_and_every_other_through_n0s() {
-        assert_eq!(Profile::Production.default_for(Endpoint::Relay), Some(AZLIN_RELAY));
-        assert_eq!(Profile::Trial.default_for(Endpoint::Relay), Some(AZLIN_RELAY));
+    fn every_profile_relays_through_n0s_relays_until_azlins_is_hosted() {
+        assert_eq!(Profile::Production.default_for(Endpoint::Relay), Some("default"));
+        assert_eq!(Profile::Trial.default_for(Endpoint::Relay), Some("default"));
         assert_eq!(Profile::Local.default_for(Endpoint::Relay), Some("default"));
     }
 
@@ -1382,7 +1382,7 @@ mod tests {
         assert_eq!(e.profile, Profile::Production);
         assert_eq!(e.profile_setting.source, Source::Env(PROFILE_VAR));
         assert_eq!(e.url(Endpoint::Token), Some("https://token.azlin.io"));
-        assert_eq!(e.url(Endpoint::Relay), Some(AZLIN_RELAY), "Azlin's customers use Azlin's relay");
+        assert_eq!(e.url(Endpoint::Relay), Some("default"), "n0's relays until Azlin's is hosted");
         assert_eq!(e.url(Endpoint::Meet), None, "no meeting server is deployed");
 
         // The file's own address stays over any profile's.

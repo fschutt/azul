@@ -90,6 +90,7 @@ mod l10n_tests;
 pub mod location;
 pub mod model;
 pub mod navigate;
+mod offline_ui;
 pub mod places;
 pub mod route;
 pub mod saved;
@@ -113,6 +114,7 @@ use azul::{
     },
     css::{ColorU, CssProperty, CssPropertyWithConditions, DarkLightMode, LayoutWidth, PixelValue, SystemColorRef},
     dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
+    option::OptionString,
     prelude::*,
     sensor::SensorKind,
     shells::{ShellThemeAccent, ShellThemeScope},
@@ -121,7 +123,7 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::{MapLatLonVec, MapOverlayVec, U8Vec},
     widgets::{
-        Button, ButtonType, MapLatLon, MapMarker, MapOverlay, MapPolyline, MapSetup, MapTileId,
+        Button, ButtonType, MapLatLon, MapLineDash, MapMarker, MapOverlay, MapPolyline, MapSetup, MapTileId,
         MapTileLayer, MapViewport, MapWidget, OnTextInputReturn, TextInputState, TextInputValid,
     },
 };
@@ -238,16 +240,15 @@ const ROOT: &str =
 const MAP_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; \
                         background: #cbd2d8; overflow: hidden; @theme(flora) { background: \
                         system:under-page-background; }";
-/// The title area over the map: the window's drag region; the traffic
-/// lights sit in its left end on macOS.
-#[cfg(target_os = "macos")]
-const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; height: 40px; \
-                          display: flex; flex-direction: row; align-items: center; gap: 6px; \
-                          padding: 0px 10px 0px 84px; -azul-app-region: drag;";
-#[cfg(not(target_os = "macos"))]
-const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; height: 40px; \
-                          display: flex; flex-direction: row; align-items: center; gap: 6px; \
-                          padding: 0px 10px 0px 10px; -azul-app-region: drag;";
+/// The title area over the map: the window's drag region. The window's own controls sit over
+/// one of its ends (macOS's traffic lights on the left, the caption buttons on the right on
+/// Windows): [`title_area_css`] gives it their room.
+const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; display: flex; \
+                          flex-direction: row; align-items: center; gap: 6px; -azul-app-region: drag;";
+/// The title area's height without window controls taller than its buttons, px.
+const TITLE_HEIGHT: f32 = 40.0;
+/// The title area's own room at each end, beside the window controls' room, px.
+const TITLE_PAD: f32 = 10.0;
 /// A control in the drag region keeps its clicks.
 const NO_DRAG: &str = "-azul-app-region: no-drag;";
 /// A floating group of map controls (Apple Maps' rounded pills).
@@ -498,6 +499,8 @@ struct MapState {
     drive: drive_ui::DriveState,
     /// The saved lists, the recent searches, imports and their review (`lists_ui.rs`).
     lists: lists_ui::ListsState,
+    /// The offline areas: the kept ones and the download under way (`offline_ui.rs`).
+    offline_areas: offline_ui::OfflineState,
 }
 
 impl MapState {
@@ -804,10 +807,22 @@ fn tool(app: &RefAny, icon: &str, name: &str, id: AzString, on_click: ButtonOnCl
 
 /// The title area over the map: the window moves by it; the sidebar's
 /// button on the left, the settings on the right, no text.
-fn title_area(s: &MapState, app: &RefAny) -> Dom {
+/// The title area's CSS, clear of the window's own controls where they sit over it.
+fn title_area_css(insets: kit::TitleInsets) -> String {
+    format!(
+        "{TITLE_AREA} height: {:.0}px; padding: 0px {:.0}px 0px {:.0}px;",
+        insets.height.max(TITLE_HEIGHT),
+        insets.right + TITLE_PAD,
+        insets.left + TITLE_PAD
+    )
+}
+
+/// The title area over the map: the sidebar's toggle at its start, Settings at its end, the
+/// window controls' room `insets` beside them.
+fn title_area(s: &MapState, app: &RefAny, insets: kit::TitleInsets) -> Dom {
     let toggle_name = label(if s.sidebar_open { "azmaps-hide-sidebar" } else { "azmaps-show-sidebar" });
     Dom::create_div()
-        .with_css(TITLE_AREA)
+        .with_css(title_area_css(insets).as_str())
         .with_id(ids::TITLE)
         .with_child(
             Dom::create_div().with_css(NO_DRAG).with_child(
@@ -1293,9 +1308,16 @@ fn pin_icon(index: usize, (lat, lon): (f64, f64)) -> Dom {
 /// (`road`) with an outline under it, else the straight preview, thinner. The
 /// accent is a colour token, so the map resolves it against the theme it is
 /// drawn in and the line follows a theme switch without a new colour here.
-fn travel_polyline(points: MapLatLonVec, road: bool) -> MapPolyline {
+fn travel_polyline(points: MapLatLonVec, road: bool, mode: TravelMode) -> MapPolyline {
     let accent = SystemColorRef::Accent.to_color_token();
-    if road {
+    if road && mode == TravelMode::Walk {
+        // A walk is dots, as on every map: wider than a drive's line so each dot reads.
+        MapPolyline::create(points)
+            .with_color(accent)
+            .with_width(6.0)
+            .with_casing(ROUTE_CASING, 9.0)
+            .with_dash(MapLineDash::Dotted)
+    } else if road {
         MapPolyline::create(points)
             .with_color(accent)
             .with_width(5.0)
@@ -1328,7 +1350,7 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
     let line = if s.drive.nav.is_some() || s.travel.mode == TravelMode::Transit { None } else { plan.line };
     if let Some(line) = line {
         let points = MapLatLonVec::from_vec(line.points.iter().copied().map(at).collect());
-        out.push(MapOverlay::Polyline(travel_polyline(points, line.road)));
+        out.push(MapOverlay::Polyline(travel_polyline(points, line.road, s.travel.mode)));
         // The picked turn-by-turn step's part, over the rest of the line.
         let picked = s.selected_step.zip(s.route.as_ref()).and_then(|(index, reply)| {
             let step = reply.steps.get(index)?;
@@ -1436,7 +1458,8 @@ fn map_area(s: &MapState, app: &RefAny) -> Dom {
         .with_on_pin_tap(app.clone(), on_pin_tap)
         .with_on_marker_tap(app.clone(), on_marker_tap)
         .with_on_mount(app.clone(), on_map_mount)
-        .dom();
+        .dom()
+        .with_marker(OptionString::Some(ids::MAP_VIEW));
     let mut area = Dom::create_div()
         .with_css(MAP_AREA)
         .with_id(ids::MAP)
@@ -1507,11 +1530,11 @@ fn map_controls(s: &MapState, app: &RefAny) -> Dom {
 }
 
 /// The map screen: the map, and what floats on it.
-fn screen(s: &MapState, app: &RefAny, dark: bool) -> Dom {
+fn screen(s: &MapState, app: &RefAny, dark: bool, insets: kit::TitleInsets) -> Dom {
     let mut root = Dom::create_div()
         .with_css(ROOT)
         .with_child(map_area(s, app))
-        .with_child(title_area(s, app));
+        .with_child(title_area(s, app, insets));
     if s.sidebar_open {
         root.add_child(sidebar(s, app));
     }
@@ -1569,11 +1592,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 vec![
                     drive_ui::location_section(&s, &app, None),
                     drive_ui::routing_tiles_section(&s, &app),
+                    offline_ui::section(&s, &app),
                     lists_ui::places_section(&s, &app),
                 ],
             ))
     } else {
-        screen(&s, &app, dark)
+        screen(&s, &app, dark, kit::title_insets(&info))
     };
     let column = Dom::create_div().with_css(COLUMN).with_child(content);
     // The scope as the window's body: no UA margin, the full window height.
@@ -2479,6 +2503,7 @@ pub fn start() {
         size: Cell::new((0.0, 0.0)),
         route: None,
         route_progress: None,
+        offline_areas: offline_ui::OfflineState::new(routing.as_ref()),
         routing,
         online,
         selected_step: None,
@@ -2513,12 +2538,41 @@ mod travel_line_tests {
     #[test]
     fn the_road_route_and_its_preview_are_drawn_in_the_themes_accent() {
         let accent = SystemColorRef::Accent.to_color_token();
-        let road = travel_polyline(two_places(), true);
-        let preview = travel_polyline(two_places(), false);
+        let road = travel_polyline(two_places(), true, TravelMode::Car);
+        let preview = travel_polyline(two_places(), false, TravelMode::Car);
         assert_eq!(road.color, accent, "the road route follows the theme");
         assert_eq!(preview.color, accent, "so does the straight preview");
         assert!(road.casing_width > road.width, "the road route has an outline under it");
         assert!(preview.width < road.width, "the preview is the thinner line");
+    }
+
+    #[test]
+    fn a_walking_route_is_drawn_dotted_and_a_drive_or_a_ride_solid() {
+        let walk = travel_polyline(two_places(), true, TravelMode::Walk);
+        assert_eq!(walk.dash, MapLineDash::Dotted, "a walk is dots, as on every map");
+        assert!(walk.casing_width > walk.width, "each dot has its outline");
+        for mode in [TravelMode::Car, TravelMode::Bike] {
+            assert_eq!(travel_polyline(two_places(), true, mode).dash, MapLineDash::Solid, "{mode:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod title_area_tests {
+    use super::*;
+
+    #[test]
+    fn the_title_area_keeps_the_window_controls_room_on_the_side_they_sit() {
+        let mac = title_area_css(kit::TitleInsets { left: 78.0, right: 0.0, height: 28.0 });
+        assert!(mac.contains("padding: 0px 10px 0px 88px;"), "{mac}");
+        let windows = title_area_css(kit::TitleInsets { left: 0.0, right: 138.0, height: 32.0 });
+        assert!(windows.contains("padding: 0px 148px 0px 10px;"), "the caption buttons keep their room: {windows}");
+    }
+
+    #[test]
+    fn the_title_area_is_at_least_as_tall_as_its_buttons_and_the_window_controls() {
+        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 28.0 }).contains("height: 40px;"));
+        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 46.0 }).contains("height: 46px;"));
     }
 }
 

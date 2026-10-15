@@ -153,6 +153,22 @@ azmaps-routing-keep = Geladene Straßen behalten für
 azmaps-routing-keep-suggested = Wie der Kachelsatz es vorschlägt
 azmaps-routing-keep-days = { $days } Tage
 azmaps-routing-keep-about = Für Routen geladene Straßenkacheln bleiben auf diesem Computer und werden neu geladen, wenn sie älter sind. Ohne Netz routen die alten weiter. Gilt ab dem nächsten Start.
+azmaps-offline-title = Offline-Gebiete
+azmaps-offline-about = Behält die Straßen des Gebiets auf der Karte auf diesem Computer, damit Routen dort ohne Netz gehen. Rahme das Gebiet zuerst auf der Karte ein. Die Karte selbst behält die Kartenkacheln, die sie gezeigt hat.
+azmaps-offline-needs-tiles = Offline-Gebiete behalten geladene Routing-Kacheln: Starte AzMaps mit Routing-Kacheln (--routing), um eines zu behalten.
+azmaps-offline-name = Name des Gebiets
+azmaps-offline-download = Gebiet auf der Karte behalten
+azmaps-offline-stop = Anhalten
+azmaps-offline-delete = Löschen
+azmaps-offline-planning = Die Straßen des Gebiets werden gesucht ...
+azmaps-offline-progress = { $done } von { $total } Straßenkacheln ({ $size })
+azmaps-offline-kept = { $name } behalten: { $tiles } Straßenkacheln, { $size }
+azmaps-offline-kept-failed = { $name } behalten: { $tiles } Straßenkacheln, { $size }. { $failed } konnten nicht geladen werden und werden bei der nächsten Route erneut versucht.
+azmaps-offline-failed = Das Gebiet konnte nicht behalten werden: { $why }
+azmaps-offline-empty = Die Routing-Kacheln haben im Gebiet auf der Karte keine Straßen.
+azmaps-offline-no-name = Gib dem Gebiet zuerst einen Namen.
+azmaps-offline-stopped = Der Download wurde angehalten; nichts wurde behalten.
+azmaps-offline-row = { $name } · { $tiles } Straßenkacheln · { $size }
 
 ## Gespeicherte Orte, Import und Export
 

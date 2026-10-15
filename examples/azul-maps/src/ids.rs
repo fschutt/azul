@@ -75,6 +75,12 @@ names! {
     GPS_APPLY = "gps-apply";
     /// Settings > Navigation > Routing tiles: how long downloaded roads are kept.
     ROUTING_KEEP = "routing-keep";
+    /// Settings > Navigation > Offline areas: the name, Download / Stop, the line under them
+    /// (the kept areas' rows are `offline-area-<n>`, their Delete `offline-delete-<n>`).
+    OFFLINE_NAME = "offline-name";
+    OFFLINE_DOWNLOAD = "offline-download";
+    OFFLINE_STOP = "offline-stop";
+    OFFLINE_NOTE = "offline-note";
     // ---- saved places (`lists_ui.rs`) ----
     /// The sidebar's saved lists (each row `list-<n>`, the open one's places `saved-place-<n>`).
     SAVED = "saved";
@@ -100,6 +106,14 @@ names! {
     ZOOM_OUT = "zoom-out";
     LOCATE = "locate";
     SETTINGS = "settings";
+    // ---- markers (`Dom::with_marker`): what a callback changes in place ----
+    /// The map widget's root: the navigation moves its camera and overlays in place.
+    MAP_VIEW = "map-view";
+    /// The banner's and the bar's text nodes the navigation rewrites in place.
+    NAV_DISTANCE_TEXT = "nav-distance-text";
+    NAV_INSTRUCTION_TEXT = "nav-instruction-text";
+    NAV_SUMMARY_TEXT = "nav-summary-text";
+    NAV_INDICATOR_TEXT = "nav-indicator-text";
 }
 
 /// An id made at run time: `__azmaps_<stem>-<n>` (`place-0` the first

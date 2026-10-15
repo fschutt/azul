@@ -133,6 +133,29 @@ impl RoutingTiles {
         }
     }
 
+    /// The hosting's list of the routing tiles there are and their sizes, what an offline
+    /// area is planned with; a copy is kept in the cache folder. May touch the network: call
+    /// it on a worker.
+    ///
+    /// # Errors
+    /// A folder of tiles has nothing to download; the list cannot be had.
+    pub fn index(&self) -> Result<std::collections::BTreeMap<azul_routing::TileId, u64>, String> {
+        match self {
+            Self::Http(tiles) => tiles.index(),
+            Self::Folder(_) => Err("the routing tiles are a folder on this computer already".to_string()),
+        }
+    }
+
+    /// The folder the downloaded tiles are kept in, where offline areas are pinned; `None`
+    /// for a folder of tiles (nothing is downloaded).
+    #[must_use]
+    pub fn cache_dir(&self) -> Option<&Path> {
+        match self {
+            Self::Http(tiles) => tiles.dir.as_deref(),
+            Self::Folder(_) => None,
+        }
+    }
+
     /// The routing data's credit, shown next to every route of these tiles: the tile set's
     /// own attribution from its manifest, else OpenStreetMap's, whose data every tile set is
     /// built from. A downloaded manifest is read once and kept for offline use, so this may
