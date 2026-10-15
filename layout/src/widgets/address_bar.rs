@@ -277,6 +277,10 @@ pub(crate) struct AddressBarLook {
     pub refresh_icon: Vec<Cond>,
     /// The box around the search input.
     pub search: Vec<Cond>,
+    /// Laid on the search input's own field (its frame) after its style:
+    /// the bar's corners where the theme gives the search box the crumbs
+    /// field's; empty leaves the field as the input draws it.
+    pub search_field: Vec<Cond>,
     /// The theme's marker class on the bar, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -1114,10 +1118,28 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
         .with_placeholder(search_placeholder)
         .with_on_text_input(shared.clone(), on_search)
         .with_theme(look.theme);
+    let mut search_dom = search_input.dom();
+    // The search row is the field, then its clear button: the field's
+    // frame takes the bar's corners.
+    if let Some(field) = search_dom.children.as_mut().first_mut() {
+        if !look.search_field.is_empty() {
+            let mut v: Vec<Cond> = field
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(property, apply_if)| Cond {
+                    property: property.clone(),
+                    apply_if: apply_if.clone(),
+                })
+                .collect();
+            v.extend(look.search_field.iter().cloned());
+            field.root.set_css_props(CssPropertyWithConditionsVec::from_vec(v));
+        }
+    }
     let search_box = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SEARCH_CLASS))
         .with_css_props(part(ADDRESS_BAR_SEARCH_BASE, &look.search))
-        .with_child(search_input.dom());
+        .with_child(search_dom);
 
     let mut parts = alloc::vec![
         nav(
@@ -1210,6 +1232,40 @@ mod address_bar_tests {
             .with_search_placeholder(AzString::from("Search Documents"))
             .with_can_go(true, false, true)
             .with_on_event(RefAny::new(log.clone()), record as AddressBarOnEventCallbackType)
+    }
+
+    /// The resting top-left corner radius `node` declares.
+    fn corner(node: &Dom) -> Option<f32> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, conds)| conds.as_ref().is_empty())
+            .filter_map(|(p, _)| match p {
+                CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| r.inner.number.get()),
+                _ => None,
+            })
+            .last()
+    }
+
+    /// The node of `dom` carrying `class`.
+    fn with_class<'a>(dom: &'a Dom, class: &str) -> Option<&'a Dom> {
+        if has_class(dom, class) {
+            return Some(dom);
+        }
+        dom.children.as_ref().iter().find_map(|c| with_class(c, class))
+    }
+
+    /// Flora's search box has the address field's corners: both 4px.
+    #[test]
+    fn flora_s_search_box_has_the_crumbs_field_s_4px_corners() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = bar(&log).with_theme(UiTheme::Flora).dom();
+        let field = with_class(&dom, "__azul-native-address-bar-box").expect("the crumbs field");
+        assert_eq!(corner(field), Some(4.0), "the crumbs field");
+        let search = with_class(&dom, "__azul-native-address-bar-search").expect("the search box");
+        let row = &search.children.as_ref()[0];
+        let input = &row.children.as_ref()[0];
+        assert_eq!(corner(input), Some(4.0), "the search field's own frame");
     }
 
     /// A trail too long for a 520 px bar.

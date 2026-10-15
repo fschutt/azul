@@ -1535,9 +1535,10 @@ pub enum TabStyle {
     Aurora,
     /// Classic square tabs, the selected one open onto the panel below.
     Rectangular,
-    /// Pill buttons on a leather strip (white leather by day, dark at
-    /// night): the selected pill wears the submit button's face, and the
-    /// strip closes on a 1px gold rule along its foot.
+    /// The theme's buttons ("Buttons" in a settings UI): the selected tab
+    /// is the submit button, the others the plain button, 22px tall at the
+    /// house radius in a 28px row (a title bar's) on a leather strip that
+    /// closes on a 2px golden line.
     Pills,
 }
 
@@ -1571,6 +1572,9 @@ pub struct TabHeader {
     pub theme: crate::widgets::themes::OptionUiTheme,
     /// The shape of the tabs (`with_style`); `Auto` takes the theme's own.
     pub style: TabStyle,
+    /// How the panel opens and closes (`with_reveal`), kept by the app
+    /// between rebuilds; `None` keeps the active tab's panel always shown.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
 }
 
 impl Default for TabHeader {
@@ -1581,6 +1585,7 @@ impl Default for TabHeader {
             on_click: None.into(),
             theme: crate::widgets::themes::OptionUiTheme::None,
             style: TabStyle::Auto,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
         }
     }
 }
@@ -1625,7 +1630,25 @@ impl TabHeader {
             on_click: None.into(),
             theme: crate::widgets::themes::OptionUiTheme::None,
             style: TabStyle::Auto,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
         }
+    }
+
+    /// How the panel opens and closes: the app makes `reveal` once
+    /// (`TabReveal::create`, with its `TabClickBehaviour`), hands the same
+    /// one to every build of this bar and of its `TabContent`, and builds
+    /// the panel for the tab `on_click` reports. The bar feeds it the
+    /// pointer, the clicks and Enter / Space (Shift+Enter, or a double
+    /// Enter, locks), and draws no tab selected while the panel is closed.
+    pub fn set_reveal(&mut self, reveal: crate::widgets::tab_reveal::TabReveal) {
+        self.reveal = crate::widgets::tab_reveal::OptionTabReveal::Some(reveal);
+    }
+
+    /// [`Self::set_reveal`] for the builder chain.
+    #[must_use]
+    pub fn with_reveal(mut self, reveal: crate::widgets::tab_reveal::TabReveal) -> Self {
+        self.set_reveal(reveal);
+        self
     }
 
     /// The shape of the tabs: Aurora's curves, square tabs or pills.
@@ -1737,9 +1760,19 @@ impl TabHeader {
         let look = TabHeaderLook::of(self.theme, self.style);
         let tab_count = self.tabs.as_ref().len();
         // An index past the last tab selects none: no tab is drawn selected,
-        // and no neighbour of a missing selection gets its seam.
-        let active = (self.active_tab < tab_count).then_some(self.active_tab);
-        let on_click_is_some = self.on_click.is_some();
+        // and no neighbour of a missing selection gets its seam. A reveal
+        // draws the shown tab selected while its panel is open, none while
+        // it is closed.
+        let active = match self.reveal.as_ref() {
+            Some(reveal) => {
+                reveal.begin_build(self.active_tab);
+                reveal.get_selected().into_option().filter(|t| *t < tab_count)
+            }
+            None => (self.active_tab < tab_count).then_some(self.active_tab),
+        };
+        let reveal = self.reveal.clone().into_option();
+        let owner = crate::widgets::tab_reveal::RevealOwner::Header(self.on_click.clone());
+        let on_click_is_some = self.on_click.is_some() || reveal.is_some();
         // WAI-ARIA APG: an interactive tab list is ONE Tab stop - the active
         // tab, or the first when the index is out of range. The arrow keys
         // move (and activate) within it. A header nobody can activate stays
@@ -1806,9 +1839,28 @@ impl TabHeader {
                     dataset.tab_idx = tab_idx;
                     let dataset = RefAny::new(dataset);
 
+                    let arrows = CoreCallbackData {
+                        event: EventFilter::Focus(
+                            azul_core::events::FocusEventFilter::VirtualKeyDown,
+                        ),
+                        callback: CoreCallback {
+                            cb: on_tab_key as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: dataset.clone(),
+                    };
                     let mut tab_dom = crate::widgets::widget_p_with_text(tab.clone())
-                        .with_callbacks(if on_click_is_some {
-                            vec![
+                        .with_callbacks(match reveal.as_ref() {
+                            // The reveal hears the pointer, the clicks and
+                            // Enter; the arrows still move the Tab stop.
+                            Some(reveal) => {
+                                let mut v = crate::widgets::tab_reveal::tab_callbacks(
+                                    tab_idx, reveal, &owner, true,
+                                );
+                                v.push(arrows);
+                                v.into()
+                            }
+                            None if on_click_is_some => vec![
                                 CoreCallbackData {
                                     event: EventFilter::Hover(HoverEventFilter::Click),
                                     callback: CoreCallback {
@@ -1817,20 +1869,10 @@ impl TabHeader {
                                     },
                                     refany: dataset.clone(),
                                 },
-                                CoreCallbackData {
-                                    event: EventFilter::Focus(
-                                        azul_core::events::FocusEventFilter::VirtualKeyDown,
-                                    ),
-                                    callback: CoreCallback {
-                                        cb: on_tab_key as usize,
-                                        ctx: azul_core::refany::OptionRefAny::None,
-                                    },
-                                    refany: dataset.clone(),
-                                },
+                                arrows,
                             ]
-                            .into()
-                        } else {
-                            CoreCallbackDataVec::from_const_slice(&[])
+                            .into(),
+                            None => CoreCallbackDataVec::from_const_slice(&[]),
                         })
                         .with_dataset(Some(dataset).into())
                         .with_css_props(css_props)
@@ -1899,6 +1941,12 @@ impl TabHeader {
         // tint), after its style: `with_css_props` replaces a node's style.
         if !look.header_css.is_empty() {
             header.root.set_css(look.header_css);
+        }
+        // The bar is half of the reveal's hover area; the panel the other.
+        if let Some(reveal) = reveal.as_ref() {
+            header = header.with_callbacks(
+                crate::widgets::tab_reveal::area_callbacks(reveal, &owner).into(),
+            );
         }
         header
     }
@@ -2020,25 +2068,43 @@ impl TabHeaderLook {
     }
 }
 
-// ---- Pills: pill buttons on leather ----
+// ---- Pills: tab buttons on leather ("Buttons" in the UI) ----
 //
-// A pill tab is a button: the selected one is the theme's submit button
-// (its primary command), every other one its plain button, each with the
-// button's whole style - resting face, hover, press, the keyboard ring and
-// the fades - rounded into a pill. They sit on a strip of leather, tinted
-// white by day and dark at night, laid over the strip's whole border box so
-// it reaches the strip's top edge. Along the foot runs a 1px rule of gold:
-// the theme's metal shimmer over aluminium tinted gold. The rule is a node
-// of its own (each material reads its tint from its own node), one CSS
-// pixel tall, which the renderer draws as two device pixels at 2x.
+// A tab button is the theme's own command at the house radius: the selected
+// one is its submit button (the primary command), every other one its plain
+// button, each with the button's whole style - resting face, hover, press
+// (pointer, Space, Enter), the keyboard ring and the fades. They stand in a
+// row as tall as a title bar, centred where the traffic lights are centred
+// when the row is the window's title bar, on a strip of leather laid over
+// the strip's whole border box so it reaches its top edge. Under the row
+// runs a 2px golden line: the theme's metal shimmer over aluminium tinted
+// gold. The line is a node of its own (each material reads its tint from
+// its own node). In flora the plain buttons wear the leather faces (a little
+// grain shows through) and every button the gold edge.
 
-/// The leather's tint: white leather by day, dark leather at night.
-const PILL_STRIP_CSS: &str =
-    "--azul-material-tint: #f4f0e8; @theme(dark) { --azul-material-tint: #3a322c; }";
-/// The rule's tint: aluminium turned gold.
-const PILL_RULE_CSS: &str = "--azul-material-tint: #d4af37;";
-/// The room between two pills and around the row, in px.
-const PILL_GAP: isize = 6;
+/// The leather's tint (pale grey nappa, mixed toward black at night) and
+/// its pillow: the strip rises from its edges, the golden line its seam.
+pub(crate) const PILL_STRIP_CSS: &str = "--azul-material-tint: #e4e2dd; --azul-pillow: 76px .16; \
+     @theme(dark) { --azul-material-tint: #373635; }";
+/// The golden line: aluminium tinted gold, lit along its own shape by a
+/// cushion bevel.
+pub(crate) const PILL_RULE_CSS: &str = "--azul-material-tint: #e9c672; --azul-bevel: 1px; \
+     --azul-bevel-depth: 2.5; --azul-bevel-softness: 1;";
+/// The room between two tab buttons, in px.
+pub(crate) const PILL_GAP: isize = 6;
+/// The row the buttons stand in, in px: a title bar's height.
+pub(crate) const PILL_ROW: isize = 28;
+/// A tab button's height, in px.
+pub(crate) const PILL_HEIGHT: isize = 22;
+/// The room beside a tab button's label, in px.
+pub(crate) const PILL_SIDE: isize = 12;
+/// The house radius of a tab button, in px.
+pub(crate) const PILL_RADIUS: isize = 3;
+/// The golden line's height, in px (four device pixels at 2x).
+pub(crate) const PILL_RULE: isize = 2;
+/// The room before the first and after the last button of a strip that is
+/// not the window's title bar, in px.
+pub(crate) const PILL_LEAD: isize = 10;
 
 /// The style `theme`'s `button_type` button is drawn with: its container's
 /// declarations, conditions and all.
@@ -2059,19 +2125,49 @@ fn button_style(
         .collect()
 }
 
-/// A pill: the tab's base, `theme`'s `button_type` button, rounded, one
-/// line.
-fn pill(
+/// A tab button: the tab's base, `theme`'s `button_type` button at the house
+/// radius, `PILL_HEIGHT` tall (its border box) with its label centred on
+/// one line, `PILL_SIDE` beside the label. In flora the label is set in the
+/// tab capitals (the right side giving their trailing tracking back), a
+/// plain button wears the leather faces, and every button the gold edge.
+#[must_use]
+pub(crate) fn pill(
     theme: crate::widgets::themes::UiTheme,
     button_type: crate::widgets::button::ButtonType,
 ) -> CssPropertyWithConditionsVec {
-    use crate::widgets::themes::decl;
+    use crate::widgets::{
+        button::ButtonType,
+        themes::{decl, flora, UiTheme},
+    };
+    type P = CssPropertyWithConditions;
     let mut v = TAB_BASE.to_vec();
     v.extend(button_style(theme, button_type));
-    v.extend(decl::radius(999));
-    v.extend(decl::padding(4, 14, 4, 14));
+    v.extend(decl::radius(PILL_RADIUS));
+    v.extend(decl::padding(0, PILL_SIDE, 0, PILL_SIDE));
     v.extend(decl::margin(0, 0, 0, 0));
     v.push(decl::nowrap());
+    // The border box is the button's height: the button's own base sizes
+    // its content box and starts it at the top of a column (`align-self:
+    // start`); here it is centred in the row.
+    v.push(P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)));
+    v.push(P::simple(CssProperty::const_height(LayoutHeight::const_px(PILL_HEIGHT))));
+    v.push(P::simple(CssProperty::align_self(LayoutAlignSelf::Center)));
+    // One line as tall as the content box (the border box less its 1px
+    // border), so the label is centred in either box model.
+    v.push(P::simple(CssProperty::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(PILL_HEIGHT - 2),
+    ))));
+    if theme == UiTheme::Flora {
+        v.extend(flora::tab_button_caps());
+        let (px, em) = flora::TAB_BUTTON_CAPS;
+        #[allow(clippy::cast_precision_loss)] // a few px
+        let side = PILL_SIDE as f32;
+        v.push(decl::px_padding_right(side - decl::trailing_tracking_px(px, em)));
+        if button_type == ButtonType::Default {
+            v.extend(flora::leather_faces());
+        }
+        v.extend(flora::gold_edge());
+    }
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -2092,10 +2188,12 @@ pub(crate) fn pill_look(
         }))),
         decl::position(LayoutPosition::Relative),
         decl::font_size(13),
+        // The row and the line under it, nothing else: no air above or
+        // below the buttons.
+        P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(PILL_ROW + PILL_RULE))),
     ]);
-    // A gauge of room under the pills for the rule, so it never runs under
-    // a pill.
-    header.extend(decl::padding(PILL_GAP, PILL_GAP * 2, PILL_GAP + 1, PILL_GAP * 2));
+    header.extend(decl::padding(0, PILL_LEAD, PILL_RULE, PILL_LEAD));
     // The leather over a base of its own colour (seen while the material
     // renders, or without the materials feature).
     header.extend(decl::themed_layers(
@@ -2103,12 +2201,13 @@ pub(crate) fn pill_look(
         vec![StyleBackgroundContent::Color(ColorU::rgb(0x3A, 0x32, 0x2C)), leather()],
     ));
 
+    #[allow(clippy::cast_precision_loss)] // 2px
     let rule = vec![
         decl::position(LayoutPosition::Absolute),
         decl::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
         decl::simple(CssProperty::const_right(LayoutRight::const_px(0))),
         decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
-        decl::px_height(1.0),
+        decl::px_height(PILL_RULE as f32),
         P::simple(decl::layers(vec![
             StyleBackgroundContent::Image(AzString::from_const_str("azul-builtin:aluminium")),
             crate::widgets::themes::flora::RULE_SHIMMER,
@@ -2121,6 +2220,9 @@ pub(crate) fn pill_look(
         CssPropertyWithConditionsVec::from_vec(vec![
             P::simple(CssProperty::const_width(LayoutWidth::const_px(0))),
             P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+            // No spacer before the first button: the strip's padding is
+            // its lead, and a spacer would add a gap to it.
+            P::simple(CssProperty::const_display(LayoutDisplay::None)),
         ]),
         CssPropertyWithConditionsVec::from_const_slice(AFTER_BASE),
         pill(theme, ButtonType::Primary),
@@ -2205,6 +2307,9 @@ pub struct TabContent {
     /// fades out, the new one slides in) while a rebuild for the same tab
     /// keeps it still.
     pub tab: usize,
+    /// The reveal its `TabHeader` was built with (`with_reveal`): the panel
+    /// is the other half of its hover area, and it closes to no height.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
 }
 
 impl Default for TabContent {
@@ -2215,6 +2320,7 @@ impl Default for TabContent {
             theme: crate::widgets::themes::OptionUiTheme::None,
             slide: TabSlide::None,
             tab: 0,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
         }
     }
 }
@@ -2321,6 +2427,29 @@ fn slide_animation(
     CssPropertyWithConditions::with_single_condition(property, NO_REDUCED_MOTION)
 }
 
+/// The motion of a content group whose strip switched from tab `from` to
+/// tab `to` (`None` for no switch): its entrance - in from the side the
+/// switch leaves, fading in - and its exit (a fade where it stands), and
+/// the keyframes they name, for the node that ships them.
+pub(crate) fn switch_motion(
+    from: usize,
+    to: usize,
+) -> Option<(Vec<CssPropertyWithConditions>, azul_css::css::Css)> {
+    use azul_css::props::basic::animation::AnimationTiming;
+    let enter = match to.cmp(&from) {
+        core::cmp::Ordering::Greater => SLIDE_IN_FROM_LEFT,
+        core::cmp::Ordering::Less => SLIDE_IN_FROM_RIGHT,
+        core::cmp::Ordering::Equal => return None,
+    };
+    Some((
+        vec![
+            slide_animation(false, enter, SLIDE_IN_MS, AnimationTiming::EaseOut),
+            slide_animation(true, FADE_OUT, FADE_OUT_MS, AnimationTiming::EaseIn),
+        ],
+        slide_keyframes(),
+    ))
+}
+
 impl TabContent {
     #[must_use]
     pub const fn new(content: Dom) -> Self {
@@ -2330,7 +2459,21 @@ impl TabContent {
             theme: crate::widgets::themes::OptionUiTheme::None,
             slide: TabSlide::None,
             tab: 0,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
         }
+    }
+
+    /// The reveal its `TabHeader` was built with: the panel opens and closes
+    /// by its height as the reveal says, and the pointer on it keeps it open.
+    pub fn set_reveal(&mut self, reveal: crate::widgets::tab_reveal::TabReveal) {
+        self.reveal = crate::widgets::tab_reveal::OptionTabReveal::Some(reveal);
+    }
+
+    /// [`Self::set_reveal`] for the builder chain.
+    #[must_use]
+    pub fn with_reveal(mut self, reveal: crate::widgets::tab_reveal::TabReveal) -> Self {
+        self.set_reveal(reveal);
+        self
     }
 
     /// The tab bar switched from tab `from` to tab `to` and this panel now
@@ -2399,7 +2542,25 @@ impl TabContent {
         } else {
             look.unpadded
         };
-        let panel = Dom::create_div().with_css_props(tab_content_css_style);
+        let panel = match self.reveal.as_ref() {
+            Some(reveal) => {
+                let mut style = tab_content_css_style.into_library_owned_vec();
+                if reveal.get_behaviour()
+                    != crate::widgets::tab_reveal::TabClickBehaviour::AlwaysOpen
+                {
+                    style.extend(crate::widgets::tab_reveal::content_motion(reveal.is_open()));
+                }
+                let owner = crate::widgets::tab_reveal::RevealOwner::Header(
+                    OptionTabOnClick::None,
+                );
+                Dom::create_div()
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+                    .with_callbacks(
+                        crate::widgets::tab_reveal::area_callbacks(reveal, &owner).into(),
+                    )
+            }
+            None => Dom::create_div().with_css_props(tab_content_css_style),
+        };
         let panel = match look.marker {
             None => panel,
             Some(marker) => panel.with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(

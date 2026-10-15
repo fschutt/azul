@@ -100,7 +100,10 @@ use super::{
     themes::{flat, style_kit, OptionUiTheme, UiTheme},
     titlebar::{OptionTabsInTitlebar, TabsInTitlebar},
 };
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::tab_reveal::{RevealMachine, RevealOwner, TabReveal},
+};
 
 // -- Callbacks --
 
@@ -2775,6 +2778,17 @@ pub struct Ribbon {
     /// for, asked of the window so a resize across a scaling step rebuilds
     /// the ribbon; set it for a ribbon in a narrower box than its window.
     pub available_width: f32,
+    /// The shape of the tabs ([`Self::with_tab_style`]): `Auto` is the
+    /// theme's own row (flora's curved tabs, Office's square ones); `Pills`
+    /// makes the tabs the theme's buttons in a 28px row on one leather
+    /// surface with the content, closed by a golden line.
+    pub tab_style: crate::widgets::tabs::TabStyle,
+    /// How the content opens and closes ([`Self::with_reveal`]), kept by the
+    /// app between rebuilds; `None` keeps the content always open.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
+    /// What the app puts at the right end of the tab row, before the
+    /// chevron (the location tabs' button); `None` for nothing.
+    pub strip_end: OptionDom,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -3520,7 +3534,53 @@ impl Ribbon {
             behavior: RibbonBehavior::office_2013(),
             theme: OptionUiTheme::None,
             available_width: 0.0,
+            tab_style: crate::widgets::tabs::TabStyle::Auto,
+            reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
+            strip_end: OptionDom::None,
         }
+    }
+
+    /// The shape of the tabs: the theme's own row (`Auto`), Aurora's
+    /// curves, square tabs, or `Pills` - the theme's buttons in a row as
+    /// tall as a title bar, on one leather surface with the content.
+    pub const fn set_tab_style(&mut self, style: crate::widgets::tabs::TabStyle) {
+        self.tab_style = style;
+    }
+
+    /// [`Self::set_tab_style`] for the builder chain.
+    #[must_use]
+    pub const fn with_tab_style(mut self, style: crate::widgets::tabs::TabStyle) -> Self {
+        self.set_tab_style(style);
+        self
+    }
+
+    /// How the content opens and closes: the app makes `reveal` once
+    /// (`TabReveal::create`, with its `TabClickBehaviour`) and hands the same
+    /// one to every build, so the content shows as it did. The ribbon feeds
+    /// it the pointer and the clicks and tells the app of a tab the content
+    /// switched to through [`Self::on_tab_click`].
+    pub fn set_reveal(&mut self, reveal: crate::widgets::tab_reveal::TabReveal) {
+        self.reveal = crate::widgets::tab_reveal::OptionTabReveal::Some(reveal);
+    }
+
+    /// [`Self::set_reveal`] for the builder chain.
+    #[must_use]
+    pub fn with_reveal(mut self, reveal: crate::widgets::tab_reveal::TabReveal) -> Self {
+        self.set_reveal(reveal);
+        self
+    }
+
+    /// Puts `dom` at the right end of the tab row, before the chevron (the
+    /// location tabs' button, `TabOverview::button`).
+    pub fn set_strip_end(&mut self, dom: Dom) {
+        self.strip_end = OptionDom::Some(dom);
+    }
+
+    /// [`Self::set_strip_end`] for the builder chain.
+    #[must_use]
+    pub fn with_strip_end(mut self, dom: Dom) -> Self {
+        self.set_strip_end(dom);
+        self
     }
 
     /// The width the ribbon is laid out in, px (see
@@ -3685,9 +3745,13 @@ impl Ribbon {
     /// same structure - and the window is asked about each width once.
     fn themed(self, mode: RibbonChromeMode) -> Dom {
         let scales = self.scales_for(mode);
-        if let Some(theme) = self.theme.into_option() { self.build_in(theme, mode, &scales) } else {
-            let flat = self.clone().build_in(UiTheme::Flat, mode, &scales);
-            let flora = self.build_in(UiTheme::Flora, mode, &scales);
+        // Read once: both looks show the content as it stands.
+        let view = RevealView::of(&self.reveal, self.active_tab);
+        if let Some(theme) = self.theme.into_option() {
+            self.build_in(theme, mode, &scales, &view)
+        } else {
+            let flat = self.clone().build_in(UiTheme::Flat, mode, &scales, &view);
+            let flora = self.build_in(UiTheme::Flora, mode, &scales, &view);
             crate::widgets::themes::theme_blocks::follow_dom(UiTheme::current(), flat, flora)
         }
     }
@@ -3729,27 +3793,45 @@ impl Ribbon {
     /// own tab row, which it cuts as Firefox's (Australis): its application
     /// button and selected tab carry curves, unless the caller's part
     /// replaced flora's. The active tab's groups are drawn at `scales`.
-    fn build_in(mut self, theme: UiTheme, mode: RibbonChromeMode, scales: &[GroupScale]) -> Dom {
+    fn build_in(
+        mut self,
+        theme: UiTheme,
+        mode: RibbonChromeMode,
+        scales: &[GroupScale],
+        view: &RevealView,
+    ) -> Dom {
+        let pills = self.tab_style.resolved(theme) == crate::widgets::tabs::TabStyle::Pills;
         let mut curves = TabRowCurves::default();
+        if pills {
+            // The tab row of the theme's buttons, on one leather surface
+            // with the content; a part the caller set stays the caller's.
+            self.style = pill_row_style(self.style, theme);
+        }
         if theme == UiTheme::Flora {
             use crate::widgets::themes::flora;
-            if self.style.app_button_style.is_none() {
+            if !pills && self.style.app_button_style.is_none() {
                 curves.app_button = Some(flora::tab_curves(true));
             }
-            if self.style.tab_active_style.is_none() {
+            if !pills && self.style.tab_active_style.is_none() {
                 curves.selected_tab = Some(flora::tab_curves(false));
             }
             self.style = flora::ribbon_style(self.style);
+            if pills {
+                self.style = flora::ribbon_leather_style(self.style);
+            }
         }
-        self.build_chrome(mode, theme, &curves, scales)
+        self.build_chrome(mode, theme, &curves, scales, view, pills)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_chrome(
         self,
         mode: RibbonChromeMode,
         theme: UiTheme,
         curves: &TabRowCurves,
         scales: &[GroupScale],
+        view: &RevealView,
+        pills: bool,
     ) -> Dom {
         let Self {
             app_button,
@@ -3764,8 +3846,31 @@ impl Ribbon {
             theme: _,
             // Already turned into `scales` by `themed`.
             available_width: _,
+            // Already turned into `pills` by `build_in`.
+            tab_style: _,
+            // Already read into `view` by `themed`.
+            reveal: _,
+            strip_end,
         } = self;
         let has_callback = on_tab_click.is_some();
+        // The row of buttons is the title bar itself: no grab strip above it
+        // (the window controls are centred in the same 28px row), and the
+        // controls' room is its whole lead.
+        let tabs_in_titlebar = match tabs_in_titlebar.into_option() {
+            Some(chrome) if pills => OptionTabsInTitlebar::Some(TabsInTitlebar { top: 0.0, ..chrome }),
+            other => other.into(),
+        };
+        // The content's own behaviours (collapse, peek) give way to a reveal.
+        let behavior = if view.reveal.is_some() {
+            RibbonBehavior {
+                collapsible: false,
+                peek_on_hover: false,
+                ..behavior
+            }
+        } else {
+            behavior
+        };
+        let owner = RevealOwner::Ribbon(on_tab_click.clone());
 
         // Labels are needed by both chromes; `tabs` is consumed below.
         let tab_labels: Vec<AzString> = tabs.as_slice().iter().map(|t| t.label.clone()).collect();
@@ -3842,7 +3947,9 @@ impl Ribbon {
         });
 
         for (idx, tab) in tabs.as_slice().iter().enumerate() {
-            let (classes, part_style) = if idx == active_tab {
+            // Closed content draws no tab selected; open, the shown one.
+            let selected = view.selected == Some(idx);
+            let (classes, part_style) = if selected {
                 (CLS_TAB_ACTIVE, style.resolved_tab_active_style())
             } else {
                 (CLS_TAB, style.resolved_tab_style())
@@ -3867,7 +3974,7 @@ impl Ribbon {
             // the tab's first child in every look. Right after the
             // application button it hangs no run-out on that side: the
             // button's stone covers the rule there.
-            if idx == active_tab {
+            if selected {
                 if let Some(look) = curves.selected_tab.as_ref() {
                     let parts = if idx == 0 && after_the_app_button {
                         crate::widgets::tabs::australis_curves(&look.after_a_stone())
@@ -3881,7 +3988,11 @@ impl Ribbon {
             }
 
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
-            if has_callback {
+            if let Some(reveal) = view.reveal.as_ref() {
+                // The reveal hears the pointer and the clicks, and tells the
+                // app of a tab the content switched to.
+                cbs.extend(crate::widgets::tab_reveal::tab_callbacks(idx, reveal, &owner, false));
+            } else if has_callback {
                 cbs.push(CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Click),
                     callback: CoreCallback {
@@ -3934,9 +4045,63 @@ impl Ribbon {
                 .with_css_props(style.resolved_tab_filler_style()),
         );
 
+        // The row's right end: the app's buttons, then the chevron that locks
+        // the content open (or closes locked content), 4px apart.
+        let mut end: Vec<Dom> = Vec::with_capacity(2);
+        if let Some(dom) = strip_end.into_option() {
+            end.push(dom);
+        }
+        if let Some(reveal) = view.reveal.as_ref().filter(|_| view.closes) {
+            let icon = if view.locked { "expand_less" } else { "expand_more" };
+            let mut chevron = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_CHEVRON))
+                .with_css_props(as_control(strip_button_style(theme), tabs_in_titlebar))
+                .with_child(Dom::create_icon(AzString::from_const_str(icon)))
+                .with_tab_index(TabIndex::Auto)
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::PushButton,
+                    accessibility_name: azul_css::OptionString::Some(AzString::from_const_str(
+                        if view.locked {
+                            "Close the tab content"
+                        } else {
+                            "Keep the tab content open"
+                        },
+                    )),
+                    ..Default::default()
+                });
+            chevron = chevron.with_callbacks(
+                vec![crate::widgets::tab_reveal::chevron_callback(reveal, &owner)].into(),
+            );
+            end.push(chevron);
+        }
+        if !end.is_empty() {
+            bar_children.push(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_STRIP_END))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+                        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+                        Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+                        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+                            inner: FloatValue::const_new(0),
+                        })),
+                        Cond::simple(P::ColumnGap(azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
+                            inner: PixelValue::const_px(STRIP_END_GAP),
+                        }))),
+                    ]))
+                    .with_children(DomVec::from_vec(end)),
+            );
+        }
+
         // In the titlebar the strip runs up to the window's edges, holds its
-        // tabs clear of the window controls and moves the window.
+        // tabs clear of the window controls and moves the window. A row of
+        // buttons takes the controls' room as its whole lead.
         let tab_bar_style = match tabs_in_titlebar.into_option() {
+            Some(chrome) if pills => {
+                let mut v = style.resolved_tab_bar_style().into_library_owned_vec();
+                v.push(Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(0))));
+                chrome.strip_style(&CssPropertyWithConditionsVec::from_vec(v))
+            }
             Some(chrome) => chrome.strip_style(&style.resolved_tab_bar_style()),
             None => style.resolved_tab_bar_style(),
         };
@@ -4105,29 +4270,83 @@ impl Ribbon {
             .with_css_props(style.resolved_mobile_group_list_style())
             .with_children(DomVec::from_vec(group_list_items));
 
-        let content = Dom::create_div()
+        // On the leather a disabled command keeps the raised pill in a
+        // quieter face (the Button only dims it), and a check box's row is
+        // a frosted panel.
+        if pills && theme == UiTheme::Flora {
+            for g in &mut group_doms {
+                leather_details(g);
+            }
+        }
+        let mut content_style = style.resolved_content_style().into_library_owned_vec();
+        let mut content_children = group_doms;
+        let mut content_css = None;
+        if view.reveal.is_some() && !matches!(mode, RibbonChromeMode::Mobile) {
+            if view.closes {
+                // The content opens and closes by its height, the golden
+                // line and everything under the ribbon moving with it.
+                content_style.extend(crate::widgets::tab_reveal::content_motion(view.open));
+            }
+            // The groups in one body keyed by its tab: a switch makes a new
+            // body that slides in from the side the switch leaves while the
+            // old one fades where it stands.
+            let mut body = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_CONTENT_BODY))
+                .with_key(("azul-ribbon-body", active_tab))
+                .with_children(DomVec::from_vec(content_children));
+            let mut body_style = vec![
+                Cond::simple(P::const_display(LayoutDisplay::Flex)),
+                Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+                Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+                Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+            ];
+            if view.open {
+                if let Some((motion, keyframes)) =
+                    crate::widgets::tabs::switch_motion(view.built_before, active_tab)
+                {
+                    body_style.extend(motion);
+                    content_css = Some(keyframes);
+                }
+            }
+            body = body.with_css_props(CssPropertyWithConditionsVec::from_vec(body_style));
+            content_children = vec![body];
+        }
+        let mut content = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_CONTENT))
-            .with_css_props(style.resolved_content_style())
-            .with_children(DomVec::from_vec(group_doms));
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(content_style))
+            .with_children(DomVec::from_vec(content_children));
+        if let Some(keyframes) = content_css {
+            content = content.with_component_css(keyframes);
+        }
 
         // Structural modes pin the chrome's visibility unconditionally
         // (inline resolution is last-wins, so the appended value overrides
         // the baked viewport condition): the STRUCTURE is the breakpoint
         // switch, not the stylesheet.
         let children = match mode {
-            RibbonChromeMode::Adaptive => vec![
-                tab_bar,
-                mobile_tab_button,
-                mobile_tab_overlay,
-                mobile_group_list,
-                content,
-            ],
+            RibbonChromeMode::Adaptive => {
+                let mut v = vec![
+                    tab_bar,
+                    mobile_tab_button,
+                    mobile_tab_overlay,
+                    mobile_group_list,
+                    content,
+                ];
+                if pills {
+                    v.push(golden_line());
+                }
+                v
+            }
             RibbonChromeMode::Desktop => {
                 let mut tab_bar = tab_bar;
                 tab_bar
                     .root
                     .upsert_inline_css_property(P::const_display(LayoutDisplay::Flex));
-                vec![tab_bar, content]
+                let mut v = vec![tab_bar, content];
+                if pills {
+                    v.push(golden_line());
+                }
+                v
             }
             RibbonChromeMode::Mobile => {
                 let mut mobile_tab_button = mobile_tab_button;
@@ -4177,6 +4396,18 @@ impl Ribbon {
         // tab-click's own RefreshDom immediately forgot it. Only attached
         // when a chrome behavior is active - an inert ribbon has no chrome
         // state to persist (and `Dom` equality stays meaningful for it).
+        if pills {
+            // The leather's tint and its pillow: one surface from the top of
+            // the strip down to the golden line, its seam.
+            container.root.set_css(crate::widgets::tabs::PILL_STRIP_CSS);
+        }
+        if let Some(reveal) = view.reveal.as_ref() {
+            // The tabs and the content are one hover area: leaving it (for
+            // `LEAVE_CLOSE_MS`) closes the content, coming back cancels.
+            let mut cbs = container.root.get_callbacks().as_ref().to_vec();
+            cbs.extend(crate::widgets::tab_reveal::area_callbacks(reveal, &owner));
+            container.root.set_callbacks(cbs.into());
+        }
         if behavior.collapsible || behavior.peek_on_hover {
             container
                 .root
@@ -4193,6 +4424,239 @@ impl Ribbon {
     }
 }
 
+// -- the tab row of buttons and the reveal --
+
+/// The chevron at the tab row's end (`TabClickBehaviour`'s lock).
+pub const RIBBON_CHEVRON_CLASS: &str = "__azul-native-ribbon-chevron";
+/// The box at the tab row's right end: the app's buttons and the chevron.
+pub const RIBBON_STRIP_END_CLASS: &str = "__azul-native-ribbon-strip-end";
+/// The body that holds the shown tab's groups inside a revealing content
+/// band, keyed by its tab so a switch slides a new one in.
+pub const RIBBON_CONTENT_BODY_CLASS: &str = "__azul-native-ribbon-content-body";
+/// The golden line closing the leather area (`TabStyle::Pills`).
+pub const RIBBON_RULE_CLASS: &str = "__azul-native-ribbon-rule";
+static CLS_CHEVRON: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_CHEVRON_CLASS))];
+static CLS_STRIP_END: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_STRIP_END_CLASS))];
+static CLS_CONTENT_BODY: &[IdOrClass] =
+    &[Class(AzString::from_const_str(RIBBON_CONTENT_BODY_CLASS))];
+static CLS_RULE: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_RULE_CLASS))];
+
+/// The room between the buttons at the tab row's end, in px.
+const STRIP_END_GAP: isize = 4;
+/// The content band's height on the leather, in px: three rows of small
+/// commands clear of the group titles.
+const LEATHER_CONTENT_PX: isize = 106;
+
+/// What one build reads from the ribbon's reveal, once for both looks.
+#[derive(Clone)]
+struct RevealView {
+    /// The reveal the ribbon feeds, if it has one.
+    reveal: Option<TabReveal>,
+    /// The tab drawn selected: none while the content is closed.
+    selected: Option<usize>,
+    /// Whether the content shows.
+    open: bool,
+    /// Whether the content is locked open (the chevron's icon).
+    locked: bool,
+    /// Whether the content can close at all (not `AlwaysOpen`): only then
+    /// is there a chevron and a height to animate.
+    closes: bool,
+    /// The tab the content was built for before: a build for another tab
+    /// slides the new content in.
+    built_before: usize,
+}
+
+impl RevealView {
+    fn of(reveal: &crate::widgets::tab_reveal::OptionTabReveal, active_tab: usize) -> Self {
+        let Some(reveal) = reveal.as_ref() else {
+            return Self {
+                reveal: None,
+                selected: Some(active_tab),
+                open: true,
+                locked: false,
+                closes: false,
+                built_before: active_tab,
+            };
+        };
+        let built_before = reveal.begin_build(active_tab);
+        let machine = reveal.machine();
+        Self {
+            reveal: Some(reveal.clone()),
+            selected: machine.as_ref().map_or(Some(active_tab), RevealMachine::selected),
+            open: machine.as_ref().is_none_or(RevealMachine::is_open),
+            locked: machine.as_ref().is_some_and(RevealMachine::is_locked),
+            closes: machine.as_ref().is_some_and(|m| {
+                m.behaviour() != crate::widgets::tab_reveal::TabClickBehaviour::AlwaysOpen
+            }),
+            built_before,
+        }
+    }
+}
+
+/// `s` with its tab row made of `theme`'s buttons (`TabStyle::Pills`) and
+/// its chrome and band one leather surface: the parts the caller left
+/// `None`. The row is 28px tall, the buttons centred in it 6px apart; the
+/// band under it is transparent, `LEATHER_CONTENT_PX` tall.
+fn pill_row_style(mut s: RibbonStyle, theme: UiTheme) -> RibbonStyle {
+    use crate::widgets::{
+        button::ButtonType,
+        tabs::{pill, PILL_GAP, PILL_LEAD, PILL_ROW},
+        themes::decl,
+    };
+    let some = |v: Vec<Cond>| OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(v));
+    if s.tab_bar_style.is_none() {
+        let mut v = vec![
+            cond_border_box(),
+            Cond::simple(P::const_display(LayoutDisplay::Flex)),
+            only_on_mobile(P::const_display(LayoutDisplay::None)),
+            Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+            Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+            Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+            Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+                inner: FloatValue::const_new(0),
+            })),
+            Cond::simple(P::const_height(LayoutHeight::const_px(PILL_ROW))),
+            Cond::simple(P::ColumnGap(azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
+                inner: PixelValue::const_px(PILL_GAP),
+            }))),
+            Cond::simple(decl::fill(ColorU::TRANSPARENT)),
+        ];
+        v.extend(decl::padding(0, PILL_LEAD, 0, PILL_LEAD));
+        s.tab_bar_style = some(v);
+    }
+    if s.app_button_style.is_none() {
+        s.app_button_style = some(pill(theme, ButtonType::Default).into_library_owned_vec());
+    }
+    if s.tab_style.is_none() {
+        s.tab_style = some(pill(theme, ButtonType::Default).into_library_owned_vec());
+    }
+    if s.tab_active_style.is_none() {
+        s.tab_active_style = some(pill(theme, ButtonType::Primary).into_library_owned_vec());
+    }
+    if s.tab_filler_style.is_none() {
+        s.tab_filler_style =
+            some(vec![Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1)))]);
+    }
+    if s.container_style.is_none() {
+        let leather = || StyleBackgroundContent::Image(AzString::from_const_str("azul-builtin:leather"));
+        let mut v = s.resolved_container_style().into_library_owned_vec();
+        v.push(decl::position(LayoutPosition::Relative));
+        v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))));
+        // The leather over a base of its own colour (seen while the
+        // material renders, or without the materials feature).
+        v.extend(decl::themed_layers(
+            vec![StyleBackgroundContent::Color(ColorU::rgb(0xF4, 0xF0, 0xE8)), leather()],
+            vec![StyleBackgroundContent::Color(ColorU::rgb(0x3A, 0x32, 0x2C)), leather()],
+        ));
+        s.container_style = some(v);
+    }
+    if s.content_style.is_none() {
+        let mut v = s.resolved_content_style().into_library_owned_vec();
+        v.push(Cond::simple(decl::fill(ColorU::TRANSPARENT)));
+        v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))));
+        v.push(Cond::simple(P::const_height(LayoutHeight::const_px(LEATHER_CONTENT_PX))));
+        v.extend(decl::padding(4, 6, 0, 6));
+        s.content_style = some(v);
+    }
+    s
+}
+
+/// A small button at the tab row's end in `theme` (the chevron, the
+/// location tabs' button): 24 x 20, a button's face, never gold.
+#[must_use]
+pub(crate) fn strip_button_style(theme: UiTheme) -> CssPropertyWithConditionsVec {
+    use crate::widgets::themes::{decl, flora};
+    match theme {
+        UiTheme::Flora => CssPropertyWithConditionsVec::from_vec(flora::strip_button()),
+        UiTheme::Flat => {
+            let mut v = vec![
+                cond_border_box(),
+                Cond::simple(P::const_display(LayoutDisplay::Flex)),
+                Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+                Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+                Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+                    inner: FloatValue::const_new(0),
+                })),
+                Cond::simple(P::const_width(LayoutWidth::const_px(24))),
+                Cond::simple(P::const_height(LayoutHeight::const_px(20))),
+                Cond::simple(P::const_cursor(StyleCursor::Pointer)),
+                decl::font_size(18),
+                Cond::simple(decl::fill(ColorU::TRANSPARENT)),
+            ];
+            v.extend(decl::radius(3));
+            v.extend(flat::hover_bg_both(
+                ColorU::new(0, 0, 0, 15),
+                ColorU::new(255, 255, 255, 20),
+            ));
+            CssPropertyWithConditionsVec::from_vec(v)
+        }
+    }
+}
+
+/// The 2px golden line that closes the leather area under the band: gold
+/// aluminium with the theme's metal shimmer, its tint and its bevel read by
+/// the material renderer. It moves with the band's height.
+fn golden_line() -> Dom {
+    use crate::widgets::{tabs::PILL_RULE, themes::decl};
+    #[allow(clippy::cast_precision_loss)] // 2px
+    let mut line = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RULE))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            decl::px_height(PILL_RULE as f32),
+            Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+                inner: FloatValue::const_new(0),
+            })),
+            Cond::simple(decl::layers(vec![
+                StyleBackgroundContent::Image(AzString::from_const_str("azul-builtin:aluminium")),
+                crate::widgets::themes::flora::RULE_SHIMMER,
+            ])),
+        ]));
+    line.root.set_css(crate::widgets::tabs::PILL_RULE_CSS);
+    line
+}
+
+/// `node`'s own style with `extra` laid after it (so `extra` wins).
+fn append_style(node: &mut NodeData, extra: Vec<Cond>) {
+    let mut v: Vec<Cond> = node
+        .style
+        .iter_inline_properties()
+        .map(|(property, apply_if)| Cond {
+            property: property.clone(),
+            apply_if: apply_if.clone(),
+        })
+        .collect();
+    v.extend(extra);
+    node.set_css_props(CssPropertyWithConditionsVec::from_vec(v));
+}
+
+/// The commands and controls in `dom` as the leather shows them: a
+/// disabled command (its `RIBBON_DISABLED_CLASS`) keeps the raised pill in a
+/// quieter face with a neutral edge and grey words, opaque (the Button only
+/// dims a disabled caller-styled command); a row holding a check box (a
+/// check box and its label) is a frosted recessed panel.
+fn leather_details(dom: &mut Dom) {
+    use crate::widgets::themes::flora;
+    if dom.root.has_class(RIBBON_DISABLED_CLASS) {
+        let mut extra = flora::quiet_command();
+        extra.push(Cond::simple(P::const_opacity(StyleOpacity {
+            inner: PercentageValue::const_new(100),
+        })));
+        append_style(&mut dom.root, extra);
+    } else if dom.root.has_class("__azul-native-ribbon-row")
+        && dom
+            .children
+            .as_ref()
+            .iter()
+            .any(|c| c.root.has_class("__azul-native-checkbox-container"))
+    {
+        append_style(&mut dom.root, flora::check_panel());
+    }
+    for child in dom.children.iter_mut() {
+        leather_details(child);
+    }
+}
+
+// -- DOM assembly helpers --
 // -- DOM assembly helpers --
 
 /// The Australis curves a look hangs off the tab row's stones: flora's own

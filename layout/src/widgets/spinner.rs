@@ -750,7 +750,7 @@ fn fade_track(name: &'static str, from: f32, to: f32) -> Keyframes {
 
 /// The point `r` from the centre `c` (both axes), `deg` degrees clockwise from
 /// 12 o'clock.
-fn polar(c: f32, r: f32, deg: f32) -> SvgPoint {
+pub(crate) fn polar(c: f32, r: f32, deg: f32) -> SvgPoint {
     let (s, co) = deg.to_radians().sin_cos();
     SvgPoint {
         x: c + r * s,
@@ -759,7 +759,7 @@ fn polar(c: f32, r: f32, deg: f32) -> SvgPoint {
 }
 
 /// A closed polygon through `points`.
-fn closed(points: &[SvgPoint]) -> SvgPath {
+pub(crate) fn closed(points: &[SvgPoint]) -> SvgPath {
     let n = points.len();
     let items: Vec<SvgPathElement> = (0..n)
         .map(|i| SvgPathElement::Line(SvgLine::new(points[i], points[(i + 1) % n])))

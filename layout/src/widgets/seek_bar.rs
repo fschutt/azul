@@ -30,11 +30,11 @@ use azul_css::{
         basic::{length::FloatValue, pixel::PixelValue},
         layout::{
             LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink,
-            LayoutHeight, LayoutLeft, LayoutMarginLeft, LayoutMinWidth, LayoutPosition, LayoutTop,
-            LayoutWidth,
+            LayoutHeight, LayoutLeft, LayoutMarginLeft, LayoutMinWidth, LayoutOverflow,
+            LayoutPosition, LayoutTop, LayoutWidth,
         },
         property::CssProperty,
-        style::{StyleCursor, StyleUserSelect},
+        style::{StyleCursor, StyleTransform, StyleTransformVec, StyleUserSelect},
     },
     AzString, F32Vec, OptionString,
 };
@@ -390,11 +390,7 @@ fn show_position(
     state: SeekBarState,
     surface: SeekSurface,
 ) {
-    use azul_css::props::{
-        basic::pixel::PixelValue,
-        layout::{LayoutLeft, LayoutWidth},
-        property::CssProperty,
-    };
+    use azul_css::props::{layout::LayoutLeft, property::CssProperty};
     let percent = seek_fraction(state.position_s, state.duration_s) * 100.0;
     if surface == SeekSurface::Waveform {
         // [bars.., playhead]: the playhead moves; the bars' colours follow at the next build.
@@ -404,18 +400,17 @@ fn show_position(
         info.set_accessibility_value(track, AzString::from(value_text(state)));
         return;
     }
-    // [buffered, played, ticks.., thumb]
+    // [fills [buffered, played], ticks.., rail [thumb]]: both move by a
+    // transform, so a move repaints and lays nothing out.
     if let Some(played) = info
         .get_first_child(track)
+        .and_then(|fills| info.get_first_child(fills))
         .and_then(|buffered| info.get_next_sibling(buffered))
     {
-        info.set_css_property(
-            played,
-            CssProperty::const_width(LayoutWidth::Px(PixelValue::percent(percent))),
-        );
+        info.set_css_property(played, fill_shift(percent));
     }
-    if let Some(thumb) = info.get_last_child(track) {
-        info.set_css_property(thumb, CssProperty::const_left(LayoutLeft::percent(percent)));
+    if let Some(rail) = info.get_last_child(track) {
+        info.set_css_property(rail, slid(percent));
     }
     info.set_accessibility_value(track, AzString::from(value_text(state)));
     // The time label: the root's first child when it is not the trough itself.
@@ -576,6 +571,12 @@ static TICK_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static THUMB_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-seek-bar-thumb",
 ))];
+static FILLS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-seek-bar-fills",
+))];
+static RAIL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-seek-bar-rail",
+))];
 
 const fn simple(p: CssProperty) -> CssPropertyWithConditions {
     CssPropertyWithConditions::simple(p)
@@ -620,9 +621,47 @@ pub(crate) static SEEK_TICK_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_height(LayoutHeight::const_px(6))),
 ];
 
-/// The thumb: a 12 px knob centred on the play head.
+/// The box the buffered and the played parts are clipped to: the trough's
+/// own outline (it takes the trough's corners), so a part slid left past
+/// the trough's start is cut there.
+pub(crate) static SEEK_FILLS_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+    simple(CssProperty::const_top(LayoutTop::const_px(0))),
+    simple(CssProperty::const_width(LayoutWidth::Px(PixelValue::const_percent(100)))),
+    simple(CssProperty::const_height(LayoutHeight::const_px(6))),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+];
+
+/// The thumb's rail: as wide as the trough and no height (the pointer
+/// passes through it to the trough), slid along by what is played - a
+/// translation in percent of its own width is one of the trough's.
+pub(crate) static SEEK_RAIL_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+    simple(CssProperty::const_top(LayoutTop::const_px(0))),
+    simple(CssProperty::const_width(LayoutWidth::Px(PixelValue::const_percent(100)))),
+    simple(CssProperty::const_height(LayoutHeight::const_px(0))),
+];
+
+/// `transform: translateX(<percent>%)`: a part slid along the trough.
+fn slid(percent: f32) -> CssProperty {
+    CssProperty::const_transform(StyleTransformVec::from_vec(alloc::vec![
+        StyleTransform::TranslateX(PixelValue::percent(percent))
+    ]))
+}
+
+/// A fill (the buffered or the played part) `percent` along: the trough's
+/// width slid left by the rest.
+fn fill_shift(percent: f32) -> CssProperty {
+    slid(percent - 100.0)
+}
+
+/// The thumb: a 12 px knob centred on the play head (the rail's start).
 pub(crate) static SEEK_THUMB_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    simple(CssProperty::const_left(LayoutLeft::const_px(0))),
     simple(CssProperty::const_top(LayoutTop::const_px(-3))),
     simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         -6,
@@ -706,27 +745,44 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
         dragging: false,
     };
     let percent = |t: f64| seek_fraction(t, duration_s) * 100.0;
-    let width = |p: f32| {
-        simple(CssProperty::const_width(LayoutWidth::Px(
-            PixelValue::percent(p),
-        )))
-    };
+    let full = simple(CssProperty::const_width(LayoutWidth::Px(PixelValue::const_percent(100))));
     let left = |p: f32| simple(CssProperty::const_left(LayoutLeft::percent(p)));
 
     let mut parts: Vec<Dom> = Vec::new();
     let mut buffered = part(SEEK_FILL_BASE, &look.buffered);
-    buffered.push(width(percent(buffered_s)));
-    parts.push(
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(BUFFERED_CLASS))
-            .with_css_props(props(buffered)),
-    );
+    buffered.push(full.clone());
+    buffered.push(simple(fill_shift(percent(buffered_s))));
     let mut played = part(SEEK_FILL_BASE, &look.played);
-    played.push(width(percent(position_s)));
+    played.push(full);
+    played.push(simple(fill_shift(percent(position_s))));
+    // The trough's corners on the box the fills are cut to.
+    let corners: Vec<CssPropertyWithConditions> = look
+        .track
+        .iter()
+        .filter(|p| {
+            use azul_css::props::property::CssPropertyType as T;
+            matches!(
+                p.property.get_type(),
+                T::BorderTopLeftRadius
+                    | T::BorderTopRightRadius
+                    | T::BorderBottomLeftRadius
+                    | T::BorderBottomRightRadius
+            )
+        })
+        .cloned()
+        .collect();
     parts.push(
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(PLAYED_CLASS))
-            .with_css_props(props(played)),
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(FILLS_CLASS))
+            .with_css_props(props(part(SEEK_FILLS_BASE, &corners)))
+            .with_children(DomVec::from_vec(alloc::vec![
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(BUFFERED_CLASS))
+                    .with_css_props(props(buffered)),
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(PLAYED_CLASS))
+                    .with_css_props(props(played)),
+            ])),
     );
     for chapter in chapters.as_ref() {
         let mut tick = part(SEEK_TICK_BASE, &look.tick);
@@ -737,12 +793,18 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
                 .with_css_props(props(tick)),
         );
     }
-    let mut thumb = part(SEEK_THUMB_BASE, &look.thumb);
-    thumb.push(left(percent(position_s)));
+    let thumb = part(SEEK_THUMB_BASE, &look.thumb);
+    let mut rail = SEEK_RAIL_BASE.to_vec();
+    rail.push(simple(slid(percent(position_s))));
     parts.push(
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(THUMB_CLASS))
-            .with_css_props(props(thumb)),
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(RAIL_CLASS))
+            .with_css_props(props(rail))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(THUMB_CLASS))
+                    .with_css_props(props(thumb)),
+            ),
     );
 
     let data = RefAny::new(SeekBarWrapper {
@@ -813,6 +875,7 @@ pub(crate) struct SeekBarLook {
 #[cfg(test)]
 mod seek_bar_tests {
     use azul_core::{dom::NodeType, window::VirtualKeyCode as K};
+    use azul_css::props::style::StyleTransform;
 
     use super::*;
     use crate::widgets::themes::{theme_blocks::checks, theme_checks};
@@ -913,6 +976,64 @@ mod seek_bar_tests {
             .with_theme(UiTheme::Flat)
             .dom();
         assert_eq!(bare.children.as_ref().len(), 1, "the trough alone");
+    }
+
+    /// The node of `dom` carrying `class`.
+    fn part_of<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        theme_checks::nodes(dom)
+            .into_iter()
+            .find(|(_, n)| theme_checks::has_class(n, class))
+            .map(|(_, n)| n)
+            .unwrap_or_else(|| panic!("the {class}"))
+    }
+
+    /// The resting `translateX` a node declares, in percent of its own width.
+    fn shift(node: &Dom) -> Option<f32> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .filter_map(|(p, _)| match p {
+                CssProperty::Transform(v) => v.get_property().and_then(|t| {
+                    t.as_ref().iter().find_map(|t| match t {
+                        StyleTransform::TranslateX(x) => Some(x.number.get()),
+                        _ => None,
+                    })
+                }),
+                _ => None,
+            })
+            .last()
+    }
+
+    /// A player moves the bar many times a second: the played part and the
+    /// thumb move by a transform (paint only), never by a width or a left
+    /// (a relayout each time). The played part is the trough's width slid
+    /// left by what is still to play; the thumb rides a rail as wide as the
+    /// trough, slid right by what is played.
+    #[test]
+    fn the_played_part_and_the_thumb_move_by_a_transform_not_by_layout() {
+        for theme in checks::BOTH {
+            let dom = bar().with_theme(theme).dom();
+            let played = part_of(&dom, "__azul-native-seek-bar-played");
+            let percent = 72.0 / 562.0 * 100.0;
+            let at = shift(played).expect("the played part is slid by a transform");
+            assert!((at - (percent - 100.0)).abs() < 0.01, "{}: {at}", theme.name());
+            let rail = part_of(&dom, "__azul-native-seek-bar-rail");
+            let at = shift(rail).expect("the thumb's rail is slid by a transform");
+            assert!((at - percent).abs() < 0.01, "{}: {at}", theme.name());
+            for moving in [played, rail] {
+                let width = moving.root.style.iter_inline_properties().filter_map(|(p, _)| match p {
+                    CssProperty::Width(v) => v.get_property().cloned(),
+                    _ => None,
+                }).last();
+                assert_eq!(
+                    width,
+                    Some(LayoutWidth::Px(PixelValue::percent(100.0))),
+                    "{}: as wide as the trough, whatever the position",
+                    theme.name()
+                );
+            }
+        }
     }
 
     #[test]
