@@ -442,6 +442,9 @@ struct Projected {
     /// An area: its outline closes back to the first point and it has an
     /// inside to fill.
     area: bool,
+    /// What is stroked: the line, its dashes (cut on the whole line, so the
+    /// pattern runs on across tiles), or the area's closed outline.
+    runs: Vec<Vec<(f64, f64)>>,
 }
 
 /// Parts kept before the cache starts over: a few screens of tiles for a
@@ -539,8 +542,8 @@ impl OverlayCache {
     }
 }
 
-/// A hash of what decides an overlay's cut: its kind, points and stroke
-/// widths. Colours are not in it, they are the nodes' CSS.
+/// A hash of what decides an overlay's cut: its kind, points, stroke widths
+/// and dash. Colours are not in it, they are the nodes' CSS.
 fn fingerprint(overlay: &MapOverlay) -> u64 {
     // FNV-1a: tiny, stable, and needs no hasher from std.
     fn mix(h: u64, v: u64) -> u64 {
@@ -560,8 +563,11 @@ fn fingerprint(overlay: &MapOverlay) -> u64 {
     match overlay {
         MapOverlay::Polyline(line) => with_points(
             mix(
-                mix(mix(h, 1), u64::from(line.width.to_bits())),
-                u64::from(line.casing_width.to_bits()),
+                mix(
+                    mix(mix(h, 1), u64::from(line.width.to_bits())),
+                    u64::from(line.casing_width.to_bits()),
+                ),
+                line.dash as u64,
             ),
             &line.points,
         ),
@@ -576,12 +582,15 @@ fn fingerprint(overlay: &MapOverlay) -> u64 {
 /// The points of a line or an area at zoom `z`; `None` for a marker and for
 /// a shape with too few points to draw.
 fn project_overlay(overlay: &MapOverlay, z: u8) -> Option<Projected> {
-    let (points, widest, area) = match overlay {
-        MapOverlay::Polyline(line) if line.points.as_slice().len() >= 2 => {
-            (line.points.as_slice(), line.width.max(line.casing_width), false)
-        }
+    let (points, widest, area, pattern) = match overlay {
+        MapOverlay::Polyline(line) if line.points.as_slice().len() >= 2 => (
+            line.points.as_slice(),
+            line.width.max(line.casing_width),
+            false,
+            dash_pattern(line.dash, line.width),
+        ),
         MapOverlay::Polygon(area) if area.points.as_slice().len() >= 3 => {
-            (area.points.as_slice(), area.stroke_width, true)
+            (area.points.as_slice(), area.stroke_width, true, None)
         }
         _ => return None,
     };
@@ -613,24 +622,99 @@ fn project_overlay(overlay: &MapOverlay, z: u8) -> Option<Projected> {
         min = (min.0.min(x), min.1.min(y));
         max = (max.0.max(x), max.1.max(y));
     }
+    let runs = match pattern {
+        _ if area => {
+            let mut outline = out.clone();
+            outline.push(out[0]);
+            alloc::vec![outline]
+        }
+        Some((dash, gap)) => dash_runs(&out, dash, gap),
+        None => alloc::vec![out.clone()],
+    };
     Some(Projected {
         points: out,
         min: (min.0 - margin, min.1 - margin),
         max: (max.0 + margin, max.1 + margin),
         margin,
         area,
+        runs,
     })
 }
 
+/// How long a dot's stroke is, in px of a zoom level: long enough to give the
+/// stroker a direction for its round caps, short enough to read as a dot.
+const DOT_LENGTH: f64 = 0.05;
+
+/// More dashes than this on one line (a long route zoomed in far) and the
+/// line is drawn solid: cutting it would cost more than it shows.
+const MAX_DASHES: usize = 50_000;
+
 /// The `(dash, gap)` lengths in px of a zoom level for a line `width` px wide
-/// dashed as `dash`; `None` for a solid line.
-pub(crate) fn dash_pattern(_dash: MapLineDash, _width: f32) -> Option<(f64, f64)> {
-    None
+/// dashed as `dash`; `None` for a solid line. The round caps reach half a
+/// width past each end of a dash, so the gaps are wider than the line. A
+/// level's px are the screen's at the level's own zoom and grow to two
+/// screen px towards the next level, the pattern with them: the dashes are
+/// cut once per level, like the rest of the line.
+pub(crate) fn dash_pattern(dash: MapLineDash, width: f32) -> Option<(f64, f64)> {
+    let w = f64::from(width);
+    if !w.is_finite() || w <= 0.0 {
+        return None;
+    }
+    match dash {
+        MapLineDash::Solid => None,
+        MapLineDash::Dashed => Some((2.0 * w, 2.5 * w)),
+        MapLineDash::Dotted => Some((DOT_LENGTH, 2.0 * w - DOT_LENGTH)),
+    }
 }
 
-/// `points` cut into dashes `dash` long with gaps `gap` long between them.
-fn dash_runs(points: &[(f64, f64)], _dash: f64, _gap: f64) -> Vec<Vec<(f64, f64)>> {
-    alloc::vec![points.to_vec()]
+/// `points` cut into dashes `dash` long with gaps `gap` long between them,
+/// the first dash at the first point. The pattern runs on around corners (a
+/// dash that turns one keeps the corner point), and a dash cut short by the
+/// line's end is kept. The whole line as one run when the pattern is not a
+/// usable one or would make more than [`MAX_DASHES`] dashes.
+fn dash_runs(points: &[(f64, f64)], dash: f64, gap: f64) -> Vec<Vec<(f64, f64)>> {
+    let usable = dash.is_finite() && gap.is_finite() && dash > 0.0 && gap > 0.0;
+    if !usable || points.len() < 2 {
+        return alloc::vec![points.to_vec()];
+    }
+    let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut run: Vec<(f64, f64)> = alloc::vec![points[0]];
+    // Whether the pen is down (in a dash), and how much of the dash or the
+    // gap it is in is left.
+    let mut on = true;
+    let mut left = dash;
+    for pair in points.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let len = (b.0 - a.0).hypot(b.1 - a.1);
+        if !len.is_finite() || len <= 0.0 {
+            continue;
+        }
+        let mut done = 0.0;
+        while len - done > left {
+            done += left;
+            let p = (a.0 + (b.0 - a.0) * done / len, a.1 + (b.1 - a.1) * done / len);
+            if on {
+                run.push(p);
+                runs.push(core::mem::take(&mut run));
+                if runs.len() > MAX_DASHES {
+                    return alloc::vec![points.to_vec()];
+                }
+                left = gap;
+            } else {
+                run = alloc::vec![p];
+                left = dash;
+            }
+            on = !on;
+        }
+        left -= len - done;
+        if on {
+            run.push(b);
+        }
+    }
+    if on && run.len() >= 2 {
+        runs.push(run);
+    }
+    runs
 }
 
 /// Cuts `shape` to tile `(z, x, y)`: the parts of each copy of it around the
@@ -660,12 +744,10 @@ fn cut(shape: &Projected, z: u8, x: u32, y: u32) -> TileShape {
                 fill_rings.push(closed_path(ring.into_iter().map(local).collect()));
             }
         }
-        let mut outline: Vec<(f64, f64)> = shape.points.clone();
-        if shape.area {
-            outline.push(shape.points[0]);
-        }
-        for run in clip_polyline(&outline, [x0 - m, y0 - m, x1 + m, y1 + m]) {
-            stroke_rings.push(open_path(run.into_iter().map(local).collect()));
+        for run in &shape.runs {
+            for part in clip_polyline(run, [x0 - m, y0 - m, x1 + m, y1 + m]) {
+                stroke_rings.push(open_path(part.into_iter().map(local).collect()));
+            }
         }
     }
     let multi = |rings: Vec<SvgPath>| {
