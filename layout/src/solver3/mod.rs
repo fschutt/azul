@@ -786,7 +786,22 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         .take()
         .is_some_and(|stamp| stamp == cache::OverridesOnlyStamp::of(new_dom));
     let dom_len_for_hint = new_dom.node_data.as_ref().len();
-    let (new_tree_val, mut recon_result) = if (resize_only || overrides_only)
+    // NO-CHANGE SKIP: the producer's diff proved every node unchanged with
+    // its ancestors, on the structure and the style tier
+    // (`LayoutCache::dom_diff_clean`), the cascade moved nothing that lays
+    // out, and the viewport is the one laid out: the reconcile could only
+    // rebuild the retained tree (4-7 ms of a page like AzWidgets').
+    let unchanged = !resize_only
+        && !overrides_only
+        && cache.viewport == Some(viewport)
+        && css_dirty
+            .iter()
+            .all(|(_, scope)| *scope == azul_css::props::property::RelayoutScope::None)
+        && cache
+            .dom_diff_clean
+            .as_ref()
+            .is_some_and(|clean| clean.len() == dom_len_for_hint && clean.iter().all(|c| *c));
+    let (new_tree_val, mut recon_result) = if (resize_only || overrides_only || unchanged)
         && cache.tree.as_ref().is_some_and(|t| {
             t.dom_to_layout
                 .last_key_value()
@@ -794,10 +809,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }) {
         let _p = crate::probe::Probe::span(if resize_only {
             "reconcile_skipped_resize_only"
-        } else {
+        } else if overrides_only {
             "reconcile_skipped_overrides_only"
+        } else {
+            "reconcile_skipped_unchanged"
         });
         cache.last_reconcile_was_skipped = true;
+        // The one-shot diff is spent either way.
+        cache.dom_diff_clean = None;
         let tree = cache.tree.take().expect("checked is_some above");
         // DL-patching input: the sizes the PREVIOUS pass computed — the
         // layout pass below overwrites used_size in place (same tree
