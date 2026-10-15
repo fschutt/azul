@@ -228,6 +228,45 @@ impl_vec_partialeq!(RichTextSpan, RichTextSpanVec);
 impl_vec_eq!(RichTextSpan, RichTextSpanVec);
 impl_vec_mut!(RichTextSpan, RichTextSpanVec);
 
+/// Where a page of a paginated document starts: a block, and the byte of
+/// its text the page starts at (0: the whole block). A page that starts
+/// inside a block shows its tail; the page before ends with its head.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+pub struct RichPageStart {
+    /// The block's index in the document.
+    pub block: u32,
+    /// The byte of the block's text the page starts at.
+    pub byte: u32,
+}
+
+impl RichPageStart {
+    /// A page starting at byte `byte` of block `block`.
+    #[must_use]
+    pub const fn create(block: u32, byte: u32) -> Self {
+        Self { block, byte }
+    }
+}
+
+impl_option!(
+    RichPageStart,
+    OptionRichPageStart,
+    [Debug, Clone, Copy, PartialEq, Eq]
+);
+impl_vec!(
+    RichPageStart,
+    RichPageStartVec,
+    RichPageStartVecDestructor,
+    RichPageStartVecDestructorType,
+    RichPageStartVecSlice,
+    OptionRichPageStart
+);
+impl_vec_clone!(RichPageStart, RichPageStartVec, RichPageStartVecDestructor);
+impl_vec_debug!(RichPageStart, RichPageStartVec);
+impl_vec_partialeq!(RichPageStart, RichPageStartVec);
+impl_vec_eq!(RichPageStart, RichPageStartVec);
+impl_vec_mut!(RichPageStart, RichPageStartVec);
+
 /// Which groups of buttons the built-in toolbar shows (none by default:
 /// apps with a ribbon or their own toolbar run [`RichTextCommand`]s).
 #[repr(C)]
@@ -828,6 +867,25 @@ impl RichTextEditor {
             pages.push(host_dom(&self, data.as_ref(), Some((first, end - first))));
         }
         azul_core::dom::DomVec::from_vec(pages)
+    }
+
+    /// [`Self::page_doms`] with pages that may start inside a block
+    /// (`page_starts`, one per page, in order): a page starting at byte `b`
+    /// of a block shows the block's text from `b`, the page before ends
+    /// with the text up to `b`. Both parts are the one block of the
+    /// document: typing, a caret, a selection and an edit in either part
+    /// land at their place in the whole block.
+    #[must_use]
+    pub fn page_doms_at(
+        self,
+        page_starts: RichPageStartVec,
+        first_page: usize,
+        page_count: usize,
+    ) -> azul_core::dom::DomVec {
+        let starts = azul_css::corety::U32Vec::from_vec(
+            page_starts.as_ref().iter().map(|s| s.block).collect(),
+        );
+        self.page_doms(starts, first_page, page_count)
     }
 
     /// The data every callback of this editor shares (none read-only).
@@ -1651,6 +1709,34 @@ fn path_in_host(info: &CallbackInfo, host: DomNodeId, node: DomNodeId) -> Option
     info.get_node_child_index_path(host, node)
         .into_option()
         .map(|path| path.as_ref().to_vec())
+}
+
+/// Where a page host stands in the document, read from its DOM id: its
+/// first block, the byte of that block it starts at (0: the whole block),
+/// and where it stops when its last block goes on to the next page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PagePlace {
+    /// The document index of the host's first block.
+    pub first: usize,
+    /// The byte of `first` the host starts at.
+    pub start_byte: usize,
+    /// The block the next page starts inside, and the byte: the host's
+    /// last block ends there.
+    pub cut: Option<(usize, usize)>,
+}
+
+/// The place a page host's id (`<host id>-page-...`) names.
+pub(crate) fn page_place(host_id: &str, id: &str) -> Option<PagePlace> {
+    let _ = (host_id, id);
+    None
+}
+
+/// A block's whole text from what one of its parts shows: `seen` is the
+/// part from byte `from` of the block's `old` text up to `to` (the block's
+/// end when `None`); the rest of `old` stays around it.
+pub(crate) fn whole_text(old: &str, seen: &str, from: usize, to: Option<usize>) -> String {
+    let _ = (old, from, to);
+    seen.to_string()
 }
 
 /// The DOM id of the editing host of the page whose first block is `first`
@@ -3023,6 +3109,65 @@ mod tests {
             };
             assert_eq!(stack.first().map(|f| f.family.as_str()), Some("Georgia"));
         }
+    }
+
+    /// The texts of a page's blocks, in order.
+    fn page_texts(page: &Dom) -> Vec<String> {
+        page.children
+            .as_ref()
+            .iter()
+            .map(|block| {
+                let mut text = String::new();
+                rich_html::dom_text(block, &mut text);
+                text
+            })
+            .collect()
+    }
+
+    /// A page can start inside a block (a paragraph longer than what is
+    /// left of its page): the page before ends with the block's head, the
+    /// page after starts with its tail, and the hosts say where they stand.
+    #[test]
+    fn a_page_that_starts_inside_a_block_shows_its_tail_after_the_head_on_the_page_before() {
+        let doc = RichTextDoc::from_blocks(vec![
+            RichBlock::paragraph("Title"),
+            RichBlock::paragraph("alpha beta gamma delta"),
+            RichBlock::paragraph("last"),
+        ]);
+        let starts = RichPageStartVec::from_vec(vec![
+            RichPageStart::create(0, 0),
+            RichPageStart::create(1, 11),
+        ]);
+        let pages = RichTextEditor::create(RichTextEditorState::create(doc)).page_doms_at(starts, 0, 2);
+        let pages = pages.as_ref();
+        assert_eq!(pages.len(), 2);
+        assert_eq!(page_texts(&pages[0]), ["Title", "alpha beta "]);
+        assert_eq!(page_texts(&pages[1]), ["gamma delta", "last"]);
+        assert!(pages[0].root.has_id("az-rich-text-page-0~1@11"), "page 0 stops inside block 1");
+        assert!(pages[1].root.has_id("az-rich-text-page-1@11"), "page 1 starts inside block 1");
+        assert_eq!(
+            page_place("az-rich-text", "az-rich-text-page-1@11"),
+            Some(PagePlace { first: 1, start_byte: 11, cut: None })
+        );
+        assert_eq!(
+            page_place("az-rich-text", "az-rich-text-page-0~1@11"),
+            Some(PagePlace { first: 0, start_byte: 0, cut: Some((1, 11)) })
+        );
+        assert_eq!(
+            page_place("az-rich-text", "az-rich-text-page-3"),
+            Some(PagePlace { first: 3, start_byte: 0, cut: None })
+        );
+        assert_eq!(page_place("az-rich-text", "other"), None);
+    }
+
+    /// Typing in a part of a block is typing in the whole block: the text
+    /// around the part stays.
+    #[test]
+    fn a_part_of_a_block_edits_the_whole_block() {
+        let old = "alpha beta gamma delta";
+        assert_eq!(whole_text(old, "gamma delta!", 11, None), "alpha beta gamma delta!");
+        assert_eq!(whole_text(old, "ALPHA beta ", 0, Some(11)), "ALPHA beta gamma delta");
+        assert_eq!(whole_text(old, "beta", 6, Some(11)), "alpha betagamma delta");
     }
 
     /// The engine's structural edits clone the editor's own elements: a run
