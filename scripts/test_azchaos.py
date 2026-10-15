@@ -380,6 +380,26 @@ class TheServerSide(ProxyCase):
         self.assertIsNone(self.stored("blobs/big"))
 
 
+class TheCredentials(ProxyCase):
+    def test_an_authorize_hook_refuses_a_device_s_expired_or_revoked_session(self):
+        def authorize(request):
+            token = request.header("x-amz-security-token") or ""
+            if token.startswith("expired"):
+                return (400, "ExpiredToken", None)
+            if token.startswith("revoked"):
+                return (403, "InvalidAccessKeyId", "credentials_revoked")
+            return None
+
+        self.proxy.authorize = authorize
+        status, _, body = self.put("e", b"x", headers={"x-amz-security-token": "expired-1"})
+        self.assertEqual((status, xml_text(body, "Code")), (400, "ExpiredToken"))
+        status, headers, _ = self.put("r", b"x", headers={"x-amz-security-token": "revoked-1"})
+        self.assertEqual((status, headers.get("x-azlin-error")), (403, "credentials_revoked"))
+        self.assertEqual(self.put("ok", b"x", headers={"x-amz-security-token": "fresh"})[0], 200)
+        self.assertIsNone(self.stored("e"))
+        self.assertEqual(self.proxy.requests()[0]["fault"], "credentials")
+
+
 class TheControl(ProxyCase):
     def control(self, body):
         request = urllib.request.Request(self.proxy.control_url + "/__azchaos/", method="POST",
