@@ -3170,6 +3170,15 @@ impl Runner {
                 }
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::SetDragImage { id, offset } => {
+                self.layout_window.gesture_drag_manager.set_drag_image(
+                    crate::managers::gesture::DragImage {
+                        id: id.clone(),
+                        offset: *offset,
+                    },
+                );
+                ProcessEventResult::DoNothing
+            }
 
             // ── NOT SUPPORTED HEADLESSLY ────────────────────────────────────
             //

@@ -642,7 +642,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
             unsafe {
                 crate::az_mark(0x60860_u32, 0xC0DE_0860_u32);
             } // [g123] reached shape_text_correctly (full-text)
-            return shape_text_correctly(
+            return shape_text_with_caps(
                 text,
                 script,
                 language,
@@ -653,7 +653,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
                 source_node_id,
             );
         }
-        let mut clusters = shape_text_correctly(
+        let mut clusters = shape_text_with_caps(
             &text[*seg_start..*seg_end],
             script,
             language,
@@ -693,7 +693,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
                  {seg_start}..{seg_end})"
             );
         }
-        let mut seg_clusters = shape_text_correctly(
+        let mut seg_clusters = shape_text_with_caps(
             segment_text,
             script,
             language,
@@ -854,7 +854,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     // for all coalesced items since layout_hash matches).
                     let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> =
                         match &style.font_stack {
-                            FontStack::Ref(font_ref) => shape_text_correctly(
+                            FontStack::Ref(font_ref) => shape_text_with_caps(
                                 &merged_text,
                                 script,
                                 language,
@@ -963,7 +963,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                     item.text.chars().take(30).collect::<String>()
                                 )));
                             }
-                            shape_text_correctly(
+                            shape_text_with_caps(
                                 &item.text,
                                 item.script,
                                 language,
@@ -1403,6 +1403,148 @@ pub(super) fn is_hanging_punctuation(item: &ShapedItem) -> bool {
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
+/// How large a synthesized small capital is, relative to the text: Chrome's
+/// factor (Blink's `kSmallCapsFontSizeMultiplier`; measured, a lowercase
+/// letter under `small-caps` is exactly as wide as its capital at 0.7 of the
+/// size).
+const SYNTHESIZED_SMALL_CAPS_SCALE: f32 = 0.7;
+
+/// The style synthesized small capitals are shaped in, and whether every
+/// character takes it (`all-small-caps`) or only the lowercase letters
+/// (`small-caps`). The style is `style` at 0.7 of its size, asking for no
+/// caps feature (the face has none), with its letter and word spacing
+/// resolved at the full size: an `em` of tracking is the element's, not the
+/// small capital's. `None` where nothing is synthesized - no small capitals
+/// asked for, or the face has its own.
+fn synthesized_small_caps<T: ParsedFontTrait>(
+    style: &StyleProperties,
+    font: &T,
+    script: Script,
+) -> Option<(Arc<StyleProperties>, bool)> {
+    use super::FontVariantCaps as Caps;
+    let has = |tag: &[u8; 4]| font.has_gsub_feature(script, *tag);
+    let (all, own) = match style.font_variant_caps {
+        Caps::SmallCaps => (false, has(b"smcp")),
+        Caps::AllSmallCaps => (true, has(b"smcp") && has(b"c2sc")),
+        Caps::PetiteCaps => (false, has(b"pcap")),
+        Caps::AllPetiteCaps => (true, has(b"pcap") && has(b"c2pc")),
+        Caps::Normal | Caps::Unicase | Caps::TitlingCaps => return None,
+    };
+    if own {
+        return None;
+    }
+    let mut small = style.clone();
+    small.font_size_px = style.font_size_px * SYNTHESIZED_SMALL_CAPS_SCALE;
+    small.font_variant_caps = Caps::Normal;
+    small.letter_spacing = Spacing::PxF(style.letter_spacing.resolve_px(style.font_size_px));
+    small.word_spacing = Spacing::PxF(style.word_spacing.resolve_px(style.font_size_px));
+    Some((Arc::new(small), all))
+}
+
+/// The capital of `c` where it is one character as long in UTF-8 as `c`
+/// (`a` -> `A`, `ä` -> `Ä`); `None` for a character with no capital of its
+/// own or with one of several characters (`ß`), so a synthesized run keeps
+/// every byte of the source where it was.
+fn same_length_capital(c: char) -> Option<char> {
+    let mut upper = c.to_uppercase();
+    let capital = upper.next()?;
+    (upper.next().is_none() && capital != c && capital.len_utf8() == c.len_utf8())
+        .then_some(capital)
+}
+
+/// `text` cut into the pieces `(start, end, small)` small capitals are
+/// synthesized for: under `all-small-caps` (`all`) one small piece, under
+/// `small-caps` the runs of graphemes that start with a lowercase letter
+/// (small) and the runs of everything else (capitals, figures and marks keep
+/// the full size, as in Chrome).
+fn small_caps_pieces(text: &str, all: bool) -> Vec<(usize, usize, bool)> {
+    if all {
+        return vec![(0, text.len(), true)];
+    }
+    let mut pieces: Vec<(usize, usize, bool)> = Vec::new();
+    for (start, grapheme) in text.grapheme_indices(true) {
+        let small = grapheme
+            .chars()
+            .next()
+            .and_then(same_length_capital)
+            .is_some();
+        let end = start + grapheme.len();
+        match pieces.last_mut() {
+            Some(last) if last.2 == small => last.1 = end,
+            _ => pieces.push((start, end, small)),
+        }
+    }
+    pieces
+}
+
+/// Shapes `text` like [`shape_text_correctly`], synthesizing the small
+/// capitals `font-variant-caps` asks for where `font` has none, as Chrome
+/// does: a piece that takes them is set in capitals and shaped in the small
+/// style ([`synthesized_small_caps`]), the rest as it is.
+#[allow(clippy::too_many_arguments)] // shape_text_correctly's arguments, passed through
+#[allow(clippy::cast_possible_truncation)] // a byte offset within one text run fits a u32
+pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
+    text: &str,
+    script: Script,
+    language: Language,
+    direction: BidiDirection,
+    font: &T,
+    style: &Arc<StyleProperties>,
+    source_index: ContentIndex,
+    source_node_id: Option<NodeId>,
+) -> Result<Vec<ShapedCluster>, LayoutError> {
+    let Some((small, all)) = synthesized_small_caps(style, font, script) else {
+        return shape_text_correctly(
+            text,
+            script,
+            language,
+            direction,
+            font,
+            style,
+            source_index,
+            source_node_id,
+        );
+    };
+    let mut clusters = Vec::new();
+    for (start, end, is_small) in small_caps_pieces(text, all) {
+        let piece = &text[start..end];
+        let mut shaped = if is_small {
+            let capitals: String = piece
+                .chars()
+                .map(|c| same_length_capital(c).unwrap_or(c))
+                .collect();
+            shape_text_correctly(
+                &capitals,
+                script,
+                language,
+                direction,
+                font,
+                &small,
+                source_index,
+                source_node_id,
+            )?
+        } else {
+            shape_text_correctly(
+                piece,
+                script,
+                language,
+                direction,
+                font,
+                style,
+                source_index,
+                source_node_id,
+            )?
+        };
+        if start > 0 {
+            for cluster in &mut shaped {
+                cluster.source_cluster_id.start_byte_in_run += start as u32;
+            }
+        }
+        clusters.extend(shaped);
+    }
+    Ok(clusters)
+}
+
 pub(super) fn shape_text_correctly<T: ParsedFontTrait>(
     text: &str,
     script: Script,

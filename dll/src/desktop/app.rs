@@ -226,6 +226,10 @@ impl App {
         // What the metals reflect: the platform's wallpaper reader, run the
         // first time a metal is drawn.
         crate::desktop::wallpaper::install();
+        // The font faces the app ships (`AppConfig::add_font`): every font
+        // manager built from now on - each window's, the PDF writer's -
+        // registers them, before the first window exists.
+        azul_layout::text3::cache::set_app_fonts(app_config.bundled_fonts.as_ref());
         // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy
         // per-app file, `azul_css::rice`), in the `AZ_RICING` mode. Installed
         // HERE, with the real home directory, so a test or a tool that never

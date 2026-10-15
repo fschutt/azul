@@ -3359,6 +3359,9 @@ pub fn start() {
     let mut config = azul_appkit::ui::app_config(&state.kit);
     // AzDrive's words, appkit's and the kit's error table for the engine's localization.
     l10n::register(&mut config);
+    // The design's typeface, Calmet UI (regular and italic): the app ships it, not libazul.
+    // Its stack is `azul_fonts_calmet::STACK`.
+    azul_fonts_calmet::register(&mut config);
     let mut window = azul_appkit::ui::window_options(
         &state.kit,
         layout,

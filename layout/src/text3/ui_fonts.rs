@@ -31,9 +31,12 @@
 //! ([`eb_garamond_ranges`]); any other character falls back per glyph
 //! through the rest of the `font-family` list.
 //!
-//! The slice has no `smcp` feature (and azul's CSS no `font-variant`), so
-//! flora sets its "small capitals" the way it already does: uppercase, a
-//! size step down, tracked out (`letter-spacing`).
+//! The slice has no `smcp` feature: `font-variant-caps` small capitals are
+//! synthesized from its capitals, as Chrome does.
+//!
+//! Only the faces azul's own themes need are bundled - every byte here is in
+//! libazul. An app's typeface stays in the app: it registers the faces at
+//! startup (`AppConfig::add_font`), and they take the same path as these.
 
 use std::sync::OnceLock;
 

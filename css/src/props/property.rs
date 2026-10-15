@@ -110,7 +110,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 32] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 200] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 203] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -146,6 +146,9 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 200] = [
     (CssPropertyType::TextIndent, "text-indent"),
     (CssPropertyType::InitialLetter, "initial-letter"),
     (CssPropertyType::LineClamp, "line-clamp"),
+    // Chrome clamps only through the prefixed spelling (with `display:
+    // -webkit-box`); azul clamps any block container either way.
+    (CssPropertyType::LineClamp, "-webkit-line-clamp"),
     (CssPropertyType::HangingPunctuation, "hanging-punctuation"),
     (CssPropertyType::TextCombineUpright, "text-combine-upright"),
     (CssPropertyType::UnicodeBidi, "unicode-bidi"),
@@ -224,6 +227,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 200] = [
     (CssPropertyType::BackgroundRepeat, "background-repeat"),
     (CssPropertyType::BackgroundClip, "background-clip"),
     (CssPropertyType::FontVariantNumeric, "font-variant-numeric"),
+    (CssPropertyType::FontVariantCaps, "font-variant-caps"),
+    (CssPropertyType::FontFeatureSettings, "font-feature-settings"),
     (
         CssPropertyType::BorderTopLeftRadius,
         "border-top-left-radius",
@@ -557,6 +562,8 @@ pub type StringSetValue = CssPropertyValue<StringSet>;
 pub type StyleZoomValue = CssPropertyValue<StyleZoom>;
 pub type StyleBackgroundClipVecValue = CssPropertyValue<StyleBackgroundClipVec>;
 pub type StyleFontVariantNumericValue = CssPropertyValue<StyleFontVariantNumeric>;
+pub type StyleFontVariantCapsValue = CssPropertyValue<StyleFontVariantCaps>;
+pub type StyleFontFeatureSettingsValue = CssPropertyValue<StyleFontFeatureSettings>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -881,6 +888,8 @@ pub enum CssProperty {
     /// layer's first, like `BackgroundContent`'s).
     BackgroundClip(StyleBackgroundClipVecValue),
     FontVariantNumeric(StyleFontVariantNumericValue),
+    FontVariantCaps(StyleFontVariantCapsValue),
+    FontFeatureSettings(StyleFontFeatureSettingsValue),
 }
 
 impl_option!(
@@ -1148,6 +1157,8 @@ pub enum CssPropertyType {
     Zoom,
     BackgroundClip,
     FontVariantNumeric,
+    FontVariantCaps,
+    FontFeatureSettings,
 }
 
 impl CssPropertyType {
@@ -1351,6 +1362,8 @@ impl CssPropertyType {
         Self::Zoom,
         Self::BackgroundClip,
         Self::FontVariantNumeric,
+        Self::FontVariantCaps,
+        Self::FontFeatureSettings,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1597,6 +1610,8 @@ impl CssPropertyType {
             Self::Zoom => "zoom",
             Self::BackgroundClip => "background-clip",
             Self::FontVariantNumeric => "font-variant-numeric",
+            Self::FontVariantCaps => "font-variant-caps",
+            Self::FontFeatureSettings => "font-feature-settings",
         }
     }
 
@@ -1608,9 +1623,9 @@ impl CssPropertyType {
     #[must_use]
     pub const fn is_inheritable(&self) -> bool {
         use self::CssPropertyType::{
-            BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells, FontFamily,
-            FontSize, FontStyle, FontVariantNumeric, FontWeight, HangingPunctuation,
-            HyphenationLanguage, Hyphens,
+            BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells,
+            FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
+            FontVariantNumeric, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
             LetterSpacing, LineBreak, LineHeight, ListStylePosition, ListStyleType, Orphans,
             OverflowWrap, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
             TextDecoration, TextIndent, TextJustify, TextOrientation, TextTransform, UserSelect,
@@ -1619,7 +1634,7 @@ impl CssPropertyType {
         match self {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
-            FontVariantNumeric |
+            FontVariantNumeric | FontVariantCaps | FontFeatureSettings |
 
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
@@ -1833,8 +1848,8 @@ impl CssPropertyType {
             BorderTopWidth, BoxDecorationBreak, BoxShadowBottom, BoxShadowLeft, BoxShadowRight,
             BoxShadowTop, BoxSizing, CaretAnimationDuration, CaretColor, CaretWidth, Clip,
             ColumnRuleColor, ColumnRuleStyle, Cursor, Direction, DominantBaseline, Filter,
-            FontFamily, FontSize, FontStyle, FontVariantNumeric, FontWeight, HangingPunctuation,
-            Height,
+            FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
+            FontVariantNumeric, FontWeight, HangingPunctuation, Height,
             HyphenationLanguage, Hyphens, InitialLetter, InitialLetterAlign, InitialLetterWrap,
             LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight, MaxHeight, MaxWidth,
             MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition, Opacity,
@@ -1917,8 +1932,8 @@ impl CssPropertyType {
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
             // inherits but doesn't directly reflow).
-            FontFamily | FontSize | FontWeight | FontStyle | FontVariantNumeric | LetterSpacing
-            | WordSpacing | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
+            FontFamily | FontSize | FontWeight | FontStyle | FontVariantNumeric | FontVariantCaps
+            | FontFeatureSettings | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
             | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
             | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
@@ -3790,6 +3805,16 @@ pub fn parse_css_property(
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
+            CssPropertyType::FontVariantCaps => CssProperty::FontVariantCaps(
+                parse_style_font_variant_caps(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontFeatureSettings => CssProperty::FontFeatureSettings(
+                parse_style_font_feature_settings(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
             CssPropertyType::TableLayout => CssProperty::TableLayout(
                 parse_table_layout(value)
                     .map_err(|_| CssParsingError::GenericParseError)?
@@ -4936,6 +4961,8 @@ impl_from_css_prop!(StringSet, CssProperty::StringSet);
 impl_from_css_prop!(StyleZoom, CssProperty::Zoom);
 impl_from_css_prop!(StyleBackgroundClipVec, CssProperty::BackgroundClip);
 impl_from_css_prop!(StyleFontVariantNumeric, CssProperty::FontVariantNumeric);
+impl_from_css_prop!(StyleFontVariantCaps, CssProperty::FontVariantCaps);
+impl_from_css_prop!(StyleFontFeatureSettings, CssProperty::FontFeatureSettings);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
 impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
@@ -5157,6 +5184,8 @@ impl CssProperty {
             Self::Zoom(v) => v.get_css_value_fmt(),
             Self::BackgroundClip(v) => v.get_css_value_fmt(),
             Self::FontVariantNumeric(v) => v.get_css_value_fmt(),
+            Self::FontVariantCaps(v) => v.get_css_value_fmt(),
+            Self::FontFeatureSettings(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -5713,6 +5742,8 @@ impl CssProperty {
             Self::Zoom(_) => CssPropertyType::Zoom,
             Self::BackgroundClip(_) => CssPropertyType::BackgroundClip,
             Self::FontVariantNumeric(_) => CssPropertyType::FontVariantNumeric,
+            Self::FontVariantCaps(_) => CssPropertyType::FontVariantCaps,
+            Self::FontFeatureSettings(_) => CssPropertyType::FontFeatureSettings,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -6222,6 +6253,14 @@ impl CssProperty {
     #[must_use]
     pub const fn font_variant_numeric(input: StyleFontVariantNumeric) -> Self {
         Self::FontVariantNumeric(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_variant_caps(input: StyleFontVariantCaps) -> Self {
+        Self::FontVariantCaps(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_feature_settings(input: StyleFontFeatureSettings) -> Self {
+        Self::FontFeatureSettings(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn table_layout(input: LayoutTableLayout) -> Self {
@@ -7516,6 +7555,20 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_font_variant_caps(&self) -> Option<&StyleFontVariantCapsValue> {
+        match self {
+            Self::FontVariantCaps(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_feature_settings(&self) -> Option<&StyleFontFeatureSettingsValue> {
+        match self {
+            Self::FontFeatureSettings(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_table_layout(&self) -> Option<&LayoutTableLayoutValue> {
         match self {
             Self::TableLayout(f) => Some(f),
@@ -7648,7 +7701,7 @@ impl CssProperty {
             TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
-            Zoom, BackgroundClip, FontVariantNumeric,
+            Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -7837,6 +7890,8 @@ impl CssProperty {
             Zoom(c) => c.is_initial(),
             BackgroundClip(c) => c.is_initial(),
             FontVariantNumeric(c) => c.is_initial(),
+            FontVariantCaps(c) => c.is_initial(),
+            FontFeatureSettings(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -8276,6 +8331,14 @@ impl CssProperty {
     #[must_use]
     pub const fn const_font_variant_numeric(input: StyleFontVariantNumeric) -> Self {
         Self::FontVariantNumeric(StyleFontVariantNumericValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_variant_caps(input: StyleFontVariantCaps) -> Self {
+        Self::FontVariantCaps(StyleFontVariantCapsValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_feature_settings(input: StyleFontFeatureSettings) -> Self {
+        Self::FontFeatureSettings(StyleFontFeatureSettingsValue::Exact(input))
     }
     #[must_use]
     pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
@@ -9060,6 +9123,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::FontVariantNumeric(p) => format!(
             "CssProperty::FontVariantNumeric({})",
             print_css_property_value(p, tabs, "StyleFontVariantNumeric")
+        ),
+        CssProperty::FontVariantCaps(p) => format!(
+            "CssProperty::FontVariantCaps({})",
+            print_css_property_value(p, tabs, "StyleFontVariantCaps")
+        ),
+        CssProperty::FontFeatureSettings(p) => format!(
+            "CssProperty::FontFeatureSettings({})",
+            print_css_property_value(p, tabs, "StyleFontFeatureSettings")
         ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",
@@ -10951,6 +11022,131 @@ mod font_variant_numeric_tests {
             assert!(
                 parse_css_property(ty, bad).is_err(),
                 "`{bad}` is not a font-variant-numeric value"
+            );
+        }
+    }
+}
+
+/// `font-feature-settings` (CSS Fonts 4 s6.12): `normal | <feature-tag-value>#`
+/// where `<feature-tag-value> = <opentype-tag> [ <integer [0,inf]> | on | off ]?`,
+/// inherited. The tag is a quoted string of four printable ASCII characters,
+/// case-sensitive; a missing value means 1, `on` 1 and `off` 0; a tag given
+/// twice takes its last value. AzDrive asks for `tnum` (the size and date
+/// columns), `dlig` and `ss01` this way.
+#[cfg(test)]
+mod font_feature_settings_tests {
+    use super::*;
+
+    fn property_type() -> CssPropertyType {
+        CssPropertyType::from_str("font-feature-settings", &CssKeyMap::get())
+            .expect("font-feature-settings is a CSS property")
+    }
+
+    #[test]
+    fn font_feature_settings_is_an_inherited_property() {
+        let ty = property_type();
+        assert_eq!(ty.to_str(), "font-feature-settings");
+        assert!(ty.is_inheritable(), "font-feature-settings is inherited");
+    }
+
+    #[test]
+    fn font_feature_settings_parses_tags_with_their_values_and_prints_them_back() {
+        let ty = property_type();
+        for (input, printed) in [
+            ("normal", "normal"),
+            ("  NORMAL  ", "normal"),
+            ("\"tnum\"", "\"tnum\""),
+            ("'tnum'", "\"tnum\""),
+            ("\"tnum\" 1", "\"tnum\""),
+            ("\"tnum\" on", "\"tnum\""),
+            ("\"liga\" 0", "\"liga\" 0"),
+            ("\"liga\" OFF", "\"liga\" 0"),
+            ("\"salt\" 2", "\"salt\" 2"),
+            ("\"ss01\", \"dlig\"", "\"ss01\", \"dlig\""),
+            ("\"tnum\",\"liga\" 0", "\"tnum\", \"liga\" 0"),
+            // A tag given twice takes its last value, where it last stands.
+            ("\"liga\" 0, \"tnum\", \"liga\"", "\"tnum\", \"liga\""),
+        ] {
+            let prop = parse_css_property(ty, input)
+                .unwrap_or_else(|e| panic!("`{input}` must parse: {e:?}"));
+            assert_eq!(prop.get_type(), ty, "`{input}`");
+            assert_eq!(prop.value(), printed, "`{input}`");
+        }
+    }
+
+    #[test]
+    fn font_feature_settings_rejects_what_is_not_a_list_of_four_letter_tags() {
+        let ty = property_type();
+        for bad in [
+            "tnum",
+            "\"tnu\"",
+            "\"tnums\"",
+            "\"t\u{e9}st\"",
+            "\"tnum\" -1",
+            "\"tnum\" 1.5",
+            "\"tnum\" yes",
+            "\"tnum\" 1 2",
+            "normal, \"tnum\"",
+            "\"tnum\",",
+            ", \"tnum\"",
+            "",
+        ] {
+            assert!(
+                parse_css_property(ty, bad).is_err(),
+                "`{bad}` is not a font-feature-settings value"
+            );
+        }
+    }
+}
+
+/// `font-variant-caps` (CSS Fonts 4 s6.6): `normal | small-caps |
+/// all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps`,
+/// inherited. AzDrive's capitals (tab buttons, group titles, caps headers)
+/// are `all-small-caps` in the design.
+#[cfg(test)]
+mod font_variant_caps_tests {
+    use super::*;
+
+    fn property_type() -> CssPropertyType {
+        CssPropertyType::from_str("font-variant-caps", &CssKeyMap::get())
+            .expect("font-variant-caps is a CSS property")
+    }
+
+    #[test]
+    fn font_variant_caps_is_an_inherited_property() {
+        let ty = property_type();
+        assert_eq!(ty.to_str(), "font-variant-caps");
+        assert!(ty.is_inheritable(), "font-variant-caps is inherited");
+    }
+
+    #[test]
+    fn font_variant_caps_parses_every_keyword_and_prints_it_back() {
+        let ty = property_type();
+        for keyword in [
+            "normal",
+            "small-caps",
+            "all-small-caps",
+            "petite-caps",
+            "all-petite-caps",
+            "unicase",
+            "titling-caps",
+        ] {
+            let prop = parse_css_property(ty, keyword)
+                .unwrap_or_else(|e| panic!("`{keyword}` must parse: {e:?}"));
+            assert_eq!(prop.get_type(), ty, "`{keyword}`");
+            assert_eq!(prop.value(), keyword);
+        }
+        let prop = parse_css_property(ty, "  All-Small-Caps ").expect("case-insensitive");
+        assert_eq!(prop.value(), "all-small-caps");
+    }
+
+    #[test]
+    fn font_variant_caps_rejects_anything_else() {
+        let ty = property_type();
+        for bad in ["small", "small-caps all-small-caps", "smcp", ""] {
+            assert!(
+                parse_css_property(ty, bad).is_err(),
+                "`{bad}` is not a font-variant-caps value"
             );
         }
     }

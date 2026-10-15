@@ -8031,6 +8031,16 @@ pub trait PlatformWindow {
                 }
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::SetDragImage { id, offset } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.gesture_drag_manager
+                        .set_drag_image(azul_layout::managers::gesture::DragImage {
+                            id: id.clone(),
+                            offset: *offset,
+                        });
+                }
+                ProcessEventResult::DoNothing
+            }
 
             // === DOM Mutation (Debug API) ===
             CallbackChange::InsertChildNode {
@@ -9005,7 +9015,10 @@ pub trait PlatformWindow {
 
             SystemChange::InitDragVisualState => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    // Set :dragging pseudo-state and add GPU transform key
+                    // Set the :dragging pseudo-state. What follows the pointer
+                    // (the drag image a DragStart names, else the dragged
+                    // node) is keyed by the first move,
+                    // `LayoutWindow::update_drag_visual`.
                     if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
                         if let Some(node_drag) = ctx.as_node_drag() {
                             let dom_id = node_drag.dom_id;
@@ -9019,30 +9032,6 @@ pub trait PlatformWindow {
                                 if let Some(styled_node) = styled_nodes.get_mut(node_id) {
                                     styled_node.styled_node_state.dragging = true;
                                 }
-                            }
-
-                            // MWA-C-gpu_state: register the drag transform in
-                            // the CSS transform maps — the display list builds
-                            // the dragged node's reference frame EXCLUSIVELY
-                            // from css_transform_keys (display_list.rs child
-                            // ref-frame lookup); the old write went into
-                            // transform_keys, which is the vertical-scrollbar-
-                            // thumb map, so the per-pixel drag offset never
-                            // reached the screen (and could corrupt a thumb
-                            // key). A pre-existing CSS transform is replaced
-                            // for the drag's duration and restored by the CSS
-                            // sync on the post-drag relayout.
-                            let gpu_cache =
-                                layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                            if let std::collections::hash_map::Entry::Vacant(e) =
-                                gpu_cache.css_transform_keys.entry(node_id)
-                            {
-                                let transform_key = azul_core::resources::TransformKey::unique();
-                                let identity = azul_core::transform::ComputedTransform3D::IDENTITY;
-                                e.insert(transform_key);
-                                gpu_cache
-                                    .css_current_transform_values
-                                    .insert(node_id, identity);
                             }
                         }
                     }
@@ -9081,29 +9070,12 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
-            SystemChange::UpdateDragGpuTransform => {
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
-                        if let Some(node_drag) = ctx.as_node_drag() {
-                            let dom_id = node_drag.dom_id;
-                            let node_id = node_drag.node_id;
-                            let delta_x = ctx.current_position().x - ctx.start_position().x;
-                            let delta_y = ctx.current_position().y - ctx.start_position().y;
-                            let gpu_cache =
-                                layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                            let new_transform =
-                                azul_core::transform::ComputedTransform3D::new_translation(
-                                    delta_x, delta_y, 0.0,
-                                );
-                            // MWA-C-gpu_state: css map — see InitDragVisualState.
-                            gpu_cache
-                                .css_current_transform_values
-                                .insert(node_id, new_transform);
-                        }
-                    }
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
+            SystemChange::UpdateDragGpuTransform => match self.get_layout_window_mut() {
+                // The drag image or the dragged node follows the pointer
+                // through the GPU values; the first move rebuilds the list.
+                Some(layout_window) => layout_window.update_drag_visual(),
+                None => ProcessEventResult::DoNothing,
+            },
 
             SystemChange::DeactivateDrag => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
@@ -9151,21 +9123,9 @@ pub trait PlatformWindow {
                         }
                     }
 
-                    // Remove GPU transform key
-                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
-                        if let Some(node_drag) = ctx.as_node_drag() {
-                            let dom_id = node_drag.dom_id;
-                            let node_id = node_drag.node_id;
-                            // MWA-C-gpu_state: css maps — see InitDragVisualState.
-                            // A genuine CSS transform on the node is restored
-                            // by the CSS sync on the post-drag relayout (the
-                            // :dragging restyle triggers one).
-                            let gpu_cache =
-                                layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                            gpu_cache.css_transform_keys.remove(&node_id);
-                            gpu_cache.css_current_transform_values.remove(&node_id);
-                        }
-                    }
+                    // What followed the pointer is painted where layout put
+                    // it again (the :dragging restyle rebuilds the list).
+                    layout_window.end_drag_visual();
 
                     // End drag session
                     if layout_window.gesture_drag_manager.is_dragging() {

@@ -1109,3 +1109,19 @@ mod a_material_is_lit_per_device_pixel;
 mod a_window_is_lit_by_the_app_light;
 #[path = "a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape.rs"]
 mod a_metal_reflects_the_desktop_and_a_bevel_follows_its_shape;
+#[path = "calmet_ui_falls_back_per_code_point.rs"]
+mod calmet_ui_falls_back_per_code_point;
+#[path = "opentype_features_reach_the_shaper.rs"]
+mod opentype_features_reach_the_shaper;
+#[path = "small_capitals_are_synthesized_like_chrome.rs"]
+mod small_capitals_are_synthesized_like_chrome;
+#[path = "a_tracked_label_centres_once_its_last_tracking_is_given_back.rs"]
+mod a_tracked_label_centres_once_its_last_tracking_is_given_back;
+#[path = "line_clamp_ends_its_last_line_with_an_ellipsis.rs"]
+mod line_clamp_ends_its_last_line_with_an_ellipsis;
+#[path = "a_sticky_header_holds_while_its_list_scrolls.rs"]
+mod a_sticky_header_holds_while_its_list_scrolls;
+#[path = "a_drag_image_follows_the_pointer.rs"]
+mod a_drag_image_follows_the_pointer;
+#[path = "a_pane_and_the_ribbon_animate_their_size.rs"]
+mod a_pane_and_the_ribbon_animate_their_size;

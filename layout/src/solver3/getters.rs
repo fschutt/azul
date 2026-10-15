@@ -4252,6 +4252,38 @@ pub fn get_style_properties_for_state(
             .unwrap_or_default()
     };
 
+    // `font-variant-caps` and `font-feature-settings` (both inherited), each
+    // read only on a DOM that declares it somewhere, like font-variant-numeric.
+    let declared = |flag: u32| {
+        cache
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.dom_declared(flag))
+    };
+    let font_variant_caps = if declared(azul_css::compact_cache::DOM_HAS_FONT_VARIANT_CAPS) {
+        cache
+            .get_font_variant_caps(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        crate::text3::cache::FontVariantCaps::Normal
+    };
+    let font_features = if declared(azul_css::compact_cache::DOM_HAS_FONT_FEATURE_SETTINGS) {
+        cache
+            .get_font_feature_settings(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property())
+            .map(|settings| {
+                settings
+                    .features()
+                    .iter()
+                    .map(|(tag, value)| format!("{}={value}", String::from_utf8_lossy(tag)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     StyleProperties {
         font_stack,
         font_size_px: font_size,
@@ -4271,9 +4303,11 @@ pub fn get_style_properties_for_state(
         // vertical-align on inline spans had no effect.
         vertical_align: get_vertical_align_for_node(styled_dom, dom_id, viewport_size),
         font_variant_numeric,
+        font_variant_caps,
+        font_features,
         // These still use defaults - could be extended in future:
-        // font_features, font_variations, writing_mode,
-        // text_orientation, text_combine_upright, the other font_variant_*
+        // font_variations, writing_mode, text_orientation,
+        // text_combine_upright, font_variant_ligatures / _east_asian
         ..Default::default()
     }
 }
@@ -5613,6 +5647,51 @@ fn split_memory_matches(
     (groups, disk, fallback)
 }
 
+/// Puts each fallback-tier group (a face azul or the caller registered for a
+/// family without claiming it, [`split_memory_matches`]) where its family
+/// stands in the stack: right behind the disk's faces for that family, so an
+/// installed copy still wins, and in front of every family the stack names
+/// after it, as CSS orders them. A group the disk found for a family's
+/// expansion (`serif` as Times, a substitute) counts as that family's; one
+/// found for no family of the stack (a script or last-resort candidate)
+/// counts as behind them all. A stand-in for a generic therefore still waits
+/// behind the installed faces the generic means.
+fn place_fallback_tier_groups(
+    groups: &mut Vec<rust_fontconfig::CssFallbackGroup>,
+    fallbacks: Vec<rust_fontconfig::CssFallbackGroup>,
+    font_families: &[String],
+    config: &rust_fontconfig::FcFallbackConfig,
+) {
+    if fallbacks.is_empty() {
+        return;
+    }
+    let expansions: Vec<Vec<String>> = font_families
+        .iter()
+        .map(|family| {
+            config.expand_family(family, rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS)
+        })
+        .collect();
+    let rank = |name: &str| {
+        font_families
+            .iter()
+            .position(|family| family.eq_ignore_ascii_case(name))
+            .or_else(|| {
+                expansions
+                    .iter()
+                    .position(|names| names.iter().any(|n| n.eq_ignore_ascii_case(name)))
+            })
+            .unwrap_or(font_families.len())
+    };
+    for group in fallbacks {
+        let own = rank(&group.css_name);
+        let at = groups
+            .iter()
+            .rposition(|g| rank(&g.css_name) <= own)
+            .map_or(0, |i| i + 1);
+        groups.insert(at, group);
+    }
+}
+
 /// Choose the registered in-memory face that best matches a CSS
 /// `(weight, italic/oblique)` query. Prefers faces whose slant matches the
 /// request, then the nearest weight via [`rust_fontconfig::FcWeight::find_best_match`]
@@ -6032,8 +6111,7 @@ pub fn resolve_font_chains_with_registry(
         // italic. A memory font is not an installed font: where the disk
         // turned up memory fonts and nothing else for a family, the face
         // registered for that family goes first. (A family the disk found
-        // nothing for keeps its face at the end, behind the installed fonts
-        // the stack names after it.)
+        // nothing for gets its face at its place in the stack, below.)
         for group in &mut chain.css_fallbacks {
             let Some(own) = mem_fallbacks.iter().find(|g| g.css_name == group.css_name) else {
                 continue;
@@ -6051,10 +6129,14 @@ pub fn resolve_font_chains_with_registry(
             merged.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = merged;
         }
-        // Fallback-tier faces go on the END: the disk has already had its turn,
-        // so on a desktop these sit harmlessly behind the installed fonts, and
-        // on a target with nothing installed they are what is left.
-        chain.css_fallbacks.extend(mem_fallbacks);
+        if !mem_fallbacks.is_empty() {
+            place_fallback_tier_groups(
+                &mut chain.css_fallbacks,
+                mem_fallbacks,
+                &font_families,
+                &fc_cache.fallback_config(),
+            );
+        }
 
         // A family that produced no group matched NOTHING — record it (see
         // `ResolvedFontChains::unresolved_families`). Generics are exempt:
@@ -6398,10 +6480,14 @@ pub fn resolve_font_chains_fast(
             css_fallbacks.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = css_fallbacks;
         }
-        // Fallback-tier faces go on the END: the disk has already had its turn,
-        // so on a desktop these sit harmlessly behind the installed fonts, and
-        // on a target with nothing installed they are what is left.
-        chain.css_fallbacks.extend(mem_fallbacks);
+        if !mem_fallbacks.is_empty() {
+            place_fallback_tier_groups(
+                &mut chain.css_fallbacks,
+                mem_fallbacks,
+                &font_families,
+                &shared_cache.fallback_config(),
+            );
+        }
 
         // A family AHEAD of the first matched one produced no group: it
         // matched NOTHING, and the text renders in a later family instead.
@@ -11496,6 +11582,160 @@ mod memory_font_tier_tests {
         assert_eq!(primary, ["Helvetica"]);
         assert!(disk.is_empty());
         assert!(fallback.is_empty());
+    }
+
+    /// A registry over one directory holding `files` (name, bytes), scanned:
+    /// the "installed" fonts of a test, found the way the desktop finds them.
+    fn registry_over(
+        dir_name: &str,
+        files: &[(&str, &[u8])],
+        config: rust_fontconfig::FcFallbackConfig,
+    ) -> std::sync::Arc<rust_fontconfig::registry::FcFontRegistry> {
+        let dir = std::env::temp_dir().join(format!("{dir_name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temp font dir");
+        for (name, bytes) in files {
+            std::fs::write(dir.join(name), bytes).expect("a temp font file");
+        }
+        let registry = rust_fontconfig::registry::FcFontRegistry::new_with_configs(
+            rust_fontconfig::config::FcScanConfig {
+                font_dirs: vec![dir],
+                priority_families: Vec::new(),
+            },
+            config,
+        );
+        registry.spawn_scout_and_builders();
+        registry.wait_for_scout();
+        registry
+    }
+
+    /// The FontId of the upright regular memory face of `family` (one azul
+    /// bundles or an app registered).
+    fn bundled_face(
+        fonts: &crate::text3::cache::FontManager<azul_css::props::basic::FontRef>,
+        family: &str,
+    ) -> FontId {
+        fonts.memory_families[&rust_fontconfig::utils::normalize_family_name(family)]
+            .iter()
+            .find(|f| !f.italic && f.weight == FcWeight::Normal)
+            .map(|f| f.font_match.id)
+            .unwrap_or_else(|| panic!("{family} is registered"))
+    }
+
+    /// CSS takes a stack's families in order, so a face azul bundles - or an
+    /// app registered at startup - for a family stands where that family
+    /// stands, in front of the installed families the stack names after it.
+    /// AzDrive's stack names Calmet UI (the app's) and EB Garamond (azul's),
+    /// neither installed, before Georgia (installed on every Mac): its
+    /// letters are Calmet's, the characters Calmet lacks are Garamond's, and
+    /// Georgia draws nothing. The desktop resolves through the registry,
+    /// which knows only font files, so this is its path.
+    #[test]
+    fn a_bundled_face_stands_where_its_family_stands_in_the_stack() {
+        use crate::text3::cache::{covering_font, FontManager, FontSelector};
+        let mock = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fonts/azul-mock-prop.ttf"
+        ))
+        .expect("tests/fonts/azul-mock-prop.ttf");
+        let registry = registry_over(
+            "azul-bundled-face-order",
+            &[("Georgia.ttf", &mock)],
+            rust_fontconfig::FcFallbackConfig::empty(),
+        );
+        let mut fonts =
+            FontManager::<azul_css::props::basic::FontRef>::new(FcFontCache::default())
+                .expect("font manager");
+        let calmet_faces: Vec<azul_core::resources::NamedFont> = azul_fonts_calmet::faces()
+            .iter()
+            .map(|face| {
+                azul_core::resources::NamedFont::new(
+                    azul_fonts_calmet::FAMILY.into(),
+                    face.clone().into(),
+                )
+            })
+            .collect();
+        fonts.register_app_fonts(&calmet_faces);
+        let calmet = bundled_face(&fonts, "Calmet UI");
+        let garamond = bundled_face(&fonts, "EB Garamond");
+        let stack: Vec<FontSelector> = ["Calmet UI", "EB Garamond", "Georgia", "serif"]
+            .iter()
+            .map(|family| FontSelector {
+                family: (*family).to_string(),
+                ..FontSelector::default()
+            })
+            .collect();
+        let collected = CollectedFontStacks {
+            font_stacks: vec![stack],
+            hash_to_index: HashMap::new(),
+            font_refs: HashMap::new(),
+        };
+        let used: std::collections::BTreeSet<char> = ['a', '#'].into_iter().collect();
+        let resolved =
+            resolve_font_chains_fast(&collected, &registry, &used, &fonts.memory_families);
+        let chain = resolved.chains.values().next().expect("the stack's chain");
+        assert!(
+            chain
+                .css_fallbacks
+                .iter()
+                .any(|g| g.css_name == "Georgia" && !g.fonts.is_empty()),
+            "premise: the installed Georgia is in the chain: {:?}",
+            chain.css_fallbacks.iter().map(|g| &g.css_name).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            covering_font(chain, 'a'),
+            Some(calmet),
+            "a letter Calmet has is Calmet's, not Georgia's: {:?}",
+            chain.css_fallbacks.iter().map(|g| &g.css_name).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            covering_font(chain, '#'),
+            Some(garamond),
+            "a character Calmet lacks is the next family's, EB Garamond's"
+        );
+    }
+
+    /// The other half of the tier: a face registered for a generic family
+    /// waits behind the installed faces that generic means, so a stand-in
+    /// (the PDF writer's 14 standard fonts for `sans-serif`) never displaces
+    /// the system's own faces on a desktop.
+    #[test]
+    fn a_generic_stand_in_still_waits_behind_the_installed_faces_of_its_generic() {
+        use crate::text3::cache::{covering_font, FontManager, FontSelector};
+        let mock = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fonts/azul-mock-prop.ttf"
+        ))
+        .expect("tests/fonts/azul-mock-prop.ttf");
+        let mut config = rust_fontconfig::FcFallbackConfig::empty();
+        config
+            .generic_families
+            .insert(rust_fontconfig::GenericFamily::SansSerif, vec!["Georgia".to_string()]);
+        let registry = registry_over("azul-generic-stand-in-order", &[("Georgia.ttf", &mock)], config);
+        let mut fonts =
+            FontManager::<azul_css::props::basic::FontRef>::new(FcFontCache::default())
+                .expect("font manager");
+        let stand_in = fonts.register_named_font_in_tier(
+            "sans-serif",
+            &mock,
+            vec![UnicodeRange { start: 0x20, end: 0x7E }],
+            MemoryFontTier::Fallback,
+        );
+        let collected = CollectedFontStacks {
+            font_stacks: vec![vec![FontSelector {
+                family: "sans-serif".to_string(),
+                ..FontSelector::default()
+            }]],
+            hash_to_index: HashMap::new(),
+            font_refs: HashMap::new(),
+        };
+        let used: std::collections::BTreeSet<char> = ['a'].into_iter().collect();
+        let resolved =
+            resolve_font_chains_fast(&collected, &registry, &used, &fonts.memory_families);
+        let chain = resolved.chains.values().next().expect("the stack's chain");
+        let a = covering_font(chain, 'a');
+        assert!(a.is_some(), "premise: the stack covers 'a'");
+        assert_ne!(a, Some(stand_in), "the installed face of the generic draws, not the stand-in");
     }
 }
 

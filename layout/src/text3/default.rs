@@ -223,6 +223,11 @@ impl ParsedFontTrait for FontRef {
     fn get_space_width(&self) -> Option<usize> {
         crate::font_ref_to_parsed_font(self).get_space_width()
     }
+
+    fn has_gsub_feature(&self, script: Script, tag: [u8; 4]) -> bool {
+        crate::font_ref_to_parsed_font(self)
+            .has_gsub_feature_tag(to_opentype_script_tag(script), u32::from_be_bytes(tag))
+    }
 }
 
 /// Extension trait for `FontRef` to provide access to font bytes and metrics
@@ -534,7 +539,7 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
 /// Maps the layout engine's `Script` enum to an OpenType script tag `u32`.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
                                   // (or cross-type bindings that can't merge)
-const fn to_opentype_script_tag(script: Script) -> u32 {
+pub(crate) const fn to_opentype_script_tag(script: Script) -> u32 {
     use Script::{
         Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi,
         Hangul, Hebrew, Hiragana, Kannada, Katakana, Khmer, Latin, Malayalam, Mandarin, Myanmar,
@@ -589,6 +594,49 @@ fn parse_font_feature(feature_str: &str) -> Option<(u32, u32)> {
     let value = value_str.parse::<u32>().ok()?;
 
     Some((tag, value))
+}
+
+/// What one run is shaped with: the GSUB features the script turns on by
+/// default (`mask`), the ones the style asks for on top (`features`), and
+/// whether the face's kerning applies.
+struct FeatureSelection {
+    mask: FeatureMask,
+    features: Vec<FeatureInfo>,
+    kerning: bool,
+}
+
+/// The features a run in `script` under `style` is shaped with, the way
+/// Chrome stacks them: the script's defaults, without the optional
+/// ligatures (`liga`, `clig`) where the text is tracked (CSS Text 3 s8.2: a
+/// non-zero letter-spacing should not join letters), then the
+/// `font-variant-*` features, then `font-feature-settings`, which has the
+/// last word - `0` turns a feature off, one the script turns on by default
+/// or `kern` included, `1` or more turns it on (more picks an alternate).
+fn select_features(script: Script, style: &StyleProperties) -> FeatureSelection {
+    let mut mask = build_feature_mask_for_script(script);
+    if style.letter_spacing.resolve_px(style.font_size_px) != 0.0 {
+        mask.remove(Feature::LIGA | Feature::CLIG);
+    }
+    let mut features = Vec::new();
+    add_variant_features(style, &mut features);
+    let mut kerning = true;
+    for (tag, value) in style.font_features.iter().filter_map(|s| parse_font_feature(s)) {
+        features.retain(|f: &FeatureInfo| f.feature_tag != tag);
+        if value == 0 {
+            mask.remove(FeatureMask::from_tag(tag));
+            kerning &= tag != u32::from_be_bytes(*b"kern");
+        } else {
+            features.push(FeatureInfo {
+                feature_tag: tag,
+                alternate: (value > 1).then_some(value as usize),
+            });
+        }
+    }
+    FeatureSelection {
+        mask,
+        features,
+        kerning,
+    }
 }
 
 /// A helper to add OpenType features based on CSS `font-variant-*` properties.
@@ -767,24 +815,13 @@ fn shape_text_internal(
     #[cfg(not(feature = "text_layout_hyphenation"))]
     let lang_tag = 0u32;
 
-    // +spec:text-alignment-spacing:4357e6 - non-zero letter-spacing should disable optional
-    // ligatures; allsorts API is additive-only so default liga cannot be disabled here
     // +spec:text-alignment-spacing:24d624 - cursive script letter-spacing behavior is advisory
     // (outside CSS scope per spec note)
-    let mut user_features: Vec<FeatureInfo> = style
-        .font_features
-        .iter()
-        .filter_map(|s| parse_font_feature(s))
-        .map(|(tag, value)| FeatureInfo {
-            feature_tag: tag,
-            alternate: if value > 1 {
-                Some(value as usize)
-            } else {
-                None
-            },
-        })
-        .collect();
-    add_variant_features(style, &mut user_features);
+    let FeatureSelection {
+        mask: feature_mask,
+        features: user_features,
+        kerning: apply_kerning,
+    } = select_features(script, style);
 
     let opt_gdef = parsed_font.opt_gdef_table.as_deref();
 
@@ -827,7 +864,6 @@ fn shape_text_internal(
         // replaced the mask with `empty()` whenever ANY font-feature/font-variant
         // was set, which silently disabled default ligatures/contextual-alternates
         // for Latin-family text (ScriptType::Default only re-adds CCMP|RLIG|LOCL).
-        let feature_mask = build_feature_mask_for_script(script);
         let custom_features: &[FeatureInfo] = user_features.as_slice();
 
         let dotted_circle_index = parsed_font
@@ -855,8 +891,6 @@ fn shape_text_internal(
             .opt_kern_table
             .as_ref()
             .map(|kt| kt.as_borrowed());
-        let apply_kerning = true; // Always enable GPOS kern feature (not just when legacy kern
-                                  // table exists)
         gpos::apply(
             gpos,
             opt_gdef,
@@ -879,8 +913,10 @@ fn shape_text_internal(
             .opt_kern_table
             .as_ref()
             .map(|kt| kt.as_borrowed());
-        gpos::apply_fallback(kern_table, script_tag, &mut infos)
-            .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
+        if apply_kerning {
+            gpos::apply_fallback(kern_table, script_tag, &mut infos)
+                .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
+        }
     }
 
     let font_size = style.font_size_px;

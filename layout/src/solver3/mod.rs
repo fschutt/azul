@@ -1652,13 +1652,25 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // absolute positioning (sticky elements establish containing blocks).
     {
         let _p = crate::probe::Probe::span("adjust_sticky_positions");
-        positioning::adjust_sticky_positions(
+        let constraints = positioning::adjust_sticky_positions(
             &mut ctx,
             &new_tree,
             &mut calculated_positions,
             scroll_offsets,
             viewport,
         );
+        // Each sticky box keeps what a scroll after this pass needs to move
+        // it (`StickyConstraint`); a box that stopped being sticky drops it.
+        for warm in &mut new_tree.warm {
+            if warm.sticky.is_some() {
+                warm.sticky = None;
+            }
+        }
+        for (index, constraint) in constraints {
+            if let Some(warm) = new_tree.warm.get_mut(index) {
+                warm.sticky = Some(Box::new(constraint));
+            }
+        }
     }
 
     // --- Step 3.5: Position Out-of-Flow Elements ---

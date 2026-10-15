@@ -3222,6 +3222,7 @@
         let with = OverflowInfo {
             overflow_items: vec![cl("a", 8.0)],
             unclipped_bounds: Rect::default(),
+            line_clamped: false,
         };
         assert!(with.has_overflow());
     }

@@ -583,6 +583,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::FontVariantNumeric => {
                 CssProperty::FontVariantNumeric(CssPropertyValue::$content_type)
             }
+            CssPropertyType::FontVariantCaps => {
+                CssProperty::FontVariantCaps(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontFeatureSettings => {
+                CssProperty::FontFeatureSettings(CssPropertyValue::$content_type)
+            }
             CssPropertyType::TableLayout => {
                 CssProperty::TableLayout(CssPropertyValue::$content_type)
             }

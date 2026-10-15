@@ -66,6 +66,16 @@ pub struct GpuValueCache {
     pub anim_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current animation transform values (keyed by node ID).
     pub anim_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// STICKY transform keys (keyed by node ID): one per `position: sticky`
+    /// box, minted by `synchronize`, so its display list wraps the box in a
+    /// reference frame. A channel of its own for the reason the animation
+    /// channel has one: `synchronize` owns the CSS map.
+    pub sticky_transform_keys: HashMap<NodeId, TransformKey>,
+    /// Current sticky translations (keyed by node ID): how far a scroll
+    /// since the layout pass moved the box from where that pass placed it.
+    /// The identity right after layout; written per frame by the layout
+    /// crate's `GpuStateManager::update_scrollbar_transforms`.
+    pub sticky_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
     /// Animation opacity keys (keyed by node ID).
     pub anim_opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Current animation opacity values (keyed by node ID).
@@ -118,7 +128,10 @@ impl GpuValueCache {
     /// every "where is it on screen" question: the CSS `transform` channel
     /// first, then the ANIMATION channel - an engine-driven transition (a
     /// FLIP slide, a keyframe transform) moves a node that has no CSS
-    /// `transform` of its own. A key without a value opens nothing.
+    /// `transform` of its own - then the STICKY channel, a `position:
+    /// sticky` box following its scroller. A key without a value opens
+    /// nothing. A sticky box with a transform of its own keeps the
+    /// transform and is placed where its layout pass stuck it.
     #[must_use]
     pub fn reference_frame_of(&self, node: NodeId) -> Option<(TransformKey, ComputedTransform3D)> {
         self.css_transform_keys
@@ -128,6 +141,11 @@ impl GpuValueCache {
                 self.anim_transform_keys
                     .get(&node)
                     .zip(self.anim_current_transform_values.get(&node))
+            })
+            .or_else(|| {
+                self.sticky_transform_keys
+                    .get(&node)
+                    .zip(self.sticky_current_transform_values.get(&node))
             })
             .map(|(key, transform)| (*key, *transform))
     }
@@ -198,7 +216,8 @@ impl GpuValueCache {
                 + self.scrollbar_v_opacity_keys.len()
                 + self.scrollbar_h_opacity_keys.len()
                 + self.opacity_keys.len()
-                + self.current_opacity_values.len(),
+                + self.current_opacity_values.len()
+                + self.sticky_transform_keys.len(),
         );
         for (n, k) in &self.css_transform_keys {
             entries.push((0, n.index() as u64, k.id as u64));
@@ -240,6 +259,11 @@ impl GpuValueCache {
         }
         for n in self.current_opacity_values.keys() {
             entries.push((11, n.index() as u64, 0));
+        }
+        // A sticky box opens a reference frame exactly when it has a key
+        // (its value always exists with it).
+        for (n, k) in &self.sticky_transform_keys {
+            entries.push((12, n.index() as u64, k.id as u64));
         }
         entries.sort_unstable();
         // FNV-1a over the sorted entry words. Hand-rolled because this file
@@ -295,6 +319,11 @@ impl GpuValueCache {
         }
         for (node_id, key) in &self.css_transform_keys {
             if let Some(value) = self.css_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.sticky_transform_keys {
+            if let Some(value) = self.sticky_current_transform_values.get(node_id) {
                 on_transform(key.id, value);
             }
         }
@@ -358,10 +387,53 @@ impl GpuValueCache {
         let opacity_key_changes = self.compute_opacity_events(styled_dom);
         self.apply_opacity_events(&opacity_key_changes);
 
+        self.sync_sticky_keys(styled_dom);
+
         GpuEventChanges {
             transform_key_changes,
             opacity_key_changes,
             scrollbar_opacity_changes: Vec::new(), // Filled by separate synchronization
+        }
+    }
+
+    /// Gives every `position: sticky` node of `styled_dom` a key in the
+    /// sticky channel - its value the identity until a scroll moves the box
+    /// - and drops the keys of nodes that are no longer sticky. Read from
+    /// the compact cache where it exists (one byte per node); a node in an
+    /// interaction state, or a DOM without the cache, walks the cascade.
+    fn sync_sticky_keys(&mut self, styled_dom: &StyledDom) {
+        use azul_css::props::layout::LayoutPosition;
+
+        let cache = styled_dom.get_css_property_cache();
+        let node_data = styled_dom.node_data.as_container();
+        let states = styled_dom.styled_nodes.as_container();
+        let mut sticky: Vec<NodeId> = Vec::new();
+        for index in 0..node_data.len() {
+            let node = NodeId::new(index);
+            let state = &states[node].styled_node_state;
+            let position = match cache.compact_cache.as_ref() {
+                Some(cc) if state.is_normal() => cc.get_position(index),
+                _ => cache
+                    .get_position(&node_data[node], &node, state)
+                    .and_then(|p| p.get_property().copied())
+                    .unwrap_or_default(),
+            };
+            if position == LayoutPosition::Sticky {
+                sticky.push(node);
+            }
+        }
+        if sticky.is_empty() && self.sticky_transform_keys.is_empty() {
+            return;
+        }
+        self.sticky_transform_keys.retain(|node, _| sticky.contains(node));
+        self.sticky_current_transform_values
+            .retain(|node, _| sticky.contains(node));
+        for node in sticky {
+            if !self.sticky_transform_keys.contains_key(&node) {
+                self.sticky_transform_keys.insert(node, TransformKey::unique());
+                self.sticky_current_transform_values
+                    .insert(node, ComputedTransform3D::IDENTITY);
+            }
         }
     }
 
