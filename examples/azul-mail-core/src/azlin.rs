@@ -26,7 +26,6 @@ use azul_storage::{
     Credentials, Drive, DriveError, ObjectInfo, S3Config, S3Drive, Transport,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::folders::{self, LocalMailbox, Role, ServerMailbox};
 
@@ -778,6 +777,8 @@ pub fn local_folders(paths: &[String]) -> Vec<LocalMailbox> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
+
     use std::sync::Mutex;
 
     use azul_storage::{HttpCall, HttpReply, Method};
