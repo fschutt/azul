@@ -87,6 +87,11 @@ pub(crate) fn top_strip(collapsed: bool) -> TopStrip {
     }
 }
 
+/// The top strip's declarations for a window whose controls need `insets`.
+fn top_strip_css(_insets: kit::TitleInsets) -> String {
+    format!("{TOP_STRIP} {TRAFFIC_LIGHTS_INSET} justify-content: flex-end;")
+}
+
 /// The top strip: the room for the traffic lights at its left end, the window moves by it,
 /// Apple Notes' buttons at its right end.
 fn top_strip_dom(app: &RefAny) -> Dom {
@@ -2119,14 +2124,28 @@ mod tests {
         assert_eq!(top_strip(true), TopStrip::AcrossTheWindow);
     }
 
-    /// The strip keeps room for the traffic lights at its left end on macOS only, and the
-    /// collapsed folder list leaves none of it to the note list.
+    /// macOS: the traffic lights and the title bar's padding beside them stay free at the
+    /// strip's left end; the buttons keep 8 px from the right edge.
     #[test]
-    fn the_strip_leaves_room_for_the_traffic_lights_on_macos() {
-        if cfg!(target_os = "macos") {
-            assert!(TRAFFIC_LIGHTS_INSET.contains("76px"), "{TRAFFIC_LIGHTS_INSET}");
-        } else {
-            assert!(!TRAFFIC_LIGHTS_INSET.contains("76px"), "{TRAFFIC_LIGHTS_INSET}");
-        }
+    fn the_strip_leaves_room_for_the_traffic_lights_at_its_left_end() {
+        let css = top_strip_css(kit::TitleInsets { left: 86.0, right: 0.0, height: 28.0 });
+        assert!(css.contains("padding: 0px 8px 0px 86px;"), "{css}");
+        assert!(css.contains("min-height: 40px;"), "{css}");
+    }
+
+    /// Windows: the content runs under the caption buttons, so the strip's New note, New
+    /// notebook and Settings buttons move left of them instead of sitting under them.
+    #[test]
+    fn the_strip_keeps_its_buttons_clear_of_the_caption_buttons_at_its_right_end() {
+        let css = top_strip_css(kit::TitleInsets { left: 0.0, right: 146.0, height: 32.0 });
+        assert!(css.contains("padding: 0px 146px 0px 8px;"), "{css}");
+    }
+
+    /// A title bar taller than Apple Notes' 40 px strip makes the strip as tall, so the
+    /// controls sit inside it.
+    #[test]
+    fn the_strip_is_at_least_as_tall_as_the_title_bar() {
+        let css = top_strip_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 46.0 });
+        assert!(css.contains("min-height: 46px;"), "{css}");
     }
 }
