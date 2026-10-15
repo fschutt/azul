@@ -256,13 +256,20 @@ pub struct DataTableCell {
     pub text: AzString,
     /// A Number / Date column's sort key; NaN for none.
     pub value: f64,
+    /// A Material icon shown before the text (a file's type in a file
+    /// list); empty for none.
+    pub icon: AzString,
 }
 
 impl DataTableCell {
     /// A cell showing `text` that sorts by `value`.
     #[must_use]
     pub const fn create(text: AzString, value: f64) -> Self {
-        Self { text, value }
+        Self {
+            text,
+            value,
+            icon: AzString::from_const_str(""),
+        }
     }
 
     /// A text cell (no number).
@@ -271,6 +278,7 @@ impl DataTableCell {
         Self {
             text,
             value: f64::NAN,
+            icon: AzString::from_const_str(""),
         }
     }
 
@@ -280,7 +288,20 @@ impl DataTableCell {
         Self {
             text: AzString::from_const_str(""),
             value: f64::NAN,
+            icon: AzString::from_const_str(""),
         }
+    }
+
+    /// The icon before the text (a Material icon name; empty: none).
+    pub fn set_icon(&mut self, icon: AzString) {
+        self.icon = icon;
+    }
+
+    /// [`Self::set_icon`] for the builder chain.
+    #[must_use]
+    pub fn with_icon(mut self, icon: AzString) -> Self {
+        self.set_icon(icon);
+        self
     }
 }
 
@@ -411,6 +432,9 @@ pub enum DataTableDragKind {
     ScrollRows,
     /// Dragging the horizontal scroll bar's thumb.
     ScrollColumns,
+    /// A press on a selected row of a table whose rows drag out: the
+    /// release (without a drag out) makes that row the selection.
+    Pending,
 }
 
 /// A pointer drag in progress (kept in the view between rebuilds).
@@ -1288,6 +1312,15 @@ pub enum DataTableEventKind {
     /// A drag started, moved or ended without anything else to do: store
     /// the view (its `drag`).
     Drag,
+    /// A right click on `cell` (its row joins the selection first), or the
+    /// Menu key / Shift+F10 on the cursor's cell, at (`x`, `y`) px in the
+    /// table: show a context menu. `cell.row` is `u32::MAX` on empty space
+    /// (the selection cleared).
+    ContextMenu,
+    /// A drag of the selected rows (`cell.row` under the pointer) left the
+    /// table: the rows are on the drag already ([`DATA_TABLE_DRAG_MIME`],
+    /// `text` "3,4,7"); add the app's payload (`CallbackInfo::set_drag_data`).
+    DragStart,
 }
 
 /// One action in the table.
@@ -1312,6 +1345,10 @@ pub struct DataTableEvent {
     pub shift: bool,
     /// The primary modifier was held: Cmd on macOS, Ctrl elsewhere.
     pub ctrl: bool,
+    /// `ContextMenu`: where, px in the table.
+    pub x: f32,
+    /// See `x`.
+    pub y: f32,
 }
 
 impl DataTableEvent {
@@ -1327,8 +1364,21 @@ impl DataTableEvent {
             kind,
             shift: false,
             ctrl: false,
+            x: 0.0,
+            y: 0.0,
         }
     }
+}
+
+/// The MIME type of the rows a table's drag out carries: the app's row
+/// indices, "3,4,7".
+pub const DATA_TABLE_DRAG_MIME: &str = "application/x-azul-data-table";
+
+/// What a right click at (`x`, `y`) on `hit` asks for: the row under it
+/// joins the selection (alone, if it was not in it), then a context menu.
+pub(crate) fn context_menu_at(t: &DataTable, hit: Hit, x: f32, y: f32) -> Option<DataTableEvent> {
+    let _ = (t, hit, x, y);
+    None
 }
 
 /// An edit the app is asked to accept: the typed `text` for `cell`.
@@ -1507,6 +1557,11 @@ pub struct DataTable {
     /// A table that is looked at, not edited: no edits (sorting, filtering,
     /// selecting, resizing and copying still work).
     pub read_only: bool,
+    /// The rows drag out of the table (a file list): a press on a selected
+    /// row keeps the selection until the release, a drag from a row carries
+    /// the selected rows (`DragStart`); a drag no longer extends the
+    /// selection.
+    pub rows_draggable: bool,
 }
 
 impl Default for DataTable {
@@ -1538,7 +1593,20 @@ impl DataTable {
             theme: None.into(),
             show_filter_row: true,
             read_only: false,
+            rows_draggable: false,
         }
+    }
+
+    /// Whether the rows drag out of the table.
+    pub const fn set_rows_draggable(&mut self, draggable: bool) {
+        self.rows_draggable = draggable;
+    }
+
+    /// [`Self::set_rows_draggable`] for the builder chain.
+    #[must_use]
+    pub const fn with_rows_draggable(mut self, draggable: bool) -> Self {
+        self.set_rows_draggable(draggable);
+        self
     }
 
     /// The state the app keeps (store every event's `view`).
