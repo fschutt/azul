@@ -487,8 +487,17 @@ class Laptop:
         return parts[1] if len(parts) > 1 else ""
 
     def passes(self, drive_id=None):
-        return self.lines("AZDRIVE_SYNC_DONE", drive_id) + self.lines("AZDRIVE_SYNC_FAILED",
-                                                                       drive_id)
+        """Every pass's end, DONE or FAILED, in the order AzDrive printed them."""
+        drive_id = drive_id or self.drives[0]
+        if not self.app:
+            return []
+        try:
+            with open(self.app.out_path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            return []
+        return re.findall(r"^AZDRIVE_SYNC_(?:DONE|FAILED) (%s(?:\s.*)?)$" % re.escape(drive_id),
+                          text, re.M)
 
     def failures(self, drive_id=None):
         return self.lines("AZDRIVE_SYNC_FAILED", drive_id)
