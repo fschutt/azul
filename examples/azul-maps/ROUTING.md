@@ -142,6 +142,14 @@ all in their own tiles, it says that instead. Every fetched tile stays cached:
   tiles says (`routing_tiles_keep_days` in settings.json); without a network an old tile still
   routes. Offline areas (azul-routing's `offline`) are kept apart from the cap.
 
+Settings > Navigation > Offline areas keeps the area framed on the map under a name
+(`offline_ui.rs`): the hosting's tile list (`tiles.txt`, named by the manifest; a copy is kept
+next to the cached manifest) plans the area's routing tiles and their size, a worker downloads
+them into the cache above with its progress, and the area is pinned
+(`maps/routing/<source>/areas/<name>.json`), so pruning skips its tiles until it is deleted. A
+folder of tiles needs no offline areas. The map's own tiles are not part of an area: the map
+keeps the tiles it has shown in its own disk cache.
+
 ## 5. Refinements: public transport (bahn.de and friends)
 
 What is built: azul-routing's `transit` has the `TransitProvider` trait and Transitous behind it
