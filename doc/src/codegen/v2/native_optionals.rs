@@ -397,3 +397,37 @@ fn ocaml_takes_and_gives_options_and_results() {
         &["let or_do_nothing (f : unit -> t option) : t = match f () with Some u -> u | None -> DoNothing"],
     );
 }
+
+#[test]
+fn cpp_option_parameters_take_nullopt_an_optional_or_the_value() {
+    for path in ["azul17.hpp", "azul20.hpp", "azul23.hpp"] {
+        let text = generated(path);
+        assert_contains(
+            path,
+            &text,
+            &[
+                "    OptionString(std::nullopt_t) noexcept : inner_(AzOptionString_none()) {}",
+                "    OptionString(std::optional<String> v) : inner_(v ? AzOptionString_some(std::move(*v).release()) : AzOptionString_none()) {}",
+                "    OptionString(U&& u) : inner_(AzOptionString_some(String(std::forward<U>(u)).release())) {}",
+                // The way out was already there.
+                "operator std::optional<String>() &&",
+            ],
+        );
+    }
+}
+
+/// C has no optional type: it gets a macro that binds an Option's payload
+/// or ends the block, on top of the generated `matchRef` helpers.
+#[test]
+fn c_binds_a_payload_or_ends_the_block() {
+    let path = "azul.h";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "#define AZ_LET_SOME(OptT, opt_ptr, out, otherwise) if (!OptT##_matchRefSome((opt_ptr), &(out))) { otherwise; } else ((void)0)",
+            "#define AZ_LET_OK(ResT, res_ptr, out, otherwise) if (!ResT##_matchRefOk((res_ptr), &(out))) { otherwise; } else ((void)0)",
+        ],
+    );
+}
