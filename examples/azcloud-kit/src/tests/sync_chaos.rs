@@ -408,13 +408,20 @@ fn a_folder_renamed_here_is_no_burst_of_changes() {
     let store = S3Bucket::new();
     let laptop = Device::new("laptop-rename-burst");
     for i in 0..300 {
-        laptop.write(&format!("photos/p{i:03}.txt"), format!("photo {i}\n").as_bytes());
+        laptop.write(
+            &format!("photos/p{i:03}.txt"),
+            format!("photo {i}\n").as_bytes(),
+        );
     }
     laptop.sync(&store);
     let before = store.count_under("PUT", &format!("{PREFIX}.azlin/blobs/"));
     laptop.rename_folder("photos", "pictures");
     let report = laptop.sync(&store);
-    assert!(report.paused.is_none(), "a rename paused the uploads: {:?}", report.paused);
+    assert!(
+        report.paused.is_none(),
+        "a rename paused the uploads: {:?}",
+        report.paused
+    );
     assert!(report.mass_delete.is_none());
     let index = index_of(&store);
     assert_eq!(index.files.len(), 300);
@@ -424,4 +431,36 @@ fn a_folder_renamed_here_is_no_burst_of_changes() {
         before,
         "a rename moves no bytes"
     );
+}
+
+#[test]
+fn a_mass_delete_the_user_confirmed_is_no_burst_to_ask_about_again() {
+    // 300 files (more than the burst guard's 200) deleted here: the mass-delete guard asks;
+    // the answer "delete them on the drive too" sends them - without a second question.
+    let store = S3Bucket::new();
+    let laptop = Device::new("laptop-mass-then-burst");
+    for i in 0..300 {
+        laptop.write(
+            &format!("old/f{i:03}.txt"),
+            format!("old file {i}\n").as_bytes(),
+        );
+    }
+    laptop.write("keep.txt", b"kept\n");
+    laptop.sync(&store);
+    laptop.remove_folder("old");
+    let asked = laptop.sync(&store);
+    assert!(
+        asked.mass_delete.is_some(),
+        "the mass-delete guard asks first"
+    );
+    let mut confirmed = laptop.opts();
+    confirmed.allow_mass_delete = true;
+    let report = laptop.sync_with(&store, &confirmed).unwrap();
+    assert!(
+        report.paused.is_none(),
+        "the burst guard asked again about the deletes just confirmed: {:?}",
+        report.paused
+    );
+    let index = index_of(&store);
+    assert_eq!(index.files.keys().collect::<Vec<_>>(), ["keep.txt"]);
 }

@@ -88,6 +88,11 @@ impl Device {
         fs::remove_file(path_of(self.folder.path(), key)).unwrap();
     }
 
+    /// Removes the folder `key` and everything in it.
+    pub(super) fn remove_folder(&self, key: &str) {
+        fs::remove_dir_all(path_of(self.folder.path(), key)).unwrap();
+    }
+
     /// Renames the folder `from` to `to` (both under the device's folder).
     pub(super) fn rename_folder(&self, from: &str, to: &str) {
         fs::rename(path_of(self.folder.path(), from), path_of(self.folder.path(), to)).unwrap();
