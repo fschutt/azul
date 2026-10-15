@@ -94,6 +94,9 @@ static SEARCH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-address-bar-search",
 ))];
 
+/// The search box's shortcut hint ("⌘F"), at the field's end.
+pub const SEARCH_HINT_CLASS: &str = "__azul-native-address-bar-search-hint";
+
 /// Added to Back's and Forward's boxes: the round arrows.
 pub const ROUND_CLASS: &str = "__azul-native-address-bar-round";
 /// Added to the "Recent locations" chevron's box.
@@ -228,6 +231,10 @@ pub struct AddressBar {
     /// estimated from it, and the leading ones that do not fit fold into the
     /// « menu. 0 (the default) never folds.
     pub available_width: f32,
+    /// The key that jumps to the search box, shown at the field's end while
+    /// it is empty and not focused ("⌘F", "Ctrl+F"); empty shows none. The
+    /// app names the key it binds, in the platform's spelling.
+    pub search_shortcut: AzString,
 }
 
 /// What a theme decides about an address bar: the SKIN of each part, laid
@@ -464,6 +471,7 @@ impl AddressBar {
             show_recent: false,
             icon: AzString::from_const_str(""),
             available_width: 0.0,
+            search_shortcut: AzString::from_const_str(""),
         }
     }
 
@@ -488,6 +496,18 @@ impl AddressBar {
     #[must_use]
     pub fn with_search(mut self, search: AzString) -> Self {
         self.set_search(search);
+        self
+    }
+
+    /// The shortcut hint at the search field's end ("⌘F"; empty: none).
+    pub fn set_search_shortcut(&mut self, shortcut: AzString) {
+        self.search_shortcut = shortcut;
+    }
+
+    /// [`Self::set_search_shortcut`] for the builder chain.
+    #[must_use]
+    pub fn with_search_shortcut(mut self, shortcut: AzString) -> Self {
+        self.set_search_shortcut(shortcut);
         self
     }
 
@@ -1323,6 +1343,54 @@ mod address_bar_tests {
                     if w.get_property().is_some_and(|w| *w == StyleFontWeight::Bold))
         });
         assert!(bold, "the place's crumb is bold");
+    }
+
+    /// SPEC 2.6: the search box shows its shortcut ("⌘F") at its end until
+    /// it holds text; a bar without a shortcut shows none. Both themes.
+    #[test]
+    fn the_search_box_shows_its_shortcut_until_it_has_text() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let shortcut = || AzString::from("⌘F");
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = bar(&log).with_search_shortcut(shortcut()).with_theme(theme).dom();
+            let search = with_class(&dom, "__azul-native-address-bar-search").expect("the search box");
+            let hint = with_class(search, SEARCH_HINT_CLASS).expect("the hint is in the search box");
+            let mut text = String::new();
+            crate::widgets::rich_text::html::dom_text(hint, &mut text);
+            assert_eq!(text, "⌘F", "{theme:?}");
+            let typed = bar(&log)
+                .with_search_shortcut(shortcut())
+                .with_search(AzString::from("report"))
+                .with_theme(theme)
+                .dom();
+            assert!(with_class(&typed, SEARCH_HINT_CLASS).is_none(), "{theme:?}: none with text");
+            let plain = bar(&log).with_theme(theme).dom();
+            assert!(with_class(&plain, SEARCH_HINT_CLASS).is_none(), "{theme:?}: no shortcut, no hint");
+        }
+    }
+
+    /// The hint lies over the field: a click on it puts the caret in the
+    /// search field, as a click on the field's empty end would.
+    #[test]
+    fn a_click_on_the_search_hint_focuses_the_search_field() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = bar(&log)
+            .with_search_shortcut(AzString::from("⌘F"))
+            .with_theme(UiTheme::Flora)
+            .dom();
+        let styled = StyledDom::create_from_dom(dom);
+        let nodes = styled.node_data.as_ref();
+        let hint = nodes
+            .iter()
+            .position(|n| n.has_class(SEARCH_HINT_CLASS))
+            .expect("the hint");
+        let search = nodes
+            .iter()
+            .position(|n| n.has_class("__azul-native-address-bar-search"))
+            .expect("the search box");
+        let (_, changes) = click(&styled, NodeId::new(hint)).expect("the hint takes the click");
+        // The search box holds the search row first, the field first in it.
+        assert_eq!(rv::focus_request(&changes), Some(id(NodeId::new(search + 2))));
     }
 
     /// A trail too long for a 520 px bar.
