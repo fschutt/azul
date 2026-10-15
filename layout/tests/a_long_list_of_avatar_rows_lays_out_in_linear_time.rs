@@ -17,8 +17,6 @@
 //! about four times as long (a quadratic pass takes sixteen; the bound allows eight), and the
 //! avatar rows may take at most twice as long as the same rows with an unclipped circle.
 
-use std::time::Instant;
-
 use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources, styled_dom::StyledDom};
 use azul_css::AzString;
 use azul_layout::{
@@ -95,7 +93,8 @@ fn list_pane(rows: usize, clipped: bool) -> Dom {
     )
 }
 
-/// How long the first layout (and display list) of `rows` rows takes, in seconds.
+/// How long the first layout (and display list) of `rows` rows takes, in seconds of this
+/// thread's CPU time (`thread_cpu_clock`): the suite's other tests running beside it do not count.
 fn first_layout_secs(fonts: &FcFontCache, rows: usize, clipped: bool) -> f64 {
     let mut dom = list_pane(rows, clipped);
     let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
@@ -103,7 +102,7 @@ fn first_layout_secs(fonts: &FcFontCache, rows: usize, clipped: bool) -> f64 {
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(1100.0, 720.0);
     lw.current_window_state = ws.clone();
-    let start = Instant::now();
+    let start = crate::thread_cpu_clock::CpuInstant::now();
     lw.layout_and_generate_display_list(
         styled,
         &ws,
@@ -120,8 +119,16 @@ fn a_long_list_of_avatar_rows_lays_out_in_linear_time() {
     let fonts = FcFontCache::build();
     // Warm up (font loading and the first shaping of the glyphs) so the runs compare layout.
     first_layout_secs(&fonts, 10, true);
-    let short = first_layout_secs(&fonts, 60, true).max(1e-4);
-    let long = first_layout_secs(&fonts, 240, true);
+    // The best of three of each, on a performance core: one run slowed by the machine's other
+    // work is not the layout's cost.
+    let (short, long) = crate::thread_cpu_clock::on_a_performance_core(|| {
+        let best = |rows| {
+            (0..3)
+                .map(|_| first_layout_secs(&fonts, rows, true))
+                .fold(f64::INFINITY, f64::min)
+        };
+        (best(60).max(1e-4), best(240))
+    });
     assert!(
         long < short * 8.0,
         "240 rows took {long:.3} s, 60 rows {short:.3} s: {:.1} times as long for 4 times the rows",
