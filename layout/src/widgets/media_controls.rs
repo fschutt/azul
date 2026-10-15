@@ -414,17 +414,32 @@ pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
         shuffle,
         show_skip,
         show_shuffle_repeat,
-        size: _,
+        size,
     } = controls;
     let shared = RefAny::new(ControlsShared { on_action });
+    // The icons' size by the controls' size (the play button's apart), and
+    // over a video the icons are white and the play button has no face.
+    let (icon_px, play_px) = match size {
+        MediaControlsSize::Regular => (None, None),
+        MediaControlsSize::Compact => (Some(14), Some(14)),
+        MediaControlsSize::Large | MediaControlsSize::Overlay => (Some(24), Some(32)),
+    };
+    let overlay = size == MediaControlsSize::Overlay;
     let button = |icon: &'static str,
                   name: &'static str,
                   action: MediaControlsAction,
                   kind: ButtonType,
                   toggled: Option<bool>| {
+        let play = action == MediaControlsAction::PlayPause;
+        let kind = if overlay { ButtonType::Link } else { kind };
         let mut b = Button::with_type(AzString::from_const_str(""), kind)
             .with_icon(AzString::from_const_str(icon));
         b.alt = AzString::from_const_str(name);
+        if let Some(px) = if play { play_px } else { icon_px } {
+            b.icon_style = azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+                CssPropertyWithConditionsVec::from_vec(media_icon_style(px, overlay)),
+            );
+        }
         if let Some(on) = toggled {
             b = b.with_toggled(on);
         }
@@ -520,11 +535,20 @@ pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
     if let Some(marker) = look.marker {
         classes.push(Class(AzString::from_const_str(marker)));
     }
+    let mut row = crate::widgets::themes::decl::on_base(MEDIA_CONTROLS_BASE, &look.row);
+    if overlay {
+        // Over a video: a dark translucent pill the white icons read on,
+        // whatever the frame under it.
+        use crate::widgets::themes::decl;
+        row.push(CssPropertyWithConditions::simple(decl::fill(
+            azul_css::props::basic::color::ColorU::new(0, 0, 0, 140),
+        )));
+        row.extend(decl::radius(22));
+        row.extend(decl::padding(4, 12, 4, 12));
+    }
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(
-            crate::widgets::themes::decl::on_base(MEDIA_CONTROLS_BASE, &look.row),
-        ))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(row))
         // A toolbar: arrow keys between the controls are the buttons' own Tab order today.
         .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
             role: azul_core::a11y::AccessibilityRole::Toolbar,
@@ -532,6 +556,22 @@ pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
             ..Default::default()
         })
         .with_children(DomVec::from_vec(children))
+}
+
+/// A control's icon at `px`, white over a video (`overlay`).
+fn media_icon_style(px: isize, overlay: bool) -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::{basic::StyleFontSize, layout::LayoutFlexGrow};
+    let mut style = alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(px))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ];
+    if overlay {
+        style.push(CssPropertyWithConditions::simple(crate::widgets::themes::decl::ink(
+            azul_css::props::basic::color::ColorU::WHITE,
+        )));
+    }
+    style
 }
 
 /// What a theme decides about the controls: the SKIN of each part.
