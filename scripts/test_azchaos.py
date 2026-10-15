@@ -382,7 +382,7 @@ class TheServerSide(ProxyCase):
 
 class TheControl(ProxyCase):
     def control(self, body):
-        request = urllib.request.Request(self.proxy.url + "/__azchaos/", method="POST",
+        request = urllib.request.Request(self.proxy.control_url + "/__azchaos/", method="POST",
                                          data=json.dumps(body).encode("utf-8"))
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -396,7 +396,8 @@ class TheControl(ProxyCase):
         answer = self.control({"network": "down"})
         self.assertEqual(answer["state"], "down")
         self.control({"network": "up"})
-        with urllib.request.urlopen(self.proxy.url + "/__azchaos/log", timeout=5) as response:
+        with urllib.request.urlopen(self.proxy.control_url + "/__azchaos/log",
+                                    timeout=5) as response:
             log = json.loads(response.read().decode("utf-8"))
         self.assertEqual([e["status"] for e in log if e["op"] == "PutObject"], [503, 200])
 
