@@ -6410,11 +6410,12 @@ where
         let azul_core::dom::SvgNodeData::Path(path) = node_data.get(dom_id)?.get_svg_data()? else {
             return None;
         };
+        // `stroke-width` is 1 (a user unit) unless declared (SVG 2 s13.5.1).
         let width = border_info
             .widths
             .top
             .and_then(CssPropertyValue::get_property_owned)
-            .map(|w| w.inner.to_pixels_internal(0.0, 16.0, 16.0))?;
+            .map_or(1.0, |w| w.inner.to_pixels_internal(0.0, 16.0, 16.0));
         if !width.is_finite() || width <= 0.0 {
             return None;
         }
