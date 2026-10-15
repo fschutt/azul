@@ -1090,12 +1090,6 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                         Toggle::DetailsPane,
                         s.settings.details_pane,
                     ),
-                    setting_check(
-                        app,
-                        "azdrive-options-status-bar",
-                        Toggle::StatusBar,
-                        s.settings.status_bar,
-                    ),
                 ]),
             ),
         ],

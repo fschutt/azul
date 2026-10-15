@@ -27,6 +27,8 @@ azdrive-file-frequent-places = Frequent places
 azdrive-file-help = Help
 azdrive-file-new-window = Open new window
 azdrive-file-new-window-about = Another AzDrive window, at this place.
+azdrive-file-new-tab-about = A tab on this folder (Ctrl+T)
+azdrive-file-options-about = What AzDrive shows and does, the drives, the look
 azdrive-file-recent-places = Recent places
 azdrive-file-shortcuts = Keyboard shortcuts
 azdrive-file-shortcuts-about = Every key AzDrive knows (F1).
@@ -113,7 +115,6 @@ azdrive-ribbon-select-none = Select none
 azdrive-ribbon-size = Size
 azdrive-ribbon-skip-ignored = Skip ignored files
 azdrive-ribbon-sort-by = Sort by
-azdrive-ribbon-status-bar = Status bar
 azdrive-ribbon-sync-now = Sync now
 azdrive-ribbon-sync-with-folder = Sync with a folder
 azdrive-ribbon-unhide-selected = Unhide selected items
@@ -139,6 +140,7 @@ azdrive-why-select = Select one or more items first.
 azdrive-why-pin-folder = Open a folder to pin it to Quick access.
 azdrive-why-nothing-to-paste = Nothing to paste: copy or cut something first.
 azdrive-why-rename-one = Select exactly one item to rename.
+azdrive-why-one-folder = Select one folder to open it in a new tab.
 azdrive-why-open-result = Select a result to open.
 azdrive-why-open-drive = Select a drive to open.
 azdrive-why-open-pin = Select a pinned folder to open.
@@ -485,7 +487,6 @@ azdrive-options-panes = Panes
 azdrive-options-navigation-pane = Navigation pane
 azdrive-options-preview-pane = Preview pane
 azdrive-options-details-pane = Details pane
-azdrive-options-status-bar = Status bar
 azdrive-options-s3-at = s3://{ $bucket } at { $endpoint }
 azdrive-options-redeem-voucher = Redeem a voucher
 azdrive-options-restore = Restore as of…
@@ -699,6 +700,13 @@ azdrive-shortcut-list = List
 azdrive-shortcut-details = Details
 azdrive-shortcut-preview-pane = Preview pane
 azdrive-shortcut-details-pane = Details pane
+azdrive-shortcut-group-tabs = Tabs
+azdrive-shortcut-new-tab = New tab on this folder
+azdrive-shortcut-close-tab = Close the tab
+azdrive-shortcut-next-tab = Next tab
+azdrive-shortcut-previous-tab = Previous tab
+azdrive-shortcut-jump-tab = Tab 1 to 9 (Ctrl+1 to Ctrl+9)
+azdrive-shortcut-tab-overview = All open tabs
 
 ## Search, status line, preview and details panes
 
@@ -786,7 +794,6 @@ azdrive-search-placeholder = Search { $place }
 azdrive-no-subfolders = This folder has no subfolders.
 azdrive-listing-folder = Listing the folder…
 azdrive-no-drive-for = There is no drive for "{ $path }".
-azdrive-path-bar = Path
 azdrive-status-selected = { $n } selected
 azdrive-status-drives = { $count ->
         [one] one drive
@@ -1817,3 +1824,57 @@ azdrive-meta-engine = Engine
 azdrive-meta-table = Table
 azdrive-meta-yes = Yes
 azdrive-meta-no = No
+
+## The navigation pane's pies (no status bar) and the sync popover
+
+azdrive-pie-no-sync = Nothing syncs here
+azdrive-pie-space-unknown = space not known yet
+azdrive-pie-space-nearly-full = The drive is nearly full.
+azdrive-pie-space-full = The drive is full.
+azdrive-pie-show-transfers = Transfers
+azdrive-sync-detail-up-to-date = Every file of the drive is the same here and in the cloud.
+azdrive-sync-detail-syncing = Uploading the changes made on this computer.
+
+## Location tabs (Ctrl+T, Ctrl+W, Ctrl+Tab, Ctrl+1 to Ctrl+9, the tab overview)
+
+azdrive-loctabs-title = Tabs
+azdrive-loctab-new = New tab
+azdrive-loctab-close = Close tab
+azdrive-loctab-opened = New tab: { $place }
+azdrive-loctab-last = This is the only tab.
+azdrive-loctab-search = Search: { $text }
+azdrive-loctabs-hint = ⌃T new tab · ⌃W close · ⌃Tab next · ⌃1-9 jump
+azdrive-loctabs-count = { $count ->
+        [one] One tab
+       *[other] { $count } tabs
+    }
+azdrive-menu-open-in-new-tab = Open in new tab
+
+## The search view (behaviour B): its bar, its empty states, its results' folders
+
+azdrive-scope-folder = This folder
+azdrive-scope-drive = This drive
+azdrive-scope-all = All drives
+azdrive-find-type-to-search = Type to search the names and contents of your files.
+azdrive-find-did-you-mean = Did you mean “{ $word }”?
+azdrive-find-search-everywhere = Search all drives
+azdrive-find-search-contents = Search the files’ contents too
+azdrive-find-clear-filters = Clear the filters
+azdrive-find-group-count = { $count ->
+        [one] one item
+       *[other] { $count } items
+    }
+
+## Quick Look and the command palette (Cmd+K)
+
+azdrive-palette-placeholder = Go to a file or folder, or run a command…
+azdrive-palette-recent-searches = Recent searches
+azdrive-palette-recent-places = Recent places
+azdrive-palette-folders = Folders
+azdrive-palette-files = Files
+azdrive-palette-commands = Commands
+azdrive-palette-search = Search
+azdrive-palette-search-all = Search all drives: “{ $text }”
+azdrive-palette-keys = ↑ ↓ move · ↩ open · ⌘↩ show in folder · esc close
+azdrive-shortcut-quick-look = Quick Look
+azdrive-shortcut-palette = The command palette

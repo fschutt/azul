@@ -5,7 +5,7 @@
 //! (the file-type icon and name, Date modified, Type, Size under sortable headers on a raised
 //! face, the rows in quiet stripes), the icon layouts on azul's IconGrid - grouped or not, with
 //! item check boxes or not (a selected hand-built icon cell or tile lifts off the paper) -
-//! with the InfoBar over it, and Finder's path bar and status line at its foot. Every item takes
+//! with the InfoBar over it (no path bar or status line at its foot). Every item takes
 //! a click (Ctrl / Shift too), a double-click, a right-click (the context menu), a drag (a
 //! folder takes the drop: a move, Ctrl a copy) and F2's rename field.
 //!
@@ -46,7 +46,7 @@ use crate::{
     look,
     model::{self, ViewLayout},
     preview::{self, PreviewKind},
-    save_settings, ui_find, ui_panes, with_state, ColumnDrag, DriveState, Message,
+    save_settings, ui_find, with_state, ColumnDrag, DriveState, Message,
 };
 
 // ==== Shared pieces ====
@@ -173,9 +173,8 @@ pub(crate) fn uses_icon_grid(s: &DriveState) -> bool {
         && !s.visible_entries().is_empty()
 }
 
-/// The content pane: the leaf filling it (the InfoBar, the view, "Load more", and with View >
-/// Status bar the path bar and the status line); `size` is what the view has (the icon grid draws
-/// exactly that).
+/// The content pane: the leaf filling it (the InfoBar, the view, "Load more"); `size` is what the
+/// view has (the icon grid draws exactly that).
 pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     let mut area = Dom::create_div().with_id(ids::LEAF).with_css(look::LEAF);
     if let Some(message) = &s.message {
@@ -190,13 +189,14 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         area.add_child(bar);
     }
     let grid = uses_icon_grid(s);
-    // A search's results (of This PC too) are a folder's view of rows.
-    let folder = matches!(s.place, Place::Folder { .. }) || s.find.is_some();
+    // The search view (of This PC and Quick access too) is a folder's view of rows.
+    let searching = s.search_open || s.find.is_some();
+    let folder = matches!(s.place, Place::Folder { .. }) || searching;
     // A closed drive in view shows when and why it was closed, and nothing else.
     let closed = crate::ban::closed_view(s);
     let view = match &s.place {
         Place::Folder { .. } if closed.is_some() => closed.unwrap_or_else(Dom::create_div),
-        Place::ThisPc if s.find.is_some() => folder_view(s, app),
+        _ if searching => folder_view(s, app),
         Place::ThisPc => this_pc(s, app),
         Place::QuickAccess => quick_access(s, app),
         Place::Folder { .. } if grid => icon_grid(s, app, size),
@@ -239,10 +239,6 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         background,
         on_background_drop,
     ));
-    if s.settings.status_bar {
-        area.add_child(ui_panes::path_bar(s, app));
-        area.add_child(ui_panes::status_line(s, app));
-    }
     Dom::create_div()
         .with_id(ids::CONTENT)
         .with_css(look::PAGE)
@@ -777,6 +773,17 @@ extern "C" fn on_rename_mounted(_data: RefAny, mut info: CallbackInfo) -> Update
 
 /// An item's icon and name (or the rename field), in a row.
 pub(crate) fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f32) -> Dom {
+    name_cell_marked(s, app, entry, icon_px, "")
+}
+
+/// [`name_cell`] with the terms of the search's `query` marked in the name (a search's result).
+pub(crate) fn name_cell_marked(
+    s: &DriveState,
+    app: &RefAny,
+    entry: &Entry,
+    icon_px: f32,
+    query: &str,
+) -> Dom {
     let icon = match s.thumbnails.get(&entry.key) {
         // A picture shows itself in its icon's place, at the icon's size (Finder's list).
         Some(Some(image)) if s.view_layout().shows_thumbnails() => Dom::create_div()
@@ -796,14 +803,21 @@ pub(crate) fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f3
         )),
     };
     let renaming = s.renaming.as_ref().is_some_and(|r| r.key == entry.key);
+    let name = entry.display_name(s.settings.show_extensions);
+    let marks = crate::rank::marks(&name, query);
     let label = if renaming {
         rename_field(s, app)
+    } else if marks.is_empty() {
+        Dom::create_span_with_text(AzString::from(name))
+            .with_class(ids::NAME_CLASS)
+            .with_css("overflow: hidden; text-overflow: ellipsis; white-space: nowrap;")
     } else {
-        Dom::create_span_with_text(AzString::from(
-            entry.display_name(s.settings.show_extensions),
-        ))
+        ui_find::marked(
+            &name,
+            &marks,
+            "overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0px;",
+        )
         .with_class(ids::NAME_CLASS)
-        .with_css("overflow: hidden; text-overflow: ellipsis; white-space: nowrap;")
     };
     let mut cell = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; min-width: 0px;")
@@ -1228,8 +1242,13 @@ fn tile_cell(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
 /// The height (px) of one line of items in `layout`: every line of a layout is this high, so
 /// the virtual view knows where any line is without laying out the ones before it.
 pub(crate) fn line_px(s: &DriveState, layout: ViewLayout) -> f32 {
+    if s.find.is_some() {
+        return ui_find::row_px(s);
+    }
     match layout {
-        ViewLayout::Details | ViewLayout::List | ViewLayout::SmallIcons => 26.0,
+        ViewLayout::Details | ViewLayout::List | ViewLayout::SmallIcons => {
+            s.settings.density.row_px()
+        }
         ViewLayout::Content => 56.0,
         ViewLayout::Tiles => TILE_BOX.1 + 8.0,
         ViewLayout::ExtraLargeIcons | ViewLayout::LargeIcons | ViewLayout::MediumIcons => {
@@ -1272,8 +1291,17 @@ pub(crate) struct FolderModel<'a> {
 pub(crate) fn folder_model(s: &DriveState, width: f32) -> FolderModel<'_> {
     let layout = s.view_layout();
     let visible = s.visible_entries();
-    let grouped = s.view_grouping() != model::GroupBy::None;
-    let (order, groups) = if grouped {
+    let search_groups = s.find.as_ref().map(|find| find.groups()).unwrap_or_default();
+    let grouped = s.view_grouping() != model::GroupBy::None || !search_groups.is_empty();
+    let (order, groups) = if !search_groups.is_empty() {
+        // The search's results, ranked and grouped by their folder (`FindState::shown` is in
+        // the groups' order already).
+        let groups: Vec<(String, usize)> = search_groups
+            .iter()
+            .map(|(folder, count)| (ui_find::group_text(s, folder), *count))
+            .collect();
+        (visible, groups)
+    } else if grouped {
         let now = actions::now_secs() as i64;
         let mut order = Vec::with_capacity(visible.len());
         let mut groups = Vec::new();
@@ -1434,7 +1462,11 @@ fn line_dom(s: &DriveState, app: &RefAny, model: &FolderModel<'_>, index: usize)
     match model.lines[index] {
         Line::Header { group } => {
             let (label, count) = model.groups.get(group).cloned().unwrap_or_default();
-            group_header(s, app, &label, count)
+            if s.find.is_some() {
+                ui_find::group_header(&label, count)
+            } else {
+                group_header(s, app, &label, count)
+            }
         }
         Line::Items { start, end } => {
             let layout = s.view_layout();
@@ -1608,6 +1640,18 @@ pub(crate) fn scroll_view_to_top(info: &mut CallbackInfo) {
     info.scroll_to(dom, node, LogicalPosition::create(0.0, 0.0));
 }
 
+/// Scrolls the folder's rows to `y` (a location tab back where it was left) and records it as
+/// the view's offset.
+pub(crate) fn scroll_view_to(info: &mut CallbackInfo, s: &mut DriveState, y: f32) {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, ids::FOLDER_ROWS);
+    if node.into_raw() == 0 {
+        return;
+    }
+    s.view_scroll.0 = y.max(0.0);
+    info.scroll_to(dom, node, LogicalPosition::create(0.0, y.max(0.0)));
+}
+
 /// Scrolls the folder's rows so the item `key` is in view (the arrow keys, a new folder waiting
 /// for its name).
 pub(crate) fn reveal_item(info: &mut CallbackInfo, s: &mut DriveState, key: &str) {
@@ -1646,31 +1690,8 @@ pub(crate) fn reveal_item(info: &mut CallbackInfo, s: &mut DriveState, key: &str
 /// The open folder in its layout, grouped or not: the Details header over a virtual view of
 /// the lines (only the lines in view and a screen either side are ever built).
 fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
-    if let Some(find) = s.find.as_ref().filter(|f| f.rows.is_empty()) {
-        // No result (yet): the search says what it does, or what it looked at.
-        let (title, detail) = find.empty_text();
-        let mut empty = Dom::create_div()
-            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
-        if find.remote {
-            empty.add_child(ui_find::cloud_note(find));
-        }
-        if find.running() {
-            empty.add_child(
-                Dom::create_div()
-                    .with_id(ids::FIND_EMPTY)
-                    .with_css("padding: 16px; opacity: 0.7;")
-                    .with_child(Dom::create_span_with_text(azul_appkit::l10n::label(title))),
-            );
-        } else {
-            empty.add_child(
-                ShellEmptyState::create(azul_appkit::l10n::label(title))
-                    .with_icon(AzString::from("search_off"))
-                    .with_detail(azul_appkit::l10n::label(detail))
-                    .dom()
-                    .with_id(ids::FIND_EMPTY),
-            );
-        }
-        return empty;
+    if s.search_open || s.find.is_some() {
+        return search_view(s, app);
     }
     if s.visible_entries().is_empty() {
         if s.loading || !s.listing_done {
@@ -1711,35 +1732,62 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
         } else {
             String::from("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         });
-    match &s.find {
-        // A cloud drive's results are marked: searched by name, slower.
-        Some(find) => {
-            if find.remote {
-                view.add_child(ui_find::cloud_note(find));
-            }
-            view.add_child(ui_find::header(s, app));
-        }
-        None if layout == ViewLayout::Details => view.add_child(details_header(s, app)),
-        None => {}
+    if layout == ViewLayout::Details {
+        view.add_child(details_header(s, app));
     }
-    let rows = RefAny::new(FolderRowsRef { app: app.clone() });
+    view.add_child(rows_view(s, app));
+    view
+}
+
+/// The search view: its bar, then the recent and saved searches (an empty box), what the
+/// search does or what to try (nothing found yet), or the results under their header - a cloud
+/// drive's marked: searched by name, slower.
+fn search_view(s: &DriveState, app: &RefAny) -> Dom {
+    let mut view = Dom::create_div()
+        .with_id(ids::FOLDER_VIEW)
+        .with_class(ids::layout_class(ViewLayout::Details))
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(ui_find::bar(s, app));
+    let Some(find) = &s.find else {
+        return view.with_child(ui_find::start(s, app));
+    };
+    if find.remote {
+        view.add_child(ui_find::cloud_note(find));
+    }
+    if find.rows.is_empty() {
+        return view.with_child(ui_find::nothing(s, app, find));
+    }
     view.add_child(
-        Dom::create_virtual_view(rows.clone(), folder_lines)
-            .with_id(ids::FOLDER_ROWS)
-            .with_accessibility_name(s.place_name().as_str())
-            .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::Scroll),
-                rows.clone(),
-                on_view_scrolling,
-            )
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::ScrollEnd),
-                rows,
-                on_view_scrolled,
-            ),
+        Dom::create_div()
+            .with_css(format!(
+                "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+                 min-width: {}px;",
+                details_width(s)
+            ))
+            .with_child(ui_find::header(s, app))
+            .with_child(rows_view(s, app)),
     );
     view
+}
+
+/// The folder's (or the search's) rows: a virtual view of the lines in view and a screen either
+/// side.
+fn rows_view(s: &DriveState, app: &RefAny) -> Dom {
+    let rows = RefAny::new(FolderRowsRef { app: app.clone() });
+    Dom::create_virtual_view(rows.clone(), folder_lines)
+        .with_id(ids::FOLDER_ROWS)
+        .with_accessibility_name(s.place_name().as_str())
+        .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::Scroll),
+            rows.clone(),
+            on_view_scrolling,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::ScrollEnd),
+            rows,
+            on_view_scrolled,
+        )
 }
 
 // ==== The icon layouts: azul's IconGrid ====

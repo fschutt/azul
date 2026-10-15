@@ -50,8 +50,6 @@ pub(crate) enum Toggle {
     NavigationPane,
     PreviewPane,
     DetailsPane,
-    /// Finder's path bar and status line at the foot of the content.
-    StatusBar,
     ItemCheckboxes,
     Extensions,
     HiddenItems,
@@ -188,6 +186,32 @@ pub(crate) enum Action {
     /// The folder sync: pair a drive with a folder, sync now, keep on this device, free up
     /// space, pause, stop, open the synced folder.
     Sync(crate::sync_view::SyncAction),
+    // Location tabs
+    /// A new location tab on the open folder (File > New tab, the overview's New tab row).
+    NewTab,
+    /// The selected folder in a new location tab (its context menu).
+    OpenInNewTab,
+    /// The tab overview opens or closes (the strip's tab button).
+    TabOverview,
+    // Search (the search view's bar and its empty states)
+    /// The scope chips: the open folder, its drive, every drive.
+    SearchScope(crate::find::SearchScope),
+    /// A recent search or a spelling suggestion searched (its text into the box).
+    SearchFor(String),
+    /// "Search the files' contents too" when nothing was found.
+    SearchContentsToo,
+    /// "Clear the filters": the Refine back to any kind, date and size.
+    ClearRefines,
+    /// The search box's text searched on every drive (the palette's last row).
+    SearchAllDrives(String),
+    // Over the window
+    /// Quick Look closes (a press on its scrim).
+    CloseQuickLook,
+    /// The command palette closes (a press on its scrim).
+    ClosePalette,
+    /// A file the palette found: its folder opens with it selected (in Quick Look when
+    /// `quick_look`, the palette's Return; Cmd+Return only selects it).
+    RevealFile { place: Place, key: String },
 }
 
 /// A button's / menu item's click data.
@@ -378,10 +402,13 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
         {
             Some(String::from("azdrive-why-index-local"))
         }
-        Action::CloseSearch => s
-            .find
-            .is_none()
+        Action::CloseSearch => (s.find.is_none() && !s.search_open)
             .then(|| String::from("azdrive-why-no-search")),
+        Action::OpenInNewTab => s
+            .single_selected()
+            .filter(|e| e.is_folder)
+            .is_none()
+            .then(|| String::from("azdrive-why-one-folder")),
         Action::OpenFileLocation => {
             if s.find.is_none() {
                 Some(String::from("azdrive-why-search-first"))
@@ -626,7 +653,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::Print => print_selected(s),
         Action::HideSelected => hide_selected(info, app, s),
-        Action::CloseSearch => close_search(info, s),
+        Action::CloseSearch => close_search(info, app, s),
         Action::SearchSubfolders(yes) => {
             s.settings.search_subfolders = yes;
             println!("AZDRIVE_SEARCH_LOCATION {}", if yes { "subfolders" } else { "folder" });
@@ -720,7 +747,68 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             }
         }
         Action::Sync(what) => crate::sync_jobs::run_action(info, app, s, None, what),
+        Action::NewTab => crate::ui_tabs::new_tab(info, app, s),
+        Action::OpenInNewTab => {
+            let key = s.selection.single().map(str::to_string);
+            if let Some((drive, folder)) = key.and_then(|key| result_place(s, &key)) {
+                crate::ui_tabs::open_in_new_tab(info, app, s, Place::folder(&drive, &folder));
+            }
+        }
+        Action::TabOverview => crate::ui_tabs::toggle_overview(s),
+        Action::SearchScope(scope) => {
+            s.settings.search_scope = scope;
+            println!("AZDRIVE_SEARCH_SCOPE {scope:?}");
+            save_settings(info, app, s);
+            crate::start_find(info, app, s);
+        }
+        Action::SearchFor(text) => {
+            s.search = text;
+            s.search_open = true;
+            set_search_box_text(info, &s.search.clone());
+            crate::start_find(info, app, s);
+        }
+        Action::SearchContentsToo => {
+            s.settings.search_contents = true;
+            save_settings(info, app, s);
+            crate::start_find(info, app, s);
+        }
+        Action::ClearRefines => {
+            s.refines = crate::find::Refines::default();
+            refined(info, app, s);
+        }
+        Action::SearchAllDrives(text) => {
+            s.settings.search_scope = crate::find::SearchScope::AllDrives;
+            save_settings(info, app, s);
+            run_action(info, app, s, Action::SearchFor(text));
+        }
+        Action::CloseQuickLook => crate::ui_overlays::close_quick_look(s),
+        Action::ClosePalette => crate::ui_overlays::close_palette(s),
+        Action::RevealFile { place, key } => reveal_file(info, app, s, place, key, false),
     }
+}
+
+/// A file found elsewhere (the palette): its folder opens, the file selected once it is listed,
+/// and with `quick_look` shown in Quick Look then.
+pub(crate) fn reveal_file(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    place: Place,
+    key: String,
+    quick_look: bool,
+) {
+    if place == s.place && s.entry(&key).is_some() {
+        s.selection.set(vec![key.clone()]);
+        s.print_selection();
+        crate::ui_view::reveal_item(info, s, &key);
+        if quick_look {
+            crate::ui_overlays::toggle_quick_look(info, app, s);
+        }
+        return;
+    }
+    go(info, app, s, place, true);
+    s.select_when_listed = Some(key);
+    s.quick_look_when_listed = quick_look;
 }
 
 /// The open search as Save search would keep it.
@@ -827,15 +915,32 @@ fn open_file_location(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState)
     s.select_when_listed = Some(item);
 }
 
-/// The search box empties and the search stops: the folder's own rows show again.
-pub(crate) fn close_search(info: &mut CallbackInfo, s: &mut DriveState) {
+/// The search view closes: the search box empties, the search stops (its text joins the
+/// recent searches when it found something) and the folder's own rows show again.
+pub(crate) fn close_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if crate::remember_open_search(s) {
+        save_settings(info, app, s);
+    }
     let was_open = crate::stop_find(s);
-    if was_open || !s.search.is_empty() {
+    if was_open || s.search_open || !s.search.is_empty() {
         println!("AZDRIVE_SEARCH_CLOSED");
         clear_search_box(info);
     }
     s.search.clear();
+    s.search_open = false;
     s.refines = crate::find::Refines::default();
+}
+
+/// Escape in the search view: a search with text loses its text (the view stays on the recent
+/// and saved searches), an empty one closes.
+fn escape_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if s.search.is_empty() {
+        close_search(info, app, s);
+    } else {
+        s.search.clear();
+        clear_search_box(info);
+        crate::start_find(info, app, s);
+    }
 }
 
 // ==== File menu, Print, Hide ====
@@ -1165,6 +1270,7 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         shift: m.shift,
         ctrl: m.primary_down(),
         alt: m.alt,
+        control: m.ctrl,
     };
     // azul-appkit's keys first: Mod+, opens the Options, F1 at the keyboard shortcuts, Escape
     // closes them.
@@ -1183,7 +1289,37 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         }
     }
     if in_text_field(&info) {
-        return Update::DoNothing;
+        // The location tabs' keys work wherever the keyboard is; Escape in the empty search
+        // box closes the search view (the box itself clears a text it holds).
+        let command = keys::command_for(key_of(code), mods);
+        let app = data.clone();
+        let Some(mut guard) = data.downcast_mut::<DriveState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        if s.popup.is_some() || s.backstage_shown().is_some() || s.renaming.is_some() {
+            return Update::DoNothing;
+        }
+        let window_key = match command {
+            Some(
+                Command::NewTab
+                | Command::CloseTab
+                | Command::NextTab
+                | Command::PrevTab
+                | Command::JumpTab(_)
+                | Command::TabOverview,
+            ) => true,
+            Some(Command::Escape) => {
+                s.search_open && s.search.is_empty() && !s.editing_path && s.palette.is_none()
+            }
+            _ => false,
+        };
+        let Some(command) = command.filter(|_| window_key) else {
+            return Update::DoNothing;
+        };
+        info.prevent_default();
+        run_command(&mut info, &app, s, command);
+        return Update::RefreshDom;
     }
     // The source list's own keys while the keyboard is in it: the arrows walk its rows, Enter
     // opens one (the rest - F5, Backspace, Ctrl+C ... - stays the window's).
@@ -1211,6 +1347,28 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         return Update::DoNothing;
     }
     if s.renaming.is_some() {
+        return Update::DoNothing;
+    }
+    // Quick Look takes Space and Escape (it closes) and the arrows (they step through the
+    // files, the preview following); the palette has its own box's keys, Cmd+K closes it.
+    if s.quick_look {
+        match command {
+            Command::QuickLook | Command::Escape => crate::ui_overlays::close_quick_look(s),
+            Command::Move {
+                step: step @ (Step::Prev | Step::Next | Step::PrevRow | Step::NextRow),
+                ..
+            } => move_focus(&mut info, &app, s, step, false, false),
+            _ => return Update::DoNothing,
+        }
+        info.prevent_default();
+        return Update::RefreshDom;
+    }
+    if s.palette.is_some() {
+        if matches!(command, Command::Palette | Command::Escape) {
+            crate::ui_overlays::close_palette(s);
+            info.prevent_default();
+            return Update::RefreshDom;
+        }
         return Update::DoNothing;
     }
     info.prevent_default();
@@ -1314,10 +1472,12 @@ pub(crate) fn run_command(
         Command::Search => focus_search(info),
         Command::Escape => {
             s.type_ahead.clear();
-            if s.editing_path {
+            if s.tab_overview {
+                crate::ui_tabs::toggle_overview(s);
+            } else if s.editing_path {
                 s.editing_path = false;
-            } else if !s.search.is_empty() || s.find.is_some() {
-                close_search(info, s);
+            } else if s.search_open || !s.search.is_empty() || s.find.is_some() {
+                escape_search(info, app, s);
             } else {
                 s.selection.clear();
                 s.print_selection();
@@ -1349,6 +1509,23 @@ pub(crate) fn run_command(
         }
         Command::PreviewPane => run_action(info, app, s, Action::Toggle(Toggle::PreviewPane)),
         Command::DetailsPane => run_action(info, app, s, Action::Toggle(Toggle::DetailsPane)),
+        Command::NewTab => crate::ui_tabs::new_tab(info, app, s),
+        Command::CloseTab => {
+            let showing = s.tabs.current();
+            crate::ui_tabs::close_tab(info, app, s, showing);
+        }
+        Command::NextTab | Command::PrevTab => {
+            let to = s.tabs.cycle(command == Command::PrevTab);
+            crate::ui_tabs::switch_tab(info, app, s, to);
+        }
+        Command::JumpTab(digit) => {
+            if let Some(to) = s.tabs.jump(digit) {
+                crate::ui_tabs::switch_tab(info, app, s, to);
+            }
+        }
+        Command::TabOverview => crate::ui_tabs::toggle_overview(s),
+        Command::QuickLook => crate::ui_overlays::toggle_quick_look(info, app, s),
+        Command::Palette => crate::ui_overlays::toggle_palette(s),
     }
 }
 
@@ -2771,7 +2948,8 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
             );
         }
     }
-    if !s.settings.preview_pane {
+    // Quick Look shows the preview too, with the preview pane closed.
+    if !s.settings.preview_pane && !s.quick_look {
         return;
     }
     if s.preview.as_ref().is_some_and(|p| p.key == entry.key) {
@@ -3196,7 +3374,6 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
                 settings.preview_pane = false;
             }
         }
-        Toggle::StatusBar => settings.status_bar = !settings.status_bar,
         Toggle::ItemCheckboxes => settings.item_checkboxes = !settings.item_checkboxes,
         Toggle::Extensions => settings.show_extensions = !settings.show_extensions,
         Toggle::HiddenItems => settings.show_hidden = !settings.show_hidden,
@@ -3377,6 +3554,9 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
     } else if s.current_drive().is_some() && !s.selection.is_empty() {
         let one_folder = s.single_selected().is_some_and(|e| e.is_folder);
         let mut items = vec![item("azdrive-menu-open", Action::Open)];
+        if one_folder {
+            items.push(item("azdrive-menu-open-in-new-tab", Action::OpenInNewTab));
+        }
         if s.find.is_some() {
             items.push(item("azdrive-menu-open-file-location", Action::OpenFileLocation));
         }
