@@ -43,6 +43,7 @@ Another process steers a running proxy over HTTP on the same port: `POST /__azch
 """
 
 import argparse
+import calendar
 import email.utils
 import hashlib
 import json
@@ -197,7 +198,7 @@ class Request:
         if not text:
             return None
         try:
-            return time.mktime(time.strptime(text, "%Y%m%dT%H%M%SZ")) - time.timezone
+            return calendar.timegm(time.strptime(text, "%Y%m%dT%H%M%SZ"))
         except ValueError:
             return None
 

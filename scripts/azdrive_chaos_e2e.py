@@ -86,6 +86,7 @@ scenario failed.
 """
 
 import argparse
+import calendar
 import hashlib
 import json
 import os
@@ -250,8 +251,8 @@ class Stack:
                 direct = self.stack.s3_url
                 made["drive"]["location"]["endpoint"] = direct
                 made["nodes"] = [azlin_mock_stack.node_entry("n1", direct)]
-            expires = time.mktime(time.strptime(made["credentials"]["expires_at"],
-                                                "%Y-%m-%dT%H:%M:%SZ")) - time.timezone
+            expires = calendar.timegm(time.strptime(made["credentials"]["expires_at"],
+                                                    "%Y-%m-%dT%H:%M:%SZ"))
             self.sessions[made["credentials"]["session_token"]] = (family, expires)
             return made
 
