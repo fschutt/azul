@@ -8,8 +8,13 @@
 //! interaction states (it is a part of it), and the layout lays it out like any
 //! inline child. It holds one text node.
 //!
+//! An inline list item (`display: inline list-item`) gets its `::marker` the
+//! same way, as its first child: a block list item's marker sits outside its
+//! box and the layout makes it, an inline one's starts its inline content.
+//!
 //! After every cascade, [`fill_generated_text`] writes that text from the
-//! node's `content`: strings, `attr()`, `counter()` / `counters()` and quotes.
+//! node's `content` (a marker's from its list item's `list-style-type`):
+//! strings, `attr()`, `counter()` / `counters()` and quotes.
 //! The counters count there, in document order: `counter-reset`,
 //! `counter-increment` and the `list-item` counter every list item steps, with
 //! HTML's `<ol start reversed>` and `<li value>`.
@@ -90,11 +95,25 @@ fn makes_content(declarations: &[CssDeclaration]) -> bool {
     })
 }
 
-/// The host part of a generated-content rule: everything left of its
-/// `> ::before`, without the host's own interaction pseudo-classes. The node
-/// exists in every state; the cascade decides when it shows.
-fn host_path(path: &CssPath, combinator: usize) -> CssPath {
-    let selectors = &path.selectors.as_ref()[..combinator];
+/// Whether a rule makes its subject an inline list item, which carries a
+/// `::marker` node.
+fn makes_inline_list_item(declarations: &[CssDeclaration]) -> bool {
+    declarations.iter().any(|d| {
+        matches!(
+            d,
+            CssDeclaration::Static(CssProperty::Display(CssPropertyValue::Exact(
+                LayoutDisplay::InlineListItem
+            )))
+        )
+    })
+}
+
+/// The host part of a generated-content rule: everything before `end` (its
+/// `> ::before`, or the whole path for a marker), without the host's own
+/// interaction pseudo-classes. The node exists in every state; the cascade
+/// decides when it shows.
+fn host_path(path: &CssPath, end: usize) -> CssPath {
+    let selectors = &path.selectors.as_ref()[..end];
     let compound = selectors
         .iter()
         .rposition(is_combinator)
@@ -227,7 +246,25 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
                 .then(|| (before, host_path(&rule.path, combinator)))
         })
         .collect();
-    if rules.is_empty() {
+    let marker_rules: Vec<CssPath> = css
+        .rules
+        .as_ref()
+        .iter()
+        .filter(|rule| {
+            generated_subject(&rule.path).is_none()
+                && makes_inline_list_item(rule.declarations.as_ref())
+        })
+        .map(|rule| host_path(&rule.path, rule.path.selectors.as_ref().len()))
+        .collect();
+    let inline_list_items_inline = dom.node_data.internal.iter().any(|node| {
+        node.style.iter_inline_properties().any(|(prop, _)| {
+            matches!(
+                prop,
+                CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::InlineListItem))
+            )
+        })
+    });
+    if rules.is_empty() && marker_rules.is_empty() && !inline_list_items_inline {
         return false;
     }
 
@@ -235,6 +272,7 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
     let n = dom.node_data.internal.len().min(dom.node_hierarchy.internal.len());
     let mut before = alloc::vec![false; n];
     let mut after = alloc::vec![false; n];
+    let mut marker = alloc::vec![false; n];
     {
         let items: Vec<NodeHierarchyItem> = dom
             .node_hierarchy
@@ -265,6 +303,22 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
             if in_svg[i] || !can_host(node) {
                 continue;
             }
+            marker[i] = node.style.iter_inline_properties().any(|(prop, _)| {
+                matches!(
+                    prop,
+                    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::InlineListItem))
+                )
+            }) || marker_rules.iter().any(|host| {
+                matches_html_element_in(
+                    host,
+                    id,
+                    &hierarchy,
+                    &data,
+                    &cascade.as_ref(),
+                    None,
+                    Some(in_any_state),
+                )
+            });
             for (is_before, host) in &rules {
                 let slot = if *is_before {
                     &mut before[i]
@@ -287,7 +341,12 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
             }
         }
     }
-    let generated = before.iter().chain(after.iter()).filter(|b| **b).count();
+    let generated = before
+        .iter()
+        .chain(after.iter())
+        .chain(marker.iter())
+        .filter(|b| **b)
+        .count();
     if generated == 0 {
         return false;
     }
@@ -331,6 +390,10 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
                 .map(|p| old_to_new[p.index()]),
         );
         data.push(node);
+        // CSS Pseudo 4 s3: `::marker` comes first, then `::before`.
+        if marker[i] {
+            push_generated(NodeType::Marker, here, &mut data, &mut parents);
+        }
         if before[i] {
             push_generated(NodeType::Before, here, &mut data, &mut parents);
         }
@@ -400,10 +463,34 @@ impl CssPropertyCache {
     /// Runs inside the cascade on the matched rules (`css_props` still in its
     /// build phase, the last entry of a type winning), before they are sorted.
     /// A generated node has no style of its own besides them.
-    pub(crate) fn hide_contentless_generated_nodes(&mut self, node_data: &[NodeData]) {
+    pub(crate) fn hide_contentless_generated_nodes(
+        &mut self,
+        node_data: &[NodeData],
+        hierarchy: &[NodeHierarchyItem],
+    ) {
         let display = |d: LayoutDisplay| CssProperty::Display(CssPropertyValue::Exact(d));
         for (index, node) in node_data.iter().enumerate() {
             if !node.is_generated_content() {
+                continue;
+            }
+            if matches!(node.get_node_type(), NodeType::Marker) {
+                // A marker shows while its host is an inline list item.
+                let host = hierarchy
+                    .get(index)
+                    .and_then(NodeHierarchyItem::parent_id)
+                    .map(NodeId::index);
+                let host_display = host.and_then(|h| self.declared_display(node_data, h));
+                if host_display != Some(LayoutDisplay::InlineListItem) {
+                    self.css_props.push_to(
+                        index,
+                        StatefulCssProperty {
+                            state: PseudoStateType::Normal,
+                            prop_type: CssPropertyType::Display,
+                            property: display(LayoutDisplay::None),
+                            ua_origin: false,
+                        },
+                    );
+                }
                 continue;
             }
             let add: Vec<(PseudoStateType, CssProperty)> = {
@@ -466,6 +553,58 @@ impl CssPropertyCache {
                     },
                 );
             }
+        }
+    }
+}
+
+impl CssPropertyCache {
+    /// The `display` `node`'s own style or its matched rules declare for its
+    /// resting state, during the cascade (`css_props` in its build phase, the
+    /// last entry winning; the node's own declarations over the rules).
+    fn declared_display(&self, node_data: &[NodeData], node: usize) -> Option<LayoutDisplay> {
+        let own = node_data.get(node).and_then(|nd| {
+            nd.style
+                .iter_inline_properties()
+                .filter(|(_, conditions)| conditions.as_slice().is_empty())
+                .filter_map(|(prop, _)| match prop {
+                    CssProperty::Display(CssPropertyValue::Exact(d)) => Some(*d),
+                    _ => None,
+                })
+                .last()
+        });
+        own.or_else(|| {
+            self.css_props.build_get(node).and_then(|props| {
+                props
+                    .iter()
+                    .rev()
+                    .find(|p| {
+                        p.state == PseudoStateType::Normal
+                            && p.prop_type == CssPropertyType::Display
+                    })
+                    .and_then(|p| match &p.property {
+                        CssProperty::Display(CssPropertyValue::Exact(d)) => Some(*d),
+                        _ => None,
+                    })
+            })
+        })
+    }
+}
+
+/// The text of the `::marker` of an inline list item: its number in its
+/// list style followed by `. `, or its bullet followed by a space (CSS Lists
+/// 3 s3.1, the `::marker` UA content); nothing for `list-style-type: none`.
+fn marker_text(value: i32, style: StyleListStyleType) -> String {
+    match style {
+        StyleListStyleType::None => String::new(),
+        StyleListStyleType::Disc | StyleListStyleType::Circle | StyleListStyleType::Square => {
+            let mut text = format_counter(value, style);
+            text.push(' ');
+            text
+        }
+        _ => {
+            let mut text = format_counter(value, style);
+            text.push_str(". ");
+            text
         }
     }
 }
@@ -687,7 +826,10 @@ fn generated_texts(
         }
         // A list item steps the `list-item` counter unless its own
         // `counter-increment` names that counter (CSS Lists 3 s4.6).
-        let list_item = matches!(display_of(cache, node, id, &state), Some(LayoutDisplay::ListItem));
+        let list_item = matches!(
+            display_of(cache, node, id, &state),
+            Some(LayoutDisplay::ListItem | LayoutDisplay::InlineListItem)
+        );
         if list_item && increment.is_none_or(|c| c.counter_name.as_str() != "list-item") {
             let step = if counters.counts_down("list-item") { -1 } else { 1 };
             counters.increment("list-item", step, i, parent);
@@ -696,7 +838,27 @@ fn generated_texts(
             counters.set("list-item", value, i, parent);
         }
 
-        if node.is_generated_content() {
+        if matches!(node.get_node_type(), NodeType::Marker) {
+            let Some(text_node) = hierarchy[i].first_child_id(id) else {
+                continue;
+            };
+            let text = parent
+                .filter(|p| {
+                    let host_state = states.get(*p).copied().unwrap_or_default();
+                    display_of(cache, &node_data[*p], NodeId::new(*p), &host_state)
+                        == Some(LayoutDisplay::InlineListItem)
+                })
+                .map_or_else(String::new, |p| {
+                    let host_state = states.get(p).copied().unwrap_or_default();
+                    let style = cache
+                        .get_list_style_type(&node_data[p], &NodeId::new(p), &host_state)
+                        .and_then(CssPropertyValue::get_property)
+                        .copied()
+                        .unwrap_or_default();
+                    marker_text(counters.value("list-item"), style)
+                });
+            out.push((text_node.index(), text));
+        } else if node.is_generated_content() {
             let Some(text_node) = hierarchy[i].first_child_id(id) else {
                 continue;
             };

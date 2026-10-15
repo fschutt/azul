@@ -2022,8 +2022,12 @@ impl CssPropertyCache {
             self.variables_depend_on_context = false;
         }
 
-        // A `::before` / `::after` whose `content` makes nothing gets no box.
-        self.hide_contentless_generated_nodes(node_data.internal);
+        // A `::before` / `::after` whose `content` makes nothing gets no box,
+        // nor a `::marker` whose host is no inline list item.
+        self.hide_contentless_generated_nodes(
+            node_data.internal,
+            node_hierarchy.as_container().internal,
+        );
 
         // What the ROOT inherits from OUTSIDE this DOM (`inherited_from_host`:
         // a VirtualView's host) enters the walk where a parent's values would,

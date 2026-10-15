@@ -936,8 +936,11 @@ pub fn get_ua_property(
         // Inline Elements
         (NT::Span, PT::Display) => Some(&DISPLAY_INLINE),
         // CSS 2.2 s12.1: `::before` and `::after` are inline unless their
-        // rule says otherwise.
-        (NT::Before | NT::After, PT::Display) => Some(&DISPLAY_INLINE),
+        // rule says otherwise; so is the `::marker` an inline list item
+        // starts with, which keeps the space after its number (CSS Lists 3
+        // s3.1's `white-space: pre`).
+        (NT::Before | NT::After | NT::Marker, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Marker, PT::WhiteSpace) => Some(&WHITE_SPACE_PRE),
         (NT::A, PT::Display) => Some(&DISPLAY_INLINE),
         // No underline here: only a LINK (`<a href>`) is underlined, see
         // `get_ua_link_property`.

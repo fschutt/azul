@@ -5116,6 +5116,7 @@ impl Lower for crate::props::layout::display::LayoutDisplay {
             Self::Grid => "Grid",
             Self::InlineGrid => "InlineGrid",
             Self::Contents => "Contents",
+            Self::InlineListItem => "InlineListItem",
         };
         Expr::unit("LayoutDisplay", EnumShape::CLike, variant)
     }

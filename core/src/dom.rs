@@ -3505,11 +3505,15 @@ impl NodeData {
     }
 
     /// Whether this node is generated content: a `::before` or `::after`
-    /// the styling made for its parent from a `content` rule, not a node
-    /// the DOM was built with (see `crate::generated_content`).
+    /// the styling made for its parent from a `content` rule, or the
+    /// `::marker` of an inline list item - not a node the DOM was built with
+    /// (see `crate::generated_content`).
     #[must_use]
     pub const fn is_generated_content(&self) -> bool {
-        matches!(self.node_type, NodeType::Before | NodeType::After)
+        matches!(
+            self.node_type,
+            NodeType::Before | NodeType::After | NodeType::Marker
+        )
     }
 
     /// Whether this node is drawn as part of its parent and takes its
