@@ -157,11 +157,13 @@ impl TileDiskCache {
     /// After a `304 Not Modified`: the tile `url` names keeps its bytes and
     /// takes `policy`'s freshness, and its validators where `policy` names
     /// none. `false` when the folder does not hold it.
+    #[must_use]
     pub fn renew(&self, url: &str, policy: &CachePolicy) -> bool {
         self.renew_at(url, policy, SystemTime::now())
     }
 
     /// [`Self::renew`], recording the use at `used`.
+    #[must_use]
     pub fn renew_at(&self, url: &str, policy: &CachePolicy, used: SystemTime) -> bool {
         let Some(old) = self.lookup_at(url, 0, used) else {
             return false;
@@ -321,7 +323,7 @@ const fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 
 /// A header value that can stand on one line of a tile file.
 fn one_line(value: &str) -> bool {
-    !value.is_empty() && !value.contains(|c: char| c == '\n' || c == '\r')
+    !value.is_empty() && !value.contains(['\n', '\r'])
 }
 
 /// The header of a tile file.
@@ -391,7 +393,7 @@ fn write_atomically(path: &Path, data: &[u8], used: SystemTime) -> std::io::Resu
     fs::write(&tmp, data)?;
     touch(&tmp, used);
     fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = fs::remove_file(&tmp);
+        drop(fs::remove_file(&tmp));
     })
 }
 
@@ -399,7 +401,7 @@ fn write_atomically(path: &Path, data: &[u8], used: SystemTime) -> std::io::Resu
 /// eviction orders by).
 fn touch(path: &Path, when: SystemTime) {
     if let Ok(file) = fs::File::options().write(true).open(path) {
-        let _ = file.set_modified(when);
+        drop(file.set_modified(when));
     }
 }
 

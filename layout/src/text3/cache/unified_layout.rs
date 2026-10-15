@@ -1529,7 +1529,7 @@ pub(crate) fn nearest_band(
     let mut best: Option<(f32, f32, usize)> = None;
     for (line, (top, bottom)) in bands {
         let outside = distance_outside(y, top, bottom - top);
-        let off_middle = (y - (top + bottom) / 2.0).abs();
+        let off_middle = (y - f32::midpoint(top, bottom)).abs();
         let better = best.is_none_or(|(d, m, _)| outside < d || (outside <= d && off_middle < m));
         if better {
             best = Some((outside, off_middle, line));
