@@ -1,7 +1,8 @@
 //! The document area and the status bar.
 //!
 //! Print layout: the A4 sheets on the canvas, each sheet ONE page of the
-//! shared editor (`RichTextEditor::page_doms`) - every page edits the one
+//! shared editor (`RichTextEditor::page_doms_at`; a paragraph a page cuts
+//! shows its head on one sheet and its tail on the next) - every page edits the one
 //! document and its one history. Web layout: one sheet with every block.
 //! The paper follows the mode (the mode's background and text colours, as
 //! the editor's own content colours do); the PDF is black on white.
@@ -95,7 +96,7 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         View::Print => {
             let starts = st.pages.starts_for(doc.doc().block_count());
             let count = starts.len();
-            let pages = editor.page_doms(starts, 0, count);
+            let pages = editor.page_doms_at(paginate::Pages::page_starts(&starts), 0, count);
             for (i, page) in pages.as_slice().iter().enumerate() {
                 canvas.add_child(sheet(
                     first_takes_the_keyboard(i, page),
@@ -176,7 +177,11 @@ pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
     let (page_label, words) = match st.doc.as_ref() {
         Some(doc) => {
             let pages = st.pages.starts_for(doc.doc().block_count()).len();
-            let page = st.pages.page_of(doc.editor.caret_block).min(pages.saturating_sub(1)) + 1;
+            let page = st
+                .pages
+                .page_of(doc.editor.caret_block, doc.editor.caret_byte)
+                .min(pages.saturating_sub(1))
+                + 1;
             (
                 azul_appkit::l10n::t_args(
                     "azwriter-status-page",

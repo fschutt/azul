@@ -2,13 +2,15 @@
 //!
 //! The document is laid out once at the A4 text width by azul's paged
 //! pipeline (`Pdf::compute_pagination`, the engine the PDF export uses), on
-//! an azul `Thread`; its breaks become the FIRST BLOCK of every page (a page
-//! holds whole blocks: a break inside a paragraph moves the paragraph to the
-//! next page, a forced page break starts one). The canvas then shows each
-//! page as one editing host of the shared editor
-//! (`RichTextEditor::page_doms`). Until the pages of the current generation
-//! are known the last pages are used (block indices shift by an edit or two
-//! at most), so typing never waits for the layout.
+//! an azul `Thread`; its breaks become the START of every page: a block, and
+//! the byte of its text the page begins at. A break between blocks starts the
+//! page with the next block; a break inside a paragraph cuts it, so the page
+//! ends with its first lines and the next one begins with the rest (as a word
+//! processor does); a forced page break starts one. The canvas then shows
+//! each page as one editing host of the shared editor
+//! (`RichTextEditor::page_doms_at`). Until the pages of the current
+//! generation are known the last pages are used (block indices shift by an
+//! edit or two at most), so typing never waits for the layout.
 
 use azul::{
     callbacks::{CallbackInfo, RefAny, Update},
@@ -17,7 +19,7 @@ use azul::{
     image::ImageCacheSnapshot,
     pdf::Pdf,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
-    widgets::{RichTextDoc, RichTextEditor, RichTextEditorState},
+    widgets::{RichPageStart, RichPageStartVec, RichTextDoc, RichTextEditor, RichTextEditorState},
 };
 
 use crate::AppState;
@@ -45,20 +47,24 @@ pub fn content_size() -> (f32, f32) {
 /// sheet shows and the PDF embeds.
 pub const PAPER_TEXT_CSS: &str = "font-family: 'EB Garamond', Georgia, serif;";
 
+/// Where a page starts: the block, and the byte of the block's text the page
+/// begins at (0: the page begins with the whole block).
+pub type Start = (u32, u32);
+
 /// What is known about the pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pages {
     /// The document generation the pages were computed for (0 = none yet).
     pub generation: u64,
-    /// The first block of every page, ascending, starting with 0.
-    pub starts: Vec<u32>,
+    /// The start of every page, ascending, beginning with (0, 0).
+    pub starts: Vec<Start>,
 }
 
 impl Default for Pages {
     fn default() -> Self {
         Self {
             generation: 0,
-            starts: vec![0],
+            starts: vec![(0, 0)],
         }
     }
 }
@@ -67,45 +73,101 @@ impl Pages {
     /// The page starts for a document of `blocks` blocks: the known ones,
     /// cut to the document (a page past its end goes).
     #[must_use]
-    pub fn starts_for(&self, blocks: usize) -> Vec<u32> {
-        let mut starts: Vec<u32> = self
+    pub fn starts_for(&self, blocks: usize) -> Vec<Start> {
+        let mut starts: Vec<Start> = self
             .starts
             .iter()
             .copied()
-            .filter(|s| (*s as usize) < blocks.max(1))
+            .filter(|s| (s.0 as usize) < blocks.max(1))
             .collect();
-        if starts.first() != Some(&0) {
-            starts.insert(0, 0);
+        if starts.first() != Some(&(0, 0)) {
+            starts.insert(0, (0, 0));
         }
         starts
     }
 
-    /// The page block `block` is on.
+    /// The page the caret at byte `byte` of block `block` is on (a paragraph a
+    /// page cuts is on two pages: its head on the first, its tail on the next).
     #[must_use]
-    pub fn page_of(&self, block: usize) -> usize {
+    pub fn page_of(&self, block: usize, byte: usize) -> usize {
         self.starts
             .iter()
-            .rposition(|s| (*s as usize) <= block)
+            .rposition(|s| (s.0 as usize, s.1 as usize) <= (block, byte))
             .unwrap_or(0)
+    }
+
+    /// The starts as the editor's page hosts take them.
+    #[must_use]
+    pub fn page_starts(starts: &[Start]) -> RichPageStartVec {
+        RichPageStartVec::from(
+            starts
+                .iter()
+                .map(|&(block, byte)| RichPageStart::create(block, byte))
+                .collect::<Vec<_>>(),
+        )
     }
 }
 
-/// The page starts from the break paths of a pagination (each path a
-/// child-index path from the document host: `[block, ...]`). Ascending,
-/// unique, within the document, starting with 0.
+/// One break of a pagination, as the paginator names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Break {
+    /// The child-index path from the document host to the block the next
+    /// page starts with (`[block, ...]`; empty when it names none).
+    pub path: Vec<u32>,
+    /// When the break cuts a block between two of its lines: the path to the
+    /// text node the next page's first line begins in (`[block, run, ...]`:
+    /// a run is the block's child, its text the node itself or the node's
+    /// child). Empty for a break between blocks.
+    pub text_path: Vec<u32>,
+    /// The byte of that text node the line begins at.
+    pub text_byte: Option<u32>,
+}
+
+/// The page starts from the breaks of a pagination: ascending, unique, within
+/// the document, beginning with (0, 0). `runs(block)` gives the byte lengths
+/// of the block's runs that have text, in order - each is one child of the
+/// block's node, so a text path's second index names the run and the bytes
+/// before it.
 #[must_use]
-pub fn starts_from_breaks(paths: &[Vec<u32>], blocks: usize) -> Vec<u32> {
-    let mut starts = vec![0u32];
-    for path in paths {
-        let Some(&block) = path.first() else {
+pub fn starts_from_breaks(breaks: &[Break], runs: &dyn Fn(usize) -> Vec<usize>, blocks: usize) -> Vec<Start> {
+    let mut starts: Vec<Start> = vec![(0, 0)];
+    for brk in breaks {
+        let Some(start) = cut_start(brk, runs).or_else(|| brk.path.first().map(|&block| (block, 0))) else {
             continue;
         };
-        let last = starts.last().copied().unwrap_or(0);
-        if block > last && (block as usize) < blocks {
-            starts.push(block);
+        let last = starts.last().copied().unwrap_or((0, 0));
+        if start > last && (start.0 as usize) < blocks {
+            starts.push(start);
         }
     }
     starts
+}
+
+/// Where the next page begins when `brk` cuts a block: the block and the
+/// byte of its text, or None when the break is between blocks or its text
+/// node is not one of the block's runs.
+fn cut_start(brk: &Break, runs: &dyn Fn(usize) -> Vec<usize>) -> Option<Start> {
+    let (&block, &run) = (brk.text_path.first()?, brk.text_path.get(1)?);
+    let byte = brk.text_byte?;
+    let lengths = runs(block as usize);
+    if run as usize >= lengths.len() {
+        return None;
+    }
+    let before: usize = lengths[..run as usize].iter().sum();
+    let byte = u32::try_from(before).ok()?.checked_add(byte)?;
+    Some((block, byte))
+}
+
+/// The byte lengths of the runs with text of block `block` of `doc`.
+fn run_lengths(doc: &RichTextDoc, block: usize) -> Vec<usize> {
+    doc.blocks.as_ref().get(block).map_or_else(Vec::new, |b| {
+        b.runs
+            .as_ref()
+            .iter()
+            .map(|run| run.text.as_str().len())
+            .filter(|&len| len > 0)
+            .collect()
+    })
 }
 
 /// The document as the paginator lays it out: the editor's blocks on ONE
@@ -128,14 +190,18 @@ pub fn measure_dom(doc: &RichTextDoc) -> Dom {
 
 /// Lays `doc` out on A4 text areas and returns where each page starts.
 #[must_use]
-pub fn compute_starts(doc: &RichTextDoc, fonts: FontCacheSnapshot) -> Vec<u32> {
+pub fn compute_starts(doc: &RichTextDoc, fonts: FontCacheSnapshot) -> Vec<Start> {
     let (w, h) = content_size();
     let styled = StyledDom::create_from_dom(measure_dom(doc));
     let snapshot = Pdf::create().compute_pagination(styled, w, h, fonts, ImageCacheSnapshot::empty());
-    let paths: Vec<Vec<u32>> = (0..snapshot.break_count())
-        .map(|i| snapshot.break_path(i).as_ref().to_vec())
+    let breaks: Vec<Break> = (0..snapshot.break_count())
+        .map(|i| Break {
+            path: snapshot.break_path(i).as_ref().to_vec(),
+            text_path: snapshot.break_line_text_path(i).as_ref().to_vec(),
+            text_byte: snapshot.break_line_text_byte(i).into_option(),
+        })
         .collect();
-    starts_from_breaks(&paths, doc.block_count())
+    starts_from_breaks(&breaks, &|block| run_lengths(doc, block), doc.block_count())
 }
 
 // ==== On a Thread ====
@@ -148,7 +214,7 @@ struct PaginateInit {
 
 struct PaginateDone {
     generation: u64,
-    starts: Vec<u32>,
+    starts: Vec<Start>,
 }
 
 extern "C" fn paginate_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
