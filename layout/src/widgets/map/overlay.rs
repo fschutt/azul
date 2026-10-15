@@ -244,7 +244,8 @@ impl MapMarker {
 /// markers over everything.
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq)]
-#[allow(clippy::large_enum_variant)] // an FFI enum holds its variants inline: no Box across the C ABI
+// An FFI enum holds its variants inline: no Box across the C ABI.
+#[allow(clippy::large_enum_variant, variant_size_differences)]
 pub enum MapOverlay {
     Polyline(MapPolyline),
     Polygon(MapPolygon),
@@ -279,7 +280,7 @@ pub(crate) fn css_color(color: ColorU) -> String {
 
 /// Whether `color` paints anything: an opaque or translucent colour, or a
 /// system colour token (whose own alpha is 0: it names the theme's colour).
-fn paints(color: ColorU) -> bool {
+const fn paints(color: ColorU) -> bool {
     color.a > 0
         || azul_css::props::basic::color::SystemColorRef::from_color_token(color).is_some()
 }
@@ -353,7 +354,8 @@ impl MapCamera {
 /// `[x y 1] * m`, divided by its `w`; `None` when `w` is not positive.
 fn apply(m: &[f64; 9], (x, y): (f64, f64)) -> Option<(f64, f64)> {
     let w = x * m[2] + y * m[5] + m[8];
-    if !(w > 1e-9) {
+    // Behind the eye or at it (NaN too): no point on the screen.
+    if w.partial_cmp(&1e-9) != Some(core::cmp::Ordering::Greater) {
         return None;
     }
     Some(((x * m[0] + y * m[3] + m[6]) / w, (x * m[1] + y * m[4] + m[7]) / w))
@@ -678,13 +680,12 @@ fn clip_polyline(points: &[(f64, f64)], rect: [f64; 4]) -> Vec<Vec<(f64, f64)>> 
     runs
 }
 
+/// A clipped segment: its two ends, and whether each is the original's end.
+type ClippedSegment = ((f64, f64), (f64, f64), bool, bool);
+
 /// The part of segment `a`-`b` inside `rect` (Liang-Barsky), with whether
 /// it starts at `a` and ends at `b` (they are inside); `None` when it misses.
-fn clip_segment(
-    a: (f64, f64),
-    b: (f64, f64),
-    rect: [f64; 4],
-) -> Option<((f64, f64), (f64, f64), bool, bool)> {
+fn clip_segment(a: (f64, f64), b: (f64, f64), rect: [f64; 4]) -> Option<ClippedSegment> {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
     for (p, q) in [
@@ -872,7 +873,7 @@ pub(crate) fn ground_nodes(
 /// eye or far outside the `width` x `height` view is left out.
 pub(crate) fn marker_nodes(
     overlays: &[MapOverlay],
-    place: &dyn Fn(super::MapLatLon) -> Option<(f64, f64)>,
+    place: &dyn Fn(MapLatLon) -> Option<(f64, f64)>,
     width: f32,
     height: f32,
     cache: &azul_core::refany::RefAny,

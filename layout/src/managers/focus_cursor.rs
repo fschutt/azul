@@ -81,7 +81,7 @@ pub struct FocusManager {
     /// The focused control is held PRESSED by the keyboard: Space or Enter
     /// activated it and has not come up yet. The shell shows it `:active`
     /// (the theme's pressed face and its press animation, as for a pointer)
-    /// until the key's KeyUp, and re-applies it to a DOM rebuilt meanwhile.
+    /// until the key's `KeyUp`, and re-applies it to a DOM rebuilt meanwhile.
     pub pressed_by_key: bool,
 
     // --- W3C "flag and defer" pattern fields ---

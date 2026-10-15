@@ -45,7 +45,7 @@ pub struct SheenSurface {
 impl SheenSurface {
     /// A surface at rest: no sheen.
     #[must_use]
-    pub fn new(area: LogicalRect, rect: LogicalRect) -> Self {
+    pub const fn new(area: LogicalRect, rect: LogicalRect) -> Self {
         Self {
             area,
             rect,

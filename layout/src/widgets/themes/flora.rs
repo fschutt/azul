@@ -1406,7 +1406,7 @@ pub(crate) fn ribbon_leather_style(
         &mut s.group_items_style,
         resolved,
         alloc::vec![P::simple(CssProperty::ColumnGap(
-            azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
+            LayoutColumnGapValue::Exact(LayoutColumnGap {
                 inner: PixelValue::const_px(4),
             }),
         ))],
@@ -1416,7 +1416,7 @@ pub(crate) fn ribbon_leather_style(
         &mut s.column_style,
         resolved,
         alloc::vec![P::simple(CssProperty::RowGap(
-            azul_css::props::property::LayoutRowGapValue::Exact(LayoutRowGap {
+            LayoutRowGapValue::Exact(LayoutRowGap {
                 inner: PixelValue::const_px(3),
             }),
         ))],
@@ -1466,7 +1466,7 @@ pub(crate) fn font_caps_for(app_font: Option<&str>) -> StyleFontFamilyVec {
     let Some(families) = app_font
         .map(str::trim)
         .filter(|f| !f.is_empty())
-        .and_then(|f| azul_css::props::basic::font::parse_style_font_family(f).ok())
+        .and_then(|f| parse_style_font_family(f).ok())
     else {
         return FONT_CAPS;
     };
@@ -7429,10 +7429,10 @@ pub(crate) const SQUARE_TABS: TabSpacing = TabSpacing {
 };
 
 /// `column-gap: <gap>px`, on the row that holds the tabs.
-fn tab_gap(gap: isize) -> CssPropertyWithConditions {
+const fn tab_gap(gap: isize) -> CssPropertyWithConditions {
     CssPropertyWithConditions::simple(CssProperty::ColumnGap(
-        azul_css::props::property::LayoutColumnGapValue::Exact(
-            azul_css::props::layout::LayoutColumnGap {
+        LayoutColumnGapValue::Exact(
+            LayoutColumnGap {
                 inner: PixelValue::const_px(gap),
             },
         ),
