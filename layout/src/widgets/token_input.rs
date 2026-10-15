@@ -29,7 +29,9 @@
 //! - all of them, or what it fetched for the typed text); the widget shows
 //! the ones the typed text matches, those that START with it first, never
 //! one that is a token already, at most [`TokenInput::max_suggestions`].
-//! Nothing typed: no list.
+//! Nothing typed: no list. The list floats in a popup window anchored under
+//! the field (a transient window), so no ancestor's `overflow: hidden` cuts
+//! it off; the focus stays in the entry.
 //!
 //! KEYBOARD: the field is ONE Tab stop, the entry. Enter commits the
 //! highlighted suggestion or the typed text, Tab commits the typed text
@@ -50,7 +52,11 @@ use alloc::{string::String, vec::Vec};
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
     callbacks::{FocusTarget, Update},
-    dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{
+        ComponentEventFilter, Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter,
+        IdOrClass::Class, IdOrClassVec, NodeData, NodeType, TabIndex,
+    },
+    transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
     events::FocusEventFilter,
     refany::RefAny,
     window::VirtualKeyCode,
@@ -62,10 +68,9 @@ use azul_css::{
         basic::{length::FloatValue, pixel::PixelValue},
         layout::{
             LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutFlexShrink, LayoutFlexWrap, LayoutLeft, LayoutMinWidth, LayoutPosition, LayoutTop,
-            LayoutZIndex,
+            LayoutFlexShrink, LayoutFlexWrap, LayoutMinWidth, LayoutPosition,
         },
-        property::{CssProperty, CssPropertyType},
+        property::CssProperty,
         style::StyleCursor,
     },
     AzString, StringVec,
@@ -92,6 +97,8 @@ pub(crate) const FIELD_CLASS: &str = "__azul-native-token-input-field";
 pub(crate) const CHIP_CLASS: &str = "__azul-native-token-input-chip";
 /// The text entry after the chips (added to the text input's own class).
 pub(crate) const ENTRY_CLASS: &str = "__azul-native-token-input-entry";
+/// The popup window holding the list of suggestions.
+pub(crate) const POPUP_CLASS: &str = "__azul-native-token-input-popup";
 /// The list of suggestions under the field.
 pub(crate) const LIST_CLASS: &str = "__azul-native-token-input-suggestions";
 /// A suggestion.
@@ -800,23 +807,19 @@ pub(crate) fn token_entry_overrides() -> Vec<CssPropertyWithConditions> {
     ]
 }
 
-/// The list: floating under the field, as wide as it, over what follows.
+/// The list: a column filling its popup window, which takes the list's own
+/// size (content-sized), never narrower than a short address.
 pub(crate) static TOKEN_LIST_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop {
-        inner: PixelValue::const_percent(100),
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft {
-        inner: PixelValue::const_px(0),
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_width(azul_css::props::layout::LayoutWidth::Px(
-        PixelValue::const_percent(100),
-    ))),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
-    CssPropertyWithConditions::simple(CssProperty::const_z_index(LayoutZIndex::Integer(10))),
+    CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
+        TOKEN_LIST_MIN_WIDTH,
+    ))),
 ];
+
+/// The list's narrowest width, in px.
+const TOKEN_LIST_MIN_WIDTH: isize = 220;
 
 /// A suggestion: one line under the pointer.
 pub(crate) static TOKEN_OPTION_BASE: &[CssPropertyWithConditions] = &[
@@ -839,8 +842,9 @@ struct TokenShared {
     state: TokenInputState,
     shown: Vec<AzString>,
     allow_duplicates: bool,
-    /// Escape hid the list (an override no rebuild has taken back yet):
-    /// nothing shows, so nothing is highlighted.
+    /// Escape (or a click outside it) closed the list's popup: nothing
+    /// shows, so nothing is highlighted, until Down / Up or the next rebuild
+    /// opens it again.
     dismissed: bool,
 }
 
@@ -851,7 +855,8 @@ struct TokenData {
     shared: RefAny,
 }
 
-/// The token input's DOM in `look`: root [field [chip.., entry], list?].
+/// The token input's DOM in `look`: root [field [chip.., entry],
+/// popup [list]?].
 pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
     let TokenInput {
         state,
@@ -986,16 +991,33 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
                     .with_child(crate::widgets::widget_p_with_text(text.clone()))
             })
             .collect();
+        let list = Dom::create_div()
+            .with_class(AzString::from_const_str(LIST_CLASS))
+            .with_css_props(part(TOKEN_LIST_BASE, &look.list))
+            // A LIST: the role that tells the engine the popup leaves the
+            // focus in the entry (the ARIA combobox) - typing goes on.
+            .with_accessibility_info(AccessibilityInfo {
+                role: AccessibilityRole::List,
+                accessibility_name: Some(AzString::from_const_str("Suggestions")).into(),
+                ..Default::default()
+            })
+            .with_children(DomVec::from_vec(options));
+        // A popup window under the field, open while suggestions show; a
+        // click outside closes it (the entry's Down / Up open it again).
+        let mut transient = NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::opened()
+                .with_anchor(TransientAnchor::Bottom)
+                .with_dismiss(TransientDismiss::Outside),
+        ));
+        transient.add_callback(
+            EventFilter::Component(ComponentEventFilter::Dismissed),
+            shared.clone(),
+            crate::callbacks::Callback::from_ptr(on_popup_dismissed).to_core(),
+        );
         children.push(
-            Dom::create_div()
-                .with_class(AzString::from_const_str(LIST_CLASS))
-                .with_css_props(part(TOKEN_LIST_BASE, &look.list))
-                .with_accessibility_info(AccessibilityInfo {
-                    role: AccessibilityRole::List,
-                    accessibility_name: Some(AzString::from_const_str("Suggestions")).into(),
-                    ..Default::default()
-                })
-                .with_children(DomVec::from_vec(options)),
+            Dom::create_from_data(transient)
+                .with_class(AzString::from_const_str(POPUP_CLASS))
+                .with_child(list),
         );
     }
 
@@ -1037,34 +1059,44 @@ fn emit(shared: &mut RefAny, mut info: CallbackInfo, event: TokenInputEvent) -> 
         Some(TokenInputOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
         None => Update::DoNothing,
     };
-    if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+    let dismissed = shared.downcast_ref::<TokenShared>().is_some_and(|s| s.dismissed);
+    if dismissed && matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
         show_list_again(shared, &mut info);
     }
     update
 }
 
-/// Takes a list Escape hid back ([`EntryKey::Dismiss`]): the override goes
-/// (`initial` removes it), the list shows what the DOM was built with.
+/// Opens the popup Escape or an outside click closed: the list shows what
+/// the DOM was built with again.
 fn show_list_again(shared: &mut RefAny, info: &mut CallbackInfo) {
-    if let Some(list) = list_of(info, info.get_hit_node()) {
-        info.override_css_property(list, CssProperty::initial(CssPropertyType::Display));
+    if let Some(popup) = popup_of(info, info.get_hit_node()) {
+        info.set_transient_window_open(popup, true);
     }
     if let Some(mut s) = shared.downcast_mut::<TokenShared>() {
         s.dismissed = false;
     }
 }
 
-/// The list of suggestions of the token input `node` is in, if it shows one.
-fn list_of(info: &CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
+/// The suggestions' popup of the token input `node` is in, if it has one.
+fn popup_of(info: &CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
     let mut current = Some(node);
     for _ in 0..16 {
         let n = current?;
         if roving::has_class(info, n, TOKEN_INPUT_CLASS) {
-            return roving::items_of(info, n, LIST_CLASS).first().copied();
+            return roving::items_of(info, n, POPUP_CLASS).first().copied();
         }
         current = info.get_parent(n);
     }
     None
+}
+
+/// A click outside closed the popup: the list is dismissed as Escape
+/// dismisses it (Down / Up open it again).
+extern "C" fn on_popup_dismissed(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<TokenShared>() {
+        s.dismissed = true;
+    }
+    Update::DoNothing
 }
 
 /// The app's verdict on `token` (no validator: taken as typed).
@@ -1272,12 +1304,10 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
             TokenInputEvent::create(TokenInputEventKind::Navigate, next)
         }),
         EntryKey::Dismiss => {
-            // The list goes until the app rebuilds the field for the user's
-            // next action (the next character): an override, as nothing is
-            // rebuilt now - and one `emit` takes back, since an override
-            // outranks every later rebuild.
-            if let Some(list) = list_of(&info, container) {
-                info.set_css_property(list, CssProperty::const_display(LayoutDisplay::None));
+            // The popup closes until Down / Up or the app's rebuild for the
+            // user's next action (the next character) opens it again.
+            if let Some(popup) = popup_of(&info, container) {
+                info.set_transient_window_open(popup, false);
             }
             if let Some(mut s) = data.downcast_mut::<TokenShared>() {
                 s.dismissed = true;
@@ -1698,7 +1728,7 @@ mod token_input_tests {
                 assert!(words.iter().any(|w| w == token), "{words:?}");
             }
             assert!(theme_checks::has_class(&in_field[2], ENTRY_CLASS));
-            let list = &parts[1];
+            let list = &parts[1].children.as_ref()[0];
             assert!(theme_checks::has_class(list, LIST_CLASS));
             assert_eq!(
                 list.root.get_accessibility_info().map(|i| i.role),
@@ -1784,7 +1814,7 @@ mod token_input_tests {
         let mut input = field(&log).with_theme(UiTheme::Flat);
         input.state.active = OptionUsize::Some(1);
         let dom = input.dom();
-        let list = &dom.children.as_ref()[1];
+        let list = &dom.children.as_ref()[1].children.as_ref()[0];
         let options = list.children.as_ref();
         assert!(theme_checks::has_class(&options[1], OPTION_ACTIVE_CLASS));
         assert!(!theme_checks::has_class(&options[0], OPTION_ACTIVE_CLASS));
@@ -1852,7 +1882,8 @@ mod token_input_tests {
     fn a_click_on_a_suggestion_adds_it_and_clears_the_text() {
         let log = log();
         let styled = StyledDom::create_from_dom(field(&log).with_theme(UiTheme::Flat).dom());
-        let list = kids(&styled, NodeId::new(0))[1];
+        let popup = kids(&styled, NodeId::new(0))[1];
+        let list = kids(&styled, popup)[0];
         let options = kids(&styled, list);
         assert_eq!(options.len(), 3);
         rv::fire(&styled, id(options[1]), EventFilter::Hover(HoverEventFilter::Click)).expect("a click target");
@@ -1868,53 +1899,31 @@ mod token_input_tests {
         Update::DoNothing
     }
 
-    /// Every `display` the handler wrote, on either channel, as (node, value).
-    fn display_writes(changes: &[crate::callbacks::CallbackChange]) -> Vec<(NodeId, CssProperty)> {
-        use crate::callbacks::CallbackChange as C;
-        changes
-            .iter()
-            .flat_map(|c| match c {
-                C::ChangeNodeCssProperties { node_id, properties, .. }
-                | C::OverrideNodeCssProperties { node_id, properties, .. } => properties
-                    .as_ref()
-                    .iter()
-                    .filter(|p| p.get_type() == CssPropertyType::Display)
-                    .map(|p| (*node_id, p.clone()))
-                    .collect::<Vec<_>>(),
-                _ => Vec::new(),
-            })
-            .collect()
-    }
-
-    /// The list Escape hid is the rebuild's to show again: an event the app
-    /// rebuilds for takes the override back; one it does not leaves it.
+    /// The popup Escape closed is the rebuild's to show again: an event the
+    /// app rebuilds for opens it; one it does not leaves it closed.
     #[test]
-    fn an_event_the_app_rebuilds_for_hands_the_list_back_to_the_rebuild() {
-        let log = log();
-        let styled = StyledDom::create_from_dom(field(&log).with_theme(UiTheme::Flat).dom());
-        let field_node = kids(&styled, NodeId::new(0))[0];
-        let entry = kids(&styled, field_node)[2];
-        let list = kids(&styled, NodeId::new(0))[1];
-        assert!(has_class_at(&styled, list, LIST_CLASS));
-        let (_, changes) = rv::press(&styled, id(entry), K::Down, &[]).expect("the entry's key handler");
-        assert!(logged(&log).iter().any(|l| l.starts_with("Navigate")), "{:?}", logged(&log));
-        assert_eq!(
-            display_writes(&changes),
-            vec![(list, CssProperty::initial(CssPropertyType::Display))],
-            "the app rebuilds: its list decides, the override goes"
-        );
-
-        let quiet = StyledDom::create_from_dom(
-            field(&log)
-                .with_on_event(RefAny::new(()), hear_only as TokenInputOnEventCallbackType)
-                .with_theme(UiTheme::Flat)
-                .dom(),
-        );
-        let (_, changes) = rv::press(&quiet, id(entry), K::Down, &[]).expect("the entry's key handler");
-        assert!(
-            display_writes(&changes).is_empty(),
-            "no rebuild is coming: a dismissal stands ({changes:?})"
-        );
+    fn an_event_the_app_rebuilds_for_opens_the_popup_escape_closed() {
+        for (rebuilds, want) in [(true, true), (false, false)] {
+            let log = log();
+            let mut input = field(&log).with_theme(UiTheme::Flat);
+            if !rebuilds {
+                input = input.with_on_event(RefAny::new(()), hear_only as TokenInputOnEventCallbackType);
+            }
+            let styled = StyledDom::create_from_dom(input.dom());
+            let field_node = kids(&styled, NodeId::new(0))[0];
+            let entry = kids(&styled, field_node)[2];
+            let popup = kids(&styled, NodeId::new(0))[1];
+            assert!(has_class_at(&styled, popup, POPUP_CLASS));
+            rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
+            let x0 = kids(&styled, kids(&styled, field_node)[0])[1];
+            let (_, changes) =
+                rv::fire(&styled, id(x0), EventFilter::Hover(HoverEventFilter::Click)).expect("a click target");
+            assert_eq!(
+                transient_writes(&changes).contains(&(popup, true)),
+                want,
+                "rebuilds {rebuilds}: {changes:?}"
+            );
+        }
     }
 
     /// Whether the handler vetoed the key (the text input's default and the
@@ -1926,6 +1935,8 @@ mod token_input_tests {
     }
 
     /// "al" typed, the first suggestion highlighted, the list showing.
+    /// "al" typed, the first suggestion highlighted, the popup open: the
+    /// styled DOM, the entry and the popup.
     fn highlighted_field(log: &Log) -> (StyledDom, NodeId, NodeId) {
         let state = TokenInputState::create(sv(&["alice@x.org", "bob@y.org"]))
             .with_text(s("al"))
@@ -1933,9 +1944,9 @@ mod token_input_tests {
         let styled = StyledDom::create_from_dom(field(log).with_state(state).with_theme(UiTheme::Flat).dom());
         let field_node = kids(&styled, NodeId::new(0))[0];
         let entry = kids(&styled, field_node)[2];
-        let list = kids(&styled, NodeId::new(0))[1];
-        assert!(has_class_at(&styled, list, LIST_CLASS));
-        (styled, entry, list)
+        let popup = kids(&styled, NodeId::new(0))[1];
+        assert!(has_class_at(&styled, popup, POPUP_CLASS));
+        (styled, entry, popup)
     }
 
     /// Chrome's `<input list>`: Escape closes the suggestions, and Enter then
@@ -1944,17 +1955,17 @@ mod token_input_tests {
     #[test]
     fn after_escape_hides_the_list_enter_commits_the_typed_text_and_a_second_escape_passes() {
         let log = log();
-        let (styled, entry, list) = highlighted_field(&log);
+        let (styled, entry, popup) = highlighted_field(&log);
         let (_, changes) = rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
         assert_eq!(
-            display_writes(&changes),
-            vec![(list, CssProperty::const_display(LayoutDisplay::None))],
-            "the first Escape hides the list"
+            transient_writes(&changes),
+            vec![(popup, false)],
+            "the first Escape closes the list's popup"
         );
         assert!(swallowed(&changes), "the first Escape is the list's");
 
         let (_, changes) = rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
-        assert!(display_writes(&changes).is_empty(), "nothing left to hide: {changes:?}");
+        assert!(transient_writes(&changes).is_empty(), "nothing left to close: {changes:?}");
         assert!(!swallowed(&changes), "the second Escape goes on to the window: {changes:?}");
 
         rv::press(&styled, id(entry), K::Return, &[]).expect("the entry's key handler");
@@ -1970,7 +1981,7 @@ mod token_input_tests {
     #[test]
     fn down_brings_a_list_escape_hid_back_from_its_first_suggestion() {
         let log = log();
-        let (styled, entry, list) = highlighted_field(&log);
+        let (styled, entry, popup) = highlighted_field(&log);
         rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
         let (_, changes) = rv::press(&styled, id(entry), K::Down, &[]).expect("the entry's key handler");
         assert_eq!(
@@ -1978,9 +1989,7 @@ mod token_input_tests {
             vec![String::from("Navigate 0  | alice@x.org,bob@y.org | al | Some(0)")]
         );
         assert!(
-            display_writes(&changes)
-                .iter()
-                .any(|(n, p)| *n == list && *p == CssProperty::initial(CssPropertyType::Display)),
+            transient_writes(&changes).contains(&(popup, true)),
             "the list shows again: {changes:?}"
         );
     }
