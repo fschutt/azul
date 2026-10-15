@@ -7,8 +7,12 @@ fake manifests on a local server, in a sandbox home folder.
        under a temporary folder, a fake package manager (brew on macOS, apt
        elsewhere) first on the PATH; a local HTTP server with a manifest per app and channel and
        the artifacts: AzWriter is the real AzWriter program, the runtime and AzClock are bytes;
-    1. the wizard: Welcome; the package manager's page (Copy puts `... azlin-writer
-       azlin-clock` on the clipboard); the destination (~/.azlin/apps, the space lines); the
+    0b. a first run through the package manager (the default when one is found): its page
+       offers it (recommended), AzWriter and AzClock ticked, the Ready page shows its command,
+       Install runs the fake package manager for them (pkexec on Linux) and shows its output;
+       it installs nothing, so the next start is a first run again;
+    1. the wizard, Azlin's own way picked on the package manager's page (Copy puts `...
+       azlin-writer azlin-clock` on the clipboard); the destination (~/.azlin/apps, the space lines); the
        apps (the groups cleared, AzWriter and AzClock ticked: the total is 70 + 15 + 7 MB);
        the channel (stable, auto-update); no update source yet: the Updates page says so, the
        Ready page holds Install with a sentence; the local server's address typed into the
@@ -146,10 +150,17 @@ class Sandbox:
         for d in (self.azlin, self.data, self.fakebin):
             os.makedirs(d, exist_ok=True)
         self.pm = "brew" if sys.platform == "darwin" else "apt"
+        # The fake package manager writes down how it was called; pkexec (Linux) runs what it
+        # is given, as the real one does once the user said yes.
+        self.pm_log = os.path.join(self.root, "pm.log")
         fake = os.path.join(self.fakebin, self.pm)
         with open(fake, "w") as f:
-            f.write("#!/bin/sh\nexit 0\n")
+            f.write('#!/bin/sh\necho "%s $*" >> "%s"\nexit 0\n' % (self.pm, self.pm_log))
         os.chmod(fake, 0o755)
+        pkexec = os.path.join(self.fakebin, "pkexec")
+        with open(pkexec, "w") as f:
+            f.write('#!/bin/sh\nexec "$@"\n')
+        os.chmod(pkexec, 0o755)
         self.env = {
             "HOME": self.home,
             "AZLIN_CONFIG": self.config,
@@ -191,10 +202,48 @@ def set_source(app, box, rel, out):
     app.log("the update source typed on the Updates page is kept in the config")
 
 
+def tick_writer_and_clock(app):
+    """Every group cleared, then AzWriter and AzClock ticked: the runtime stays (required)."""
+    for group in ("Office", "Mail, calendar and contacts", "Pictures, music and video", "Tools"):
+        app.click(text=group)
+    app.click(text="AzWriter")
+    app.click(text="AzClock")
+
+
+def through_package_manager(app, box, out):
+    """With a package manager the wizard installs through it by default: its page says so,
+    the Ready page shows the command, Install runs it (the fake one writes down how it was
+    called) and shows what it said."""
+    app.until("the welcome page", lambda: app.shows("Welcome to the Azlin apps"))
+    next_to(app, "package-manager")
+    app.until("the choice", lambda: app.shows("(recommended)"))
+    if app.last("AZINSTALLMGR_THROUGH") not in (None, box.pm, "Homebrew", "apt"):
+        raise Failure("the wizard does not start through the package manager")
+    app.screenshot(os.path.join(out, "0a-through-manager.png"))
+    next_to(app, "components")
+    tick_writer_and_clock(app)
+    next_to(app, "ready")
+    app.until("the command on the Ready page", lambda: app.shows("azlin-writer"))
+    app.screenshot(os.path.join(out, "0b-ready-through-manager.png"))
+    next_to(app, "installing", label="Install")
+    app.until("the package manager to end", lambda: app.last("AZINSTALLMGR_DONE"))
+    if app.last("AZINSTALLMGR_DONE") != "installed=1 failed=0":
+        raise Failure("the package manager's run reported %r" % app.last("AZINSTALLMGR_DONE"))
+    with open(box.pm_log) as f:
+        called = f.read()
+    if "install" not in called or "azlin-writer" not in called or "azlin-clock" not in called:
+        raise Failure("the package manager was not run for the ticked apps: %r" % called)
+    app.log("the wizard ran %s for the ticked apps: %s" % (box.pm, called.strip()))
+    next_to(app, "finish")
+
+
 def walk_wizard(app, box, rel, out):
     app.until("the welcome page", lambda: app.shows("Welcome to the Azlin apps"))
     app.screenshot(os.path.join(out, "1-welcome.png"))
     next_to(app, "package-manager")
+    # Azlin's own way: the install folder, the channel and the update source come back.
+    app.click(text="Install Azlin's own way")
+    app.until("Azlin's own way chosen", lambda: app.last("AZINSTALLMGR_THROUGH") == "azlin")
     app.until("the package manager's page", lambda: app.shows("run this in a terminal"))
     app.screenshot(os.path.join(out, "2-package-manager.png"))
     next_to(app, "destination")
@@ -203,11 +252,7 @@ def walk_wizard(app, box, rel, out):
     app.screenshot(os.path.join(out, "3-destination.png"))
     next_to(app, "components")
 
-    # Every group cleared, then AzWriter and AzClock ticked: the runtime stays (required).
-    for group in ("Office", "Mail, calendar and contacts", "Pictures, music and video", "Tools"):
-        app.click(text=group)
-    app.click(text="AzWriter")
-    app.click(text="AzClock")
+    tick_writer_and_clock(app)
     want = (70 + 15 + 7) * MB
     app.until("the total", lambda: app.last("AZINSTALLMGR_TOTAL") == str(want))
     app.screenshot(os.path.join(out, "4-components.png"))
@@ -451,6 +496,17 @@ def body(args, logs, out):
     rel.publish("azwriter", "stable", "0.1.0", writer_bytes)
     rel.publish("azclock", "stable", "0.1.0", b"clock 0.1.0")
     try:
+        # The first start installs through the (fake) package manager; it installs nothing, so
+        # the next start is a first run again.
+        app = start_manager("through-manager", manager_bin, box, logs, args)
+        try:
+            through_package_manager(app, box, out)
+        except Failure:
+            print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+            raise
+        finally:
+            app.stop()
+
         app = start_manager("wizard", manager_bin, box, logs, args)
         try:
             walk_wizard(app, box, rel, out)

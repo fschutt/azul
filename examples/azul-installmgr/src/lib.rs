@@ -365,6 +365,7 @@ pub(crate) extern "C" fn on_progress(
         Progress::Updated { key, result } => apps::updated(m, &key, result),
         Progress::Reverted { key, result } => apps::reverted(m, &key, result),
         Progress::Uninstalled { key, result } => apps::uninstalled(m, &key, result),
+        Progress::RanManager { command, result } => wizard::ran_manager(&mut m.wizard, &command, &result),
         Progress::Finished { kind } => {
             match kind {
                 JobKind::Requests => {

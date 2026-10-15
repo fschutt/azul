@@ -334,19 +334,24 @@ impl Step {
 /// The steps of a first run: the package-manager page only when one is found; `through_manager`
 /// says the apps are installed through it.
 #[must_use]
-pub fn steps(package_manager: Option<PackageManager>, _through_manager: bool) -> Vec<Step> {
+pub fn steps(package_manager: Option<PackageManager>, through_manager: bool) -> Vec<Step> {
     let mut steps = vec![Step::Welcome];
     if package_manager.is_some() {
         steps.push(Step::PackageManager);
     }
-    steps.extend([
-        Step::Destination,
-        Step::Components,
-        Step::Channel,
-        Step::Ready,
-        Step::Installing,
-        Step::Finish,
-    ]);
+    if package_manager.is_some() && through_manager {
+        // The package manager decides where the apps go and how they are updated.
+        steps.extend([Step::Components, Step::Ready, Step::Installing, Step::Finish]);
+    } else {
+        steps.extend([
+            Step::Destination,
+            Step::Components,
+            Step::Channel,
+            Step::Ready,
+            Step::Installing,
+            Step::Finish,
+        ]);
+    }
     steps
 }
 
@@ -412,48 +417,135 @@ impl PackageManager {
     /// The commands (program and arguments) that install `apps` through it, run one after the
     /// other.
     #[must_use]
-    pub fn install_runs(self, _apps: &[&AppEntry]) -> Vec<Vec<String>> {
-        Vec::new()
+    pub fn install_runs(self, apps: &[&AppEntry]) -> Vec<Vec<String>> {
+        let apps: Vec<&&AppEntry> = apps.iter().filter(|a| !a.is_runtime()).collect();
+        if apps.is_empty() {
+            return Vec::new();
+        }
+        let packages: Vec<String> = apps.iter().map(|a| a.package()).collect();
+        let run = |head: &[&str], tail: Vec<String>| -> Vec<String> {
+            head.iter().map(|w| (*w).to_string()).chain(tail).collect()
+        };
+        match self {
+            PackageManager::Homebrew => vec![run(&["brew", "install", "--cask"], packages)],
+            PackageManager::Apt => vec![run(
+                &["pkexec", "sh", "-c"],
+                vec![format!("apt update && apt install -y {}", packages.join(" "))],
+            )],
+            PackageManager::Dnf => vec![run(&["pkexec", "dnf", "install", "-y"], packages)],
+            PackageManager::Pacman => vec![run(&["pkexec", "pacman", "-S", "--noconfirm"], packages)],
+            PackageManager::Flatpak => vec![run(
+                &["flatpak", "install", "--user", "-y", "azlin"],
+                apps.iter().map(|a| a.flatpak_id()).collect(),
+            )],
+            PackageManager::Winget => apps
+                .iter()
+                .map(|a| {
+                    run(
+                        &["winget", "install", "--id"],
+                        vec![
+                            a.winget_id(),
+                            String::from("-e"),
+                            String::from("--accept-package-agreements"),
+                            String::from("--accept-source-agreements"),
+                        ],
+                    )
+                })
+                .collect(),
+        }
     }
 
-    /// The command that installs `apps` through it. The manager shows it with a Copy button and
-    /// never runs it: a package manager asks for its own rights.
+    /// The file that shows it is installed, on `os`'s search path.
+    #[must_use]
+    pub fn program_file(self, os: Os) -> String {
+        if os == Os::Windows {
+            format!("{}.exe", self.program())
+        } else {
+            self.program().to_string()
+        }
+    }
+
+    /// The commands that install `apps` through it, as the page shows them (the manager runs
+    /// the same, [`PackageManager::install_runs`]); joined by `&&`.
     #[must_use]
     pub fn install_command(self, apps: &[&AppEntry]) -> String {
-        let apps: Vec<&&AppEntry> = apps.iter().filter(|a| !a.is_runtime()).collect();
-        match self {
-            PackageManager::Homebrew => {
-                let names: Vec<String> = apps.iter().map(|a| a.package()).collect();
-                format!("brew install --cask {}", names.join(" "))
+        self.install_runs(apps)
+            .iter()
+            .map(|run| shell_words(run))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    }
+}
+
+/// A command as a shell line: a word with a space in double quotes.
+#[must_use]
+pub fn shell_words(run: &[String]) -> String {
+    run.iter()
+        .map(|word| {
+            if word.contains(' ') {
+                format!("\"{word}\"")
+            } else {
+                word.clone()
             }
-            PackageManager::Apt => {
-                let names: Vec<String> = apps.iter().map(|a| a.package()).collect();
-                format!("sudo apt update && sudo apt install {}", names.join(" "))
-            }
-            PackageManager::Flatpak => {
-                let ids: Vec<String> = apps.iter().map(|a| a.flatpak_id()).collect();
-                format!("flatpak install --user azlin {}", ids.join(" "))
-            }
-            _ => String::new(),
-        }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Runs one of [`PackageManager::install_runs`]' commands and waits for it (on a worker
+/// thread): its output's lines, or why it failed (its exit and its last line). The package
+/// manager asks for its own rights (pkexec's dialog).
+pub fn run_command(run: &[String]) -> Result<Vec<String>, String> {
+    let Some((program, args)) = run.split_first() else {
+        return Ok(Vec::new());
+    };
+    let out = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("{program}: {e}"))?;
+    let mut lines: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .chain(String::from_utf8_lossy(&out.stderr).lines())
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    if lines.len() > 200 {
+        lines.drain(..lines.len() - 200);
+    }
+    if out.status.success() {
+        Ok(lines)
+    } else {
+        let last = lines.last().cloned().unwrap_or_default();
+        Err(match out.status.code() {
+            Some(code) => format!("{program} ended with {code}: {last}"),
+            None => format!("{program} was stopped: {last}"),
+        })
     }
 }
 
 /// The first package manager the search path `path_var` (`PATH`) has, in the order the
-/// platform's users expect: Homebrew on macOS; apt, then Flatpak elsewhere.
+/// platform's users expect: Homebrew on macOS; apt, dnf, pacman, then Flatpak on Linux;
+/// winget on Windows.
 #[must_use]
 pub fn detect_package_manager(path_var: &str, os: Os) -> Option<PackageManager> {
     let order: &[PackageManager] = match os {
         Os::MacOs => &[PackageManager::Homebrew],
-        Os::Linux => &[PackageManager::Apt, PackageManager::Flatpak],
-        Os::Windows => &[],
+        Os::Linux => &[
+            PackageManager::Apt,
+            PackageManager::Dnf,
+            PackageManager::Pacman,
+            PackageManager::Flatpak,
+        ],
+        Os::Windows => &[PackageManager::Winget],
     };
     let separator = if os == Os::Windows { ';' } else { ':' };
     order.iter().copied().find(|pm| {
         path_var
             .split(separator)
             .filter(|dir| !dir.is_empty())
-            .any(|dir| Path::new(dir).join(pm.program()).is_file())
+            .any(|dir| Path::new(dir).join(pm.program_file(os)).is_file())
     })
 }
 
