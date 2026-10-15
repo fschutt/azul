@@ -93,9 +93,9 @@ pub(crate) const SECTION_TITLE: &str = "flex-grow: 1; min-width: 0px; overflow: 
                                         white-space: nowrap; text-overflow: ellipsis; \
                                         text-transform: uppercase;";
 
-/// A section's triangle (and a drive's, which opens its folders).
+/// A section's chevron (and a drive's or a folder's, which opens its folders).
 pub(crate) const TRIANGLE: &str =
-    "font-size: 16px; width: 16px; flex-shrink: 0; margin-right: 1px; opacity: 0.8;";
+    "font-size: 14px; width: 16px; flex-shrink: 0; margin-right: 1px; opacity: 0.7;";
 
 /// A row: a place, a drive, a folder, "Add S3 drive".
 pub(crate) const ROW: &str = themed!(

@@ -930,7 +930,7 @@ fn section_dom(app: &RefAny, row: &Row, section: Section, stop: bool) -> Dom {
         })
         .with_accessibility_name(l10n::label(section.title()))
         .with_child(
-            Dom::create_icon(if open { "arrow_drop_down" } else { "arrow_right" })
+            Dom::create_icon(if open { "expand_more" } else { "chevron_right" })
                 .with_css(look::TRIANGLE),
         )
         .with_child(block(look::SECTION_TITLE, text(l10n::label(section.title()))))
@@ -992,7 +992,7 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
     }
     dom.add_child(match (row.open, row.node()) {
         (Some(open), Some(node)) => {
-            Dom::create_icon(if open { "arrow_drop_down" } else { "arrow_right" })
+            Dom::create_icon(if open { "expand_more" } else { "chevron_right" })
                 .with_css(look::TRIANGLE)
                 .with_accessibility_name(l10n::label(if open {
                     "azdrive-side-collapse"
