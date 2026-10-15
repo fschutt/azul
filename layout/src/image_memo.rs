@@ -8,6 +8,7 @@
 use std::{collections::HashMap, hash::Hash};
 
 /// What the memo keeps for one key.
+#[derive(Debug)]
 struct Entry<V> {
     value: V,
     /// What `value` holds, as the caller counted it (a picture's pixel bytes).
@@ -17,6 +18,7 @@ struct Entry<V> {
 }
 
 /// A least-recently-used memo from `K` to `V`.
+#[derive(Debug)]
 pub struct ImageMemo<K, V> {
     entries: HashMap<K, Entry<V>>,
     /// The sum of every entry's `bytes`.

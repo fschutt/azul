@@ -10,9 +10,12 @@
 //! surface. GLSL's `mix`, `fract`, `step`, `mod` and `smoothstep` are spelled
 //! out below with GLSL's definitions.
 
+// The formulas keep the shader's letters (shader.glsl): p, n, h, l, r, f0...
+#![allow(clippy::many_single_char_names)]
+
 use super::ColourlessTile;
 
-pub(crate) const PI: f32 = 3.141_592_65;
+pub(crate) const PI: f32 = core::f32::consts::PI;
 
 /// One sample of a surface: `h` height (logical px), `luma` 0..1 (0.62 is
 /// the tint as it is), `rough` 0..1 (where between the material's two
@@ -113,7 +116,8 @@ pub(crate) fn fbm(p: [f32; 2]) -> f32 {
 fn worley(p: [f32; 2]) -> [f32; 2] {
     let i = [p[0].floor(), p[1].floor()];
     let f = [p[0] - i[0], p[1] - i[1]];
-    let (mut d1, mut d2) = (8.0_f32, 8.0_f32);
+    let mut d1 = 8.0_f32;
+    let mut d2 = 8.0_f32;
     for y in -1..=1 {
         for x in -1..=1 {
             let g = [x as f32, y as f32];

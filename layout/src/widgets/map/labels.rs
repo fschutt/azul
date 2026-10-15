@@ -102,7 +102,7 @@ impl LabelView {
     /// copy of the world it stands in ([`Self::drawn_copy`]), so a label of
     /// the copy right of the centre is drawn there, not in the nearer one.
     #[allow(clippy::cast_possible_truncation)] // screen coordinates of a view
-    fn to_screen(&self, world: (f64, f64)) -> (f32, f32) {
+    fn screen_of(&self, world: (f64, f64)) -> (f32, f32) {
         let px = self.world_px();
         let dx = world.0 - self.centre.0;
         let dy = world.1 - self.centre.1;
@@ -347,7 +347,7 @@ impl LabelPlacement {
             let (x, y) = where_now
                 .get(&index)
                 .copied()
-                .unwrap_or_else(|| view.to_screen(entry.world));
+                .unwrap_or_else(|| view.screen_of(entry.world));
             out.push(PlacedLabel {
                 x,
                 y,

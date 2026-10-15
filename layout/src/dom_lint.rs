@@ -1373,9 +1373,11 @@ mod semantic_and_a11y_lint_tests {
     }
 
     fn toolbar(buttons: Vec<Dom>) -> Dom {
-        let mut info = azul_core::a11y::AccessibilityInfo::default();
-        info.role = azul_core::a11y::AccessibilityRole::Toolbar;
-        info.accessibility_name = Some(azul_css::AzString::from("Formatting")).into();
+        let info = azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Toolbar,
+            accessibility_name: Some(azul_css::AzString::from("Formatting")).into(),
+            ..Default::default()
+        };
         Dom::create_div()
             .with_id("a11y17-toolbar".into())
             .with_accessibility_info(info)

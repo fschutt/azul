@@ -1770,7 +1770,7 @@ impl TabHeader {
             }
             None => (self.active_tab < tab_count).then_some(self.active_tab),
         };
-        let reveal = self.reveal.clone().into_option();
+        let reveal = self.reveal.into_option();
         let owner = crate::widgets::tab_reveal::RevealOwner::Header(self.on_click.clone());
         let on_click_is_some = self.on_click.is_some() || reveal.is_some();
         // WAI-ARIA APG: an interactive tab list is ONE Tab stop - the active
@@ -2341,8 +2341,8 @@ const SLIDE_IN_MS: u32 = 220;
 const FADE_OUT_MS: u32 = 120;
 
 /// One stop of a slide or fade: its `x` shift in px and its opacity.
-fn slide_stop(permille: u16, x: isize, opacity: f32) -> azul_css::css::KeyframeStop {
-    azul_css::css::KeyframeStop {
+fn slide_stop(permille: u16, x: isize, opacity: f32) -> css::KeyframeStop {
+    css::KeyframeStop {
         permille,
         props: CssPropertyVec::from_vec(vec![
             CssProperty::const_opacity(StyleOpacity {
@@ -2356,13 +2356,13 @@ fn slide_stop(permille: u16, x: isize, opacity: f32) -> azul_css::css::KeyframeS
 }
 
 /// The three tracks a switched panel's content group runs.
-fn slide_keyframes() -> azul_css::css::Css {
+fn slide_keyframes() -> css::Css {
     use azul_css::css::{KeyframeStopVec, Keyframes, KeyframesVec};
-    let track = |name: &'static str, stops: Vec<azul_css::css::KeyframeStop>| Keyframes {
+    let track = |name: &'static str, stops: Vec<css::KeyframeStop>| Keyframes {
         name: AzString::from_const_str(name),
         stops: KeyframeStopVec::from_vec(stops),
     };
-    let mut css = azul_css::css::Css::empty();
+    let mut css = css::Css::empty();
     css.keyframes = KeyframesVec::from_vec(vec![
         track(
             SLIDE_IN_FROM_LEFT,
@@ -2375,7 +2375,7 @@ fn slide_keyframes() -> azul_css::css::Css {
         track(
             FADE_OUT,
             vec![
-                azul_css::css::KeyframeStop {
+                css::KeyframeStop {
                     permille: 0,
                     props: CssPropertyVec::from_vec(vec![CssProperty::const_opacity(
                         StyleOpacity {
@@ -2383,7 +2383,7 @@ fn slide_keyframes() -> azul_css::css::Css {
                         },
                     )]),
                 },
-                azul_css::css::KeyframeStop {
+                css::KeyframeStop {
                     permille: 1000,
                     props: CssPropertyVec::from_vec(vec![CssProperty::const_opacity(
                         StyleOpacity {
@@ -2403,7 +2403,7 @@ fn slide_animation(
     out: bool,
     track: &'static str,
     millis: u32,
-    timing: azul_css::props::basic::animation::AnimationTiming,
+    timing: AnimationTiming,
 ) -> CssPropertyWithConditions {
     use azul_css::{
         dynamic_selector::{BoolCondition, DynamicSelector},
@@ -2413,8 +2413,8 @@ fn slide_animation(
         &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)];
     let list = StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(vec![StyleAnimation {
         name: AzString::from_const_str(track),
-        duration: azul_css::props::basic::time::CssDuration::from_millis(millis),
-        delay: azul_css::props::basic::time::CssDuration::from_millis(0),
+        duration: CssDuration::from_millis(millis),
+        delay: CssDuration::from_millis(0),
         iterations: AnimationIterationCount::Count(1),
         timing,
         clip: true,
@@ -2434,7 +2434,7 @@ fn slide_animation(
 pub(crate) fn switch_motion(
     from: usize,
     to: usize,
-) -> Option<(Vec<CssPropertyWithConditions>, azul_css::css::Css)> {
+) -> Option<(Vec<CssPropertyWithConditions>, css::Css)> {
     use azul_css::props::basic::animation::AnimationTiming;
     let enter = match to.cmp(&from) {
         core::cmp::Ordering::Greater => SLIDE_IN_FROM_LEFT,

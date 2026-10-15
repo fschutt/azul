@@ -1,6 +1,6 @@
 //! Text shadows drawn once and kept as pictures, for the GPU backend.
 //!
-//! WebRender draws a blurred text shadow as a picture of its own: an
+//! `WebRender` draws a blurred text shadow as a picture of its own: an
 //! offscreen surface, the glyphs drawn into it and two blur passes, on every
 //! frame. A map draws a halo behind each of its labels and, on each frame of a
 //! pan, every label again where it moved: a hundred and more blurred surfaces
@@ -71,7 +71,8 @@ pub fn text_halos(
     dpi: f32,
     fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
 ) -> Vec<TextHalo> {
-    if !(dpi > 0.0) {
+    // NaN too: no positive scale, no halo.
+    if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
         return Vec::new();
     }
     scopes(items)
@@ -159,7 +160,7 @@ fn shadow_px(value: &azul_css::props::basic::pixel::PixelValue) -> f32 {
 }
 
 /// The shadows of `items` a halo can stand for: blurred, over text alone. An
-/// unblurred shadow is not one: WebRender draws it as a plain copy of the
+/// unblurred shadow is not one: `WebRender` draws it as a plain copy of the
 /// text, without a surface.
 fn scopes(items: &[DisplayListItem]) -> Vec<Scope<'_>> {
     let mut out = Vec::new();

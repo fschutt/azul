@@ -157,13 +157,13 @@ impl ShapeField {
 
     /// Device px per logical px the field was made at.
     #[must_use]
-    pub fn dpr(&self) -> f32 {
+    pub const fn dpr(&self) -> f32 {
         f32::from_bits(self.dpr_bits)
     }
 
     /// The logical px the byte range spans each way.
     #[must_use]
-    pub fn range(&self) -> f32 {
+    pub const fn range(&self) -> f32 {
         f32::from_bits(self.range_bits)
     }
 
@@ -258,6 +258,10 @@ impl LineTransform {
     }
 
     /// Replace `f` with its distance transform.
+    // The lower envelope's walk (Felzenszwalb-Huttenlocher) in the paper's
+    // letters: `z` holds finite parabola crossings and ends in FAR, so the
+    // float loop ends.
+    #[allow(clippy::while_float, clippy::many_single_char_names)]
     fn run(&mut self, f: &mut [f64]) {
         const FAR: f64 = 1e12;
         let n = f.len();
