@@ -335,3 +335,36 @@ fn a_crowded_view_left_alone_settles() {
         }
     }
 }
+
+/// At a low zoom the world is narrower than the view and shows twice: the
+/// same label stands at the same world point in both copies, one world width
+/// apart on the screen. Left alone, that view settles too.
+#[test]
+fn a_world_shown_twice_left_alone_settles() {
+    let zoom = 2.0;
+    let view = LabelView { width: 1100.0, height: 720.0, margin: 0.0, zoom, centre: (0.5, 0.5) };
+    let world_px = view.world_px() as f32;
+    let names: Vec<TileLabel> = (0..40)
+        .map(|i| label(&format!("Country {i}"), (i % 4) * 100, "place"))
+        .collect();
+    let mut candidates = Vec::new();
+    for (i, l) in names.iter().enumerate() {
+        let world = (0.02 + 0.024 * i as f64, 0.3 + 0.01 * (i % 7) as f64);
+        let one = at(&view, world, l);
+        candidates.push(one);
+        candidates.push(LabelCandidate { x: one.x + world_px, ..one });
+        candidates.push(LabelCandidate { x: one.x - world_px, ..one });
+    }
+    let mut placement = LabelPlacement::new();
+    for frame_no in 0..240 {
+        let now = f64::from(frame_no) * 0.016;
+        let frame = placement.place(&candidates, &view, now);
+        if frame_no >= 120 {
+            assert!(
+                frame.settled_at <= now,
+                "frame {frame_no}: still fading until {} at {now}",
+                frame.settled_at
+            );
+        }
+    }
+}
