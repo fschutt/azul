@@ -181,3 +181,26 @@ fn the_registration_names_this_program_and_its_protocol() {
         PathBuf::from("/c/azul-storage/file-picker.json")
     );
 }
+
+#[test]
+fn the_default_location_opens_in_the_drive_that_holds_it() {
+    let roots = vec![
+        (String::from("home"), PathBuf::from("/Users/me")),
+        (String::from("data"), PathBuf::from("/Users/me/Azlin")),
+    ];
+    assert_eq!(
+        place_of_path(Path::new("/Users/me/Pictures"), &roots),
+        Some((String::from("home"), String::from("Pictures/")))
+    );
+    assert_eq!(
+        place_of_path(Path::new("/Users/me/Azlin/notes"), &roots),
+        Some((String::from("data"), String::from("notes/"))),
+        "the drive whose root is deepest"
+    );
+    assert_eq!(
+        place_of_path(Path::new("/Users/me"), &roots),
+        Some((String::from("home"), String::new()))
+    );
+    assert_eq!(place_of_path(Path::new("/Users/meadow"), &roots), None, "whole folder names");
+    assert_eq!(place_of_path(Path::new("/etc"), &roots), None);
+}
