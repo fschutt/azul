@@ -1025,3 +1025,17 @@ fn a_streamed_body_of_one_part_or_less_goes_up_in_one_put() {
     assert_eq!(fake.calls().len(), 2, "one PUT each");
     assert_eq!(fake.last().body.len(), PART);
 }
+
+/// DeleteObjects needs the body's Content-MD5 (S3, R2 and MinIO refuse a request without it):
+/// base64 of the MD5 digest.
+#[test]
+fn a_delete_objects_body_carries_the_base64_of_its_md5() {
+    assert_eq!(crate::s3::content_md5(b""), "1B2M2Y8AsgTpgAmY7PhCfg==");
+    assert_eq!(crate::s3::content_md5(b"hello"), "XUFAKrxLKna5cZ2REBfFkg==");
+    assert_eq!(
+        crate::s3::content_md5(
+            b"<Delete><Quiet>true</Quiet><Object><Key>a.txt</Key></Object></Delete>"
+        ),
+        "x0FQOH+s1UFedrTctTzz5A=="
+    );
+}

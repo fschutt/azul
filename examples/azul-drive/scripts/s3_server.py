@@ -6,7 +6,8 @@ Two backends:
 - ``stdlib`` (the default, no pip): a small S3 subset server that keeps the objects in a
   local folder (``<root>/<bucket>/<key>``) and implements exactly what AzDrive and AzMail use:
   ListObjectsV2 (prefix, delimiter, max-keys, continuation-token, start-after), GetObject (one
-  ``Range``), PutObject, CopyObject (``x-amz-copy-source``), DeleteObject, HeadObject, plus
+  ``Range``), PutObject, CopyObject (``x-amz-copy-source``), DeleteObject, DeleteObjects (up
+  to 1,000 keys, its Content-MD5 checked), HeadObject, plus
   CreateBucket / HeadBucket / ListBuckets, and multipart uploads: CreateMultipartUpload,
   UploadPart, ListParts, CompleteMultipartUpload (conditional too) and AbortMultipartUpload
   (the uploads under way live in ``<root>/.s3-server-uploads``, so several servers over one
@@ -765,6 +766,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                                          "(list-type=2) only")
                 self.list_objects(bucket, query)
                 return "ListObjectsV2"
+            if self.command == "POST" and "delete" in query:
+                return self.delete_objects(bucket, body)
             raise S3Error(405, "MethodNotAllowed", "The specified method is not allowed.")
         if self.command == "POST" and "uploads" in query:
             upload_id = store.start_upload(bucket, key)
@@ -825,6 +828,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(204)
             return "DeleteObject"
         raise S3Error(405, "MethodNotAllowed", "The specified method is not allowed.")
+
+    def delete_objects(self, bucket, body):
+        """DeleteObjects: every <Key> of the body deleted in one request (a key that is not there
+        counts as deleted); quiet mode answers only the failures. Like S3 it wants the body's
+        Content-MD5 and takes at most 1,000 keys."""
+        md5 = self.headers.get("Content-MD5")
+        if not md5:
+            raise S3Error(400, "InvalidRequest",
+                          "Missing required header for this request: Content-MD5")
+        if md5.strip() != base64.b64encode(hashlib.md5(body).digest()).decode("ascii"):
+            raise S3Error(400, "BadDigest",
+                          "The Content-MD5 you specified did not match what was received.")
+        try:
+            root = ElementTree.fromstring(body)
+        except ElementTree.ParseError:
+            raise S3Error(400, "MalformedXML", "The XML you provided was not well-formed.")
+
+        def local(tag):
+            return tag.rsplit("}", 1)[-1]
+
+        keys = [e.text or "" for e in root.iter() if local(e.tag) == "Key"]
+        quiet = any(local(e.tag) == "Quiet" and (e.text or "").strip() == "true"
+                    for e in root.iter())
+        if len(keys) > 1000:
+            raise S3Error(400, "MalformedXML", "A delete names at most 1,000 keys.")
+        store = self.server.store
+        deleted, failed = [], []
+        for key in keys:
+            try:
+                check_key(key)
+            except BadKey as e:
+                failed.append((key, "InvalidArgument", str(e)))
+                continue
+            with store.write_lock:
+                store.delete(bucket, key)
+            deleted.append(key)
+        children = "" if quiet else "".join(
+            "<Deleted>%s</Deleted>" % element("Key", key) for key in deleted)
+        children += "".join(
+            "<Error>%s%s%s</Error>" % (element("Key", key), element("Code", code),
+                                       element("Message", message))
+            for key, code, message in failed)
+        self.respond(200, xml_document("DeleteResult", children),
+                     {"Content-Type": "application/xml"})
+        return "DeleteObjects"
 
     def space_headers(self, bucket):
         """An Azlin node's HeadBucket headers (SRV17), when the server plays one

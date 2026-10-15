@@ -24,6 +24,11 @@ hmac = "0.12"
 roxmltree = { version = "0.21.1", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A batch delete's Content-MD5 (S3's DeleteObjects, which R2 and MinIO also refuse without it):
+# RustCrypto's MD5 and base64, the versions azul-bridge and azcloud-kit use (Cargo.lock has
+# md-5 0.11.0 and base64 0.22.1; both in scripts/dependency-justifications.toml).
+md-5 = "0.11"
+base64 = "0.22"
 # Only for `AzulTransport` (feature `azul`), which sends the requests through
 # azul's `HttpRequestConfig`. The apps turn it on; the unit tests need no
 # libazul.

@@ -185,11 +185,13 @@ pub fn rewrap_index(index: &dyn NameIndex, old: &DriveKey, new: &DriveKey) -> Re
                     reason: String::from("its key is wrapped by neither the old nor the new drive key"),
                 });
             }
+            // A packed file's key is its pack's, wrapped for the pack.
+            let bound = object.bucket_object();
             let file_key = old
-                .unwrap_file_key(&object.wrapped_key, &object.id)
+                .unwrap_file_key(&object.wrapped_key, &bound)
                 .map_err(|e| e.for_key(&path))?;
             let wrapped = new
-                .wrap_file_key(&file_key, &object.id)
+                .wrap_file_key(&file_key, &bound)
                 .map_err(|e| e.for_key(&path))?;
             let id = object.id;
             let mut rewrapped = entry.clone();
@@ -390,6 +392,9 @@ pub struct ReencryptState {
     /// Files that could not be read (damaged): left, counted.
     #[serde(default)]
     pub failed: u64,
+    /// Whether the packs of small files were written anew (after the files of their own).
+    #[serde(default)]
+    pub packs_done: bool,
 }
 
 impl ReencryptState {
@@ -402,6 +407,7 @@ impl ReencryptState {
             cursor: None,
             done: 0,
             failed: 0,
+            packs_done: false,
         }
     }
 
@@ -426,10 +432,12 @@ impl ReencryptState {
 
 /// "Re-encrypt everything": every file of `drive` (opened with the new drive key) modified
 /// before `state.before` is written into a new object with a new file key (its date kept), the
-/// old object deleted - afterwards nothing in the bucket opens with the old drive key. `save`
-/// gets the state after every file, `stop` is asked before every file; `Ok(true)` when every
-/// file is done. A file the user changed meanwhile keeps the user's version (it is in a new
-/// object anyway).
+/// old object deleted - afterwards nothing in the bucket opens with the old drive key. Small
+/// files packed together are written into new packs at the end, every pack holding one of them
+/// at once, and the old packs leave the bucket. `save` gets the state after every file (and
+/// after the packs, when there were any), `stop` is asked before every file; `Ok(true)` when
+/// every file is done. A file the user changed meanwhile keeps the user's version (it is in a
+/// new object anyway).
 pub fn reencrypt_pass<D: Drive>(
     drive: &EncryptedDrive<D>,
     state: &mut ReencryptState,
@@ -437,7 +445,7 @@ pub fn reencrypt_pass<D: Drive>(
     stop: &dyn Fn() -> bool,
 ) -> Result<bool, DriveError> {
     for (path, entry) in drive.all_entries("")? {
-        let due = entry.object.is_some()
+        let due = entry.object.as_ref().is_some_and(|o| o.packed.is_none())
             && entry.modified.unwrap_or(0) < state.before
             && state.cursor.as_deref().map_or(true, |done| path.as_str() > done);
         if !due {
@@ -457,6 +465,13 @@ pub fn reencrypt_pass<D: Drive>(
         }
         state.cursor = Some(path);
         save(state)?;
+    }
+    if !state.packs_done {
+        let report = drive.reencrypt_packs(state.before, crate::time::now_unix())?;
+        state.packs_done = true;
+        if report.packs_read > 0 {
+            save(state)?;
+        }
     }
     Ok(true)
 }

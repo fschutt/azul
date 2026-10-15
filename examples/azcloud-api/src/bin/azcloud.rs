@@ -58,6 +58,9 @@ commands:
   rotate --yes [--out F]         \"I was hacked\": locks the drive down (every other device, key and
                                  link), then a new drive key; the new RECOVERY CODE shows once
   reencrypt                      after rotate: every file into a new object (recommended)
+  packs [--grace-days D]         the packs small files share: uploads a crash left half done
+                                 cleared up, packs under half live repacked, retired packs
+                                 deleted D days after they were retired (default 30)
   mail-drop [--cloudflare-account ID --cloudflare-token-file F] [--worker W]
                                  incoming mail for the encrypted drive: its drop key; with your
                                  Cloudflare account and API token, set on your mail Worker
@@ -139,6 +142,7 @@ const VALUE_FLAGS: &[&str] = &[
     "--cloudflare-token-file",
     "--recovery-out",
     "--worker",
+    "--grace-days",
 ];
 
 /// Flags without a value.
@@ -1139,7 +1143,8 @@ fn refuse_plaintext(_account: &Account) -> Result<()> {
 fn index_provider(state: &StateDir, device: &str) -> Box<dyn azcloud_kit::encryption::IndexProvider> {
     Box::new(
         azul_storage::meta::MetaIndexProvider::new(device)
-            .with_cache_root(Some(state.path().join("drive-index"))),
+            .with_cache_root(Some(state.path().join("drive-index")))
+            .with_packing(true),
     )
 }
 
@@ -1358,6 +1363,74 @@ fn cmd_reencrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> 
     ))
 }
 
+/// The upkeep of an encrypted drive's packs of small files: what an idle AzDrive does every six
+/// hours, now.
+#[cfg(feature = "encryption")]
+fn cmd_packs(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let Some(drive) = encrypted_files(settings, net, args)? else {
+        bail!("the drive is not encrypted: its files are objects of their own, never packed");
+    };
+    let mut options = drive.packing().cloned().unwrap_or_default();
+    if let Some(days) = args.number::<u64>("--grace-days")? {
+        options.retired_grace_secs = days * 86_400;
+    }
+    let drive = drive.with_packing(options);
+    let before = drive.pack_summary()?;
+    let upkeep = drive.maintain_packs(azul_storage::time::now_unix())?;
+    let after = drive.pack_summary()?;
+    let retired = drive.retired_packs().len();
+    let repack = &upkeep.repack;
+    let summary = |s: &azul_storage::packing::PackSummary| {
+        json!({
+            "packed_files": s.packed_files,
+            "packs": s.packs,
+            "own_objects": s.own_objects,
+            "pack_bytes": s.pack_bytes,
+            "live_bytes": s.live_bytes,
+        })
+    };
+    let value = json!({
+        "ok": true,
+        "before": summary(&before),
+        "after": summary(&after),
+        "recovered": upkeep.recovered,
+        "packs_read": repack.packs_read,
+        "packs_written": repack.packs_written,
+        "packs_emptied": repack.packs_emptied,
+        "files_moved": repack.files_moved,
+        "files_damaged": repack.files_damaged,
+        "bytes_before": repack.bytes_before,
+        "bytes_after": repack.bytes_after,
+        "collected": upkeep.collected,
+        "retired": retired,
+    });
+    let text = format!(
+        "before: {} files in {} packs ({} of {} bytes live), {} files in objects of their own\n\
+         {} stale uploads cleared up; {} packs repacked into {} ({} files moved, {} -> {} \
+         bytes), {} packs with no file left; {} retired packs deleted, {} waiting\n\
+         after: {} files in {} packs ({} of {} bytes live)\n",
+        before.packed_files,
+        before.packs,
+        before.live_bytes,
+        before.pack_bytes,
+        before.own_objects,
+        upkeep.recovered,
+        repack.packs_read,
+        repack.packs_written,
+        repack.files_moved,
+        repack.bytes_before,
+        repack.bytes_after,
+        repack.packs_emptied,
+        upkeep.collected,
+        retired,
+        after.packed_files,
+        after.packs,
+        after.live_bytes,
+        after.pack_bytes
+    );
+    Ok((value, text))
+}
+
 #[cfg(feature = "encryption")]
 fn cmd_mail_drop(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     use azcloud_kit::cloudflare::{Cloudflare, DEFAULT_WORKER, DROP_KEY_VARIABLE};
@@ -1429,10 +1502,12 @@ fn run(args: &Args, net: &Net) -> Result<Output> {
         #[cfg(feature = "encryption")]
         "reencrypt" => cmd_reencrypt(&settings, net, args),
         #[cfg(feature = "encryption")]
+        "packs" => cmd_packs(&settings, net, args),
+        #[cfg(feature = "encryption")]
         "git-remote" => cmd_git_remote(&settings, net, args),
         #[cfg(not(feature = "encryption"))]
         "encryption" | "encrypt" | "unlock" | "recover" | "mail-drop" | "rotate" | "reencrypt"
-        | "git-remote" => {
+        | "packs" | "git-remote" => {
             bail!("{command}: this azcloud was built without the feature `encryption`")
         }
         "info" => cmd_info(&settings, net, args),
@@ -1607,5 +1682,22 @@ mod tests {
             "sync/My Notes/"
         );
         assert_eq!(default_prefix(Path::new("/")), "sync/root/");
+    }
+
+    /// The packs' upkeep takes a grace period in days, and the command line's encrypted drives
+    /// pack their small files, the journal in the state folder's drive index.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn the_packs_command_takes_a_grace_period_and_the_drives_pack_small_files() {
+        let a = Args::parse(&argv("packs --grace-days 0")).unwrap();
+        assert_eq!(a.number::<u64>("--grace-days").unwrap(), Some(0));
+        assert!(USAGE.contains("packs [--grace-days D]"));
+        let dir = std::env::temp_dir().join(format!("azcloud-packs-{}", std::process::id()));
+        let state = StateDir::open(&dir).unwrap();
+        let provider = index_provider(&state, "laptop");
+        let packing = provider.packing("d_1").expect("small files are packed");
+        let journal = packing.journal.expect("a journal beside the drive index");
+        assert!(journal.starts_with(dir.join("drive-index")), "{journal:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

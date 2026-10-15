@@ -120,6 +120,32 @@ pub(crate) fn parse_parts(
     Ok((parts, next))
 }
 
+/// The keys a DeleteObjects answer (`DeleteResult`) names as not deleted, with the service's
+/// code and message for each. Quiet mode lists only those; a key that was deleted is not named.
+pub(crate) fn parse_delete_errors(xml: &str) -> Result<Vec<(String, String, String)>, DriveError> {
+    let doc = Document::parse(xml.trim()).map_err(|e| {
+        DriveError::Protocol(format!("the answer to a batch delete is not XML ({e})"))
+    })?;
+    let root = doc.root_element();
+    if root.tag_name().name() != "DeleteResult" {
+        return Err(DriveError::Protocol(format!(
+            "expected a DeleteResult, got <{}>",
+            root.tag_name().name()
+        )));
+    }
+    Ok(root
+        .children()
+        .filter(|c| c.is_element() && c.tag_name().name() == "Error")
+        .map(|error| {
+            (
+                child_text(error, "Key").unwrap_or_default(),
+                child_text(error, "Code").unwrap_or_default(),
+                child_text(error, "Message").unwrap_or_default(),
+            )
+        })
+        .collect())
+}
+
 /// A name for an HTTP status, for error answers without a body (HEAD).
 fn status_code_name(status: u16) -> &'static str {
     match status {
