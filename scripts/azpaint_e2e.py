@@ -13,7 +13,9 @@
        canvas, then 1 stroke and the stroke back - on screen, not only in the counter;
     4. exports a PNG (Mod+S) and an SVG (Mod+Shift+S) INTO the data tree through the
        Drive (`AZPAINT_EXPORTED paint/exports/<name> <bytes>`) and checks both files;
-    5. takes screenshots (flat light, flora dark, flora light - each after the theme's fades).
+    5. takes screenshots (flat light, flora dark, flora light - each after the theme's fades);
+    6. draws a second stroke and closes the window: the unexported drawing asks "Save
+       changes?", Save exports a PNG (`AZPAINT_EXPORTED`) and the window closes after it.
 
 Usage: python3 scripts/azpaint_e2e.py [--bin target/release/AzPaint] [--debug-port 8794]
 Run it through scripts/waves/tools/run_capped.sh on a small machine.
@@ -21,6 +23,7 @@ Run it through scripts/waves/tools/run_capped.sh on a small machine.
 
 import os
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -121,7 +124,34 @@ def body(args, logs, out):
         app.frame(3)
         app.settle()
         shot("azpaint-flora-light.png")
-        app.log("PASS: stroke on screen while drawn, undo / redo on screen, PNG + SVG exports in the data tree")
+
+        # 6. A stroke after the exports, then the window's close: the drawing is not exported,
+        # so AzPaint asks "Save changes?"; Save exports it as a PNG and the window closes once
+        # that landed.
+        app.must("mouse_move", x=x0, y=y0 + 100.0)
+        app.must("mouse_down", x=x0, y=y0 + 100.0)
+        app.frame()
+        app.must("mouse_move", x=x0 + 60.0, y=y0 + 120.0)
+        app.frame()
+        app.must("mouse_up", x=x0 + 60.0, y=y0 + 120.0)
+        app.frame(2)
+        app.expect_line("AZPAINT_STROKES", "2", "a second stroke")
+        exported = len(app.printed("AZPAINT_EXPORTED", r"\S+ \d+"))
+        app.must("close")
+        app.frame(2)
+        question = app.until('the "save changes?" question', app.popup)
+        app.click_exact("Save", window=question)
+        # `until` gives up when the app ends, and here it must end.
+        closing = time.time() + 30
+        while app.alive() and time.time() < closing:
+            time.sleep(0.2)
+        if app.alive():
+            raise e2e.Failure("AzPaint did not close after Save exported the drawing")
+        if len(app.printed("AZPAINT_EXPORTED", r"\S+ \d+")) <= exported:
+            raise e2e.Failure("Save closed the window without exporting the drawing")
+        app.log("the close asked about the unexported drawing; Save exported it and closed")
+        app.log("PASS: stroke on screen while drawn, undo / redo on screen, PNG + SVG exports in the "
+                "data tree, the close guard's Save")
         return True
     finally:
         app.stop()

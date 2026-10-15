@@ -6,7 +6,7 @@ use azul::{
     dialog::{FileDialog, FileOpenResult},
     dom::RenderImageCallback,
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
-    file::FileReadBytesResult,
+    file::{FilePath, FileReadBytesResult},
     gl::{GlContextPtr, Texture},
     image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat},
     option::OptionFileTypeList,
@@ -14,7 +14,10 @@ use azul::{
     str::String as AzString,
     vec::{F32VecRef, StringVec, U8VecRef},
     shells::ShellThemeScope,
-    widgets::{AboutDialog, Dialog, DialogState, StandardDialogEvent, Titlebar},
+    widgets::{
+        AboutDialog, CloseGuardEvent, CloseGuardEventKind, Dialog, DialogState, StandardDialogEvent,
+        Titlebar,
+    },
 };
 use azul_appkit::{
     about::AboutInfo,
@@ -208,7 +211,7 @@ impl PaintState {
 
     /// The drawing changed since the last export that landed.
     fn unexported(&self) -> bool {
-        false
+        self.edits != self.exported_edits
     }
 
     /// An export of `key` (`size` bytes, the drawing as it is now) is on its way.
@@ -217,9 +220,13 @@ impl PaintState {
     }
 
     /// The export of `key` was written (`ok`) or not: its size, when it was on its way.
-    fn export_answered(&mut self, key: &str, _ok: bool) -> Option<usize> {
+    fn export_answered(&mut self, key: &str, ok: bool) -> Option<usize> {
         let at = self.exports.iter().position(|(k, _, _)| k == key)?;
-        let (_, size, _) = self.exports.remove(at);
+        let (_, size, edits) = self.exports.remove(at);
+        if ok {
+            // Exports can land out of order: the newest drawing written counts.
+            self.exported_edits = self.exported_edits.max(edits);
+        }
         Some(size)
     }
 
@@ -302,6 +309,7 @@ impl PaintState {
                 let label = if active.is_eraser { "Erase" } else { "Stroke" };
                 self.history.checkpoint(label, self.strokes.clone());
                 self.strokes.push(active);
+                self.edits += 1;
             }
         }
     }
@@ -312,6 +320,7 @@ impl PaintState {
         let undone = self.history.undo(&mut self.strokes);
         if undone {
             self.rev += 1;
+            self.edits += 1;
         }
         undone
     }
@@ -321,6 +330,7 @@ impl PaintState {
         let redone = self.history.redo(&mut self.strokes);
         if redone {
             self.rev += 1;
+            self.edits += 1;
         }
         redone
     }
@@ -330,6 +340,7 @@ impl PaintState {
         self.current = None;
         if !self.strokes.is_empty() {
             self.history.checkpoint("Clear", std::mem::take(&mut self.strokes));
+            self.edits += 1;
         }
         self.rev += 1;
     }
@@ -1231,10 +1242,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     ]);
     let canvas = canvas.with_context_menu(ctx_menu.clone());
 
-    let (kit_ref, about_open) = data
+    let (kit_ref, about_open, unexported, asking_close) = data
         .downcast_ref::<PaintState>()
-        .map(|s| (s.kit.clone(), s.about_open))
-        .unwrap_or((RefAny::new(()), false));
+        .map(|s| (s.kit.clone(), s.about_open, s.unexported(), s.asking_close))
+        .unwrap_or((RefAny::new(()), false, false, false));
     let mut column = Dom::create_div().with_css(COLUMN).with_child(title_row(flora));
     if kit::settings_open(&kit_ref) {
         // azul-appkit's settings page: Appearance (remembered), Data,
@@ -1253,12 +1264,43 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_css(ROOT)
         .with_menu_bar(menu)
         .with_context_menu(ctx_menu)
-        .with_child(ShellThemeScope::create(column).dom())
+        .with_child(
+            ShellThemeScope::create(
+                // A drawing not exported yet asks "Save changes?" before the window closes;
+                // Save exports it as a PNG and closes once that landed.
+                kit::close_guard(column, &t("azpaint-drawing"))
+                    .with_dirty(unexported)
+                    .with_asking(asking_close)
+                    .with_on_event(data.clone(), on_close_guard)
+                    .dom(),
+            )
+            .dom(),
+        )
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             data.clone(),
             on_key,
         )
+}
+
+/// The close guard: a close was asked while the drawing is unexported, or the question was
+/// answered (Save exports the PNG and closes once it landed, `on_files_done`).
+extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: CloseGuardEvent) -> Update {
+    let kind = event.kind;
+    if let Some(mut s) = data.downcast_mut::<PaintState>() {
+        match kind {
+            CloseGuardEventKind::Ask => s.asking_close = true,
+            CloseGuardEventKind::Save => {
+                s.asking_close = false;
+                s.close_after_export = true;
+            }
+            CloseGuardEventKind::Discard | CloseGuardEventKind::Cancel => s.asking_close = false,
+        }
+    }
+    if matches!(kind, CloseGuardEventKind::Save) {
+        export_png(&data, &mut info);
+    }
+    Update::RefreshDom
 }
 
 /// Help > About AzPaint: azul's standard AboutDialog in a modal Dialog.
@@ -1335,9 +1377,15 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 /// The window is up: the kit's `--shot` timer.
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    if let Some(s) = data.downcast_ref::<PaintState>() {
+    let mut picture = None;
+    if let Some(mut s) = data.downcast_mut::<PaintState>() {
         kit::on_window_created(&s.kit, &mut info);
         say_strokes(&s);
+        picture = s.picture_to_open.take();
+    }
+    if let Some(path) = picture {
+        // Read off the UI thread; File > Import's answer decodes it into the background.
+        let _request = FilePath::create(path.to_string_lossy().into_owned()).read_bytes(data.clone(), on_import_bytes);
     }
     Update::DoNothing
 }
@@ -1742,11 +1790,18 @@ fn canvas_size(info: &mut CallbackInfo) -> (u32, u32) {
 
 /// File > Export PNG (Mod+S): the canvas as it is, into
 /// `paint/exports/canvas-*.png` in the data folder.
-extern "C" fn on_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (w, h) = canvas_size(&mut info);
+extern "C" fn on_export(data: RefAny, mut info: CallbackInfo) -> Update {
+    export_png(&data, &mut info);
+    Update::DoNothing
+}
+
+/// The canvas as a PNG into the data tree (File > Export PNG, the close guard's Save).
+fn export_png(data: &RefAny, info: &mut CallbackInfo) {
+    let mut data = data.clone();
+    let (w, h) = canvas_size(info);
     let (png, n) = {
         let Some(s) = data.downcast_ref::<PaintState>() else {
-            return Update::DoNothing;
+            return;
         };
         let img = cpu_raster(
             &mut MetaballField::default(),
@@ -1760,11 +1815,10 @@ extern "C" fn on_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     match png {
         ResultU8VecEncodeImageError::Ok(bytes) => {
-            write_export(&data, &mut info, export_key("canvas", "png", n), bytes.as_ref().to_vec());
+            write_export(&data, info, export_key("canvas", "png", n), bytes.as_ref().to_vec());
         }
         _ => eprintln!("[azpaint] the canvas could not be encoded as PNG"),
     }
-    Update::DoNothing
 }
 
 /// File > Export SVG (Mod+Shift+S): the strokes as vector shapes, into
@@ -1779,7 +1833,7 @@ extern "C" fn on_export_svg(mut data: RefAny, mut info: CallbackInfo) -> Update 
 }
 
 /// An export was written (or not): `AZPAINT_EXPORTED <key> <bytes>`.
-extern "C" fn on_files_done(mut data: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_files_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
     let Some(reply) = kit::take_reply(&mut msg) else {
         return Update::DoNothing;
     };
@@ -1794,6 +1848,16 @@ extern "C" fn on_files_done(mut data: RefAny, mut msg: RefAny, _info: CallbackIn
                 Err(e) => eprintln!("[azpaint] {key}: {e}"),
             }
         }
+    }
+    if s.close_after_export && s.exports.is_empty() {
+        s.close_after_export = false;
+        if s.unexported() {
+            // The export did not land: the window stays, and the next close asks again.
+            eprintln!("[azpaint] the drawing was not exported: the window stays");
+            return Update::RefreshDom;
+        }
+        say("AZPAINT_CLOSED_AFTER_EXPORT");
+        info.close_window();
     }
     Update::DoNothing
 }
@@ -1831,16 +1895,9 @@ pub fn start() {
     if sample {
         state.load_sample();
     }
-    // A picture named on the command line, read before the window exists.
-    if let Some(path) = picture {
-        match std::fs::read(&path) {
-            Ok(bytes) => match RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_slice())) {
-                ResultRawImageDecodeImageError::Ok(img) => state.set_background(img),
-                _ => eprintln!("[azpaint] {}: not an image azul can read", path.display()),
-            },
-            Err(e) => eprintln!("[azpaint] {}: {e}", path.display()),
-        }
-    }
+    // A picture named on the command line is read once the window is up: the window shows at
+    // once, whatever the picture's size.
+    state.picture_to_open = picture;
     let window = kit::window_options(&kit_ref, layout, (1024.0, 720.0), (480.0, 360.0), on_window_created);
     App::create(RefAny::new(state), config).run(window);
 }

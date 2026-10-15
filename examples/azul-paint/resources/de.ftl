@@ -19,6 +19,7 @@ azpaint-header = { $count ->
 azpaint-no-pen = Stift: keiner in der Nähe (halte den Stift über die Fläche, um Live-Werte zu sehen)
 azpaint-import-image-menu = Bild importieren…
 azpaint-export-png = PNG exportieren
+azpaint-drawing = Zeichnung
 azpaint-export-svg = SVG exportieren
 azpaint-clear = Löschen
 azpaint-menu-view = Ansicht
