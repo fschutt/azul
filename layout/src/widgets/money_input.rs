@@ -310,6 +310,16 @@ impl MoneyLocale {
         if matches!(region, "ch" | "li") {
             return Self::de_ch();
         }
+        // India writes lakhs and crores, in English and in its languages.
+        if region == "in"
+            || (region.is_empty()
+                && matches!(
+                    lang,
+                    "hi" | "bn" | "mr" | "ta" | "te" | "gu" | "kn" | "ml" | "pa" | "or" | "as"
+                ))
+        {
+            return Self::en_in();
+        }
         match lang {
             "de" | "it" | "da" | "el" | "id" | "tr" | "ro" | "hr" | "sl" | "sr" | "ca" | "gl"
             | "eu" | "vi" | "is" => comma_dot_after,
@@ -370,6 +380,16 @@ impl MoneyLocale {
             _ => 0,
         };
         let english = decimal == '.' && group == ',' as u32;
+        // Two digits between the last two grouping separators: the Indian
+        // way (`12,34,567.89`), not thousands.
+        let group_at: Vec<usize> = seps
+            .iter()
+            .filter(|(i, c)| *i < at && *c as u32 == group)
+            .map(|(i, _)| *i)
+            .collect();
+        let indian = group != 0
+            && group_at.len() >= 2
+            && group_at[group_at.len() - 1] - group_at[group_at.len() - 2] == 3;
         Self {
             decimal_separator: decimal as u32,
             group_separator: group,
@@ -379,7 +399,11 @@ impl MoneyLocale {
                 MoneySymbolPosition::Before
             },
             symbol_spaced: !english,
-            grouping: MoneyGrouping::Thousands,
+            grouping: if indian {
+                MoneyGrouping::Indian
+            } else {
+                MoneyGrouping::Thousands
+            },
         }
     }
 
@@ -726,15 +750,20 @@ fn read_number(
     let mut incomplete = false;
     if runs.len() > 1 {
         let last = runs.len() - 1;
+        // Thousands: 1-3 digits, then threes. The Indian way: 1-2 digits,
+        // pairs, and the last group three.
+        let indian = locale.grouping == MoneyGrouping::Indian;
+        let (first_max, middle) = if indian { (2, 2) } else { (3, 3) };
         for (i, run) in runs.iter().enumerate() {
             let ok = match i {
-                0 => (1..=3).contains(&run.len()),
+                0 => (1..=first_max).contains(&run.len()),
                 _ if i == last && point.is_none() && run.len() < 3 => {
                     // `1,234,5` / `1,`: the last group is still being typed.
                     incomplete = true;
                     true
                 }
-                _ => run.len() == 3,
+                _ if i == last => run.len() == 3,
+                _ => run.len() == middle,
             };
             if !ok {
                 return Err(MoneyInputError::Invalid);
@@ -785,8 +814,22 @@ fn read_number(
 #[must_use]
 /// [`group_digits`] grouped `grouping`.
 pub(crate) fn group_digits_as(digits: &str, separator: Option<char>, grouping: MoneyGrouping) -> String {
-    let _ = grouping;
-    group_digits(digits, separator)
+    if grouping == MoneyGrouping::Thousands {
+        return group_digits(digits, separator);
+    }
+    // The Indian way: the last three digits, then pairs.
+    let count = digits.chars().count();
+    let mut out = String::with_capacity(digits.len() + count / 2 * 3);
+    for (i, c) in digits.chars().enumerate() {
+        let left = count - i;
+        if i > 0 && left >= 3 && (left == 3 || (left - 3).is_multiple_of(2)) {
+            if let Some(g) = separator {
+                out.push(g);
+            }
+        }
+        out.push(c);
+    }
+    out
 }
 
 pub(crate) fn group_digits(digits: &str, separator: Option<char>) -> String {
@@ -820,7 +863,7 @@ pub(crate) fn format_money(
     let scale = 10_u64.pow(minor);
     let (whole, fraction) = (magnitude / scale, magnitude % scale);
 
-    let mut number = group_digits(&alloc::format!("{whole}"), locale.group());
+    let mut number = group_digits_as(&alloc::format!("{whole}"), locale.group(), locale.grouping);
     if minor > 0 {
         number.push(locale.decimal());
         let _ = write!(number, "{fraction:0width$}", width = minor as usize);
