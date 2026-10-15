@@ -1190,12 +1190,12 @@ mod tests {
         assert!(normalize_endpoint(Endpoint::Meet, "azlin").is_err());
     }
 
-    /// Azlin's customers (the trial and the production profile) relay through Azlin's relay;
-    /// everyone else, and a local stack, through n0's public relays.
+    /// Every profile relays through n0's public relays until Azlin's own relay is hosted; Azlin's
+    /// stays a choice by name (`azlin`) and by address.
     #[test]
-    fn azlins_profiles_relay_through_azlins_relay_and_every_other_through_n0s() {
-        assert_eq!(Profile::Production.default_for(Endpoint::Relay), Some(AZLIN_RELAY));
-        assert_eq!(Profile::Trial.default_for(Endpoint::Relay), Some(AZLIN_RELAY));
+    fn every_profile_relays_through_n0s_relays_until_azlins_is_hosted() {
+        assert_eq!(Profile::Production.default_for(Endpoint::Relay), Some("default"));
+        assert_eq!(Profile::Trial.default_for(Endpoint::Relay), Some("default"));
         assert_eq!(Profile::Local.default_for(Endpoint::Relay), Some("default"));
     }
 
@@ -1353,7 +1353,7 @@ mod tests {
         assert_eq!(e.profile, Profile::Production);
         assert_eq!(e.profile_setting.source, Source::Env(PROFILE_VAR));
         assert_eq!(e.url(Endpoint::Token), Some("https://token.azlin.io"));
-        assert_eq!(e.url(Endpoint::Relay), Some(AZLIN_RELAY), "Azlin's customers use Azlin's relay");
+        assert_eq!(e.url(Endpoint::Relay), Some("default"), "n0's relays until Azlin's is hosted");
         assert_eq!(e.url(Endpoint::Meet), None, "no meeting server is deployed");
 
         // The file's own address stays over any profile's.
