@@ -1147,3 +1147,5 @@ mod an_accordion_tween_frame_builds_its_display_list_once;
 mod a_virtual_views_child_dom_lays_out_warm;
 #[path = "a_workers_send_wakes_the_ui_thread.rs"]
 mod a_workers_send_wakes_the_ui_thread;
+#[path = "a_node_in_a_virtual_view_comes_in_with_its_animation.rs"]
+mod a_node_in_a_virtual_view_comes_in_with_its_animation;
