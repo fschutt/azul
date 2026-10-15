@@ -856,17 +856,14 @@ impl RichTextEditor {
         first_page: usize,
         page_count: usize,
     ) -> azul_core::dom::DomVec {
-        let data = self.editor_data();
-        let starts: Vec<usize> = page_starts.as_ref().iter().map(|s| *s as usize).collect();
-        let blocks = self.state.doc.block_count();
-        let last = first_page.saturating_add(page_count).min(starts.len());
-        let mut pages = Vec::new();
-        for page in first_page.min(last)..last {
-            let first = starts[page];
-            let end = starts.get(page + 1).copied().unwrap_or(blocks).max(first);
-            pages.push(host_dom(&self, data.as_ref(), Some((first, end - first))));
-        }
-        azul_core::dom::DomVec::from_vec(pages)
+        let starts = RichPageStartVec::from_vec(
+            page_starts
+                .as_ref()
+                .iter()
+                .map(|block| RichPageStart::create(*block, 0))
+                .collect(),
+        );
+        self.page_doms_at(starts, first_page, page_count)
     }
 
     /// [`Self::page_doms`] with pages that may start inside a block
@@ -882,10 +879,36 @@ impl RichTextEditor {
         first_page: usize,
         page_count: usize,
     ) -> azul_core::dom::DomVec {
-        let starts = azul_css::corety::U32Vec::from_vec(
-            page_starts.as_ref().iter().map(|s| s.block).collect(),
-        );
-        self.page_doms(starts, first_page, page_count)
+        let data = self.editor_data();
+        let doc = &self.state.doc;
+        let blocks = doc.block_count();
+        // A start inside a block that cannot be cut (a table, an image, a
+        // code block) or past its text is the whole block.
+        let starts: Vec<(usize, usize)> = page_starts
+            .as_ref()
+            .iter()
+            .map(|start| {
+                let block = start.block as usize;
+                let byte = doc.block(block).map_or(0, |b| {
+                    let text = b.flat();
+                    let byte = start.byte as usize;
+                    if b.kind.has_text() && !b.kind.is_code() && byte < text.len() {
+                        crate::widgets::rich_text::doc::floor_char_boundary(&text, byte)
+                    } else {
+                        0
+                    }
+                });
+                (block, byte)
+            })
+            .collect();
+        let last = first_page.saturating_add(page_count).min(starts.len());
+        let mut pages = Vec::new();
+        for page in first_page.min(last)..last {
+            let start = starts[page];
+            let stop = starts.get(page + 1).copied().unwrap_or((blocks, 0)).max(start);
+            pages.push(host_dom(&self, data.as_ref(), Some(PageRange { start, stop })));
+        }
+        azul_core::dom::DomVec::from_vec(pages)
     }
 
     /// The data every callback of this editor shares (none read-only).
@@ -928,7 +951,15 @@ struct RenderCtx<'a> {
 /// The editing host with the blocks `range` of the document (every block
 /// for `None`; a page's blocks, its host named `<host id>-page-<first>`,
 /// for `Some((first, count))`).
-fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>, range: Option<(usize, usize)>) -> Dom {
+/// The part of the document a page host shows: from `start` up to (not
+/// including) `stop`, each a (block, byte) position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PageRange {
+    start: (usize, usize),
+    stop: (usize, usize),
+}
+
+fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>, range: Option<PageRange>) -> Dom {
     let ctx = RenderCtx {
         doc: &editor.state.doc,
         host_id: editor.state.host_id.as_str(),
@@ -947,13 +978,13 @@ fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>, range: Option<(usize
         },
         data,
     };
-    let (first, end, id) = match range {
-        Some((first, count)) => (
-            first,
-            first.saturating_add(count),
-            AzString::from(page_host_id(ctx.host_id, first)),
+    let ((first, start_byte), (stop_block, stop_byte), id) = match range {
+        Some(PageRange { start, stop }) => (
+            start,
+            stop,
+            AzString::from(page_host_id(ctx.host_id, start, stop)),
         ),
-        None => (0, usize::MAX, editor.state.host_id.clone()),
+        None => ((0, 0), (usize::MAX, 0), editor.state.host_id.clone()),
     };
     let mut host = Dom::create_div()
         .with_id(id)
@@ -975,8 +1006,17 @@ fn host_dom(editor: &RichTextEditor, data: Option<&RefAny>, range: Option<(usize
         host = host.with_contenteditable(true);
     }
     for (index, block) in ctx.doc.blocks().iter().enumerate() {
-        if index >= first && index < end {
+        // The blocks before the stop, and the block the stop cuts.
+        let cut_here = index == stop_block && stop_byte > 0;
+        if index < first || (index >= stop_block && !cut_here) {
+            continue;
+        }
+        let from = if index == first { start_byte } else { 0 };
+        let to = cut_here.then_some(stop_byte);
+        if from == 0 && to.is_none() {
             host.add_child(block_dom(&ctx, index, block));
+        } else {
+            host.add_child(block_part_dom(&ctx, index, block, from, to));
         }
     }
     if let Some(data) = data {
@@ -1154,6 +1194,24 @@ const fn number_style(indent: u8) -> &'static str {
 /// One block as ONE child of the host.
 #[allow(clippy::too_many_lines)]
 fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
+    block_dom_as(ctx, index, block, false)
+}
+
+/// The part of block `index` from byte `from` up to `to` (its end when
+/// `None`), for a page that starts or stops inside it. The part that goes
+/// on from the page before is `continued`: no list marker or check box of
+/// its own, and its own DOM id.
+fn block_part_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock, from: usize, to: Option<usize>) -> Dom {
+    let len = block.flat().len();
+    let runs = crate::widgets::rich_text::doc::slice_runs(block.runs.as_ref(), from, to.unwrap_or(len));
+    let mut part = block.clone();
+    part.set_runs(runs);
+    block_dom_as(ctx, index, &part, from > 0)
+}
+
+/// [`block_dom`]; a `continued` block is the tail of one a page cut.
+#[allow(clippy::too_many_lines)]
+fn block_dom_as(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock, continued: bool) -> Dom {
     let px = ctx.font_px;
     let line = (px * ctx.line_height).round();
     // The indents are proportional to the text (an em of the editor's 14 px
@@ -1213,7 +1271,7 @@ fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
             with_runs(Dom::create_li(), ctx, block).with_css(&format!(
                 "{base} {quote_css} display: list-item; list-style-type: {}; margin-left: {}px; \
                  margin-bottom: 2px;",
-                bullet_style(*indent),
+                if continued { "none" } else { bullet_style(*indent) },
                 indent_px(*indent)
             ))
         }
@@ -1227,7 +1285,7 @@ fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
             with_runs(Dom::create_li(), ctx, block).with_css(&format!(
                 "{base} {quote_css} display: list-item; list-style-type: {}; \
                  counter-reset: list-item {}; margin-left: {}px; margin-bottom: 2px;",
-                number_style(*indent),
+                if continued { "none" } else { number_style(*indent) },
                 number.saturating_sub(1),
                 indent_px(*indent)
             ))
@@ -1270,6 +1328,10 @@ fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
                 ))
                 .with_accessibility_name(name)
                 .with_child(Dom::create_icon(icon).with_css("font-size: 20px;"));
+            if continued {
+                // The tail of an item the page before holds: its box is there.
+                return finish_block(ctx, index, item, classes, continued);
+            }
             if let Some(data) = ctx.data {
                 check_box = check_box.with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
@@ -1335,7 +1397,18 @@ fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
             .with_css("margin: 10px 0px; border-top: 1px dashed system:separator; height: 0px;"),
         RichBlockKind::Table(table) => table_dom(table, quote_left),
     };
-    let mut node = node.with_id(AzString::from(format!("{}-{index}", ctx.host_id)));
+    finish_block(ctx, index, node, classes, continued)
+}
+
+/// A block's element with its id (`<host id>-<index>`, `-cont` added for the
+/// tail of a block a page cut) and its classes.
+fn finish_block(ctx: &RenderCtx<'_>, index: usize, node: Dom, classes: Vec<String>, continued: bool) -> Dom {
+    let id = if continued {
+        format!("{}-{index}-cont", ctx.host_id)
+    } else {
+        format!("{}-{index}", ctx.host_id)
+    };
+    let mut node = node.with_id(AzString::from(id));
     for class in classes {
         node = node.with_class(AzString::from(class));
     }
@@ -1727,42 +1800,78 @@ pub(crate) struct PagePlace {
 
 /// The place a page host's id (`<host id>-page-...`) names.
 pub(crate) fn page_place(host_id: &str, id: &str) -> Option<PagePlace> {
-    let _ = (host_id, id);
-    None
+    let rest = id.strip_prefix(host_id)?.strip_prefix("-page-")?;
+    let (head, cut) = match rest.split_once('~') {
+        Some((head, cut)) => (head, Some(cut)),
+        None => (rest, None),
+    };
+    let at = |part: &str| -> Option<(usize, usize)> {
+        match part.split_once('@') {
+            Some((block, byte)) => Some((block.parse().ok()?, byte.parse().ok()?)),
+            None => Some((part.parse().ok()?, 0)),
+        }
+    };
+    let (first, start_byte) = at(head)?;
+    let cut = match cut {
+        Some(cut) => Some(at(cut)?),
+        None => None,
+    };
+    Some(PagePlace {
+        first,
+        start_byte,
+        cut: cut.filter(|(_, byte)| *byte > 0),
+    })
 }
 
 /// A block's whole text from what one of its parts shows: `seen` is the
 /// part from byte `from` of the block's `old` text up to `to` (the block's
 /// end when `None`); the rest of `old` stays around it.
 pub(crate) fn whole_text(old: &str, seen: &str, from: usize, to: Option<usize>) -> String {
-    let _ = (old, from, to);
-    seen.to_string()
+    use crate::widgets::rich_text::doc::floor_char_boundary;
+    let from = floor_char_boundary(old, from);
+    let to = to.map_or(old.len(), |to| floor_char_boundary(old, to)).max(from);
+    let mut whole = String::with_capacity(from + seen.len() + old.len() - to);
+    whole.push_str(&old[..from]);
+    whole.push_str(seen);
+    whole.push_str(&old[to..]);
+    whole
 }
 
-/// The DOM id of the editing host of the page whose first block is `first`
-/// ([`RichTextEditor::page_doms`]): `<host id>-page-<first>`.
-fn page_host_id(host_id: &str, first: usize) -> String {
-    format!("{host_id}-page-{first}")
+/// The DOM id of the editing host of the page from `start` to `stop`
+/// ([`RichTextEditor::page_doms_at`]): `<host id>-page-<first block>`,
+/// `@<byte>` when it starts inside that block, `~<block>@<byte>` when its
+/// last block goes on to the next page ([`page_place`] reads it back).
+fn page_host_id(host_id: &str, start: (usize, usize), stop: (usize, usize)) -> String {
+    let mut id = format!("{host_id}-page-{}", start.0);
+    if start.1 > 0 {
+        id.push_str(&format!("@{}", start.1));
+    }
+    if stop.1 > 0 {
+        id.push_str(&format!("~{}@{}", stop.0, stop.1));
+    }
+    id
 }
 
 /// The editing host `node` is in (or is) - the editor's one host (DOM id
-/// `host_id`) or one of its pages (`<host_id>-page-<first>`) - and the
-/// document index of that host's first block (0 for the one host).
-fn host_of(info: &CallbackInfo, host_id: &str, node: DomNodeId) -> Option<(DomNodeId, usize)> {
-    let page_prefix = format!("{host_id}-page-");
-    let page_prefix = page_prefix.as_str();
+/// `host_id`) or one of its pages (`<host_id>-page-...`) - and where that
+/// host stands in the document (the one host: from its start, whole).
+fn host_of(info: &CallbackInfo, host_id: &str, node: DomNodeId) -> Option<(DomNodeId, PagePlace)> {
     let mut current = Some(node);
     while let Some(n) = current {
         if let Some(id) = info.get_node_id(n) {
             let id = id.as_str();
             if id == host_id {
-                return Some((n, 0));
+                return Some((
+                    n,
+                    PagePlace {
+                        first: 0,
+                        start_byte: 0,
+                        cut: None,
+                    },
+                ));
             }
-            if let Some(first) = id
-                .strip_prefix(page_prefix)
-                .and_then(|first| first.parse::<usize>().ok())
-            {
-                return Some((n, first));
+            if let Some(place) = page_place(host_id, id) {
+                return Some((n, place));
             }
         }
         current = info.get_parent(n);
@@ -1770,14 +1879,26 @@ fn host_of(info: &CallbackInfo, host_id: &str, node: DomNodeId) -> Option<(DomNo
     None
 }
 
+/// The bytes of block `block`'s text the element `node` is in shows: from
+/// where its page starts (the page's first element) up to where the page
+/// stops (its last element, when the next page starts inside it).
+fn part_bounds(info: &CallbackInfo, host_id: &str, node: DomNodeId, block: usize) -> (usize, Option<usize>) {
+    let Some((_, place)) = host_of(info, host_id, node) else {
+        return (0, None);
+    };
+    let from = if block == place.first { place.start_byte } else { 0 };
+    let to = place.cut.filter(|(cut, _)| *cut == block).map(|(_, byte)| byte);
+    (from, to)
+}
+
 /// The model path of `node`: `[block, ...]` with the block's index in the
 /// DOCUMENT (a page's first block added to its index on the page); empty
 /// for a host. `None` for a node outside every host of this editor.
 fn model_path(info: &CallbackInfo, host_id: &str, node: DomNodeId) -> Option<Vec<u32>> {
-    let (host, first) = host_of(info, host_id, node)?;
+    let (host, place) = host_of(info, host_id, node)?;
     let mut path = path_in_host(info, host, node)?;
     if let Some(block) = path.first_mut() {
-        *block += first as u32;
+        *block += place.first as u32;
     }
     Some(path)
 }
@@ -1794,14 +1915,18 @@ fn block_of(info: &CallbackInfo, host_id: &str, node: DomNodeId) -> Option<usize
 fn caret_in(info: &CallbackInfo, host_id: &str) -> Option<(usize, usize)> {
     let position = info.get_document_caret().into_option()?;
     let block = block_of(info, host_id, position.node)?;
-    Some((block, position.text_byte as usize))
+    let (from, _) = part_bounds(info, host_id, position.node, block);
+    Some((block, from + position.text_byte as usize))
 }
 
 /// The caret's model path (`[block, row, cell]` in a table).
 fn caret_path(info: &CallbackInfo, host_id: &str) -> Option<(Vec<u32>, usize)> {
     let position = info.get_document_caret().into_option()?;
     let path = model_path(info, host_id, position.node)?;
-    Some((path, position.text_byte as usize))
+    let from = path
+        .first()
+        .map_or(0, |block| part_bounds(info, host_id, position.node, *block as usize).0);
+    Some((path, from + position.text_byte as usize))
 }
 
 /// The host of this editor the caret is in (a page's, in a paged editor).
@@ -1817,8 +1942,10 @@ fn selection_in(info: &CallbackInfo, host_id: &str) -> Vec<(usize, usize, usize)
         .iter()
         .filter(|s| s.end_byte > s.start_byte)
         .filter_map(|s| {
-            block_of(info, host_id, s.node)
-                .map(|b| (b, s.start_byte as usize, s.end_byte as usize))
+            block_of(info, host_id, s.node).map(|b| {
+                let (from, _) = part_bounds(info, host_id, s.node, b);
+                (b, from + s.start_byte as usize, from + s.end_byte as usize)
+            })
         })
         .collect()
 }
@@ -1951,8 +2078,9 @@ impl RichTextEditorState {
                 continue;
             };
             let block = first as usize;
-            let new = edit.text.as_str();
+            let seen = edit.text.as_str();
             if let Some(RichBlockKind::Table(table)) = self.doc.block(block).map(|b| &b.kind) {
+                let new = seen;
                 // Typing into a cell: `[block, row, cell]`.
                 if let (Some(&row), Some(&cell)) = (path.get(1), path.get(2)) {
                     let old = table
@@ -1971,6 +2099,15 @@ impl RichTextEditorState {
             }
             let Some(old) = self.doc.block(block).map(RichBlock::flat) else {
                 continue;
+            };
+            // A part of a block a page cut: the rest of its text stays.
+            let (from, to) = part_bounds(info, &host_id, edit.node, block);
+            let whole;
+            let new = if from > 0 || to.is_some() {
+                whole = whole_text(&old, seen, from, to);
+                whole.as_str()
+            } else {
+                seen
             };
             if old == new {
                 continue;
@@ -1995,12 +2132,12 @@ impl RichTextEditorState {
                 // engine's (its typing style at a caret, a formatted paste):
                 // the edit report carries them, no mirror guesses them.
                 let (prefix, suffix) = crate::widgets::rich_text::doc::text_diff(&old, new);
-                let _ = self.doc.apply_reported_formats(
-                    block,
-                    prefix,
-                    new.len() - suffix,
-                    &reported_spans(edit.runs.as_ref()),
-                );
+                // The engine reports its spans in the part it shows.
+                let spans: Vec<(usize, usize, RichFormats)> = reported_spans(edit.runs.as_ref())
+                    .into_iter()
+                    .map(|(start, end, formats)| (start + from, end + from, formats))
+                    .collect();
+                let _ = self.doc.apply_reported_formats(block, prefix, new.len() - suffix, &spans);
                 // A typing style the engine cannot paint in place: inline
                 // code, or a font other than the run's it typed into.
                 if typing
@@ -2053,7 +2190,18 @@ impl RichTextEditorState {
                         let at = match caret {
                             Some((cb, byte)) if cb == b => byte,
                             _ => self.doc.block(b).map_or(0, |block| {
-                                bytes_before(block, split.at.child_index as usize)
+                                // The child index counts the runs of the part
+                                // a page shows, when a page cut the block.
+                                let (from, to) = part_bounds(info, host_id, split.node, b);
+                                let mut part = block.clone();
+                                if from > 0 || to.is_some() {
+                                    part.set_runs(crate::widgets::rich_text::doc::slice_runs(
+                                        block.runs.as_ref(),
+                                        from,
+                                        to.unwrap_or_else(|| block.flat().len()),
+                                    ));
+                                }
+                                from + bytes_before(&part, split.at.child_index as usize)
                                     + split.at.text_byte.into_option().unwrap_or(0) as usize
                             }),
                         };
@@ -2077,7 +2225,8 @@ impl RichTextEditorState {
                 if host_of(info, host_id, replace.parent).is_some_and(|(h, _)| h == replace.parent) =>
             {
                 // The host's (a page's) children are blocks `first..`.
-                let first = host_of(info, host_id, replace.parent).map_or(0, |(_, first)| first);
+                let place = host_of(info, host_id, replace.parent).map(|(_, place)| place);
+                let first = place.map_or(0, |p| p.first);
                 let (start, end) = (first + replace.start as usize, first + replace.end as usize);
                 let parts: &[Dom] = replace.content.children.as_ref();
                 if parts.len() <= 1 {
@@ -2085,8 +2234,26 @@ impl RichTextEditorState {
                     // text is the head of the first and the tail of the last;
                     // the model keeps both ends' formats.
                     let mut joined = String::new();
+                    // A page that starts inside its first block shows only
+                    // that block's tail; one that stops inside its last only
+                    // that block's head: the rest of their texts stays.
+                    if let Some(p) = place.filter(|p| start == p.first && p.start_byte > 0) {
+                        if let Some(text) = self.doc.block(start).map(RichBlock::flat) {
+                            let head = crate::widgets::rich_text::doc::floor_char_boundary(&text, p.start_byte);
+                            joined.push_str(&text[..head]);
+                        }
+                    }
                     for part in parts {
                         rich_html::dom_text(part, &mut joined);
+                    }
+                    if let Some((_, cut)) = place
+                        .and_then(|p| p.cut)
+                        .filter(|(block, _)| end > start && *block == end - 1)
+                    {
+                        if let Some(text) = self.doc.block(end - 1).map(RichBlock::flat) {
+                            let tail = crate::widgets::rich_text::doc::floor_char_boundary(&text, cut);
+                            joined.push_str(&text[tail..]);
+                        }
                     }
                     self.doc.replace_blocks(start, end, &joined)
                 } else {
@@ -2777,12 +2944,12 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         // list item's by a paragraph's - and the caret on it goes with it.
         // Put it at the start of the block's new node.
         if byte == 0 {
-            if let Some((page_host, first)) = info
+            if let Some((page_host, place)) = info
                 .get_document_caret()
                 .into_option()
                 .and_then(|p| host_of(&info, editor.state.host_id.as_str(), p.node))
             {
-                let index = u32::try_from(block.saturating_sub(first)).unwrap_or(u32::MAX);
+                let index = u32::try_from(block.saturating_sub(place.first)).unwrap_or(u32::MAX);
                 info.place_caret_after_rebuild(
                     page_host,
                     azul_css::corety::U32Vec::from_vec(alloc::vec![index]),
