@@ -279,8 +279,13 @@ mod encrypted {
             if self.fail_next.swap(0, Ordering::SeqCst) == 1 {
                 return Err(DriveError::Transport(String::from("the computer went off")));
             }
-            self.applies.fetch_add(1, Ordering::SeqCst);
-            self.inner.apply(changes)
+            // A commit is an apply that went through: one refused for a taken target (the
+            // batch then drops that item and applies the rest) is no commit.
+            let applied = self.inner.apply(changes);
+            if applied.is_ok() {
+                self.applies.fetch_add(1, Ordering::SeqCst);
+            }
+            applied
         }
     }
 
