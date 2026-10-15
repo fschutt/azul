@@ -441,7 +441,12 @@ fn field_props<'a>(
                 t
             }
         };
-        let base = sanitize_bare_identifier(&to_pascal_case(a.field.name.trim_start_matches('_')));
+        let mut base = sanitize_bare_identifier(&to_pascal_case(a.field.name.trim_start_matches('_')));
+        // A tuple struct's field is named by its index; a Pascal identifier
+        // cannot start with a digit.
+        if base.starts_with(|c: char| c.is_ascii_digit()) {
+            base = format!("Field{}", base);
+        }
         let prop = if taken.insert(base.to_ascii_lowercase()) {
             base
         } else {
