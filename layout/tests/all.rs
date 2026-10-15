@@ -1145,3 +1145,5 @@ mod bold_text_in_a_face_without_a_bold_cut_is_drawn_bolder;
 mod a_background_image_is_sized_placed_and_repeated_as_css_says;
 #[path = "a_span_is_one_box_around_all_of_its_text.rs"]
 mod a_span_is_one_box_around_all_of_its_text;
+#[path = "a_parent_grows_with_its_restyled_child.rs"]
+mod a_parent_grows_with_its_restyled_child;
