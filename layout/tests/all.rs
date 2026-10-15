@@ -1143,3 +1143,5 @@ mod a_pie_marker_paints_its_disc_and_wedge;
 mod bold_text_in_a_face_without_a_bold_cut_is_drawn_bolder;
 #[path = "a_background_image_is_sized_placed_and_repeated_as_css_says.rs"]
 mod a_background_image_is_sized_placed_and_repeated_as_css_says;
+#[path = "a_span_is_one_box_around_all_of_its_text.rs"]
+mod a_span_is_one_box_around_all_of_its_text;
