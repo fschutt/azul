@@ -83,6 +83,8 @@ pub mod todo;
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
+#[cfg(test)]
+mod sync_cancel_tests;
 mod ui_account;
 mod ui_backstage;
 mod ui_bridge;
@@ -278,6 +280,21 @@ pub(crate) enum SyncState {
     },
     Done(String),
     Failed(String),
+}
+
+impl SyncState {
+    /// Whether a report of the sync running on `thread` is the window's Send / Receive.
+    pub(crate) fn runs_on(&self, _thread: ThreadId) -> bool {
+        true
+    }
+
+    /// Cancel: the thread of the running Send / Receive, to be stopped.
+    pub(crate) fn cancel(&mut self) -> Option<ThreadId> {
+        match self {
+            SyncState::Running { thread, .. } => Some(*thread),
+            _ => None,
+        }
+    }
 }
 
 /// A keyring operation of the UI thread. An Azlin account's refreshed session is never stored
