@@ -516,6 +516,17 @@ fn settle() -> StdDuration {
     StdDuration::from_millis(millis)
 }
 
+/// Whether the poll asks a drive again: not when its last pass needs the user to sign in to it
+/// again (this device was removed, its session is gone) - every try would be refused. The status
+/// line says so; Resume, "Sync now" or the app's next start try once more.
+#[must_use]
+pub(crate) fn polled(states: &SyncStates) -> bool {
+    states
+        .last_problem
+        .as_ref()
+        .is_none_or(|p| p.user_error().class() != azcloud_kit::user_errors::Class::ReAuth)
+}
+
 /// How often the timer polls every synced drive: `$AZDRIVE_SYNC_POLL` seconds (scripts), else
 /// 30.
 fn poll_secs() -> u64 {
@@ -597,7 +608,7 @@ extern "C" fn on_sync_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
         .settings
         .synced
         .iter()
-        .filter(|p| !p.paused)
+        .filter(|p| !p.paused && polled(&s.sync_view.store.states(&p.drive_id)))
         .map(|p| p.drive_id.clone())
         .collect();
     for drive_id in due {

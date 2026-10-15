@@ -203,11 +203,31 @@ pub(crate) fn status_text(
     if conflicts > 0 {
         return Phrase::new("azdrive-sync-status-conflicts").arg("count", conflicts);
     }
+    // A storage or token server error in the errors table's words (offline, the drive is full,
+    // this device was removed, ...); an error of AzDrive's own keeps its words.
+    if let Some(problem) = &states.last_problem {
+        let user = problem.user_error();
+        let mut said = Phrase::new(&user.message_id());
+        for (name, value) in user.fluent_args() {
+            said = said.arg(name, value);
+        }
+        return said;
+    }
     if let Some(error) = &states.last_error {
         return Phrase::new("azdrive-sync-status-failed").arg("error", error.as_str());
     }
     if states.last_pass.is_none() {
         return Phrase::new("azdrive-sync-status-never");
+    }
+    // Never "Up to date" about files that cannot sync: how many, and a full disk by name.
+    let cannot = states.cannot_sync();
+    if cannot > 0 {
+        let key = if states.disk_full() {
+            "azdrive-sync-status-disk-full"
+        } else {
+            "azdrive-sync-status-skipped"
+        };
+        return Phrase::new(key).arg("count", cannot);
     }
     Phrase::new("azdrive-sync-status-up-to-date")
 }
@@ -220,6 +240,9 @@ fn says_read_only(status: &Text) -> bool {
             "azdrive-sync-status-payment-due"
                 | "azdrive-sync-status-newer-format"
                 | "azdrive-sync-status-read-only"
+                | "azlin-error-quota-exceeded"
+                | "azlin-error-read-only-unpaid"
+                | "azlin-error-drive-banned"
         )
     })
 }
@@ -716,6 +739,10 @@ pub(crate) fn print_changes(drive_id: &str, before: &SyncStates, after: &SyncSta
     }
     for key in before.files.keys().filter(|k| !after.files.contains_key(*k)) {
         println!("AZDRIVE_SYNC_FILE {drive_id} gone {key}");
+    }
+    // The files here the pass could not take: an error each, named once.
+    for key in after.skipped.keys().filter(|k| !before.skipped.contains_key(*k)) {
+        println!("AZDRIVE_SYNC_FILE {drive_id} error {key}");
     }
 }
 
