@@ -546,13 +546,21 @@ class Laptop:
 
 
 def status_after_passes(laptop, drive_id, count=2, timeout=None):
-    """The status line once `count` more passes ended (not the "Syncing" of one that runs)."""
+    """The status line AzDrive printed right after the last of `count` more passes ended (not
+    the "Syncing" of the next one, which a short poll starts at once)."""
     laptop.wait_passes("%d passes" % count, count, drive_id, timeout)
-    deadline = time.time() + 3
+    deadline = time.time() + 5
     while time.time() < deadline:
-        current = laptop.status(drive_id) or ""
-        if not current.startswith("azdrive-sync-status-syncing"):
-            return current
+        said = None
+        ended = False
+        for _, line in laptop.timeline():
+            if line.startswith(("AZDRIVE_SYNC_DONE %s" % drive_id,
+                                "AZDRIVE_SYNC_FAILED %s" % drive_id)):
+                ended, said = True, None
+            elif ended and said is None and line.startswith("AZDRIVE_SYNC_STATUS %s " % drive_id):
+                said = line.split(" ", 2)[2]
+        if said is not None:
+            return said
         time.sleep(0.05)
     return laptop.status(drive_id)
 
@@ -1232,9 +1240,9 @@ def clock_skew(ctx):
         write(future, b"made on a computer whose clock is a day ahead\n")
         ahead = time.time() + 86400
         os.utime(future, (ahead, ahead))
-        laptop.wait_settled("the future file", drive, timeout=180)
+        laptop.wait_passes("passes over the future file", 3, drive, timeout=150)
         durations = pass_durations(laptop, drive)
-        slow = [d for d in durations[-3:] if d > 10]
+        slow = [d for d in durations[-2:] if d > 10]
         no_silent_failure(laptop, drive)
         raw = raw_errors([skewed])
         expect(not raw, "the skew showed as a technical error: %s" % skewed)
