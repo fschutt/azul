@@ -106,3 +106,13 @@ fn every_new_status_has_its_words_in_english_and_german() {
         }
     }
 }
+
+#[test]
+fn the_node_lists_live_in_the_runs_cache_folder() {
+    // A run with --cache-dir (an E2E, a second profile) keeps its drives' node lists there,
+    // never in the user's own cache folder.
+    let root = std::env::temp_dir().join("azdrive-chaos-tests-nodes");
+    crate::set_nodes_root(root.join("nodes"));
+    let kept = crate::nodes_file("d_test");
+    assert!(kept.starts_with(&root), "{}", kept.display());
+}
