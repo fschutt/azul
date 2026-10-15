@@ -63,7 +63,7 @@ fn row(i: usize, theme: UiTheme) -> Dom {
             TabHeader::create(labels)
                 .with_active_tab(i % 3)
                 .with_theme(theme)
-                .with_style(if i % 2 == 0 { TabStyle::Aurora } else { TabStyle::Rectangular })
+                .with_style(if i.is_multiple_of(2) { TabStyle::Aurora } else { TabStyle::Rectangular })
                 .dom(),
         )
         .with_child(buttons)

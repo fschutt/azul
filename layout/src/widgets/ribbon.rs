@@ -3559,13 +3559,13 @@ impl Ribbon {
     /// one to every build, so the content shows as it did. The ribbon feeds
     /// it the pointer and the clicks and tells the app of a tab the content
     /// switched to through [`Self::on_tab_click`].
-    pub fn set_reveal(&mut self, reveal: crate::widgets::tab_reveal::TabReveal) {
+    pub fn set_reveal(&mut self, reveal: TabReveal) {
         self.reveal = crate::widgets::tab_reveal::OptionTabReveal::Some(reveal);
     }
 
     /// [`Self::set_reveal`] for the builder chain.
     #[must_use]
-    pub fn with_reveal(mut self, reveal: crate::widgets::tab_reveal::TabReveal) -> Self {
+    pub fn with_reveal(mut self, reveal: TabReveal) -> Self {
         self.set_reveal(reveal);
         self
     }
@@ -4060,7 +4060,7 @@ impl Ribbon {
                 .with_tab_index(TabIndex::Auto)
                 .with_accessibility_info(AccessibilityInfo {
                     role: AccessibilityRole::PushButton,
-                    accessibility_name: azul_css::OptionString::Some(AzString::from_const_str(
+                    accessibility_name: OptionString::Some(AzString::from_const_str(
                         if view.locked {
                             "Close the tab content"
                         } else {
@@ -4085,7 +4085,7 @@ impl Ribbon {
                         Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
                             inner: FloatValue::const_new(0),
                         })),
-                        Cond::simple(P::ColumnGap(azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
+                        Cond::simple(P::ColumnGap(props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
                             inner: PixelValue::const_px(STRIP_END_GAP),
                         }))),
                     ]))
@@ -4516,7 +4516,7 @@ fn pill_row_style(mut s: RibbonStyle, theme: UiTheme) -> RibbonStyle {
                 inner: FloatValue::const_new(0),
             })),
             Cond::simple(P::const_height(LayoutHeight::const_px(PILL_ROW))),
-            Cond::simple(P::ColumnGap(azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
+            Cond::simple(P::ColumnGap(props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
                 inner: PixelValue::const_px(PILL_GAP),
             }))),
             Cond::simple(decl::fill(ColorU::TRANSPARENT)),
@@ -4651,7 +4651,7 @@ fn leather_details(dom: &mut Dom) {
     {
         append_style(&mut dom.root, flora::check_panel());
     }
-    for child in dom.children.iter_mut() {
+    for child in &mut dom.children {
         leather_details(child);
     }
 }
