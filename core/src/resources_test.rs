@@ -687,6 +687,7 @@ mod autotest_generated {
             global_hotkeys_callback,
             theme,
             app_id,
+            theme_font,
             mode,
             light,
             log_level,
@@ -717,6 +718,7 @@ mod autotest_generated {
             + size_of_field(global_hotkeys_callback)
             + size_of_field(theme)
             + size_of_field(app_id)
+            + size_of_field(theme_font)
             + size_of_field(mode)
             + size_of_field(light)
             + size_of_field(log_level)
