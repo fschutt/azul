@@ -142,3 +142,28 @@ fn crystal_takes_and_gives_nil_and_raises_errors() {
         ],
     );
 }
+
+#[test]
+fn csharp_takes_and_gives_nullables_and_registers_a_typed_resume_callback() {
+    let path = "Azul.cs";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            // `null` in, a nullable out, both on parameters and fields.
+            "public static AzRequestId OpenDirectory(string title, string? default_path, RefAny data, \
+             ResumeCallback on_result)",
+            "var __default_path_opt = __AzOpt.InOptionString(default_path);",
+            "public FilePath? Path",
+            "public string? Light",
+            "public static FileOpenResult? Downcast(RefAny result)",
+            // The engine's `result` is deep-copied into the downcast, never freed twice.
+            "var __ret = NativeMethods.AzFileOpenResult_downcast(result.__Take());",
+            // The resume callback is a typed delegate like every `On<Event>`.
+            "public static AzRequestId OpenDirectory<T>(string title, string? default_path, T data, \
+             HostInvoker.ResumeCallbackWithData<T> on_result) where T : class",
+            "public static Url Parse(string s)",
+        ],
+    );
+}
