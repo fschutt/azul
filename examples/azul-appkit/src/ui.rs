@@ -42,7 +42,7 @@ use azul::{
         ButtonOnClickCallbackType, CallbackType, LayoutCallbackType, SegmentedOnChangeCallbackType,
         TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType,
     },
-    css::{DarkLightMode, PhysicalPositionI32, WindowPosition},
+    css::{DarkLightMode, PhysicalPositionI32, SystemStyle, SystemStyleDependency, WindowPosition},
     dom::{DomId, DomNodeId, NodeId, VirtualKeyCode},
     file::FilePath,
     option::{OptionDarkLightMode, OptionLogicalSize},
@@ -434,6 +434,37 @@ pub fn title_row(title: &str) -> Dom {
 #[must_use]
 pub fn tabs_in_titlebar() -> TabsInTitlebar {
     TabsInTitlebar::platform()
+}
+
+/// The room a strip an app draws along the window's top edge leaves for the window's own
+/// controls. The window is `NoTitle`, so whatever the app puts at the top is the title bar: the
+/// traffic lights sit over its left end on macOS, the caption buttons over its right end on
+/// Windows when the content runs under them, the drawn controls on Linux. A strip that pads
+/// itself by these keeps its buttons clear of the controls on every platform.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TitleInsets {
+    /// Px to keep free at the strip's left end: the controls when they sit on the left (with
+    /// the title bar's padding beside them) and the safe area there (a camera housing).
+    pub left: f32,
+    /// Px to keep free at the strip's right end, the same on the other side.
+    pub right: f32,
+    /// The title bar's height: a strip carrying the controls is at least this tall, so they
+    /// sit inside it.
+    pub height: f32,
+}
+
+/// The window's [`TitleInsets`], from the title-bar metrics the system reports. Reading them
+/// makes a change of the system's metrics (another display, a theme) rebuild the window.
+#[must_use]
+pub fn title_insets(info: &LayoutCallbackInfo) -> TitleInsets {
+    info.depends_on_system_style(SystemStyleDependency::Metrics);
+    title_insets_of(info.get_system_style_untracked())
+}
+
+/// The [`TitleInsets`] a system `style` gives.
+#[must_use]
+pub fn title_insets_of(_style: SystemStyle) -> TitleInsets {
+    TitleInsets { left: 0.0, right: 0.0, height: 0.0 }
 }
 
 /// The standard "Save changes?" guard around a window's `content`, for the open `document`,

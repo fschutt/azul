@@ -93,6 +93,8 @@ pub mod window_place;
 mod l10n_tests;
 #[cfg(all(test, feature = "azul"))]
 mod l10n_switch_tests;
+#[cfg(all(test, feature = "azul"))]
+mod title_insets_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
