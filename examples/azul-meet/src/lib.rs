@@ -5049,6 +5049,25 @@ fn server_trouble(worker: &str, answer: &Result<(u16, Option<Json>), String>) ->
     }
 }
 
+/// What the header says when the meetings service failed a request.
+fn service_notice(answer: &Result<(u16, Option<Json>), String>) -> String {
+    server_trouble("", answer)
+}
+
+/// The header of a waiting room shown with no meetings service answering (`--screen waiting`).
+fn preview_notice(room: &RoomSession) -> String {
+    if room.worker.is_empty() {
+        t("azmeet-preview-no-server")
+    } else {
+        t_args("azmeet-preview-silent-server", &[("server", Arg::from(&room.worker))])
+    }
+}
+
+/// What "Join now" says in a waiting room of a meeting made here: nobody can join it.
+fn cannot_join_notice(room: &RoomSession) -> String {
+    t_args("azmeet-preview-cannot-join", &[("server", Arg::from(&room.worker))])
+}
+
 /// The room is gone from the server: back to the start screen, unless people are connected.
 fn meeting_gone(s: &mut MeetState) {
     let connected = !s.remotes.is_empty();
@@ -5247,7 +5266,6 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
             .as_ref()
             .is_some_and(|m| m.kind == chatroom::RoomKind::Meeting);
         let secret = room.join_secret.take();
-        let worker = room.worker.clone();
         let found = match &answer {
             Ok((200 | 201, Some(json))) => room_info(json),
             _ => None,
@@ -5265,7 +5283,7 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
             // A meeting the service did not make (it is down, or answered an error): made
             // here, so the waiting room and its camera still open.
             None if making_a_meeting && !matches!(&answer, Ok((200 | 201 | 404, _))) => {
-                let notice = server_trouble(&worker, &answer);
+                let notice = service_notice(&answer);
                 let _ = open_local_meeting(s, notice);
                 None
             }
@@ -5276,7 +5294,7 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
                 s.notice = match &answer {
                     Ok((404, _)) => t("azmeet-meeting-ended"),
                     Ok((200 | 201, _)) => t("azmeet-answer-unreadable"),
-                    other => server_trouble(&worker, other),
+                    other => service_notice(other),
                 };
                 None
             }
@@ -5341,7 +5359,7 @@ extern "C" fn on_announced(data: RefAny, mut info: CallbackInfo, result: RefAny)
             other => {
                 room.announced_at = None;
                 room.trouble = true;
-                s.notice = server_trouble(&room.worker, other);
+                s.notice = service_notice(other);
                 (None, Update::RefreshDom)
             }
         }
@@ -5428,7 +5446,7 @@ extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Upd
         }
         other => {
             room.trouble = true;
-            s.notice = server_trouble(&room.worker, &other);
+            s.notice = service_notice(&other);
             Update::RefreshDom
         }
     }
@@ -6614,7 +6632,7 @@ extern "C" fn on_join_now(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let s = &mut *guard;
         if let Some(room) = s.room.as_ref().filter(|room| room.preview) {
             // The preview's meeting exists only here: nobody could join it.
-            s.notice = t_args("azmeet-preview-cannot-join", &[("server", Arg::from(&room.worker))]);
+            s.notice = cannot_join_notice(room);
             return Update::RefreshDom;
         }
         let knock = s
@@ -6806,13 +6824,7 @@ fn preview_waiting_room(data: &mut RefAny) -> Update {
     };
     let s = &mut *guard;
     let notice = match s.room.as_ref() {
-        Some(room) if room.stage == Stage::Start => {
-            if room.worker.is_empty() {
-                t("azmeet-preview-no-server")
-            } else {
-                t_args("azmeet-preview-silent-server", &[("server", Arg::from(&room.worker))])
-            }
-        }
+        Some(room) if room.stage == Stage::Start => preview_notice(room),
         _ => return Update::DoNothing,
     };
     open_local_meeting(s, notice)
@@ -8163,6 +8175,9 @@ fn run(me: MeetState) {
 fn azul_android_init() {
     start();
 }
+
+#[cfg(test)]
+mod header_tests;
 
 #[cfg(test)]
 mod service_down_tests {
