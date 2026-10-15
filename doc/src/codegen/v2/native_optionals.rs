@@ -247,8 +247,8 @@ fn haskell_takes_and_gives_maybe_and_either_and_guards_a_handler() {
             // The data bound to the model of the running callback.
             "fileDialogOpenDirectoryWithModel :: (ResumeCallbackHandler h3) => String -> (Maybe String) -> h3 -> IO RequestId",
             "fileOpenResultDowncast :: (ToRefAny d0) => d0 -> IO (Maybe FileOpenResult)",
-            "fileOpenResultGetPath :: FileOpenResult -> IO (Maybe FilePath)",
-            "fileOpenResultSetPath :: (Maybe FilePath) -> FileOpenResult -> IO ()",
+            "fileOpenResultGetPath :: FileOpenResult -> IO (Maybe AzFilePath)",
+            "fileOpenResultSetPath :: (Maybe AzFilePath) -> FileOpenResult -> IO ()",
         ],
     );
     let api = "haskell/src/Azul/Internal/Api/Url.hs";
@@ -262,6 +262,25 @@ fn haskell_takes_and_gives_maybe_and_either_and_guards_a_handler() {
         &[
             "orDoNothing :: model -> MaybeT IO (model, T.Update) -> IO (model, T.Update)",
             "orDoNothingOnError :: Show e => model -> ExceptT e IO (model, T.Update) -> IO (model, T.Update)",
+        ],
+    );
+}
+
+#[test]
+fn zig_gives_optionals_and_error_unions() {
+    let path = "azul.zig";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            // Parameters already take `null`, `?T` or the value (`_asAzOption`).
+            "pub fn openDirectory(title: anytype, default_path: anytype, data: anytype, on_result: anytype) RequestId {",
+            "pub fn downcast(result: anytype) ?FileOpenResult {",
+            "pub fn getPath(self: *const Self) ?FilePath {",
+            "pub fn getLight(self: *const Self) ?String {",
+            "pub fn parse(s: anytype) error{UrlParseError}!Url {",
+            "pub inline fn _optPayload(o: anytype, some_tag: anytype) ?@TypeOf(o.Some.payload) {",
         ],
     );
 }
