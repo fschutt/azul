@@ -294,6 +294,8 @@ pub struct AppState {
     /// The window waits for its saves to close.
     pub closing: bool,
     pub status: Status,
+    /// The formatting toolbar's measured fit (its Resize events).
+    pub toolbar_fit: azul_appkit::pieces::ToolbarFit,
     /// Decoded images by key.
     pub images: HashMap<String, ImageRef>,
     /// Image keys asked for (loaded or on the way).
@@ -396,6 +398,7 @@ pub fn start(args: Args) {
         last_version: BTreeMap::new(),
         closing: false,
         status: Status::Idle,
+        toolbar_fit: azul_appkit::pieces::ToolbarFit::default(),
         images: HashMap::new(),
         images_requested: BTreeSet::new(),
         running: 0,

@@ -223,8 +223,8 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
 /// (never in the "more" menu) and the settings gear. Each tool's `id` is its
 /// DOM-id name from [`ids`]: what [`on_toolbar`] matches.
 fn toolbar(s: &AppState, data: &RefAny) -> Dom {
-    Toolbar::create(t("azpdf-document"))
-        .with_items(toolbar_items(s, data))
+    s.toolbar_fit
+        .apply(Toolbar::create(t("azpdf-document")).with_items(toolbar_items(s, data)))
         .with_on_event(data.clone(), on_toolbar as ToolbarOnEventCallbackType)
         .dom()
         .with_id(ids::TOOLBAR)
@@ -313,7 +313,13 @@ fn toolbar_items(s: &AppState, data: &RefAny) -> Vec<ToolbarItem> {
 }
 
 /// A tool was pressed: the tool's `id` names the command.
-extern "C" fn on_toolbar(data: RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
+extern "C" fn on_toolbar(mut data: RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
+    // The bar measured itself: it is built again to fit when that changed.
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        if s.toolbar_fit.take(&event) {
+            return Update::RefreshDom;
+        }
+    }
     if event.kind != ToolbarEventKind::Activate {
         return Update::DoNothing;
     }

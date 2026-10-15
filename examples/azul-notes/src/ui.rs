@@ -927,8 +927,8 @@ fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
             look.line
         ))
         .with_child(
-            Toolbar::create(label("aznotes-formatting"))
-                .with_items(items)
+            s.toolbar_fit
+                .apply(Toolbar::create(label("aznotes-formatting")).with_items(items))
                 .with_on_event(app.clone(), on_tool_event as ToolbarOnEventCallbackType)
                 .dom(),
         )
@@ -939,6 +939,12 @@ fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
 /// caret on the rebuild - and the caret goes back to the text (unless the
 /// link sheet opened).
 extern "C" fn on_tool_event(mut data: RefAny, mut info: CallbackInfo, event: ToolbarEvent) -> Update {
+    // The bar measured itself: it is built again to fit when that changed.
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        if s.toolbar_fit.take(&event) {
+            return Update::RefreshDom;
+        }
+    }
     let Some(tool) = tools()
         .into_iter()
         .find(|t| t.0 == event.id)

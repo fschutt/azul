@@ -241,6 +241,8 @@ pub struct AppState {
     /// zoom change).
     pub pending_scroll: Option<usize>,
     pub status: String,
+    /// The toolbar's measured fit (its Resize events).
+    pub toolbar_fit: azul_appkit::pieces::ToolbarFit,
     pub pump: TimerId,
     /// From the command line: a PDF to open, the sample to make.
     pub open_on_start: Option<String>,
@@ -284,6 +286,7 @@ impl AppState {
             close_after_fill: false,
             pending_scroll: None,
             status: String::new(),
+            toolbar_fit: azul_appkit::pieces::ToolbarFit::default(),
             pump: TimerId::unique(),
             open_on_start,
             sample,
