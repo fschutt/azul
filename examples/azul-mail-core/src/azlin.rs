@@ -1165,12 +1165,13 @@ mod tests {
             Endpoints::default()
         );
         assert_eq!(endpoints_from_config("not json"), Endpoints::default());
-        assert_eq!(
-            endpoints_from_config(r#"{"endpoints": {"tokenUrl": "https://t.example"}}"#)
-                .token_url
-                .as_deref(),
-            Some("https://t.example")
+        // The section is read as azul-appkit reads it for every app: its keys, the addresses
+        // checked (no trailing slash; a value that is no address is not used).
+        let read = endpoints_from_config(
+            r#"{"endpoints": {"token": "https://t.example/", "s3": "not an address"}}"#,
         );
+        assert_eq!(read.token_url.as_deref(), Some("https://t.example"));
+        assert_eq!(read.s3_url, None);
         // The account's own token server wins over this run's.
         assert_eq!(
             from_config.token_url_for("https://own.example").as_deref(),
