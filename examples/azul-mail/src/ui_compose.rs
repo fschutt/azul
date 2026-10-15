@@ -1462,6 +1462,11 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
     OutgoingDone::Sent(status)
 }
 
+/// The status bar's word once a mail went out.
+pub(crate) fn sent_notice(subject: &str) -> String {
+    format!("Sent: {subject}")
+}
+
 /// Save or Send is done, on the compose window.
 extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: CallbackInfo) -> Update {
     let Some((id, window_id, done)) = payload
@@ -1481,7 +1486,7 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
                 println!("AZMAIL_SEND_DONE {window_id} sent {message_id}");
                 if let Some(at) = at {
                     let c = s.composes.remove(at);
-                    s.notice = format!("Sent: {}", c.subject);
+                    s.notice = sent_notice(&c.subject);
                     println!("AZMAIL_COMPOSE_CLOSED {}", c.window_id);
                 }
                 info.close_window();

@@ -748,7 +748,7 @@ pub extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, _info: Callba
     st.search.searched = outcome.searched;
     st.search.complete = outcome.complete;
     if let Some(e) = outcome.error {
-        st.notice = format!("The folder could not be searched: {e}");
+        st.notice = search_failed(&e.to_string());
     }
     println!("AZCODE_SEARCHED {} {}", st.search.hit_count(), st.search.results.len());
     Update::RefreshDom
@@ -771,7 +771,7 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
     // Written once: an empty listing after this is not a reason to write again.
     st.sample = false;
     if let Some(e) = reply.outcomes.iter().find_map(|o| o.error()) {
-        st.notice = format!("The sample could not be written: {e}");
+        st.notice = sample_failed(&e);
     }
     if let Some(root) = st.workspace.as_ref().map(|w| w.root.clone()) {
         storage::spawn_drive_jobs(
@@ -880,4 +880,14 @@ mod tests {
         assert_eq!(keys("Mod+K Mod+O"), if cfg!(target_os = "macos") { "Cmd+K Cmd+O" } else { "Ctrl+K Ctrl+O" });
         assert_eq!(keys("F3 / Shift+F3"), "F3 / Shift+F3");
     }
+}
+
+/// The notice when the folder could not be searched (`why`: the drive's own words).
+pub(crate) fn search_failed(why: &str) -> String {
+    format!("The folder could not be searched: {why}")
+}
+
+/// The notice when the sample's files could not be written.
+pub(crate) fn sample_failed(why: &str) -> String {
+    format!("The sample could not be written: {why}")
 }

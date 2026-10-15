@@ -55,3 +55,13 @@ fn the_settings_category_of_azreader_has_its_words() {
     assert_eq!(named(app, "category", crate::SETTINGS_CATEGORY), "Lesen");
     set_locale("en-US");
 }
+
+/// A chapter whose file names none is called by its number in the window's language.
+#[test]
+fn a_chapter_without_a_name_is_numbered_in_the_windows_language() {
+    crate::l10n::in_english();
+    assert_eq!(crate::epub::chapter_fallback(3), "Chapter 3");
+    set_locale("de-DE");
+    assert_eq!(crate::epub::chapter_fallback(3), "Kapitel 3");
+    set_locale("en-US");
+}
