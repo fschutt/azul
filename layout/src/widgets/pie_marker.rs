@@ -11,13 +11,14 @@
 //! and its label is what a screen reader says (the numbers in words).
 //!
 //! The shapes are polygons the node is clipped to and painted through
-//! (`Dom::with_svg_clip_path`), in a user space of one unit per px.
+//! (`Dom::with_svg_clip_path`), in the user space the disc declares
+//! (`SvgNodeData::ViewBox`, one unit per px).
 
 use alloc::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData},
-    dom::{Dom, EventFilter, HoverEventFilter, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{Dom, EventFilter, HoverEventFilter, IdOrClass::Class, IdOrClassVec, SvgNodeData, TabIndex},
     refany::RefAny,
     svg::{SvgMultiPolygon, SvgPathVec},
 };
@@ -253,6 +254,15 @@ impl PieMarker {
                 AzString::from_const_str(PIE_MARKER_DISC_CLASS)
             )]))
             .with_css_props(CssPropertyWithConditionsVec::from_vec(disc_style))
+            // The user space the layers' clip paths are drawn in: one unit per px from the
+            // disc's corner. Without it a clip path is read in window coordinates, and every
+            // part landed beside its disc.
+            .with_svg_data(SvgNodeData::ViewBox {
+                min_x: 0.0,
+                min_y: 0.0,
+                width: PIE_SIZE,
+                height: PIE_SIZE,
+            })
             .with_children(parts.into());
         if busy {
             disc = disc.with_component_css(breath());
