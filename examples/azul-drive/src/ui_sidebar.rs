@@ -1370,6 +1370,18 @@ mod tests {
     }
 
     #[test]
+    fn the_tree_opens_the_drive_and_every_folder_above_the_open_one() {
+        let home = |prefix: &str| ("home".to_string(), prefix.to_string());
+        assert_eq!(
+            nodes_above(&Place::folder("home", "Documents/Projekte/Calmet 1732/")),
+            vec![home(""), home("Documents/"), home("Documents/Projekte/")]
+        );
+        assert_eq!(nodes_above(&Place::folder("home", "")), Vec::<TreeKey>::new());
+        assert_eq!(nodes_above(&Place::folder("home", "Documents/")), vec![home("")]);
+        assert_eq!(nodes_above(&Place::ThisPc), Vec::<TreeKey>::new());
+    }
+
+    #[test]
     fn a_closed_section_shows_its_title_alone_and_an_open_drive_its_folders() {
         let standard = standard();
         let pins = Vec::new();
