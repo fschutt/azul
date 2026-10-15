@@ -104,3 +104,24 @@ fn a_threads_cpu_clock_counts_its_work_and_not_its_sleep() {
         "30 ms of work read {busy:?} of CPU time"
     );
 }
+
+/// A budget is measured on a performance core where the machine has two
+/// kinds: on an Apple M2 (four performance, four efficiency cores) the
+/// suite's other tests push a timing test onto an efficiency core half the
+/// time, where the same frame takes three to four times the CPU time (7 ms
+/// alone, 22-26 ms in the loaded suite). The measuring thread asks for the
+/// user-interactive class, which macOS runs on the performance cores first,
+/// and gets its own class back afterwards.
+#[test]
+fn a_budget_is_measured_on_a_performance_core() {
+    let before = qos_class_of_this_thread();
+    let inside = on_a_performance_core(qos_class_of_this_thread);
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
+        assert_eq!(inside, Some(QOS_CLASS_USER_INTERACTIVE), "the measuring thread's class");
+    }
+    assert_eq!(
+        qos_class_of_this_thread(),
+        before,
+        "the thread has its own class again after the measurement"
+    );
+}
