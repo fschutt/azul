@@ -27,8 +27,42 @@ use azul_css::{props::basic::ColorU, AzString};
 pub const TEXT_RASTER_MAX_SIZE_PX: f32 = 4096.0;
 pub const TEXT_RASTER_MAX_SIDE_PX: u32 = 16384;
 
+/// Where a set text's lines sit in their box ([`TextRasterStyle::with_align`]).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
+pub enum TextRasterAlign {
+    /// At the start of the line: the left of a left-to-right paragraph, the
+    /// right of a right-to-left one.
+    #[default]
+    Start,
+    /// In the middle.
+    Center,
+    /// At the end of the line: the right of a left-to-right paragraph.
+    End,
+    /// At the left, whatever the direction.
+    Left,
+    /// At the right, whatever the direction.
+    Right,
+}
+
+/// The base direction of a set text's paragraphs
+/// ([`TextRasterStyle::with_direction`]).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
+pub enum TextRasterDirection {
+    /// Each paragraph's first strong letter decides (Unicode bidi P2 / P3):
+    /// Hebrew or Arabic runs right to left, Latin left to right.
+    #[default]
+    Auto,
+    /// Left to right.
+    Ltr,
+    /// Right to left.
+    Rtl,
+}
+
 /// How [`text_image`] / [`draw_text`] set a text: the font, its size, the
-/// line spacing and the colour.
+/// line spacing and the colour, the box it wraps in, where its lines sit
+/// and its direction.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextRasterStyle {
@@ -47,6 +81,15 @@ pub struct TextRasterStyle {
     pub bold: bool,
     /// The italic face of the family (the regular one where it has none).
     pub italic: bool,
+    /// The width the lines wrap in, in image pixels: they break at spaces
+    /// (a word wider than it between its letters), and the image is this
+    /// wide. 0 (or not a finite positive number): no wrapping, the image is
+    /// as wide as the widest line.
+    pub max_width: f32,
+    /// Where each line sits in the box (or in the widest line).
+    pub align: TextRasterAlign,
+    /// The paragraphs' base direction.
+    pub direction: TextRasterDirection,
 }
 
 impl TextRasterStyle {
@@ -60,7 +103,36 @@ impl TextRasterStyle {
             color,
             bold: false,
             italic: false,
+            max_width: 0.0,
+            align: TextRasterAlign::Start,
+            direction: TextRasterDirection::Auto,
         }
+    }
+
+    /// Wraps the lines in `max_width` image pixels ([`Self::max_width`]).
+    #[must_use]
+    pub const fn with_max_width(mut self, max_width: f32) -> Self {
+        self.max_width = max_width;
+        self
+    }
+
+    /// Sets each line `align` in its box.
+    #[must_use]
+    pub const fn with_align(mut self, align: TextRasterAlign) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// Sets the paragraphs' base direction.
+    #[must_use]
+    pub const fn with_direction(mut self, direction: TextRasterDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
+    /// The wrapping width in use, `None` for no wrapping.
+    fn wrap_width(&self) -> Option<f32> {
+        (self.max_width.is_finite() && self.max_width > 0.0).then_some(self.max_width)
     }
 
     #[must_use]
