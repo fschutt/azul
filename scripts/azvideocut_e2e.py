@@ -16,6 +16,9 @@
     6. exports the first second: Ctrl+E, "First second", "Export now", waits for
        `AZVIDEOCUT_EXPORTED <key> <bytes> <mp4|y4m|h264>` and checks the file under the data
        root (an MP4 starts with an `ftyp` box);
+    6b. imports a stereo WAV (the file dialog mocked): its levels are read (AZVIDEOCUT_LEVELS,
+       100 slices of 20 ms), Open in source and Overwrite (.) put it on A1, and at its second 1
+       the meters show -6 dB;
     7. switches to flora and dark and takes a screenshot;
     8. two razor cuts right after each other (frames 25 and 75), then the window's close at
        once: the close waits for the saves, the app ends, and project.json holds the clips of
@@ -260,6 +263,23 @@ def edit(app, name, do, what):
     return int(clips), int(frames)
 
 
+def write_tone(path, seconds, left, right, rate=8000):
+    """A stereo 16-bit WAV of a 440 Hz tone: `left` and `right` its peak on each channel."""
+    import math
+    import struct
+    import wave
+
+    with wave.open(path, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        frames = bytearray()
+        for i in range(int(seconds * rate)):
+            s = math.sin(2.0 * math.pi * 440.0 * i / rate)
+            frames += struct.pack("<hh", int(round(s * left * 32767)), int(round(s * right * 32767)))
+        w.writeframes(bytes(frames))
+
+
 def playhead(app, do, what):
     wait = app.next_line("PLAYHEAD", r"-?\d+", what)
     do()
@@ -381,6 +401,28 @@ def run(args, logs, out, data_root):
         log("exported %s (%s bytes, %s)" % (key, size, fmt))
         app.screenshot(os.path.join(out, "exported.png"))
         app.key("escape")
+
+        # 6b. Sound: a WAV imported (the file dialog mocked) lands in the bin and its levels
+        # are read; Open in source and Overwrite (.) put it on A1 at frame 0; at its second 1
+        # the meters show the louder channel's -6 dB (left 0.5, right 0.25).
+        wav = os.path.join(out, "tone.wav")
+        write_tone(wav, seconds=2.0, left=0.5, right=0.25)
+        app.must("mock", set={"file_open_multi": {"paths": [wav]}})
+        app.click(text="Import...")
+        line = app.until("the tone's levels", lambda: (app.printed("LEVELS", r"\d+ \d+") or [None])[-1])
+        slices = int(line.split(" ")[1])
+        if not 95 <= slices <= 105:
+            raise Failure("two seconds of sound read as %d slices of 20 ms, not 100" % slices)
+        app.click(text="tone.wav")
+        app.click(text="Open in source")
+        playhead(app, lambda: app.key("home"), "Home")
+        edit(app, "Overwrite", lambda: app.key("period"), "Overwrite (.) of the tone")
+        playhead(app, lambda: app.key("home"), "Home")
+        playhead(app, lambda: app.key("right", shift=True), "Shift+Right into the tone")
+        app.until("the meters at -6 dB", lambda: any(
+            t.replace("\u2068", "").replace("\u2069", "").strip() == "-6 dB" for t in app.texts()))
+        app.screenshot(os.path.join(out, "meters.png"))
+        log("the tone's levels read (%d slices), on A1 the meters show -6 dB at its second 1" % slices)
 
         # 7. Flora and dark.
         app.must("set_theme", theme="flora")

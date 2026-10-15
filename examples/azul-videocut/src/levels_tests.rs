@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::model::{MediaItem, Pattern, Project, TrackKind};
+use crate::model::{Edit, MediaItem, Pattern, Project, TrackKind};
 
 /// 100 sample frames per slice at 5 kHz (20 ms).
 const RATE: u32 = 5_000;
