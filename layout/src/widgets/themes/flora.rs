@@ -1354,10 +1354,12 @@ fn pressed_text() -> [CssPropertyWithConditions; 2] {
 /// `extra` wins where they meet).
 fn append_part(
     slot: &mut azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec,
+    resolved: CssPropertyWithConditionsVec,
     extra: Vec<CssPropertyWithConditions>,
 ) {
-    let mut v: Vec<CssPropertyWithConditions> =
-        slot.as_ref().map(|x| x.as_ref().to_vec()).unwrap_or_default();
+    // `resolved` is what the ribbon draws the part with now (the slot, else its default): an
+    // addition alone in an empty slot would replace the ribbon's own layout of the part.
+    let mut v: Vec<CssPropertyWithConditions> = resolved.as_ref().to_vec();
     v.extend(extra);
     *slot = azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
         CssPropertyWithConditionsVec::from_vec(v),
@@ -1385,25 +1387,34 @@ pub(crate) fn ribbon_leather_style(
         v.extend(double_ring(0));
         v
     };
-    append_part(&mut s.large_button_style, command());
-    append_part(&mut s.small_button_style, command());
+    let resolved = s.resolved_large_button_style();
+    append_part(&mut s.large_button_style, resolved, command());
+    let resolved = s.resolved_small_button_style();
+    append_part(&mut s.small_button_style, resolved, command());
     let mut on = frosted(true);
     on.extend(gold_edge());
-    append_part(&mut s.checked_style, on);
+    let resolved = s.resolved_checked_style();
+    append_part(&mut s.checked_style, resolved, on);
     let mut gallery = frosted(false);
     gallery.extend(decl::radius(3));
-    append_part(&mut s.gallery_frame_style, gallery);
-    append_part(&mut s.gallery_cell_selected_style, frosted(true));
+    let resolved = s.resolved_gallery_frame_style();
+    append_part(&mut s.gallery_frame_style, resolved, gallery);
+    let resolved = s.resolved_gallery_cell_selected_style();
+    append_part(&mut s.gallery_cell_selected_style, resolved, frosted(true));
+    let resolved = s.resolved_group_items_style();
     append_part(
         &mut s.group_items_style,
+        resolved,
         alloc::vec![P::simple(CssProperty::ColumnGap(
             azul_css::props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
                 inner: PixelValue::const_px(4),
             }),
         ))],
     );
+    let resolved = s.resolved_column_style();
     append_part(
         &mut s.column_style,
+        resolved,
         alloc::vec![P::simple(CssProperty::RowGap(
             azul_css::props::property::LayoutRowGapValue::Exact(LayoutRowGap {
                 inner: PixelValue::const_px(3),
@@ -1418,8 +1429,10 @@ pub(crate) fn ribbon_leather_style(
         alloc::vec![seam(ColorU::new(40, 30, 15, 20), ColorU::new(255, 255, 255, 77))],
         alloc::vec![seam(ColorU::new(0, 0, 0, 102), ColorU::new(255, 255, 255, 10))],
     ));
-    append_part(&mut s.group_style, group);
-    append_part(&mut s.group_label_style, pressed_text().to_vec());
+    let resolved = s.resolved_group_style();
+    append_part(&mut s.group_style, resolved, group);
+    let resolved = s.resolved_group_label_style();
+    append_part(&mut s.group_label_style, resolved, pressed_text().to_vec());
     s
 }
 
