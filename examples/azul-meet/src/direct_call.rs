@@ -488,7 +488,7 @@ pub(crate) extern "C" fn on_cancel(mut data: RefAny, _info: CallbackInfo) -> Upd
 
 /// The prompt's "Accept": into the call. Someone else in it already: the newcomer gets the
 /// roster, the others expect the newcomer.
-pub(crate) extern "C" fn on_accept(mut data: RefAny, _info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_accept(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut guard) = data.downcast_mut::<MeetState>() else {
         return Update::DoNothing;
     };
@@ -527,6 +527,7 @@ pub(crate) extern "C" fn on_accept(mut data: RefAny, _info: CallbackInfo) -> Upd
         },
     );
     start_call(s, call.handle, newcomer, call.words);
+    save_prefs(s, &mut info);
     Update::RefreshDom
 }
 

@@ -75,6 +75,9 @@ pub(crate) enum UiScreen {
     Waiting,
     Call,
     Settings,
+    /// Settings > Meetings > "Direct call...": this computer's address, the Call field, the
+    /// recent calls.
+    Direct,
 }
 
 /// One tile: a participant's camera or shared screen.
@@ -333,6 +336,49 @@ pub(crate) struct CallView {
     pub sound_check: SoundCheckState,
     pub sound_check_note: String,
     pub settings: SettingsView,
+    /// The direct-call screen.
+    pub direct: DirectView,
+    /// A direct call coming in: the prompt over every screen.
+    pub incoming: Option<IncomingView>,
+}
+
+/// The direct-call screen's facts (`direct_call::view`).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DirectView {
+    /// This computer's address in the form chosen.
+    pub address: String,
+    /// The bare endpoint id is shown, else the full ticket.
+    pub id_only: bool,
+    /// "Copy" was clicked for it.
+    pub copied: bool,
+    /// The Call field as typed.
+    pub call_text: String,
+    /// A call is being made: Cancel stands where Call stood.
+    pub calling: bool,
+    /// The line under the Call field: dialing, ringing with the safety words, or how the last
+    /// call ended; empty for nothing.
+    pub status: String,
+    /// The recent direct calls, newest first.
+    pub recents: Vec<RecentRow>,
+}
+
+/// One recent direct call.
+#[derive(Debug, Clone)]
+pub(crate) struct RecentRow {
+    pub name: String,
+    /// What "Call" dials again.
+    pub address: String,
+    /// When, as people say it.
+    pub when: String,
+    /// This side called.
+    pub outgoing: bool,
+}
+
+/// The prompt of a direct call coming in.
+#[derive(Debug, Clone)]
+pub(crate) struct IncomingView {
+    pub name: String,
+    pub words: String,
 }
 
 /// What the sound check does now, as its buttons say it.
@@ -422,6 +468,19 @@ pub(crate) struct Actions {
     pub relay_text: TextInputOnTextInputCallbackType,
     pub relay_key: TextInputOnVirtualKeyDownCallbackType,
     pub relay_blur: TextInputOnFocusLostCallbackType,
+    /// Direct calls: Settings > Meetings' "Direct call...", the screen's Back, the address form
+    /// and Copy, the Call field, Call, a recent call's Call (`RowClick`: its address), Cancel,
+    /// and the prompt's Accept and Decline.
+    pub direct_open: ButtonOnClickCallbackType,
+    pub direct_back: ButtonOnClickCallbackType,
+    pub direct_form: SegmentedOnChangeCallbackType,
+    pub direct_copy: ButtonOnClickCallbackType,
+    pub direct_text: TextInputOnTextInputCallbackType,
+    pub direct_call: ButtonOnClickCallbackType,
+    pub direct_recent: ButtonOnClickCallbackType,
+    pub direct_cancel: ButtonOnClickCallbackType,
+    pub direct_accept: ButtonOnClickCallbackType,
+    pub direct_decline: ButtonOnClickCallbackType,
 }
 
 // ==== Styles: structure and the few colours of their own (video tiles are dark in both modes) ====
@@ -508,6 +567,15 @@ pub(crate) fn meet_view(
         UiScreen::Waiting => waiting_room(view, data, actions),
         UiScreen::Call => call(view, data, actions),
         UiScreen::Settings => settings(view, data, kit_ref, actions),
+        UiScreen::Direct => direct_screen(view, data, actions),
+    };
+    // A direct call coming in rings over whatever shows.
+    let content = match &view.incoming {
+        Some(call) => Dom::create_div()
+            .with_css(PAGE)
+            .with_child(incoming_prompt(call, data, actions))
+            .with_child(content),
+        None => content,
     };
     Dom::create_body()
         .with_css(BODY)
@@ -1797,6 +1865,180 @@ fn sound_check(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     check
 }
 
+// ==== Direct calls ====
+
+/// The size of one QR module on the direct-call screen, px.
+const QR_MODULE: usize = 3;
+
+/// The direct-call screen: this computer's address (as text to copy and as a QR code, in the
+/// form chosen), the Call field, what the call does, the recent calls, Back.
+fn direct_screen(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let d = &view.direct;
+    let mut card = Dom::create_div()
+        .with_css(CARD)
+        .with_id(ids::DIRECT)
+        .with_child(text(&t("azmeet-direct-title"), "font-size: 24px; margin-bottom: 4px;"))
+        .with_child(text(
+            &t("azmeet-direct-intro"),
+            "font-size: 13px; color: system:secondary-text; margin-bottom: 16px; white-space: normal;",
+        ))
+        .with_child(text(&t("azmeet-direct-your-address"), SECTION_TITLE))
+        .with_child(
+            Segmented::create(strings(&[
+                t("azmeet-direct-with-addresses"),
+                t("azmeet-direct-id-only"),
+            ]))
+            .with_selected_index(usize::from(d.id_only))
+            .with_on_change(data.clone(), actions.direct_form)
+            .dom()
+            .with_id(ids::DIRECT_FORM),
+        )
+        .with_child(text(
+            &t(if d.id_only {
+                "azmeet-direct-id-only-note"
+            } else {
+                "azmeet-direct-with-addresses-note"
+            }),
+            &format!("margin: 4px 0px 6px 0px; white-space: normal; {SECONDARY}"),
+        ))
+        .with_child(
+            Dom::create_div()
+                .with_css(ROW)
+                .with_child(
+                    text(
+                        &d.address,
+                        "font-size: 12px; flex-grow: 1; min-width: 0px; overflow: hidden; white-space: \
+                         nowrap; text-overflow: ellipsis; margin-right: 6px;",
+                    )
+                    .with_id(ids::DIRECT_ADDRESS),
+                )
+                .with_child(
+                    Button::create(label(if d.copied { "azmeet-copied" } else { "azmeet-direct-copy" }))
+                        .with_on_click(data.clone(), actions.direct_copy)
+                        .dom()
+                        .with_id(ids::DIRECT_COPY)
+                        .with_css("flex-shrink: 0;"),
+                ),
+        );
+    // The QR code of the address, when it fits one (a long ticket does not: its text is there).
+    if let Ok(symbol) = azul_appkit::qr::QrCode::encode(d.address.as_bytes()) {
+        card = card.with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; justify-content: center; margin: 10px 0px;")
+                .with_child(kit::qr_dom(&symbol, QR_MODULE)),
+        );
+    }
+    let action = if d.calling {
+        Button::create(label("azmeet-direct-cancel"))
+            .with_on_click(data.clone(), actions.direct_cancel)
+            .dom()
+            .with_id(ids::DIRECT_CANCEL)
+    } else {
+        Button::with_type(label("azmeet-direct-call"), ButtonType::Primary)
+            .with_on_click(data.clone(), actions.direct_call)
+            .dom()
+            .with_id(ids::DIRECT_CALL)
+    };
+    card = card
+        .with_child(text(&t("azmeet-direct-call-someone"), SECTION_TITLE))
+        .with_child(
+            Dom::create_div()
+                .with_css(ROW)
+                .with_child(
+                    TextInput::create()
+                        .with_text(d.call_text.as_str())
+                        .with_placeholder(label("azmeet-direct-address-placeholder"))
+                        .with_accessibility_name(label("azmeet-direct-call-someone"))
+                        .with_on_text_input(data.clone(), actions.direct_text)
+                        .dom()
+                        .with_css(ROW_FIELD)
+                        .with_id(ids::DIRECT_FIELD),
+                )
+                .with_child(action.with_css("flex-shrink: 0;")),
+        );
+    if !d.status.is_empty() {
+        card = card.with_child(
+            text(&d.status, &format!("margin-top: 6px; white-space: normal; {SECONDARY}"))
+                .with_id(ids::DIRECT_STATUS),
+        );
+    }
+    if !d.recents.is_empty() {
+        let mut list = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; margin-top: 8px; min-width: 0px;")
+            .with_id(ids::DIRECT_RECENTS)
+            .with_child(text(&t("azmeet-direct-recent"), SECTION_TITLE));
+        for (index, recent) in d.recents.iter().enumerate() {
+            let line = t_args(
+                if recent.outgoing { "azmeet-direct-called" } else { "azmeet-direct-was-called" },
+                &[("name", Arg::from(recent.name.as_str())), ("when", Arg::from(recent.when.as_str()))],
+            );
+            list = list.with_child(
+                Dom::create_div()
+                    .with_css(PERSON_ROW)
+                    .with_child(text(&line, "font-size: 13px; flex-grow: 1; min-width: 0px;"))
+                    .with_child(
+                        Button::create(label("azmeet-direct-call"))
+                            .with_on_click(row_data(data, recent.address.clone()), actions.direct_recent)
+                            .dom()
+                            .with_id(AzString::from(format!("{}{index}", ids::DIRECT_RECENT_PREFIX).as_str()))
+                            .with_css("flex-shrink: 0;"),
+                    ),
+            );
+        }
+        card = card.with_child(list);
+    }
+    card = card.with_child(
+        Button::create(label("azmeet-back"))
+            .with_on_click(data.clone(), actions.direct_back)
+            .dom()
+            .with_id(ids::DIRECT_BACK)
+            .with_css(WIDE),
+    );
+    Dom::create_div()
+        .with_css(PAGE)
+        .with_child(header(view, data, actions))
+        .with_child(Dom::create_div().with_css(WAITING_BODY).with_child(card))
+}
+
+/// A direct call coming in: who calls, the safety words to read to each other, Accept and
+/// Decline.
+fn incoming_prompt(call: &IncomingView, data: &RefAny, actions: &Actions) -> Dom {
+    Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; padding: 10px \
+             14px; margin: 8px 12px 0px 12px; border-radius: 8px; background: \
+             system:control-background; @theme(flora) { border-radius: 5px; }",
+        )
+        .with_id(ids::DIRECT_INCOMING)
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; margin-right: 8px;")
+                .with_child(text(
+                    &t_args("azmeet-direct-calls-you", &[("name", Arg::from(call.name.as_str()))]),
+                    "font-size: 15px; font-weight: bold;",
+                ))
+                .with_child(text(
+                    &t_args("azmeet-direct-words", &[("words", Arg::from(call.words.as_str()))]),
+                    "font-size: 13px; margin-top: 2px;",
+                ))
+                .with_child(text(&t("azmeet-direct-words-note"), SECONDARY)),
+        )
+        .with_child(
+            Button::with_type(label("azmeet-direct-accept"), ButtonType::Primary)
+                .with_on_click(data.clone(), actions.direct_accept)
+                .dom()
+                .with_id(ids::DIRECT_ACCEPT)
+                .with_css("margin-right: 6px; flex-shrink: 0;"),
+        )
+        .with_child(
+            Button::create(label("azmeet-direct-decline"))
+                .with_on_click(data.clone(), actions.direct_decline)
+                .dom()
+                .with_id(ids::DIRECT_DECLINE)
+                .with_css("flex-shrink: 0;"),
+        )
+}
+
 // ==== The settings: azul-appkit's page with AzMeet's own categories ====
 
 /// AzMeet's categories on the kit's settings page, before the kit's Appearance, Data, Shortcuts
@@ -1883,6 +2125,14 @@ fn settings_sections(view: &CallView, data: &RefAny, actions: &Actions) -> Vec<A
         .with_child(kit::row("azmeet-meeting-server", connection_server(s, data, actions)))
         .with_child(kit::row("azmeet-relay", relay_row(s, data, actions)))
         .with_child(kit::note("azmeet-relay-note"))
+        .with_child(kit::row(
+            "azmeet-direct-title",
+            Button::create(label("azmeet-direct-open"))
+                .with_on_click(data.clone(), actions.direct_open)
+                .dom()
+                .with_id(ids::DIRECT_OPEN),
+        ))
+        .with_child(kit::note("azmeet-direct-note"))
         .with_child(kit::row(
             "azmeet-device-safety-code",
             text(&s.identity, "font-size: 13px;"),

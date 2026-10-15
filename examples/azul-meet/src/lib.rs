@@ -1611,6 +1611,8 @@ fn snapshot(s: &MeetState) -> ui::CallView {
             ),
             identity,
         },
+        direct: direct_call::view(s),
+        incoming: direct_call::incoming_view(s),
     }
 }
 
@@ -2021,8 +2023,10 @@ extern "C" fn pump_link(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
                 }
             }
         }
-        // The chat that arrived, the people met: into the meeting's folder.
+        // The chat that arrived, the people met: into the meeting's folder. A direct call taken
+        // on the way is a recent call in the settings.
         flush_files(&mut s, &mut info.callback_info);
+        save_prefs(&mut s, &mut info.callback_info);
         // Media flows (or is due) when something arrived, this side sends audio or video to
         // someone, or a stream is being decoded: the pump runs fast; else it slows down.
         let busy = had_events
