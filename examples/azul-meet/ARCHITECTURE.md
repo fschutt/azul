@@ -63,8 +63,9 @@ Everything a call carries goes between the devices over iroh, which encrypts eve
 - **Presence inside a call**: mute and deafen, what each device can decode, its uplink and the
   tiles it shows (the capacity report every participant sends every two seconds and on every
   change). Who is in the call at all comes from the rendezvous tickets on the service.
-- **Chat**: decided, not built yet. A room's chat goes through the meetings service as ciphertext
-  today; it moves onto the peers as the next step (see "Next steps").
+- **Chat**: in a call, each message also goes to the peers directly (kind `8`, passed on by
+  every peer that has not seen it), so it arrives without the service; the service still keeps
+  and numbers the ciphertext until every client speaks the next wire version (see "Next steps").
 
 A device only dials, and only keeps a connection to, an endpoint whose ticket a member's device
 signed, so the service cannot slip a stranger into a call.
@@ -163,26 +164,37 @@ polled or left on a meetings service.
 Decided, built one at a time after an integration build, because each step needs compiled tests:
 
 1. **Chat over the peers.** The chat travels like the media, so the meetings service no longer
-   stores messages (room keys stay on it, see above). In order:
-   1. A reliable iroh message kind for a chat record (`8`, next to the media kinds) carrying
-      exactly the signed, sealed record the service gets today
-      (`{room, id, key_id, sender, body, sig}`). Receivers check it as `chatroom.rs` checks what
-      the service returns: the sender's record, the signature, the key's member list.
-   2. `ChatRoom::send` hands back the record to broadcast instead of queuing a request, and a new
-      `ChatRoom::take_record` takes one from a peer through the same checks as a synced message.
-   3. Records travel the call's routing trees: a receiver keeps a bounded set of the record ids
-      it has seen, drops a repeat, and passes a new one on through `relay_targets` inside the
-      relay envelope (`routes::KIND_RELAY`) on a chat track of its own, as an audio frame is
-      passed on, but on the reliable path.
-   4. Order by `(time, id)` instead of the service's sequence numbers.
+   stores messages (room keys stay on it, see above). The record and the checks do not change:
+   only who carries the record does. In order, with what is built marked:
+   1. *(built)* A reliable iroh message of kind `8`, next to the media kinds: the kind byte, a
+      version byte, then the JSON of exactly the signed, sealed record the service gets
+      (`{room, id, key_id, sender, body, sig}`, `chatroom::ChatRecord`). A receiver checks it as
+      it checks what the service returns: the signature over the room, the id, the key and the
+      body; the sender a member it knows who held that key; the seal. A record that fails is
+      counted unreadable and dropped; one whose key has not arrived yet waits, as a synced
+      message does.
+   2. *(built)* `ChatRoom::peer_records` hands out this device's messages sealed for the peers
+      (each once, as soon as a key for the current members is held), and `ChatRoom::take_record`
+      takes one from a peer through the same checks as a synced message. Taking it says whether
+      it was new here.
+   3. *(built, simpler than the routing trees)* A device sends its records to every peer it is
+      connected to; a peer that takes a record new to it passes it on to every other peer it is
+      connected to, and drops a repeat (the room's set of message ids it has seen). Each record
+      crosses each connection at most twice, whatever the routing plan, so a member who reaches
+      the others only through a backbone peer still gets it. Records are small; the routing trees
+      stay for the media.
+   4. While the service still numbers messages, both carry each message: a record from a peer is
+      listed at once, unnumbered, after the numbered ones, counted unread until the chat is read;
+      the service's copy (same id) numbers it later and is not listed twice. Ordering by `(time,
+      id)` replaces the service's numbers when the service stops carrying messages (step 7).
    5. History: on connecting, two peers exchange the ids of the newest records they hold for
       each shared room, and each sends the other what it lacks (capped), so a device catches up
       from whoever is online.
    6. Chat rooms between calls: the room view announces a chat-only ticket on the rendezvous (as
       a call does) and connects to the members online; with nobody online, a message waits in the
       sender's outbox (see above).
-   7. The wire version moves (`azmeet/5`), and once every client speaks it the service drops its
-      message endpoints and table.
+   7. The wire version moves (`azmeet/5`), messages are ordered by `(time, id)`, and once every
+      client speaks it the service drops its message endpoints and table.
 2. **Recording, transcript, summary** (see "Recording and transcripts").
 
 ## Open
