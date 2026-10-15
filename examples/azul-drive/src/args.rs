@@ -426,6 +426,17 @@ mod tests {
         Args::parse(args.iter().map(|s| s.to_string()))
     }
 
+    /// `--pick` starts AzDrive as another app's file picker; a new window is never one.
+    #[test]
+    fn pick_starts_the_file_picker_and_a_new_window_is_none() {
+        assert!(parse(&["--pick"]).unwrap().pick);
+        assert!(!parse(&[]).unwrap().pick);
+        assert_eq!(
+            new_window_args(["--pick", "--home", "/h"], "Home"),
+            vec!["--home", "/h", "--open", "Home"]
+        );
+    }
+
     /// `--open` names the place as the address bar does; an empty one is an error.
     #[test]
     fn open_names_the_place_to_start_at() {
