@@ -380,6 +380,14 @@ impl CachedTiles<HttpTiles> {
             Err(e) => copy.and_then(|copy| Manifest::read_file(&copy).ok()).ok_or(e),
         }
     }
+
+    /// The hosting's tile list: every routing tile there is and its size.
+    ///
+    /// # Errors
+    /// Not read yet.
+    pub fn index(&self) -> Result<BTreeMap<TileId, u64>, String> {
+        Err(String::from("not read yet"))
+    }
 }
 
 impl CachedTiles<FolderTiles> {

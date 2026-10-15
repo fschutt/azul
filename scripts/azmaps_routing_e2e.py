@@ -16,7 +16,12 @@
        it, along many road points; the map draws it (a screenshot);
     6. walking the same way is another road route; driving again costs no download (the
        session's cache);
-    7. a second start with the file server gone routes from the tiles cached in the data folder.
+    7. Settings > Navigation > Offline areas keeps the area on the map (Monaco, the view the
+       data folder's settings open at) under a name: the hosting's tile list plans it, its
+       tiles are downloaded and pinned (`AZMAPS_OFFLINE_AREA <tiles> <bytes> <failed> <name>`)
+       and it is listed;
+    8. a second start with the file server gone routes from the tiles cached in the data folder
+       and still lists the offline area.
 
 Network: only step 1 with `--download`, one GET to download.geofabrik.de naming
 `azul-supply-chain-gate (+https://github.com/fschutt/azul)` and nothing else. Run ONE app at a
@@ -151,7 +156,10 @@ def body(args, logs, out):
 
     tiles = Tiles(folder)
     data_dir = os.path.join(logs, "data")
-    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(os.path.join(data_dir, "maps"), exist_ok=True)
+    # The map opens over Monaco: the offline area is the view on the map.
+    with open(os.path.join(data_dir, "maps", "settings.json"), "w", encoding="utf-8") as f:
+        f.write('{"values": {"view": "%f,%f,14"}}' % ((FROM[0] + TO[0]) / 2, (FROM[1] + TO[1]) / 2))
 
     def start(name, template):
         app = e2e.App(name, binary,
@@ -202,6 +210,28 @@ def body(args, logs, out):
         if len(tiles.requests) != asked:
             raise Failure("the second car route downloaded %d tile(s) again"
                           % (len(tiles.requests) - asked))
+
+        # The area on the map kept for offline use.
+        app.click(selector="#__azmaps_settings")
+        app.frame(3)
+        app.click_exact("Navigation")
+        app.until("the offline areas", lambda: app.has_id("__azmaps_offline-name"))
+        app.text_input("#__azmaps_offline-name", "Monaco")
+        app.click(selector="#__azmaps_offline-download")
+        kept = app.until("the area kept",
+                         lambda: app.printed("AZMAPS_OFFLINE_AREA", r"\d+ \d+ \d+ Monaco"))
+        count, size, failed = (int(v) for v in kept[-1].split()[:3])
+        app.log("offline area: %d tiles, %d bytes, %d failed" % (count, size, failed))
+        if count < 3 or size <= 0 or failed:
+            raise Failure("the offline area kept %d tiles of %d bytes, %d failed" % (count, size, failed))
+        app.until("the area listed", lambda: app.has_id("__azmaps_offline-area-0"))
+        areas = os.path.join(data_dir, "maps", "routing")
+        area_files = [os.path.join(root, f) for root, _dirs, files in os.walk(areas) for f in files
+                      if os.path.basename(root) == "areas" and f.endswith(".json")]
+        if not area_files:
+            raise Failure("no offline area file under %s" % areas)
+        app.frame(2)
+        app.screenshot(os.path.join(out, "2-offline-area.png"))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s"
               % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
@@ -221,6 +251,7 @@ def body(args, logs, out):
         ask(app, FROM, TO)
         app.until("the car route from the cache", lambda: len(road(app, "car")) > cars)
         app.log("from the cache: %s" % (road(app, "car")[-1],))
+        app.until("the offline area at the start", lambda: app.printed("AZMAPS_OFFLINE_AREAS", r"1 .*"))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s"
               % (e2e.tail(app.out_path), e2e.tail(app.err_path)))

@@ -90,6 +90,7 @@ mod l10n_tests;
 pub mod location;
 pub mod model;
 pub mod navigate;
+mod offline_ui;
 pub mod places;
 pub mod route;
 pub mod saved;
