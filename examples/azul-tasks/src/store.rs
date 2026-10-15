@@ -24,7 +24,7 @@ pub use azul_pim::task_store::{all_keys, load_all, load_all_paged, Loaded, Skipp
 
 /// The write-behind queue (one write per key, one batch in flight, failures kept for a retry)
 /// and its batch runner are the PIM apps' one queue: AzCalendar writes through it too.
-pub use azul_pim::write_queue::{run_batch, BatchResult, Write, WriteQueue};
+pub use azul_pim::write_queue::{run_batch, BatchResult, CloseHold, MainClose, Write, WriteQueue};
 
 // ==== Attachments ====
 

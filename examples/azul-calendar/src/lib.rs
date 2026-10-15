@@ -119,7 +119,7 @@ use azul::{
     window::WindowDecorations,
 };
 use azul_appkit::args::LanguagePref;
-use azul_pim::write_queue::WriteQueue;
+use azul_pim::write_queue::{CloseHold, MainClose, WriteQueue};
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
 use crate::{
@@ -326,11 +326,9 @@ pub(crate) struct CalState {
     pub(crate) task_flight: writes::InFlight,
     /// The settings file's text as last written (a setting replaces its line in it).
     pub(crate) settings_text: String,
-    /// The main window was asked to close while writes waited: it closes once they landed.
-    pub(crate) closing: bool,
-    /// Writes failed when the window was to close, and the user was told: the next close
-    /// passes.
-    pub(crate) close_despite_failures: bool,
+    /// The main window's close, held while writes land (`writes.rs` closes it once they
+    /// landed); writes that failed are said once, and the next close passes.
+    pub(crate) close_hold: CloseHold,
     /// Lines for stdout once the write of their key landed (`AZCAL_SAVED <path>`, ...).
     pub(crate) on_landing: Vec<(String, String)>,
     /// The import file being read.
@@ -687,17 +685,16 @@ extern "C" fn on_main_close_requested(mut data: RefAny, mut info: CallbackInfo) 
     };
     let s = &mut *guard;
     let failures = s.write_failures();
-    match store::main_close(!s.writes_idle(), failures, s.close_despite_failures) {
-        store::MainClose::Close => Update::DoNothing,
-        store::MainClose::Wait => {
+    let waiting = !s.writes_idle();
+    match s.close_hold.request(waiting, failures) {
+        MainClose::Close => Update::DoNothing,
+        MainClose::Wait => {
             eprintln!("[azcalendar] the window closes once the waiting writes landed");
-            s.closing = true;
             info.prevent_window_close();
             writes::pump(s, &mut info, &app);
             Update::DoNothing
         }
-        store::MainClose::Tell => {
-            s.close_despite_failures = true;
+        MainClose::Tell => {
             s.notice = azul_appkit::l10n::t_args(
                 "azcalendar-changes-not-written",
                 &[("count", azul_appkit::l10n::Arg::from(failures))],
@@ -1476,8 +1473,7 @@ pub fn start() {
         data_flight: writes::InFlight::default(),
         task_flight: writes::InFlight::default(),
         settings_text: text.to_string(),
-        closing: false,
-        close_despite_failures: false,
+        close_hold: CloseHold::default(),
         on_landing: Vec::new(),
         import_pending: None,
         import_path: String::new(),

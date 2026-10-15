@@ -159,8 +159,14 @@ pub enum MainClose {
 /// What a close request does: `waiting` writes are queued or on their way, `failures` did not
 /// land, and the user was `told` about them already.
 #[must_use]
-pub fn main_close(_waiting: bool, _failures: usize, _told: bool) -> MainClose {
-    MainClose::Close
+pub fn main_close(waiting: bool, failures: usize, told: bool) -> MainClose {
+    if waiting {
+        MainClose::Wait
+    } else if failures > 0 && !told {
+        MainClose::Tell
+    } else {
+        MainClose::Close
+    }
 }
 
 /// A window's close, held while its writes land: an app keeps one, asks it on every close
@@ -175,14 +181,30 @@ pub struct CloseHold {
 
 impl CloseHold {
     /// A close request, with `waiting` writes and `failures` kept for a retry.
-    pub fn request(&mut self, _waiting: bool, _failures: usize) -> MainClose {
-        MainClose::Close
+    pub fn request(&mut self, waiting: bool, failures: usize) -> MainClose {
+        let step = main_close(waiting, failures, self.told);
+        match step {
+            MainClose::Wait => self.closing = true,
+            MainClose::Tell => self.told = true,
+            MainClose::Close => {}
+        }
+        step
     }
 
     /// A batch landed: `Some(Close)` when the held close goes now, `Some(Tell)` when writes
     /// failed (the window stays and says so), `None` when no close is held or writes still wait.
-    pub fn landed(&mut self, _waiting: bool, _failures: usize) -> Option<MainClose> {
-        None
+    pub fn landed(&mut self, waiting: bool, failures: usize) -> Option<MainClose> {
+        if !self.closing || waiting {
+            return None;
+        }
+        self.closing = false;
+        if failures == 0 {
+            Some(MainClose::Close)
+        } else {
+            // Not lost without a word: the window stays, says so, and the next close passes.
+            self.told = true;
+            Some(MainClose::Tell)
+        }
     }
 }
 

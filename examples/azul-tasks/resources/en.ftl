@@ -154,6 +154,10 @@ aztasks-exported = { $count ->
 aztasks-load-failed = The tasks could not be read: { $why }
 aztasks-attach-failed = "{ $name }" could not be attached: { $why }
 aztasks-files-failed = Moving or deleting attachments failed: { $why }
+aztasks-changes-not-written = { $count ->
+    [one] 1 change could not be written. Close the window again to quit without it.
+   *[other] { $count } changes could not be written. Close the window again to quit without them.
+ }
 aztasks-imported = { $count ->
     [one] Imported 1 to-do from { $file }.
    *[other] Imported { $count } to-dos from { $file }.
