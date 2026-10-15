@@ -4624,16 +4624,13 @@ fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
                 // Auto height should use content-based sizing
                 true
             }
-            LayoutHeight::Px(px) => {
-                // Check if it's zero or if it has explicit value
-                // If it's a percentage or em, it's not auto
-                use azul_css::props::basic::{pixel::PixelValue, SizeMetric};
-                px == &PixelValue::zero()
-                    || (px.metric != SizeMetric::Px
-                        && px.metric != SizeMetric::Percent
-                        && px.metric != SizeMetric::Em
-                        && px.metric != SizeMetric::Rem)
-            }
+            // Every length is a definite height, zero and the viewport,
+            // print and font units included: sizing resolved it. A closed
+            // panel's `height: 0px` stood as tall as its content, and
+            // `height: 100vh` grew with it like a min-height. (A percentage
+            // against an indefinite containing block is the caller's
+            // `percentage_height_computes_to_auto`.)
+            LayoutHeight::Px(_) => false,
             LayoutHeight::MinContent | LayoutHeight::MaxContent | LayoutHeight::FitContent(_) => {
                 // These are content-based, so they should use the content size
                 true
@@ -6024,40 +6021,31 @@ mod autotest_generated {
     }
 
     #[test]
-    fn should_use_content_height_treats_zero_px_as_content_based() {
-        // BEHAVIOUR PIN: `height: 0px` is indistinguishable from `auto` here, so
-        // an explicitly zero-height box falls back to content sizing.
-        assert!(should_use_content_height(&MultiValue::Exact(
+    fn a_zero_height_is_a_definite_height_not_auto() {
+        assert!(!should_use_content_height(&MultiValue::Exact(
             LayoutHeight::Px(PixelValue::zero())
         )));
-        assert!(should_use_content_height(&MultiValue::Exact(
-            LayoutHeight::Px(PixelValue::px(0.0))
-        )));
-        // ...but `height: 0%` is NOT (its metric is Percent, not Px).
         assert!(!should_use_content_height(&MultiValue::Exact(
-            LayoutHeight::Px(PixelValue::percent(0.0))
+            LayoutHeight::Px(PixelValue::px(0.0))
         )));
     }
 
     #[test]
-    fn should_use_content_height_treats_non_px_metrics_as_content_based() {
-        // BEHAVIOUR PIN (suspected bug): only Px/Percent/Em/Rem are recognised as
-        // definite. Every other metric — pt, vh, vw, cm, in, mm — is reported as
-        // content-based, so `height: 100vh` behaves like a *minimum* height (see
-        // apply_content_based_height, which takes max(used, content)) instead of
-        // a definite one.
+    fn a_height_in_any_length_unit_is_definite() {
         for metric in [
             SizeMetric::Pt,
             SizeMetric::Vh,
             SizeMetric::Vw,
+            SizeMetric::Vmin,
+            SizeMetric::Vmax,
             SizeMetric::Cm,
             SizeMetric::Mm,
             SizeMetric::In,
         ] {
             let pv = PixelValue::from_metric(metric, 100.0);
             assert!(
-                should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(pv))),
-                "{metric:?} is currently treated as content-based"
+                !should_use_content_height(&MultiValue::Exact(LayoutHeight::Px(pv))),
+                "{metric:?} is a definite height"
             );
         }
     }

@@ -74,8 +74,8 @@ n28 p1 d29 Block { establishes_new_context: false } @0,370 500x5 ov=0x0 ic=500/5
   dl41 PopStackingContext
 === margin collapsing
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x514 ov=800x514 bl=442 ic=59.203125/100
-n1 p0 d1 Block { establishes_new_context: false } @0,20 800x514 ov=800x514 mt=20 mb=0 bl=422 ic=59.203125/100 rel=0,20
+n0 root d0 Block { establishes_new_context: true } @0,0 800x504 ov=800x504 bl=442 ic=59.203125/100
+n1 p0 d1 Block { establishes_new_context: false } @0,20 800x504 ov=800x504 mt=20 mb=0 bl=422 ic=59.203125/100 rel=0,20
 n2 p1 d2 Inline @0,20 800x16 ov=8x16 bl=13 ic=8/8 rel=0,0
 n3 p2 d3 Inline @0,20 -x- ic=8/8
 n4 p1 d4 Inline @0,76 800x16 ov=8x16 bl=13 ic=8/8 rel=0,56
@@ -98,18 +98,18 @@ n20 p19 d20 Inline @0,313 800x16 ov=60x16 bl=13 ic=32/60 rel=0,30
 n21 p20 d21 Inline @0,313 -x- ic=32/60
 n22 p1 d22 Inline @0,359 800x20 ov=79.203125x16 bl=13 ic=48/79.203125 rel=0,339
 n23 p22 d23 Inline @0,359 -x- ic=48/79.203125
-n24 p1 d24 Block { establishes_new_context: false } @0,429 800x10 ov=800x10 mt=22 mb=0 bl=13 ic=16/16 rel=0,409
+n24 p1 d24 Block { establishes_new_context: false } @0,429 800x0 ov=800x10 mt=22 mb=0 bl=13 ic=16/16 rel=0,409
 n25 p24 d25 Inline @0,429 800x10 ov=16x16 bl=13 ic=16/16 rel=0,0
 n26 p25 d26 Inline @0,429 -x- ic=16/16
-n27 p1 d27 Block { establishes_new_context: false } @0,439 800x24 ov=0x16 ic=0/0 rel=0,419
-n28 p27 d28 Block { establishes_new_context: false } @4,459 792x0 ov=0x0 ic=0/0 rel=0,16
-n29 p1 d29 Block { establishes_new_context: false } @0,473 800x25 ov=0x25 mt=10 ic=0/0 rel=0,453
-n30 p29 d30 Block { establishes_new_context: false } @0,473 800x0 ov=0x0 ic=0/0 rel=0,0
-n31 p29 d31 Block { establishes_new_context: false } @0,498 800x0 ov=0x0 ic=0/0 rel=0,25
-n32 p1 d32 Flex @0,498 800x36 ov=74.8125x26 ic=53.609375/84.8125 rel=0,478
-n33 p32 d33 Inline @10,508 64.8125x16 ov=64.796875x16 bl=13 ic=33.609375/64.8125 rel=10,10
-n34 p33 d34 Inline @10,508 -x- ic=33.609375/64.8125
-  dl0 PushStackingContext 0,0 800x514
+n27 p1 d27 Block { establishes_new_context: false } @0,429 800x24 ov=0x16 ic=0/0 rel=0,409
+n28 p27 d28 Block { establishes_new_context: false } @4,449 792x0 ov=0x0 ic=0/0 rel=0,16
+n29 p1 d29 Block { establishes_new_context: false } @0,463 800x25 ov=0x25 mt=10 ic=0/0 rel=0,443
+n30 p29 d30 Block { establishes_new_context: false } @0,463 800x0 ov=0x0 ic=0/0 rel=0,0
+n31 p29 d31 Block { establishes_new_context: false } @0,488 800x0 ov=0x0 ic=0/0 rel=0,25
+n32 p1 d32 Flex @0,488 800x36 ov=74.8125x26 ic=53.609375/84.8125 rel=0,468
+n33 p32 d33 Inline @10,498 64.8125x16 ov=64.796875x16 bl=13 ic=33.609375/64.8125 rel=10,10
+n34 p33 d34 Inline @10,498 -x- ic=33.609375/64.8125
+  dl0 PushStackingContext 0,0 800x504
   dl1 HitTestArea 0,20 800x16
   dl2 Text -16,20 832x16 glyphs=1 fs=16
   dl3 HitTestArea 0,20.203125 8x16
@@ -140,9 +140,9 @@ n34 p33 d34 Inline @10,508 -x- ic=33.609375/64.8125
   dl28 HitTestArea 0,429 800x10
   dl29 Text -16,429 832x16 glyphs=2 fs=16
   dl30 HitTestArea 0,429.20313 16x16
-  dl31 HitTestArea 10,508 64.8125x16
-  dl32 Text -6,508 96.8125x16 glyphs=9 fs=16
-  dl33 HitTestArea 10,508.20313 64.796875x16
+  dl31 HitTestArea 10,498 64.8125x16
+  dl32 Text -6,498 96.8125x16 glyphs=9 fs=16
+  dl33 HitTestArea 10,498.20313 64.796875x16
   dl34 PopStackingContext
 === floats, clearance and shapes
 dom DomId { inner: 0 }
@@ -1178,21 +1178,23 @@ n23 p22 d23 Inline @10,10 -x- ic=72/72
   dl20 Text 764,0 67.203125x20 glyphs=5 fs=16
   dl21 HitTestArea 780,0.203125 35.203125x16
   dl22 PopStackingContext
-  dl23 PushStackingContext 0,200 800x16
-  dl24 HitTestArea 0,200 800x16
-  dl25 Text -16,200 832x16 glyphs=6 fs=16
-  dl26 HitTestArea 0,200.20313 43.203125x16
-  dl27 PopStackingContext
-  dl28 HitTestArea 5,235 0x0
-  dl29 HitTestArea 10,10 780x580
-  dl30 Text -6,10 812x580 glyphs=9 fs=16
-  dl31 HitTestArea 10,10.203125 72x16
-  dl32 PushStackingContext 10,45 300x16
-  dl33 HitTestArea 10,45 300x16
-  dl34 Text -6,45 332x16 glyphs=3 fs=16
-  dl35 HitTestArea 10,45.203125 19.203125x16
-  dl36 PopStackingContext
-  dl37 PopStackingContext
+  dl23 PushReferenceFrame 0,200 800x16
+  dl24 PushStackingContext 0,200 800x16
+  dl25 HitTestArea 0,200 800x16
+  dl26 Text -16,200 832x16 glyphs=6 fs=16
+  dl27 HitTestArea 0,200.20313 43.203125x16
+  dl28 PopStackingContext
+  dl29 PopReferenceFrame
+  dl30 HitTestArea 5,235 0x0
+  dl31 HitTestArea 10,10 780x580
+  dl32 Text -6,10 812x580 glyphs=9 fs=16
+  dl33 HitTestArea 10,10.203125 72x16
+  dl34 PushStackingContext 10,45 300x16
+  dl35 HitTestArea 10,45 300x16
+  dl36 Text -6,45 332x16 glyphs=3 fs=16
+  dl37 HitTestArea 10,45.203125 19.203125x16
+  dl38 PopStackingContext
+  dl39 PopStackingContext
 === overflow and scrolling
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x346 ov=800x346 bl=391 ic=200/200

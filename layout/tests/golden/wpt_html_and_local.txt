@@ -1794,34 +1794,34 @@ n15 p14 d18 Inline @713.40625,39 -x- ic=24/24
   dl22 PopStackingContext
 === wpt/normalized/html/rendering/non-replaced-elements/tables/table-row-height-ref.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x28 ov=800x28 bl=23 ic=44/44
-n1 p0 d1 Block { establishes_new_context: false } @8,8 784x20 ov=784x20 mt=8 mb=8 bl=15 ic=28/28 rel=8,8
-n2 p1 d2 Block { establishes_new_context: false } @8,8 784x20 ov=26x18 bl=14 ic=26/26 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x10 ov=800x10 bl=23 ic=44/44
+n1 p0 d1 Block { establishes_new_context: false } @8,8 784x2 ov=784x2 mt=8 mb=8 bl=15 ic=28/28 rel=8,8
+n2 p1 d2 Block { establishes_new_context: false } @8,8 784x2 ov=26x18 bl=14 ic=26/26 rel=0,0
 n3 p2 d4 TableCell @9,9 26x18 ov=24x16 bl=13 ic=24/24 rel=0,0
 n4 p3 d5 Inline @10,10 24x16 ov=24x16 bl=13 ic=24/24 rel=0,0
-  dl0 PushStackingContext 0,0 800x28
-  dl1 HitTestArea 8,8 784x20
-  dl2 Border 8,8 784x20
-  dl3 HitTestArea 8,8 784x20
+  dl0 PushStackingContext 0,0 800x10
+  dl1 HitTestArea 8,8 784x2
+  dl2 Border 8,8 784x2
+  dl3 HitTestArea 8,8 784x2
   dl4 HitTestArea 9,9 26x18
   dl5 Text -6,10 56x16 glyphs=3 fs=16
   dl6 HitTestArea 10,10.203125 24x16
   dl7 PopStackingContext
 === wpt/normalized/html/rendering/non-replaced-elements/tables/table-row-height.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x28 ov=800x28 bl=23 ic=44/44
-n1 p0 d1 Block { establishes_new_context: false } @8,8 784x20 ov=784x20 mt=8 mb=8 bl=15 ic=28/28 rel=8,8
-n2 p1 d2 Block { establishes_new_context: false } @8,8 784x20 ov=784x20 mt=0 mb=0 bl=15 ic=28/28 rel=0,0
-n3 p2 d4 Block { establishes_new_context: false } @8,8 784x20 ov=784x20 mt=0 mb=0 bl=15 ic=28/28 rel=0,0
-n4 p3 d6 Block { establishes_new_context: false } @8,8 784x20 ov=26x18 bl=14 ic=26/26 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x10 ov=800x10 bl=23 ic=44/44
+n1 p0 d1 Block { establishes_new_context: false } @8,8 784x2 ov=784x2 mt=8 mb=8 bl=15 ic=28/28 rel=8,8
+n2 p1 d2 Block { establishes_new_context: false } @8,8 784x2 ov=784x2 mt=0 mb=0 bl=15 ic=28/28 rel=0,0
+n3 p2 d4 Block { establishes_new_context: false } @8,8 784x2 ov=784x2 mt=0 mb=0 bl=15 ic=28/28 rel=0,0
+n4 p3 d6 Block { establishes_new_context: false } @8,8 784x2 ov=26x18 bl=14 ic=26/26 rel=0,0
 n5 p4 d8 TableCell @9,9 26x18 ov=24x16 bl=13 ic=24/24 rel=0,0
 n6 p5 d9 Inline @10,10 24x16 ov=24x16 bl=13 ic=24/24 rel=0,0
-  dl0 PushStackingContext 0,0 800x28
-  dl1 HitTestArea 8,8 784x20
-  dl2 HitTestArea 8,8 784x20
-  dl3 HitTestArea 8,8 784x20
-  dl4 Border 8,8 784x20
-  dl5 HitTestArea 8,8 784x20
+  dl0 PushStackingContext 0,0 800x10
+  dl1 HitTestArea 8,8 784x2
+  dl2 HitTestArea 8,8 784x2
+  dl3 HitTestArea 8,8 784x2
+  dl4 Border 8,8 784x2
+  dl5 HitTestArea 8,8 784x2
   dl6 HitTestArea 9,9 26x18
   dl7 Text -6,10 56x16 glyphs=3 fs=16
   dl8 HitTestArea 10,10.203125 24x16
