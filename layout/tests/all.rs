@@ -1169,3 +1169,5 @@ mod a_pseudo_class_on_an_ancestor_restyles_its_descendants;
 mod before_and_after_generate_content;
 #[path = "inline_list_items_carry_their_marker.rs"]
 mod inline_list_items_carry_their_marker;
+#[path = "an_svg_stroke_without_a_width_is_one_unit_wide.rs"]
+mod an_svg_stroke_without_a_width_is_one_unit_wide;
