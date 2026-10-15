@@ -335,3 +335,39 @@ fn node_takes_and_gives_null_and_passes_the_resume_result_to_downcast() {
         ],
     );
 }
+
+#[test]
+fn ruby_takes_and_gives_nil_and_passes_the_resume_result_to_downcast() {
+    let path = "azul.rb";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "Azul._opt_in(Native::AzOptionString, :az_option_string_none, :az_option_string_some, \
+             default_path, ->(v) { Azul._az_string(v) })",
+            "Native.az_option_string_clone(Azul._fields(self)[:light].to_ptr).to_opt",
+            "def self._opt_in(opt_class, none_fn, some_fn, value, map)",
+            // The resume callback's result reaches `downcast` as a RefAny.
+            "unwrapped_args << (Azul::RefAny.unwrap(ptr_args[2]) || \
+             Azul::RefAny.new(Native.az_ref_any_clone(ptr_args[2])))",
+        ],
+    );
+}
+
+#[test]
+fn lua_takes_and_gives_nil() {
+    let path = "azul.lua";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "default_path = azul._opt_in('AzOptionString', default_path, azul._az_string)",
+            "function IconVariants_methods:get_light() return (C.AzOptionString_clone(self.light)):to_opt() end",
+            "function azul._opt_in(ct, v, map)",
+            // A static function returning an Option gives nil or the value.
+            "        local _ret = C.AzFileOpenResult_downcast(result)\n        return _ret:to_opt()\n",
+        ],
+    );
+}
