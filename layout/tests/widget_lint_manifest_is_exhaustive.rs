@@ -38,6 +38,11 @@ const MANIFEST_FN: &str = "pub(super) fn every_widget_dom()";
 /// re-checked by `the_exemption_list_has_no_stale_entries`.
 const EXEMPT: &[(&str, &str)] = &[
     (
+        "tab_reveal",
+        "the reveal machine a tab bar or a ribbon opens and locks its panel with: no widget type \
+         with a dom() of its own; the \"tabs (buttons, revealing)\" entry renders it",
+    ),
+    (
         "dialog_kit",
         "the look and the shared parts (button row, check row, match highlight) of the dialog-shaped \
          widgets: no widget type of its own; its parts render inside the wizard_pages, \

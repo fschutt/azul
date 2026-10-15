@@ -2995,11 +2995,13 @@ pub(crate) mod theme_contrast {
         "pagination",
         "quick_access",
         "ribbon",
+        "ribbon (buttons on leather, revealing)",
         // The ribbon's File menu: its commands and places on the menu's paper.
         "ribbon_file_menu",
         "statusbar",
         "statusbar (sync)",
         "stepper",
+        "tabs (buttons, revealing)",
         "tabs (header)",
         "titlebar",
         "tree_view",
