@@ -20,7 +20,10 @@ use azul::{
     str::String as AzString,
     task::{Thread, ThreadId},
     vec::MapLatLonVec,
-    widgets::{Button, MapMarker, MapOverlay, MapPolyline, Segmented, SegmentedState, TimePicker, TimePickerState},
+    widgets::{
+        Button, MapLineDash, MapMarker, MapOverlay, MapPolyline, Segmented, SegmentedState, TimePicker,
+        TimePickerState,
+    },
 };
 use azul_appkit::l10n::{label, labels, t_args, Arg};
 use azul_routing::{
@@ -396,11 +399,15 @@ pub(crate) fn overlays(s: &MapState) -> Vec<MapOverlay> {
     out
 }
 
-/// A leg's line in its `colour` on a white outline: a ride is the wide one.
+/// A leg's line in its `colour` on a white outline: a ride is a wide line, a walk dots.
 fn leg_line(points: MapLatLonVec, kind: LegKind, colour: ColorU) -> MapPolyline {
     let casing = ColorU { r: 0xff, g: 0xff, b: 0xff, a: 0xff };
     if kind == LegKind::Walk {
-        MapPolyline::create(points).with_color(colour).with_width(3.0).with_casing(casing, 5.0)
+        MapPolyline::create(points)
+            .with_color(colour)
+            .with_width(5.0)
+            .with_casing(casing, 8.0)
+            .with_dash(MapLineDash::Dotted)
     } else {
         MapPolyline::create(points).with_color(colour).with_width(6.0).with_casing(casing, 9.0)
     }
@@ -480,8 +487,6 @@ extern "C" fn on_sources(mut app: RefAny, _info: CallbackInfo) -> Update {
 
 #[cfg(test)]
 mod leg_line_tests {
-    use azul::widgets::MapLineDash;
-
     use super::*;
 
     fn two_stops() -> MapLatLonVec {

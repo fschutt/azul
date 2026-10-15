@@ -1294,9 +1294,16 @@ fn pin_icon(index: usize, (lat, lon): (f64, f64)) -> Dom {
 /// (`road`) with an outline under it, else the straight preview, thinner. The
 /// accent is a colour token, so the map resolves it against the theme it is
 /// drawn in and the line follows a theme switch without a new colour here.
-fn travel_polyline(points: MapLatLonVec, road: bool, _mode: TravelMode) -> MapPolyline {
+fn travel_polyline(points: MapLatLonVec, road: bool, mode: TravelMode) -> MapPolyline {
     let accent = SystemColorRef::Accent.to_color_token();
-    if road {
+    if road && mode == TravelMode::Walk {
+        // A walk is dots, as on every map: wider than a drive's line so each dot reads.
+        MapPolyline::create(points)
+            .with_color(accent)
+            .with_width(6.0)
+            .with_casing(ROUTE_CASING, 9.0)
+            .with_dash(MapLineDash::Dotted)
+    } else if road {
         MapPolyline::create(points)
             .with_color(accent)
             .with_width(5.0)
