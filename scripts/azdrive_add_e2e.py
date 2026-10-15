@@ -1096,9 +1096,11 @@ def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
         popup = e2e.modal_window(second)
         popup.until("the code's box", lambda: popup.has("#__azdrive_unlock_code"))
         popup.text_input("#__azdrive_unlock_code", recovery)
-        second.after("the picked-up drive unlocked and listed", "AZDRIVE_LISTED",
+        popup.click_exact("Unlock")
+        second.until("the drive unlocked", lambda: second.shows("is unlocked on this computer"))
+        second.after("the picked-up drive's bucket", "AZDRIVE_LISTED",
                      r"%s / \d+" % re.escape(drive_id),
-                     lambda: popup.click_exact("Unlock"))
+                     lambda: second.click(selector=side_drive(drive_id)))
         second.screenshot(os.path.join(out, "14-picked-up.png"))
     finally:
         second.stop()
@@ -1112,8 +1114,24 @@ def ban_steps(app, stack, logs, out, drive_id):
     """15. A ban with a grace period on `drive_id`: the banner with its hours, writes refused,
     Copy everything to this computer, the closed drive past the end."""
     drive = stack.token.state.drives[drive_id]
-    stack.s3.store.write(drive["bucket"], "notes/keep.txt", b"keep me\n")
-    stack.s3.store.write(drive["bucket"], "photo.txt", b"a photo\n")
+    # The drive is encrypted ("we always encrypt"): its files go in through AzDrive, a folder
+    # pasted from Documents, not straight into the bucket (which the drive would not show).
+    seed = os.path.join(logs, "home", "Documents", "ban-seed")
+    os.makedirs(os.path.join(seed, "notes"), exist_ok=True)
+    with open(os.path.join(seed, "notes", "keep.txt"), "wb") as f:
+        f.write(b"keep me\n")
+    with open(os.path.join(seed, "photo.txt"), "wb") as f:
+        f.write(b"a photo\n")
+    app.after("Documents", "AZDRIVE_LISTED", r"home Documents/ \d+",
+              lambda: app.click(selector="#" + I("side-fav-documents")))
+    app.after("the folder selected", "AZDRIVE_SELECTED", r"1 .*ban-seed/",
+              lambda: select_item(app, "ban-seed"))
+    app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", primary=True))
+    app.after("the drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id),
+              lambda: app.click(selector=side_drive(drive_id)))
+    app.after("Ctrl+V", "AZDRIVE_TRANSFER", r"\d+ done \d+", lambda: app.key("v", primary=True))
+    app.after("back to Documents", "AZDRIVE_LISTED", r"home Documents/ \d+",
+              lambda: app.click(selector="#" + I("side-fav-documents")))
     reason = "spam distribution"
     until = stack.token.state.ban(drive_id, reason, 48 * 3600)
     hours = app.until("the ban seen by the daily look", lambda: app.printed(
@@ -1159,7 +1177,7 @@ def ban_steps(app, stack, logs, out, drive_id):
     app.op("mock", set={"file_open": {"path": copy_to}})
     app.after("Copy everything", "AZDRIVE_COPY_EVERYTHING", re.escape(drive_id),
               lambda: app.click(selector="#__azdrive_ban_copy"))
-    copied = os.path.join(copy_to, "Paid in cash")
+    copied = os.path.join(copy_to, "Paid in cash", "ban-seed")
 
     def files_copied():
         try:
