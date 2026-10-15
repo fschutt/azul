@@ -702,6 +702,24 @@ fn the_form_values_know_what_the_user_changed() {
 }
 
 #[test]
+fn filled_values_are_unsaved_until_a_filled_copy_with_them_is_saved() {
+    let fields = vec![text_field("name", "Grace"), text_field("city", "")];
+    let mut form = FormValues::new(&fields);
+    assert!(!form.unsaved(), "the file's own values");
+    form.set("city", "London");
+    assert!(form.unsaved(), "a value the user typed");
+    let saved = form.all();
+    form.keep(&saved);
+    assert!(!form.unsaved(), "the filled copy holds it");
+    form.set("name", "Ada");
+    assert!(form.unsaved(), "typed after the copy was saved");
+    form.keep(&saved);
+    assert!(form.unsaved(), "an older copy does not hold it");
+    form.set("name", "Grace");
+    assert!(!form.unsaved(), "back to what the copy holds");
+}
+
+#[test]
 fn a_field_sizes_its_text_and_knows_its_checked_state() {
     let field = text_field("name", "");
     let widget = &field.widgets[0];

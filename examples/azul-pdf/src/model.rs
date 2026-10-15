@@ -834,6 +834,9 @@ impl Field {
 pub struct FormValues {
     values: BTreeMap<String, String>,
     original: BTreeMap<String, String>,
+    /// The values the last filled copy was saved with (the file's until then): the form has
+    /// unsaved values while they differ, and closing the window asks first.
+    kept: BTreeMap<String, String>,
 }
 
 impl FormValues {
@@ -846,6 +849,7 @@ impl FormValues {
             .collect();
         FormValues {
             values: original.clone(),
+            kept: original.clone(),
             original,
         }
     }
@@ -889,6 +893,15 @@ impl FormValues {
     pub fn is_dirty(&self) -> bool {
         !self.changed().is_empty()
     }
+
+    /// Whether values were filled in that no saved copy holds.
+    #[must_use]
+    pub fn unsaved(&self) -> bool {
+        false
+    }
+
+    /// A filled copy with `values` was saved.
+    pub fn keep(&mut self, _values: &[(String, String)]) {}
 }
 
 /// The name a filled copy of `title` is offered under.
