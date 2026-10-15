@@ -207,3 +207,27 @@ fn java_takes_the_value_or_null_and_gives_optionals_and_types_the_resume_callbac
         ],
     );
 }
+
+#[test]
+fn kotlin_takes_and_gives_nullables_and_types_the_resume_callback() {
+    let path = "kotlin/Azul.kt";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            // A static-only type has a class, with Kotlin types and `null` for None.
+            "class FileDialog internal constructor(internal val ptr: Pointer) {",
+            "@JvmStatic fun openDirectory(title: kotlin.String, default_path: kotlin.String?, \
+             data: RefAny, on_result: ResumeCallback): RequestId {",
+            "val __default_path_opt = AzulOptions.inOptionString(default_path)",
+            "@JvmStatic fun <T : Any> openDirectory(title: kotlin.String, default_path: kotlin.String?, \
+             data: T, on_result: AzulHostInvoker.ResumeCallbackWithData<T>): RequestId {",
+            "@JvmStatic fun downcast(result: RefAny): FileOpenResult? {",
+            // The engine's `result` is deep-copied into the downcast, never freed twice.
+            "val __result_raw = result.__takeRaw()",
+            "var path: FilePath?",
+            "var light: kotlin.String?",
+        ],
+    );
+}
