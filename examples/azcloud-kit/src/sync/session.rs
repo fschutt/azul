@@ -732,6 +732,19 @@ impl SyncSession {
         cancel: &AtomicBool,
         events: &mut dyn FnMut(SyncEvent),
     ) -> CloudResult<Pass> {
+        // The quiet folder first, then the states and the base this pass works from: read
+        // before the wait, they missed every answer given during it (a question answered
+        // "these changes are mine" or "take the drive's version" was overwritten by the pass
+        // and asked again).
+        if !self.settle.is_zero() {
+            local::settle(
+                &self.setup.folder,
+                &self.root().rules,
+                self.settle,
+                super::SETTLE_MAX,
+                &|| cancel.load(Ordering::SeqCst),
+            );
+        }
         let mut states = self.states();
         #[cfg(feature = "encryption")]
         {
@@ -810,13 +823,19 @@ impl SyncSession {
             Err(_) => fail!("the sync of {} stopped unexpectedly", self.setup.folder.display()),
         };
         record(states, &report, &moved);
+        // An answer given while this pass ran (it waits for a quiet folder first) came after
+        // the states it read: it is the next pass's, and the question it answered is not asked
+        // again.
+        let answered_now = self.states();
+        let burst_answered = answered_now.allow_burst && !opts.allow_burst;
+        let mass_answered = answered_now.allow_mass_delete && !opts.allow_mass_delete;
         // The guards' questions, and the answers this pass used up.
-        states.burst.clone_from(&report.paused);
-        states.mass_delete.clone_from(&report.mass_delete);
+        states.burst = if burst_answered { None } else { report.paused.clone() };
+        states.mass_delete = if mass_answered { None } else { report.mass_delete.clone() };
         states.newer_format.clone_from(&report.newer_format);
         if !report.cancelled {
-            states.allow_burst = false;
-            states.allow_mass_delete = false;
+            states.allow_burst = burst_answered;
+            states.allow_mass_delete = mass_answered;
         }
         // Pinned files kept in the cloud come down now (within the limit; the rest wait).
         let mut fetched = Vec::new();

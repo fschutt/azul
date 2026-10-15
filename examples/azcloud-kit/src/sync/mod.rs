@@ -1730,8 +1730,8 @@ fn run<R: SyncRemote + ?Sized>(
         dry_run: opts.dry_run,
         ..SyncReport::default()
     };
-    let mut index = LocalIndex::load(index_path)?
-        .unwrap_or_else(|| LocalIndex::new(&root.path, &opts.bucket, &opts.prefix));
+    // The quiet folder before the base is read: a change to it made during the wait (an
+    // answer to a question) is in what this run works from.
     local::settle(
         &root.path,
         &root.rules,
@@ -1739,6 +1739,8 @@ fn run<R: SyncRemote + ?Sized>(
         SETTLE_MAX,
         &|| hooks.cancelled(),
     );
+    let mut index = LocalIndex::load(index_path)?
+        .unwrap_or_else(|| LocalIndex::new(&root.path, &opts.bucket, &opts.prefix));
     let scan = local::scan(
         &root.path,
         &root.rules,
