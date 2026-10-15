@@ -240,16 +240,15 @@ const ROOT: &str =
 const MAP_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; \
                         background: #cbd2d8; overflow: hidden; @theme(flora) { background: \
                         system:under-page-background; }";
-/// The title area over the map: the window's drag region; the traffic
-/// lights sit in its left end on macOS.
-#[cfg(target_os = "macos")]
-const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; height: 40px; \
-                          display: flex; flex-direction: row; align-items: center; gap: 6px; \
-                          padding: 0px 10px 0px 84px; -azul-app-region: drag;";
-#[cfg(not(target_os = "macos"))]
-const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; height: 40px; \
-                          display: flex; flex-direction: row; align-items: center; gap: 6px; \
-                          padding: 0px 10px 0px 10px; -azul-app-region: drag;";
+/// The title area over the map: the window's drag region. The window's own controls sit over
+/// one of its ends (macOS's traffic lights on the left, the caption buttons on the right on
+/// Windows): [`title_area_css`] gives it their room.
+const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; display: flex; \
+                          flex-direction: row; align-items: center; gap: 6px; -azul-app-region: drag;";
+/// The title area's height without window controls taller than its buttons, px.
+const TITLE_HEIGHT: f32 = 40.0;
+/// The title area's own room at each end, beside the window controls' room, px.
+const TITLE_PAD: f32 = 10.0;
 /// A control in the drag region keeps its clicks.
 const NO_DRAG: &str = "-azul-app-region: no-drag;";
 /// A floating group of map controls (Apple Maps' rounded pills).
@@ -809,14 +808,21 @@ fn tool(app: &RefAny, icon: &str, name: &str, id: AzString, on_click: ButtonOnCl
 /// The title area over the map: the window moves by it; the sidebar's
 /// button on the left, the settings on the right, no text.
 /// The title area's CSS, clear of the window's own controls where they sit over it.
-fn title_area_css(_insets: kit::TitleInsets) -> String {
-    TITLE_AREA.to_string()
+fn title_area_css(insets: kit::TitleInsets) -> String {
+    format!(
+        "{TITLE_AREA} height: {:.0}px; padding: 0px {:.0}px 0px {:.0}px;",
+        insets.height.max(TITLE_HEIGHT),
+        insets.right + TITLE_PAD,
+        insets.left + TITLE_PAD
+    )
 }
 
-fn title_area(s: &MapState, app: &RefAny) -> Dom {
+/// The title area over the map: the sidebar's toggle at its start, Settings at its end, the
+/// window controls' room `insets` beside them.
+fn title_area(s: &MapState, app: &RefAny, insets: kit::TitleInsets) -> Dom {
     let toggle_name = label(if s.sidebar_open { "azmaps-hide-sidebar" } else { "azmaps-show-sidebar" });
     Dom::create_div()
-        .with_css(TITLE_AREA)
+        .with_css(title_area_css(insets).as_str())
         .with_id(ids::TITLE)
         .with_child(
             Dom::create_div().with_css(NO_DRAG).with_child(
@@ -1524,11 +1530,11 @@ fn map_controls(s: &MapState, app: &RefAny) -> Dom {
 }
 
 /// The map screen: the map, and what floats on it.
-fn screen(s: &MapState, app: &RefAny, dark: bool) -> Dom {
+fn screen(s: &MapState, app: &RefAny, dark: bool, insets: kit::TitleInsets) -> Dom {
     let mut root = Dom::create_div()
         .with_css(ROOT)
         .with_child(map_area(s, app))
-        .with_child(title_area(s, app));
+        .with_child(title_area(s, app, insets));
     if s.sidebar_open {
         root.add_child(sidebar(s, app));
     }
@@ -1591,7 +1597,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 ],
             ))
     } else {
-        screen(&s, &app, dark)
+        screen(&s, &app, dark, kit::title_insets(&info))
     };
     let column = Dom::create_div().with_css(COLUMN).with_child(content);
     // The scope as the window's body: no UA margin, the full window height.
