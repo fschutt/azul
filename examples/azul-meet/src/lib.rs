@@ -7837,7 +7837,7 @@ fn display_name() -> String {
         .or_else(account_full_name)
         .or_else(|| set("USER"))
         .or_else(|| set("USERNAME"))
-        .unwrap_or_else(|| String::from("Guest"))
+        .unwrap_or_else(|| t("azmeet-guest"))
 }
 
 /// The account's full name: on macOS what `id -F` says, elsewhere the first field of the

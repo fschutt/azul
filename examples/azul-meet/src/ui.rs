@@ -663,15 +663,20 @@ pub(crate) fn tile_id(t: &TileView) -> String {
 /// Another person's name as the window shows it: as they gave it, the nameless one's
 /// ([`crate::chatroom::GUEST`]) in the window's language.
 pub(crate) fn person_name(name: &str) -> String {
-    name.to_string()
+    if name == crate::chatroom::GUEST {
+        t("azmeet-guest")
+    } else {
+        name.to_string()
+    }
 }
 
 /// A person's name as the window shows it: this side's own with "(you)" after it.
 pub(crate) fn shown_name(name: &str, me: bool) -> String {
+    let name = person_name(name);
     if me {
         t_args("azmeet-you-name", &[("name", Arg::from(name))])
     } else {
-        name.to_string()
+        name
     }
 }
 
@@ -680,7 +685,7 @@ fn tile_label(t: &TileView) -> String {
     let mut label = match t.kind {
         TileKind::Camera => shown_name(&t.name, t.me),
         TileKind::Screen if t.me => l10n::t("azmeet-your-screen"),
-        TileKind::Screen => t_args("azmeet-their-screen", &[("name", Arg::from(&t.name))]),
+        TileKind::Screen => t_args("azmeet-their-screen", &[("name", Arg::from(person_name(&t.name)))]),
     };
     if t.muted && t.kind == TileKind::Camera {
         label.push_str(" · ");
@@ -887,7 +892,7 @@ fn knock_row(k: &MemberRow, data: &RefAny, actions: &Actions) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(PERSON_TEXT)
-                .with_child(text(&k.name, "font-size: 13px;"))
+                .with_child(text(&person_name(&k.name), "font-size: 13px;"))
                 .with_child(text(&safety_line(&k.code), SECONDARY)),
         )
         .with_child(
@@ -947,7 +952,7 @@ fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         let who = match (line.mine, line.sending) {
             (true, true) => t("azmeet-you-sending"),
             (true, false) => t("azmeet-you"),
-            (false, _) => line.name.clone(),
+            (false, _) => person_name(&line.name),
         };
         messages = messages.with_child(
             Dom::create_div()
@@ -1634,6 +1639,8 @@ const FACES: usize = 4;
 /// is in this meeting", "Ada and Ben are ...", "Ada, Ben and Cleo are ...", "Ada, Ben, Cleo and
 /// 2 others are ...".
 pub(crate) fn who_is_here(people: &[String]) -> String {
+    let people: Vec<String> = people.iter().map(|name| person_name(name)).collect();
+    let people = people.as_slice();
     let count = people.len();
     match people {
         [] => t("azmeet-nobody-here"),

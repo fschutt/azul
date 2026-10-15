@@ -4,6 +4,7 @@
 
 azmeet-settings = Einstellungen
 azmeet-you-name = { $name } (du)
+azmeet-guest = Gast
 azmeet-your-screen = Dein Bildschirm
 azmeet-their-screen = Bildschirm von { $name }
 azmeet-tile-muted = stummgeschaltet

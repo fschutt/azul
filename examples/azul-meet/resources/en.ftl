@@ -4,6 +4,7 @@
 
 azmeet-settings = Settings
 azmeet-you-name = { $name } (you)
+azmeet-guest = Guest
 azmeet-your-screen = Your screen
 azmeet-their-screen = { $name }'s screen
 azmeet-tile-muted = muted
