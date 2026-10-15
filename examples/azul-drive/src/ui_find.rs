@@ -336,6 +336,9 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
     }
     for (header, width, column) in COLUMNS {
         let sorted = column.is_some() && sort.map(|s| s.column) == column;
+        // Size stands at its column's right edge, over its right-aligned figures, as in
+        // Details; the other headers start at the left.
+        let right = column == Some(Column::Size);
         let mut cell = Dom::create_div()
             .with_class(ids::COLUMN_CLASS)
             .with_css(format!(
@@ -343,10 +346,16 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
                 look::COLUMN,
                 if column.is_none() { "flex-grow: 1;" } else { "" },
                 if sorted { look::COLUMN_SORTED } else { "" }
-            ))
-            .with_child(Dom::create_span_with_text(label(header)).with_css(
-                "flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
             ));
+        if right {
+            cell.add_child(Dom::create_div().with_css("flex-grow: 1;"));
+        }
+        cell.add_child(Dom::create_span_with_text(label(header)).with_css(if right {
+            "flex-shrink: 1; min-width: 0px; overflow: hidden; white-space: nowrap; \
+             text-overflow: ellipsis;"
+        } else {
+            "flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;"
+        }));
         if let (true, Some(sort)) = (sorted, sort) {
             cell.add_child(
                 Dom::create_icon(AzString::from(if sort.descending {
