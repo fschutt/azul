@@ -97,7 +97,7 @@ impl Wizard {
     pub(crate) fn new(path: String, package_manager: Option<PackageManager>) -> Wizard {
         let rows = component_rows();
         Wizard {
-            steps: model::steps(package_manager),
+            steps: model::steps(package_manager, true),
             step: Step::Welcome,
             package_manager,
             available: None,
