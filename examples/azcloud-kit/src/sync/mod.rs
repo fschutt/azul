@@ -610,18 +610,11 @@ fn mass_delete(
             keys: here,
         });
     }
-    let moved: BTreeSet<&str> = actions
-        .iter()
-        .filter(|a| matches!(a, Action::Upload { .. }))
-        .filter_map(|a| scan.files.get(a.key()).map(|f| f.hash.as_str()))
-        .collect();
+    let moved = moves(actions, scan, base);
     let there: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteRemote { .. }))
-        .filter(|a| {
-            base.get(a.key())
-                .is_none_or(|entry| !moved.contains(entry.hash.as_str()))
-        })
+        .filter(|a| !moved.contains(a.key()))
         .map(|a| a.key().to_string())
         .collect();
     if there.len() > MASS_DELETE_MIN && there.len() * 2 > base.len() {
@@ -633,6 +626,34 @@ fn mass_delete(
         });
     }
     None
+}
+
+/// The deletes on the drive a plan makes whose bytes go up under another name in the same plan:
+/// files renamed or moved here (a folder renamed). They are no delete and no change of a file -
+/// neither the mass-delete guard nor the burst guard counts them.
+fn moves(actions: &[Action], scan: &Scan, base: &BTreeMap<String, BaseEntry>) -> BTreeSet<String> {
+    let mut arriving: BTreeMap<&str, usize> = BTreeMap::new();
+    for action in actions {
+        if let Action::Upload { key } = action {
+            if let Some(file) = scan.files.get(key) {
+                *arriving.entry(file.hash.as_str()).or_default() += 1;
+            }
+        }
+    }
+    let mut moved = BTreeSet::new();
+    for action in actions {
+        let Action::DeleteRemote { key } = action else {
+            continue;
+        };
+        let Some(entry) = base.get(key) else {
+            continue;
+        };
+        if let Some(left) = arriving.get_mut(entry.hash.as_str()).filter(|left| **left > 0) {
+            *left -= 1;
+            moved.insert(key.clone());
+        }
+    }
+    moved
 }
 
 /// The command line's stop of a mass delete.
@@ -1880,9 +1901,16 @@ fn run<R: SyncRemote + ?Sized>(
             return Ok(report);
         }
         if attempt == 1 {
+            // A file renamed or moved here is no change of a file: the guard does not see it.
+            let moved = moves(&actions, &scan, base);
+            let judged: Vec<Action> = actions
+                .iter()
+                .filter(|a| !moved.contains(a.key()))
+                .cloned()
+                .collect();
             pause = guard::check_burst(
                 &mut index.guard,
-                &actions,
+                &judged,
                 base,
                 &root.path,
                 crate::now(),
