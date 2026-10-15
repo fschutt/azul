@@ -1613,6 +1613,7 @@ def encrypted_bulk(ctx):
         data_after = len(bucket_keys(stack, drive, "data/"))
         notes = ["unzip: %d files on-device in %.0f s, log +%d, data/ +%d objects" % (
             len(on_device), took, log_after - log_before, data_after - data_before)]
+        log(notes[-1])
         expect(len(on_device) == many, "%d of %d files said on-device" % (len(on_device), many))
         expect(log_after - log_before <= 5, "the drive index grew by %d log entries for one "
                                             "unzip (<= 5 expected)" % (log_after - log_before))
@@ -1628,6 +1629,7 @@ def encrypted_bulk(ctx):
         listed = desktop.az("ls", "big2/").get("objects", [])
         notes.append("mv: log +%d, %d data/ writes, %d files under big2/ at the desktop" % (
             log_after - log_before, len(writes), len(listed)))
+        log(notes[-1])
         expect(not writes, "the move wrote %d objects under data/ (a rename moves no bytes)"
                % len(writes))
         expect(log_after - log_before <= 2, "the move took %d log entries" % (
@@ -1646,6 +1648,7 @@ def encrypted_bulk(ctx):
                           if e["t"] >= deleted_at and e["key"].startswith("data/")]
         notes.append("rm -rf: log +%d, %d single DeleteObjects" % (
             log_after - log_before, len(single_deletes)))
+        log(notes[-1])
         expect(log_after - log_before <= 2, "the delete took %d log entries" % (
             log_after - log_before))
         expect(len(single_deletes) <= 50, "%d DeleteObject requests, one per file" % len(
