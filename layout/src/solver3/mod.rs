@@ -790,9 +790,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // its ancestors, on the structure and the style tier
     // (`LayoutCache::dom_diff_clean`), the cascade moved nothing that lays
     // out, and the viewport is the one laid out: the reconcile could only
-    // rebuild the retained tree (4-7 ms of a page like AzWidgets').
+    // rebuild the retained tree (4-7 ms of a page like AzWidgets'). Content
+    // the overlay holds (an edited text, a swapped image) is no part of that
+    // diff, so a window with any keeps reconciling.
     let unchanged = !resize_only
         && !overrides_only
+        && content_overlay.is_none_or(crate::overlay::ContentOverlay::is_empty)
         && cache.viewport == Some(viewport)
         && css_dirty
             .iter()
