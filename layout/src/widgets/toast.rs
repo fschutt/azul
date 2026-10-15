@@ -39,6 +39,8 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_mut,
+    impl_vec_partialeq,
     props::{
         basic::{
             color::ColorU,
@@ -285,6 +287,107 @@ pub struct Toast {
     /// theme is a DOM-level choice: it picks the skin the card, message and
     /// close button are built from, so switching it rebuilds the toast.
     pub theme: OptionUiTheme,
+    /// How long the toast stays once it is on screen, in ms (3200 for a
+    /// notice, 6000 when it offers an action); 0 keeps it until it is
+    /// closed.
+    pub auto_dismiss_ms: u32,
+}
+
+impl_option!(Toast, OptionToast, copy = false, [Debug, Clone, PartialEq, Eq]);
+impl_vec!(
+    Toast,
+    ToastVec,
+    ToastVecDestructor,
+    ToastVecDestructorType,
+    ToastVecSlice,
+    OptionToast
+);
+impl_vec_clone!(Toast, ToastVec, ToastVecDestructor);
+impl_vec_debug!(Toast, ToastVec);
+impl_vec_partialeq!(Toast, ToastVec);
+impl_vec_eq!(Toast, ToastVec);
+impl_vec_mut!(Toast, ToastVec);
+
+/// The notices of a window, stacked at the bottom centre of its positioned
+/// parent: the newest at the bottom, at most [`Self::max_visible`] of them
+/// (the oldest go first), the ones dismissed left out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct ToastStack {
+    /// The toasts, oldest first.
+    pub toasts: ToastVec,
+    /// How many show at once (the newest ones); 3 by default.
+    pub max_visible: usize,
+    /// The distance of the lowest toast from the parent's bottom edge, in px.
+    pub bottom_inset: u32,
+}
+
+impl ToastStack {
+    /// An empty stack: three at once, 24 px above the bottom edge.
+    #[must_use]
+    pub const fn create() -> Self {
+        Self {
+            toasts: ToastVec::from_const_slice(&[]),
+            max_visible: 3,
+            bottom_inset: 24,
+        }
+    }
+
+    /// Adds `toast` as the newest.
+    pub fn add_toast(&mut self, toast: Toast) {
+        let mut toasts = core::mem::take(&mut self.toasts).into_library_owned_vec();
+        toasts.push(toast);
+        self.toasts = ToastVec::from_vec(toasts);
+    }
+
+    /// [`Self::add_toast`] for the builder chain.
+    #[must_use]
+    pub fn with_toast(mut self, toast: Toast) -> Self {
+        self.add_toast(toast);
+        self
+    }
+
+    /// How many toasts show at once.
+    pub const fn set_max_visible(&mut self, max_visible: usize) {
+        self.max_visible = max_visible;
+    }
+
+    /// [`Self::set_max_visible`] for the builder chain.
+    #[must_use]
+    pub const fn with_max_visible(mut self, max_visible: usize) -> Self {
+        self.set_max_visible(max_visible);
+        self
+    }
+
+    /// The distance of the lowest toast from the bottom edge, in px.
+    pub const fn set_bottom_inset(&mut self, px: u32) {
+        self.bottom_inset = px;
+    }
+
+    /// [`Self::set_bottom_inset`] for the builder chain.
+    #[must_use]
+    pub const fn with_bottom_inset(mut self, px: u32) -> Self {
+        self.set_bottom_inset(px);
+        self
+    }
+
+    /// The stack's DOM.
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        Dom::create_div()
+    }
+}
+
+impl Default for ToastStack {
+    fn default() -> Self {
+        Self::create()
+    }
+}
+
+impl From<ToastStack> for Dom {
+    fn from(stack: ToastStack) -> Self {
+        stack.dom()
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -550,7 +653,23 @@ impl Toast {
             dismissible: true,
             container_style: OptionCssPropertyWithConditionsVec::None,
             theme: OptionUiTheme::None,
+            auto_dismiss_ms: 0,
         }
+    }
+
+    /// How long the toast stays once it is on screen, in ms; 0 keeps it
+    /// until it is closed.
+    #[inline]
+    pub const fn set_auto_dismiss(&mut self, ms: u32) {
+        self.auto_dismiss_ms = ms;
+    }
+
+    /// [`Self::set_auto_dismiss`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_auto_dismiss(mut self, ms: u32) -> Self {
+        self.set_auto_dismiss(ms);
+        self
     }
 
     /// Pick the widget theme. Unset (`None`), the toast follows the
@@ -2573,6 +2692,122 @@ mod structure_tests {
                     );
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod auto_dismiss_and_stack_tests {
+    use azul_core::{
+        dom::{ComponentEventFilter, DomId, DomNodeId, EventFilter, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        task::{Duration, SystemTimeDiff},
+    };
+
+    use super::*;
+    use crate::{callbacks::CallbackChange, widgets::roving::test_support as rv};
+
+    fn node(index: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(index))),
+        }
+    }
+
+    /// A toast that leaves on its own starts its clock when it appears: its
+    /// card asks for a timer of exactly its time on screen (which also wakes
+    /// the window only then, not every frame).
+    #[test]
+    fn an_auto_dismissing_toast_starts_its_timer_when_it_mounts() {
+        let toast = Toast::create(AzString::from("Saved")).with_auto_dismiss(3200);
+        let styled = StyledDom::create_from_dom(toast.dom());
+        let card = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| n.has_class("__azul-native-toast"))
+            .expect("the card");
+        let (_, changes) = rv::fire(
+            &styled,
+            node(card),
+            EventFilter::Component(ComponentEventFilter::AfterMount),
+        )
+        .expect("the card hears its mount");
+        let timer = changes
+            .iter()
+            .find_map(|c| match c {
+                CallbackChange::AddTimer { timer, .. } => Some(timer.clone()),
+                _ => None,
+            })
+            .expect("a timer");
+        let ms = Duration::System(SystemTimeDiff::from_millis(3200));
+        assert_eq!(timer.delay.into_option(), Some(ms.clone()), "it fires after 3.2 s");
+        assert_eq!(timer.interval.into_option(), Some(ms), "and does not wake the window before");
+        // A toast that stays has no clock.
+        let stays = StyledDom::create_from_dom(Toast::create(AzString::from("Hi")).dom());
+        assert!(stays.node_data.as_ref().iter().all(|n| n
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .all(|cb| cb.event != EventFilter::Component(ComponentEventFilter::AfterMount))));
+    }
+
+    /// The messages of the toasts a stack shows, top to bottom.
+    fn shown(stack: ToastStack) -> Vec<String> {
+        let dom = stack.dom();
+        dom.children
+            .as_ref()
+            .iter()
+            .map(|toast| {
+                let mut text = String::new();
+                let message = &toast.children.as_ref()[0];
+                crate::widgets::rich_text::html::dom_text(message, &mut text);
+                text
+            })
+            .collect()
+    }
+
+    /// The design's toasts: bottom centre, at most three, the newest at the
+    /// bottom; a dismissed one leaves its place.
+    #[test]
+    fn a_toast_stack_shows_the_newest_three_at_the_bottom_centre() {
+        let mut stack = ToastStack::create();
+        for n in 1..=5 {
+            stack.add_toast(Toast::create(AzString::from(format!("notice {n}"))));
+        }
+        assert_eq!(shown(stack.clone()), ["notice 3", "notice 4", "notice 5"]);
+
+        let mut gone = Toast::create(AzString::from("notice 6"));
+        gone.toast_state.inner.visible = false;
+        assert_eq!(
+            shown(stack.clone().with_toast(gone)),
+            ["notice 3", "notice 4", "notice 5"],
+            "a dismissed toast takes no place"
+        );
+
+        let dom = stack.dom();
+        let own = |node: &Dom| -> Vec<CssProperty> {
+            node.root
+                .style
+                .iter_inline_properties()
+                .filter(|(_, conds)| conds.as_ref().is_empty())
+                .map(|(p, _)| p.clone())
+                .collect()
+        };
+        let root = own(&dom);
+        assert!(root.contains(&CssProperty::const_position(LayoutPosition::Absolute)));
+        assert!(root.contains(&CssProperty::const_left(azul_css::props::layout::LayoutLeft::percent(50.0))));
+        assert!(root.contains(&CssProperty::const_bottom(LayoutInsetBottom::const_px(24))));
+        // The cards stand in the column, not each in the parent's corner.
+        for card in dom.children.as_ref() {
+            let last_position = own(card)
+                .into_iter()
+                .filter(|p| matches!(p, CssProperty::Position(_)))
+                .last();
+            assert_eq!(
+                last_position,
+                Some(CssProperty::const_position(LayoutPosition::Static))
+            );
         }
     }
 }
