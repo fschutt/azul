@@ -2209,14 +2209,47 @@ fn finish_viewport_change(
     user
 }
 
-/// [`MapWidget::update_camera`] on the map's dataset.
-fn move_camera(_data: &mut RefAny, _info: &mut CallbackInfo, _viewport: MapViewport) -> bool {
-    false
+/// [`MapWidget::update_camera`] on the map's dataset. The tiles are wanted
+/// here, not only in the next render, because the render cannot spawn a
+/// fetch: queued now, they start in this very callback.
+fn move_camera(data: &mut RefAny, info: &mut CallbackInfo, viewport: MapViewport) -> bool {
+    {
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return false;
+        };
+        let min = f32::from(cache.layer.min_zoom);
+        let max = f32::from(cache.layer.max_zoom);
+        let zoom = if viewport.zoom.is_finite() { viewport.zoom.clamp(min, max) } else { cache.viewport.zoom };
+        cache.viewport = MapViewport {
+            zoom,
+            bearing_deg: normalize_bearing(viewport.bearing_deg),
+            pitch_deg: clamp_pitch(viewport.pitch_deg),
+            ..viewport
+        };
+        let (width, height) = cache.view_size;
+        if width > 0.0 && height > 0.0 {
+            let vp = cache.viewport;
+            let layer = cache.layer.clone();
+            let look = cache.current_look();
+            let bounds = azul_core::geom::LogicalSize::new(width, height);
+            cache.want_tiles(map_wanted_tiles(&vp, bounds, &layer), look);
+        }
+    }
+    spawn_pending_tile_fetches(data, info);
+    rerender_map_view(data, info);
+    true
 }
 
 /// [`MapWidget::update_overlays`] on the map's dataset.
-fn replace_overlays(_data: &mut RefAny, _info: &mut CallbackInfo, _overlays: MapOverlayVec) -> bool {
-    false
+fn replace_overlays(data: &mut RefAny, info: &mut CallbackInfo, overlays: MapOverlayVec) -> bool {
+    {
+        let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            return false;
+        };
+        cache.set_overlays(overlays);
+    }
+    rerender_map_view(data, info);
+    true
 }
 
 /// Pointer down → record the drag anchor. The widget knows nothing
