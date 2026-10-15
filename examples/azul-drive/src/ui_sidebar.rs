@@ -689,6 +689,36 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
     }
 }
 
+/// The tree nodes above `place` (SPEC 2.7): its drive's and every folder's between the drive and
+/// it, outermost first; none for a drive's root or a place that is no folder.
+pub(crate) fn nodes_above(place: &Place) -> Vec<TreeKey> {
+    let Place::Folder { drive, prefix } = place else {
+        return Vec::new();
+    };
+    let steps: Vec<&str> = prefix.split('/').filter(|step| !step.is_empty()).collect();
+    if steps.is_empty() {
+        return Vec::new();
+    }
+    let mut nodes = vec![(drive.clone(), String::new())];
+    let mut above = String::new();
+    for step in &steps[..steps.len() - 1] {
+        above.push_str(step);
+        above.push('/');
+        nodes.push((drive.clone(), above.clone()));
+    }
+    nodes
+}
+
+/// The tree opens down to the open folder: every node above it opens, listed on its first
+/// opening.
+pub(crate) fn reveal_place(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    for node in nodes_above(&s.place) {
+        if !s.tree.expanded.contains(&node) {
+            set_expanded(info, app, s, node, true);
+        }
+    }
+}
+
 /// Opens (`open`) or closes a drive's or a folder's folders; the first opening lists them.
 fn set_expanded(
     info: &mut CallbackInfo,

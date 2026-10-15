@@ -82,7 +82,7 @@ pub(crate) const SECTION_HEAD: &str = themed!(
      font-weight: 700; text-transform: uppercase; cursor: pointer;",
     "color: #6A7788; :hover { color: #27364A; }",
     "color: #9AA6B5; :hover { color: #E3E8EE; }",
-    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", \
+    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond\", \"Hoefler Text\", \
      Georgia, serif; font-size: 10.5px; letter-spacing: 0.08em; :hover { color: #262521; }",
     "color: #A8A8A8; :hover { color: #E7E7E7; }",
 );
@@ -215,7 +215,7 @@ pub(crate) const ACTIVITY_HEAD: &str = themed!(
     "padding: 0px 10px 3px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase;",
     "color: #6A7788;",
     "color: #9AA6B5;",
-    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", \
+    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond\", \"Hoefler Text\", \
      Georgia, serif; letter-spacing: 0.08em;",
     "color: #A8A8A8;",
 );
@@ -590,7 +590,8 @@ pub(crate) const SNIPPET_KIND: &str = themed!(
 
 /// The preview's stage: the picture, the page, the text - on a soft gradient over the leaf.
 pub(crate) const PREVIEW_STAGE: &str = themed!(
-    "display: flex; flex-direction: column; flex-grow: 1; min-height: 120px; overflow: hidden;",
+    "display: flex; flex-direction: column; align-items: center; justify-content: center; \
+     flex-shrink: 0; height: 236px; padding: 16px; box-sizing: border-box; overflow: hidden;",
     "border-bottom: 1px solid #E2E6EB;",
     "border-bottom: 1px solid #333333;",
     "background: linear-gradient(to bottom, #EFEDE7, #FBFAF6); border-bottom: 1px solid #E0DDD7;",
@@ -599,7 +600,7 @@ pub(crate) const PREVIEW_STAGE: &str = themed!(
 
 /// The item's facts under the preview.
 pub(crate) const PREVIEW_INFO: &str =
-    "display: flex; flex-direction: column; flex-shrink: 0; padding: 12px 14px;";
+    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; padding: 14px 16px;";
 
 /// The item's name: 17 px, semibold.
 pub(crate) const PREVIEW_NAME: &str =
@@ -633,7 +634,8 @@ pub(crate) const PREVIEW_ROW_VALUE: &str =
 
 /// Open and Copy link at the foot.
 pub(crate) const PREVIEW_ACTIONS: &str =
-    "display: flex; flex-direction: row; justify-content: flex-end; margin-top: 12px;";
+    "display: flex; flex-direction: row; justify-content: flex-start; column-gap: 6px; \
+     margin-top: auto; padding-top: 12px;";
 
 // ==== Over the window: Quick Look, the command palette ====
 
@@ -859,7 +861,6 @@ mod tests {
             PILL_SELECTED, EJECT, EJECT_SELECTED, ACTIVITY, ACTIVITY_HEAD, ACTIVITY_ERROR,
             SIDEBAR_FOOT, SMALL_BUTTON, PAGE, LEAF, DETAILS_HEADER, COLUMN, COLUMN_SORTED,
             COLUMN_EDGE, STRIPE, ITEM, ITEM_SELECTED, ITEM_FOCUS, CELL_SELECTED, TILE_SELECTED,
-            PATH_BAR, CRUMB, CRUMB_ICON, STATUS_LINE, STATUS_CHIP,
         ];
         for look in themed_looks {
             let mut depth = 0i32;

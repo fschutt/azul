@@ -143,12 +143,8 @@ pub(crate) fn tab_path(s: &DriveState, tab: &TabState) -> String {
     };
     let drive_name = s.drive_name(&tab.place);
     let crumbs = browse::crumbs_of(&tab.place, &drive_name);
-    // This PC first, the place itself last: neither is "above" it.
-    let above: Vec<String> = crumbs
-        .into_iter()
-        .skip(1)
-        .map(|(name, _)| name)
-        .collect::<Vec<String>>();
+    // The place itself last: it is not "above" itself.
+    let above: Vec<String> = crumbs.into_iter().map(|(name, _)| name).collect::<Vec<String>>();
     match above.split_last() {
         Some((_, parents)) => parents.join(" \u{203A} "),
         None => String::new(),

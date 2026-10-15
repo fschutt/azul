@@ -262,27 +262,17 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                     image,
                     width,
                     height,
-                }) => Dom::create_div()
-                    .with_css(
-                        "display: flex; flex-direction: column; align-items: center; padding: 12px; \
-                         overflow-y: auto; flex-grow: 1; min-height: 0px;",
-                    )
-                    .with_child(
-                        Dom::create_image(image.clone())
-                            .with_id(ids::PREVIEW_IMAGE)
-                            .with_css("max-width: 100%; max-height: 420px;"),
-                    )
-                    .with_child(
-                        Dom::create_span_with_text(AzString::from(t_args(
-                            "azdrive-preview-image-size",
-                            &[
-                                ("name", Arg::from(name.as_str())),
-                                ("width", Arg::from(*width)),
-                                ("height", Arg::from(*height)),
-                            ],
-                        )))
-                        .with_css("margin-top: 8px; font-size: 12px; opacity: 0.75;"),
-                    ),
+                }) => {
+                    // The picture (a PDF's first page, an image) as a card on the stage; its size
+                    // is in the facts under it, not in a caption.
+                    let _ = (width, height);
+                    Dom::create_image(image.clone())
+                        .with_id(ids::PREVIEW_IMAGE)
+                        .with_css(
+                            "max-width: 100%; max-height: 100%; border-radius: 2px; \
+                             box-shadow: 0px 1px 2px rgba(0,0,0,0.2), 0px 6px 18px rgba(0,0,0,0.18);",
+                        )
+                }
                 Some(PreviewContent::Audio(wav)) => {
                     let seconds = wav.seconds();
                     let minutes = (seconds / 60.0).floor() as u64;
@@ -431,7 +421,6 @@ fn preview_info(s: &DriveState, app: &RefAny) -> Option<Dom> {
                 actions::on_action as ButtonOnClickCallbackType,
             )
             .dom()
-            .with_css("margin-left: 6px;")
     };
     list.add_child(
         Dom::create_div()

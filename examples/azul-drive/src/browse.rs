@@ -580,12 +580,14 @@ pub fn crumbs_of(place: &Place, drive_name: &str) -> Vec<(String, Place)> {
     if *place == Place::QuickAccess {
         return vec![(quick_access(), Place::QuickAccess)];
     }
-    let mut trail = vec![(this_pc(), Place::ThisPc)];
-    if let Place::Folder { drive, prefix } = place {
-        trail.push((drive_name.to_string(), Place::folder(drive, "")));
-        for (label, folder) in key::folder_trail(prefix) {
-            trail.push((label, Place::folder(drive, &folder)));
-        }
+    // A folder's trail starts at its drive (the place's icon stands before it); This PC is a
+    // trail of its own.
+    let Place::Folder { drive, prefix } = place else {
+        return vec![(this_pc(), Place::ThisPc)];
+    };
+    let mut trail = vec![(drive_name.to_string(), Place::folder(drive, ""))];
+    for (label, folder) in key::folder_trail(prefix) {
+        trail.push((label, Place::folder(drive, &folder)));
     }
     trail
 }

@@ -42,7 +42,7 @@ node layout, AzDrive's stdout markers and the files on disk:
     16. Ctrl+A / Ctrl+C with the content pane focused;
     17. the looks: This PC, Documents in Details and in Large icons, in flat and flora, by day
         and at night (17-<theme>-<mode>-<view>.png);
-    18. the breadcrumb: in Documents a crumb per step (This PC, Home, Documents), a click on the
+    18. the breadcrumb: in Documents a crumb per step (Home, Documents), a click on the
         Home crumb goes there, its chevron drops Home's folders (Documents goes back), a click on
         the box's empty part turns it into the typed path - which has the keyboard - and Escape
         turns it back;
@@ -1141,18 +1141,18 @@ def run(args, logs):
 
         # 18. The breadcrumb (Documents is open): a crumb per step, the Home crumb goes there,
         # its chevron drops Home's folders, the box's empty part turns into the typed path.
-        app.until("the crumbs This PC, Home, Documents",
+        app.until("the crumbs Home, Documents",
                   lambda: [t for t in bar_texts(app, BAR_CRUMB)
-                           if t in ("This PC", "Home", "Documents")] == ["This PC", "Home", "Documents"])
+                           if t in ("This PC", "Home", "Documents")] == ["Home", "Documents"])
         crumbs = app.nodes_with_class(BAR_CRUMB)
         chevrons = app.nodes_with_class(BAR_CHEVRON)
         if len(chevrons) < len(crumbs):
             raise Failure("%d crumbs but %d chevrons: every crumb has its chevron"
                           % (len(crumbs), len(chevrons)))
         app.after("the Home crumb", "AZDRIVE_PLACE", r"home /",
-                  lambda: app.press("click", 0, app.nodes_with_class(BAR_CRUMB)[1], "Home's crumb"))
+                  lambda: app.press("click", 0, app.nodes_with_class(BAR_CRUMB)[0], "Home's crumb"))
         windows_before = len(app.window_ids())
-        app.press("click", 0, app.nodes_with_class(BAR_CHEVRON)[1], "Home's chevron")
+        app.press("click", 0, app.nodes_with_class(BAR_CHEVRON)[0], "Home's chevron")
         menu = app.until("the chevron's menu of Home's folders",
                          lambda: app.popup() if len(app.window_ids()) > windows_before else None)
         app.until("Documents in the menu",

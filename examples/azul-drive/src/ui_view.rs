@@ -865,18 +865,26 @@ fn details_header(s: &DriveState, app: &RefAny) -> Dom {
             app: app.clone(),
             column: c.column,
         });
+        // The name takes the width the other columns leave, so the last one (Size) ends at the
+        // list's right edge; Size's label stands at its right like its figures.
+        let grow = if c.column == Column::Name { "flex-grow: 1;" } else { "" };
+        let spacer = || Dom::create_div().with_css("flex-grow: 1;");
         let mut cell = Dom::create_div()
             .with_class(ids::COLUMN_CLASS)
             .with_css(format!(
-                "{} width: {width}px; min-width: {width}px; {}",
+                "{} width: {width}px; min-width: {width}px; {grow} {}",
                 look::COLUMN,
                 if sorted { look::COLUMN_SORTED } else { "" }
-            ))
-            .with_child(
-                Dom::create_span_with_text(azul_appkit::l10n::label(c.column.label())).with_css(
-                    "flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
-                ),
-            );
+            ));
+        if c.column == Column::Size {
+            cell.add_child(spacer());
+        }
+        cell.add_child(
+            Dom::create_span_with_text(azul_appkit::l10n::label(c.column.label())).with_css(
+                "flex-shrink: 1; min-width: 0px; overflow: hidden; white-space: nowrap; \
+                 text-overflow: ellipsis;",
+            ),
+        );
         if sorted {
             let arrow = if s.settings.sort.descending {
                 "arrow_drop_down"
@@ -887,6 +895,9 @@ fn details_header(s: &DriveState, app: &RefAny) -> Dom {
                 Dom::create_icon(AzString::from(arrow))
                     .with_css("font-size: 16px; flex-shrink: 0;"),
             );
+        }
+        if c.column != Column::Size {
+            cell.add_child(spacer());
         }
         cell.add_child(
             Dom::create_div()
@@ -1031,7 +1042,7 @@ fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
             Column::Size => (
                 Dom::create_span_with_text(AzString::from(size_text(s, entry))),
                 "opacity: 0.8; display: flex; flex-direction: row; justify-content: flex-end; \
-                 padding-right: 12px;",
+                 padding-right: 7px;",
             ),
             _ => (
                 Dom::create_span_with_text(AzString::from(model::cell_text(
@@ -1042,11 +1053,13 @@ fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
                 "opacity: 0.8;",
             ),
         };
+        let grow = if c.column == Column::Name { "flex-grow: 1;" } else { "" };
         row.add_child(
             Dom::create_div()
                 .with_css(format!(
-                    "width: {width}px; min-width: {width}px; flex-shrink: 0; padding-left: 8px; \
-                     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; {extra}"
+                    "width: {width}px; min-width: {width}px; flex-shrink: 0; {grow} \
+                     padding-left: 8px; overflow: hidden; white-space: nowrap; \
+                     text-overflow: ellipsis; {extra}"
                 ))
                 .with_child(cell),
         );

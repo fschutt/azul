@@ -161,7 +161,7 @@ fn commands() -> Vec<(String, String, Action)> {
 fn where_of(s: &DriveState, place: &Place) -> String {
     let drive_name = s.drive_name(place);
     let crumbs = browse::crumbs_of(place, &drive_name);
-    let names: Vec<String> = crumbs.into_iter().skip(1).map(|(name, _)| name).collect();
+    let names: Vec<String> = crumbs.into_iter().map(|(name, _)| name).collect();
     match names.split_last() {
         Some((_, above)) => above.join(" \u{203A} "),
         None => String::new(),

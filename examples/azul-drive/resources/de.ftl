@@ -814,7 +814,6 @@ azdrive-audio-no-output = keine Audioausgabe
 azdrive-audio-cannot-play = Der Ton kann nicht abgespielt werden: { $why }
 azdrive-preview-select = Wähle eine Datei für die Vorschau aus.
 azdrive-preview-loading = Die Vorschau von „{ $name }“ wird geladen…
-azdrive-preview-image-size = { $name } – { $width } × { $height } Pixel
 azdrive-preview-mono = mono
 azdrive-preview-stereo = stereo
 azdrive-preview-channels = { $count } Kanäle

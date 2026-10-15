@@ -367,6 +367,12 @@ pub fn add_kit_icons(config: &mut AppConfig) {
     azul_icons_haiku::register(&mut config.icon_provider);
 }
 
+/// Takes the kit's icons out of `config` again: for an app whose design draws azul's
+/// monochrome Material icons under flora too.
+pub fn remove_kit_icons(config: &mut AppConfig) {
+    config.icon_provider.unregister_pack(azul_icons_haiku::PACK);
+}
+
 /// The main window: the app's title, `NoTitle` (the app draws the title row), a minimum size,
 /// the create callback, and where it opens ([`window_place`]): maximized on the first start
 /// (over the default size, what un-maximizing returns to), then where and as big as the user

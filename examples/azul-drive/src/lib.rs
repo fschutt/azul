@@ -885,8 +885,9 @@ pub(crate) struct DriveState {
     /// The icon layouts' grid as its last event left it: the first row in view, a rubber band
     /// in progress (its selection is the app's, handed in on every build).
     pub grid_view: IconGridView,
-    /// The splitters' shares: the navigation pane's of the window, the content's beside the
-    /// right pane (preview or details).
+    /// The splitters' shares as the user dragged them: the navigation pane's of the window,
+    /// the content's beside the right pane (preview or details); `0.0` until a splitter moves,
+    /// the panes then standing at the design's widths ([`DriveState::pane_shares`]).
     pub pane_ratios: (f32, f32),
     /// The backstage, open on its page (0 the Options, 1 About).
     pub backstage: Option<usize>,
@@ -1209,13 +1210,41 @@ impl DriveState {
             return 1;
         }
         let mut width = self.window_width;
+        let (nav, content) = self.pane_shares(width);
         if self.settings.navigation_pane {
-            width *= 1.0 - self.pane_ratios.0;
+            width *= 1.0 - nav;
         }
         if self.settings.preview_pane || self.settings.details_pane {
-            width *= self.pane_ratios.1;
+            width *= content;
         }
         self.view_layout().columns_in(width - 32.0 - LEAF_FRAME_X)
+    }
+
+    /// The splitters' shares in a window `width` px wide: the ones the user dragged, else the
+    /// shares that stand the navigation pane at 228 px and the right pane at 300 px (SPEC 2.7,
+    /// 2.9), whatever the window's width.
+    pub fn pane_shares(&self, width: f32) -> (f32, f32) {
+        let width = if width > 0.0 { width } else { self.window_width };
+        let nav = if self.pane_ratios.0 > 0.0 {
+            self.pane_ratios.0
+        } else if width > 0.0 {
+            (NAV_PANE_PX / width).clamp(0.05, 0.6)
+        } else {
+            0.22
+        };
+        let rest = if self.settings.navigation_pane {
+            width * (1.0 - nav) - PANE_SPLITTER_PX
+        } else {
+            width
+        };
+        let content = if self.pane_ratios.1 > 0.0 {
+            self.pane_ratios.1
+        } else if rest > 0.0 {
+            (1.0 - (RIGHT_PANE_PX + PANE_SPLITTER_PX) / rest).clamp(0.3, 0.95)
+        } else {
+            0.7
+        };
+        (nav, content)
     }
 
     /// The px the content pane has, for the icon grid (which draws exactly its viewport): the
@@ -1238,11 +1267,12 @@ impl DriveState {
                 760.0
             };
         }
+        let (nav, content) = self.pane_shares(width);
         if self.settings.navigation_pane {
-            width = width * (1.0 - self.pane_ratios.0) - SPLITTER_PX;
+            width = width * (1.0 - nav) - SPLITTER_PX;
         }
         if self.settings.preview_pane || self.settings.details_pane {
-            width = width * self.pane_ratios.1 - SPLITTER_PX;
+            width = width * content - SPLITTER_PX;
         }
         height -= CHROME_PX + LEAF_FRAME_Y;
         width -= LEAF_FRAME_X;
@@ -1938,6 +1968,7 @@ pub(crate) fn go(
     ui_view::scroll_view_to_top(info);
     set_window_title(info, s);
     println!("AZDRIVE_PLACE {}", s.place_line());
+    ui_sidebar::reveal_place(info, app, s);
     if s.place == Place::ThisPc {
         count_drive_roots(info, app, s);
     }
@@ -2916,6 +2947,13 @@ fn chrome(s: &DriveState, app: &RefAny, width: f32) -> Dom {
 /// The DOM id of the details pane, which shares the right side with the preview pane.
 const DETAILS_PANE_ID: &str = "shell-details";
 
+/// The navigation pane's width until its splitter is dragged (SPEC 2.7).
+const NAV_PANE_PX: f32 = 228.0;
+/// The right pane's (preview or details) width until its splitter is dragged (SPEC 2.9).
+const RIGHT_PANE_PX: f32 = 300.0;
+/// A splitter's own width between two panes.
+const PANE_SPLITTER_PX: f32 = 4.0;
+
 /// A splitter was dragged: the pane left of it keeps its new share (the navigation pane's of
 /// the window, the content's beside the right pane), handed back on every rebuild - and the
 /// icon grid takes the new width.
@@ -2974,8 +3012,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         ui_view::content(s, &app, s.content_size(window)),
     )
     .with_tree_visible(s.settings.navigation_pane)
-    .with_tree_ratio(s.pane_ratios.0)
-    .with_content_ratio(s.pane_ratios.1);
+    .with_tree_ratio(s.pane_shares(width).0)
+    .with_content_ratio(s.pane_shares(width).1);
     if s.settings.preview_pane {
         browser = browser.with_preview(ui_view::on_page(ui_panes::preview_pane(s, &app, dark)));
     }
@@ -3008,7 +3046,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_css(
             "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px; \
              font-family: system:ui; color: system:text; @theme(flora) { font-family: \
-             \"Calmet UI\", \"EB Garamond Azul\", \"Hoefler Text\", Georgia, serif; \
+             \"Calmet UI\", \"EB Garamond\", \"Hoefler Text\", Georgia, serif; \
              font-size: 15px; line-height: 1.3; font-variant-numeric: tabular-nums; }",
         )
         .with_child(
@@ -3411,7 +3449,7 @@ pub fn start() {
         standard_folders: Vec::new(),
         groups_closed: HashSet::new(),
         grid_view: IconGridView::create(),
-        pane_ratios: (0.22, 0.7),
+        pane_ratios: (0.0, 0.0),
         backstage: (args.screen == args::Screen::Settings).then_some(0),
         ribbon_tab: ui_ribbon::RibbonTabKind::default(),
         settings_found: None,
@@ -3472,11 +3510,16 @@ pub fn start() {
 
     // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
     let mut config = azul_appkit::ui::app_config(&state.kit);
+    // The design draws azul's monochrome Material icons in the icon ink under flora as well,
+    // not the flora theme's colourful Haiku pack.
+    azul_appkit::ui::remove_kit_icons(&mut config);
     // AzDrive's words, appkit's and the kit's error table for the engine's localization.
     l10n::register(&mut config);
     // The design's typeface, Calmet UI (regular and italic): the app ships it, not libazul.
     // Its stack is `azul_fonts_calmet::STACK`.
     azul_fonts_calmet::register(&mut config);
+    // "Calmet everywhere" (SPEC 5): the theme's widgets set their words and capitals in it too.
+    config.set_theme_font(AzString::from(azul_fonts_calmet::STACK));
     let mut window = azul_appkit::ui::window_options(
         &state.kit,
         layout,
