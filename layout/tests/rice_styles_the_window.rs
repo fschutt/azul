@@ -150,11 +150,9 @@ fn a_universal_rice_rule_reaches_every_node() {
 }
 
 /// The design's `widgets` slot "beats widget inline": a widget's static inline properties
-/// (`with_css_props`, `NodeData::style`) are looked up BEFORE every stylesheet rule in
-/// `CssPropertyCache` (its "PRIORITY 1"), whatever the rule's priority. Needs the
-/// inline-vs-component unification that puts inline declarations at `rule_priority::INLINE`.
+/// (`with_css_props`, `NodeData::style`) sit at `rule_priority::INLINE`, and a rule above
+/// that priority (the rice's `widgets`, 35) wins over them, as a higher cascade origin wins.
 #[test]
-#[ignore = "needs inline properties ordered by rule_priority::INLINE (inline-vs-component unification)"]
 fn a_widgets_rice_beats_a_widgets_static_inline_property() {
     use azul_css::{
         dynamic_selector::CssPropertyWithConditions,
