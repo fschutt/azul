@@ -109,6 +109,41 @@ XML
   ( cd "$out" && dotnet run -c Release )
 }
 
+# ---- Java / Scala -------------------------------------------------------------
+# Every generated class plus the program, against JNA. Scala compiles against
+# the same classes.
+JNA_JAR="${JNA_JAR:-$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar}"
+JDK_BIN="${JAVA_HOME:+$JAVA_HOME/bin/}"
+[ -z "$JDK_BIN" ] && [ -x /opt/homebrew/opt/openjdk/bin/javac ] && JDK_BIN=/opt/homebrew/opt/openjdk/bin/
+
+java_classes() {
+  local out="$WORK_DIR/java"
+  [ -f "$out/classes/com/azul/AzulOptions.class" ] && [ "$out/classes" -nt "$CODEGEN_DIR/java" ] && return 0
+  rm -rf "$out"; mkdir -p "$out/classes"
+  find "$CODEGEN_DIR/java" -name '*.java' > "$out/sources.txt"
+  "${JDK_BIN}javac" -nowarn -encoding UTF-8 -J-Xmx3g -cp "$JNA_JAR" -d "$out/classes" @"$out/sources.txt"
+}
+
+smoke_java() {
+  java_classes || return 1
+  local out="$WORK_DIR/java"
+  "${JDK_BIN}javac" -nowarn -encoding UTF-8 -cp "$out/classes:$JNA_JAR" -d "$out/smoke" "$SRC_DIR/java.java" || return 1
+  "${JDK_BIN}java" -Djna.library.path="$LIB_DIR" -cp "$out/smoke:$out/classes:$JNA_JAR" NativeOptionals
+}
+
+smoke_scala() {
+  java_classes || return 1
+  local out="$WORK_DIR/scala"; rm -rf "$out"; mkdir -p "$out"
+  # The JDK the classes were compiled with, not one scala-cli would fetch.
+  local jhome="${JAVA_HOME:-}"
+  [ -z "$jhome" ] && jhome="$(cd "$("${JDK_BIN}java" -XshowSettings:properties -version 2>&1 \
+    | sed -n 's/^ *java.home = //p')" 2>/dev/null && pwd)"
+  # A copy, so scala-cli's .scala-build / .bsp land in the work dir.
+  cp "$SRC_DIR/scala.scala" "$out/" || return 1
+  scala-cli run "$out/scala.scala" --server=false ${jhome:+--java-home "$jhome"} -J -Djna.library.path="$LIB_DIR" \
+    --extra-jars "$WORK_DIR/java/classes" --extra-jars "$JNA_JAR" --main-class NativeOptionalsScala
+}
+
 status=0
 for lang in "${LANGS[@]}"; do
   echo "=== native optionals [$lang] ==="

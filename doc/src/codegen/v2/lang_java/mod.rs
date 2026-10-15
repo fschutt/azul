@@ -51,6 +51,7 @@ pub mod functions;
 pub mod managed;
 pub mod pom;
 pub mod types;
+pub mod options;
 pub mod wrappers;
 
 use anyhow::Result;
