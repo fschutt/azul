@@ -210,18 +210,49 @@ impl Hash for FontStack {
 pub struct FontHash {
     /// The hash of the `ParsedFont`. 0 means invalid/unknown font.
     pub font_hash: u64,
+    /// Draw the face thickened (synthetic bold): the text asks for a bold
+    /// weight and the face it matched has no bold cut. Read by both
+    /// rasterizers (`crate::cpurender::embolden`); lookups by face use
+    /// `font_hash` alone, so a reader that cannot thicken draws the face as
+    /// it is. Part of the run's identity, so a run that turns bold repaints.
+    pub synthetic_bold: bool,
 }
 
 impl FontHash {
     #[must_use]
     pub const fn invalid() -> Self {
-        Self { font_hash: 0 }
+        Self {
+            font_hash: 0,
+            synthetic_bold: false,
+        }
     }
 
     #[must_use]
     pub const fn from_hash(font_hash: u64) -> Self {
-        Self { font_hash }
+        Self {
+            font_hash,
+            synthetic_bold: false,
+        }
     }
+
+    /// This face, drawn thickened when `on` ([`Self::synthetic_bold`]).
+    #[must_use]
+    pub const fn with_synthetic_bold(self, on: bool) -> Self {
+        Self {
+            font_hash: self.font_hash,
+            synthetic_bold: on,
+        }
+    }
+}
+
+/// Whether text is drawn thickened (synthetic bold) from a face whose OS/2
+/// weight class is `face_weight` (`None` when the face does not say): the
+/// text asks for a bold weight (600 or more, [`StyleProperties::asks_for_bold`];
+/// CSS Fonts 4 `font-synthesis-weight: auto`) and the face is lighter than
+/// that. A face that does not tell its weight is never thickened.
+#[must_use]
+pub fn needs_synthetic_bold(asks_for_bold: bool, face_weight: Option<u16>) -> bool {
+    asks_for_bold && face_weight.is_some_and(|w| w > 0 && w < 600)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -452,6 +483,23 @@ impl StyleProperties {
         self.font_stack
             .first_selector()
             .is_some_and(|s| s.weight >= FcWeight::Bold)
+    }
+
+    /// The weight the text asks its faces for, `None` for a direct font
+    /// reference (an embedded icon font), which has no weight to ask for.
+    /// The display list compares it with the matched face's weight to
+    /// decide on synthetic bold ([`needs_synthetic_bold`]).
+    #[must_use]
+    pub fn requested_weight(&self) -> Option<FcWeight> {
+        self.font_stack.first_selector().map(|s| s.weight)
+    }
+
+    /// Whether the text asks for a bold weight (600 or more), the weights
+    /// a face without a bold cut is thickened for.
+    #[must_use]
+    pub fn asks_for_bold(&self) -> bool {
+        self.requested_weight()
+            .is_some_and(|w| w >= FcWeight::SemiBold)
     }
 
     /// Whether the text reads as italic: oblique is a slanted rendering of an

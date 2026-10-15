@@ -281,7 +281,7 @@ mod set {
             let mut glyph_cache = GlyphCache::new();
             super::super::raster::render_text(
                 &glyphs,
-                FontHash { font_hash: hash },
+                FontHash::from_hash(hash),
                 size,
                 style.color,
                 &mut pixmap,
@@ -456,7 +456,7 @@ mod set {
             };
             super::super::raster::render_text(
                 &glyphs,
-                FontHash { font_hash: hash },
+                FontHash::from_hash(hash),
                 size_px,
                 color,
                 pixmap,

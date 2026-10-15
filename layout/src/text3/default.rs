@@ -228,6 +228,14 @@ impl ParsedFontTrait for FontRef {
         crate::font_ref_to_parsed_font(self)
             .has_gsub_feature_tag(to_opentype_script_tag(script), u32::from_be_bytes(tag))
     }
+
+    fn weight_class(&self) -> Option<u16> {
+        // 0: the face has no OS/2 table and does not say.
+        let weight = crate::font_ref_to_parsed_font(self)
+            .pdf_font_metrics
+            .us_weight_class;
+        (weight > 0).then_some(weight)
+    }
 }
 
 /// Extension trait for `FontRef` to provide access to font bytes and metrics

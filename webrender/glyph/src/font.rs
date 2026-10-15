@@ -17,7 +17,7 @@ use agg_rust::{
     scanline_u::ScanlineU8,
     trans_affine::TransAffine,
 };
-use api::{FontKey, FontRenderMode, GlyphDimensions};
+use api::{FontInstanceFlags, FontKey, FontRenderMode, GlyphDimensions};
 use azul_core::resources::{
     GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo, OutlineQuadTo,
 };
@@ -91,14 +91,14 @@ impl FontContext {
         // Calculate the pixel scale from font units.
         let scale = font.size.to_f32_px() / units_per_em;
 
-        let bb = &glyph.bounding_box;
-        let width = ((bb.max_x - bb.min_x) as f32 * scale).ceil() as i32;
-        let height = ((bb.max_y - bb.min_y) as f32 * scale).ceil() as i32;
+        let (min_x, min_y, max_x, max_y) = glyph_extent(font, &glyph, scale);
+        let width = ((max_x - min_x) * scale).ceil() as i32;
+        let height = ((max_y - min_y) * scale).ceil() as i32;
         let advance = glyph.horz_advance as f32 * scale;
 
         let dim = GlyphDimensions {
-            left: (bb.min_x as f32 * scale).floor() as i32,
-            top: (bb.max_y as f32 * scale).ceil() as i32, // Note: Y is up in font coordinates
+            left: (min_x * scale).floor() as i32,
+            top: (max_y * scale).ceil() as i32, // Note: Y is up in font coordinates
             width: width.max(0),
             height: height.max(0),
             advance,
@@ -143,7 +143,7 @@ impl FontContext {
         let scale = font.size.to_f32_px() / units_per_em;
 
         // Check if glyph has an outline - glyphs without outlines (like spaces) return empty
-        let Some(mut path) = build_path_from_outline(&owned_glyph) else {
+        let Some(path) = build_path_from_outline(&owned_glyph) else {
             // Glyph exists but has no outline (e.g., space character)
             return Ok(RasterizedGlyph {
                 left: 0.0,
@@ -156,17 +156,33 @@ impl FontContext {
             });
         };
 
-        let bb = &owned_glyph.bounding_box;
+        // A run in synthetic bold draws the outline thickened, as the CPU
+        // renderer does; its box grows with it.
+        let strength_units = synthetic_bold_units(font, scale);
+        let mut path = if strength_units > 0.0 {
+            azul_layout::cpurender::embolden::emboldened_path(&path, f64::from(strength_units))
+        } else {
+            path
+        };
+        let (min_x, min_y, max_x, max_y) = if strength_units > 0.0 {
+            path_extent(&path)
+        } else {
+            let bb = &owned_glyph.bounding_box;
+            (
+                f32::from(bb.min_x),
+                f32::from(bb.min_y),
+                f32::from(bb.max_x),
+                f32::from(bb.max_y),
+            )
+        };
         // Add 1px padding on each side to prevent clipping from anti-aliasing.
         let padding = 1.0_f32;
-        let pixel_width =
-            ((bb.max_x - bb.min_x) as f32 * scale).ceil() as u32 + (padding * 2.0) as u32;
-        let pixel_height =
-            ((bb.max_y - bb.min_y) as f32 * scale).ceil() as u32 + (padding * 2.0) as u32;
+        let pixel_width = ((max_x - min_x) * scale).ceil() as u32 + (padding * 2.0) as u32;
+        let pixel_height = ((max_y - min_y) * scale).ceil() as u32 + (padding * 2.0) as u32;
 
         // The top-left corner of the glyph's bounding box in pixel space.
-        let left = (bb.min_x as f32 * scale).floor();
-        let top = (bb.max_y as f32 * scale).ceil();
+        let left = (min_x * scale).floor();
+        let top = (max_y * scale).ceil();
 
         // Glyphs with zero dimensions are valid (e.g., some diacritics or control chars)
         if pixel_width == 0 || pixel_height == 0 || pixel_width > 4096 || pixel_height > 4096 {
@@ -230,6 +246,59 @@ impl FontContext {
 
         Ok(rr)
     }
+}
+
+/// How far each side of a glyph moves out in font units when `font` draws
+/// in synthetic bold (WebRender's `SYNTHETIC_BOLD` flag, which azul sets on
+/// a run whose face has no bold cut); 0 otherwise. The strength is the CPU
+/// renderer's (`azul_layout::cpurender::embolden`), from the size in device
+/// pixels, so both draw the same stems.
+fn synthetic_bold_units(font: &FontInstance, scale: f32) -> f32 {
+    if !font.flags.contains(FontInstanceFlags::SYNTHETIC_BOLD) || scale <= 0.0 {
+        return 0.0;
+    }
+    azul_layout::cpurender::embolden::synthetic_bold_strength_px(font.size.to_f32_px()) / scale
+}
+
+/// The glyph's box in font units, y up: `(min_x, min_y, max_x, max_y)`. In
+/// synthetic bold it is the thickened outline's box.
+fn glyph_extent(font: &FontInstance, glyph: &OwnedGlyph, scale: f32) -> (f32, f32, f32, f32) {
+    let bb = &glyph.bounding_box;
+    let plain = (
+        f32::from(bb.min_x),
+        f32::from(bb.min_y),
+        f32::from(bb.max_x),
+        f32::from(bb.max_y),
+    );
+    let strength_units = synthetic_bold_units(font, scale);
+    if strength_units <= 0.0 {
+        return plain;
+    }
+    match build_path_from_outline(glyph) {
+        Some(path) => path_extent(&azul_layout::cpurender::embolden::emboldened_path(
+            &path,
+            f64::from(strength_units),
+        )),
+        None => plain,
+    }
+}
+
+/// The box of a path built by [`build_path_from_outline`] (y down), back in
+/// font units with y up: `(min_x, min_y, max_x, max_y)`. The control
+/// points are included, so the box holds the curves.
+fn path_extent(path: &PathStorage) -> (f32, f32, f32, f32) {
+    let mut ext = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for v in path.vertices() {
+        if !agg_rust::basics::is_vertex(v.cmd) {
+            continue;
+        }
+        ext = (ext.0.min(v.x), ext.1.min(v.y), ext.2.max(v.x), ext.3.max(v.y));
+    }
+    if ext.0 > ext.2 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+    // y was negated when the path was built.
+    (ext.0 as f32, -ext.3 as f32, ext.2 as f32, -ext.1 as f32)
 }
 
 /// Converts an `azul-layout` `OwnedGlyph` outline into an agg-rust `PathStorage`.

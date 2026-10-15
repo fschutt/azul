@@ -4461,6 +4461,22 @@ where
         }
     }
 
+    /// The face a run is drawn in: `font_hash`, thickened (synthetic bold)
+    /// when the run asks for bold and the face has no bold cut, the way
+    /// Chrome draws a bold word in a family with only a regular face.
+    fn run_face(&self, font_hash: u64, asks_for_bold: bool) -> FontHash {
+        let face = FontHash::from_hash(font_hash);
+        if !asks_for_bold {
+            return face;
+        }
+        let face_weight = self
+            .ctx
+            .font_manager
+            .get_font_by_hash(font_hash)
+            .and_then(|font| font.weight_class());
+        face.with_synthetic_bold(text3::cache::needs_synthetic_bold(true, face_weight))
+    }
+
     /// Prove the SOLID OPAQUE color a text run inside this IFC sits on, or
     /// `None`. Correct-by-construction: only claims a background when the
     /// nearest layout ancestor that paints ANY background paints exactly one
@@ -8261,9 +8277,7 @@ where
             if g.font_hash != run_hash && !run.is_empty() {
                 builder.push_text_run(
                     core::mem::take(&mut run),
-                    FontHash {
-                        font_hash: run_hash,
-                    },
+                    self.run_face(run_hash, style.asks_for_bold()),
                     style.font_size_px,
                     color,
                     content_box,
@@ -8285,9 +8299,7 @@ where
         if !run.is_empty() {
             builder.push_text_run(
                 run,
-                FontHash {
-                    font_hash: run_hash,
-                },
+                self.run_face(run_hash, style.asks_for_bold()),
                 style.font_size_px,
                 color,
                 content_box,
@@ -9043,6 +9055,7 @@ where
         Some(TextOverflowEllipsis {
             glyphs,
             font_size_px: style.font_size_px,
+            asks_for_bold: style.asks_for_bold(),
             color: super::getters::get_used_text_color(sd, dom_id, &state),
             cuts,
         })
@@ -9052,6 +9065,7 @@ where
     /// glyphs it replaces are left out of the runs), the content box's top
     /// left at `origin`.
     fn paint_ellipses(
+        &self,
         builder: &mut DisplayListBuilder,
         ellipsis: &TextOverflowEllipsis,
         origin: LogicalPosition,
@@ -9069,7 +9083,7 @@ where
                 if g.font_hash != run_hash && !run.is_empty() {
                     builder.push_text_run(
                         core::mem::take(&mut run),
-                        FontHash::from_hash(run_hash),
+                        self.run_face(run_hash, ellipsis.asks_for_bold),
                         ellipsis.font_size_px,
                         ellipsis.color,
                         clip_rect,
@@ -9088,7 +9102,7 @@ where
             if !run.is_empty() {
                 builder.push_text_run(
                     run,
-                    FontHash::from_hash(run_hash),
+                    self.run_face(run_hash, ellipsis.asks_for_bold),
                     ellipsis.font_size_px,
                     ellipsis.color,
                     clip_rect,
@@ -9514,7 +9528,7 @@ where
                         builder.next_text_selection_colors = Some((live_color, *selected_color));
                         builder.push_text_run(
                             normal,
-                            FontHash::from_hash(glyph_run.font_hash),
+                            self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                             glyph_run.font_size_px,
                             live_color,
                             clip_rect,
@@ -9526,7 +9540,7 @@ where
                         builder.next_text_selection_colors = Some((live_color, *selected_color));
                         builder.push_text_run(
                             selected,
-                            FontHash::from_hash(glyph_run.font_hash),
+                            self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                             glyph_run.font_size_px,
                             *selected_color,
                             clip_rect,
@@ -9540,7 +9554,7 @@ where
                 None => {
                     builder.push_text_run(
                         offset_glyphs,
-                        FontHash::from_hash(glyph_run.font_hash),
+                        self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                         glyph_run.font_size_px,
                         live_color,
                         clip_rect,
@@ -9620,7 +9634,7 @@ where
         // The ellipses, after the text they end (in the root's colour, on the
         // background the IFC proved).
         if let Some(ellipsis) = ellipsis {
-            Self::paint_ellipses(
+            self.paint_ellipses(
                 builder,
                 ellipsis,
                 container_rect.origin,
@@ -12517,6 +12531,9 @@ pub(crate) fn line_clamp_cut(
 struct TextOverflowEllipsis {
     glyphs: Vec<crate::text3::cache::Glyph>,
     font_size_px: f32,
+    /// The root's text asks for bold: the ellipsis is thickened like the
+    /// text it ends when its face has no bold cut.
+    asks_for_bold: bool,
     color: ColorU,
     cuts: Vec<EllipsisCut>,
 }
