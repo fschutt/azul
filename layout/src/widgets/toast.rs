@@ -11,16 +11,11 @@
 //! by setting `display: none` on the container via `set_css_property` (mirroring
 //! alert's / check_box's live restyle).
 //!
-//! TODO2 — **auto-dismiss is intentionally NOT implemented (be honest, don't fake
-//! it).** A real toast disappears on its own after N seconds. That requires a
-//! host-driven `Timer`/`Update` loop that re-enters the event loop on a clock
-//! tick and flips `visible` to `false` — a widget handler cannot *start* such a
-//! timer (it only runs in response to an input event, with no access to schedule
-//! a future wakeup). This is the same limitation the spinner hit with CSS
-//! animation: there is no widget-local timer. So this widget ships a **manually**
-//! dismissable toast (the "x"); a host that wants auto-timeout must register a
-//! `Timer` itself and call `set_css_property(display: none)` (or rebuild without
-//! the toast) when it fires.
+//! A toast with [`Toast::auto_dismiss_ms`] leaves on its own: when its card
+//! mounts it starts a one-shot timer of that length, which closes it the way
+//! its "x" does (the app's `on_dismiss` hears it, so the app drops the toast
+//! from its model). [`ToastStack`] lays a window's toasts out at the bottom
+//! centre, the newest at the bottom, a few at a time.
 //!
 //! TODO2 — covering sibling widgets relies on paint order (being a later sibling)
 //! because there is no real stacking-context / z-index, and a drop `box-shadow`
@@ -28,7 +23,8 @@
 //! `progressbar.rs`); the border + radius over the page convey the floating card.
 //! The `display:none` relayout itself is not GUI-verified in this build.
 //!
-//! Key types: [`Toast`], [`ToastKind`], [`ToastState`], [`ToastOnDismiss`].
+//! Key types: [`Toast`], [`ToastStack`], [`ToastKind`], [`ToastState`],
+//! [`ToastOnDismiss`].
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
@@ -78,6 +74,11 @@ static TOAST_MESSAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 ))];
 static TOAST_CLOSE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-toast-close"))];
+static TOAST_STACK_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-toast-stack"))];
+
+/// The room between two stacked toasts, in px.
+const TOAST_STACK_GAP: isize = 6;
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -371,10 +372,180 @@ impl ToastStack {
         self
     }
 
-    /// The stack's DOM.
+    /// The stack's DOM: a column centred on the parent's bottom edge (the
+    /// parent must be positioned), each toast a card in it.
     #[must_use]
     pub fn dom(self) -> Dom {
+        let Self {
+            toasts,
+            max_visible,
+            bottom_inset,
+        } = self;
+        let live: Vec<Toast> = toasts
+            .into_library_owned_vec()
+            .into_iter()
+            .filter(|t| t.toast_state.inner.visible)
+            .collect();
+        let skip = live.len().saturating_sub(max_visible);
+        let cards: Vec<Dom> = live.into_iter().skip(skip).map(|t| in_column(t.dom())).collect();
         Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_STACK_CLASS))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(stack_style(bottom_inset)))
+            .with_children(cards.into())
+    }
+}
+
+/// The stack's column: absolutely placed, its middle on the parent's middle
+/// (left at half the parent, pulled back by half its own width), its foot
+/// `bottom_inset` px above the parent's bottom edge.
+fn stack_style(bottom_inset: u32) -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::{
+        basic::pixel::PixelValue,
+        layout::LayoutLeft,
+        style::{StyleTransform, StyleTransformVec},
+    };
+    let simple = CssPropertyWithConditions::simple;
+    alloc::vec![
+        simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        simple(CssProperty::const_left(LayoutLeft::percent(50.0))),
+        simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(
+            isize::try_from(bottom_inset).unwrap_or(isize::MAX),
+        ))),
+        simple(CssProperty::const_transform(StyleTransformVec::from_vec(alloc::vec![
+            StyleTransform::TranslateX(PixelValue::percent(-50.0)),
+        ]))),
+        simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+        simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    ]
+}
+
+/// A toast's card as one of the stack's: in the column's flow (every card is
+/// pinned to its parent's corner on its own) with the gap above it.
+fn in_column(mut card: Dom) -> Dom {
+    let mut props: Vec<CssPropertyWithConditions> = card
+        .root
+        .style
+        .iter_inline_properties()
+        .map(|(property, apply_if)| CssPropertyWithConditions {
+            property: property.clone(),
+            apply_if: apply_if.clone(),
+        })
+        .collect();
+    // Last, so they win over the card's own placement in every theme.
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_position(
+        LayoutPosition::Static,
+    )));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_margin_top(
+        azul_css::props::layout::LayoutMarginTop::const_px(TOAST_STACK_GAP),
+    )));
+    card.root.set_css_props(CssPropertyWithConditionsVec::from_vec(props));
+    card
+}
+
+/// The card of an auto-dismissing toast carries this as its dataset: the
+/// timer that closes the toast checks it, so a rebuild that put another
+/// node at the card's place is never hidden by an old timer.
+struct ToastMark {
+    token: usize,
+}
+
+/// What an auto-dismissing card's mount hears: the toast's state (shared with
+/// its "x"), its time on screen and its card's token.
+struct ToastClock {
+    state: RefAny,
+    ms: u32,
+    token: usize,
+}
+
+/// What the timer that closes a toast carries.
+struct ToastTimeout {
+    state: RefAny,
+    card: azul_core::dom::DomNodeId,
+    token: usize,
+}
+
+/// A token no other card of this process carries.
+fn next_toast_token() -> usize {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// An auto-dismissing card mounted: its clock starts. One timer, first run
+/// after `ms` (and woken no sooner: the interval is the same span).
+extern "C" fn on_toast_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::task::{Duration, SystemTimeDiff, TimerId};
+
+    use crate::timer::{Timer, TimerCallback};
+
+    let card = info.get_hit_node();
+    let Some((state, ms, token)) = data
+        .downcast_ref::<ToastClock>()
+        .map(|c| (c.state.clone(), c.ms, c.token))
+    else {
+        return Update::DoNothing;
+    };
+    let span = Duration::System(SystemTimeDiff::from_millis(u64::from(ms)));
+    let timer = Timer::create(
+        RefAny::new(ToastTimeout { state, card, token }),
+        TimerCallback::create(on_toast_timeout),
+        info.get_system_time_fn(),
+    )
+    .with_delay(span.clone())
+    .with_interval(span);
+    info.add_timer(TimerId::unique(), timer);
+    Update::DoNothing
+}
+
+/// A toast's time is up: it closes as its "x" closes it - `visible` off, the
+/// app's `on_dismiss` told - unless it was closed already; its card hides if
+/// it is still this toast's.
+extern "C" fn on_toast_timeout(
+    mut data: RefAny,
+    mut info: crate::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::{callbacks::TimerCallbackReturn, task::TerminateTimer};
+
+    let Some((mut state, card, token)) = data
+        .downcast_ref::<ToastTimeout>()
+        .map(|t| (t.state.clone(), t.card, t.token))
+    else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let info = info.get_callback_info_mut();
+    let update = {
+        let Some(mut toast) = state.downcast_mut::<ToastStateWrapper>() else {
+            return TimerCallbackReturn::terminate_unchanged();
+        };
+        if !toast.inner.visible {
+            return TimerCallbackReturn::terminate_unchanged();
+        }
+        toast.inner.visible = false;
+        let inner = toast.inner;
+        let toast = &mut *toast;
+        match toast.on_dismiss.as_mut() {
+            Some(ToastOnDismiss { callback, refany }) => {
+                callback.invoke(refany.clone(), *info, inner)
+            }
+            None => Update::DoNothing,
+        }
+    };
+    let still_ours = match info.get_dataset(card) {
+        Some(mut dataset) => {
+            let ours = dataset
+                .downcast_ref::<ToastMark>()
+                .is_some_and(|mark| mark.token == token);
+            ours
+        }
+        None => false,
+    };
+    if still_ours {
+        info.set_css_property(card, CssProperty::const_display(LayoutDisplay::None));
+    }
+    TimerCallbackReturn {
+        should_update: update,
+        should_terminate: TerminateTimer::Terminate,
     }
 }
 
@@ -810,6 +981,9 @@ impl Toast {
             .with_css_props(skin.message);
 
         let mut children = alloc::vec![message];
+        // One state for the "x" and the clock, so whichever closes the toast
+        // first, the other finds it closed.
+        let state = RefAny::new(self.toast_state);
 
         if self.dismissible {
             let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
@@ -835,7 +1009,7 @@ impl Toast {
                             cb: default_on_toast_dismiss as usize,
                             ctx: OptionRefAny::None,
                         },
-                        refany: RefAny::new(self.toast_state),
+                        refany: state.clone(),
                     }]
                     .into(),
                 );
@@ -844,10 +1018,30 @@ impl Toast {
 
         let mut classes: Vec<IdOrClass> = TOAST_CONTAINER_CLASS.to_vec();
         classes.push(style_kit::marker(skin.theme));
-        Dom::create_div()
+        let card = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
-            .with_children(children.into())
+            .with_children(children.into());
+        if self.auto_dismiss_ms == 0 {
+            return card;
+        }
+        let token = next_toast_token();
+        card.with_dataset(OptionRefAny::Some(RefAny::new(ToastMark { token })))
+            .with_callbacks(
+                alloc::vec![CoreCallbackData {
+                    event: EventFilter::Component(azul_core::dom::ComponentEventFilter::AfterMount),
+                    callback: CoreCallback {
+                        cb: on_toast_mounted as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: RefAny::new(ToastClock {
+                        state,
+                        ms: self.auto_dismiss_ms,
+                        token,
+                    }),
+                }]
+                .into(),
+            )
     }
 }
 
