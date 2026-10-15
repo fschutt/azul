@@ -475,3 +475,27 @@ fn pascal_reads_options_and_results_with_try_get() {
         ],
     );
 }
+
+/// Fortran declares a tagged union as an opaque blob, so before this an
+/// Option's payload could not be read at all. Optional values have no
+/// Fortran type; a generic `azul_try_get_some` / `_ok` / `_err` copies the
+/// payload out of the blob or answers `.false.`.
+#[test]
+fn fortran_reads_options_and_results_with_try_get() {
+    let path = "fortran/azul_api.f90";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "interface azul_try_get_some",
+            "interface azul_try_get_ok",
+            "interface azul_try_get_err",
+            "public :: azul_try_get_some, azul_try_get_ok, azul_try_get_err",
+            "type(AzOptionFilePath), intent(in), target :: o",
+            "type(AzFilePath), intent(out) :: v",
+            "type(AzResultUrlUrlParseError), intent(in), target :: res",
+            "type(AzUrlParseError), intent(out) :: e",
+        ],
+    );
+}
