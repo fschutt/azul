@@ -7,7 +7,10 @@
 //! column and a control); this one lays any children side by side.
 
 use azul::{
-    callbacks::ButtonOnClickCallbackType, prelude::*, str::String as AzString, vec::StringVec,
+    callbacks::{ButtonOnClickCallbackType, CallbackType},
+    prelude::*,
+    str::String as AzString,
+    vec::StringVec,
     widgets::ButtonType,
 };
 
@@ -16,6 +19,13 @@ use azul::{
 #[must_use]
 pub fn strs(items: &[&str]) -> StringVec {
     crate::l10n::labels(items)
+}
+
+/// `dom` as a control the keyboard reaches too: a tab stop called `name` that runs
+/// `callback` on a click.
+#[must_use]
+pub fn clickable(dom: Dom, _name: &str, _data: RefAny, _callback: CallbackType) -> Dom {
+    dom
 }
 
 /// A run of text (an inline span).

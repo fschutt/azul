@@ -95,6 +95,8 @@ mod l10n_tests;
 mod l10n_switch_tests;
 #[cfg(all(test, feature = "azul"))]
 mod title_insets_tests;
+#[cfg(all(test, feature = "azul"))]
+mod clickable_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
