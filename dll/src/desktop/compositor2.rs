@@ -1274,6 +1274,7 @@ pub fn translate_displaylist_to_wr(
                     &info,
                     glyphs,
                     font_hash.font_hash,
+                    font_hash.synthetic_bold,
                     *color,
                     renderer_resources,
                     dpi,
@@ -2681,6 +2682,9 @@ fn push_text(
     info: &CommonItemProperties,
     glyphs: &[GlyphInstance],
     font_hash: u64,
+    // The run is drawn in synthetic bold: its face has no bold cut, so the
+    // glyph rasterizer thickens the outlines (WebRender's SYNTHETIC_BOLD).
+    synthetic_bold: bool,
     color: ColorU,
     renderer_resources: &azul_core::resources::RendererResources,
     dpi: DpiScaleFactor,
@@ -2765,7 +2769,10 @@ fn push_text(
         &wr_glyphs,
         wr_font_instance_key,
         wr_translate_color_f(wr_color),
-        None, // glyph_options
+        synthetic_bold.then_some(webrender::api::GlyphOptions {
+            render_mode: webrender::api::FontRenderMode::Subpixel,
+            flags: webrender::api::FontInstanceFlags::SYNTHETIC_BOLD,
+        }),
     );
 }
 
