@@ -377,3 +377,22 @@ fn the_generated_text_paints() {
         "the div is empty, so every inked pixel is the generated text: got {inked}"
     );
 }
+
+#[test]
+fn a_nodes_own_with_css_after_decorates_that_node_alone() {
+    use azul_core::dom::Dom;
+    let dom = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_class("owner".into())
+            .with_css("::after { content: \"!\"; }")
+            .with_child(Dom::create_div().with_class("inner".into())),
+    );
+    let styled = StyledDom::create_from_dom(dom);
+    let owner = with_class(&styled, "owner");
+    let inner = with_class(&styled, "inner");
+    assert_eq!(generated_text(&styled, owner, false), "!");
+    assert!(
+        generated_node(&styled, inner, false).is_none(),
+        "the owner's ::after is not every descendant's"
+    );
+}
