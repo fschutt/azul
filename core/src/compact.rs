@@ -458,6 +458,42 @@ impl CssPropertyCache {
         result
     }
 
+    /// Writes `prop`, the value an override now gives `node`, into the node's compact
+    /// entries in place, for a property no other node takes from it (not inherited).
+    /// An override outranks every other source of the property, so this is what a
+    /// rebuild would encode for that field, and no other field or node changes: a
+    /// layout tween's frame then refreshes one node instead of rebuilding the compact
+    /// cache of the whole DOM. Returns false, having changed nothing, where a rebuild
+    /// is needed (an inherited property, no compact cache, a node outside it).
+    pub fn patch_compact_node_property(&mut self, node: NodeId, prop: &CssProperty) -> bool {
+        if prop.get_type().is_inheritable() {
+            return false;
+        }
+        let Some(cc) = self.compact_cache.as_mut() else {
+            return false;
+        };
+        let i = node.index();
+        let (Some(tier1), Some(dims), Some(cold), Some(text)) = (
+            cc.tier1_enums.get_mut(i),
+            cc.tier2_dims.get_mut(i),
+            cc.tier2_cold.get_mut(i),
+            cc.tier2b_text.get_mut(i),
+        ) else {
+            return false;
+        };
+        apply_css_property_to_compact(
+            prop,
+            tier1,
+            dims,
+            cold,
+            text,
+            &mut cc.font_hash_to_families,
+        );
+        cc.uses_viewport_units |= css_property_uses_viewport_units(prop);
+        update_dom_declared_flags(prop, &mut cc.dom_declared_flags);
+        true
+    }
+
     /// Build compact cache with inheritance in a single pass.
     ///
     /// Replaces the separate `compute_inherited_values()` + `build_compact_cache()` calls.

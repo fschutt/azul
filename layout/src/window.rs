@@ -16829,6 +16829,10 @@ impl LayoutWindow {
             // re-emitted node the patch cannot vouch for.
             let mut tree_shape_kept = true;
             let mut paint_restyled = false;
+            // A tween's value went into its node's compact entry in place
+            // (`patch_compact_node_property`): the cascade generation moves
+            // as a rebuild would move it.
+            let mut compact_patched = false;
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
                     if tr.delay_s > 0.0 {
@@ -17025,10 +17029,24 @@ impl LayoutWindow {
                         // derived tables are refreshed once after the loop.
                         // `restyle_user_property` per tween rebuilt the
                         // compact cache of the whole DOM per tween per frame
-                        // (2.75 ms each in AzWidgets).
-                        needs_restyle = true;
-                        restyle_fonts |=
-                            tr.prop_type.can_trigger_relayout() || tr.prop_type.is_inheritable();
+                        // (2.75 ms each in AzWidgets). A value no other node
+                        // inherits (a margin, a width) is written into the
+                        // node's compact entry instead, while the override
+                        // stands; the frame that hands the value back to the
+                        // cascade rebuilds.
+                        let override_stands = tr.t < 1.0 || tr.keeps_target;
+                        let patched = override_stands
+                            && result
+                                .styled_dom
+                                .get_css_property_cache_mut()
+                                .patch_compact_node_property(tr.node, &over);
+                        if patched {
+                            compact_patched = true;
+                        } else {
+                            needs_restyle = true;
+                            restyle_fonts |= tr.prop_type.can_trigger_relayout()
+                                || tr.prop_type.is_inheritable();
+                        }
                         dirty.push((tr.node, tr.scope));
                         if tr.scope == azul_css::props::property::RelayoutScope::None {
                             paint_restyled = true;
@@ -17101,6 +17119,9 @@ impl LayoutWindow {
                             .get_css_property_cache_mut()
                             .invalidate_resolved_font_sizes();
                     }
+                } else if compact_patched {
+                    let cache = result.styled_dom.get_css_property_cache_mut();
+                    cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
                 }
             }
             if !patch_jobs.is_empty() || !layer_jobs.is_empty() {
