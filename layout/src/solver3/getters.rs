@@ -6449,6 +6449,10 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
     for font_ref in collected.font_refs.values() {
         font_manager.register_embedded_font(font_ref);
     }
+    // The faces the app registered while it runs match by family like the
+    // manager's own (`text3::fontreg`), put into this cache first.
+    let memory_families =
+        crate::text3::fontreg::with_runtime_faces(&font_manager.memory_families, fc_cache);
 
     // Fast path (rust-fontconfig 4.2): when a registry is attached
     // we can resolve each stack by cmap-probing candidate files
@@ -6464,12 +6468,10 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
     if let Some(registry) = font_manager.registry.as_deref() {
         let used_chars = collect_used_codepoints_all(styled_dom);
         if !used_chars.is_empty() {
-            let mut fast = resolve_font_chains_fast(
-                &collected,
-                registry,
-                &used_chars,
-                &font_manager.memory_families,
-            );
+            // The registry's cache loads what the probe resolves.
+            let _ = crate::text3::fontreg::ensure_in(&registry.shared_cache());
+            let mut fast =
+                resolve_font_chains_fast(&collected, registry, &used_chars, &memory_families);
             extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));
             return fast;
         }
@@ -6484,7 +6486,7 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
         fc_cache,
         font_manager.registry.as_deref(),
         Some(&scripts),
-        &font_manager.memory_families,
+        &memory_families,
     );
 
     let used_chars = collect_used_codepoints(styled_dom);

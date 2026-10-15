@@ -534,6 +534,10 @@ pub struct LayoutCache {
     /// nodes here, and the paged reconcile builds them fresh with the new
     /// cascade's box props, as `layout_document`'s does. Taken by the pass.
     pub paged_css_dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    /// The runtime font registry's generation this cache was laid out at
+    /// (`text3::fontreg::generation`): when a face is registered, the next
+    /// pass drops the tree and lays the document out cold.
+    pub font_epoch: u64,
     /// Census: did the LAST `layout_document` take a reconcile-skip branch
     /// (resize-only or overrides-only)? The external observable that
     /// distinguishes "skipped the walk" from "walked and found everything

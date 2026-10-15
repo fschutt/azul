@@ -133,6 +133,10 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
         layout_hash.hash(&mut hasher);
         bidi_level.hash(&mut hasher);
         (script as u32).hash(&mut hasher);
+        // A face registered at runtime changes the face a family resolves
+        // to, which the key holds nothing else of: text shaped with the
+        // fallback before must be shaped again.
+        crate::text3::fontreg::generation().hash(&mut hasher);
         let group_key = hasher.finish();
 
         // Check per-item cache

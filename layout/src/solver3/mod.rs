@@ -760,6 +760,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // diff for paint-dirty classification. The dom-id sanity check guards
     // against a stale hint meeting a swapped DOM.
     drop(doc_setup_span);
+    // A face registered at runtime (`text3::fontreg`) changes the face text
+    // naming its family is drawn in: what this cache laid out and shaped
+    // with the fallback is stale, so the document is laid out cold once.
+    let font_epoch = crate::text3::fontreg::generation();
+    if cache.font_epoch != font_epoch {
+        cache.font_epoch = font_epoch;
+        cache.tree = None;
+        cache.cached_display_list = None;
+        cache.resize_only_hint = false;
+        cache.overrides_only_hint = None;
+    }
     let resize_only = core::mem::take(&mut cache.resize_only_hint);
     // OVERRIDES-ONLY SKIP: the frame of a layout-property tween changed no
     // node - only the user override the tween walks (`tick_animations` arms
