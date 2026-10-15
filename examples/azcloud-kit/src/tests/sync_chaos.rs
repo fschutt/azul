@@ -400,3 +400,28 @@ fn a_transient_failure_of_one_upload_lets_the_other_files_reach_the_drive() {
     let index = RemoteIndex::parse(&bucket.read(&index_key("")).unwrap()).unwrap();
     assert!(index.files.contains_key("b.txt"));
 }
+
+#[test]
+fn a_folder_renamed_here_is_no_burst_of_changes() {
+    // 300 files (more than the burst guard's 200) in a folder; the folder renamed: the drive
+    // gets the new names, nothing waits for the user, no bytes go up again.
+    let store = S3Bucket::new();
+    let laptop = Device::new("laptop-rename-burst");
+    for i in 0..300 {
+        laptop.write(&format!("photos/p{i:03}.txt"), format!("photo {i}\n").as_bytes());
+    }
+    laptop.sync(&store);
+    let before = store.count_under("PUT", &format!("{PREFIX}.azlin/blobs/"));
+    laptop.rename_folder("photos", "pictures");
+    let report = laptop.sync(&store);
+    assert!(report.paused.is_none(), "a rename paused the uploads: {:?}", report.paused);
+    assert!(report.mass_delete.is_none());
+    let index = index_of(&store);
+    assert_eq!(index.files.len(), 300);
+    assert!(index.files.keys().all(|k| k.starts_with("pictures/")));
+    assert_eq!(
+        store.count_under("PUT", &format!("{PREFIX}.azlin/blobs/")),
+        before,
+        "a rename moves no bytes"
+    );
+}

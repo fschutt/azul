@@ -88,6 +88,11 @@ impl Device {
         fs::remove_file(path_of(self.folder.path(), key)).unwrap();
     }
 
+    /// Renames the folder `from` to `to` (both under the device's folder).
+    pub(super) fn rename_folder(&self, from: &str, to: &str) {
+        fs::rename(path_of(self.folder.path(), from), path_of(self.folder.path(), to)).unwrap();
+    }
+
     /// Every file but the folder's own bookkeeping.
     fn tree(&self) -> BTreeMap<String, Vec<u8>> {
         let mut out = BTreeMap::new();
