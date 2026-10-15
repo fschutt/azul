@@ -1032,16 +1032,16 @@ mod tests {
     }
 
     #[test]
-    fn the_trail_starts_at_this_pc_then_the_drive_then_the_folders() {
+    fn a_folders_trail_starts_at_its_drive_and_this_pc_is_a_trail_of_its_own() {
         crate::l10n::in_english();
         assert_eq!(
             crumbs_of(&Place::ThisPc, ""),
             vec![("This PC".to_string(), Place::ThisPc)]
         );
+        // SPEC 2.6: the place's icon, then "Home > Documents > ...", no This PC before it.
         assert_eq!(
             crumbs_of(&Place::folder("s3-1", "mail/inbox/"), "S3 Drive"),
             vec![
-                ("This PC".to_string(), Place::ThisPc),
                 ("S3 Drive".to_string(), Place::folder("s3-1", "")),
                 ("mail".to_string(), Place::folder("s3-1", "mail/")),
                 ("inbox".to_string(), Place::folder("s3-1", "mail/inbox/")),
