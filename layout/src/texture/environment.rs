@@ -119,10 +119,10 @@ impl Mip {
         let (x0, x1, y0, y1) = (cx(fx), cx(fx + 1.0), cy(fy), cy(fy + 1.0));
         let at = |x: usize, y: usize| self.texels[y * self.width + x];
         let mut out = [0.0; 3];
-        for c in 0..3 {
+        for (c, slot) in out.iter_mut().enumerate() {
             let top = at(x0, y0)[c] * (1.0 - tx) + at(x1, y0)[c] * tx;
             let bottom = at(x0, y1)[c] * (1.0 - tx) + at(x1, y1)[c] * tx;
-            out[c] = top * (1.0 - ty) + bottom * ty;
+            *slot = top * (1.0 - ty) + bottom * ty;
         }
         out
     }

@@ -193,7 +193,7 @@ impl Material {
 
     /// The image id every window has the material under (`azul-builtin:<name>`).
     #[must_use]
-    pub fn css_name(self) -> alloc::string::String {
+    pub fn css_name(self) -> String {
         alloc::format!(
             "{}{}",
             azul_css::props::style::background::BUILTIN_IMAGE_PREFIX,
@@ -203,24 +203,24 @@ impl Material {
 }
 
 /// The accent as a strip of light: its hue at 60% lightness and 90%
-/// saturation. What the AzDrive design's golden line throws into the content
+/// saturation. What the `AzDrive` design's golden line throws into the content
 /// below it (a gradient from this colour at a low alpha to transparent).
 #[must_use]
+#[allow(clippy::many_single_char_names)] // the HSL formulas' own letters
 pub fn accent_glow(accent: ColorU) -> ColorU {
     let v = [accent.r, accent.g, accent.b].map(|c| f32::from(c) / 255.0);
     let mx = v[0].max(v[1]).max(v[2]);
     let mn = v[0].min(v[1]).min(v[2]);
     let d = mx - mn;
-    let mut hue = 0.0;
-    if d > 0.0 {
-        hue = if mx == v[0] {
-            ((v[1] - v[2]) / d) % 6.0
-        } else if mx == v[1] {
-            (v[2] - v[0]) / d + 2.0
-        } else {
-            (v[0] - v[1]) / d + 4.0
-        };
-    }
+    let hue = if d <= 0.0 {
+        0.0
+    } else if mx == v[0] {
+        ((v[1] - v[2]) / d) % 6.0
+    } else if mx == v[1] {
+        (v[2] - v[0]) / d + 2.0
+    } else {
+        (v[0] - v[1]) / d + 4.0
+    };
     let hue = (hue * 60.0 + 360.0) % 360.0;
     let (l, sat) = (0.6_f32, 0.9_f32);
     let c = (1.0 - (2.0 * l - 1.0).abs()) * sat;

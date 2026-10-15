@@ -3808,7 +3808,7 @@ impl LayoutWindow {
     ///
     /// It is minus [`Self::virtual_view_content_offset`]: the child's
     /// 0-relative content shows from the box's corner at `content_offset`,
-    /// and a frame scrolled by `s` draws its content at `-s`. WebRender draws
+    /// and a frame scrolled by `s` draws its content at `-s`. `WebRender` draws
     /// a child dom as an iframe pipeline at the host item's bounds, and
     /// `wr_translate2::scroll_all_nodes` moves that pipeline's root scroll
     /// frame by this on every frame, from the live scroll offset. Without it
@@ -10193,7 +10193,7 @@ impl LayoutWindow {
     /// `RenderImageCallback` - the built-in materials are such images. The
     /// display list carries the DECLARED callback image (what the cache holds
     /// under the id), which no renderer can draw: the CPU raster painted the
-    /// grey "never invoked" placeholder for it and WebRender nothing. This
+    /// grey "never invoked" placeholder for it and `WebRender` nothing. This
     /// invokes the callback for each such item's own rect - its size, its
     /// corner radii and window position, its node's custom properties and
     /// clip path, the window's light and the cursor's sheen on it
@@ -10253,7 +10253,7 @@ impl LayoutWindow {
             .filter_map(|m| {
                 self.image_cache
                     .get_css_image_id(&m.css_name().as_str().into())
-                    .map(|image| image.get_hash())
+                    .map(ImageRef::get_hash)
             })
             .collect();
         // An item patched before carries its frame: known by the frame's id.
@@ -10274,7 +10274,7 @@ impl LayoutWindow {
         let environment_generation = 0_u64;
         // Where the window sits matters to a point light and to the
         // wallpaper a metal reflects.
-        let desktop_bits = if light.depends_on_position() || self.reflects_the_desktop() {
+        let desktop_bits = if light.depends_on_position() || Self::reflects_the_desktop() {
             [window_origin.x.to_bits(), window_origin.y.to_bits()]
         } else {
             [0, 0]
@@ -10347,7 +10347,7 @@ impl LayoutWindow {
                         .get(n)
                         .map(|s| s.styled_node_state)
                         .unwrap_or_default();
-                    crate::solver3::getters::get_clip_path(&lr.styled_dom, n, &state)
+                    solver3::getters::get_clip_path(&lr.styled_dom, n, &state)
                 });
                 if let Some(clip) = &clip_path {
                     use std::hash::{Hash, Hasher};
@@ -10540,7 +10540,7 @@ impl LayoutWindow {
     /// Where this window's light comes from: its own material light when it
     /// set one ([`Self::set_material_light`]), else the app's one light.
     #[must_use]
-    pub fn effective_light(&self) -> azul_core::light::Light {
+    pub const fn effective_light(&self) -> azul_core::light::Light {
         if self.material_light_is_own {
             azul_core::light::Light::sun(
                 self.material_light.azimuth_deg,
@@ -10578,7 +10578,7 @@ impl LayoutWindow {
     /// Where the window's top-left sits on the desktop, desktop points (the
     /// origin when the platform does not say, as on Wayland).
     #[must_use]
-    pub fn window_desktop_origin(&self) -> LogicalPosition {
+    pub const fn window_desktop_origin(&self) -> LogicalPosition {
         match self.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(p) => {
                 LogicalPosition::new(p.x as f32, p.y as f32)
@@ -10615,12 +10615,12 @@ impl LayoutWindow {
     /// that sees the window move redraws it then.
     #[must_use]
     pub fn materials_follow_window_position(&self) -> bool {
-        self.effective_light().depends_on_position() || self.reflects_the_desktop()
+        self.effective_light().depends_on_position() || Self::reflects_the_desktop()
     }
 
     /// Whether a material here reflects the desktop (the wallpapers are
     /// known): a window that moves then renders its metals again.
-    fn reflects_the_desktop(&self) -> bool {
+    fn reflects_the_desktop() -> bool {
         #[cfg(feature = "materials")]
         {
             crate::texture::environment::desktop_generation() > 0
@@ -12882,7 +12882,7 @@ impl LayoutWindow {
             if nodes.get(n)?.get_attribute("title").is_some() {
                 return Some(n);
             }
-            cur = hierarchy.get(n).and_then(|h| h.parent_id());
+            cur = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -15635,7 +15635,7 @@ impl LayoutWindow {
             // arena stays in the record: it keeps a clone of each dataset a
             // merge takes (a clone shares the allocation), which is what a
             // full copy of the old arena kept, without copying every node.
-            let taken: Vec<(usize, azul_core::refany::RefAny)> = diff
+            let taken: Vec<(usize, RefAny)> = diff
                 .node_moves
                 .iter()
                 .filter(|m| {
@@ -15660,7 +15660,7 @@ impl LayoutWindow {
                     .get_mut(idx)
                     .filter(|nd| nd.get_dataset().is_none())
                 {
-                    nd.set_dataset(azul_core::refany::OptionRefAny::Some(ds));
+                    nd.set_dataset(OptionRefAny::Some(ds));
                 }
             }
 
@@ -28306,7 +28306,7 @@ fn sheen_area(lw: &LayoutWindow, dom: DomId, styled_dom: &StyledDom, node: NodeI
 pub struct BackgroundFrameKey {
     pub dom: DomId,
     pub node: Option<NodeId>,
-    pub declared: azul_core::resources::ImageRefHash,
+    pub declared: ImageRefHash,
     pub rect_bits: [u32; 4],
 }
 

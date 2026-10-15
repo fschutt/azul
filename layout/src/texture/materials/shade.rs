@@ -21,6 +21,9 @@
 //! pixels and kept ([`grain_tile`]), so a relight (a new light, the cursor's
 //! sheen, a height that animates) only redoes step 1, 3 and 4.
 
+// The formulas keep the shader's letters (shader.glsl): p, n, h, l, r, f0...
+#![allow(clippy::many_single_char_names)]
+
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex, OnceLock},
@@ -89,7 +92,7 @@ impl SurfaceSpec<'_> {
         }
     }
 
-    fn key(&self, tx: i32, ty: i32) -> GrainKey {
+    const fn key(&self, tx: i32, ty: i32) -> GrainKey {
         [
             super::material_index(self.material) as u32,
             self.source as u32,
@@ -692,7 +695,10 @@ mod tests {
         assert!(sd_round([0.0, 0.0], half, r) < -19.0);
         assert!(sd_round([50.0, 0.0], half, r).abs() < 1e-4);
         // On the corner's arc.
-        let c = [42.0 + 8.0 * 0.7071, -12.0 - 8.0 * 0.7071];
+        let c = [
+            42.0 + 8.0 * core::f32::consts::FRAC_1_SQRT_2,
+            -12.0 - 8.0 * core::f32::consts::FRAC_1_SQRT_2,
+        ];
         assert!(sd_round(c, half, r).abs() < 1e-3);
     }
 

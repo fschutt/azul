@@ -2466,7 +2466,7 @@ impl CallbackInfo {
     /// The light this window's materials are lit by (a `set_material_light`
     /// in the same callback is not visible here yet).
     #[must_use]
-    pub fn get_material_light(&self) -> crate::texture::MaterialLight {
+    pub const fn get_material_light(&self) -> crate::texture::MaterialLight {
         self.get_layout_window().material_light
     }
 
@@ -8028,6 +8028,8 @@ impl RenderImageCallbackInfo {
     ///
     /// `extras` must stay valid for as long as this info (or a copy of it)
     /// is used: the invocation sites pass a local that outlives the call.
+    // The ABI's reserved slot carries the extras; its name keeps it inert in older builds.
+    #[allow(clippy::used_underscore_binding)]
     pub const unsafe fn set_extras(&mut self, extras: *const RenderImageCallbackExtras) {
         self._abi_mut = extras.cast_mut().cast::<core::ffi::c_void>();
     }
@@ -8037,6 +8039,7 @@ impl RenderImageCallbackInfo {
     /// node's custom properties. `None` for a callback invoked outside a
     /// live window's frame preparation.
     #[must_use]
+    #[allow(clippy::used_underscore_binding)] // the ABI's reserved slot, see `set_extras`
     pub const fn get_extras(&self) -> Option<&RenderImageCallbackExtras> {
         // SAFETY: only `set_extras` makes the pointer non-null, with a
         // pointer valid for the whole invocation (its contract).
@@ -8128,7 +8131,7 @@ impl RenderImageCallbackExtras {
             window_desktop_origin: LogicalPosition { x: 0.0, y: 0.0 },
             screen: LogicalRect {
                 origin: LogicalPosition { x: 0.0, y: 0.0 },
-                size: azul_core::geom::LogicalSize {
+                size: LogicalSize {
                     width: 1920.0,
                     height: 1080.0,
                 },

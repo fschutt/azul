@@ -794,7 +794,7 @@ fn render_svg_group_inner(
     feature = "text_layout",
     feature = "font_loading"
 ))]
-struct SvgText(super::text_raster::SvgTextPainter);
+struct SvgText(SvgTextPainter);
 
 #[cfg(all(
     feature = "std",
@@ -813,7 +813,7 @@ impl SvgText {
             .into_iter()
             .filter_map(|(family, src)| Some((family, crate::font_from_url(&src)?)))
             .collect();
-        Self(super::text_raster::SvgTextPainter::new(embedded))
+        Self(SvgTextPainter::new(embedded))
     }
 
     #[allow(clippy::too_many_arguments)] // one text run's whole description

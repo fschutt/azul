@@ -5,7 +5,7 @@
 //! A material is a surface lit for the rect it fills, at every DEVICE pixel
 //! of it - never a texture stretched over the rect. What it is made of is a
 //! function of the position (`surface`: the procedural leather, brushed
-//! aluminium, denim and vellum of the AzDrive design), or, as the
+//! aluminium, denim and vellum of the `AzDrive` design), or, as the
 //! alternative source, a small colourless tile (luma, the leather's own
 //! normal, occlusion) sampled with a cubic B-spline plus micro-detail finer
 //! than a texel. No map carries colour: the colour is the tint
@@ -22,7 +22,7 @@
 //!
 //! The shape adds its own slope: a bevel along the edge (a cushion by
 //! default, so it draws no line), a padded cushion and the pillow that rounds
-//! a whole area (the AzDrive leather area). The edge is the rect's rounded
+//! a whole area (the `AzDrive` leather area). The edge is the rect's rounded
 //! border, or any `clip-path` through its exact distance field (`distance`).
 //!
 //! An element tunes its material with custom properties
@@ -194,7 +194,7 @@ struct Plane {
 /// the planes' symbols, one byte each, (side / subsample)^2 per plane, row by row
 /// ```
 ///
-/// Channels 0..6 are Y, Co, Cg (YCoCg of the sRGB albedo), normal x, normal
+/// Channels 0..6 are Y, Co, Cg (`YCoCg` of the sRGB albedo), normal x, normal
 /// y, roughness, ambient occlusion; a symbol `q` of a `bits` plane is
 /// `lo + q / (2^bits - 1) * (hi - lo)`, a subsampled plane is bilinearly
 /// upsampled (it wraps). A constant id 0..6 fills its channel; 16 / 17 make
@@ -476,6 +476,7 @@ impl ColourlessTile {
 
     /// The tile at `uv` (tile widths), linear filtering at texel centres,
     /// wrapping: what a GPU's `texture()` returns, 0..1 per channel.
+    #[allow(clippy::many_single_char_names)] // the four taps a, b, c, d and their weights
     pub(crate) fn bilinear(&self, uv: [f32; 2]) -> [f32; 4] {
         let n = self.side;
         let u = uv[0] * n as f32 - 0.5;
@@ -496,6 +497,7 @@ impl ColourlessTile {
     }
 
     /// The mottling at `uv` (periods), linear and wrapping, 0..1.
+    #[allow(clippy::many_single_char_names)] // the four taps a, b, c, d and their weights
     pub(crate) fn macro_bilinear(&self, uv: [f32; 2]) -> f32 {
         let n = self.macro_side;
         if n == 0 {
@@ -516,7 +518,7 @@ impl ColourlessTile {
 }
 
 /// `i` wrapped into `0..side`.
-fn wrap(i: i64, side: usize) -> usize {
+const fn wrap(i: i64, side: usize) -> usize {
     i.rem_euclid(side as i64) as usize
 }
 
@@ -663,7 +665,7 @@ pub struct MaterialParams {
 }
 
 impl MaterialParams {
-    /// `material`'s defaults: the AzDrive design's settings for it.
+    /// `material`'s defaults: the `AzDrive` design's settings for it.
     #[must_use]
     pub fn of(material: Material) -> Self {
         let (tint, roughness, relief, variation, sheen, sheen_size, bevel) = match material {
@@ -1154,7 +1156,7 @@ pub fn render_material_pixels(
         wallpaper: wallpaper.map(|w| &**w),
         env_flat,
         glow: u.glow,
-        rays: (scene.rays.strength > 0.0).then(|| (scene.rays, scene.window_offset)),
+        rays: (scene.rays.strength > 0.0).then_some((scene.rays, scene.window_offset)),
     };
     Some(RawImage {
         pixels: RawImageData::U8(shader.render().into()),
@@ -1406,21 +1408,23 @@ extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallba
 mod tests {
     use super::*;
 
-    /// The packer's decoded texels (`make_material_tiles.py --vectors`):
-    /// (x, y), sRGB8 albedo, normal x / y, roughness.
-    const LEATHER_TEXELS: &[((usize, usize), [u8; 3], [f32; 2], f32)] = &[
+    /// A decoded texel: (x, y), sRGB8 albedo, normal x / y, roughness.
+    type Texel = ((usize, usize), [u8; 3], [f32; 2], f32);
+
+    /// The packer's decoded texels (`make_material_tiles.py --vectors`).
+    const LEATHER_TEXELS: &[Texel] = &[
         ((0, 0), [71, 36, 8], [0.0345, -0.0509], 0.4717),
         ((17, 5), [70, 36, 8], [-0.0657, -0.0509], 0.4717),
         ((127, 127), [66, 31, 3], [0.0345, 0.0509], 0.3590),
         ((64, 100), [75, 41, 13], [-0.0657, 0.0509], 0.5844),
     ];
-    const BLUEJEANS_TEXELS: &[((usize, usize), [u8; 3], [f32; 2], f32)] = &[
+    const BLUEJEANS_TEXELS: &[Texel] = &[
         ((0, 0), [71, 85, 100], [0.0, 0.3203], 0.7498),
         ((17, 5), [33, 46, 63], [0.0841, -0.0421], 0.7847),
         ((127, 127), [42, 54, 69], [0.0421, -0.0841], 0.7777),
         ((64, 100), [34, 46, 61], [-0.2066, 0.0413], 0.7847),
     ];
-    const ALUMINIUM_TEXELS: &[((usize, usize), [u8; 3], [f32; 2], f32)] = &[
+    const ALUMINIUM_TEXELS: &[Texel] = &[
         ((0, 0), [173, 173, 173], [0.0, 0.0], 0.42),
         ((17, 5), [160, 160, 160], [0.0, 0.0], 0.42),
         ((127, 127), [160, 160, 160], [0.0, 0.0], 0.42),
