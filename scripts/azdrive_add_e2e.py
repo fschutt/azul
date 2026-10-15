@@ -865,12 +865,18 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
         win.click(selector="#__azdrive_recovery_sign_ok")
         return win
 
+    def removed(key):
+        # A refusal fails at once with the token server's reason, not after the timeout.
+        refused = app.printed("AZDRIVE_RECOVERY_KEY_REFUSED", r"%s %s .*" % (
+            re.escape(drive_id), re.escape(key["key_id"])))
+        if refused:
+            raise Failure("the removal of %r was refused: %s" % (key["label"], refused[-1]))
+        return app.printed("AZDRIVE_RECOVERY_KEY_REMOVED", r"%s %s" % (
+            re.escape(drive_id), re.escape(key["key_id"])))
+
     by_label = {k["label"]: k for k in keys_at_mock()}
     remove(by_label["another recovery code"], code)
-    app.until("the second kit's key removed", lambda: app.printed(
-        "AZDRIVE_RECOVERY_KEY_REMOVED", r"%s %s" % (re.escape(drive_id),
-                                                    re.escape(by_label["another recovery code"]
-                                                              ["key_id"]))))
+    app.until("the second kit's key removed", lambda: removed(by_label["another recovery code"]))
     app.until("two keys listed again", lambda: app.count(
         "AZDRIVE_RECOVERY_KEYS", r"%s 2" % re.escape(drive_id)) >= 2)
     remove(by_label["recovery code"], second_code.lower())
@@ -878,10 +884,7 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
         "not a recovery code of this drive"))
     app.key("escape")
     remove(by_label["recovery code"], code)
-    app.until("the drive key removed", lambda: app.printed(
-        "AZDRIVE_RECOVERY_KEY_REMOVED", r"%s %s" % (re.escape(drive_id),
-                                                    re.escape(by_label["recovery code"]
-                                                              ["key_id"]))))
+    app.until("the drive key removed", lambda: removed(by_label["recovery code"]))
     app.until("one key listed", lambda: app.printed(
         "AZDRIVE_RECOVERY_KEYS", r"%s 1" % re.escape(drive_id)))
     last = keys_at_mock()

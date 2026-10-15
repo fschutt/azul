@@ -29,7 +29,8 @@
 //! `AZDRIVE_RECOVERY_FINISHED <drive>`, `AZDRIVE_RECOVERY_PENDING <drive>`,
 //! `AZDRIVE_RECOVERY_KEYS <drive> <count>`, `AZDRIVE_RECOVERY_CODE_ADDED <drive>`,
 //! `AZDRIVE_RECOVERY_FINDABLE <drive>`, `AZDRIVE_RECOVERY_KEY_REMOVED <drive> <key>`,
-//! `AZDRIVE_RECOVERY_KEY_KEPT <drive> <key>` (the token server kept it: the last key).
+//! `AZDRIVE_RECOVERY_KEY_KEPT <drive> <key>` (the token server kept it: the last key),
+//! `AZDRIVE_RECOVERY_KEY_REFUSED <drive> <key> <why>` (any other failed removal).
 
 use std::sync::Arc;
 
@@ -1172,6 +1173,10 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
             Err(e) => {
                 if matches!(&e, TokenError::Refused { code, .. } if code == "last_recovery_key") {
                     println!("AZDRIVE_RECOVERY_KEY_KEPT {drive_id} {key_id}");
+                } else {
+                    // The dialog says why; scripts read it here, on one line.
+                    let why = e.to_string().replace('\n', " ");
+                    println!("AZDRIVE_RECOVERY_KEY_REFUSED {drive_id} {key_id} {why}");
                 }
                 set_error(s, t_label(&token_text(&e)));
             }
