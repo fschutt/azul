@@ -9033,7 +9033,10 @@ impl LayoutWindow {
     /// next frame (a callback reads the light through its extras), and the
     /// caller repaints.
     pub fn set_material_light(&mut self, light: crate::texture::MaterialLight) -> bool {
-        if self.material_light == light && self.material_light_is_own {
+        if self.material_light == light {
+            // The light the window already has, now its own: the app's light
+            // no longer reaches it, but nothing has to be drawn again.
+            self.material_light_is_own = true;
             return false;
         }
         self.material_light = light;

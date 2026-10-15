@@ -186,9 +186,9 @@ fn a_new_material_light_renders_a_background_callback_again() {
     let first = image_items(&lw)[0].1.get_hash();
     assert_eq!(
         LIT.lock().expect("not poisoned").as_slice(),
-        &[(135.0, Some("5px".to_string()))],
-        "rendered once, under the default light (from the upper left), seeing its node's \
-         custom property"
+        &[(MaterialLight::DEFAULT.azimuth_deg, Some("5px".to_string()))],
+        "rendered once, under the default light (the app's sun, from the upper right), seeing \
+         its node's custom property"
     );
 
     assert!(
