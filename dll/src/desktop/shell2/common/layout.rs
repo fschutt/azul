@@ -1938,6 +1938,10 @@ fn apply_runtime_states_before_layout(
                         node_id
                     );
                 }
+                drop(styled_nodes);
+                // The rebuilt DOM lost `:focus-within` on the focused node's
+                // ancestors too; raise it along the chain again.
+                styled_dom.raise_focus_within(node_id);
             }
         }
     }
@@ -2032,6 +2036,11 @@ fn apply_runtime_states_before_layout(
             }
         }
     }
+
+    // Rules that name a state left of their subject (`.btn:hover .ink`,
+    // `.frame:focus-within .hint`) were matched while every node was at rest;
+    // match them again now that the runtime states are back.
+    let _ = styled_dom.restyle_for_raised_states();
 
     styled_dom
 }
