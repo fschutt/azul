@@ -9,8 +9,10 @@ use crate::model::ViewLayout;
 
 // ==== ids ====
 
-/// The InfoBar over the content (errors, notices).
+/// The InfoBar over the content (an error, until it is dismissed).
 pub const INFO_BAR: AzString = AzString::from_const_str("__azdrive_info_bar");
+/// The notices' toast stack at the window's foot.
+pub const TOASTS: AzString = AzString::from_const_str("__azdrive_toasts");
 /// The content column (the InfoBar and the view).
 pub const CONTENT: AzString = AzString::from_const_str("__azdrive_content");
 /// The scrolling view of the place.

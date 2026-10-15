@@ -156,6 +156,8 @@ mod fileops_batch_tests;
 mod copy_path_tests;
 #[cfg(test)]
 mod tree_leaves_tests;
+#[cfg(test)]
+mod notices_tests;
 /// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
 mod ban;
 #[cfg(test)]
@@ -289,7 +291,7 @@ use azul::{
     shells::{BrowserShell, ShellPane, ShellPaneKind, ShellThemeScope},
     str::String as AzString,
     url::Url,
-    widgets::{AlertKind, Dialog, IconGridView},
+    widgets::{AlertKind, Dialog, IconGridView, ToastKind},
 };
 use azul_storage::{
     azul_transport::AzulTransport,
@@ -602,7 +604,70 @@ impl MessageKind {
     }
 }
 
-/// What the InfoBar over the content says (its words in the window's language when shown).
+/// The most notices kept for the toast stack (it shows the newest three).
+const MAX_TOASTS: usize = 6;
+
+/// A notice of the toast stack.
+#[derive(Clone, Debug)]
+pub(crate) struct Notice {
+    /// Its id: the toast's dismiss callback finds it by it, as the list shifts meanwhile.
+    pub id: u64,
+    /// What it says, in which colours.
+    pub message: Message,
+}
+
+/// The toast stack's notices, oldest first.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Notices {
+    /// The notices still showing (or waiting behind the newest three).
+    pub list: Vec<Notice>,
+    /// The id the last notice took; ids never repeat, so a late dismiss cannot hit a newer one.
+    pub last_id: u64,
+}
+
+impl Notices {
+    /// Adds `message` as the newest notice and returns its id. Only the newest few are kept:
+    /// the stack shows three, and older ones would have left by themselves anyway.
+    pub fn push(&mut self, message: Message) -> u64 {
+        self.last_id += 1;
+        self.list.push(Notice {
+            id: self.last_id,
+            message,
+        });
+        if self.list.len() > MAX_TOASTS {
+            self.list.remove(0);
+        }
+        self.last_id
+    }
+
+    /// Takes the notice `id` out (its toast left); an id already gone changes nothing.
+    pub fn dismiss(&mut self, id: u64) {
+        self.list.retain(|n| n.id != id);
+    }
+
+    pub fn clear(&mut self) {
+        self.list.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+}
+
+impl MessageKind {
+    /// The toast's colours for the kind.
+    pub fn toast(self) -> ToastKind {
+        match self {
+            MessageKind::Info => ToastKind::Info,
+            MessageKind::Success => ToastKind::Success,
+            MessageKind::Warning => ToastKind::Warning,
+            MessageKind::Error => ToastKind::Danger,
+        }
+    }
+}
+
+/// What a notice toast or the InfoBar over the content says (its words in the window's
+/// language when shown).
 #[derive(Clone, Debug)]
 pub(crate) struct Message {
     pub kind: MessageKind,
@@ -931,6 +996,9 @@ pub(crate) struct DriveState {
     #[cfg(feature = "encryption")]
     pub pending_sheets: Vec<encryption::Sheet>,
     pub message: Option<Message>,
+    /// The notices shown as toasts at the window's foot: each leaves by itself after a few
+    /// seconds, or with its close button (`ui_view::on_toast_dismissed`).
+    pub toasts: Notices,
     pub popup: Option<Popup>,
     pub popups_opened: u64,
     pub keyring_waiting: Option<KeyringOp>,
@@ -1177,24 +1245,21 @@ impl DriveState {
     }
 
     pub fn info(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
-        self.message = Some(Message {
-            kind: MessageKind::Info,
-            text: text.into(),
-        });
+        self.notice(MessageKind::Info, text.into());
     }
 
     pub fn success(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
-        self.message = Some(Message {
-            kind: MessageKind::Success,
-            text: text.into(),
-        });
+        self.notice(MessageKind::Success, text.into());
     }
 
     pub fn warn(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
-        self.message = Some(Message {
-            kind: MessageKind::Warning,
-            text: text.into(),
-        });
+        self.notice(MessageKind::Warning, text.into());
+    }
+
+    /// A notice as a toast at the window's foot (the design's place for them); an error stays
+    /// in the InfoBar over the content until it is dismissed.
+    fn notice(&mut self, kind: MessageKind, text: azul_appkit::l10n::Text) {
+        self.toasts.push(Message { kind, text });
     }
 
     pub fn error(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
@@ -1206,8 +1271,9 @@ impl DriveState {
         });
     }
 
-    /// Clears a message that was not an error.
+    /// Clears the notices (not an error).
     pub fn clear_notice(&mut self) {
+        self.toasts.clear();
         if self
             .message
             .as_ref()
@@ -3069,7 +3135,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         // lacks), 15 px on 1.3, tabular figures so sizes and dates line up.
         .with_css(
             "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px; \
-             font-family: system:ui; color: system:text; @theme(flora) { font-family: \
+             position: relative; font-family: system:ui; color: system:text; @theme(flora) { font-family: \
              \"Calmet UI\", \"EB Garamond\", \"Hoefler Text\", Georgia, serif; \
              font-size: 15px; line-height: 1.3; font-variant-numeric: tabular-nums; }",
         )
@@ -3129,6 +3195,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     }
     if let Some(palette) = ui_overlays::palette(s, &app) {
         body.add_child(palette);
+    }
+    // The notices at the window's foot, above where the status bar would be.
+    if !s.toasts.is_empty() {
+        body.add_child(ui_view::toasts(s, &app));
     }
     if let Some(popup) = &s.popup {
         let (title, panel) = ui_dialogs::popup_parts(popup, s, &app);
@@ -3501,6 +3571,7 @@ pub fn start() {
         #[cfg(feature = "encryption")]
         pending_sheets: Vec::new(),
         message,
+        toasts: Notices::default(),
         popup: None,
         popups_opened: 0,
         keyring_waiting: None,
