@@ -31,12 +31,20 @@ Run it through the capped runner (scripts/waves/tools/run_capped.sh) on a small 
 
 import glob
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import azlin_e2e as e  # noqa: E402
 
 PAGE0 = "#__azwriter_doc-page-0"
+
+
+def first_page_shown(app):
+    """Whether the first page's host is there: `<doc>-page-0`, with `~<block>@<byte>` after it
+    when the page ends inside a paragraph (the next page goes on with its tail)."""
+    return any(re.fullmatch(r"__azwriter_doc-page-0(~\d+@\d+)?", n.get("id") or "")
+               for n in app.hierarchy())
 BLOCK = "#__azwriter_doc-%d"
 
 
@@ -76,7 +84,7 @@ def first_session(app, data, out):
     # Two pages: the pagination answers, the second page's host is there.
     app.until("the pagination", lambda: [int(n) for n in app.printed("AZWRITER_PAGES", r"\d+") if int(n) >= 2])
     app.frame(2)
-    if not app.has_id(PAGE0[1:]):
+    if not first_page_shown(app):
         raise e.Failure("no first page host %s" % PAGE0)
     app.log("pages laid out (%s)" % app.printed("AZWRITER_PAGES", r"\d+")[-1])
 
@@ -141,7 +149,7 @@ def first_session(app, data, out):
         raise e.Failure("File > Open does not list the document")
     app.screenshot(os.path.join(out, "backstage-open.png"))
     app.key("escape")
-    app.until("the pages again", lambda: app.has_id(PAGE0[1:]))
+    app.until("the pages again", lambda: first_page_shown(app))
 
     # Looks.
     for theme in ("flat", "flora"):
