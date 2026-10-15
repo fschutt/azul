@@ -1412,4 +1412,13 @@ mod field_access_tests {
     fn a_text_input_text_field_is_writable_even_though_get_text_is_a_method() {
         assert!(generated().contains("property Text: TU32Vec read FieldGetText write FieldSetText;"));
     }
+
+    /// A tuple struct's fields are named `0`, `1`, and a Pascal identifier
+    /// cannot start with a digit (FPC stops at `property 0:`).
+    #[test]
+    fn a_tuple_struct_field_is_a_property_named_after_its_index() {
+        let src = generated();
+        assert!(!src.contains("    property 0:"), "a property named by a bare digit");
+        assert!(src.contains("property Field0: TU8Vec read FieldGetField0 write FieldSetField0;"));
+    }
 }
