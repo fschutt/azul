@@ -1515,7 +1515,9 @@ pub enum AttributeType {
     TabIndex(i32),
     /// Element can receive focus (`tabindex="0"` equivalent)
     Focusable,
-    /// Take focus when the window first shows this element (`autofocus`).
+    /// Take focus when this element mounts (`autofocus`): when the window
+    /// first shows it, and when a rebuilt DOM adds it later (a dialog or an
+    /// overview that opens takes the keyboard).
     ///
     /// HTML semantics: the FIRST autofocus element in the document wins, and
     /// it is focused WITHOUT showing a focus ring - the ring is for keyboard
@@ -3504,6 +3506,18 @@ impl NodeData {
         self.extra.as_ref().and_then(|ext| ext.marker.as_ref())
     }
 
+    /// Whether this node is generated content: a `::before` or `::after`
+    /// the styling made for its parent from a `content` rule, or the
+    /// `::marker` of an inline list item - not a node the DOM was built with
+    /// (see `crate::generated_content`).
+    #[must_use]
+    pub const fn is_generated_content(&self) -> bool {
+        matches!(
+            self.node_type,
+            NodeType::Before | NodeType::After | NodeType::Marker
+        )
+    }
+
     /// Whether this node is drawn as part of its parent and takes its
     /// interaction states (see `NodeDataExt::part_of_parent`).
     #[must_use]
@@ -4428,8 +4442,9 @@ impl NodeData {
         None
     }
 
-    /// Whether this node asked to take focus when its window first appears
-    /// (the `autofocus` attribute).
+    /// Whether this node asked to take focus when it mounts - when its
+    /// window first shows it or a rebuilt DOM adds it (the `autofocus`
+    /// attribute).
     #[must_use]
     pub fn has_autofocus(&self) -> bool {
         self.attributes()

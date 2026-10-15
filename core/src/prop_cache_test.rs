@@ -2087,6 +2087,7 @@ mod autotest_generated {
             &hierarchy,
             &non_leaf,
             &cascade.as_ref(),
+            &[],
         );
 
         assert!(tags.is_empty(), "a plain div needs no hit-test tag");

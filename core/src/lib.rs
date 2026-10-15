@@ -356,6 +356,9 @@ pub mod form;
 ///
 /// Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
+/// Generated content: the `::before` / `::after` nodes a `content` rule makes,
+/// their text and the counters it counts with.
+pub mod generated_content;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
 ///
 /// Stateful manager lives in `azul_layout::managers::geolocation`.

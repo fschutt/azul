@@ -199,6 +199,17 @@ impl Css {
     #[must_use]
     pub fn parse_inline(style: &str) -> Self {
         let mut css = Self::parse_scoped(style);
+        // A node's own style is read as its declarations, never selector
+        // matched, so it cannot reach its `::before` / `::after` (generated
+        // nodes, see `Dom::with_css`): such a block would land on the node.
+        css.rules.retain(|rule| {
+            !rule.path.selectors.as_ref().iter().any(|s| {
+                matches!(
+                    s,
+                    CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After)
+                )
+            })
+        });
         for rule in css.rules.as_mut() {
             rule.lower_node_pseudo_states();
         }
@@ -2132,12 +2143,20 @@ impl CssPath {
         // The wrapper `*`, alone or with pseudo-classes only: `with_css`'s
         // nested `:hover { .. }` block is `*:hover` - the OWNER's hover, as
         // inline as the declarations around it. Scoped to the subtree it
-        // matched every hovered child too.
+        // matched every hovered child too. Its nested `::after { .. }` is
+        // `* > ::after`, the owner's own pseudo-element, as inline.
         let selectors = self.selectors.as_ref();
+        let is_pseudo_element = |s: &CssPathSelector| {
+            matches!(
+                s,
+                CssPathSelector::DirectChildren
+                    | CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After)
+            )
+        };
         let is_bare_global = matches!(selectors.first(), Some(CssPathSelector::Global))
             && selectors[1..]
                 .iter()
-                .all(|s| matches!(s, CssPathSelector::PseudoSelector(_)));
+                .all(|s| matches!(s, CssPathSelector::PseudoSelector(_)) || is_pseudo_element(s));
         let range = if is_bare_global && node_only_bare_global {
             CssScopeRange { start, end: start }
         } else {
@@ -2152,8 +2171,19 @@ impl CssPath {
 
 impl fmt::Display for CssPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for selector in self.selectors.as_ref() {
-            write!(f, "{selector}")?;
+        let selectors = self.selectors.as_ref();
+        for (i, selector) in selectors.iter().enumerate() {
+            // A generated pseudo-element is kept as a child of its host
+            // (`div > ::before`) and written the way CSS spells it,
+            // `div::before`, which parses back to the same path.
+            let leads_to_pseudo_element = matches!(selector, CssPathSelector::DirectChildren)
+                && matches!(
+                    selectors.get(i + 1),
+                    Some(CssPathSelector::Type(NodeTypeTag::Before | NodeTypeTag::After))
+                );
+            if !leads_to_pseudo_element {
+                write!(f, "{selector}")?;
+            }
         }
         Ok(())
     }
@@ -2361,6 +2391,9 @@ pub enum CssPathPseudoSelector {
     /// `:focus-visible` - the element has focus and its focus should be
     /// seen: reached with the keyboard, not by a click. Focus rings go here.
     FocusVisible,
+    /// `:focus-within` - the element or one of its descendants has focus.
+    /// A frame around a field draws its ring with it.
+    FocusWithin,
 }
 
 /// Selector for the `:nth-child()` CSS pseudo-class.
@@ -2396,8 +2429,8 @@ impl fmt::Display for CssNthChildSelector {
 impl fmt::Display for CssPathPseudoSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CssPathPseudoSelector::{
-            Active, Backdrop, DragOver, Dragging, First, Focus, FocusVisible, Hover, Lang, Last,
-            NthChild, Placeholder, Root, SeatFocus,
+            Active, Backdrop, DragOver, Dragging, First, Focus, FocusVisible, FocusWithin, Hover,
+            Lang, Last, NthChild, Placeholder, Root, SeatFocus,
         };
         match &self {
             First => write!(f, "first"),
@@ -2407,6 +2440,7 @@ impl fmt::Display for CssPathPseudoSelector {
             Active => write!(f, "active"),
             Focus => write!(f, "focus"),
             FocusVisible => write!(f, "focus-visible"),
+            FocusWithin => write!(f, "focus-within"),
             SeatFocus => write!(f, "seat-focus"),
             Lang(lang) => write!(f, "lang({})", lang.as_str()),
             Backdrop => write!(f, "backdrop"),
@@ -2433,6 +2467,7 @@ impl CssPathPseudoSelector {
             Self::Active => Some(PseudoStateType::Active),
             Self::Focus => Some(PseudoStateType::Focus),
             Self::FocusVisible => Some(PseudoStateType::FocusVisible),
+            Self::FocusWithin => Some(PseudoStateType::FocusWithin),
             Self::SeatFocus => Some(PseudoStateType::SeatFocus),
             Self::Backdrop => Some(PseudoStateType::Backdrop),
             Self::Dragging => Some(PseudoStateType::Dragging),
@@ -4385,6 +4420,7 @@ mod autotest_generated {
             (CssPathPseudoSelector::Active, "active".to_string()),
             (CssPathPseudoSelector::Focus, "focus".to_string()),
             (CssPathPseudoSelector::FocusVisible, "focus-visible".to_string()),
+            (CssPathPseudoSelector::FocusWithin, "focus-within".to_string()),
             (CssPathPseudoSelector::SeatFocus, "seat-focus".to_string()),
             (
                 CssPathPseudoSelector::Lang("de-DE".to_string().into()),

@@ -500,10 +500,6 @@ fn a_curved_edge_is_antialiased_not_stepped() {
 /// `:hover` would flicker. A descendant selector keyed on the BUTTON is the
 /// declarative answer, if the cascade supports one.
 #[test]
-#[ignore = "KNOWN GAP, recorded deliberately: a descendant selector with a pseudo-class \
-            (`.btn:hover .ink`) does not reach the child. This is why swapping a window control's \
-            glyph on hover cannot be done in CSS and goes through a VirtualView re-render instead. \
-            Basic CSS, worth fixing on its own; un-ignore with the fix."]
 fn a_parents_hover_can_restyle_a_child() {
     use azul_core::{id::NodeId, styled_dom::StyledNodeState};
 

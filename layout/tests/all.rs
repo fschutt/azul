@@ -1161,3 +1161,11 @@ mod a_page_that_starts_inside_a_paragraph_names_its_text_node_and_byte;
 mod a_font_registered_at_runtime_draws_the_text_that_names_it;
 #[path = "set_text_wraps_aligns_and_runs_right_to_left.rs"]
 mod set_text_wraps_aligns_and_runs_right_to_left;
+#[path = "focus_within_holds_on_every_ancestor_of_the_focused_node.rs"]
+mod focus_within_holds_on_every_ancestor_of_the_focused_node;
+#[path = "a_pseudo_class_on_an_ancestor_restyles_its_descendants.rs"]
+mod a_pseudo_class_on_an_ancestor_restyles_its_descendants;
+#[path = "before_and_after_generate_content.rs"]
+mod before_and_after_generate_content;
+#[path = "inline_list_items_carry_their_marker.rs"]
+mod inline_list_items_carry_their_marker;

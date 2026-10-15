@@ -181,7 +181,7 @@ fn at_rest_a_revealing_ribbon_is_its_row_and_the_line_with_no_tab_selected() {
 #[test]
 fn locked_open_the_shown_tab_is_selected_and_the_content_has_its_height() {
     let reveal = TabReveal::create(TabClickBehaviour::HoverRevealDoubleClickLock);
-    reveal.apply(RevealEvent::Chevron, 0);
+    let _ = reveal.apply(RevealEvent::Chevron, 0);
     assert!(reveal.is_locked(), "premise: locked open");
     let lw = laid_out(ribbon().with_reveal(reveal).dom_desktop());
     assert_eq!(nodes_with(&lw, TAB_ACTIVE).len(), 1, "the shown tab is drawn selected");

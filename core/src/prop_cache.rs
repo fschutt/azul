@@ -1179,6 +1179,25 @@ pub struct CssPropertyCache {
     /// (`StyledDom::create_from_dom_inheriting`) or re-seeded with a restyle
     /// (`StyledDom::set_inherited_from_host`) when the host's values move.
     pub inherited_from_host: Vec<(CssPropertyType, CssPropertyWithOrigin)>,
+
+    /// The states the last restyle's rules name LEFT of their subject
+    /// (`.btn:hover .ink`), one `style::state_bit` each. Such a rule holds by
+    /// the state its anchor was in when the cascade ran, so a state change
+    /// re-runs the cascade - only for a state set here, which keeps every
+    /// other hover or focus change free (`StyledDom::restyle_nodes_state`).
+    /// Zero after a DOM merge that brought rules the retained stylesheet does
+    /// not hold: re-running the cascade then would drop them.
+    pub left_state_mask: u32,
+
+    /// Per node (sparse): the `(state, property)` pairs a stylesheet rule
+    /// ABOVE `rule_priority::INLINE` set for it (a rice at `widgets`, a
+    /// `force` sheet). The node's own declarations of such a property lose
+    /// to that rule, as a higher cascade origin wins; [`Self::inline_properties`]
+    /// leaves them out, so every reader of inline style agrees. A rule for
+    /// the resting state overrules the property's inline declarations of
+    /// every state, a rule for a state only that state's.
+    pub inline_overruled:
+        alloc::collections::BTreeMap<usize, Vec<(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)>>,
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -1439,6 +1458,29 @@ impl CssPropertyCache {
     }
 }
 
+/// Whether a node's own declaration `prop` (under `conditions`) loses to a
+/// rule above `rule_priority::INLINE` that set the same property: for the
+/// resting state, in every state; for a state, in that state.
+fn inline_is_overruled(
+    overruled: &[(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)],
+    prop: &CssProperty,
+    conditions: &azul_css::dynamic_selector::DynamicSelectorVec,
+) -> bool {
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+    let ty = prop.get_type();
+    let state = conditions
+        .as_slice()
+        .iter()
+        .find_map(|c| match c {
+            DynamicSelector::PseudoState(s) => Some(*s),
+            _ => None,
+        })
+        .unwrap_or(PseudoStateType::Normal);
+    overruled
+        .iter()
+        .any(|(s, t)| *t == ty && (*s == PseudoStateType::Normal || *s == state))
+}
+
 /// Returns true if `prop`'s value cannot be fully represented in the compact
 /// cache and therefore needs to survive `prune_compact_normal_props` so the
 /// slow `css_props` walk can still find it at layout time.
@@ -1662,13 +1704,14 @@ impl CssPropertyCache {
         node_hierarchy: &NodeHierarchyItemVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+        node_states: &[StyledNodeState],
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
             css::{
                 CssDeclaration,
                 CssPathPseudoSelector::{
-                    self, Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, Hover,
-                    Placeholder, SeatFocus,
+                    self, Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, FocusWithin,
+                    Hover, Placeholder, SeatFocus,
                 },
                 CssPathSelector, CssRuleBlock,
             },
@@ -1757,6 +1800,16 @@ impl CssPropertyCache {
         // build_compact_cache_with_inheritance for each node, avoiding
         // 50K × N clones into per-node css_props Vecs.
         self.global_css_props.clear();
+        self.left_state_mask = 0;
+        self.inline_overruled.clear();
+        // What the compounds left of a rule's subject read (`.btn:hover
+        // .ink`): the nodes' states as they are now, and the window's
+        // activation for `:backdrop`.
+        let ancestor_states = crate::style::AncestorStates {
+            nodes: node_states,
+            window_inactive: dyn_ctx.as_deref().is_some_and(|c| !c.window_focused),
+            every_state: false,
+        };
 
         // A node's presentational hints (its markup attributes' style,
         // `rule_priority::PRESENTATIONAL`) come FIRST among its stylesheet
@@ -1818,8 +1871,12 @@ impl CssPropertyCache {
                 // A rule that defines or reads a custom property resolves PER
                 // NODE (each node sees its own variables), so it cannot ride
                 // the one-value-for-every-node global bucket.
+                // A rule above the inline declarations (a `widgets` rice) has
+                // to beat them and the author's rules node by node, which the
+                // global bucket - read below every matched rule - cannot.
                 let is_global_only = selectors.len() == 1
                     && matches!(selectors.first(), Some(CssPathSelector::Global))
+                    && rule.priority <= azul_css::css::rule_priority::INLINE
                     && !rule
                         .declarations
                         .as_ref()
@@ -1858,19 +1915,20 @@ impl CssPropertyCache {
                 // path ends with, the resting pass takes every other rule. A
                 // node's entries come out pass by pass in this order, and rule
                 // by rule (cascade order) within a pass.
-                let passes: [(Option<CssPathPseudoSelector>, PseudoStateType); 10] = [
+                let passes: [(Option<CssPathPseudoSelector>, PseudoStateType); 11] = [
                     (None, PseudoStateType::Normal),
                     (Some(Hover), PseudoStateType::Hover),
                     (Some(Active), PseudoStateType::Active),
                     (Some(Focus), PseudoStateType::Focus),
                     (Some(SeatFocus), PseudoStateType::SeatFocus),
                     (Some(FocusVisible), PseudoStateType::FocusVisible),
+                    (Some(FocusWithin), PseudoStateType::FocusWithin),
                     (Some(Dragging), PseudoStateType::Dragging),
                     (Some(DragOver), PseudoStateType::DragOver),
                     (Some(Placeholder), PseudoStateType::Placeholder),
                     (Some(Backdrop), PseudoStateType::Backdrop),
                 ];
-                let backdrop_pass: u16 = 1 << 9;
+                let backdrop_pass: u16 = 1 << (passes.len() - 1);
                 // Per rule, one bit per pass it ends in; and the same bits
                 // only where its @-conditions hold under this context. Both
                 // belong to the rule, so they are answered once, not per node.
@@ -1901,6 +1959,13 @@ impl CssPropertyCache {
                 // inheritance walk below its backdrop tier.
                 any_backdrop |= ends_in.iter().any(|bits| bits & backdrop_pass != 0);
                 let live_passes = takes_part.iter().fold(0u16, |all, bits| all | bits);
+                self.left_state_mask = specific_rules
+                    .iter()
+                    .zip(&takes_part)
+                    .filter(|(_, bits)| **bits != 0)
+                    .fold(0, |mask, (rule, _)| {
+                        mask | crate::style::left_state_bits(&rule.path)
+                    });
 
                 // Each node is tried only against the rules that can match it:
                 // the unscoped ones and those of the `with_css` scopes around
@@ -1926,15 +1991,30 @@ impl CssPropertyCache {
                                 continue;
                             }
                             let rule_block: &CssRuleBlock = specific_rules[rule_idx];
-                            if !crate::style::matches_html_element(
+                            if !crate::style::matches_html_element_in(
                                 &rule_block.path,
                                 node_id,
                                 &hierarchy,
                                 node_data,
                                 html_tree,
                                 pseudo.clone(),
+                                Some(ancestor_states),
                             ) {
                                 continue;
+                            }
+                            if rule_block.priority > azul_css::css::rule_priority::INLINE {
+                                let overruled =
+                                    self.inline_overruled.entry(node_index).or_default();
+                                for ty in rule_block
+                                    .declarations
+                                    .as_slice()
+                                    .iter()
+                                    .filter_map(CssDeclaration::get_type)
+                                {
+                                    if !overruled.contains(&(state, ty)) {
+                                        overruled.push((state, ty));
+                                    }
+                                }
                             }
                             // Every declaration: properties, `env()` / `var()`
                             // references and custom-property definitions.
@@ -1994,6 +2074,13 @@ impl CssPropertyCache {
             self.variables_depend_on_context = false;
         }
 
+        // A `::before` / `::after` whose `content` makes nothing gets no box,
+        // nor a `::marker` whose host is no inline list item.
+        self.hide_contentless_generated_nodes(
+            node_data.internal,
+            node_hierarchy.as_container().internal,
+        );
+
         // What the ROOT inherits from OUTSIDE this DOM (`inherited_from_host`:
         // a VirtualView's host) enters the walk where a parent's values would,
         // as Normal-state entries of the root's `cascaded_props` - below the
@@ -2035,6 +2122,7 @@ impl CssPropertyCache {
                 PseudoStateType::Active,
                 PseudoStateType::Focus,
                 PseudoStateType::FocusVisible,
+                PseudoStateType::FocusWithin,
                 PseudoStateType::SeatFocus,
                 PseudoStateType::Dragging,
                 PseudoStateType::DragOver,
@@ -2768,6 +2856,8 @@ impl CssPropertyCache {
             resolved_font_sizes_px: crate::sync::OnceLock::new(),
             resolved_zooms: crate::sync::OnceLock::new(),
             inherited_from_host: Vec::new(),
+            left_state_mask: 0,
+            inline_overruled: alloc::collections::BTreeMap::new(),
         }
     }
 
@@ -2810,6 +2900,17 @@ impl CssPropertyCache {
                 .map(|(node, resolved)| (node + offset, resolved)),
         );
         self.variables_depend_on_context |= other.variables_depend_on_context;
+        self.inline_overruled.extend(
+            core::mem::take(&mut other.inline_overruled)
+                .into_iter()
+                .map(|(node, overruled)| (node + offset, overruled)),
+        );
+        // The merged cache keeps only this DOM's stylesheet, so a cascade it
+        // re-ran would lose the other's rules: stop re-running it for
+        // states then (the rules stay as they were cascaded).
+        if !other.retained_author_css.is_empty() {
+            self.left_state_mask = 0;
+        }
 
         self.node_count += other.node_count;
         // Indices shifted — invalidate the font-size cache too.
@@ -2915,6 +3016,14 @@ impl CssPropertyCache {
         } else {
             self.resolved_inline.get(&node_index)
         };
+        let overruled: &[(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)] =
+            if self.inline_overruled.is_empty() {
+                &[]
+            } else {
+                self.inline_overruled
+                    .get(&node_index)
+                    .map_or(&[][..], Vec::as_slice)
+            };
         let mut ordinal = 0usize;
         node_data
             .style
@@ -2941,6 +3050,9 @@ impl CssPropertyCache {
                 CssDeclaration::CustomProperty(_) => None,
             })
             .chain(resolved.into_iter().flat_map(ResolvedInline::variants))
+            .filter(move |(prop, conditions)| {
+                overruled.is_empty() || !inline_is_overruled(overruled, prop, conditions)
+            })
     }
 
     /// The value of the custom property `--name` (pass it without `--`) that
@@ -3280,7 +3392,9 @@ impl CssPropertyCache {
         //   through to the host's normal value, which is what makes an
         //   unstyled prompt inherit the field's font.
         // - `:focus-visible` > `:focus` (a ring declared for seen focus wins
-        //   over the plain focus face) > `:seat-focus` (9b-ii-a-i-d-iii-a: a non-primary seat's
+        //   over the plain focus face) > `:focus-within` (a frame's ring for
+        //   the focus inside it; on a focused node `:focus` says more) >
+        //   `:seat-focus` (9b-ii-a-i-d-iii-a: a non-primary seat's
         //   focus) > `:active` > `:dragging` > `:drag-over` (both above
         //   `:hover`) > `:hover`.
         // - `:backdrop` (GTK: the window is not the active one). A WINDOW
@@ -3295,6 +3409,7 @@ impl CssPropertyCache {
             (node_state.placeholder, PseudoStateType::Placeholder),
             (node_state.focus_visible, PseudoStateType::FocusVisible),
             (node_state.focused, PseudoStateType::Focus),
+            (node_state.focus_within, PseudoStateType::FocusWithin),
             (node_state.seat_focused, PseudoStateType::SeatFocus),
             (node_state.active, PseudoStateType::Active),
             (node_state.dragging, PseudoStateType::Dragging),

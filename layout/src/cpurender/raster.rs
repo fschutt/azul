@@ -107,7 +107,7 @@ fn gradient_lut_size(line_px: f64) -> usize {
 /// [`HARD_STOP_EPSILON`]. Fewer than two stops paint nothing.
 ///
 /// Colours between two stops are mixed in premultiplied space (CSS Images 3,
-/// what Chrome and WebRender paint): red fading to a transparent blue stays
+/// what Chrome and `WebRender` paint): red fading to a transparent blue stays
 /// red while it fades. agg mixes its stops straight, channel by channel, so
 /// [`premultiplied_steps`] gives it a stop for every entry where the alpha
 /// changes, and agg's straight steps between them are exact.
@@ -6591,7 +6591,7 @@ pub fn render_pages(
     )
     .map_err(|e| format!("the pages cannot be laid out: {e:?}"))?;
 
-    let drawn: Vec<&crate::solver3::display_list::DisplayList> = pages
+    let drawn: Vec<&DisplayList> = pages
         .iter()
         .skip(opts.first_page)
         .take(opts.page_count)

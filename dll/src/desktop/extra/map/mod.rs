@@ -337,7 +337,8 @@ pub extern "C" fn tile_fetch_worker(
             match get(&validators) {
                 Ok(resp) if resp.status_code == 304 => {
                     if let Some(disk) = &disk {
-                        disk.renew(&url, &policy_of(&resp));
+                        // A tile the folder lost meanwhile is fetched again next time.
+                        let _ = disk.renew(&url, &policy_of(&resp));
                     }
                     if dbg {
                         eprintln!("[map] worker revalidated tile=({z},{x},{y}): unchanged");

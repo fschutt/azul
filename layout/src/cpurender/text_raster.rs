@@ -380,7 +380,7 @@ mod set {
     /// the installed family a `<text>` names. A face is looked up once per
     /// document and the glyph outlines are kept across its texts, so a PDF
     /// page of a thousand runs in three fonts makes three faces.
-    pub struct SvgTextPainter {
+    pub(crate) struct SvgTextPainter {
         /// The faces the document embeds, by the family their `@font-face`
         /// declares.
         embedded: Vec<(String, FontRef)>,
@@ -399,7 +399,7 @@ mod set {
     impl SvgTextPainter {
         /// A painter for a document that embeds `embedded`.
         #[must_use]
-        pub fn new(embedded: Vec<(String, FontRef)>) -> Self {
+        pub(crate) fn new(embedded: Vec<(String, FontRef)>) -> Self {
             Self {
                 embedded,
                 installed: Vec::new(),
@@ -450,7 +450,7 @@ mod set {
         /// no face is found or the text does not shape.
         #[allow(clippy::too_many_arguments)] // one text run's whole description
         #[allow(clippy::cast_precision_loss)] // pixmap sides are far below 2^24
-        pub fn draw(
+        pub(crate) fn draw(
             &mut self,
             pixmap: &mut AzulPixmap,
             text: &str,

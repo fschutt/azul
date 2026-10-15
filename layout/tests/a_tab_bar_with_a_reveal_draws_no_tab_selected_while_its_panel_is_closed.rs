@@ -60,7 +60,7 @@ fn closed_no_tab_is_selected_and_open_the_shown_one_is() {
         !closed.children.as_ref().iter().any(|c| has_class(c, ACTIVE)),
         "at rest the panel is closed: no tab is drawn selected"
     );
-    reveal.apply(RevealEvent::Chevron, 0);
+    let _ = reveal.apply(RevealEvent::Chevron, 0);
     let open = bar(&reveal);
     let selected: Vec<usize> = open
         .children
