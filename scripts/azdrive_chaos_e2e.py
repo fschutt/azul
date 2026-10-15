@@ -235,12 +235,21 @@ class Stack:
         self.state.set_nodes([azlin_mock_stack.node_entry("n1", self.proxy.url)])
         # session token -> (family id, expires at): every bundle the token server answered.
         self.sessions = {}
+        # The members whose bundles name the proxy (the devices under test); the others are
+        # sent to the S3 directly.
+        self.proxied = {"laptop", "laptop2"}
         self.enforce_sessions = False
         original = self.state.bundle
 
         def bundle(drive, token):
             made = original(drive, token)
             family = token[3:].split(".")[0] if token.startswith("dt_") else None
+            member = self.state.families.get(family, {}).get("member") if family else None
+            if member not in self.proxied:
+                # Another device talks to the S3 itself: the proxy's faults are the laptop's.
+                direct = self.stack.s3_url
+                made["drive"]["location"]["endpoint"] = direct
+                made["nodes"] = [azlin_mock_stack.node_entry("n1", direct)]
             expires = time.mktime(time.strptime(made["credentials"]["expires_at"],
                                                 "%Y-%m-%dT%H:%M:%SZ")) - time.timezone
             self.sessions[made["credentials"]["session_token"]] = (family, expires)
@@ -540,8 +549,6 @@ class Desktop:
                     "AZLIN_HOME": os.path.join(self.home, ".azlin"),
                     "AZLIN_CONFIG": os.path.join(self.home, ".azlin", "config.json"),
                     "AZLIN_TOKEN_URL": stack.token_url, "AZCLOUD_DEVICE": name,
-                    # Straight to the S3: the proxy's faults are the laptop's.
-                    "AZLIN_S3_URL": stack.stack.s3_url,
                     "TMPDIR": os.path.join(self.root, "tmp")})
         os.makedirs(env["TMPDIR"], exist_ok=True)
         self.env = env
