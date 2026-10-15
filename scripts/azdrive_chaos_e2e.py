@@ -137,6 +137,23 @@ def expect(condition, message):
         raise Failure(message)
 
 
+class Checks:
+    """A scenario's expectations, every failed one said at its end (not only the first)."""
+
+    def __init__(self):
+        self.failed = []
+
+    def expect(self, condition, message):
+        if not condition:
+            self.failed.append(message)
+        return condition
+
+    def done(self, said):
+        if self.failed:
+            raise Failure("; ".join(self.failed) + (" [%s]" % said if said else ""))
+        return said
+
+
 def sha256_file(path):
     digest = hashlib.sha256()
     with open(path, "rb") as f:
@@ -916,13 +933,14 @@ def server_errors(ctx):
             notes.append("%s: applied %d, settled in %.0f s" % (what, fault.applied,
                                                                 time.time() - started))
             no_silent_failure(laptop, drive)
+        checks = Checks()
         twice = {k: n for k, n in blob_writes(stack, drive).items() if n > 1}
-        expect(not twice, "blobs written more than once: %s" % twice)
-        expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
-               stack.unfinished_uploads())
+        checks.expect(not twice, "blobs written more than once: %s" % twice)
+        checks.expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
+                      stack.unfinished_uploads())
         raw = raw_errors(statuses_seen(laptop, drive))
-        expect(not raw, "the status showed technical errors to the user: %s" % raw[:3])
-        return "; ".join(notes)
+        checks.expect(not raw, "the status showed technical errors to the user: %s" % raw[:3])
+        return checks.done("; ".join(notes))
     finally:
         laptop.stop()
         stack.stop()
@@ -952,24 +970,22 @@ def flap_upload(ctx):
         proxy.stop_flap()
         proxy.clear()
         laptop.wait_settled("after the flapping", drive, timeout=300)
+        checks = Checks()
         here, there = tree(folder), stack.drive_tree(drive)
         nothing_lost(versions, [here])
         nothing_lost(versions, [there])
         no_silent_failure(laptop, drive)
-        big_key = [k for k in stack.proxy.writes(key=r"^\.azlin/blobs/") if k.endswith(
-            stack.index(drive)["files"]["video.bin"]["hash"])]
         parts = proxy.requests(op="UploadPart", key=r"^\.azlin/blobs/")
         forwarded = [p for p in parts if p["forwarded"]]
         expected_parts = (120 * MIB + 16 * MIB - 1) // (16 * MIB)
-        expect(len(forwarded) <= 2 * expected_parts,
+        checks.expect(len(forwarded) <= 2 * expected_parts,
                "the 120 MiB file's parts were sent %d times for %d parts: an upload is not "
                "resumed per part after a network drop" % (len(forwarded), expected_parts))
-        expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
-               stack.unfinished_uploads())
+        checks.expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
+                      stack.unfinished_uploads())
         raw = raw_errors(statuses_seen(laptop, drive))
-        expect(not raw, "the status showed technical errors to the user: %s" % raw[:3])
-        return "settled; %d part uploads for %d parts; %s; statuses %s" % (
-            len(forwarded), expected_parts, big_key, statuses_seen(laptop, drive))
+        checks.expect(not raw, "the status showed technical errors to the user: %s" % raw[:3])
+        return checks.done("%d part uploads for %d parts" % (len(forwarded), expected_parts))
     finally:
         proxy.stop_flap()
         laptop.stop()
@@ -1044,13 +1060,15 @@ def kill_every_step(ctx):
                 point, sorted(set(here.items()) ^ set(there.items()))[:6]))
             no_silent_failure(laptop, drive)
             notes.append("%s: converged" % point)
+        checks = Checks()
         big = {k: n for k, n in blob_writes(stack, drive).items() if n > 1 and
                os.path.getsize(os.path.join(stack.bucket_dir(drive), *k.split("/"))) > 8 * MIB}
-        expect(not big, "big blobs went up twice: %s" % big)
-        expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
-               stack.unfinished_uploads())
+        checks.expect(not big, "big blobs went up twice: %s" % big)
+        checks.expect(not stack.unfinished_uploads(), "unfinished uploads stay: %s" %
+                      stack.unfinished_uploads())
         small_twice = sum(1 for n in blob_writes(stack, drive).values() if n > 1)
-        return "; ".join(notes) + "; small blobs sent again after a kill: %d" % small_twice
+        return checks.done("; ".join(notes) + "; small blobs sent again after a kill: %d"
+                           % small_twice)
     finally:
         laptop.stop()
         stack.stop()
@@ -1274,10 +1292,11 @@ def clock_skew(ctx):
         durations = pass_durations(laptop, drive)
         slow = [d for d in durations[-2:] if d > 10]
         no_silent_failure(laptop, drive)
+        checks = Checks()
         raw = raw_errors([skewed])
-        expect(not raw, "the skew showed as a technical error: %s" % skewed)
-        expect(not slow, "a file dated in the future makes every pass wait: %s s" % slow)
-        return "skew status: %s; last pass times %s" % (skewed, durations[-3:])
+        checks.expect(not raw, "the skew showed as a technical error: %s" % skewed)
+        checks.expect(not slow, "a file dated in the future makes every pass wait: %s s" % slow)
+        return checks.done("skew status: %s; last pass times %s" % (skewed, durations[-3:]))
     finally:
         laptop.stop()
         stack.stop()
@@ -1312,15 +1331,16 @@ def quota(ctx):
             write(os.path.join(folder, "q%d.bin" % i), data)
             versions["q%d" % i] = hashlib.sha256(data).hexdigest()
         full = status_after_passes(laptop, drive, 3)
-        expect(full != UP_TO_DATE, "the drive is full and the status says Up to date")
+        checks = Checks()
+        checks.expect(full != UP_TO_DATE, "the drive is full and the status says Up to date")
         nothing_lost(versions, [tree(folder)])
         raw = raw_errors([full])
         stack.proxy.set_quota(bucket, None)
         laptop.wait_settled("the quota raised", drive)
         nothing_lost(versions, [stack.drive_tree(drive)])
         no_silent_failure(laptop, drive)
-        expect(not raw, "the full drive showed as a technical error: %s" % full)
-        return "full status: %s" % full
+        checks.expect(not raw, "the full drive showed as a technical error: %s" % full)
+        return checks.done("full status: %s" % full)
     finally:
         laptop.stop()
         stack.stop()
@@ -1354,17 +1374,18 @@ def revoked(ctx):
         time.sleep(10)
         knocked = len(laptop.passes(drive)) - passes_before
         here = tree(folder)
+        checks = Checks()
         for key in local_before:
-            expect(key in here, "the removal deleted %s here" % key)
+            checks.expect(key in here, "the removal deleted %s here" % key)
         later = [e for e in stack.proxy.requests(op=azchaos.WRITES)
                  if e["t"] > revoked_at + 1 and 200 <= (e.get("status") or 0) < 300]
-        expect(not later, "writes landed after the removal: %s" % later[:3])
-        expect(status != UP_TO_DATE, "removed, the status says Up to date")
+        checks.expect(not later, "writes landed after the removal: %s" % later[:3])
+        checks.expect(status != UP_TO_DATE, "removed, the status says Up to date")
         raw = raw_errors(statuses_seen(laptop, drive))
-        expect(not raw, "the removal showed as a technical error: %s" % raw[:2])
-        expect(knocked <= 2, "a removed device ran %d passes in 10 s against refused "
-                             "credentials" % knocked)
-        return "status %s" % status
+        checks.expect(not raw, "the removal showed as a technical error: %s" % raw[:2])
+        checks.expect(knocked <= 2, "a removed device ran %d passes in 10 s against refused "
+                                    "credentials" % knocked)
+        return checks.done("status %s" % status)
     finally:
         laptop.stop()
         stack.stop()
@@ -1390,12 +1411,14 @@ def sleep_mid_upload(ctx):
         laptop.resume()
         laptop.wait_settled("after waking", drive, timeout=240)
         there = stack.drive_tree(drive)
-        expect(there.get("dream.bin") == digest, "dream.bin is not on the drive after waking")
+        checks = Checks()
+        checks.expect(there.get("dream.bin") == digest,
+                      "dream.bin is not on the drive after waking")
         parts = [p for p in stack.proxy.requests(op="UploadPart") if p["forwarded"]]
-        expect(len(parts) <= 2 * 4, "the 4 parts were sent %d times" % len(parts))
-        expect(not stack.unfinished_uploads(), "unfinished uploads stay")
+        checks.expect(len(parts) <= 2 * 4, "the 4 parts were sent %d times" % len(parts))
+        checks.expect(not stack.unfinished_uploads(), "unfinished uploads stay")
         no_silent_failure(laptop, drive)
-        return "woke, refreshed, %d part uploads for 4 parts" % len(parts)
+        return checks.done("woke, refreshed, %d part uploads for 4 parts" % len(parts))
     finally:
         laptop.stop()
         stack.stop()
@@ -1435,20 +1458,21 @@ def disk_full(ctx):
         status = status_after_passes(laptop, drive, 3)
         folder = laptop.folder(drive)
         here = tree(folder)
+        checks = Checks()
         for i in range(5):
-            expect(here.get("small%d.bin" % i) == versions["small%d" % i],
-                   "small%d.bin did not come down" % i)
+            checks.expect(here.get("small%d.bin" % i) == versions["small%d" % i],
+                          "small%d.bin did not come down" % i)
         partial = [n for n in os.listdir(folder) if n not in here]
-        expect("big.bin" not in here or here["big.bin"] == versions["big"],
-               "a partial big.bin is in the folder")
-        expect(status != UP_TO_DATE, "the disk is full, big.bin is not here, and the status "
-                                     "says Up to date")
+        checks.expect("big.bin" not in here or here["big.bin"] == versions["big"],
+                      "a partial big.bin is in the folder")
+        checks.expect(status != UP_TO_DATE, "the disk is full, big.bin is not here, and the "
+                                            "status says Up to date")
         nothing_lost(versions, [stack.drive_tree(drive)])
         desktop.sync(desk)
         nothing_lost(versions, [tree(desk)])
         raw = raw_errors([status])
-        expect(not raw, "the full disk showed as a technical error: %s" % status)
-        return "status %s; leftovers %s" % (status, partial)
+        checks.expect(not raw, "the full disk showed as a technical error: %s" % status)
+        return checks.done("status %s; leftovers %s" % (status, partial))
     finally:
         if laptop:
             laptop.stop()
@@ -1801,13 +1825,17 @@ def many_small(ctx):
         # A pass that finds nothing new: the folder scanned, nothing sent.
         laptop.wait_passes("two quiet passes", 2, drive, timeout=600)
         quiet = pass_durations(laptop, drive)[-2:]
-        expect(peak[0] < 2048, "AzDrive used %.0f MB for %d small files" % (peak[0], count))
-        expect(data <= count // 100, "%d objects in data/ for %d small files" % (data, count))
-        expect(all(d < 15 for d in quiet),
+        checks = Checks()
+        checks.expect(peak[0] < 2048, "AzDrive used %.0f MB for %d small files" % (
+            peak[0], count))
+        checks.expect(data <= count // 100, "%d objects in data/ for %d small files" % (
+            data, count))
+        checks.expect(all(d < 15 for d in quiet),
                "a pass that finds nothing new over %d files takes %s s: with the 30 s poll "
                "AzDrive is busy all the time" % (count, quiet))
-        return "%d files in %.0f s, peak %.0f MB, %d data/ objects, %d log entries, quiet " \
-               "passes %s s" % (count, took, peak[0], data, logs, quiet)
+        return checks.done("%d files in %.0f s, peak %.0f MB, %d data/ objects, %d log "
+                           "entries, quiet passes %s s" % (count, took, peak[0], data, logs,
+                                                           quiet))
     finally:
         laptop.stop()
         stack.stop()
@@ -1870,15 +1898,17 @@ def fifty_gb(ctx):
         whole = list(objects.values())[0]
         parts = held_parts()
         expected = (size + 16 * MIB - 1) // (16 * MIB)
-        expect(whole["size"] == size, "the object holds %d bytes of %d" % (whole["size"], size))
-        expect(whole["sha256"] in (digest, None), "the object's bytes are not the file's")
-        expect(peak[0] < 1536, "AzDrive used %.0f MB while sending a %d GB file" % (
+        checks = Checks()
+        checks.expect(whole["size"] == size, "the object holds %d bytes of %d" % (
+            whole["size"], size))
+        checks.expect(whole["sha256"] in (digest, None), "the object's bytes are not the file's")
+        checks.expect(peak[0] < 1536, "AzDrive used %.0f MB while sending a %d GB file" % (
             peak[0], size // GIB))
-        expect(parts <= expected + 8,
+        checks.expect(parts <= expected + 8,
                "%d parts sent for %d (%d before the kill): the upload started again after the "
                "kill instead of resuming" % (parts, expected, before_kill))
-        return "%d GB: %d parts (%d before the kill), peak %.0f MB" % (
-            size // GIB, parts, before_kill, peak[0])
+        return checks.done("%d GB: %d parts (%d before the kill), peak %.0f MB" % (
+            size // GIB, parts, before_kill, peak[0]))
     finally:
         laptop.stop()
         stack.stop()
