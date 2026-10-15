@@ -1145,3 +1145,5 @@ mod focus_within_holds_on_every_ancestor_of_the_focused_node;
 mod a_pseudo_class_on_an_ancestor_restyles_its_descendants;
 #[path = "before_and_after_generate_content.rs"]
 mod before_and_after_generate_content;
+#[path = "inline_list_items_carry_their_marker.rs"]
+mod inline_list_items_carry_their_marker;
