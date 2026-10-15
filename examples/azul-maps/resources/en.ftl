@@ -153,6 +153,22 @@ azmaps-routing-keep = Keep downloaded roads for
 azmaps-routing-keep-suggested = As the tile set suggests
 azmaps-routing-keep-days = { $days } days
 azmaps-routing-keep-about = Road tiles downloaded for routes are kept on this computer and fetched again when they are older than this. Without a network the old ones still route. Applies from the next start.
+azmaps-offline-title = Offline areas
+azmaps-offline-about = Keeps the roads of the area shown on the map on this computer, so routes there work without a network. Frame the area on the map first. The map itself keeps the map tiles it has shown.
+azmaps-offline-needs-tiles = Offline areas keep downloaded routing tiles: start AzMaps with routing tiles (--routing) to keep one.
+azmaps-offline-name = Name of the area
+azmaps-offline-download = Keep the area on the map
+azmaps-offline-stop = Stop
+azmaps-offline-delete = Delete
+azmaps-offline-planning = Finding the roads of the area...
+azmaps-offline-progress = { $done } of { $total } road tiles ({ $size })
+azmaps-offline-kept = Kept { $name }: { $tiles } road tiles, { $size }
+azmaps-offline-kept-failed = Kept { $name }: { $tiles } road tiles, { $size }. { $failed } could not be downloaded and are tried again on the next route.
+azmaps-offline-failed = The area could not be kept: { $why }
+azmaps-offline-empty = The routing tiles have no roads in the area on the map.
+azmaps-offline-no-name = Name the area first.
+azmaps-offline-stopped = The download was stopped; nothing was kept.
+azmaps-offline-row = { $name } · { $tiles } road tiles · { $size }
 
 ## Saved places, imports and exports
 

@@ -75,6 +75,12 @@ names! {
     GPS_APPLY = "gps-apply";
     /// Settings > Navigation > Routing tiles: how long downloaded roads are kept.
     ROUTING_KEEP = "routing-keep";
+    /// Settings > Navigation > Offline areas: the name, Download / Stop, the line under them
+    /// (the kept areas' rows are `offline-area-<n>`, their Delete `offline-delete-<n>`).
+    OFFLINE_NAME = "offline-name";
+    OFFLINE_DOWNLOAD = "offline-download";
+    OFFLINE_STOP = "offline-stop";
+    OFFLINE_NOTE = "offline-note";
     // ---- saved places (`lists_ui.rs`) ----
     /// The sidebar's saved lists (each row `list-<n>`, the open one's places `saved-place-<n>`).
     SAVED = "saved";

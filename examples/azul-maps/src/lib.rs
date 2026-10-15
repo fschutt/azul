@@ -500,6 +500,8 @@ struct MapState {
     drive: drive_ui::DriveState,
     /// The saved lists, the recent searches, imports and their review (`lists_ui.rs`).
     lists: lists_ui::ListsState,
+    /// The offline areas: the kept ones and the download under way (`offline_ui.rs`).
+    offline_areas: offline_ui::OfflineState,
 }
 
 impl MapState {
@@ -1579,6 +1581,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 vec![
                     drive_ui::location_section(&s, &app, None),
                     drive_ui::routing_tiles_section(&s, &app),
+                    offline_ui::section(&s, &app),
                     lists_ui::places_section(&s, &app),
                 ],
             ))
@@ -2489,6 +2492,7 @@ pub fn start() {
         size: Cell::new((0.0, 0.0)),
         route: None,
         route_progress: None,
+        offline_areas: offline_ui::OfflineState::new(routing.as_ref()),
         routing,
         online,
         selected_step: None,
