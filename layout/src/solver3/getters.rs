@@ -6131,9 +6131,19 @@ pub fn resolve_font_chains_with_registry(
             if !group.fonts.is_empty() && group.fonts.iter().all(|m| fc_cache.is_memory_font(&m.id)) {
                 let guessed = core::mem::take(&mut group.fonts);
                 group.fonts = own.fonts.clone();
-                group
-                    .fonts
-                    .extend(guessed.into_iter().filter(|m| own.fonts.iter().all(|o| o.id != m.id)));
+                // Only the family's faces of the slant asked for: CSS picks a
+                // face by its style before its coverage, so upright text never
+                // borrows a letter from the italic (Calmet UI's italic has the
+                // 'é' its upright lacks - the next family draws that one).
+                let same_slant = |m: &rust_fontconfig::FontMatch| {
+                    fc_cache.get_metadata_by_id(&m.id).is_none_or(|p| {
+                        (p.italic == PatternMatch::True) == is_italic
+                            && (p.oblique == PatternMatch::True) == is_oblique
+                    })
+                };
+                group.fonts.extend(guessed.into_iter().filter(|m| {
+                    own.fonts.iter().all(|o| o.id != m.id) && same_slant(m)
+                }));
             }
         }
         if !mem_groups.is_empty() {
