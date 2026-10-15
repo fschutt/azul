@@ -155,6 +155,46 @@ CSS overrides without rebuilding, computed-layout queries) into `on_click`.
 You can customize the window by changing the fields of the `WindowCreateOptions` 
 (also see the API search box on the API documentation page).
 
+## Missing values and errors in callbacks
+
+An optional parameter takes `None` or the value, an optional return value or 
+field is `None` or the value, and a call that can fail raises a `ValueError` 
+with the error's text. A callback that returns `None` (or nothing) does nothing, 
+and one that raises does nothing either: the traceback goes to stderr and into 
+the app's log.
+
+A folder picker. Before, an absent folder was a wrapper object, and so was 
+everything that came back:
+
+```python
+FileDialog.open_directory("Choose a folder", OptionString.None(), data, on_pick_folder)
+
+def on_pick_folder(data, info, result):
+    picked = FileOpenResult.downcast(result)   # an OptionFileOpenResult
+    if not picked.is_some():
+        return Update.DoNothing
+    ...
+```
+
+Now:
+
+```python
+def on_choose_folder(data, info):
+    FileDialog.open_directory("Choose a folder", None, data, on_pick_folder)
+    return Update.DoNothing
+
+def on_pick_folder(data, info, result):
+    picked = FileOpenResult.downcast(result)
+    if picked is None or picked.path is None:
+        return  # cancelled: nothing to do
+    data.folder = picked.path.inner
+    return Update.RefreshDom
+
+def on_open_link(data, info):
+    url = Url.parse(data.link)  # a bad link raises; it is logged and nothing happens
+    return Update.RefreshDom
+```
+
 ## Run it
 
 ```sh

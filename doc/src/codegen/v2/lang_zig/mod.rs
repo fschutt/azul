@@ -674,6 +674,14 @@ pub inline fn _identity(val: anytype) @TypeOf(val) {
     return val;
 }
 
+/// The payload of an Option's `Some`, or null for `None`: the option is
+/// taken apart and its payload moves into the result, so a function that
+/// returns an Option returns `?T` and `orelse return .DoNothing` reads it.
+pub inline fn _optPayload(o: anytype, some_tag: anytype) ?@TypeOf(o.Some.payload) {
+    if (o.Some.tag != some_tag) return null;
+    return o.Some.payload;
+}
+
 "#;
 
 // ============================================================================

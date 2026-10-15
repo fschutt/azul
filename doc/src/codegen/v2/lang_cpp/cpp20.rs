@@ -396,6 +396,15 @@ impl CppDialect for Cpp20Generator {
         // wrapper class (consuming && form for non-copy payloads).
         emit_option_to_std_optional(code, &inner_type, &c_inner_type, ir);
         emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
+        // A parameter of this type takes std::nullopt, a std::optional or the value.
+        emit_option_from_std_optional(
+            code,
+            &struct_def.name,
+            &c_type_name,
+            &inner_type,
+            &c_inner_type,
+            ir,
+        );
     }
 
     fn generate_result_methods(

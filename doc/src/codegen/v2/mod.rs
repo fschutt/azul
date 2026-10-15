@@ -61,6 +61,8 @@
 pub mod abi_guard;
 #[cfg(test)]
 mod bug_classes;
+#[cfg(test)]
+mod native_optionals;
 pub mod c_layout;
 pub mod config;
 pub mod field_access;

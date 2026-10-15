@@ -43,7 +43,9 @@ use super::{
     },
     ffi_type_name, kotlin_class_name,
     managed::{kt_data_typed_sam_shape, lower_first},
-    map_kt_owned, map_kt_return, sanitize_kt_identifier,
+    map_kt_owned, map_kt_return,
+    options::kt_option,
+    sanitize_kt_identifier,
 };
 
 /// Phase I.5.1 (Kotlin): how the wrapper method should idiomise an
@@ -321,6 +323,7 @@ pub fn emit_all(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     builder
         .line("private val AZUL_CLEANER: java.lang.ref.Cleaner = java.lang.ref.Cleaner.create()");
     builder.blank();
+    super::options::emit_options_object(builder, ir);
 
     // The application-object pattern (`App.create(model, ::layout)` +
     // `app.run(options)`) is matched structurally once for the whole IR.
@@ -346,7 +349,30 @@ pub fn emit_all(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
 /// One predicate for "this struct gets a wrapper class", shared with the
 /// typed-SAM bridge and the arg/return converters (`has_wrapper_class`).
 fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
-    config.should_include_type(&s.name) && has_wrapper_class(&s.name, ir)
+    config.should_include_type(&s.name)
+        && (has_wrapper_class(&s.name, ir) || has_only_static_api(s, ir))
+}
+
+/// A type whose whole API is static functions (`FileDialog`) has neither a
+/// `_delete` nor an instance method, so the shared rule gives it no class
+/// and its functions sat on the raw struct's companion with C types. It
+/// gets a class for them; `has_wrapper_class` stays false, so arguments and
+/// returns of the type itself stay raw.
+fn has_only_static_api(s: &StructDef, ir: &CodegenIR) -> bool {
+    s.generic_params.is_empty()
+        && !matches!(
+            s.category,
+            TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+                | TypeCategory::String
+                | TypeCategory::Vec
+                | TypeCategory::RefAny
+        )
+        && ir
+            .functions_for_class(&s.name)
+            .any(|f| f.kind.is_api_function() && matches!(f.kind, FunctionKind::StaticMethod))
 }
 
 fn should_emit_helper(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -669,6 +695,42 @@ fn emit_wrapper(
              view). */",
         );
         builder.line("internal fun __isMovable(): Boolean = !closed && __cleanable != null");
+        builder.blank();
+        // A call that takes the value by value frees it: a movable wrapper
+        // is consumed, anything else (a callback argument the engine frees
+        // afterwards, a view) is deep-copied, so nothing is freed twice.
+        let ffi = ffi_type_name(&s.name);
+        builder.line(
+            "/** Internal: the native value to move into a call: a movable wrapper is consumed, \
+             a borrowed one is deep-copied. */",
+        );
+        builder.line(&format!("internal fun __takeRaw(): {}.ByValue {{", ffi));
+        builder.indent();
+        builder.line("check(__isOpen()) { \"closed\" }");
+        match ir
+            .functions
+            .iter()
+            .find(|f| f.class_name == s.name && matches!(f.kind, FunctionKind::DeepCopy))
+        {
+            Some(c) => builder.line(&format!(
+                "if (!__isMovable()) return {}.{}(ptr)",
+                native_class_for_class(&s.name, ir),
+                c.c_name
+            )),
+            None => builder.line(&format!(
+                "check(__isMovable()) {{ \"a borrowed {} has no deep copy and cannot be moved\" }}",
+                s.name
+            )),
+        }
+        builder.line(&format!(
+            "val __v = Structure.newInstance({f}.ByValue::class.java, ptr) as {f}.ByValue",
+            f = ffi
+        ));
+        builder.line("__v.read()");
+        builder.line("__consume()");
+        builder.line("return __v");
+        builder.dedent();
+        builder.line("}");
     } else {
         // Nothing to free: the type has no `_delete`. `__consume()` only
         // invalidates the wrapper — its bytes were copied into the engine,
@@ -989,7 +1051,10 @@ fn emit_kt_app_factory_companion(
 /// `String`s take a `kotlin.String`, owned wrapper-class structs take the
 /// wrapper instance, references collapse to `Pointer?`.
 fn kt_user_arg_type(a: &FunctionArg, ir: &CodegenIR) -> String {
-    if is_az_string_owned_arg(a, ir) {
+    if let Some(opt) = owned_kt_option(a, ir) {
+        // `null` is None (see `options`).
+        opt.native()
+    } else if is_az_string_owned_arg(a, ir) {
         "kotlin.String".to_string()
     } else if is_wrapper_class_owned_arg(a, ir) {
         kotlin_class_name(a.type_name.trim(), ir)
@@ -1164,6 +1229,13 @@ fn emit_kt_smart_setters(
 /// `is_az_string_kt` reads), never from its api.json spelling: renaming
 /// the type in api.json must not silently turn every string parameter in
 /// this binding back into a raw struct.
+/// The Option conversion of an owned argument, if its type converts.
+fn owned_kt_option(a: &FunctionArg, ir: &CodegenIR) -> Option<super::options::KtOption> {
+    matches!(a.ref_kind, ArgRefKind::Owned)
+        .then(|| kt_option(&a.type_name, ir))
+        .flatten()
+}
+
 fn is_az_string_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
     matches!(a.ref_kind, ArgRefKind::Owned)
         && ir
@@ -1190,11 +1262,18 @@ fn emit_kt_wrapper_class_conv(
     pre_call_lines: &mut Vec<String>,
     raw_name: &str,
     type_name: &str,
+    ir: &CodegenIR,
 ) -> String {
     // Strip backticks for the local var prefix (see emit_kt_az_string_conv).
     let stem = raw_name.trim_matches('`');
     let ffi = ffi_type_name(type_name);
     let raw_local = format!("__{}_raw", stem);
+    if has_delete_function(type_name, ir) {
+        // The call frees the value: `__takeRaw` moves an owned wrapper in
+        // and deep-copies a borrowed one (a callback argument).
+        pre_call_lines.push(format!("val {} = {}.__takeRaw()", raw_local, raw_name));
+        return raw_local;
+    }
     pre_call_lines.push(format!(
         "val {raw_local} = Structure.newInstance({ffi}.ByValue::class.java, {arg}.rawPointer()) \
          as {ffi}.ByValue",
@@ -1460,6 +1539,35 @@ fn emit_kt_field_accessors(
             }
         }
 
+        // An Option field is a `T?` property: read through a copy taken
+        // apart into the nullable, written from the value or null.
+        let kt_opt = kt_option(&f.type_name, ir);
+        let user_ty = match &kt_opt {
+            Some(opt) => {
+                if let Some(last) = get_body.last_mut() {
+                    *last = format!("return {}", opt.take("__copy"));
+                }
+                let (native, delete) = match &shape {
+                    FieldShape::Value { native, delete, .. } => (native.clone(), delete.clone()),
+                    _ => (String::new(), None),
+                };
+                set_body = vec![
+                    closed_check.to_string(),
+                    format!("val __new = {}", opt.into_raw("v")),
+                    "__new.write()".to_string(),
+                    "val __nb = __new.pointer.getByteArray(0, __new.size())".to_string(),
+                    overlay.clone(),
+                    format!("val __fp = {}", fp),
+                ];
+                if let Some(d) = delete {
+                    set_body.push(format!("{}.{}(__fp)", native, d));
+                }
+                set_body.push("__fp.write(0, __nb, 0, __nb.size)".to_string());
+                opt.native()
+            }
+            None => user_ty,
+        };
+
         // ---- names ---------------------------------------------------------
         // JVM names of the property's accessors (`isFoo` keeps its name as
         // the getter and drops the `is` for the setter).
@@ -1486,6 +1594,9 @@ fn emit_kt_field_accessors(
             FieldShape::Wrapper { .. } => {
                 " Writing releases the old value; an owned wrapper is MOVED in (closed \
                  afterwards), a view - another object's field - is deep-copied."
+            }
+            FieldShape::Value { .. } if kt_opt.is_some() => {
+                " Writing takes the value or null (None) and releases the old value."
             }
             FieldShape::Value { .. } => {
                 " Writing releases the old value and MOVES the native bytes of the assigned \
@@ -1558,6 +1669,7 @@ fn emit_kt_field_accessors(
             // The getter name belongs to an api.json method (or there is no
             // safe getter): the field stays writable through a function.
             let param_ty = match &shape {
+                FieldShape::Value { .. } if kt_opt.is_some() => user_ty.clone(),
                 FieldShape::Value { ffi, .. } => ffi.clone(),
                 _ => user_ty.clone(),
             };
@@ -1990,19 +2102,17 @@ fn emit_static_factory(
         .iter()
         .map(|a| {
             let raw_name = sanitize_kt_identifier(&a.name);
-            if is_az_string_owned_arg(a, ir) {
+            if let Some(opt) = owned_kt_option(a, ir) {
+                let local = format!("__{}_opt", raw_name.trim_matches('`'));
+                pre_call_lines.push(format!("val {} = {}", local, opt.into_raw(&raw_name)));
+                local
+            } else if is_az_string_owned_arg(a, ir) {
                 emit_kt_az_string_conv(&mut pre_call_lines, &raw_name)
             } else if is_wrapper_class_owned_arg(a, ir) {
-                let local =
-                    emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim());
-                // The C ABI takes ownership of the by-value struct; an
-                // owning wrapper (`_delete`) is marked consumed so its
-                // Cleaner never fires a double-free AzX_delete. POD
-                // wrappers are copied and stay usable.
-                if has_delete_function(a.type_name.trim(), ir) {
-                    consume_after_call.push(raw_name);
-                }
-                local
+                // An owning wrapper goes in through `__takeRaw` (moved, or
+                // deep-copied when borrowed); a POD wrapper is copied and
+                // stays usable.
+                emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim(), ir)
             } else {
                 raw_name
             }
@@ -2142,6 +2252,91 @@ fn emit_static_factory(
     builder.dedent();
     builder.line("}");
     builder.blank();
+
+    emit_kt_typed_data_callback_overload(builder, func, &displayed_return, ir);
+}
+
+/// A typed overload for every method that takes a `RefAny` data argument
+/// followed by a callback wrapper (`FileDialog.openDirectory(title,
+/// defaultPath, data, onResult)`): the data is any object `T`, the callback
+/// the typed `<Kind>WithData<T>` (`::onPickFolder` resolves to it), both
+/// wrapped and registered inside. The `with_on_*` setters have their own
+/// smart builders, so they are skipped here.
+fn emit_kt_typed_data_callback_overload(
+    builder: &mut CodeBuilder,
+    func: &FunctionDef,
+    displayed_return: &str,
+    ir: &CodegenIR,
+) {
+    if smart_callback_setter_info(func).is_some() {
+        return;
+    }
+    let skip = if takes_self(func) { 1 } else { 0 };
+    let args: Vec<&FunctionArg> = func.args.iter().skip(skip).collect();
+    let owned = |a: &FunctionArg| matches!(a.ref_kind, ArgRefKind::Owned);
+    let wrapper_of = |a: &FunctionArg| {
+        a.callback_info
+            .as_ref()
+            .filter(|c| owned(a) && c.callback_wrapper_name == a.type_name.trim())
+            .map(|c| c.callback_wrapper_name.clone())
+    };
+    let Some(data_at) = (0..args.len().saturating_sub(1)).find(|&i| {
+        owned(args[i]) && is_refany_type(&args[i].type_name, ir) && wrapper_of(args[i + 1]).is_some()
+    }) else {
+        return;
+    };
+    let kind = wrapper_of(args[data_at + 1]).unwrap_or_default();
+    let Some(cb) = ir.callback_typedefs.iter().find(|c| wrapper_name(c) == kind) else {
+        return;
+    };
+    if kt_data_typed_sam_shape(cb, ir).is_none() {
+        return;
+    }
+    let mut params = Vec::new();
+    let mut forward = Vec::new();
+    for (j, a) in args.iter().enumerate() {
+        let name = sanitize_kt_identifier(&a.name);
+        if j == data_at {
+            params.push(format!("{}: T", name));
+            forward.push(format!(
+                "{}(__data.pointer)",
+                kotlin_class_name(a.type_name.trim(), ir)
+            ));
+        } else if j == data_at + 1 {
+            params.push(format!("{}: AzulHostInvoker.{}WithData<T>", name, kind));
+            forward.push(format!("{}(__cb.pointer)", kotlin_class_name(&kind, ir)));
+        } else {
+            params.push(format!("{}: {}", name, kt_user_arg_type(a, ir)));
+            forward.push(name);
+        }
+    }
+    let method = idiomatic_method_name(&func.method_name);
+    let data = sanitize_kt_identifier(&args[data_at].name);
+    builder.line(&format!(
+        "/// Typed {}: `{}` is any object, handed back to the callback as `T`; RefAny",
+        method, data
+    ));
+    builder.line("/// wrapping and callback registration happen inside.");
+    builder.line(&format!(
+        "{}fun <T : Any> {}({}): {} {{",
+        if skip == 0 { "@JvmStatic " } else { "" },
+        method,
+        params.join(", "),
+        displayed_return
+    ));
+    builder.indent();
+    builder.line(&format!("val __data = AzulHostInvoker.refanyCreate({})", data));
+    builder.line(&format!(
+        "val __cb = AzulHostInvoker.register{}({}.javaClass, {})",
+        kind,
+        data,
+        sanitize_kt_identifier(&args[data_at + 1].name)
+    ));
+    let ret_kw = if displayed_return == "Unit" { "" } else { "return " };
+    builder.line(&format!("{}{}({})", ret_kw, method, forward.join(", ")));
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
 }
 
 fn emit_instance_method(
@@ -2230,15 +2425,16 @@ fn emit_instance_method(
     // newInstance splice. Pure type-driven (see top-of-file predicates).
     for (j, a) in user_args.iter().enumerate() {
         let raw_name = sanitize_kt_identifier(&a.name);
-        let value = if is_az_string_owned_arg(a, ir) {
+        let value = if let Some(opt) = owned_kt_option(a, ir) {
+            let local = format!("__{}_opt", raw_name.trim_matches('`'));
+            pre_call_lines.push(format!("val {} = {}", local, opt.into_raw(&raw_name)));
+            local
+        } else if is_az_string_owned_arg(a, ir) {
             emit_kt_az_string_conv(&mut pre_call_lines, &raw_name)
         } else if is_wrapper_class_owned_arg(a, ir) {
-            let raw_local =
-                emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim());
-            if has_delete_function(a.type_name.trim(), ir) {
-                consume_after_call.push(raw_name);
-            }
-            raw_local
+            // An owning wrapper goes in through `__takeRaw` (moved, or
+            // deep-copied when borrowed).
+            emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim(), ir)
         } else {
             raw_name
         };
@@ -2387,6 +2583,7 @@ fn emit_instance_method(
     // Smart callback setters (`onClick(data, rawSam)` + `withOnClick(data: T,
     // typedSam)`) follow the plain method as siblings, never inside it.
     emit_kt_smart_setters(builder, func, &displayed_return, ir);
+    emit_kt_typed_data_callback_overload(builder, func, &displayed_return, ir);
 }
 
 fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {

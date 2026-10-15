@@ -57,6 +57,26 @@ use super::{
 /// True when `arg`'s (unprefixed) IR type is the struct the IR classifies
 /// as [`TypeCategory::RefAny`]. Used for both function args and callback
 /// typedef args (they share [`FunctionArg`]). No name-string matching.
+/// The attached name of the RefAny class's deep copy (`az_ref_any_clone`).
+fn refany_clone_rb(ir: &CodegenIR) -> String {
+    ir.structs
+        .iter()
+        .find(|s| s.category == TypeCategory::RefAny)
+        .and_then(|s| {
+            ir.functions
+                .iter()
+                .find(|f| f.class_name == s.name && f.kind == FunctionKind::DeepCopy)
+        })
+        .map(|f| super::functions::ruby_attach_name(&f.c_name))
+        .unwrap_or_default()
+}
+
+/// Is `name` the type-erased handle class (by IR category)?
+pub(crate) fn is_refany_type_name(name: &str, ir: &CodegenIR) -> bool {
+    ir.find_struct(name.trim())
+        .is_some_and(|s| s.category == TypeCategory::RefAny)
+}
+
 pub(crate) fn is_refany_arg(arg: &FunctionArg, ir: &CodegenIR) -> bool {
     ir.find_struct(arg.type_name.trim())
         .map(|s| s.category == TypeCategory::RefAny)
@@ -586,7 +606,17 @@ fn emit_invoker_registration(
     builder.indent();
     builder.line("unwrapped_args = []");
     for (i, arg) in cb.args.iter().enumerate() {
-        if is_refany_arg(arg, ir) {
+        if is_refany_arg(arg, ir) && i > 0 {
+            // A RefAny after the data (a resume callback's result) may hold a
+            // value libazul made: the callback then gets an owned RefAny (a
+            // clone), which the `<Type>.downcast` functions take.
+            builder.line(&format!(
+                "unwrapped_args << (Azul::{r}.unwrap(ptr_args[{i}]) || Azul::{r}.new(Native.{c}(ptr_args[{i}])))",
+                r = refany,
+                i = i,
+                c = refany_clone_rb(ir)
+            ));
+        } else if is_refany_arg(arg, ir) {
             builder.line(&format!(
                 "unwrapped_args << Azul::{}.unwrap(ptr_args[{}])",
                 refany, i
@@ -718,6 +748,18 @@ fn emit_field_access_helpers(builder: &mut CodeBuilder, ir: &CodegenIR, config: 
     builder.line("v.instance_variable_set(:@ptr, _fields(owner)[key])");
     builder.line("v.instance_variable_set(:@az_owner, owner)");
     builder.line("v");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
+    builder.line("# The native Option for a parameter or a field: nil is None, an Option");
+    builder.line("# struct is moved in as it is, anything else becomes the Some of `map`'s");
+    builder.line("# result (`_az_string` for text, `_own` for a wrapper).");
+    builder.line("def self._opt_in(opt_class, none_fn, some_fn, value, map)");
+    builder.indent();
+    builder.line("return Native.send(none_fn) if value.nil?");
+    builder.line("return _own(value) if value.is_a?(opt_class) || (value.respond_to?(:ptr) && value.ptr.is_a?(opt_class))");
+    builder.line("Native.send(some_fn, map.call(value))");
     builder.dedent();
     builder.line("end");
     builder.blank();

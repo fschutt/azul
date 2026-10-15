@@ -441,7 +441,12 @@ fn field_props<'a>(
                 t
             }
         };
-        let base = sanitize_bare_identifier(&to_pascal_case(a.field.name.trim_start_matches('_')));
+        let mut base = sanitize_bare_identifier(&to_pascal_case(a.field.name.trim_start_matches('_')));
+        // A tuple struct's field is named by its index; a Pascal identifier
+        // cannot start with a digit.
+        if base.starts_with(|c: char| c.is_ascii_digit()) {
+            base = format!("Field{}", base);
+        }
         let prop = if taken.insert(base.to_ascii_lowercase()) {
             base
         } else {
@@ -1411,5 +1416,14 @@ mod field_access_tests {
     #[test]
     fn a_text_input_text_field_is_writable_even_though_get_text_is_a_method() {
         assert!(generated().contains("property Text: TU32Vec read FieldGetText write FieldSetText;"));
+    }
+
+    /// A tuple struct's fields are named `0`, `1`, and a Pascal identifier
+    /// cannot start with a digit (FPC stops at `property 0:`).
+    #[test]
+    fn a_tuple_struct_field_is_a_property_named_after_its_index() {
+        let src = generated();
+        assert!(!src.contains("    property 0:"), "a property named by a bare digit");
+        assert!(src.contains("property Field0: TU8Vec read FieldGetField0 write FieldSetField0;"));
     }
 }

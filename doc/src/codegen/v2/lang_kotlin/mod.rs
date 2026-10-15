@@ -27,6 +27,7 @@
 pub mod derives;
 pub mod gradle;
 pub mod managed;
+pub mod options;
 pub mod wrappers;
 
 use anyhow::Result;

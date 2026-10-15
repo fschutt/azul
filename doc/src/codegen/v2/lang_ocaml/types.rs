@@ -537,7 +537,14 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
             // `<payload_ffi> Ctypes.structure option`; the user wraps
             // manually via the per-class `Elem.make_<snake>` helper
             // if they want a managed handle.
-            let positive_var = &e.variants[positive_idx];
+            // A Result also gets the Err side (`intoErr`), so a wrapper can
+            // take either payload apart.
+            let extract: Vec<&super::super::ir::EnumVariantDef> = if e.name.starts_with("Option") {
+                vec![&e.variants[positive_idx]]
+            } else {
+                e.variants.iter().collect()
+            };
+            for positive_var in extract {
             if let super::super::ir::EnumVariantKind::Tuple(types) = &positive_var.kind {
                 if let Some((payload_ty, _)) = types.first() {
                     // Only emit for proper struct payloads. Skip
@@ -566,8 +573,18 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                     // sits at 8.
                     let payload_offset =
                         union_payload_layout(&e.name, ir).map(|p| p.payload_offset);
-                    if let (true, Some(payload_offset)) = (payload_is_proper_struct, payload_offset) {
-                        let payload_ffi = super::ocaml_ffi_type_name(payload_ty);
+                    // A C enum payload is an `int`; it is read as one and
+                    // the wrapper turns it into the OCaml variant.
+                    let payload_is_c_enum = ir.find_enum(payload_ty).is_some_and(|p| !p.is_union);
+                    if let (true, Some(payload_offset)) =
+                        (payload_is_proper_struct || payload_is_c_enum, payload_offset)
+                    {
+                        let (payload_typ, payload_ret) = if payload_is_c_enum {
+                            ("Ctypes.int".to_string(), "int".to_string())
+                        } else {
+                            let f = super::ocaml_ffi_type_name(payload_ty);
+                            (f.clone(), format!("{} Ctypes.structure", f))
+                        };
                         let into_name = if e.name.starts_with("Option") {
                             "intoSome".to_string()
                         } else if positive_var.name == "Ok" {
@@ -576,11 +593,17 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                             "intoErr".to_string()
                         };
                         builder.line(&format!(
-                            "let {}_{} (r : {} Ctypes.structure) : {} Ctypes.structure option =",
-                            ffi, into_name, ffi, payload_ffi
+                            "let {}_{} (r : {} Ctypes.structure) : {} option =",
+                            ffi, into_name, ffi, payload_ret
                         ));
                         builder.indent();
-                        builder.line(&format!("if not ({}_{} r) then None", ffi, positive_name));
+                        let is_positive = positive_var.name == e.variants[positive_idx].name;
+                        builder.line(&format!(
+                            "if {}({}_{} r) then None",
+                            if is_positive { "not " } else { "" },
+                            ffi,
+                            positive_name
+                        ));
                         builder.line("else");
                         builder.indent();
                         builder.line("let raw_ptr = Ctypes.addr r in");
@@ -596,13 +619,14 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                         builder.line(&format!(
                             "let payload_ptr = Ctypes.coerce (Ctypes.ptr Ctypes.char) (Ctypes.ptr \
                              {}) payload_byte_ptr in",
-                            payload_ffi
+                            payload_typ
                         ));
                         builder.line("Some (Ctypes.(!@) payload_ptr)");
                         builder.dedent();
                         builder.dedent();
                     }
                 }
+            }
             }
         }
     }

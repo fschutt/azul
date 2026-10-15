@@ -160,6 +160,58 @@ registration of the callback.
 Using `var app` disposes deterministically: `Dispose()` calls the C-side `_delete()`, 
 so the native memory is released when the `App` goes out of scope.
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is a C# nullable: a parameter takes `null`, a 
+field or a return value is a `T?` (`string?`, `FilePath?`, `AzColorU?`), so `?.`, 
+`??` and `is not { } x` work on all of them. A failed call (an `Err`) throws; an 
+exception thrown inside a callback is logged and the callback does nothing.
+
+A folder picker. Before, the option was a raw struct on the way in and out, and 
+the resume callback needed the raw registration:
+
+```csharp
+static Update OnChooseFolder(Model model, CallbackInfo info)
+{
+    var cb = HostInvoker.RegisterResumeCallback<Model>(OnPickFolder); // an AzResumeCallback struct
+    FileDialog.OpenDirectory("Choose a folder", AzOptionString.None(), /* RefAny, ResumeCallback */ ...);
+    return Update.DoNothing;
+}
+
+static Update OnPickFolder(Model model, CallbackInfo info, RefAny result)
+{
+    var picked = FileOpenResult.Downcast(result);
+    if (picked == null) return Update.DoNothing;
+    var path = picked.Path; // AzOptionFilePath
+    if (path.None.tag == AzOptionFilePath_Tag.None) return Update.DoNothing;
+    ...
+}
+```
+
+Now:
+
+```csharp
+static Update OnChooseFolder(Model model, CallbackInfo info)
+{
+    FileDialog.OpenDirectory("Choose a folder", null, model, OnPickFolder);
+    return Update.DoNothing;
+}
+
+static Update OnPickFolder(Model model, CallbackInfo info, RefAny result)
+{
+    if (FileOpenResult.Downcast(result)?.Path is not { } path)
+        return Update.DoNothing; // not a folder pick, or cancelled
+    model.Folder = path.Inner;
+    return Update.RefreshDom;
+}
+
+static Update OnOpenLink(Model model, CallbackInfo info)
+{
+    var url = Url.Parse(model.Link); // an Err throws: logged, the callback does nothing
+    return Update.RefreshDom;
+}
+```
+
 ## Build and run
 
 ```sh

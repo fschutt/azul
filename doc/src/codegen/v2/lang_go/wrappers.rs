@@ -55,7 +55,10 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
 use super::types::{go_pointer_to, go_value_type};
-use super::super::managed_host_invoker::{layout_callback_factory_info, to_snake_case, LayoutCallbackFactoryInfo};
+use super::super::managed_host_invoker::{
+    host_invoker_kinds, layout_callback_factory_info, to_snake_case, wrapper_name,
+    LayoutCallbackFactoryInfo,
+};
 use super::super::managed_lang_helpers::is_refany_type;
 use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier};
 
@@ -73,8 +76,218 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     }
 
     emit_enum_trait_methods(&mut b, ir, config);
+    emit_optional_helpers(&mut b, ir, config);
 
     Ok(b.finish())
+}
+
+// ============================================================================
+// Options and Results: nil-able pointers in, (T, bool) / (T, error) out
+// ============================================================================
+
+/// How the value inside an Option or a Result crosses the Go surface.
+#[derive(Clone)]
+enum GoPayload {
+    /// A wrapper (`FilePath`): `*FilePath` both ways, moved in with `Raw()`.
+    Wrapper { go: String, owns: bool },
+    /// A plain Go value (`AzColorU`, `uint32`): `*V` in (nil is None), `V` out.
+    Value(String),
+}
+
+impl GoPayload {
+    /// The type a parameter takes (nil is None).
+    fn param(&self) -> String {
+        match self {
+            GoPayload::Wrapper { go, .. } => format!("*{}", go),
+            GoPayload::Value(v) => format!("*{}", v),
+        }
+    }
+
+    /// The type a return value gives.
+    fn result(&self) -> String {
+        match self {
+            GoPayload::Wrapper { go, .. } => format!("*{}", go),
+            GoPayload::Value(v) => v.clone(),
+        }
+    }
+
+    /// The raw value of a non-nil parameter `v`.
+    fn raw_of(&self, v: &str) -> String {
+        match self {
+            GoPayload::Wrapper { .. } => format!("{}.Raw()", v),
+            GoPayload::Value(_) => format!("*{}", v),
+        }
+    }
+
+    /// Lines turning the raw payload behind pointer `p` into `out`, which
+    /// takes the payload over.
+    fn own(&self, p: &str, out: &str) -> Vec<String> {
+        match self {
+            GoPayload::Wrapper { go, owns: true } => vec![
+                format!("{out}_val := *{p}"),
+                format!("{out} := &{go}{{ inner: &{out}_val }}"),
+                format!("runtime.SetFinalizer({out}, func(x *{go}) {{ x.Close() }})"),
+            ],
+            GoPayload::Wrapper { go, owns: false } => vec![format!("{out} := &{go}{{ inner: *{p} }}")],
+            GoPayload::Value(_) => vec![format!("{out} := *{p}")],
+        }
+    }
+}
+
+fn go_payload(t: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<GoPayload> {
+    let t = t.trim();
+    if is_refany_type(t, ir) || super::super::lang_csharp::wrappers::field_type_carries_callback(t, ir) {
+        return None;
+    }
+    if let Some(st) = ir.find_struct(t) {
+        if should_emit_wrapper(st, ir, config) {
+            return Some(GoPayload::Wrapper {
+                go: sanitize_identifier(t),
+                owns: has_destructor(t, ir),
+            });
+        }
+    }
+    if let Some(p) = super::primitive_to_go(t) {
+        if p.is_empty() {
+            return None;
+        }
+        return Some(GoPayload::Value(p.to_string()));
+    }
+    Some(GoPayload::Value(go_value_type(t, ir)))
+}
+
+/// An Option mirror the surface shows as a nil-able pointer / `(T, bool)`.
+fn go_option(t: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<GoPayload> {
+    let t = t.trim();
+    let payload = ir.option_payload(t)?;
+    if !config.should_include_type(t)
+        || super::super::lang_csharp::wrappers::field_type_carries_callback(t, ir)
+    {
+        return None;
+    }
+    go_payload(payload, ir, config)
+}
+
+/// A Result mirror the surface shows as `(T, error)`: the Ok payload (None
+/// for a unit Ok) and the Err payload.
+fn go_result(t: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<(Option<GoPayload>, GoPayload)> {
+    let t = t.trim();
+    let (ok, err) = ir.result_payloads(t)?;
+    if !config.should_include_type(t) {
+        return None;
+    }
+    let ok = match ok {
+        Some(o) => Some(go_payload(o, ir, config)?),
+        None => None,
+    };
+    Some((ok, go_payload(err?, ir, config)?))
+}
+
+/// The Go return type and the helper that converts a call's raw Option /
+/// Result: `(*FileOpenResult, bool)` + `azOptTakeOptionFileOpenResult`.
+fn go_optional_return(rt: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<(String, String)> {
+    let rt = rt.trim();
+    if let Some(p) = go_option(rt, ir, config) {
+        return Some((format!("({}, bool)", p.result()), format!("azOptTake{}", rt)));
+    }
+    if let Some((ok, _)) = go_result(rt, ir, config) {
+        let ty = match ok {
+            Some(o) => format!("({}, error)", o.result()),
+            None => "error".to_string(),
+        };
+        return Some((ty, format!("azResTake{}", rt)));
+    }
+    None
+}
+
+/// The callback kind of an owned callback-wrapper argument whose kind has a
+/// Go registration: such a parameter takes `any` (a Go function, the wrapper
+/// or the raw struct; see `azGo<Kind>Arg`).
+fn host_callback_arg(a: &super::super::ir::FunctionArg, ir: &CodegenIR) -> Option<String> {
+    let ci = a.callback_info.as_ref()?;
+    if a.ref_kind != ArgRefKind::Owned || ci.callback_wrapper_name != a.type_name.trim() {
+        return None;
+    }
+    host_invoker_kinds(ir)
+        .any(|cb| wrapper_name(cb) == ci.callback_wrapper_name)
+        .then(|| ci.callback_wrapper_name.clone())
+}
+
+fn emit_optional_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    b.line("// AzulError is the error of a call whose Result was Err: Value holds the");
+    b.line("// API's error value (a wrapper or a plain value).");
+    b.line("type AzulError struct {");
+    b.line("    Value any");
+    b.line("}");
+    b.blank();
+    b.line("func (e *AzulError) Error() string {");
+    b.line("    return fmt.Sprint(e.Value)");
+    b.line("}");
+    b.blank();
+    for e in &ir.enums {
+        let name = &e.name;
+        let ffi = ffi_type_name(name);
+        if let Some(p) = go_option(name, ir, config) {
+            b.line(&format!(
+                "// azOptIn{name} is the {ffi} for a parameter: nil is None, anything else is moved in."
+            ));
+            b.line(&format!("func azOptIn{name}(v {}) {ffi} {{", p.param()));
+            b.line("    if v == nil {");
+            b.line(&format!("        return {ffi}_None()"));
+            b.line("    }");
+            b.line(&format!("    return {ffi}_Some({})", p.raw_of("v")));
+            b.line("}");
+            b.blank();
+            b.line(&format!(
+                "// azOptTake{name} takes a {ffi} apart: its payload moves into the result."
+            ));
+            b.line(&format!("func azOptTake{name}(o {ffi}) ({}, bool) {{", p.result()));
+            b.line("    p := o.AsSome()");
+            b.line("    if p == nil {");
+            b.line(&format!("        var zero {}", p.result()));
+            b.line("        return zero, false");
+            b.line("    }");
+            for l in p.own("p", "ret") {
+                b.line(&format!("    {}", l));
+            }
+            b.line("    return ret, true");
+            b.line("}");
+            b.blank();
+        } else if let Some((ok, err)) = go_result(name, ir, config) {
+            let ret = match &ok {
+                Some(o) => format!("({}, error)", o.result()),
+                None => "error".to_string(),
+            };
+            b.line(&format!(
+                "// azResTake{name} takes a {ffi} apart: Ok is the value, Err an *AzulError."
+            ));
+            b.line(&format!("func azResTake{name}(r {ffi}) {ret} {{"));
+            b.line("    if e := r.AsErr(); e != nil {");
+            for l in err.own("e", "errv") {
+                b.line(&format!("        {}", l));
+            }
+            match &ok {
+                Some(o) => {
+                    b.line(&format!("        var zero {}", o.result()));
+                    b.line("        return zero, &AzulError{ Value: errv }");
+                }
+                None => b.line("        return &AzulError{ Value: errv }"),
+            }
+            b.line("    }");
+            match &ok {
+                Some(o) => {
+                    b.line("    p := r.AsOk()");
+                    for l in o.own("p", "ret") {
+                        b.line(&format!("    {}", l));
+                    }
+                    b.line("    return ret, nil");
+                }
+                None => b.line("    return nil"),
+            }
+            b.line("}");
+            b.blank();
+        }
+    }
 }
 
 /// If a method/factory returns this (by-value, owned) type, report the Go
@@ -148,6 +361,7 @@ fn emit_header(b: &mut CodeBuilder) {
     // `runtime` by the finalizer safety net. Both are blank-referenced
     // below so a package that happens to use neither still compiles.
     b.line("import (");
+    b.line("    \"fmt\"");
     b.line("    \"runtime\"");
     b.line("    \"unsafe\"");
     b.line(")");
@@ -480,6 +694,56 @@ fn emit_field_accessors(
         };
         let field = super::types::go_field_name(&f.name);
         let slot = format!("self.inner.{}", field);
+        // An Option field reads as `(T, bool)` and is written from a nil-able
+        // pointer (nil is None).
+        if let (Some(p), GoFieldShape::Value { delete, clone, .. }) =
+            (go_option(&f.type_name, ir, config), &shape)
+        {
+            let name = f.type_name.trim();
+            let copy = match (delete, clone) {
+                (None, _) => Some(slot.clone()),
+                (Some(_), Some(c)) => Some(format!("{c}(&{slot})")),
+                (Some(_), None) => None,
+            };
+            let get_name = if taken.contains(&field) {
+                format!("Get{}", field)
+            } else {
+                field.clone()
+            };
+            if let Some(copy) = copy {
+                if taken.insert(get_name.clone()) {
+                    b.line(&format!(
+                        "// {} returns a copy of the `{}` field, and false when it is None.",
+                        get_name, f.name
+                    ));
+                    b.line(&format!(
+                        "func (self *{}) {}() ({}, bool) {{",
+                        go_name,
+                        get_name,
+                        p.result()
+                    ));
+                    b.line(&format!("    return azOptTake{}({})", name, copy));
+                    b.line("}");
+                    b.blank();
+                }
+            }
+            let set_name = format!("Set{}", field);
+            if taken.insert(set_name.clone()) {
+                b.line(&format!(
+                    "// {} replaces the `{}` field (nil is None); the old value is released.",
+                    set_name, f.name
+                ));
+                b.line(&format!("func (self *{}) {}(v {}) {{", go_name, set_name, p.param()));
+                b.line(&format!("    nv := azOptIn{}(v)", name));
+                if let Some(d) = delete {
+                    b.line(&format!("    {d}(&{slot})"));
+                }
+                b.line(&format!("    {slot} = nv"));
+                b.line("}");
+                b.blank();
+            }
+            continue;
+        }
         let (ty, getter, setter, get_doc, set_doc): (
             String,
             Option<Vec<String>>,
@@ -674,11 +938,19 @@ fn emit_static_factory(
                 format!("*{}", w)
             } else if let Some((w, _)) = &borrowed_wrapper {
                 format!("*{}", w)
+            } else if let Some((ty, _)) = go_optional_return(rt, ir, config) {
+                ty
             } else {
                 map_return_type(rt, ir)
             }
         },
     };
+    // An Option / Result return: `(T, bool)` / `(T, error)` through its helper.
+    let optional_helper = (!returns_self && owned_wrapper.is_none() && borrowed_wrapper.is_none())
+        .then(|| f.return_type.as_deref())
+        .flatten()
+        .and_then(|rt| go_optional_return(rt, ir, config))
+        .map(|(_, helper)| helper);
 
     let header = if return_ty.is_empty() {
         format!("func {}({}) {{", method_label, params)
@@ -692,7 +964,9 @@ fn emit_static_factory(
     // symbol substitution for callback-wrapper args happens inside it.
     let call = format!("{}({})", f.c_name, call_args);
 
-    if returns_self {
+    if let Some(helper) = &optional_helper {
+        b.line(&format!("return {}({})", helper, call));
+    } else if returns_self {
         if has_delete {
             emit_boxed_return(b, "self", go_name, &call);
         } else {
@@ -769,11 +1043,19 @@ fn emit_instance_method(
                 format!("*{}", w)
             } else if let Some((w, _)) = &borrowed_wrapper {
                 format!("*{}", w)
+            } else if let Some((ty, _)) = go_optional_return(rt, ir, config) {
+                ty
             } else {
                 map_return_type(rt, ir)
             }
         },
     };
+    // An Option / Result return: `(T, bool)` / `(T, error)` through its helper.
+    let optional_helper = (!returns_self && owned_wrapper.is_none() && borrowed_wrapper.is_none())
+        .then(|| f.return_type.as_deref())
+        .flatten()
+        .and_then(|rt| go_optional_return(rt, ir, config))
+        .map(|(_, helper)| helper);
 
     let header = if return_ty.is_empty() {
         format!("func (self *{}) {}({}) {{", go_name, safe_method, params)
@@ -822,7 +1104,15 @@ fn emit_instance_method(
         }
     };
 
-    if returns_self {
+    if let Some(helper) = &optional_helper {
+        if self_by_value {
+            b.line(&format!("raw_ret := {}", call));
+            consume_self(b);
+            b.line(&format!("return {}(raw_ret)", helper));
+        } else {
+            b.line(&format!("return {}({})", helper, call));
+        }
+    } else if returns_self {
         if self_has_delete {
             emit_boxed_return(b, "ret", go_name, &call);
         } else {
@@ -886,11 +1176,12 @@ fn format_params(
         if is_self_arg(&a.name, self_arg) {
             continue;
         }
-        out.push(format!(
-            "{} {}",
-            sanitize_identifier(&a.name),
+        let ty = if host_callback_arg(a, ir).is_some() {
+            "any".to_string()
+        } else {
             map_arg_type(&a.type_name, a.ref_kind, ir, config)
-        ));
+        };
+        out.push(format!("{} {}", sanitize_identifier(&a.name), ty));
     }
     out.join(", ")
 }
@@ -914,7 +1205,13 @@ fn format_call_args(
             continue;
         }
         let var_name = sanitize_identifier(&a.name);
-        if is_refany_type(&a.type_name, ir) {
+        if let Some(kind) = host_callback_arg(a, ir) {
+            out.push(format!("azGo{}Arg({})", kind, var_name));
+        } else if let (ArgRefKind::Owned, true) =
+            (a.ref_kind, go_option(&a.type_name, ir, config).is_some())
+        {
+            out.push(format!("azOptIn{}({})", a.type_name.trim(), var_name));
+        } else if is_refany_type(&a.type_name, ir) {
             // `any` on the Go side. A consuming parameter gets its own
             // reference (a fresh handle, or a clone of a caller's *RefAny);
             // a borrowing one just sees the wrapper's value.
@@ -954,6 +1251,11 @@ pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR
     let base = go_value_type(type_name, ir);
     if is_refany_type(type_name, ir) {
         return "any".to_string();
+    }
+    if ref_kind == ArgRefKind::Owned {
+        if let Some(p) = go_option(type_name, ir, config) {
+            return p.param();
+        }
     }
     if let Some(s) = ir.find_struct(type_name) {
         if should_emit_wrapper(s, ir, config) {

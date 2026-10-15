@@ -31,7 +31,7 @@ use std::collections::BTreeSet;
 use super::{
     super::{
         config::CodegenConfig,
-        ir::{CodegenIR, FunctionDef, StructDef},
+        ir::{CodegenIR, FunctionDef, FunctionKind, StructDef},
         raw_field_access::{accessible_fields, RawFieldKind},
     },
     functions::{ocaml_binding_name, should_emit_function},
@@ -76,6 +76,44 @@ pub(super) fn field_accessors(
             taken.insert(name.clone()).then_some(name)
         };
 
+        // An Option field reads and writes an OCaml `option`.
+        if let Some(o) = super::wrappers::oc_option(t, ir, records) {
+            let clone = ir
+                .functions
+                .iter()
+                .find(|g| g.class_name == t && g.kind == FunctionKind::DeepCopy)
+                .map(|g| ocaml_binding_name(&g.c_name));
+            let copy = match (&o.delete, clone) {
+                (None, _) => Some(format!("Ctypes.getf {} {}", recv, acc)),
+                (Some(_), Some(c)) => Some(format!("{} {}", c, fp)),
+                (Some(_), None) => None,
+            };
+            let ty = format!("{} option", o.user_type());
+            if let Some(read) = copy.as_deref().and_then(|c| o.of_ffi(c)) {
+                if let Some(g) = pick("get") {
+                    out.push(Accessor {
+                        sig: format!("val {} : t -> {}", g, ty),
+                        body: vec![format!("let {} (self : t) : {} =", g, ty), format!(">{}", read)],
+                    });
+                }
+            }
+            if let Some(n) = pick("set") {
+                let mut body = vec![
+                    format!("let {} (self : t) (v : {}) : unit =", n, ty),
+                    format!(">let __new = {} in", o.to_ffi("v")),
+                    format!(">let __fp = {} in", fp),
+                ];
+                if let Some(d) = &o.delete {
+                    body.push(format!(">{} __fp;", d));
+                }
+                body.push(">Ctypes.(__fp <-@ __new)".to_string());
+                out.push(Accessor {
+                    sig: format!("val {} : t -> {} -> unit", n, ty),
+                    body,
+                });
+            }
+            continue;
+        }
         match &f.kind {
             RawFieldKind::Prim { .. } => {
                 let ty = map_type_to_ocaml_typ(t, ir);

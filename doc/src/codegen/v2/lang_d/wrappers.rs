@@ -116,7 +116,6 @@ fn reserved_member(name: &str) -> bool {
             | "defaultValue"
             | "tag"
             | "Tag"
-            | "downcast"
             | "ctor"
             | "dtor"
     ) || name.starts_with('_')
@@ -938,6 +937,14 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(2, &format!("auto __h = _azulHeld(cast({}*) _ptr());", raw));
             w.l(2, "return __h is null ? null : cast(T) __h.object;");
             w.l(1, "}");
+            w.l(0, "");
+            w.l(
+                1,
+                "/// A RefAny goes wherever the API asks for an object (`FileOpenResult.downcast(result)`):",
+            );
+            w.l(1, "/// the call shares this value rather than wrapping it in a second RefAny.");
+            w.l(1, &format!("@property Object _asObject() {{ return new _AzulRefAnyBox!{}(this); }}", dname));
+            w.l(1, "alias _asObject this;");
             w.l(0, "");
             taken.take("opCall", "Object");
             taken.take("downcast", "");

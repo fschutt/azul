@@ -2284,7 +2284,13 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 role = Role::Func;
             }
         }
-        if reserved_member(&name) && kind != MethodKind::Init {
+        // `downcast` is reserved for RefAny's own `downcast(T.self)`; the static
+        // `FileOpenResult.downcast(result)` of every other class cannot clash
+        // with it and keeps the name the Rust API and the docs use.
+        let static_downcast = kind == MethodKind::Static
+            && name == "downcast"
+            && self.m.refany_class() != Some(class);
+        if reserved_member(&name) && kind != MethodKind::Init && !static_downcast {
             name = format!("{}_", name);
         }
 
@@ -2416,9 +2422,15 @@ impl<'m, 'a> Emitter<'m, 'a> {
         for j in 0..td.args.len() {
             parts.push(self.cb_user_arg(td, j, data_first)?.0);
         }
+        // A closure that may throw: a thrown error is logged and the callback
+        // answers its fallback (`Update.doNothing`), so `try` works inside a
+        // callback the way `?` does in Rust. Kinds without a survivable
+        // fallback stay non-throwing.
+        let throws = if self.cb_fallback(td).is_some() { " throws" } else { "" };
         Some(format!(
-            "({}) -> {}",
+            "({}){} -> {}",
             parts.join(", "),
+            throws,
             self.cb_user_ret(td)?.0
         ))
     }
@@ -2489,6 +2501,33 @@ impl<'m, 'a> Emitter<'m, 'a> {
     ) -> Option<Vec<String>> {
         let m = self.m;
         let fallback = self.cb_fallback(td)?;
+        let (sink, mut out) = self.cb_log_lines(td, message);
+        for (j, a) in td.args.iter().enumerate() {
+            if (j == 0 && data_first) || a.ref_kind != ArgRefKind::Owned {
+                continue;
+            }
+            let ty = m.not_result(m.owned(&a.type_name));
+            if m.cleanup(&ty, "__x").is_none() {
+                continue; // nothing of its own to free
+            }
+            let src = if sink == Some(j) {
+                "__log".to_string()
+            } else {
+                format!("__c{}", j)
+            };
+            if let Some(e) = m.take_expr(&ty, &src) {
+                out.push(format!("_ = {}", e));
+            }
+        }
+        out.push(fallback);
+        Some(out)
+    }
+
+    /// Report `message` (a Swift string literal body, interpolation allowed)
+    /// through the argument that carries libazul's log, if one does. Answers
+    /// that argument's index (its copy is `__log`) and the lines.
+    fn cb_log_lines(&self, td: &CallbackTypedefDef, message: &str) -> (Option<usize>, Vec<String>) {
+        let m = self.m;
         let mut out = Vec::new();
         // `log` writes to libazul's diagnostics sink, which is what the
         // observability lane reads - not into the value it is called on, so
@@ -2519,25 +2558,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 sym, level, idx, message
             ));
         }
-        for (j, a) in td.args.iter().enumerate() {
-            if (j == 0 && data_first) || a.ref_kind != ArgRefKind::Owned {
-                continue;
-            }
-            let ty = m.not_result(m.owned(&a.type_name));
-            if m.cleanup(&ty, "__x").is_none() {
-                continue; // nothing of its own to free
-            }
-            let src = if sink.as_ref().is_some_and(|(s, ..)| *s == j) {
-                "__log".to_string()
-            } else {
-                format!("__c{}", j)
-            };
-            if let Some(e) = m.take_expr(&ty, &src) {
-                out.push(format!("_ = {}", e));
-            }
-        }
-        out.push(fallback);
-        Some(out)
+        (sink.map(|(j, ..)| j), out)
     }
 
     /// The closure the trampoline calls: C values in, the user's closure in
@@ -2593,17 +2614,33 @@ impl<'m, 'a> Emitter<'m, 'a> {
             call.push(format!("__u{}", j));
         }
         let (_, rty) = self.cb_user_ret(td).unwrap();
+        let fallback = self.cb_fallback(td);
+        // The user's closure throws exactly when there is a fallback to answer
+        // with (see `user_closure_type`).
+        let try_ = if fallback.is_some() { "try " } else { "" };
+        let mut run = Vec::new();
         match rty {
             Ty::Void => {
-                out.push(format!("    {}({})", user, call.join(", ")));
+                run.push(format!("{}{}({})", try_, user, call.join(", ")));
             }
             ty => {
-                out.push(format!("    let __ur = {}({})", user, call.join(", ")));
-                out.push(format!(
-                    "    return {}",
-                    self.m.in_expr(&ty, "__ur").unwrap()
-                ));
+                run.push(format!("let __ur = {}{}({})", try_, user, call.join(", ")));
+                run.push(format!("return {}", self.m.in_expr(&ty, "__ur").unwrap()));
             }
+        }
+        match fallback {
+            // A thrown error is reported and the fallback answered. The
+            // arguments are the closure's by now, so nothing is freed here.
+            Some(fallback) => {
+                out.push("    do {".to_string());
+                out.extend(run.iter().map(|l| format!("        {}", l)));
+                out.push("    } catch {".to_string());
+                let (_, log) = self.cb_log_lines(td, "a callback threw \\(error)");
+                out.extend(log.iter().map(|l| format!("        {}", l)));
+                out.push(format!("        {}", fallback));
+                out.push("    }".to_string());
+            }
+            None => out.extend(run.iter().map(|l| format!("    {}", l))),
         }
         out.push("}".to_string());
         out

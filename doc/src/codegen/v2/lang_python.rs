@@ -972,6 +972,14 @@ pub struct PyObjectWrapper {
     pub py_obj: Py<PyAny>,
 }
 
+/// A value the runtime made (a file dialog's answer) on its way to a Python
+/// callback. Python cannot look inside; it hands the object back to a
+/// `downcast` (`FileOpenResult.downcast(result)`), which reads the RefAny.
+#[pyclass(name = "OpaqueRefAny", module = "azul", dict, unsendable)]
+pub struct PyOpaqueRefAny {
+    pub refany: azul_core::refany::RefAny,
+}
+
 // --- Python JSON Serialization Support for RefAny ---
 
 /// Trampoline for Python object serialization to JSON
@@ -1357,11 +1365,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             let arg_name = trampoline_arg_name(i);
             let py_name = format!("extra_arg{}_py", i);
             if is_refany(&arg.type_name, ir) {
-                // A write-back's incoming data: the Python object inside, if any.
+                // The Python object inside, if Python made it (a write-back's
+                // incoming data); otherwise the runtime made it (a resume
+                // callback's result) and Python gets it as an opaque handle
+                // for `downcast`.
                 builder.line(&format!(
                     "let {}: Option<Py<PyAny>> = {{ let mut refany = {}; \
-                     refany.downcast_ref::<PyDataWrapper>().and_then(|w| \
-                     w._py_data.as_ref().map(|o| o.clone_ref(py))) }};",
+                     let __own = refany.downcast_ref::<PyDataWrapper>().and_then(|w| \
+                     w._py_data.as_ref().map(|o| o.clone_ref(py))); match __own {{ \
+                     Some(o) => Some(o), \
+                     None => Py::new(py, PyOpaqueRefAny {{ refany }}).ok().map(|o| o.into_any()), }} }};",
                     py_name, arg_name
                 ));
             } else if is_primitive_type(&arg.type_name) {
@@ -2120,6 +2133,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         ir: &CodegenIR,
         prefix: &str,
         taken: &BTreeSet<String>,
+        config: &PythonConfig,
     ) {
         const RUST_KEYWORDS: &[&str] = &[
             "as", "async", "await", "box", "break", "const", "continue", "crate", "dyn",
@@ -2181,6 +2195,31 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                      mem::transmute(azul_css::corety::AzString::from(value)) }}; \
                      __azul_write_back(slf.as_any()) }}",
                     n, n
+                ));
+                builder.blank();
+            } else if let Some(opt) = is_clone(t)
+                .then(|| self.py_option(t, ir, prefix, config))
+                .flatten()
+            {
+                // An Option field reads and writes as `None` or the value.
+                builder.line(&format!("#[getter({})]", n));
+                builder.line("#[allow(unused_unsafe)]");
+                builder.line(&format!(
+                    "fn __get_{n}(&self) -> {ty} {{ unsafe {{ {conv} }} }}",
+                    n = n,
+                    ty = opt.py_type(),
+                    conv = opt.from_ffi(&format!("self.inner.{}.clone()", n))
+                ));
+                builder.blank();
+                builder.line(&format!("#[setter({})]", n));
+                builder.line("#[allow(unused_unsafe)]");
+                builder.line(&format!(
+                    "fn __set_{n}(slf: &Bound<'_, Self>, value: {ty}) -> PyResult<()> {{ \
+                     let __v = unsafe {{ {conv} }}; slf.try_borrow_mut()?.inner.{n} = __v; \
+                     __azul_write_back(slf.as_any()) }}",
+                    n = n,
+                    ty = opt.py_type(),
+                    conv = opt.into_ffi("value")
                 ));
                 builder.blank();
             } else if self.is_python_compatible_type(t, ir)
@@ -2273,10 +2312,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             if func.fn_body.is_some() {
                 taken.insert(func.method_name.clone());
             }
-            self.generate_pymethod(builder, func, ir, prefix);
+            self.generate_pymethod(builder, func, ir, prefix, config);
         }
 
-        self.generate_field_accessors(builder, struct_def, ir, prefix, &taken);
+        self.generate_field_accessors(builder, struct_def, ir, prefix, &taken, config);
         self.generate_class_constants(builder, &struct_def.name, ir, &mut taken);
         let default_inner = self.default_inner_expr(&struct_def.name, ir, prefix);
         self.generate_derive_dunders(builder, &struct_def.traits, &taken, &default_inner);
@@ -2477,7 +2516,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             if func.fn_body.is_some() {
                 taken.insert(func.method_name.clone());
             }
-            self.generate_pymethod(builder, func, ir, prefix);
+            self.generate_pymethod(builder, func, ir, prefix, config);
         }
 
         if enum_def.is_union {
@@ -2522,6 +2561,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         func: &FunctionDef,
         ir: &CodegenIR,
         prefix: &str,
+        config: &PythonConfig,
     ) {
         // Skip functions without fn_body - they can't be called directly
         // This is the key insight from the old generator: methods like intersect/tessellate_stroke
@@ -2581,6 +2621,21 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             .filter(|a| a.name != self_arg_name)
             .collect();
 
+        // An Option parameter takes Python's `None` or the value, an Option
+        // return gives one, and a Result return gives its `Ok` or raises.
+        // The Option and Result classes' own methods keep the mirror, so
+        // `OptionString.None()` still builds one.
+        let native_option = |t: &str| {
+            (t != func.class_name)
+                .then(|| self.py_option(t, ir, prefix, config))
+                .flatten()
+        };
+        let native_result = |t: &str| {
+            (t != func.class_name)
+                .then(|| self.py_result(t, ir, prefix, config))
+                .flatten()
+        };
+
         let args_str: String = args
             .iter()
             .map(|a| {
@@ -2599,6 +2654,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     format!("Option<Vec<{}>>", opt.slice.py_element(prefix))
                 } else if pointer_borrow(func, a) == Some(PointerBorrow::Mutable) {
                     format!("PyRefMut<'_, {}{}>", prefix, a.type_name)
+                } else if let Some(opt) = (pointer_borrow(func, a).is_none() && a.callback_info.is_none())
+                    .then(|| native_option(&a.type_name))
+                    .flatten()
+                {
+                    opt.py_type()
                 } else {
                     self.rust_type_to_python(&a.type_name, prefix, ir)
                 };
@@ -2610,10 +2670,18 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         // An optional borrowed slice comes back as the bytes themselves (pyo3
         // maps `Vec<u8>` to `bytes`, any other element to a list), copied out
         // of the borrow before it dies.
+        let ret_option = func.return_type.as_deref().and_then(|t| {
+            optional_slice(t, ir).is_none().then(|| native_option(t)).flatten()
+        });
+        let ret_result = func.return_type.as_deref().and_then(|t| native_result(t));
         let return_type = match func.return_type.as_ref() {
             Some(t) => match optional_slice(t, ir) {
                 Some(opt) => format!("Option<Vec<{}>>", opt.slice.py_element(prefix)),
-                None => self.rust_type_to_python(t, prefix, ir),
+                None => match (&ret_option, &ret_result) {
+                    (Some(o), _) => o.py_type(),
+                    (None, Some(r)) => r.py_type(),
+                    (None, None) => self.rust_type_to_python(t, prefix, ir),
+                },
             },
             None => "()".to_string(),
         };
@@ -2664,7 +2732,9 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         } else {
             "&self"
         };
-        let sig_return_type = if writes_back {
+        // A raising method is already a `PyResult`; the write-back adds its
+        // own error to that one.
+        let sig_return_type = if writes_back && ret_result.is_none() {
             format!("PyResult<{}>", return_type)
         } else {
             return_type.clone()
@@ -3059,16 +3129,15 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
             // RefAny is ALWAYS converted from Py<PyAny> to RefAny with JSON support
             if is_refany(&arg.type_name, ir) {
-                // Wrap Python data in RefAny via PyDataWrapper with JSON serialization
+                // Wrap Python data in RefAny via PyDataWrapper with JSON
+                // serialization. A handle the runtime made (a resume
+                // callback's result) is passed on as the RefAny it holds.
                 // Use the SAME name as the parameter so fn_body can use it unchanged
                 builder.line(&format!(
-                    "let __py_{}_wrapper = PyDataWrapper {{ _py_data: Some({}.clone_ref(py)) }};",
-                    arg.name, arg.name
-                ));
-                builder.line(&format!(
-                    "let {}: azul_core::refany::RefAny = \
-                     create_py_refany_with_json(__py_{}_wrapper);",
-                    arg.name, arg.name
+                    "let {n}: azul_core::refany::RefAny = match {n}.bind(py).extract::<pyo3::PyRef<'_, PyOpaqueRefAny>>() {{ \
+                     Ok(__opaque) => __opaque.refany.clone(), \
+                     Err(_) => create_py_refany_with_json(PyDataWrapper {{ _py_data: Some({n}.clone_ref(py)) }}), }};",
+                    n = arg.name
                 ));
                 // No fn_body replacement needed - we used the same variable name as the parameter
                 continue;
@@ -3154,6 +3223,21 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     arg.name, wrapper_external, arg.name
                 ));
                 // No fn_body replacement needed - we used the same variable name as the parameter
+                continue;
+            }
+
+            // An Option taken as `None` or the value: build the mirror.
+            if let Some(opt) = native_option(&arg.type_name) {
+                let external = self
+                    .find_external_path(&arg.type_name, ir)
+                    .unwrap_or_else(|| format!("crate::{}", arg.type_name));
+                builder.line(&format!(
+                    "let {n}: {ext} = core::mem::transmute::<{ffi}, {ext}>({conv});",
+                    n = arg.name,
+                    ext = external,
+                    ffi = opt.ffi,
+                    conv = opt.into_ffi(&arg.name)
+                ));
                 continue;
             }
 
@@ -3308,6 +3392,32 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     ));
                 }
                 builder.line("__result.into_library_owned_string()");
+            } else if let Some(conv) = ret_option
+                .as_ref()
+                .map(|o| (&o.ffi, o.from_ffi("__result")))
+                .or_else(|| ret_result.as_ref().map(|r| (&r.ffi, r.from_ffi("__result"))))
+            {
+                // An Option or a Result: the mirror taken apart into Python's
+                // own `None` / value, or a raised error.
+                let ret_external = self
+                    .find_external_path(ret_type, ir)
+                    .unwrap_or_else(|| format!("crate::{}", ret_type));
+                if has_statements {
+                    builder.line(&format!(
+                        "let __result: {} = {{ {} }};",
+                        ret_external, transformed_body
+                    ));
+                } else {
+                    builder.line(&format!(
+                        "let __result: {} = {};",
+                        ret_external, transformed_body
+                    ));
+                }
+                builder.line(&format!(
+                    "let __result: {} = core::mem::transmute(__result);",
+                    conv.0
+                ));
+                builder.line(&conv.1);
             } else if is_py_builtin_class(ret_type, ir) {
                 // A builtin-bridged class has no `.inner` wrapper to fill: the
                 // C type carries the IntoPyObject impl, so the result only has
@@ -3369,7 +3479,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             builder.line("let __py = __slf.py();");
             builder.line("let __obj: Py<Self> = __slf.into();");
             builder.line("__azul_write_back(__obj.bind(__py).as_any())?;");
-            builder.line("Ok(__ret)");
+            if ret_result.is_some() {
+                builder.line("__ret");
+            } else {
+                builder.line("Ok(__ret)");
+            }
         }
         builder.dedent();
         builder.line("}");
@@ -4085,6 +4199,62 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         false
     }
 
+    /// How a payload crosses into Python, or `None` when it has no Python
+    /// value of its own (a handle, a callback, a bytes-like vector), in which
+    /// case its Option or Result keeps the mirror class.
+    fn py_payload(&self, ty: &str, ir: &CodegenIR, prefix: &str, config: &PythonConfig) -> Option<PyPayload> {
+        if ty.contains('*') || ty.contains('[') || ty == "c_void" || ty == "()" {
+            return None;
+        }
+        if is_primitive_type(ty) {
+            return Some(PyPayload::Prim(ty.to_string()));
+        }
+        if is_string_class(ty, ir) {
+            return Some(PyPayload::Str);
+        }
+        let class = self.is_python_compatible_type(ty, ir)
+            && !self.type_is_excluded(ty, ir, config)
+            && !is_direct_ffi_type(ty, ir)
+            && !is_callback_wrapper_type(ty, ir)
+            && !is_refany(ty, ir)
+            && class_is_clone(ty, ir);
+        class.then(|| PyPayload::Class(format!("{}{}", prefix, ty)))
+    }
+
+    /// The Option mirror `type_name` as Python's own `None` or value.
+    fn py_option(&self, type_name: &str, ir: &CodegenIR, prefix: &str, config: &PythonConfig) -> Option<PyOption> {
+        let payload = ir.option_payload(type_name)?;
+        let e = ir.find_enum(type_name)?;
+        let shaped = e.variants.len() == 2
+            && e.variants.iter().any(|v| v.name == "None" && matches!(v.kind, EnumVariantKind::Unit))
+            && e.variants.iter().any(|v| {
+                v.name == "Some"
+                    && matches!(&v.kind, EnumVariantKind::Tuple(f)
+                        if f.len() == 1 && f[0].1 == crate::codegen::v2::ir::FieldRefKind::Owned)
+            });
+        if !shaped {
+            return None;
+        }
+        Some(PyOption {
+            ffi: format!("__dll_api_inner::dll::{}{}", prefix, type_name),
+            payload: self.py_payload(payload, ir, prefix, config)?,
+        })
+    }
+
+    /// The Result mirror `type_name` as its `Ok` value or a raised error.
+    fn py_result(&self, type_name: &str, ir: &CodegenIR, prefix: &str, config: &PythonConfig) -> Option<PyResultConv> {
+        let (ok, err) = ir.result_payloads(type_name)?;
+        let ok = match ok {
+            Some(t) => Some(self.py_payload(t, ir, prefix, config)?),
+            None => None,
+        };
+        Some(PyResultConv {
+            ffi: format!("__dll_api_inner::dll::{}{}", prefix, type_name),
+            ok,
+            err_is_unit: err.is_none(),
+        })
+    }
+
     /// Check if a type is compatible with Python bindings
     /// Uses structural analysis rather than hardcoded lists
     fn is_python_compatible_type(&self, type_name: &str, ir: &CodegenIR) -> bool {
@@ -4631,6 +4801,123 @@ fn optional_slice(type_name: &str, ir: &CodegenIR) -> Option<OptionalSlice> {
         some_variant,
         none_variant: empty?,
     })
+}
+
+/// How the payload of an Option, or the `Ok` of a Result, crosses into
+/// Python: a primitive as itself, the API's string as a `str`, a class as its
+/// own (cloned) pyclass.
+enum PyPayload {
+    Prim(String),
+    Str,
+    /// The pyclass name, prefix included (`AzFilePath`).
+    Class(String),
+}
+
+impl PyPayload {
+    /// The Rust type pyo3 converts to and from the Python value.
+    fn py_type(&self) -> String {
+        match self {
+            PyPayload::Prim(t) | PyPayload::Class(t) => t.clone(),
+            // allow-api-name: the Rust type written into the signature
+            PyPayload::Str => "String".to_string(),
+        }
+    }
+
+    /// The Python-side value for an owned mirror payload `v`.
+    fn from_ffi(&self, v: &str) -> String {
+        match self {
+            PyPayload::Prim(_) => v.to_string(),
+            PyPayload::Str => format!(
+                "{{ let __s: azul_css::corety::AzString = core::mem::transmute({}); \
+                 __s.into_library_owned_string() }}",
+                v
+            ),
+            PyPayload::Class(c) => format!("{} {{ inner: {} }}", c, v),
+        }
+    }
+
+    /// The mirror payload for a Python-side value `v`.
+    fn to_ffi(&self, v: &str) -> String {
+        match self {
+            PyPayload::Prim(_) => v.to_string(),
+            PyPayload::Str => format!(
+                "core::mem::transmute(azul_css::corety::AzString::from({}))",
+                v
+            ),
+            PyPayload::Class(_) => format!("{}.inner", v),
+        }
+    }
+}
+
+/// An Option mirror that crosses as Python's own `None` or the value.
+struct PyOption {
+    /// The mirror's path (`__dll_api_inner::dll::AzOptionString`).
+    ffi: String,
+    payload: PyPayload,
+}
+
+impl PyOption {
+    fn py_type(&self) -> String {
+        format!("Option<{}>", self.payload.py_type())
+    }
+
+    /// The mirror for a Rust `Option` of the Python-side value.
+    fn into_ffi(&self, expr: &str) -> String {
+        format!(
+            "match {e} {{ None => {f}::None, Some(__v) => {f}::Some({p}) }}",
+            e = expr,
+            f = self.ffi,
+            p = self.payload.to_ffi("__v")
+        )
+    }
+
+    /// The Rust `Option` of the Python-side value for an owned mirror.
+    fn from_ffi(&self, expr: &str) -> String {
+        format!(
+            "match {e} {{ {f}::Some(__v) => Some({p}), #[allow(unreachable_patterns)] _ => None }}",
+            e = expr,
+            f = self.ffi,
+            p = self.payload.from_ffi("__v")
+        )
+    }
+}
+
+/// A Result mirror that crosses as its `Ok` value; an `Err` is raised as a
+/// `ValueError` carrying the error's text, which a callback's caller logs.
+struct PyResultConv {
+    ffi: String,
+    /// `None` for a unit `Ok`.
+    ok: Option<PyPayload>,
+    err_is_unit: bool,
+}
+
+impl PyResultConv {
+    fn py_type(&self) -> String {
+        match &self.ok {
+            Some(p) => format!("PyResult<{}>", p.py_type()),
+            None => "PyResult<()>".to_string(),
+        }
+    }
+
+    fn from_ffi(&self, expr: &str) -> String {
+        let ok = match &self.ok {
+            Some(p) => format!("{}::Ok(__v) => Ok({})", self.ffi, p.from_ffi("__v")),
+            None => format!("{}::Ok => Ok(())", self.ffi),
+        };
+        let err = if self.err_is_unit {
+            format!(
+                "{}::Err => Err(pyo3::exceptions::PyValueError::new_err(\"{}\"))",
+                self.ffi,
+                self.ffi.rsplit("::").next().unwrap_or_default()
+            )
+        } else {
+            format!(
+                "{}::Err(__e) => Err(pyo3::exceptions::PyValueError::new_err(format!(\"{{:?}}\", __e)))",
+                self.ffi
+            )
+        };
+        format!("match {} {{ {}, {} }}", expr, ok, err)
+    }
 }
 
 fn to_snake_case(s: &str) -> String {

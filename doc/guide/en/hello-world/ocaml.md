@@ -109,6 +109,41 @@ let () =
   Azul.App.run app window
 ```
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is an `option` and every fallible call returns a 
+`result`: a parameter takes `None` or `Some x`, a field getter or a return value 
+gives one. `Azul.Update.or_do_nothing` runs a callback body that returns an 
+`Update.t option`, so a `let*` chain over `Option.bind` ends the callback with 
+`DoNothing` at the first `None`; `or_do_nothing_on_error` does the same for a 
+`result`, writing to stderr.
+
+A folder picker. Before, the start folder was a raw `az_option_string` structure and 
+the downcast a raw `az_option_file_open_result` to take apart with tag helpers. Now:
+
+```ocaml
+let ( let* ) = Option.bind
+
+let on_pick_folder (m : my_model) _info result =
+  Azul.Update.or_do_nothing (fun () ->
+      let* picked = Azul.FileOpenResult.downcast result in
+      let* path = Azul.FileOpenResult.get_path picked in
+      m.folder <- Azul.FilePath.get_inner path;
+      Some Azul.Update.RefreshDom)
+
+let on_choose_folder (m : my_model) _info =
+  let _ =
+    Azul.FileDialog.open_directory "Choose a folder" None
+      (Azul.RefAny.upcast model m)
+      (Azul.RefAny.lift model on_pick_folder)
+  in
+  Azul.Update.DoNothing
+
+let on_open_link (m : my_model) _info =
+  Azul.Update.or_do_nothing_on_error (fun () ->
+      Result.map (fun _url -> Azul.Update.RefreshDom) (Azul.Url.parse m.link))
+```
+
 ## Build and run
 
 ```sh

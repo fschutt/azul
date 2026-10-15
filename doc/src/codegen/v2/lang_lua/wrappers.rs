@@ -526,6 +526,40 @@ fn emit_field_accessors(
         let get = sanitize_lua_ident(&format!("get_{}", f.name));
         let set = sanitize_lua_ident(&format!("set_{}", f.name));
         let field = lua_index("self", &key);
+        // An Option field reads as nil / the value (a copy) and is written
+        // from nil / the value.
+        if let (Some((ct, map)), FieldShape::Value { delete, clone, .. }) =
+            (lua_option(&f.type_name, ir), &shape)
+        {
+            let copy = match (delete, clone) {
+                (None, _) => Some(format!("ffi.new('{}', {})", ct, field)),
+                (Some(_), Some(c)) => Some(format!("C.{}({})", c.c_name, field)),
+                (Some(_), None) => None,
+            };
+            if let Some(copy) = copy {
+                if taken.insert(get.clone()) {
+                    out.push_str(&format!(
+                        "    function {}_methods:{}() return ({}):to_opt() end\n",
+                        class, get, copy
+                    ));
+                    n += 1;
+                }
+            }
+            if taken.insert(set.clone()) {
+                // The new option is a fresh value: it is written as it is, after
+                // the old one is released.
+                let release = delete
+                    .as_ref()
+                    .map(|d| format!("C.{}({}); ", d.c_name, field))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "    function {}_methods:{}(v) local nv = azul._opt_in('{}', v, {}); {}{} = nv; return self end\n",
+                    class, set, ct, map, release, field
+                ));
+                n += 1;
+            }
+            continue;
+        }
         let getter: Option<String> = match &shape {
             FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => Some(field.clone()),
             FieldShape::Str { .. } => Some(format!("azul._read_string({})", field)),
@@ -1021,11 +1055,7 @@ fn emit_instance_method(
     // Phase I.5.5 (Lua): Option/Result auto-unwrap at the wrapper
     // boundary. Routes through the per-cdata `:to_opt()` / `:unwrap()`
     // methods emitted by A.1.4 via ffi.metatype.
-    let unwrap_call = match func.return_type.as_deref().map(str::trim) {
-        Some(rt) if rt.starts_with("Option") => Some(":to_opt()"),
-        Some(rt) if rt.starts_with("Result") => Some(":unwrap()"),
-        _ => None,
-    };
+    let unwrap_call = lua_unwrap_call(func, ir);
 
     let needs_consume = consumed_self || !consumed_arg_indices.is_empty();
 
@@ -1419,6 +1449,41 @@ fn is_owned_refany_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
 /// post-call `azul._consume`; the value is reassigned onto the visible
 /// variable so the (defensive) consume line emitted for owned deletable
 /// args sees the same cdata the C call consumed.
+/// An owned Option argument: its C type and the function a non-nil value
+/// goes through before it becomes the Some (`azul._az_string` for text).
+fn lua_option_arg(a: &FunctionArg, ir: &CodegenIR) -> Option<(String, &'static str)> {
+    if !matches!(a.ref_kind, ArgRefKind::Owned) {
+        return None;
+    }
+    lua_option(&a.type_name, ir)
+}
+
+fn lua_option(t: &str, ir: &CodegenIR) -> Option<(String, &'static str)> {
+    let t = t.trim();
+    let payload = ir.option_payload(t)?;
+    ir.variant_constructor(t, "None")?;
+    ir.variant_constructor(t, "Some")?;
+    let map = if ir
+        .find_struct(payload)
+        .is_some_and(|s| matches!(s.category, TypeCategory::String))
+    {
+        "azul._az_string"
+    } else {
+        "azul._identity"
+    };
+    Some((format!("Az{}", t), map))
+}
+
+/// `:to_opt()` / `:unwrap()` for a function returning an Option / Result
+/// mirror (by shape): `nil` or the value, the value or a raised error.
+fn lua_unwrap_call(func: &FunctionDef, ir: &CodegenIR) -> Option<&'static str> {
+    let rt = func.return_type.as_deref()?.trim();
+    if ir.option_payload(rt).is_some() {
+        return Some(":to_opt()");
+    }
+    ir.result_payloads(rt).map(|_| ":unwrap()")
+}
+
 fn emit_arg_coercions(
     out: &mut String,
     indent: &str,
@@ -1427,7 +1492,12 @@ fn emit_arg_coercions(
     ir: &CodegenIR,
 ) {
     for (i, a) in args.iter().enumerate() {
-        if is_az_string_owned_arg(a, ir) {
+        if let Some((ct, map)) = lua_option_arg(a, ir) {
+            out.push_str(&format!(
+                "{indent}{n} = azul._opt_in('{ct}', {n}, {map})\n",
+                n = names[i]
+            ));
+        } else if is_az_string_owned_arg(a, ir) {
             out.push_str(&format!("{indent}{n} = azul._az_string({n})\n", n = names[i]));
         } else if is_owned_refany_arg(a, ir) {
             out.push_str(&format!("{indent}{n} = azul._refany_arg({n})\n", n = names[i]));
@@ -1461,8 +1531,12 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     // When the func has Owned `String` args, switch from the varargs
     // passthrough to an enumerated form so we can route each through
     // `azul._az_string`.
-    let has_az_string = func.args.iter().any(|a| is_az_string_owned_arg(a, ir));
+    let has_az_string = func.args.iter().any(|a| is_az_string_owned_arg(a, ir))
+        || func.args.iter().any(|a| lua_option_arg(a, ir).is_some());
     let has_refany = func.args.iter().any(|a| is_owned_refany_arg(a, ir));
+    // An Option / Result return comes back as nil / the value (`:to_opt()`)
+    // or the value / a raised error (`:unwrap()`), which free the shell.
+    let unwrap_call = lua_unwrap_call(func, ir);
 
     // Ownership plumbing (mirrors emit_instance_method):
     // * armed return  — owned by-value C returns never see the metatype __gc (LuaJIT arms it only
@@ -1470,18 +1544,22 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
     // * consumed args — owned by-value args of deletable types transfer their bytes to Rust; disarm
     //   the (possibly armed) cdata after the call so its finalizer can't double-free Rust-owned
     //   memory.
-    let ret_fin = func
-        .return_type
-        .as_deref()
-        .and_then(|t| lua_finalizer_for(t, ir));
+    let ret_fin = if unwrap_call.is_some() {
+        None
+    } else {
+        func.return_type
+            .as_deref()
+            .and_then(|t| lua_finalizer_for(t, ir))
+    };
     let consumable = lua_consumable_arg_indices(func, ir);
 
     if !has_callback_arg(func) && !has_az_string && !has_refany && consumable.is_empty() {
-        out.push_str(&format!(
-            "    {} = function(...) return {} end,\n",
-            lua_method,
-            lua_arm(&format!("C.{}(...)", func.c_name), &ret_fin)
-        ));
+        let call = format!("C.{}(...)", func.c_name);
+        let ret = match unwrap_call {
+            Some(u) => format!("({}){}", call, u),
+            None => lua_arm(&call, &ret_fin),
+        };
+        out.push_str(&format!("    {} = function(...) return {} end,\n", lua_method, ret));
         return;
     }
 
@@ -1515,7 +1593,10 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir
             for i in &consumable {
                 out.push_str(&format!("        azul._consume({})\n", visible[*i]));
             }
-            out.push_str("        return _ret\n");
+            match unwrap_call {
+                Some(u) => out.push_str(&format!("        return _ret{}\n", u)),
+                None => out.push_str("        return _ret\n"),
+            }
         }
         out.push_str("    end,\n");
         return;

@@ -39,7 +39,7 @@ use super::{
         managed_lang_helpers::{has_delete_function, has_wrapper_class, is_refany_type, takes_self},
     },
     derives, emit_file, ffi_type_name, javadoc_escape, map_jvm_type_byvalue,
-    managed::data_typed_sam_for_kind, sanitize_identifier, snake_to_lower_camel,
+    managed::data_typed_sam_for_kind, options::jvm_option, sanitize_identifier, snake_to_lower_camel,
     types::{java_boxed, ref_kind_field_type},
 };
 
@@ -70,6 +70,8 @@ pub fn emit_all_wrapper_files(
         out.push_str(&chunk);
     }
 
+    super::options::emit_options_file(out, ir, config)?;
+
     for e in &ir.enums {
         if !should_emit_union_helper(e, config) {
             continue;
@@ -99,7 +101,33 @@ pub fn emit_all_wrapper_files(
 /// <X>(Pointer)` exists — so those sites can never reference a class
 /// this driver did not emit.
 fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
-    config.should_include_type(&s.name) && has_wrapper_class(&s.name, ir)
+    config.should_include_type(&s.name)
+        && (has_wrapper_class(&s.name, ir) || has_only_static_api(s, ir))
+}
+
+/// A type whose whole API is constructors and static functions
+/// (`FileDialog::open_directory`, `LayoutSize::zero`) has neither a `_delete`
+/// nor an instance method, so the shared rule gives it no class, and nothing
+/// reached those functions but the raw `AzulNative*` interfaces. It gets a
+/// class for its statics; with no `_delete` no call site changes shape
+/// (`has_wrapper_class` stays false, so arguments and returns of the type
+/// itself stay raw).
+fn has_only_static_api(s: &StructDef, ir: &CodegenIR) -> bool {
+    s.generic_params.is_empty()
+        && !matches!(
+            s.category,
+            TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+                | TypeCategory::String
+                | TypeCategory::Vec
+                | TypeCategory::RefAny
+        )
+        && ir.functions_for_class(&s.name).any(|f| {
+            f.kind.is_api_function()
+                && matches!(f.kind, FunctionKind::StaticMethod)
+        })
 }
 
 fn should_emit_union_helper(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -421,6 +449,7 @@ fn emit_wrapper_class(
             None
         };
         emit_wrapper_method(builder, &class_name, func, ir, splice_arg_idx);
+        emit_typed_data_callback_overload(builder, &class_name, func, ir, config);
     }
 
     // Typed get/set/edit accessors for the struct's public fields, so user
@@ -1081,6 +1110,23 @@ fn emit_field_accessors(
             .collect();
         let fp = format!("__ov.{}.getPointer()", jf);
 
+        // An Option field reads as `java.util.Optional<T>` and is written
+        // with the value itself or null (see `options`).
+        if let Some(opt) = jvm_option(&f.type_name, ir) {
+            emit_option_field_accessors(
+                builder,
+                &opt,
+                &f.type_name,
+                &pascal,
+                &field_doc,
+                &overlay,
+                &fp,
+                &mut taken,
+                ir,
+            );
+            continue;
+        }
+
         let user_ty = match &shape {
             FieldShape::Prim { is_bool: true, .. } => "boolean".to_string(),
             FieldShape::Prim { jt, .. } => jt.clone(),
@@ -1351,6 +1397,89 @@ fn emit_field_accessors(
             builder.line("}");
             builder.blank();
         }
+    }
+}
+
+/// The getter and setter of an Option field: `getX()` gives a
+/// `java.util.Optional` of an independent copy, `setX(v)` takes the value
+/// itself or null for None and releases the old value first.
+#[allow(clippy::too_many_arguments)]
+fn emit_option_field_accessors(
+    builder: &mut CodeBuilder,
+    opt: &super::options::JvmOption,
+    type_name: &str,
+    pascal: &str,
+    field_doc: &[String],
+    overlay: &str,
+    fp: &str,
+    taken: &mut std::collections::HashSet<String>,
+    ir: &CodegenIR,
+) {
+    let t = type_name.trim();
+    let ffi = ffi_type_name(t);
+    let native = super::functions::native_class_for_class(t, ir);
+    let delete = trait_c_name(t, FunctionKind::Delete, ir);
+    let clone = trait_c_name(t, FunctionKind::DeepCopy, ir);
+    let closed_check = "if (!__isOpen()) throw new IllegalStateException(\"closed\");";
+    let vt = opt.value_type();
+    let getter = format!("get{}", pascal);
+    // A heap-owning option is read through a deep copy; without one a
+    // getter would alias the field and free it twice.
+    let copy = match (&delete, &clone) {
+        (None, _) => Some(format!(
+            "{f}.ByValue __copy = new {f}.ByValue(); __copy.getPointer().write(0, \
+             {fp}.getByteArray(0, __copy.size()), 0, __copy.size()); __copy.read();",
+            f = ffi,
+            fp = fp
+        )),
+        (Some(_), Some(c)) => Some(format!("{}.ByValue __copy = {}.INSTANCE.{}({});", ffi, native, c, fp)),
+        (Some(_), None) => None,
+    };
+    if let Some(copy) = copy {
+        if taken.insert(getter.clone()) {
+            builder.line("/**");
+            builder.line(&format!(" * The {} field, empty when it is None.", pascal));
+            for l in field_doc {
+                builder.line(l);
+            }
+            builder.line(" */");
+            builder.line(&format!("public java.util.Optional<{}> {}() {{", vt, getter));
+            builder.indent();
+            builder.line(closed_check);
+            builder.line(overlay);
+            builder.line(&copy);
+            builder.line(&format!("return {};", opt.take("__copy")));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+    let setter = format!("set{}", pascal);
+    if taken.insert(setter.clone()) {
+        builder.line("/**");
+        builder.line(&format!(
+            " * Replaces the {} field: the value itself, or null for None (the old value is released).",
+            pascal
+        ));
+        for l in field_doc {
+            builder.line(l);
+        }
+        builder.line(" */");
+        builder.line(&format!("public void {}({} v) {{", setter, vt));
+        builder.indent();
+        builder.line(closed_check);
+        builder.line(&format!("{}.ByValue __new = {};", ffi, opt.into_raw("v")));
+        builder.line("__new.write();");
+        builder.line("byte[] __nb = __new.getPointer().getByteArray(0, __new.size());");
+        builder.line(overlay);
+        builder.line(&format!("Pointer __fp = {};", fp));
+        if let Some(d) = &delete {
+            builder.line(&format!("{}.INSTANCE.{}(__fp);", native, d));
+        }
+        builder.line("__fp.write(0, __nb, 0, __nb.length);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
     }
 }
 
@@ -1737,6 +1866,41 @@ fn emit_close_method(
     );
     builder.line("boolean __isMovable() { return !closed && ptr != null && owned; }");
     builder.blank();
+    if has_delete {
+        // A call that takes the value by value frees it: a movable wrapper
+        // is consumed, anything else (a callback argument the engine frees
+        // afterwards, a view into another object) is deep-copied, so the
+        // engine never frees the same bytes twice.
+        let ffi = ffi_type_name(raw_type_name);
+        builder.line(
+            "/** Internal: the native value to move into a call: a movable wrapper is \
+             consumed, a borrowed one is deep-copied. */",
+        );
+        builder.line(&format!("{}.ByValue __takeRaw() {{", ffi));
+        builder.indent();
+        builder.line("if (closed || ptr == null) throw new IllegalStateException(\"closed\");");
+        match trait_c_name(raw_type_name, FunctionKind::DeepCopy, ir) {
+            Some(clone) => builder.line(&format!(
+                "if (!owned) return {}.INSTANCE.{}(ptr);",
+                super::functions::native_class_for_class(raw_type_name, ir),
+                clone
+            )),
+            None => builder.line(&format!(
+                "if (!owned) throw new IllegalStateException(\"a borrowed {} has no deep copy and cannot be moved\");",
+                raw_type_name
+            )),
+        }
+        builder.line(&format!(
+            "{f}.ByValue __v = Structure.newInstance({f}.ByValue.class, ptr);",
+            f = ffi
+        ));
+        builder.line("__v.read();");
+        builder.line("__consume();");
+        builder.line("return __v;");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 
     if has_delete {
         // Defensive finalizer in case the user forgets try-with-resources.
@@ -1880,6 +2044,164 @@ fn is_az_string_jvm(raw: &str, ir: &CodegenIR) -> bool {
 /// `splice_arg_idx`: for window-taking methods of the application class
 /// (see `emit_app_factory`), the index in `func.args` of the options arg
 /// that receives the factory-registered layout callback.
+/// The return type a wrapper method declares: the class itself, a wrapper
+/// class, `java.util.Optional<T>` for an Option, the Ok type for a Result
+/// (an Err throws), or the JNA type.
+fn jvm_displayed_return(class_name: &str, func: &FunctionDef, ir: &CodegenIR) -> String {
+    let returns_self = func
+        .return_type
+        .as_deref()
+        .is_some_and(|r| r.trim() == func.class_name);
+    if returns_self {
+        return class_name.to_string();
+    }
+    let idiom = classify_return(func, ir);
+    if matches!(idiom, ReturnIdiom::Plain) {
+        if let Some(r) = func.return_type.as_deref().map(str::trim).filter(|r| has_wrapper_class(r, ir)) {
+            return wrapper_class_name(r);
+        }
+    }
+    match &idiom {
+        ReturnIdiom::Plain => func
+            .return_type
+            .as_ref()
+            .map(|r| map_jvm_type_byvalue(r, ir))
+            .unwrap_or_else(|| "void".to_string()),
+        ReturnIdiom::Option {
+            payload_ty,
+            ref_kind,
+        } => {
+            let display = payload_display_type(&ref_kind_field_type(payload_ty, ref_kind, ir), ir);
+            format!("java.util.Optional<{}>", java_boxed(&display))
+        }
+        ReturnIdiom::Result {
+            payload_ty,
+            ref_kind,
+        } => java_boxed(&payload_display_type(&ref_kind_field_type(payload_ty, ref_kind, ir), ir)),
+    }
+}
+
+/// A typed overload for every method that takes a `RefAny` data argument
+/// followed by a callback wrapper (`FileDialog.openDirectory(title,
+/// defaultPath, data, onResult)`): the data is any Java object and the
+/// callback the typed `<Kind>WithData<T>`, both wrapped and registered
+/// inside, the way the `with<Event>` builders do it. Those builders cover
+/// the `with_on_*` setters, so those are skipped here.
+fn emit_typed_data_callback_overload(
+    builder: &mut CodeBuilder,
+    class_name: &str,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    if smart_callback_setter_info(func).is_some() {
+        return;
+    }
+    let skip = if takes_self(func) { 1 } else { 0 };
+    let class_lower = func.class_name.to_lowercase();
+    let user_args: Vec<&FunctionArg> = func
+        .args
+        .iter()
+        .skip(skip)
+        .filter(|a| skip == 1 || (a.name != class_lower && a.name != "self"))
+        .collect();
+    let owned = |a: &FunctionArg| matches!(a.ref_kind, ArgRefKind::Owned);
+    let wrapper_of = |a: &FunctionArg| {
+        a.callback_info
+            .as_ref()
+            .filter(|c| owned(a) && c.callback_wrapper_name == a.type_name.trim())
+            .map(|c| c.callback_wrapper_name.clone())
+    };
+    let Some(data_at) = (0..user_args.len().saturating_sub(1)).find(|&i| {
+        owned(user_args[i])
+            && is_refany_type(user_args[i].type_name.trim(), ir)
+            && wrapper_of(user_args[i + 1]).is_some()
+    }) else {
+        return;
+    };
+    let wrapper = wrapper_of(user_args[data_at + 1]).unwrap_or_default();
+    if data_typed_sam_for_kind(&wrapper, ir, config).is_none() {
+        return;
+    }
+    // The other parameters exactly as the base method declares them.
+    let param_type = |a: &FunctionArg| -> String {
+        if let Some(opt) = owned(a).then(|| jvm_option(&a.type_name, ir)).flatten() {
+            return opt.value_type();
+        }
+        let t = a.type_name.trim();
+        if owned(a) && ir.find_struct(t).is_some_and(|s| matches!(s.category, TypeCategory::String)) {
+            return "java.lang.String".to_string();
+        }
+        if owned(a) && has_wrapper_class(t, ir) {
+            return wrapper_class_name(t);
+        }
+        if owned(a) {
+            map_jvm_type_byvalue(&a.type_name, ir)
+        } else {
+            "Pointer".to_string()
+        }
+    };
+    let data_name = sanitize_identifier(&user_args[data_at].name);
+    let mut params = Vec::new();
+    let mut call = Vec::new();
+    for (j, a) in user_args.iter().enumerate() {
+        let name = sanitize_identifier(&a.name);
+        if j == data_at {
+            params.push(format!("T {}", name));
+            call.push(format!("new {}(__data.getPointer())", wrapper_class_name(a.type_name.trim())));
+        } else if j == data_at + 1 {
+            params.push(format!("AzulHostInvoker.{}WithData<T> {}", wrapper, name));
+            call.push(format!("new {}(__cb.getPointer())", wrapper_class_name(&wrapper)));
+        } else {
+            params.push(format!("{} {}", param_type(a), name));
+            call.push(name);
+        }
+    }
+    let is_static = matches!(
+        func.kind,
+        FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default
+    );
+    let ret = jvm_displayed_return(class_name, func, ir);
+    let method = idiomatic_method_name(&func.method_name);
+    builder.line("/**");
+    builder.line(&format!(
+        " * Typed {}: {{@code {}}} is any Java object, handed back to the callback as its",
+        method, data_name
+    ));
+    builder.line(" * declared type; RefAny wrapping and callback registration happen inside.");
+    builder.line(" */");
+    builder.line("@SuppressWarnings(\"unchecked\")");
+    builder.line(&format!(
+        "public {}<T> {} {}({}) {{",
+        if is_static { "static " } else { "" },
+        ret,
+        method,
+        params.join(", ")
+    ));
+    builder.indent();
+    builder.line(&format!(
+        "if ({d} == null) throw new NullPointerException(\"{d}\");",
+        d = data_name
+    ));
+    builder.line(&format!("AzRefAny.ByValue __data = AzulHostInvoker.refanyCreate({});", data_name));
+    builder.line(&format!(
+        "{}.ByValue __cb = AzulHostInvoker.register{}((Class<T>) {}.getClass(), {});",
+        ffi_type_name(&wrapper),
+        wrapper,
+        data_name,
+        sanitize_identifier(&user_args[data_at + 1].name)
+    ));
+    let invoke = format!("{}({})", method, call.join(", "));
+    if ret == "void" {
+        builder.line(&format!("{};", invoke));
+    } else {
+        builder.line(&format!("return {};", invoke));
+    }
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
 fn emit_wrapper_method(
     builder: &mut CodeBuilder,
     class_name: &str,
@@ -1945,10 +2267,18 @@ fn emit_wrapper_method(
             && has_wrapper_class(a.type_name.trim(), ir)
     };
 
+    let owned_option = |a: &&FunctionArg| {
+        matches!(a.ref_kind, ArgRefKind::Owned)
+            .then(|| jvm_option(&a.type_name, ir))
+            .flatten()
+    };
     let arg_sig: Vec<String> = user_args
         .iter()
         .map(|a| {
-            let jt = if is_az_string_owned_arg(a) {
+            let jt = if let Some(opt) = owned_option(a) {
+                // The value itself, or null for None (see `options`).
+                opt.value_type()
+            } else if is_az_string_owned_arg(a) {
                 "java.lang.String".to_string()
             } else if is_wrapper_class_owned_arg(a) {
                 // Wrapper class — strip `Az` prefix the same way
@@ -2023,7 +2353,16 @@ fn emit_wrapper_method(
     // AzString.ByValue via the C-API helper before the call.
     for a in &user_args {
         let raw_name = sanitize_identifier(&a.name);
-        if is_az_string_owned_arg(a) {
+        if let Some(opt) = owned_option(a) {
+            let local = format!("__{}_opt", raw_name);
+            pre_call_lines.push(format!(
+                "{}.ByValue {} = {};",
+                ffi_type_name(a.type_name.trim()),
+                local,
+                opt.into_raw(&raw_name)
+            ));
+            call_args.push(local);
+        } else if is_az_string_owned_arg(a) {
             let az_name = format!("__{}_az", raw_name);
             let bytes_name = format!("__{}_bytes", raw_name);
             let mem_name = format!("__{}_mem", raw_name);
@@ -2056,6 +2395,17 @@ fn emit_wrapper_method(
                 bytes = bytes_name,
             ));
             call_args.push(az_name);
+        } else if is_wrapper_class_owned_arg(a) && has_delete_function(a.type_name.trim(), ir) {
+            // The call frees the value: `__takeRaw` moves an owned wrapper
+            // in and deep-copies a borrowed one (a callback argument).
+            let raw_local = format!("__{}_raw", raw_name);
+            pre_call_lines.push(format!(
+                "{}.ByValue {} = {}.__takeRaw();",
+                ffi_type_name(a.type_name.trim()),
+                raw_local,
+                raw_name
+            ));
+            call_args.push(raw_local);
         } else if is_wrapper_class_owned_arg(a) {
             // Splice the wrapper's underlying Pointer into a
             // by-value Structure overlay so the C ABI sees a real
@@ -2136,31 +2486,7 @@ fn emit_wrapper_method(
     // simply rebrands the visible signature to `java.util.Optional<T>`
     // for Option and the bare payload type for Result (which throws on
     // Err — same idiom as Rust's `Result::unwrap`).
-    let displayed_return = if returns_self {
-        class_name.to_string()
-    } else if let Some(ref wrapper) = returns_wrapper_other {
-        wrapper.clone()
-    } else {
-        match &idiom {
-            ReturnIdiom::Plain => return_jvm.clone(),
-            ReturnIdiom::Option {
-                payload_ty,
-                ref_kind,
-            } => {
-                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                let display = payload_display_type(&raw, ir);
-                format!("java.util.Optional<{}>", java_boxed(&display))
-            }
-            ReturnIdiom::Result {
-                payload_ty,
-                ref_kind,
-            } => {
-                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                let display = payload_display_type(&raw, ir);
-                java_boxed(&display)
-            }
-        }
-    };
+    let displayed_return = jvm_displayed_return(class_name, func, ir);
 
     let modifiers = if is_static { "public static" } else { "public" };
 
