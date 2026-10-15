@@ -431,3 +431,28 @@ fn c_binds_a_payload_or_ends_the_block() {
         ],
     );
 }
+
+/// Python: `None` or the value where an Option is asked for, `None` or the
+/// value back, a raised `ValueError` for an `Err`. A resume callback's result
+/// reaches Python as an opaque handle that `downcast` takes back; before, it
+/// arrived as `None` and every `downcast` failed.
+#[test]
+fn python_takes_and_gives_none_raises_errors_and_downcasts_the_resume_result() {
+    let path = "python_api.rs";
+    let text = generated(path);
+    assert_contains(
+        path,
+        &text,
+        &[
+            "fn open_directory(py: Python<'_>, title: String, default_path: Option<String>, data: Py<PyAny>, on_result: Py<PyAny>) -> AzRequestId {",
+            "fn downcast(py: Python<'_>, result: Py<PyAny>) -> Option<AzFileOpenResult> {",
+            "fn __get_light(&self) -> Option<String> {",
+            "fn __set_light(slf: &Bound<'_, Self>, value: Option<String>) -> PyResult<()> {",
+            "fn __get_path(&self) -> Option<AzFilePath> {",
+            "fn parse(s: String) -> PyResult<AzUrl> {",
+            "pub struct PyOpaqueRefAny {",
+            "None => Py::new(py, PyOpaqueRefAny { refany }).ok().map(|o| o.into_any()),",
+            "extract::<PyRef<'_, PyOpaqueRefAny>>()",
+        ],
+    );
+}
