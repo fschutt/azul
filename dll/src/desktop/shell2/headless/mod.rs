@@ -13145,6 +13145,10 @@ mod tests {
     // (`tests/webview_sign_in.rs`, WEBVIEW17).
     mod webview_sign_in;
 
+    // Stopping a background thread never waits for it on the UI thread, and its last
+    // write-back still runs (`tests/thread_stop.rs`).
+    mod thread_stop;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
