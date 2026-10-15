@@ -231,3 +231,37 @@ fn kotlin_takes_and_gives_nullables_and_types_the_resume_callback() {
         ],
     );
 }
+
+/// Haskell: `Maybe` / `Either` at the surface, and `MaybeT` / `ExceptT`
+/// guards that turn a failure into `(model, Update_DoNothing)`.
+#[test]
+fn haskell_takes_and_gives_maybe_and_either_and_guards_a_handler() {
+    let api = "haskell/src/Azul/Internal/Api/Dialog.hs";
+    let dialog = generated(api);
+    assert_contains(
+        api,
+        &dialog,
+        &[
+            "fileDialogOpenDirectory :: (ResumeCallbackHandler h3) => String -> (Maybe String) -> RefAny -> h3 -> IO RequestId",
+            "withMaybeArg T.OptionString_None T.OptionString_Some withAzStringArg a1 $ \\__p1 -> do",
+            // The data bound to the model of the running callback.
+            "fileDialogOpenDirectoryWithModel :: (ResumeCallbackHandler h3) => String -> (Maybe String) -> h3 -> IO RequestId",
+            "fileOpenResultDowncast :: (ToRefAny d0) => d0 -> IO (Maybe FileOpenResult)",
+            "fileOpenResultGetPath :: FileOpenResult -> IO (Maybe FilePath)",
+            "fileOpenResultSetPath :: (Maybe FilePath) -> FileOpenResult -> IO ()",
+        ],
+    );
+    let api = "haskell/src/Azul/Internal/Api/Url.hs";
+    let url = generated(api);
+    assert_contains(api, &url, &["urlParse :: String -> IO (Either UrlParseError Url)"]);
+    let facade = "haskell/src/Azul.hs";
+    let text = generated(facade);
+    assert_contains(
+        facade,
+        &text,
+        &[
+            "orDoNothing :: model -> MaybeT IO (model, T.Update) -> IO (model, T.Update)",
+            "orDoNothingOnError :: Show e => model -> ExceptT e IO (model, T.Update) -> IO (model, T.Update)",
+        ],
+    );
+}
