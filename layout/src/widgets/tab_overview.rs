@@ -236,7 +236,9 @@ impl Palette {
                 icon: (flat::LIGHT_ICON, flat::DARK_ICON),
                 hover: (flat::LIGHT_ROW_HOVER, flat::DARK_ROW_HOVER),
                 hb: (flat::LIGHT_HB, flat::DARK_HB),
-                accent: (flat::LIGHT_ACC, flat::DARK_GLOW),
+                // Flat's glow is a translucent halo: the night accent, opaque,
+                // is what reads as words on its paper.
+                accent: (flat::LIGHT_ACC, flat::DARK_ACC),
                 on_accent: flat::LIGHT_ON_ACC,
             },
         }

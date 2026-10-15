@@ -2993,6 +2993,8 @@ pub(crate) mod theme_contrast {
         "menubar",
         "node_graph",
         "pagination",
+        // The pie marker: a disc and its wedge in the tone's colour.
+        "pie_marker",
         "quick_access",
         "ribbon",
         "ribbon (buttons on leather, revealing)",
@@ -3001,6 +3003,8 @@ pub(crate) mod theme_contrast {
         "statusbar",
         "statusbar (sync)",
         "stepper",
+        // The location tabs listed on a scrim.
+        "tab_overview",
         "tabs (buttons, revealing)",
         "tabs (header)",
         "titlebar",
