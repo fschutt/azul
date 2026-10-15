@@ -346,8 +346,9 @@ def table(app, box, rel, writer_bytes, out):
 def start_manager(name, binary, box, logs, args, extra=None):
     env = dict(box.env)
     env.update(extra or {})
-    app = e2e.App(name, binary, ["--data-dir", box.data], args.debug_port, logs, args.timeout,
-                  extra_env=env)
+    # In English whatever the machine's language: the checks read the English words.
+    app = e2e.App(name, binary, ["--data-dir", box.data, "--language", "en"], args.debug_port,
+                  logs, args.timeout, extra_env=env)
     app.until("the debug server", lambda: app.op("wait_frame") is not None)
     return app
 
@@ -379,8 +380,8 @@ def banner(args, logs, out, box, rel, writer_bytes, manager_bin):
         json.dump(reg, f)
 
     program = box.registration("azwriter")["binary"]
-    writer = e2e.App("azwriter", program, ["--data-dir", box.data], args.debug_port + 1, logs, args.timeout,
-                     extra_env=box.env)
+    writer = e2e.App("azwriter", program, ["--data-dir", box.data, "--language", "en"],
+                     args.debug_port + 1, logs, args.timeout, extra_env=box.env)
     try:
         writer.until("the debug server", lambda: writer.op("wait_frame") is not None)
         writer.until("the offer", lambda: writer.last("AZLIN_UPDATE_OFFER") == "azwriter 0.1.3 staged")
