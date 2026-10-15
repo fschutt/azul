@@ -154,6 +154,8 @@ mod closing;
 mod fileops_batch_tests;
 #[cfg(test)]
 mod copy_path_tests;
+#[cfg(test)]
+mod tree_leaves_tests;
 /// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
 mod ban;
 #[cfg(test)]

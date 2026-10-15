@@ -1141,6 +1141,12 @@ fn count_items(root: &Path, key: &str, show_hidden: bool) -> Option<usize> {
 /// first keys; a folder of millions of objects is not walked to its end to expand a node).
 const TREE_PAGES: usize = 20;
 
+/// Whether the folder at `dir` on this computer holds a folder: one `read_dir`, ended at the
+/// first one. A hidden folder counts (the tree may show it), a temporary file's never does.
+pub(crate) fn has_subfolder(_dir: &Path) -> bool {
+    true
+}
+
 /// A tree node's folders, sorted without case, and how many items the node holds: on this
 /// computer one `read_dir` with the kinds it reports - no stat per entry -, in a bucket its
 /// listing page by page.
