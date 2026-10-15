@@ -17,7 +17,7 @@ use azul::{
     option::OptionString,
     str::String as AzString,
     widgets::{
-        RichAlign, RichBlock, RichBlockKind, RichFormat, RichFormats, RichRun, RichTextDoc, RichTextEditor,
+        RichAlign, RichBlock, RichBlockKind, RichFont, RichFormat, RichFormats, RichRun, RichTextDoc, RichTextEditor,
         RichTextEditorState,
     },
 };
@@ -93,6 +93,8 @@ pub fn to_rich(body: &TextBody) -> RichTextDoc {
                         strike: r.strike,
                         code: false,
                     },
+                    // A slide's run keeps the slide's own font: the editor's.
+                    font: RichFont::create(),
                 })
                 .collect::<Vec<RichRun>>()
                 .into(),

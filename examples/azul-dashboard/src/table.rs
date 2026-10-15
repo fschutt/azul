@@ -122,6 +122,7 @@ extern "C" fn cell(mut source: RefAny, at: DataTableCellRef) -> DataTableCell {
     DataTableCell {
         text: AzString::from(set.text(at.row, column)),
         value: set.value(at.row, column),
+        icon: AzString::from_const_str(""),
     }
 }
 
