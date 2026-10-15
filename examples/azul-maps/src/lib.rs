@@ -808,6 +808,11 @@ fn tool(app: &RefAny, icon: &str, name: &str, id: AzString, on_click: ButtonOnCl
 
 /// The title area over the map: the window moves by it; the sidebar's
 /// button on the left, the settings on the right, no text.
+/// The title area's CSS, clear of the window's own controls where they sit over it.
+fn title_area_css(_insets: kit::TitleInsets) -> String {
+    TITLE_AREA.to_string()
+}
+
 fn title_area(s: &MapState, app: &RefAny) -> Dom {
     let toggle_name = label(if s.sidebar_open { "azmaps-hide-sidebar" } else { "azmaps-show-sidebar" });
     Dom::create_div()
@@ -2543,6 +2548,25 @@ mod travel_line_tests {
         for mode in [TravelMode::Car, TravelMode::Bike] {
             assert_eq!(travel_polyline(two_places(), true, mode).dash, MapLineDash::Solid, "{mode:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod title_area_tests {
+    use super::*;
+
+    #[test]
+    fn the_title_area_keeps_the_window_controls_room_on_the_side_they_sit() {
+        let mac = title_area_css(kit::TitleInsets { left: 78.0, right: 0.0, height: 28.0 });
+        assert!(mac.contains("padding: 0px 10px 0px 88px;"), "{mac}");
+        let windows = title_area_css(kit::TitleInsets { left: 0.0, right: 138.0, height: 32.0 });
+        assert!(windows.contains("padding: 0px 148px 0px 10px;"), "the caption buttons keep their room: {windows}");
+    }
+
+    #[test]
+    fn the_title_area_is_at_least_as_tall_as_its_buttons_and_the_window_controls() {
+        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 28.0 }).contains("height: 40px;"));
+        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 46.0 }).contains("height: 46px;"));
     }
 }
 
