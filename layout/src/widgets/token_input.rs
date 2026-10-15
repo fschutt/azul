@@ -1725,6 +1725,51 @@ mod token_input_tests {
         }
     }
 
+    /// Every popup window the handler opened or closed, as (node, open).
+    fn transient_writes(changes: &[crate::callbacks::CallbackChange]) -> Vec<(NodeId, bool)> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                crate::callbacks::CallbackChange::SetTransientWindowOpen { node, open } => {
+                    node.node.into_crate_internal().map(|n| (n, *open))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The suggestions float in a popup window under the field: a list laid
+    /// into the page was cut off by any ancestor with `overflow: hidden` (a
+    /// narrow pane) and painted under later siblings. The window is open
+    /// whenever suggestions show; Escape closes it and Down opens it again.
+    #[test]
+    fn the_suggestions_float_in_a_popup_window_under_the_field() {
+        use azul_core::{dom::NodeType, transient::TransientAnchor};
+
+        let log = log();
+        let dom = field(&log).with_theme(UiTheme::Flat).dom();
+        let parts = dom.children.as_ref();
+        assert_eq!(parts.len(), 2, "the field and the popup");
+        let NodeType::TransientWindow(config) = parts[1].root.get_node_type() else {
+            panic!("a popup window, not a list in the page");
+        };
+        assert!(config.open, "open while suggestions show");
+        assert_eq!(config.anchor, TransientAnchor::Bottom, "under the field");
+        assert!(theme_checks::has_class(&parts[1].children.as_ref()[0], LIST_CLASS));
+
+        let state = TokenInputState::create(sv(&["alice@x.org", "bob@y.org"]))
+            .with_text(s("al"))
+            .with_active(0);
+        let styled = StyledDom::create_from_dom(field(&log).with_state(state).with_theme(UiTheme::Flat).dom());
+        let field_node = kids(&styled, NodeId::new(0))[0];
+        let entry = kids(&styled, field_node)[2];
+        let popup = kids(&styled, NodeId::new(0))[1];
+        let (_, changes) = rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
+        assert_eq!(transient_writes(&changes), vec![(popup, false)], "Escape closes the window");
+        let (_, changes) = rv::press(&styled, id(entry), K::Down, &[]).expect("the entry's key handler");
+        assert!(transient_writes(&changes).contains(&(popup, true)), "Down opens it again: {changes:?}");
+    }
+
     #[test]
     fn nothing_typed_shows_no_list() {
         let log = log();
