@@ -461,9 +461,8 @@ mod clock_tests {
     }
 }
 
-/// The local time's offset from UTC in seconds now: asked of the system at every tick, on
-/// every platform (a `date` process read once was missing on Windows and stale after a
-/// daylight saving change).
+/// The local time's offset from UTC in seconds now. It is asked at every tick because it
+/// changes with daylight saving while the app runs; chrono reads it on every platform.
 fn local_offset_s() -> i64 {
     i64::from(chrono::Local::now().offset().local_minus_utc())
 }
