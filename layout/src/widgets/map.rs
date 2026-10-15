@@ -57,6 +57,8 @@ mod ground_tests;
 mod disk_cache_tests;
 #[cfg(test)]
 mod seed_tests;
+#[cfg(test)]
+mod camera_update_tests;
 pub use overlay::{
     MapLatLonVec, MapLatLonVecDestructor, MapLatLonVecDestructorType, MapLatLonVecSlice,
     MapMarker, MapOverlay, MapOverlayVec, MapOverlayVecDestructor, MapOverlayVecDestructorType,
@@ -722,6 +724,30 @@ impl MapWidget {
             .and_then(|camera| camera.project(grid))
             .unwrap_or(grid);
         azul_core::geom::LogicalPosition::new(x as f32, y as f32)
+    }
+
+    /// Moves the map built at `node` (the root of its `dom()`) to `viewport` in place: the
+    /// map's own view is drawn again and the tiles the new camera needs are fetched, but the
+    /// app's DOM is not rebuilt. A navigation follows the car with it. The zoom stays inside
+    /// the layer's range, the tilt and the turn are clamped as a drag would; the
+    /// `on_viewport_changed` hook does not fire, the app asked for the move. False when
+    /// `node` is not a map's root.
+    pub fn update_camera(info: &mut CallbackInfo, node: azul_core::dom::DomNodeId, viewport: MapViewport) -> bool {
+        let Some(mut data) = info.get_dataset(node) else {
+            return false;
+        };
+        move_camera(&mut data, info, viewport)
+    }
+
+    /// Replaces the lines, areas and markers of the map built at `node` (the root of its
+    /// `dom()`) in place: the map's view is drawn again with them, the app's DOM is not
+    /// rebuilt. The parts of lines that did not change are not cut again. False when `node`
+    /// is not a map's root.
+    pub fn update_overlays(info: &mut CallbackInfo, node: azul_core::dom::DomNodeId, overlays: MapOverlayVec) -> bool {
+        let Some(mut data) = info.get_dataset(node) else {
+            return false;
+        };
+        replace_overlays(&mut data, info, overlays)
     }
 
     /// Construct the rendered `Dom`. The returned `Dom` is a single
@@ -2181,6 +2207,16 @@ fn finish_viewport_change(
         rerender_marked_view(Some(view_marker), info);
     }
     user
+}
+
+/// [`MapWidget::update_camera`] on the map's dataset.
+fn move_camera(_data: &mut RefAny, _info: &mut CallbackInfo, _viewport: MapViewport) -> bool {
+    false
+}
+
+/// [`MapWidget::update_overlays`] on the map's dataset.
+fn replace_overlays(_data: &mut RefAny, _info: &mut CallbackInfo, _overlays: MapOverlayVec) -> bool {
+    false
 }
 
 /// Pointer down → record the drag anchor. The widget knows nothing
