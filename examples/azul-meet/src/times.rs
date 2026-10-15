@@ -19,23 +19,37 @@ pub fn when_text(starts: u64, ends: u64, offset_secs: i32) -> String {
     let (Some(a), Some(b)) = (at(starts), at(ends)) else {
         return String::new();
     };
-    // "Fri 9 Oct 2026, 14:00": the kit's short date with the year, in the window's language.
-    let day = |at: &chrono::DateTime<FixedOffset>| {
-        use chrono::Datelike;
-        let date = azul_appkit::l10n::date_text(
-            azul_appkit::l10n::DateStyle::ShortDateYear,
-            at.year(),
-            at.month(),
-            at.day(),
-            at.weekday().num_days_from_monday(),
-        );
-        format!("{date}, {}", at.format("%H:%M"))
-    };
+    let day = day_text;
     if a.date_naive() == b.date_naive() {
         format!("{}-{}", day(&a), b.format("%H:%M"))
     } else {
         format!("{} - {}", day(&a), day(&b))
     }
+}
+
+/// "Fri 9 Oct 2026, 14:00": the kit's short date with the year, in the window's language, and
+/// the time.
+fn day_text(at: &chrono::DateTime<chrono::FixedOffset>) -> String {
+    use chrono::Datelike;
+    let date = azul_appkit::l10n::date_text(
+        azul_appkit::l10n::DateStyle::ShortDateYear,
+        at.year(),
+        at.month(),
+        at.day(),
+        at.weekday().num_days_from_monday(),
+    );
+    format!("{date}, {}", at.format("%H:%M"))
+}
+
+/// The moment `at` (seconds since 1970) in the time zone `offset_secs` east of UTC: "Fri 9 Oct
+/// 2026, 14:00" (a recent direct call).
+#[must_use]
+pub fn at_text(at: i64, offset_secs: i32) -> String {
+    use chrono::{FixedOffset, TimeZone};
+    FixedOffset::east_opt(offset_secs)
+        .and_then(|zone| zone.timestamp_opt(at, 0).single())
+        .map(|at| day_text(&at))
+        .unwrap_or_default()
 }
 
 /// `n` minutes as people say it: "5 min", "2 h", "2 h 5 min", "3 days" (in the window's
