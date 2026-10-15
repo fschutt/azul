@@ -259,3 +259,21 @@ fn a_project_round_trips_through_its_json() {
     assert_eq!(back.next_id, p.next_id);
     assert!(!back.can_undo(), "the history is not saved");
 }
+
+#[test]
+fn a_clip_from_the_source_monitor_goes_on_v1_or_for_sound_alone_on_a1() {
+    let (mut p, pier, _) = project();
+    let mut tone = MediaItem::generated("tone", Pattern::Bars, 100, 0, 0);
+    tone.has_video = false;
+    tone.has_audio = true;
+    let tone = p.add_media(tone);
+    let a1 = p
+        .sequence
+        .tracks
+        .iter()
+        .position(|t| t.kind == TrackKind::Audio)
+        .unwrap();
+    assert_eq!(p.target_track(pier), Some(0), "pictures on V1");
+    assert_eq!(p.target_track(tone), Some(a1), "sound alone on A1");
+    assert_eq!(p.target_track(999), None, "no such media");
+}
