@@ -448,9 +448,9 @@ fn a_mass_delete_the_user_confirmed_is_no_burst_to_ask_about_again() {
     laptop.write("keep.txt", b"kept\n");
     laptop.sync(&store);
     laptop.remove_folder("old");
-    let asked = laptop.sync(&store);
+    // The command line's run stops (an app's run holds the question instead).
     assert!(
-        asked.mass_delete.is_some(),
+        laptop.sync_with(&store, &laptop.opts()).is_err(),
         "the mass-delete guard asks first"
     );
     let mut confirmed = laptop.opts();
