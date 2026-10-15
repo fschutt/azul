@@ -35,6 +35,13 @@ pub const KIT_SHORTCUTS: [Shortcut; 3] = [
     Shortcut::new("kit-shortcut-group-window", "Escape", "kit-shortcut-cancel-settings"),
 ];
 
+/// [`display_keys`] with the key names said by `name` (the window's language).
+#[must_use]
+pub fn display_keys_with(keys: &str, mac: bool, name: &dyn Fn(&str) -> String) -> String {
+    let _ = name;
+    display_keys(keys, mac)
+}
+
 /// The keys as the user reads them on this platform: `Mod` is `Cmd` on macOS
 /// and `Ctrl` elsewhere; the `+` joins stay.
 #[must_use]
@@ -97,12 +104,37 @@ mod tests {
     ];
 
     #[test]
-    fn mod_reads_cmd_on_macos_and_ctrl_elsewhere() {
-        assert_eq!(display_keys("Mod+C", true), "Cmd+C");
+    fn mod_reads_ctrl_elsewhere() {
         assert_eq!(display_keys("Mod+C", false), "Ctrl+C");
-        assert_eq!(display_keys("Alt+1", true), "Option+1");
         assert_eq!(display_keys("Alt+1", false), "Alt+1");
-        assert_eq!(display_keys("Shift+F6", true), "Shift+F6");
+        assert_eq!(display_keys("Shift+F6", false), "Shift+F6");
+    }
+
+    /// macOS writes the modifiers as their symbols, in Apple's order (Control, Option, Shift,
+    /// Command), before the key and without a +; the keys with a symbol on the keyboard
+    /// (Escape, Return, the arrows) take it too.
+    #[test]
+    fn macos_shows_the_modifier_symbols_in_apples_order() {
+        assert_eq!(display_keys("Mod+C", true), "\u{2318}C");
+        assert_eq!(display_keys("Mod+Shift+S", true), "\u{21e7}\u{2318}S");
+        assert_eq!(display_keys("Alt+1", true), "\u{2325}1");
+        assert_eq!(display_keys("Ctrl+Tab", true), "\u{2303}\u{21e5}");
+        assert_eq!(display_keys("Mod+Escape", true), "\u{2318}\u{238b}");
+        assert_eq!(display_keys("Shift+F6", true), "\u{21e7}F6");
+        assert_eq!(display_keys("Mod+Space", true), "\u{2318}Space");
+    }
+
+    /// The names are the window's language's (`name` translates one), the symbols are not.
+    #[test]
+    fn key_names_are_said_by_the_caller_and_symbols_stay() {
+        let german = |part: &str| match part {
+            "Ctrl" => String::from("Strg"),
+            "Escape" => String::from("Esc"),
+            "Space" => String::from("Leertaste"),
+            other => other.to_string(),
+        };
+        assert_eq!(display_keys_with("Mod+Escape", false, &german), "Strg+Esc");
+        assert_eq!(display_keys_with("Mod+Space", true, &german), "\u{2318}Leertaste");
     }
 
     #[test]
