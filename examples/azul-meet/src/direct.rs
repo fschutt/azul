@@ -183,6 +183,115 @@ pub fn recents_from_text(text: &str) -> Vec<Recent> {
     serde_json::from_str(text).unwrap_or_default()
 }
 
+/// How long a connection that came in may wait for its hello before it is dropped, ms.
+pub const HELLO_MS: u64 = 10_000;
+
+/// A call this side is making: dialed, not taken yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Outgoing {
+    /// What was dialed: a ticket, or a bare endpoint id.
+    pub address: String,
+    /// The connection it came up on, once it did.
+    pub handle: Option<u64>,
+    /// The callee's endpoint id: known at once from a bare id, else from the connection.
+    pub id: Option<String>,
+    /// The safety words, once connected; empty before.
+    pub words: String,
+    /// When it was dialed (the window's clock, ms): it rings [`RING_MS`] at most.
+    pub since_ms: u64,
+}
+
+/// A call coming in, shown as a prompt until Accept or Decline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Incoming {
+    /// The connection it came on.
+    pub handle: u64,
+    /// The caller's endpoint id.
+    pub id: String,
+    /// The name the caller gave.
+    pub name: String,
+    /// The caller's ticket: how a newcomer to the call dials it, and the recent call's address.
+    pub ticket: String,
+    /// The safety words of both ids.
+    pub words: String,
+}
+
+/// A connection that came in while this side was in no meeting: a caller once it says hello,
+/// dropped after [`HELLO_MS`] without one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Knock {
+    pub handle: u64,
+    pub id: String,
+    pub since_ms: u64,
+}
+
+/// This device's direct calls.
+#[derive(Debug, Clone, Default)]
+pub struct DirectState {
+    /// The direct-call screen shows (Settings > Meetings > "Direct call...").
+    pub open: bool,
+    /// Which form of this computer's address the screen shows.
+    pub form: AddressForm,
+    /// The Call field as typed.
+    pub call_text: String,
+    /// "Copy" was clicked for the address shown.
+    pub copied: bool,
+    /// The call this side is making.
+    pub outgoing: Option<Outgoing>,
+    /// The call coming in, prompting.
+    pub incoming: Option<Incoming>,
+    /// Connections waiting for their hello.
+    pub knocks: Vec<Knock>,
+    /// In a direct call (the call screen shows it).
+    pub in_call: bool,
+    /// The others in the call: their connection and who they are.
+    pub people: Vec<(u64, RosterPeer)>,
+    /// Who the call expects (the roster): a connection from one of these ids joins at once.
+    pub expected: Vec<RosterPeer>,
+    /// The safety words of the call with the first person in it, for the header.
+    pub words: String,
+    /// What the last call came to, under the Call field; empty for nothing.
+    pub note: String,
+    /// The recent calls, newest first.
+    pub recents: Vec<Recent>,
+}
+
+impl DirectState {
+    /// No call, the recent calls `recents`.
+    #[must_use]
+    pub fn new(recents: Vec<Recent>) -> Self {
+        DirectState {
+            recents,
+            ..DirectState::default()
+        }
+    }
+
+    /// The name of the person with endpoint id `id` in (or expected by) the call.
+    #[must_use]
+    pub fn name_of(&self, id: &str) -> Option<String> {
+        self.people
+            .iter()
+            .map(|(_, p)| p)
+            .chain(self.expected.iter())
+            .find(|p| p.id.eq_ignore_ascii_case(id))
+            .map(|p| p.name.clone())
+    }
+
+    /// Whether connection `handle` belongs to someone in the call.
+    #[must_use]
+    pub fn in_call_with(&self, handle: u64) -> bool {
+        self.people.iter().any(|(h, _)| *h == handle)
+    }
+
+    /// The call is over: nobody in it, nobody expected.
+    pub fn end_call(&mut self) {
+        self.in_call = false;
+        self.people.clear();
+        self.expected.clear();
+        self.words.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +350,20 @@ mod tests {
         assert_eq!(address(AddressForm::IdOnly, "endpointxyz", ADA), ADA);
         assert_eq!(address(AddressForm::WithAddresses, "", ADA), ADA, "no ticket yet: the id");
         assert!(is_bare_id(ADA) && !is_bare_id("endpointxyz"));
+    }
+
+    #[test]
+    fn a_direct_call_knows_its_people_by_id_and_forgets_them_when_it_ends() {
+        let mut state = DirectState::new(Vec::new());
+        state.in_call = true;
+        state.people.push((7, RosterPeer { id: BEN.into(), name: "Ben".into(), ticket: "b".into() }));
+        state.expected.push(RosterPeer { id: ADA.into(), name: "Ada".into(), ticket: "a".into() });
+        assert_eq!(state.name_of(&BEN.to_uppercase()).as_deref(), Some("Ben"));
+        assert_eq!(state.name_of(ADA).as_deref(), Some("Ada"), "an expected newcomer's name is known");
+        assert!(state.in_call_with(7) && !state.in_call_with(8));
+        state.end_call();
+        assert!(!state.in_call && state.people.is_empty() && state.expected.is_empty());
+        assert_eq!(state.name_of(BEN), None);
     }
 
     #[test]
