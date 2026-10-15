@@ -6,13 +6,13 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CallbackInfo, RefAny, RibbonGalleryOnSelectCallbackType,
-        RibbonOnTabClickCallbackType, Update,
+        ButtonOnClickCallbackType, CallbackInfo, DropDownOnChoiceChangeCallbackType, RefAny,
+        RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, Update,
     },
     dom::Dom,
     str::String as AzString,
     widgets::{
-        RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize, RichTextCommand,
+        DropDown, RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize, RichTextCommand,
         RichTextEditorState, Ribbon, RibbonAppButton, RibbonGallery, RibbonGalleryCell, RibbonItem,
         RibbonTab,
     },
@@ -70,15 +70,26 @@ pub const DEFAULT_FONT_SIZE: f32 = 13.0;
 
 /// The family combo's entry for the caret's `family` (the default one for an unknown family).
 #[must_use]
-pub fn font_family_index(_family: &str) -> usize {
-    0
+pub fn font_family_index(family: &str) -> usize {
+    let family = family.trim();
+    FONT_FAMILIES
+        .iter()
+        .position(|(_, css)| css.eq_ignore_ascii_case(family))
+        .unwrap_or(0)
 }
 
 /// The size combo's entry for the caret's size `px` (0: the paper's): the nearest size of the
 /// list, the smaller of two as near.
 #[must_use]
-pub fn font_size_index(_px: f32) -> usize {
-    0
+pub fn font_size_index(px: f32) -> usize {
+    let px = if px > 0.0 { px } else { DEFAULT_FONT_SIZE };
+    let mut best = 0;
+    for (i, size) in FONT_SIZES.iter().enumerate() {
+        if (size - px).abs() < (FONT_SIZES[best] - px).abs() {
+            best = i;
+        }
+    }
+    best
 }
 
 /// The block kind of gallery style `index` (`None` past the end).
@@ -159,6 +170,30 @@ extern "C" fn on_style(mut data: RefAny, mut info: CallbackInfo, index: usize) -
     update
 }
 
+/// A family picked in the Font group's combo: the selection (or what is typed next) is set in
+/// it.
+extern "C" fn on_font_family(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    let Some(mut app) = data.downcast_ref::<GalleryRef>().map(|g| g.app.clone()) else {
+        return Update::DoNothing;
+    };
+    let Some((_, css)) = FONT_FAMILIES.get(index) else {
+        return Update::DoNothing;
+    };
+    let cmd = RichTextCommand::SetFontFamily(AzString::from(*css));
+    crate::commands::run(&mut app, Command::Rich(cmd), &mut info)
+}
+
+/// A size picked in the Font group's combo.
+extern "C" fn on_font_size(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    let Some(mut app) = data.downcast_ref::<GalleryRef>().map(|g| g.app.clone()) else {
+        return Update::DoNothing;
+    };
+    let Some(px) = FONT_SIZES.get(index).copied() else {
+        return Update::DoNothing;
+    };
+    crate::commands::run(&mut app, Command::Rich(RichTextCommand::SetFontSize(px)), &mut info)
+}
+
 extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     crate::commands::run(&mut data, Command::RibbonTab(index), &mut info)
 }
@@ -169,9 +204,42 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
     let quoted = editor.is_some_and(RichTextEditorState::is_current_quoted);
     let align = editor.map_or(RichAlign::Left, current_align);
 
+    // Word 2010's first group: Paste, and Cut and Copy beside it.
+    let clipboard = group(
+        "azwriter-group-clipboard",
+        vec![
+            large(app, "content_paste", "azwriter-paste", Command::Rich(RichTextCommand::Paste)),
+            column(vec![
+                small(app, "content_cut", "azwriter-cut", Command::Rich(RichTextCommand::Cut)),
+                small(app, "content_copy", "azwriter-copy", Command::Rich(RichTextCommand::Copy)),
+            ]),
+        ],
+    );
+
+    // The family and size combos show the caret's; a pick sets the selection's.
+    let family_labels: Vec<&str> = FONT_FAMILIES.iter().map(|(name, _)| *name).collect();
+    let families = DropDown::create(azul_appkit::l10n::labels(&family_labels))
+        .with_selected(editor.map_or(0, |e| font_family_index(e.current_font_family().as_str())))
+        .with_accessibility_name(s("azwriter-font-family"))
+        .with_on_choice_change(
+            RefAny::new(GalleryRef { app: app.clone() }),
+            on_font_family as DropDownOnChoiceChangeCallbackType,
+        );
+    let size_labels: Vec<String> = FONT_SIZES.iter().map(|px| format!("{px}")).collect();
+    let size_refs: Vec<&str> = size_labels.iter().map(String::as_str).collect();
+    let sizes = DropDown::create(azul_appkit::l10n::labels(&size_refs))
+        .with_selected(font_size_index(editor.map_or(0.0, |e| e.current_font_size())))
+        .with_accessibility_name(s("azwriter-font-size"))
+        .with_on_choice_change(
+            RefAny::new(GalleryRef { app: app.clone() }),
+            on_font_size as DropDownOnChoiceChangeCallbackType,
+        );
+
     let font = group(
         "azwriter-group-font",
-        vec![row(vec![
+        vec![column(vec![
+            row(vec![RibbonItem::Drop(families), RibbonItem::Drop(sizes)]),
+            row(vec![
             toggle(app, "format_bold", "azwriter-bold", Command::format(RichFormat::Bold), format_on(RichFormat::Bold)),
             toggle(app, "format_italic", "azwriter-italic", Command::format(RichFormat::Italic), format_on(RichFormat::Italic)),
             toggle(
@@ -189,6 +257,7 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
                 format_on(RichFormat::Strike),
             ),
             toggle(app, "code", "azwriter-style-code", Command::format(RichFormat::Code), format_on(RichFormat::Code)),
+            ]),
         ])],
     );
 
@@ -282,6 +351,7 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
     );
 
     RibbonTab::create(s(TABS[0]))
+        .with_group(clipboard)
         .with_group(font)
         .with_group(paragraph)
         .with_group(styles)
