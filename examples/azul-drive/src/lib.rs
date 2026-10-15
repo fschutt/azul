@@ -2576,8 +2576,16 @@ pub(crate) extern "C" fn on_job_done(
                 }
             }
         }
-        Outcome::Folders { node, result } => {
+        Outcome::Folders {
+            node,
+            result,
+            leaves,
+        } => {
             s.tree.listing.remove(&node);
+            // The folders that hold no folder show no expander: their (empty) listing is known.
+            for leaf in leaves {
+                s.tree.loaded.entry((node.0.clone(), leaf)).or_default();
+            }
             match result {
                 Ok((folders, items)) => {
                     if node.1.is_empty() {
