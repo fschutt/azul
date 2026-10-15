@@ -113,6 +113,7 @@ use azul::{
     },
     css::{ColorU, CssProperty, CssPropertyWithConditions, DarkLightMode, LayoutWidth, PixelValue, SystemColorRef},
     dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
+    option::OptionString,
     prelude::*,
     sensor::SensorKind,
     shells::{ShellThemeAccent, ShellThemeScope},
@@ -1436,7 +1437,8 @@ fn map_area(s: &MapState, app: &RefAny) -> Dom {
         .with_on_pin_tap(app.clone(), on_pin_tap)
         .with_on_marker_tap(app.clone(), on_marker_tap)
         .with_on_mount(app.clone(), on_map_mount)
-        .dom();
+        .dom()
+        .with_marker(OptionString::Some(ids::MAP_VIEW));
     let mut area = Dom::create_div()
         .with_css(MAP_AREA)
         .with_id(ids::MAP)
