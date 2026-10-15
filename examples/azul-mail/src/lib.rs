@@ -283,17 +283,23 @@ pub(crate) enum SyncState {
 }
 
 impl SyncState {
-    /// Whether a report of the sync running on `thread` is the window's Send / Receive.
-    pub(crate) fn runs_on(&self, _thread: ThreadId) -> bool {
-        true
+    /// Whether a report of the sync running on `thread` is the window's Send / Receive. A
+    /// stopped sync still reports (it writes what it has, then says so) and must not touch a
+    /// Send / Receive started after it.
+    pub(crate) fn runs_on(&self, thread: ThreadId) -> bool {
+        matches!(self, SyncState::Running { thread: running, .. } if *running == thread)
     }
 
-    /// Cancel: the thread of the running Send / Receive, to be stopped.
+    /// Cancel: Send / Receive is free again at once, and the thread it ran on is returned to be
+    /// stopped. Waiting for that thread's last word would leave Send / Receive dead while it
+    /// hangs in a server's answer.
     pub(crate) fn cancel(&mut self) -> Option<ThreadId> {
-        match self {
-            SyncState::Running { thread, .. } => Some(*thread),
-            _ => None,
-        }
+        let SyncState::Running { thread, .. } = self else {
+            return None;
+        };
+        let thread = *thread;
+        *self = SyncState::Done(t("azmail-send-receive-stopped"));
+        Some(thread)
     }
 }
 
@@ -1032,6 +1038,7 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
         percent: 0.0,
     };
     let init = SyncInit {
+        thread,
         account,
         secret,
         mail_root,
@@ -1046,17 +1053,21 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
 }
 
 /// Stops a running Send / Receive: the thread sees TerminateThread between batches, writes what
-/// it has and stops.
+/// it has and stops. Send / Receive is free at once; the stopped thread's last report only
+/// shows what it wrote (`on_sync_event`).
 pub(crate) fn stop_sync(s: &mut MailApp, info: &mut CallbackInfo) {
-    if let SyncState::Running { thread, status, .. } = &mut s.sync {
-        info.remove_thread(*thread);
-        *status = String::from("Stopping...");
+    if let Some(thread) = s.sync.cancel() {
+        info.stop_thread(thread);
+        println!("AZMAIL_SYNC_STOPPED");
     }
 }
 
 /// What the sync thread starts with.
 #[derive(Clone)]
 struct SyncInit {
+    /// The Thread this sync runs on: every report names it, so the window knows a stopped
+    /// sync's late report from the running one's.
+    thread: ThreadId,
     account: Account,
     secret: Secret,
     mail_root: DriveFolder,
@@ -1093,6 +1104,8 @@ enum SyncEvent {
 }
 
 struct SyncMessage {
+    /// The Thread the report comes from (`SyncState::runs_on`).
+    thread: ThreadId,
     account: String,
     event: SyncEvent,
 }
@@ -1113,7 +1126,7 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
         // A banned drive (ban contract v1) sends nothing: its Outbox waits, the window says why.
         let ban = azlin_ban(&job);
         let banned = ban.is_some();
-        post(&mut sender, &job.account.id, SyncEvent::Ban(ban));
+        post(&mut sender, job.thread, &job.account.id, SyncEvent::Ban(ban));
         let results = if banned {
             Vec::new()
         } else {
@@ -1127,6 +1140,7 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
     let outbox = outbox_counts(&results);
     post(
         &mut sender,
+        job.thread,
         &job.account.id,
         SyncEvent::Finished(outcome, outbox),
     );
@@ -1165,10 +1179,11 @@ fn retry_outboxes(job: &SyncInit) -> Vec<(String, send::SendStatus)> {
 fn report_progress(
     sender: &mut ThreadSender,
     receiver: &mut ThreadReceiver,
+    thread: ThreadId,
     account: &str,
     progress: Progress,
 ) -> bool {
-    let delivered = post(sender, account, SyncEvent::Progress(progress));
+    let delivered = post(sender, thread, account, SyncEvent::Progress(progress));
     let mut stop = false;
     while let OptionThreadSendMsg::Some(message) = receiver.recv() {
         if matches!(message, ThreadSendMsg::TerminateThread) {
@@ -1220,6 +1235,7 @@ fn refresh_session(
     .map_err(azlin_error)?;
     post(
         sender,
+        job.thread,
         &job.account.id,
         SyncEvent::Session {
             secret: Secret::new(refreshed.session.to_secret()),
@@ -1278,6 +1294,7 @@ fn run_azlin_sync(
         if let Err(why) = azlin::store_shared(&job.keyring, &key, &session) {
             post(
                 sender,
+                job.thread,
                 &job.account.id,
                 SyncEvent::Session {
                     secret: job.secret.clone(),
@@ -1297,14 +1314,14 @@ fn run_azlin_sync(
     };
     let account = job.account.id.clone();
     let first = sync_drive(job, &session, &transport, &options, &mut |p| {
-        report_progress(sender, receiver, &account, p)
+        report_progress(sender, receiver, job.thread, &account, p)
     });
     match first {
         Err(SyncError::Auth(_)) if !refreshed => {
             let refused = session.access_key_id.clone();
             session = refresh_session(job, link, &session, Some(&refused), &transport, sender)?;
             sync_drive(job, &session, &transport, &options, &mut |p| {
-                report_progress(sender, receiver, &account, p)
+                report_progress(sender, receiver, job.thread, &account, p)
             })
         }
         other => other,
@@ -1325,7 +1342,7 @@ fn run_sync(
     };
     let account = job.account.id.clone();
     let mut on_progress = |progress: Progress| -> bool {
-        let delivered = post(sender, &account, SyncEvent::Progress(progress));
+        let delivered = post(sender, job.thread, &account, SyncEvent::Progress(progress));
         let mut stop = false;
         while let OptionThreadSendMsg::Some(message) = receiver.recv() {
             if matches!(message, ThreadSendMsg::TerminateThread) {
@@ -1339,9 +1356,10 @@ fn run_sync(
     result
 }
 
-fn post(sender: &mut ThreadSender, account: &str, event: SyncEvent) -> bool {
+fn post(sender: &mut ThreadSender, thread: ThreadId, account: &str, event: SyncEvent) -> bool {
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
         refany: RefAny::new(SyncMessage {
+            thread,
             account: account.to_string(),
             event,
         }),
@@ -1354,9 +1372,9 @@ fn post(sender: &mut ThreadSender, account: &str, event: SyncEvent) -> bool {
 
 /// A report from the sync thread, on the UI thread.
 extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: CallbackInfo) -> Update {
-    let Some((account, event)) = payload
+    let Some((thread, account, event)) = payload
         .downcast_ref::<SyncMessage>()
-        .map(|m| (m.account.clone(), m.event.clone()))
+        .map(|m| (m.thread, m.account.clone(), m.event.clone()))
     else {
         return Update::DoNothing;
     };
@@ -1364,8 +1382,15 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    let running_this = matches!(&s.sync, SyncState::Running { account: a, .. } if *a == account);
+    let running_this = s.sync.runs_on(thread);
     match event {
+        SyncEvent::Finished(..) if !running_this => {
+            // A cancelled sync's last report: the folders show what it wrote before it
+            // stopped, the status bar keeps what the window's Send / Receive says now.
+            println!("AZMAIL_SYNC_STOPPED_DONE");
+            s.reload_folders();
+            s.reload_messages();
+        }
         SyncEvent::Session { secret, unsaved } => {
             // The old drive token is dead: the new session replaces it in memory. The keyring
             // has it already - the sync thread wrote it under the account's lock; a write from

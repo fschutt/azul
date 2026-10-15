@@ -218,6 +218,7 @@ azmail-new-messages = { $count ->
  }
 azmail-sign-in-failed = Anmeldung fehlgeschlagen: { $why }
 azmail-send-receive-error = Fehler beim Senden/Empfangen: { $why }
+azmail-send-receive-stopped = Senden/Empfangen angehalten. Was bis dahin ankam, bleibt erhalten.
 azmail-outbox-empty-no-account = Im Postausgang wartet nichts. Um E-Mails zu empfangen, füge ein Konto hinzu: Datei > Informationen > Konto hinzufügen.
 azmail-outbox-empty-local = Im Postausgang der lokalen Ordner wartet nichts.
 azmail-sending-outbox = Der Postausgang wird gesendet…
