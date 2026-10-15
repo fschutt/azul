@@ -13156,6 +13156,9 @@ mod tests {
     // A click that rebuilds the page lays it out once (`tests/click_cost.rs`).
     mod click_cost;
 
+    // A layout pass rebuilds the CPU hit tester once (`tests/one_hit_tester.rs`).
+    mod one_hit_tester;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
