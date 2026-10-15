@@ -1034,6 +1034,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         layout_results: _,
 
         // NOT WALKED, AND CAN GROW WITH CONTENT — these are the live gaps.
+        // One layout cache per live child DOM (a tree and its positions each).
+        child_layout_caches: _,
         // Named individually rather than folded into the list below, because
         // a coverage annotation claiming "everything else is small" is worse
         // than none when it is wrong.
@@ -1712,6 +1714,12 @@ pub struct LayoutWindow {
     /// a write - each write leaves the layout consistent at once.
     pub host_lays_out: bool,
     pub layout_cache: Solver3LayoutCache,
+    /// The layout cache of each child DOM (`VirtualView` content), kept between its
+    /// passes as `layout_cache` is kept for the root: a view that renders again lays
+    /// out from what it had instead of cold (AzPdf's page view paid a cold layout of
+    /// its whole page per re-render). Swapped into `layout_cache` for the child's pass
+    /// and out after it; dropped when the child DOM goes, and by `clear_caches`.
+    pub child_layout_caches: BTreeMap<DomId, Solver3LayoutCache>,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
     /// Font manager for loading and caching fonts
@@ -2586,6 +2594,7 @@ impl LayoutWindow {
                 last_reconcile_fresh: 0,
                 last_intrinsic_dirty: 0,
             },
+            child_layout_caches: BTreeMap::new(),
             text_cache: TextLayoutCache::new(),
             font_manager,
             // The built-in textures under their CSS names, in every window.
@@ -7012,7 +7021,14 @@ impl LayoutWindow {
         }
         let is_child_dom = styled_dom.dom_id.inner != 0;
         if is_child_dom {
-            let saved_root_cache = core::mem::take(&mut self.layout_cache);
+            // The child's own cache from its last pass (`child_layout_caches`), so an
+            // unchanged view lays out warm; the host's goes aside meanwhile.
+            let child_dom_id = styled_dom.dom_id;
+            let child_cache = self
+                .child_layout_caches
+                .remove(&child_dom_id)
+                .unwrap_or_default();
+            let saved_root_cache = core::mem::replace(&mut self.layout_cache, child_cache);
             // The host's font chains, and the signature of the font stacks
             // they were resolved for, survive the child's pass the same way.
             // The font manager has ONE slot for each, a child's pass resolves
@@ -7034,7 +7050,8 @@ impl LayoutWindow {
                 debug_messages,
                 child_viewport,
             );
-            self.layout_cache = saved_root_cache;
+            let child_cache = core::mem::replace(&mut self.layout_cache, saved_root_cache);
+            self.child_layout_caches.insert(child_dom_id, child_cache);
             let view_font_chains =
                 core::mem::replace(&mut self.font_manager.font_chain_cache, host_font_chains);
             for (key, chain) in view_font_chains {
@@ -7046,14 +7063,20 @@ impl LayoutWindow {
             self.font_manager.last_resolved_font_stacks_sig = host_font_sig;
             return result;
         }
-        self.layout_dom_recursive_sized_by_views(
+        let result = self.layout_dom_recursive_sized_by_views(
             styled_dom,
             window_state,
             renderer_resources,
             system_callbacks,
             debug_messages,
             child_viewport,
-        )
+        );
+        // The root's pass laid out every child DOM that is still shown; the caches of
+        // the others went with their views.
+        let live: BTreeSet<DomId> = self.layout_results.keys().copied().collect();
+        self.child_layout_caches
+            .retain(|dom_id, _| live.contains(dom_id));
+        result
     }
 
     /// One layout pass, then ONE more if a content-sized `VirtualView` in
@@ -10674,6 +10697,7 @@ impl LayoutWindow {
 
     /// Clear all caches (useful for testing or when switching documents).
     pub fn clear_caches(&mut self) {
+        self.child_layout_caches.clear();
         self.layout_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
@@ -11362,6 +11386,9 @@ impl LayoutWindow {
         let Some(kept) = self.layout_results.remove(&child) else {
             return;
         };
+        // Cold, as a host's restyle: the values the host hands down are no input the
+        // layout cache checks, so a warm pass would keep boxes sized for the old ones.
+        self.child_layout_caches.remove(&child);
         let mut styled_dom = kept.styled_dom;
         // The context first, the host's values under it: both re-run what
         // they invalidate (and the layout pass below finds the context in
@@ -27687,6 +27714,9 @@ impl LayoutWindow {
             // A counter, keyed by nothing.
             presented_frames: _,
             layout_cache: _,
+            // Each child DOM's own `layout_cache`: the solver reconciles the
+            // child's next DOM against it by content, as it does the root's.
+            child_layout_caches: _,
             layout_results: _,
             // Content-addressed (hashes / font ids / image ids), never NodeIds:
             text_cache: _,
