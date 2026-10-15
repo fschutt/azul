@@ -83,13 +83,28 @@ impl LabelView {
         256.0 * 2f64.powf(f64::from(self.zoom))
     }
 
-    /// Where the view draws world point `world`, grid px: the copy of the
-    /// world nearest to the centre, so a label near the antimeridian lands
-    /// on the side the user looks at.
+    /// `candidate`'s world point in the copy of the world it is drawn in:
+    /// its west-east fraction moved by the whole world widths between where
+    /// the tile puts it and where the view draws it. A view wider than the
+    /// world (a low zoom) shows the world more than once, and the same label
+    /// stands in every copy at the same point of the world: told apart only
+    /// by that point, the copies took each other's remembered slots frame
+    /// after frame and the labels never stopped fading.
+    fn drawn_copy(&self, candidate: &LabelCandidate<'_>) -> (f64, f64) {
+        let seen = self.centre.0
+            + (f64::from(candidate.x) - f64::from(self.width) * 0.5) / self.world_px();
+        let copy = (seen - candidate.world.0).round();
+        let copy = if copy.is_finite() { copy } else { 0.0 };
+        (candidate.world.0 + copy, candidate.world.1)
+    }
+
+    /// Where the view draws world point `world`, grid px. `world` names the
+    /// copy of the world it stands in ([`Self::drawn_copy`]), so a label of
+    /// the copy right of the centre is drawn there, not in the nearer one.
     #[allow(clippy::cast_possible_truncation)] // screen coordinates of a view
     fn to_screen(&self, world: (f64, f64)) -> (f32, f32) {
         let px = self.world_px();
-        let dx = wrapped(world.0 - self.centre.0);
+        let dx = world.0 - self.centre.0;
         let dy = world.1 - self.centre.1;
         (
             (dx * px + f64::from(self.width) * 0.5) as f32,
@@ -222,8 +237,10 @@ impl LabelPlacement {
 
         // Who is who: each candidate takes the nearest remembered label of
         // its kind and text, in a fixed order (by identity, then place), so
-        // the outcome does not depend on the order the tiles came in.
+        // the outcome does not depend on the order the tiles came in. The
+        // place is the one in the copy of the world the label is drawn in.
         let identities: Vec<u64> = candidates.iter().map(|c| label_identity(c.label)).collect();
+        let worlds: Vec<(f64, f64)> = candidates.iter().map(|c| view.drawn_copy(c)).collect();
         let mut by_identity: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
         for (index, entry) in self.entries.iter().enumerate() {
             by_identity.entry(entry.identity).or_default().push(index);
@@ -234,7 +251,7 @@ impl LabelPlacement {
         by_place.sort_by(|&a, &b| {
             identities[a]
                 .cmp(&identities[b])
-                .then_with(|| world_key(candidates[a].world).cmp(&world_key(candidates[b].world)))
+                .then_with(|| world_key(worlds[a]).cmp(&world_key(worlds[b])))
         });
         for &c in &by_place {
             let Some(list) = by_identity.get(&identities[c]) else {
@@ -245,7 +262,7 @@ impl LabelPlacement {
                 if claimed[e] {
                     continue;
                 }
-                let d = world_distance(self.entries[e].world, candidates[c].world) * world_px;
+                let d = world_distance(self.entries[e].world, worlds[c]) * world_px;
                 if d <= SAME_LABEL_PX && best.is_none_or(|(bd, _)| d < bd) {
                     best = Some((d, e));
                 }
@@ -267,7 +284,7 @@ impl LabelPlacement {
                 .cmp(&candidates[b].label.priority)
                 .then_with(|| holds(b).cmp(&holds(a)))
                 .then_with(|| identities[a].cmp(&identities[b]))
-                .then_with(|| world_key(candidates[a].world).cmp(&world_key(candidates[b].world)))
+                .then_with(|| world_key(worlds[a]).cmp(&world_key(worlds[b])))
         });
         let placed = choose(candidates, &order, view);
 
@@ -282,7 +299,7 @@ impl LabelPlacement {
                 None => {
                     self.entries.push(Remembered {
                         identity: identities[c],
-                        world: candidates[c].world,
+                        world: worlds[c],
                         label: candidates[c].label.clone(),
                         id: self.next_id,
                         shown: false,
@@ -295,7 +312,7 @@ impl LabelPlacement {
                 }
             };
             let entry = &mut self.entries[index];
-            entry.world = candidates[c].world;
+            entry.world = worlds[c];
             entry.seen = frame;
             if entry.label != *candidates[c].label {
                 entry.label = candidates[c].label.clone();
@@ -476,16 +493,9 @@ fn world_key(world: (f64, f64)) -> (i64, i64) {
     (q(world.1), q(world.0))
 }
 
-/// The distance between two world points, in world widths, the short way
-/// round the antimeridian.
+/// The distance between two world points, in world widths. Both name the
+/// copy of the world they are drawn in ([`LabelView::drawn_copy`]), so the
+/// same label in two copies is a world width away from itself.
 fn world_distance(a: (f64, f64), b: (f64, f64)) -> f64 {
-    wrapped(a.0 - b.0).hypot(a.1 - b.1)
-}
-
-/// `dx` (world widths) brought into `-0.5..0.5`.
-fn wrapped(dx: f64) -> f64 {
-    if !dx.is_finite() {
-        return dx;
-    }
-    dx - (dx + 0.5).floor()
+    (a.0 - b.0).hypot(a.1 - b.1)
 }
