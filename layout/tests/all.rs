@@ -1157,3 +1157,5 @@ mod an_inline_boxs_edges_resolve_their_units_and_zoom;
 mod an_inline_block_of_two_blocks_is_as_wide_as_the_wider_one;
 #[path = "a_page_that_starts_inside_a_paragraph_names_its_text_node_and_byte.rs"]
 mod a_page_that_starts_inside_a_paragraph_names_its_text_node_and_byte;
+#[path = "a_font_registered_at_runtime_draws_the_text_that_names_it.rs"]
+mod a_font_registered_at_runtime_draws_the_text_that_names_it;
