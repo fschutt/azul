@@ -1108,6 +1108,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         last_anim_tick: _,
         // One id per culled live track, a subset of `live_tracks`; a bool.
         culled_tracks: _,
+        // The views' live tracks, bounded like `live_tracks`; a bool.
+        view_tracks: _,
+        view_tracks_hidden: _,
         window_occluded: _,
         root_display_list_gpu_fingerprint: _,
         presented_frames: _,
@@ -1670,6 +1673,16 @@ pub struct LayoutWindow {
     /// end of every pass (USER ruling 2026-09-30: "cull refreshes for
     /// animations if the changes aren't on-screen").
     pub culled_tracks: BTreeSet<NodeId>,
+    /// The live `-azul-animation-in` tracks of the nodes of child DOMs (`VirtualView`
+    /// content), by DOM. `live_tracks` holds the root's, whose identities the root's
+    /// reconciliation, exits and culling share. A view's tracks start when its nodes
+    /// enter (`start_view_enter_tracks`), are sampled with the root's
+    /// (`run_track_frames`) into the view's own GPU channels, and go with their DOM.
+    pub view_tracks: BTreeMap<DomId, BTreeMap<NodeId, AnimTrack>>,
+    /// The window cannot show the views' tracks (minimized, hidden or occluded; set
+    /// by [`Self::update_animation_culling`]): they keep their clocks, but are not
+    /// sampled and ask for no frame.
+    pub view_tracks_hidden: bool,
     /// The window is fully covered (macOS `occlusionState` without the
     /// visible bit). Set by the shell; every live track is culled while it
     /// holds. Minimized and hidden windows need no flag - the window state
@@ -2557,6 +2570,8 @@ impl LayoutWindow {
             transition_relayout: false,
             transition_patched: false,
             live_tracks: BTreeMap::new(),
+            view_tracks: BTreeMap::new(),
+            view_tracks_hidden: false,
             last_anim_tick: None,
             culled_tracks: BTreeSet::new(),
             window_occluded: false,
@@ -7076,6 +7091,7 @@ impl LayoutWindow {
         let live: BTreeSet<DomId> = self.layout_results.keys().copied().collect();
         self.child_layout_caches
             .retain(|dom_id, _| live.contains(dom_id));
+        self.view_tracks.retain(|dom_id, _| live.contains(dom_id));
         result
     }
 
@@ -11275,7 +11291,7 @@ impl LayoutWindow {
         // was purged). Diff old vs new and drive the same exhaustive
         // `remap_node_ids` driver root migration uses, so state follows
         // content and unmatched nodes are GC'd.
-        self.reconcile_rematerialized_child(
+        let entered = self.reconcile_rematerialized_child(
             child_dom_id,
             &child_styled_dom,
             (system_callbacks.get_system_time_fn.cb)(),
@@ -11322,6 +11338,7 @@ impl LayoutWindow {
         // pre-edit state — "scrolling clears what I just typed", only the
         // (remapped) caret surviving.
         self.reapply_overlay_text_of(child_dom_id);
+        self.start_view_enter_tracks(child_dom_id, &entered);
 
         Some(child_dom_id)
     }
@@ -16111,7 +16128,7 @@ impl LayoutWindow {
                     })
                 };
                 for (node, sample) in fresh {
-                    self.publish_live_sample(node, sample);
+                    self.publish_live_sample(DomId::ROOT_ID, node, sample);
                 }
                 if gets_keys_now {
                     self.regenerate_display_list_for_dom(dom_id);
@@ -16139,6 +16156,7 @@ impl LayoutWindow {
                 .live_tracks
                 .keys()
                 .any(|node| !self.culled_tracks.contains(node))
+            || (!self.view_tracks_hidden && !self.view_tracks.is_empty())
             || !self.css_transitions.is_empty()
             || self.zombies.iter().any(|z| !z.tracks.is_empty())
             || self.material_sheen_in_flight()
@@ -16169,6 +16187,7 @@ impl LayoutWindow {
     pub fn update_animation_culling(&mut self, window_can_show: bool) {
         use azul_css::props::style::effects::StyleVisibility;
 
+        self.view_tracks_hidden = !window_can_show || self.window_occluded;
         if self.live_tracks.is_empty() {
             self.culled_tracks.clear();
             return;
@@ -16271,11 +16290,12 @@ impl LayoutWindow {
     /// catch-up burst. The tick stamp is dropped, so an animation that
     /// starts in the meantime takes an ordinary first frame.
     pub fn park_culled_tracks(&mut self) {
-        if self.live_tracks.is_empty() {
+        if self.live_tracks.is_empty() && self.view_tracks.is_empty() {
             return;
         }
         let stood_at = self.last_anim_tick.take().unwrap_or_else(Instant::now);
-        for tr in self.live_tracks.values_mut() {
+        let views = self.view_tracks.values_mut().flat_map(BTreeMap::values_mut);
+        for tr in self.live_tracks.values_mut().chain(views) {
             if tr.parked_at.is_none() {
                 tr.parked_at = Some(stood_at.clone());
             }
@@ -16289,6 +16309,7 @@ impl LayoutWindow {
     #[must_use]
     pub fn has_track_work(&self) -> bool {
         !self.live_tracks.is_empty()
+            || !self.view_tracks.is_empty()
             || !self.css_transitions.is_empty()
             || self.zombies.iter().any(|z| !z.tracks.is_empty())
     }
@@ -16419,7 +16440,8 @@ impl LayoutWindow {
         // Tracks parked by a culled stop (`park_culled_tracks`) catch up on
         // the wall time they spent parked, less the step every track takes
         // below: they land on the phase they would have reached running.
-        for tr in self.live_tracks.values_mut() {
+        let views = self.view_tracks.values_mut().flat_map(BTreeMap::values_mut);
+        for tr in self.live_tracks.values_mut().chain(views) {
             if let Some(since) = tr.parked_at.take() {
                 #[allow(clippy::cast_possible_truncation)] // seconds fit an f32
                 let parked_s = (now.duration_since(&since).as_nanos() as f64 / 1e9) as f32;
@@ -17159,6 +17181,29 @@ impl LayoutWindow {
                 cache.anim_opacity_keys.remove(&node_id);
             }
         }
+        // The views' live tracks: clock only, like the root's above, and a finished
+        // one releases its keys in its own DOM's channels.
+        let mut done_view: Vec<(DomId, NodeId)> = Vec::new();
+        for (dom, tracks) in &mut self.view_tracks {
+            for (node, tr) in tracks.iter_mut() {
+                tr.tick(dt);
+                if tr.is_done() {
+                    done_view.push((*dom, *node));
+                }
+            }
+        }
+        for (dom, node) in done_view {
+            if let Some(tracks) = self.view_tracks.get_mut(&dom) {
+                tracks.remove(&node);
+            }
+            if let Some(view_cache) = self.gpu_state_manager.caches.get_mut(&dom) {
+                view_cache.anim_current_transform_values.remove(&node);
+                view_cache.anim_transform_keys.remove(&node);
+                view_cache.anim_current_opacity_values.remove(&node);
+                view_cache.anim_opacity_keys.remove(&node);
+            }
+        }
+        self.view_tracks.retain(|_, tracks| !tracks.is_empty());
         // And every value no animation drives any more - a slide a rebuild
         // dropped or re-keyed to another node never FINISHES here.
         self.release_undriven_animation_values();
@@ -19449,8 +19494,9 @@ impl LayoutWindow {
     ) -> Vec<crate::callbacks::CallbackChange> {
         use crate::callbacks::{CallbackInfo, CallbackInfoRefData};
 
-        let has_tracks =
-            !self.live_tracks.is_empty() || self.zombies.iter().any(|z| !z.tracks.is_empty());
+        let has_tracks = !self.live_tracks.is_empty()
+            || !self.view_tracks.is_empty()
+            || self.zombies.iter().any(|z| !z.tracks.is_empty());
         if !has_tracks || self.tracks_sampled_since_tick {
             return Vec::new();
         }
@@ -19460,6 +19506,8 @@ impl LayoutWindow {
         let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
         struct SampledTrack {
             zombie_idx: Option<usize>,
+            /// The DOM of a live track's node: the root, or a view's child DOM.
+            dom: DomId,
             node: NodeId,
             sample: TrackSample,
         }
@@ -19495,7 +19543,7 @@ impl LayoutWindow {
             );
             let sample_track = |tr: &AnimTrack,
                                 info: &azul_core::resources::ZombieAnimInfo,
-                                live_node: Option<NodeId>|
+                                live_node: Option<(DomId, NodeId)>|
              -> TrackSample {
                 match &tr.source {
                     TrackSource::Compiled => tr.sample(),
@@ -19510,10 +19558,12 @@ impl LayoutWindow {
                         let mut tci = crate::timer::TimerCallbackInfo {
                             callback_info: base_info,
                             node_id: match live_node {
-                                Some(n) => azul_core::dom::OptionDomNodeId::Some(DomNodeId {
-                                    dom: DomId::ROOT_ID,
-                                    node: NodeHierarchyItemId::from_crate_internal(Some(n)),
-                                }),
+                                Some((dom, n)) => {
+                                    azul_core::dom::OptionDomNodeId::Some(DomNodeId {
+                                        dom,
+                                        node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                                    })
+                                }
                                 // A zombie's node is not IN the live tree.
                                 None => azul_core::dom::OptionDomNodeId::None,
                             },
@@ -19557,6 +19607,7 @@ impl LayoutWindow {
                     };
                     sampled.push(SampledTrack {
                         zombie_idx: Some(zi),
+                        dom: DomId::ROOT_ID,
                         node: *node,
                         sample: sample_track(tr, &info, None),
                     });
@@ -19592,15 +19643,54 @@ impl LayoutWindow {
                 };
                 sampled.push(SampledTrack {
                     zombie_idx: None,
+                    dom: DomId::ROOT_ID,
                     node: *node,
-                    sample: sample_track(tr, &info, Some(*node)),
+                    sample: sample_track(tr, &info, Some((DomId::ROOT_ID, *node))),
                 });
+            }
+            // The views' tracks, each against its own DOM (`view_tracks`). A window
+            // that shows nothing samples none of them.
+            let views = if self.view_tracks_hidden {
+                None
+            } else {
+                Some(&self.view_tracks)
+            };
+            for (dom, tracks) in views.into_iter().flatten() {
+                let Some(r) = self.layout_results.get(dom) else {
+                    continue;
+                };
+                for (node, tr) in tracks {
+                    let Some(rect) = self
+                        .get_node_bounds(*dom, *node)
+                        .map(layout_rect_to_logical)
+                    else {
+                        continue;
+                    };
+                    let info = azul_core::resources::ZombieAnimInfo {
+                        styled_dom: &raw const r.styled_dom,
+                        node_id: node.index() as u64,
+                        rect,
+                        viewport: r.viewport,
+                        dpi_factor: zombie_dpi,
+                        t: tr.t,
+                        timing: tr.timing,
+                        velocity_x: 0.0,
+                        velocity_y: 0.0,
+                    };
+                    sampled.push(SampledTrack {
+                        zombie_idx: None,
+                        dom: *dom,
+                        node: *node,
+                        sample: sample_track(tr, &info, Some((*dom, *node))),
+                    });
+                }
             }
         } // shared borrow ends here
 
         // ---- PHASE B: mut `self` — apply samples ----
         for SampledTrack {
             zombie_idx,
+            dom,
             node,
             sample,
         } in sampled
@@ -19707,10 +19797,17 @@ impl LayoutWindow {
                 }
                 z.tick_samples.insert(node, sample);
             } else {
-                if let Some(tr) = self.live_tracks.get_mut(&node) {
+                let track = if dom == DomId::ROOT_ID {
+                    self.live_tracks.get_mut(&node)
+                } else {
+                    self.view_tracks
+                        .get_mut(&dom)
+                        .and_then(|tracks| tracks.get_mut(&node))
+                };
+                if let Some(tr) = track {
                     tr.frames_run = tr.frames_run.saturating_add(1);
                 }
-                self.publish_live_sample(node, sample);
+                self.publish_live_sample(dom, node, sample);
             }
         }
 
@@ -19724,7 +19821,7 @@ impl LayoutWindow {
     /// `node`, into the animation GPU channels the display list and both
     /// renderers read: the node's keys (minted once) and its transform and
     /// opacity.
-    fn publish_live_sample(&mut self, node: NodeId, smp: TrackSample) {
+    fn publish_live_sample(&mut self, dom: DomId, node: NodeId, smp: TrackSample) {
         // Row-vector affine with scale/rotate about the node's
         // CENTRE, folded into the translation row (logical
         // units, like the manager's flip matrices).
@@ -19732,14 +19829,10 @@ impl LayoutWindow {
         let (a, b) = (smp.scale_x * cos, smp.scale_x * sin);
         let (c, d) = (-smp.scale_y * sin, smp.scale_y * cos);
         let (cx, cy) = self
-            .get_node_bounds(DomId::ROOT_ID, node)
+            .get_node_bounds(dom, node)
             .map(layout_rect_to_logical)
             .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
-        let cache = self
-            .gpu_state_manager
-            .caches
-            .entry(DomId::ROOT_ID)
-            .or_default();
+        let cache = self.gpu_state_manager.caches.entry(dom).or_default();
         cache
             .anim_transform_keys
             .entry(node)
@@ -27509,7 +27602,7 @@ impl LayoutWindow {
         child_dom_id: DomId,
         new_styled_dom: &StyledDom,
         now: Instant,
-    ) {
+    ) -> Vec<NodeId> {
         // The old arena: still live on the programmatic re-invoke path, or
         // stashed by the funnel just before it cleared `layout_results`.
         let old = self.layout_results.get(&child_dom_id).map_or_else(
@@ -27544,12 +27637,13 @@ impl LayoutWindow {
         // A node of the view that entered and asks for focus (`autofocus`) takes it, as
         // in the root DOM: a page that appears in a view takes the keys.
         let matched_new: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.new_node_id).collect();
-        let entered_autofocus = first_entered_autofocus(
-            &new_node_data,
-            (0..new_node_data.len())
-                .map(NodeId::new)
-                .filter(|n| !matched_new.contains(n)),
-        );
+        // The nodes of the view that entered with this render (every node on its
+        // first): what an `autofocus` and a declared `-azul-animation-in` act on.
+        let entered: Vec<NodeId> = (0..new_node_data.len())
+            .map(NodeId::new)
+            .filter(|n| !matched_new.contains(n))
+            .collect();
+        let entered_autofocus = first_entered_autofocus(&new_node_data, entered.iter().copied());
         #[cfg(feature = "std")]
         if std::env::var("AZ_VV_RECONCILE_TRACE").is_ok() {
             eprintln!(
@@ -27596,6 +27690,41 @@ impl LayoutWindow {
             } else {
                 self.pending_lifecycle_events.push(event);
             }
+        }
+        entered
+    }
+
+    /// Starts the declared `-azul-animation-in` track of every node of `dom` (a view's
+    /// child DOM) that entered with its last render (`entered`), now that the DOM is
+    /// laid out, and draws each from its first keyframe in this very frame, as
+    /// `finish_reconciliation` does for the root's nodes: the view's display list is
+    /// built again when a node gets its keys now.
+    fn start_view_enter_tracks(&mut self, dom: DomId, entered: &[NodeId]) {
+        let started: Vec<(NodeId, AnimTrack)> = entered
+            .iter()
+            .filter_map(|node| Some((*node, self.declared_enter_track(dom, *node)?)))
+            .collect();
+        if started.is_empty() {
+            return;
+        }
+        let gets_keys_now = {
+            let cache = self.gpu_state_manager.caches.get(&dom);
+            started.iter().any(|(node, _)| {
+                !cache.is_some_and(|c| {
+                    c.anim_transform_keys.contains_key(node)
+                        && c.anim_opacity_keys.contains_key(node)
+                })
+            })
+        };
+        for (node, track) in started {
+            let first = matches!(track.source, TrackSource::Compiled).then(|| track.sample());
+            self.view_tracks.entry(dom).or_default().insert(node, track);
+            if let Some(sample) = first {
+                self.publish_live_sample(dom, node, sample);
+            }
+        }
+        if gets_keys_now {
+            self.regenerate_display_list_for_dom(dom);
         }
     }
 
@@ -27725,6 +27854,9 @@ impl LayoutWindow {
             last_anim_tick: _,
             // The culled set follows its tracks (remapped below, beside them).
             culled_tracks,
+            // A view's tracks follow their DOM's nodes (remapped below); a bool.
+            view_tracks,
+            view_tracks_hidden: _,
             // A bool about the window, no NodeId.
             window_occluded: _,
             // A hash; the rebuild that caused this remap re-records it.
@@ -27898,6 +28030,20 @@ impl LayoutWindow {
         // stop now; `run_all_threads` retires them once they have
         // (`managers::thread_owner`).
         let dropped_child_doms = virtual_view_manager.nested_doms_dropped_by(dom, map);
+        // A view's live tracks follow the nodes of its DOM; the views whose host
+        // unmounted take theirs with them.
+        if let Some(tracks) = view_tracks.remove(&dom) {
+            let remapped: BTreeMap<NodeId, AnimTrack> = tracks
+                .into_iter()
+                .filter_map(|(n, t)| map.resolve(n).map(|nn| (nn, t)))
+                .collect();
+            if !remapped.is_empty() {
+                view_tracks.insert(dom, remapped);
+            }
+        }
+        for dropped in &dropped_child_doms {
+            view_tracks.remove(dropped);
+        }
         for thread_id in thread_owners.remap_node_ids(dom, map, &dropped_child_doms) {
             if let Some(thread) = threads.get(&thread_id) {
                 let _ = thread.send_message(ThreadSendMsg::TerminateThread);
