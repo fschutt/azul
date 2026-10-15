@@ -2175,6 +2175,26 @@ pub struct StructuralBreak {
     /// taller than a page had no page of its own after the first in
     /// `AzWriter`, which could only start pages at `path`).
     pub line_path: Option<Vec<u32>>,
+    /// Where `line_start` is in the DOM's own text: the text node the
+    /// first line that moves begins in, and the byte of that node's text it
+    /// begins at ([`LineTextStart`]). `Some` exactly when `line_start` is
+    /// and its cluster came from a text node.
+    pub line_text: Option<LineTextStart>,
+}
+
+/// Where the first line of a page that starts inside a block begins in the
+/// DOM's text: what an app that renders the block's text itself (an
+/// editor's page view) cuts the text at. The line layout counts in its own
+/// runs - text after whitespace collapsing, a node cut at its forced
+/// breaks - so its (run, byte) is mapped back to the node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineTextStart {
+    /// Root-to-node child-index path of the text node (see
+    /// [`child_index_path`]).
+    pub path: Vec<u32>,
+    /// The byte of the node's text the line begins at: the first letter of
+    /// the line (whitespace before it stays with the page before).
+    pub byte: u32,
 }
 
 /// Map every break of a [`PaginationInfo`](crate::solver3::page_breaks::PaginationInfo)
@@ -2200,14 +2220,20 @@ pub fn pagination_to_dom_breaks(
             .breaks
             .iter()
             .map(|b| {
-                let split = spine_line_split_at_y(tree, positions, styled_dom, b.y);
+                let split = line_split_at_y(tree, positions, styled_dom, b.y);
+                let line_path = split.and_then(|(idx, _)| {
+                    let dom_id = tree.get(LayoutNodeId::new(idx))?.dom_node_id?;
+                    Some(child_index_path(styled_dom, dom_id))
+                });
                 StructuralBreak {
                     y: b.y,
                     kind: b.kind,
                     causing_node: b.causing_node.into_option(),
                     path: spine_path_at_y(tree, positions, styled_dom, b.y),
-                    line_start: split.as_ref().map(|(_, line_start)| *line_start),
-                    line_path: split.map(|(path, _)| path),
+                    line_start: split.map(|(_, line_start)| line_start),
+                    line_text: split
+                        .and_then(|(idx, line_start)| line_text_start(tree, styled_dom, idx, line_start)),
+                    line_path,
                 }
             })
             .collect(),
@@ -2328,6 +2354,68 @@ fn line_split_at_y(
         }
     }
     spine_line_start_sparse(layout, rel_y).map(|line_start| (layout_idx, line_start))
+}
+
+/// Where the line starting at `line_start` (a cluster's run and byte in
+/// the line layout of the block `layout_idx`) begins in the DOM's text
+/// ([`LineTextStart`]): its cluster's text node, and the byte of the node's
+/// text that holds as many letters before it as the node's clusters before
+/// the line do. Letters, not bytes, are counted, because the layout's runs
+/// hold the text with its whitespace collapsed.
+fn line_text_start(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    styled_dom: &StyledDom,
+    layout_idx: usize,
+    line_start: azul_core::selection::ContentIndex,
+) -> Option<LineTextStart> {
+    use crate::text3::cache::{PositionedItem, ShapedCluster};
+
+    let layout = tree.get_inline_layout_for_node(layout_idx)?;
+    let expanded;
+    let items: &[PositionedItem] = if layout.items.is_empty() {
+        expanded = tree
+            .get_dense_for_node(layout_idx)
+            .map(|dense| dense.to_unified_items())
+            .unwrap_or_default();
+        &expanded
+    } else {
+        &layout.items
+    };
+    let key = |c: &ShapedCluster| {
+        (
+            c.source_cluster_id.source_run,
+            c.source_cluster_id.start_byte_in_run,
+        )
+    };
+    let target = (line_start.run_index, line_start.item_index);
+    let clusters = || items.iter().filter_map(|i| i.item.as_cluster());
+    let node = clusters().find(|c| key(c) == target)?.source_node_id?;
+    // CSS document white space: what collapsing folds away.
+    let is_space = |ch: char| matches!(ch, ' ' | '\t' | '\n' | '\r' | '\x0C');
+    let letters_before: usize = clusters()
+        .filter(|c| c.source_node_id == Some(node) && key(c) < target)
+        .map(|c| c.text().chars().filter(|ch| !is_space(*ch)).count())
+        .sum();
+    let text = match styled_dom.node_data.as_container().get(node)?.get_node_type() {
+        azul_core::dom::NodeType::Text(text) => text.as_str().to_string(),
+        _ => return None,
+    };
+    let mut seen = 0usize;
+    let mut byte = text.len();
+    for (at, ch) in text.char_indices() {
+        if is_space(ch) {
+            continue;
+        }
+        if seen == letters_before {
+            byte = at;
+            break;
+        }
+        seen += 1;
+    }
+    Some(LineTextStart {
+        path: child_index_path(styled_dom, node),
+        byte: u32::try_from(byte).unwrap_or(u32::MAX),
+    })
 }
 
 /// The sparse fold of [`spine_line_start_at_y`] — the pre-d6h body,
