@@ -57,14 +57,19 @@ pub enum DirectMsg {
 
 /// The bytes of `msg` on the wire.
 #[must_use]
-pub fn encode(_msg: &DirectMsg) -> Vec<u8> {
-    Vec::new()
+pub fn encode(msg: &DirectMsg) -> Vec<u8> {
+    let mut bytes = vec![KIND_DIRECT, DIRECT_VERSION];
+    bytes.extend(serde_json::to_vec(msg).unwrap_or_default());
+    bytes
 }
 
 /// A direct-call message read back; `None` for any other kind, another version, or bad JSON.
 #[must_use]
-pub fn decode(_bytes: &[u8]) -> Option<DirectMsg> {
-    None
+pub fn decode(bytes: &[u8]) -> Option<DirectMsg> {
+    match bytes {
+        [KIND_DIRECT, DIRECT_VERSION, json @ ..] => serde_json::from_slice(json).ok(),
+        _ => None,
+    }
 }
 
 /// The words the safety words are taken from: 256, one per byte, short and easy to say.
@@ -100,8 +105,15 @@ pub const WORDS: [&str; 256] = [
 /// The safety words of a direct call between endpoints `a` and `b`: four words from a hash of
 /// both ids, the same on both sides whoever called.
 #[must_use]
-pub fn safety_words(_a: &str, _b: &str) -> [&'static str; 4] {
-    [""; 4]
+pub fn safety_words(a: &str, b: &str) -> [&'static str; 4] {
+    let (low, high) = if a <= b { (a, b) } else { (b, a) };
+    let digest = crate::crypto::sha256(format!("azmeet/v1/direct-call\n{low}\n{high}").as_bytes());
+    [
+        WORDS[usize::from(digest[0])],
+        WORDS[usize::from(digest[1])],
+        WORDS[usize::from(digest[2])],
+        WORDS[usize::from(digest[3])],
+    ]
 }
 
 /// The safety words as one line: "maple orbit quill salmon".
@@ -153,7 +165,11 @@ pub struct Recent {
 
 /// Puts `call` first in `recents`: an earlier call to the same address goes, at most
 /// [`RECENTS`] stay.
-pub fn remember(_recents: &mut Vec<Recent>, _call: Recent) {}
+pub fn remember(recents: &mut Vec<Recent>, call: Recent) {
+    recents.retain(|r| r.address != call.address);
+    recents.insert(0, call);
+    recents.truncate(RECENTS);
+}
 
 /// The recent calls as the settings keep them (JSON).
 #[must_use]
