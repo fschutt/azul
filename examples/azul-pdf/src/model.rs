@@ -600,9 +600,11 @@ pub fn page_face<D, P>(resizing: bool, dom: Option<D>, picture: Option<P>) -> Pa
 }
 
 /// What page `page` shows while the window is dragged: its picture at `width` (the settled
-/// scale's).
+/// scale's), else the one it has nearest that width, drawn scaled for a moment. A drag never
+/// lays the page's text out again: a zoom change or a drag that settled for a moment moves the
+/// settled width before its sharp picture is made.
 pub fn drag_picture<T: Clone>(cache: &mut PageCache<T>, page: usize, width: u32) -> Option<T> {
-    cache.get(page, width)
+    cache.get(page, width).or_else(|| cache.nearest(page, width))
 }
 
 /// The widest a page's picture is drawn, px: a picture is RGBA, so a page

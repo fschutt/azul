@@ -40,7 +40,7 @@ use azul_appkit::{
 use crate::{
     ids,
     model::{
-        file_title, page_face, size_label, Field, FieldKind, FieldWidget, PageArt, PageFace,
+        drag_picture, file_title, page_face, size_label, Field, FieldKind, FieldWidget, PageArt, PageFace,
         PageSize, Strip, Zoom, PAGE_GAP, VIEW_PAD,
     },
     AppState, Nav,
@@ -459,7 +459,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         // built here is styled and laid out again at every step of a drag.
         let picture = if resizing {
             let width = s.picture_width_of(page);
-            s.pictures.get(page, width)
+            drag_picture(&mut s.pictures, page, width)
         } else {
             None
         };
