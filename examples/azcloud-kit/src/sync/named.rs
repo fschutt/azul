@@ -223,6 +223,190 @@ impl<'d> NamedFiles<'d> {
             Err(e) => Err(e),
         }
     }
+
+    /// Writes `batch` in one [`Drive::put_many`], then tells each file's outcome as the single
+    /// upload does; the first error other than a lost condition stops the run, after every file
+    /// of the batch was told.
+    fn send_batch(
+        &self,
+        batch: Vec<Batched>,
+        work: &Uploads<'_>,
+        report: &mut SyncReport,
+        abandoned: &mut BTreeSet<String>,
+    ) -> CloudResult<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        if work.hooks.cancelled() {
+            // Stopped before the batch went: none of it is written, the next run sends it.
+            for b in batch {
+                tell_finished(work, &b.key, b.bytes.len() as u64, Some(String::from("stopped")));
+                abandoned.insert(b.key);
+            }
+            return Ok(());
+        }
+        let fulls: Vec<String> = batch.iter().map(|b| self.full(&b.target)).collect();
+        let items: Vec<BatchPut<'_>> = batch
+            .iter()
+            .zip(&fulls)
+            .map(|(b, full)| BatchPut::new(full, &b.bytes).when(&b.condition))
+            .collect();
+        let results = self.drive.put_many(&items);
+        let mut stop = None;
+        for (b, result) in batch.iter().zip(results) {
+            let bytes = b.bytes.len() as u64;
+            match result {
+                Ok(etag) => {
+                    self.sent(&b.target, etag, &b.hash);
+                    report.blobs_up += 1;
+                    report.bytes_up += bytes;
+                    tell_finished(work, &b.key, bytes, None);
+                }
+                Err(DriveError::Conflict { .. }) => {
+                    lost_race(work, report, abandoned, &b.key, bytes);
+                }
+                Err(e) => {
+                    tell_finished(work, &b.key, bytes, Some(e.to_string()));
+                    stop.get_or_insert(e);
+                }
+            }
+        }
+        match stop {
+            Some(e) => Err(e.into()),
+            None => Ok(()),
+        }
+    }
+
+    /// Writes the large files of `batch` in one [`Drive::put_from_many`] (several at once; an
+    /// encrypted drive names them in one commit), each streamed from its file and checked
+    /// against its hash as it is read: one that changed meanwhile waits for the next run.
+    fn send_large(
+        &self,
+        batch: Vec<(Sending, LargeBody)>,
+        work: &Uploads<'_>,
+        report: &mut SyncReport,
+        abandoned: &mut BTreeSet<String>,
+    ) -> CloudResult<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        if work.hooks.cancelled() {
+            for (sending, _) in batch {
+                tell_finished(work, &sending.key, sending.job.size, Some(String::from("stopped")));
+                abandoned.insert(sending.key);
+            }
+            return Ok(());
+        }
+        let (sendings, mut bodies): (Vec<Sending>, Vec<LargeBody>) = batch.into_iter().unzip();
+        let fulls: Vec<String> = sendings.iter().map(|s| self.full(&s.target)).collect();
+        let results = {
+            let mut items: Vec<BatchStream<'_>> = sendings
+                .iter()
+                .zip(&fulls)
+                .zip(bodies.iter_mut())
+                .map(|((sending, full), body)| {
+                    BatchStream::new(full, body as &mut (dyn Read + Send)).when(&sending.condition)
+                })
+                .collect();
+            self.drive.put_from_many(&mut items)
+        };
+        let mut stop = None;
+        for ((sending, body), result) in sendings.iter().zip(&bodies).zip(results) {
+            if body.changed() {
+                give_up(
+                    work,
+                    report,
+                    abandoned,
+                    sending,
+                    String::from("changed while it was synced"),
+                );
+                continue;
+            }
+            match result {
+                Ok(etag) => {
+                    self.sent(&sending.target, etag, &sending.hash);
+                    report.blobs_up += 1;
+                    report.bytes_up += body.bytes().unwrap_or(sending.job.size);
+                    tell_finished(work, &sending.key, sending.job.size, None);
+                }
+                Err(DriveError::Conflict { .. }) => {
+                    lost_race(work, report, abandoned, &sending.key, sending.job.size);
+                }
+                Err(e) => {
+                    tell_finished(work, &sending.key, sending.job.size, Some(e.to_string()));
+                    stop.get_or_insert(e);
+                }
+            }
+        }
+        match stop {
+            Some(e) => Err(e.into()),
+            None => Ok(()),
+        }
+    }
+
+    /// Moves on the drive the files this run found moved here (the same content under a new
+    /// name, its old name going): one [`Drive::move_many`] - an encrypted drive changes its
+    /// index once and moves no object, a bucket copies on the service. The ones that could not
+    /// move (the old name changed meanwhile, the new one is taken) come back to be sent.
+    fn send_moves(
+        &self,
+        moves: Vec<(Sending, String)>,
+        work: &Uploads<'_>,
+        report: &mut SyncReport,
+        seen: &BTreeMap<String, String>,
+        abandoned: &mut BTreeSet<String>,
+    ) -> Vec<Sending> {
+        if moves.is_empty() {
+            return Vec::new();
+        }
+        if work.hooks.cancelled() {
+            for (sending, _) in moves {
+                tell_finished(work, &sending.key, sending.job.size, Some(String::from("stopped")));
+                abandoned.insert(sending.key);
+            }
+            return Vec::new();
+        }
+        let paths: Vec<(String, String)> = moves
+            .iter()
+            .map(|(sending, from)| (self.full(from), self.full(&sending.target)))
+            .collect();
+        let items: Vec<BatchMove<'_>> = moves
+            .iter()
+            .zip(&paths)
+            .map(|((_, from), (old, new))| {
+                let item = BatchMove::new(old, new);
+                match seen.get(from) {
+                    Some(tag) if !tag.is_empty() => item.of_version(tag),
+                    _ => item,
+                }
+            })
+            .collect();
+        let results = self.drive.move_many(&items);
+        let mut unmoved = Vec::new();
+        for ((sending, from), result) in moves.into_iter().zip(results) {
+            if result.is_err() {
+                unmoved.push(sending);
+                continue;
+            }
+            lock(&self.moved).insert(from.clone());
+            lock(&self.memo).versions.remove(&from);
+            self.dirty.store(true, Ordering::SeqCst);
+            self.sent(&sending.target, None, &sending.hash);
+            report.blobs_reused += 1;
+            tell_finished(work, &sending.key, sending.job.size, None);
+        }
+        unmoved
+    }
+
+    /// `target` now holds `hash` on the drive, at the version `etag` (asked of the drive when
+    /// the write did not say).
+    fn sent(&self, target: &str, etag: Option<String>, hash: &str) {
+        let etag = match etag {
+            Some(etag) => bare(&etag),
+            None => self.tag_now(target).ok().flatten().unwrap_or_default(),
+        };
+        self.remember(target, &etag, hash);
+    }
 }
 
 impl Drop for NamedFiles<'_> {
@@ -448,190 +632,6 @@ impl SyncRemote for NamedFiles<'_> {
         self.send_batch(small, work, report, &mut abandoned)?;
         self.send_large(large, work, report, &mut abandoned)?;
         Ok(abandoned)
-    }
-
-    /// Writes `batch` in one [`Drive::put_many`], then tells each file's outcome as the single
-    /// upload does; the first error other than a lost condition stops the run, after every file
-    /// of the batch was told.
-    fn send_batch(
-        &self,
-        batch: Vec<Batched>,
-        work: &Uploads<'_>,
-        report: &mut SyncReport,
-        abandoned: &mut BTreeSet<String>,
-    ) -> CloudResult<()> {
-        if batch.is_empty() {
-            return Ok(());
-        }
-        if work.hooks.cancelled() {
-            // Stopped before the batch went: none of it is written, the next run sends it.
-            for b in batch {
-                tell_finished(work, &b.key, b.bytes.len() as u64, Some(String::from("stopped")));
-                abandoned.insert(b.key);
-            }
-            return Ok(());
-        }
-        let fulls: Vec<String> = batch.iter().map(|b| self.full(&b.target)).collect();
-        let items: Vec<BatchPut<'_>> = batch
-            .iter()
-            .zip(&fulls)
-            .map(|(b, full)| BatchPut::new(full, &b.bytes).when(&b.condition))
-            .collect();
-        let results = self.drive.put_many(&items);
-        let mut stop = None;
-        for (b, result) in batch.iter().zip(results) {
-            let bytes = b.bytes.len() as u64;
-            match result {
-                Ok(etag) => {
-                    self.sent(&b.target, etag, &b.hash);
-                    report.blobs_up += 1;
-                    report.bytes_up += bytes;
-                    tell_finished(work, &b.key, bytes, None);
-                }
-                Err(DriveError::Conflict { .. }) => {
-                    lost_race(work, report, abandoned, &b.key, bytes);
-                }
-                Err(e) => {
-                    tell_finished(work, &b.key, bytes, Some(e.to_string()));
-                    stop.get_or_insert(e);
-                }
-            }
-        }
-        match stop {
-            Some(e) => Err(e.into()),
-            None => Ok(()),
-        }
-    }
-
-    /// Writes the large files of `batch` in one [`Drive::put_from_many`] (several at once; an
-    /// encrypted drive names them in one commit), each streamed from its file and checked
-    /// against its hash as it is read: one that changed meanwhile waits for the next run.
-    fn send_large(
-        &self,
-        batch: Vec<(Sending, LargeBody)>,
-        work: &Uploads<'_>,
-        report: &mut SyncReport,
-        abandoned: &mut BTreeSet<String>,
-    ) -> CloudResult<()> {
-        if batch.is_empty() {
-            return Ok(());
-        }
-        if work.hooks.cancelled() {
-            for (sending, _) in batch {
-                tell_finished(work, &sending.key, sending.job.size, Some(String::from("stopped")));
-                abandoned.insert(sending.key);
-            }
-            return Ok(());
-        }
-        let (sendings, mut bodies): (Vec<Sending>, Vec<LargeBody>) = batch.into_iter().unzip();
-        let fulls: Vec<String> = sendings.iter().map(|s| self.full(&s.target)).collect();
-        let results = {
-            let mut items: Vec<BatchStream<'_>> = sendings
-                .iter()
-                .zip(&fulls)
-                .zip(bodies.iter_mut())
-                .map(|((sending, full), body)| {
-                    BatchStream::new(full, body as &mut (dyn Read + Send)).when(&sending.condition)
-                })
-                .collect();
-            self.drive.put_from_many(&mut items)
-        };
-        let mut stop = None;
-        for ((sending, body), result) in sendings.iter().zip(&bodies).zip(results) {
-            if body.changed() {
-                give_up(
-                    work,
-                    report,
-                    abandoned,
-                    sending,
-                    String::from("changed while it was synced"),
-                );
-                continue;
-            }
-            match result {
-                Ok(etag) => {
-                    self.sent(&sending.target, etag, &sending.hash);
-                    report.blobs_up += 1;
-                    report.bytes_up += body.bytes().unwrap_or(sending.job.size);
-                    tell_finished(work, &sending.key, sending.job.size, None);
-                }
-                Err(DriveError::Conflict { .. }) => {
-                    lost_race(work, report, abandoned, &sending.key, sending.job.size);
-                }
-                Err(e) => {
-                    tell_finished(work, &sending.key, sending.job.size, Some(e.to_string()));
-                    stop.get_or_insert(e);
-                }
-            }
-        }
-        match stop {
-            Some(e) => Err(e.into()),
-            None => Ok(()),
-        }
-    }
-
-    /// Moves on the drive the files this run found moved here (the same content under a new
-    /// name, its old name going): one [`Drive::move_many`] - an encrypted drive changes its
-    /// index once and moves no object, a bucket copies on the service. The ones that could not
-    /// move (the old name changed meanwhile, the new one is taken) come back to be sent.
-    fn send_moves(
-        &self,
-        moves: Vec<(Sending, String)>,
-        work: &Uploads<'_>,
-        report: &mut SyncReport,
-        seen: &BTreeMap<String, String>,
-        abandoned: &mut BTreeSet<String>,
-    ) -> Vec<Sending> {
-        if moves.is_empty() {
-            return Vec::new();
-        }
-        if work.hooks.cancelled() {
-            for (sending, _) in moves {
-                tell_finished(work, &sending.key, sending.job.size, Some(String::from("stopped")));
-                abandoned.insert(sending.key);
-            }
-            return Vec::new();
-        }
-        let paths: Vec<(String, String)> = moves
-            .iter()
-            .map(|(sending, from)| (self.full(from), self.full(&sending.target)))
-            .collect();
-        let items: Vec<BatchMove<'_>> = moves
-            .iter()
-            .zip(&paths)
-            .map(|((_, from), (old, new))| {
-                let item = BatchMove::new(old, new);
-                match seen.get(from) {
-                    Some(tag) if !tag.is_empty() => item.of_version(tag),
-                    _ => item,
-                }
-            })
-            .collect();
-        let results = self.drive.move_many(&items);
-        let mut unmoved = Vec::new();
-        for ((sending, from), result) in moves.into_iter().zip(results) {
-            if result.is_err() {
-                unmoved.push(sending);
-                continue;
-            }
-            lock(&self.moved).insert(from.clone());
-            lock(&self.memo).versions.remove(&from);
-            self.dirty.store(true, Ordering::SeqCst);
-            self.sent(&sending.target, None, &sending.hash);
-            report.blobs_reused += 1;
-            tell_finished(work, &sending.key, sending.job.size, None);
-        }
-        unmoved
-    }
-
-    /// `target` now holds `hash` on the drive, at the version `etag` (asked of the drive when
-    /// the write did not say).
-    fn sent(&self, target: &str, etag: Option<String>, hash: &str) {
-        let etag = match etag {
-            Some(etag) => bare(&etag),
-            None => self.tag_now(target).ok().flatten().unwrap_or_default(),
-        };
-        self.remember(target, &etag, hash);
     }
 
     fn commit(
