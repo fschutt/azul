@@ -28,27 +28,46 @@ use crate::{
     window::IconVariants,
 };
 
-/// The resume callback of the guide's file-dialog example, written with `?`.
-extern "C" fn on_pick(_data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+/// The model of the guide's file-dialog example.
+struct DataModel {
+    folder: alloc::string::String,
+}
+
+// The guide's file-dialog example, as written there (hello-world/rust.md).
+extern "C" fn on_choose_folder(data: RefAny, _: CallbackInfo) -> Update {
+    FileDialog::open_directory("Choose a folder", None, data.clone(), on_pick_folder);
+    Update::DoNothing
+}
+
+extern "C" fn on_pick_folder(mut data: RefAny, _: CallbackInfo, result: RefAny) -> Update {
     Update::with(|| {
-        let picked = FileOpenResult::downcast(result).into_option()?;
-        let path = picked.path.into_option()?;
-        println!("picked {}", path.inner.as_str());
+        let mut model = data.downcast_mut::<DataModel>()?;
+        let path = FileOpenResult::downcast(result).into_option()?.path.into_option()?;
+        model.folder = path.inner.as_str().to_string();
         Some(Update::RefreshDom)
     })
 }
 
-/// The click handler: `None` where the API asks for an `OptionString`.
-fn open_picker(data: RefAny) {
-    let _ = FileDialog::open_directory("Pick a folder", None, data, on_pick);
-}
-
 #[cfg(feature = "try-trait")]
-extern "C" fn on_pick_nightly(_data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
-    let picked = FileOpenResult::downcast(result)?;
-    let path = picked.path?;
-    let _url = Url::parse(path.inner.clone())?;
-    Update::RefreshDom
+mod nightly {
+    use super::*;
+
+    extern "C" fn on_pick_folder(mut data: RefAny, _: CallbackInfo, result: RefAny) -> Update {
+        let mut model = data.downcast_mut::<DataModel>()?;
+        let path = FileOpenResult::downcast(result)?.path?;
+        model.folder = path.inner.as_str().to_string();
+        Update::RefreshDom
+    }
+
+    /// An error inside a callback: logged, and the callback does nothing.
+    extern "C" fn on_parse(_data: RefAny, _: CallbackInfo) -> Update {
+        let _url = Url::parse("no scheme")?;
+        Update::RefreshDom
+    }
+
+    pub fn reachable() {
+        let _ = (on_pick_folder as extern "C" fn(_, _, _) -> _, on_parse as extern "C" fn(_, _) -> _);
+    }
 }
 
 fn main() {
@@ -101,9 +120,9 @@ fn main() {
             Ok(url)
         }
         assert!(parsed().is_ok());
-        let _ = on_pick_nightly;
+        nightly::reachable();
     }
 
-    let _ = open_picker;
+    let _ = (on_choose_folder as extern "C" fn(_, _) -> _, on_pick_folder as extern "C" fn(_, _, _) -> _);
     println!("rust native optionals: ok");
 }

@@ -24,6 +24,8 @@ default-search-keys:
   - CallbackInfo
   - Update
   - RefreshDom
+  - FileDialog
+  - FileOpenResult
 ---
 
 # Hello World [Rust]
@@ -205,6 +207,70 @@ the type-erased `RefAny`.
 Building the UI is done using primitive node constructors like `Dom::create_p_with_text` 
 and `Dom::create_body`, and styled with `with_css("...")`. Finally, `data.clone()` 
 just bumps the reference count instead of doing a deep copy.
+
+## Missing values and errors in callbacks
+
+Callbacks often meet a value that may not be there: the `RefAny` holds a different 
+type, a file dialog was cancelled, a parse failed. The FFI types for these 
+(`OptionFilePath`, `ResultUrlUrlParseError`, ...) convert to and from the std types: 
+`x.into_option()` / `Option<T>::from(x)` and `x.into_result()` read them, and 
+`None`, `Some(v)` or the value `v` itself can be passed wherever an `Option*` 
+parameter or field is asked for.
+
+A folder picker without that, every step spelled out:
+
+```rust
+extern "C" fn on_choose_folder(data: RefAny, _: CallbackInfo) -> Update {
+    FileDialog::open_directory("Choose a folder", OptionString::None, data.clone(), on_pick_folder);
+    Update::DoNothing
+}
+
+extern "C" fn on_pick_folder(mut data: RefAny, _: CallbackInfo, result: RefAny) -> Update {
+    let Some(mut model) = data.downcast_mut::<DataModel>() else {
+        return Update::DoNothing;
+    };
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    model.folder = path.inner.as_str().to_string();
+    Update::RefreshDom
+}
+```
+
+`Update::with` runs the body in a closure where `?` on a missing value means 
+"nothing to do" (it answers `Update::DoNothing`), and `Update::with_result` does 
+the same for errors, writing the error to stderr:
+
+```rust
+extern "C" fn on_choose_folder(data: RefAny, _: CallbackInfo) -> Update {
+    FileDialog::open_directory("Choose a folder", None, data.clone(), on_pick_folder);
+    Update::DoNothing
+}
+
+extern "C" fn on_pick_folder(mut data: RefAny, _: CallbackInfo, result: RefAny) -> Update {
+    Update::with(|| {
+        let mut model = data.downcast_mut::<DataModel>()?;
+        let path = FileOpenResult::downcast(result).into_option()?.path.into_option()?;
+        model.folder = path.inner.as_str().to_string();
+        Some(Update::RefreshDom)
+    })
+}
+```
+
+On nightly Rust, the `try-trait` feature of the `azul` crate lets `?` work directly 
+in the callback and on the FFI types:
+
+```rust
+extern "C" fn on_pick_folder(mut data: RefAny, _: CallbackInfo, result: RefAny) -> Update {
+    let mut model = data.downcast_mut::<DataModel>()?;
+    let path = FileOpenResult::downcast(result)?.path?;
+    model.folder = path.inner.as_str().to_string();
+    Update::RefreshDom
+}
+```
 
 ## Build and run
 
