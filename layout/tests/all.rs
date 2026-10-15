@@ -1153,3 +1153,5 @@ mod a_tweened_block_margin_moves_its_box_on_the_retained_tree;
 mod a_superscript_rises_by_its_parent_inline_boxs_font_size;
 #[path = "an_inline_boxs_edges_resolve_their_units_and_zoom.rs"]
 mod an_inline_boxs_edges_resolve_their_units_and_zoom;
+#[path = "an_inline_block_of_two_blocks_is_as_wide_as_the_wider_one.rs"]
+mod an_inline_block_of_two_blocks_is_as_wide_as_the_wider_one;
