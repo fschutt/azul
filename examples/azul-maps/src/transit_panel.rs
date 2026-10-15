@@ -377,7 +377,6 @@ pub(crate) fn overlays(s: &MapState) -> Vec<MapOverlay> {
     let Some(journey) = upcoming(page, now).get(s.transit.picked).copied() else {
         return out;
     };
-    let casing = ColorU { r: 0xff, g: 0xff, b: 0xff, a: 0xff };
     for leg in &journey.legs {
         if leg.points.len() < 2 {
             continue;
@@ -385,12 +384,7 @@ pub(crate) fn overlays(s: &MapState) -> Vec<MapOverlay> {
         let (r, g, b) = leg.line_colour();
         let colour = ColorU { r, g, b, a: 0xff };
         let points = MapLatLonVec::from_vec(leg.points.iter().copied().map(at).collect());
-        let line = if leg.kind == LegKind::Walk {
-            MapPolyline::create(points).with_color(colour).with_width(3.0).with_casing(casing, 5.0)
-        } else {
-            MapPolyline::create(points).with_color(colour).with_width(6.0).with_casing(casing, 9.0)
-        };
-        out.push(MapOverlay::Polyline(line));
+        out.push(MapOverlay::Polyline(leg_line(points, leg.kind, colour)));
     }
     for (i, leg) in journey.rides().enumerate() {
         let (r, g, b) = leg.line_colour();
@@ -400,6 +394,16 @@ pub(crate) fn overlays(s: &MapState) -> Vec<MapOverlay> {
         ));
     }
     out
+}
+
+/// A leg's line in its `colour` on a white outline: a ride is the wide one.
+fn leg_line(points: MapLatLonVec, kind: LegKind, colour: ColorU) -> MapPolyline {
+    let casing = ColorU { r: 0xff, g: 0xff, b: 0xff, a: 0xff };
+    if kind == LegKind::Walk {
+        MapPolyline::create(points).with_color(colour).with_width(3.0).with_casing(casing, 5.0)
+    } else {
+        MapPolyline::create(points).with_color(colour).with_width(6.0).with_casing(casing, 9.0)
+    }
 }
 
 extern "C" fn on_when_kind(mut app: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
@@ -472,4 +476,25 @@ extern "C" fn on_sources(mut app: RefAny, _info: CallbackInfo) -> Update {
         let _opened = link.open();
     }
     Update::DoNothing
+}
+
+#[cfg(test)]
+mod leg_line_tests {
+    use azul::widgets::MapLineDash;
+
+    use super::*;
+
+    fn two_stops() -> MapLatLonVec {
+        MapLatLonVec::from_vec(vec![at((52.5251, 13.3694)), at((52.5219, 13.4132))])
+    }
+
+    #[test]
+    fn a_walk_between_rides_is_drawn_dotted_and_a_ride_solid() {
+        let grey = ColorU { r: 0x75, g: 0x75, b: 0x75, a: 0xff };
+        let walk = leg_line(two_stops(), LegKind::Walk, grey);
+        assert_eq!(walk.dash, MapLineDash::Dotted, "a walk is dots, not a thin grey line");
+        let ride = leg_line(two_stops(), LegKind::RegionalTrain, grey);
+        assert_eq!(ride.dash, MapLineDash::Solid);
+        assert!(ride.width > walk.width);
+    }
 }

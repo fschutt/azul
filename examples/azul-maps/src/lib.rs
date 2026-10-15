@@ -122,7 +122,7 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::{MapLatLonVec, MapOverlayVec, U8Vec},
     widgets::{
-        Button, ButtonType, MapLatLon, MapMarker, MapOverlay, MapPolyline, MapSetup, MapTileId,
+        Button, ButtonType, MapLatLon, MapLineDash, MapMarker, MapOverlay, MapPolyline, MapSetup, MapTileId,
         MapTileLayer, MapViewport, MapWidget, OnTextInputReturn, TextInputState, TextInputValid,
     },
 };
@@ -1294,7 +1294,7 @@ fn pin_icon(index: usize, (lat, lon): (f64, f64)) -> Dom {
 /// (`road`) with an outline under it, else the straight preview, thinner. The
 /// accent is a colour token, so the map resolves it against the theme it is
 /// drawn in and the line follows a theme switch without a new colour here.
-fn travel_polyline(points: MapLatLonVec, road: bool) -> MapPolyline {
+fn travel_polyline(points: MapLatLonVec, road: bool, _mode: TravelMode) -> MapPolyline {
     let accent = SystemColorRef::Accent.to_color_token();
     if road {
         MapPolyline::create(points)
@@ -1329,7 +1329,7 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
     let line = if s.drive.nav.is_some() || s.travel.mode == TravelMode::Transit { None } else { plan.line };
     if let Some(line) = line {
         let points = MapLatLonVec::from_vec(line.points.iter().copied().map(at).collect());
-        out.push(MapOverlay::Polyline(travel_polyline(points, line.road)));
+        out.push(MapOverlay::Polyline(travel_polyline(points, line.road, s.travel.mode)));
         // The picked turn-by-turn step's part, over the rest of the line.
         let picked = s.selected_step.zip(s.route.as_ref()).and_then(|(index, reply)| {
             let step = reply.steps.get(index)?;
@@ -2515,12 +2515,22 @@ mod travel_line_tests {
     #[test]
     fn the_road_route_and_its_preview_are_drawn_in_the_themes_accent() {
         let accent = SystemColorRef::Accent.to_color_token();
-        let road = travel_polyline(two_places(), true);
-        let preview = travel_polyline(two_places(), false);
+        let road = travel_polyline(two_places(), true, TravelMode::Car);
+        let preview = travel_polyline(two_places(), false, TravelMode::Car);
         assert_eq!(road.color, accent, "the road route follows the theme");
         assert_eq!(preview.color, accent, "so does the straight preview");
         assert!(road.casing_width > road.width, "the road route has an outline under it");
         assert!(preview.width < road.width, "the preview is the thinner line");
+    }
+
+    #[test]
+    fn a_walking_route_is_drawn_dotted_and_a_drive_or_a_ride_solid() {
+        let walk = travel_polyline(two_places(), true, TravelMode::Walk);
+        assert_eq!(walk.dash, MapLineDash::Dotted, "a walk is dots, as on every map");
+        assert!(walk.casing_width > walk.width, "each dot has its outline");
+        for mode in [TravelMode::Car, TravelMode::Bike] {
+            assert_eq!(travel_polyline(two_places(), true, mode).dash, MapLineDash::Solid, "{mode:?}");
+        }
     }
 }
 

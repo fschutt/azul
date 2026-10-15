@@ -908,7 +908,7 @@ pub(crate) fn overlays(s: &MapState) -> Vec<MapOverlay> {
     let line = &nav.guidance.line().points;
     if line.len() >= 2 {
         let points = MapLatLonVec::from_vec(line.iter().copied().map(at).collect());
-        out.push(MapOverlay::Polyline(crate::travel_polyline(points, true)));
+        out.push(MapOverlay::Polyline(crate::travel_polyline(points, true, nav.mode)));
     }
     if let Some(p) = nav.progress {
         // The arrow turns by the heading less the map's own turn.
