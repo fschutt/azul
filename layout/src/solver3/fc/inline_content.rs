@@ -352,6 +352,23 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
+                // A part of an inline box broken around a block it holds
+                // (CSS 2.2 s9.2.1.1): the text sits in that box, whose
+                // edges move the pen on its first and last part.
+                let style = match split_inline_parent(ctx.styled_dom, dom_id) {
+                    Some(parent) => {
+                        let chain =
+                            crate::solver3::sizing::inline_box_chain(ctx, tree, parent, dom_id);
+                        if chain.is_empty() {
+                            style
+                        } else {
+                            let mut own = (*style).clone();
+                            own.inline_boxes = chain;
+                            Arc::new(own)
+                        }
+                    }
+                    None => style,
+                };
                 let text_items = split_text_for_whitespace(
                     ctx.styled_dom,
                     dom_id,
@@ -401,12 +418,17 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
             if crate::solver3::getters::is_inline_box_display(display) {
                 // Regular inline element - collect its text children
-                let span_style = get_style_properties(
+                let mut span_style = get_style_properties(
                     ctx.styled_dom,
                     dom_id,
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
+                // Inside a part of a broken inline box, as text is above.
+                if let Some(parent) = split_inline_parent(ctx.styled_dom, dom_id) {
+                    span_style.inline_boxes =
+                        crate::solver3::sizing::inline_box_chain(ctx, tree, parent, dom_id);
+                }
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -881,6 +903,18 @@ pub(super) fn nested_vertical_align(
 // recursively inlinified it recursively inlinifies all of its in-flow children, so that no
 // block-level descendants break up the inline formatting context in which it participates.
 // +spec:display-property:aee879 - recursively inlinifies in-flow children of inline boxes
+/// The inline box `node` (a child of an anonymous inline formatting context)
+/// sits in when that box was broken around a block it holds and `node` is
+/// one of its parts (CSS 2.2 s9.2.1.1): the parent, when it is an inline box
+/// that holds a block. `None` for anything else.
+fn split_inline_parent(styled_dom: &StyledDom, node: NodeId) -> Option<NodeId> {
+    let parent = styled_dom.node_hierarchy.as_container()[node].parent_id()?;
+    let display = get_display_property(styled_dom, Some(parent)).unwrap_or_default();
+    (crate::solver3::getters::is_inline_box_display(display)
+        && crate::solver3::layout_tree::inline_holds_a_block(styled_dom, parent))
+    .then_some(parent)
+}
+
 /// Recursively collects inline content from an inline span (display: inline) element.
 ///
 /// According to CSS Inline Layout Module Level 3 §2:

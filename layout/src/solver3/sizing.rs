@@ -1873,7 +1873,7 @@ fn text_run_style<T: ParsedFontTrait>(
         Some(parent) => {
             let mut style =
                 get_style_properties(ctx.styled_dom, parent, ctx.system_style.as_ref(), viewport);
-            style.inline_boxes = inline_box_chain(ctx, tree, parent);
+            style.inline_boxes = inline_box_chain(ctx, tree, parent, text_id);
             Arc::new(style)
         }
         None => crate::solver3::getters::get_style_properties_cached(
@@ -1886,14 +1886,18 @@ fn text_run_style<T: ParsedFontTrait>(
     }
 }
 
-/// The inline boxes around the text of the inline box `innermost`, that
-/// box included, that move the pen, the outermost first: the same chain the
-/// line layout gives its runs (`fc::collect_inline_span_recursive`), walked
-/// up from the box to the first ancestor that is no inline box.
-fn inline_box_chain<T: ParsedFontTrait>(
+/// The inline boxes around `content` (a text node or a span), starting at
+/// the inline box `innermost`, that move the pen, the outermost first: the
+/// same chain the line layout gives its runs
+/// (`fc::collect_inline_span_recursive`), walked up from the box to the
+/// first ancestor that is no inline box. A box broken around a block it
+/// holds has its start edge only on its first part and its end edge only on
+/// its last (`layout_tree::inline_box_split_around`, relative to `content`).
+pub(crate) fn inline_box_chain<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     innermost: NodeId,
+    content: NodeId,
 ) -> Arc<[crate::text3::cache::InlineBoxEdge]> {
     let viewport = azul_css::props::basic::PhysicalSize::new(
         ctx.viewport_size.width,
@@ -1915,7 +1919,15 @@ fn inline_box_chain<T: ParsedFontTrait>(
             ctx.system_style.as_ref(),
             viewport,
         );
-        if let Some(edge) = crate::text3::cache::InlineBoxEdge::of(id, &style) {
+        if let Some(mut edge) = crate::text3::cache::InlineBoxEdge::of(id, &style) {
+            let (goes_on_before, goes_on_after) =
+                crate::solver3::layout_tree::inline_box_split_around(ctx.styled_dom, id, content);
+            if goes_on_before {
+                edge.left = 0.0;
+            }
+            if goes_on_after {
+                edge.right = 0.0;
+            }
             boxes.push(edge);
         }
         node = ctx.styled_dom.node_hierarchy.as_container()[id].parent_id();

@@ -9535,8 +9535,22 @@ where
             let (i1, t1) = clusters[f.last];
             let before = f.first.checked_sub(1);
             let after = (f.last + 1 < clusters.len()).then_some(f.last + 1);
-            let opens = !before.is_some_and(|b| anc(clusters[b].1).contains(&f.node));
-            let closes = !after.is_some_and(|a| anc(clusters[a].1).contains(&f.node));
+            // A box broken around a block it holds has its start edge on
+            // its first part only and its end edge on its last.
+            let (goes_on_before, _) = crate::solver3::layout_tree::inline_box_split_around(
+                self.ctx.styled_dom,
+                f.node,
+                t0,
+            );
+            let (_, goes_on_after) = crate::solver3::layout_tree::inline_box_split_around(
+                self.ctx.styled_dom,
+                f.node,
+                t1,
+            );
+            let opens =
+                !goes_on_before && !before.is_some_and(|b| anc(clusters[b].1).contains(&f.node));
+            let closes =
+                !goes_on_after && !after.is_some_and(|a| anc(clusters[a].1).contains(&f.node));
             // The spans inside this box that begin at its first cluster (end
             // at its last) put their edges inside this box.
             let inner = |j: usize, text: NodeId, neighbour: Option<usize>, left: bool| -> f32 {

@@ -4130,6 +4130,46 @@ pub(crate) fn inline_holds_a_block(styled_dom: &StyledDom, node_id: NodeId) -> b
         })
 }
 
+/// Whether the inline box `a`, broken around the blocks it holds (CSS 2.2
+/// s9.2.1.1, [`split_inlines_around_blocks`]), goes on BEFORE and AFTER its
+/// part that holds `node`: true where one of its in-flow blocks lies before
+/// (after) `node` in document order. Its start edge (margin, border,
+/// padding) belongs on its first part only, its end edge on its last.
+/// `(false, false)` for an inline box that holds no block.
+#[must_use]
+pub(crate) fn inline_box_split_around(
+    styled_dom: &StyledDom,
+    a: NodeId,
+    node: NodeId,
+) -> (bool, bool) {
+    if !inline_holds_a_block(styled_dom, a) {
+        return (false, false);
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let (mut before, mut after) = (false, false);
+    let mut stack: Vec<NodeId> = a.az_children(&hierarchy).collect();
+    while let Some(n) = stack.pop() {
+        if n == node {
+            continue;
+        }
+        let splits = get_display_type(styled_dom, n) != LayoutDisplay::None
+            && is_block_level(styled_dom, n)
+            && !is_out_of_flow_positioned(styled_dom, n)
+            && !is_floated(styled_dom, n);
+        if splits {
+            if n.index() < node.index() {
+                before = true;
+            } else {
+                after = true;
+            }
+            // What the block holds is its own flow.
+            continue;
+        }
+        stack.extend(n.az_children(&hierarchy));
+    }
+    (before, after)
+}
+
 /// A block container's `children` (in order, `display: none` already gone)
 /// with every inline box that holds a block ([`inline_holds_a_block`])
 /// replaced by its own children, recursively - the boxes the container's box
