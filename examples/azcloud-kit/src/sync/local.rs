@@ -175,10 +175,13 @@ pub struct Scan {
 }
 
 /// Waits until nothing under `root` changed for `quiet` - the newest modification time of its
-/// files and folders (a rule's leave out) is that old - or until `most` passed, or `stop` says
-/// so: a burst (a checkout, an unzip, a build) is then synced by one run as a whole, and the
-/// burst guard sees all of it. A folder's time moves when an entry is made, renamed or removed,
-/// so an unzip whose files keep their old dates still counts. How long it waited.
+/// files and folders (a rule's leave out) is that old, or it stayed the same while this looked
+/// for `quiet` - or until `most` passed, or `stop` says so: a burst (a checkout, an unzip, a
+/// build) is then synced by one run as a whole, and the burst guard sees all of it. A folder's
+/// time moves when an entry is made, renamed or removed, so an unzip whose files keep their old
+/// dates still counts. A time in the future (a file from a computer whose clock runs ahead, a
+/// clock that jumped back) cannot tell its age, so only the watching decides then. How long it
+/// waited.
 pub fn settle(
     root: &Path,
     rules: &Rules,
@@ -190,20 +193,28 @@ pub fn settle(
     if quiet.is_zero() {
         return Duration::ZERO;
     }
+    // The newest time seen, and since when it has not moved.
+    let mut seen: Option<(SystemTime, Instant)> = None;
     loop {
         let Some(newest) = newest_change(root, rules) else {
             return started.elapsed();
         };
-        // A time in the future (another clock) counts as now.
         let age = SystemTime::now()
             .duration_since(newest)
             .unwrap_or(Duration::ZERO);
+        let still = match seen {
+            Some((time, since)) if time == newest => since.elapsed(),
+            _ => {
+                seen = Some((newest, Instant::now()));
+                Duration::ZERO
+            }
+        };
         let waited = started.elapsed();
-        if age >= quiet || waited >= most || stop() {
+        if age >= quiet || still >= quiet || waited >= most || stop() {
             return waited;
         }
         // Short steps, so a stop is heard and a burst that ends is noticed soon.
-        let wait = (quiet - age)
+        let wait = (quiet - age.max(still))
             .min(most - waited)
             .clamp(Duration::from_millis(10), Duration::from_millis(250));
         std::thread::sleep(wait);
@@ -554,6 +565,48 @@ pub fn still_as_scanned(root: &Path, key: &str, scanned: Option<&LocalFile>) -> 
         }
         _ => false,
     }
+}
+
+/// The name a file here answers to when `key`'s own name is asked for but is not in its folder:
+/// a disk that folds case or accents (macOS, Windows) finds `Notes.txt` for `notes.txt` and
+/// `Café` written one way for `Café` written the other (NFC / NFD). Such a disk cannot hold both
+/// files of the drive; `None` when nothing answers or the name itself is there.
+#[must_use]
+pub fn other_spelling(root: &Path, key: &str) -> Option<String> {
+    let path = path_of(root, key);
+    let found = fs::symlink_metadata(&path).ok()?;
+    let wanted = path.file_name()?;
+    let folder = path.parent()?;
+    let mut other = None;
+    for entry in fs::read_dir(folder).ok()?.flatten() {
+        let name = entry.file_name();
+        if name.as_os_str() == wanted {
+            return None;
+        }
+        if other.is_none() && same_file(&found, &entry) {
+            other = Some(name.to_string_lossy().into_owned());
+        }
+    }
+    // Something answers to the name and no entry has it: another spelling (unnamed when this
+    // platform cannot tell which entry it is).
+    Some(other.unwrap_or_else(|| String::from("another spelling of the name")))
+}
+
+/// Whether `entry` is the file `found` describes.
+#[cfg(unix)]
+fn same_file(found: &fs::Metadata, entry: &fs::DirEntry) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    entry
+        .metadata()
+        .is_ok_and(|m| m.ino() == found.ino() && m.dev() == found.dev())
+}
+
+/// Whether `entry` is the file `found` describes (no inode numbers here: by size and time).
+#[cfg(not(unix))]
+fn same_file(found: &fs::Metadata, entry: &fs::DirEntry) -> bool {
+    entry
+        .metadata()
+        .is_ok_and(|m| m.len() == found.len() && m.modified().ok() == found.modified().ok())
 }
 
 /// Removes the folders of `key` under `root` that a delete left empty, up to

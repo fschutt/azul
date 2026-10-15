@@ -1284,6 +1284,13 @@ fn apply_local<R: SyncRemote + ?Sized>(
         })
     };
     let mut downloads = Vec::new();
+    // What this run deletes here before its downloads are written: a file the drive renamed by
+    // case only comes down under its new name once the old one is gone.
+    let leaving: BTreeSet<&str> = actions
+        .iter()
+        .filter(|a| matches!(a, Action::DeleteLocal { .. }))
+        .map(Action::key)
+        .collect();
     for action in actions {
         let key = action.key();
         let moved_on = || format!("{key}: changed during the run; the next run takes it");
@@ -1336,12 +1343,26 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 }
             }
             Action::Download { .. } => {
+                let expect = scan.files.get(key).cloned();
+                if expect.is_none() {
+                    // A file new here whose name this disk already gives another file that
+                    // stays: it stays on the drive, said, and is not fetched again every run.
+                    let folder = key.rfind('/').map_or("", |i| &key[..=i]);
+                    let twin = local::other_spelling(&root.path, key)
+                        .filter(|other| !leaving.contains(format!("{folder}{other}").as_str()));
+                    if let Some(other) = twin {
+                        let why = same_name(&other);
+                        report.errors.push(format!("download {key}: {why}"));
+                        report.file_errors.push((key.to_string(), why));
+                        continue;
+                    }
+                }
                 if let Some(f) = committed.files.get(key) {
                     downloads.push(Download {
                         key: key.to_string(),
                         hash: f.hash.clone(),
                         size: f.size,
-                        expect: scan.files.get(key).cloned(),
+                        expect,
                     });
                 }
             }
@@ -1500,6 +1521,19 @@ fn write_download(
         other => other,
     };
     if !local::still_as_scanned(&root.path, &d.key, d.expect.as_ref()) {
+        // Another file of the drive came down under a name this disk takes for this one's.
+        let other = d
+            .expect
+            .is_none()
+            .then(|| local::other_spelling(&root.path, &d.key))
+            .flatten();
+        if let Some(other) = other {
+            let why = same_name(&other);
+            report.errors.push(format!("write {}: {why}", d.key));
+            report.file_errors.push((d.key.clone(), why.clone()));
+            finished(Some(why));
+            return;
+        }
         report.changed_during_sync.push(format!(
             "{}: changed during the run; the next run takes it",
             d.key
@@ -1528,6 +1562,14 @@ fn write_download(
             finished(Some(e.to_string()));
         }
     }
+}
+
+/// Why a file of the drive stays there: this disk gives its name to `other` already.
+fn same_name(other: &str) -> String {
+    format!(
+        "\"{other}\" here has the same name to this disk, which ignores case and accents; \
+         this one stays on the drive"
+    )
 }
 
 /// This device's files as the plan sees them: the ones on disk, and the ones it keeps in the

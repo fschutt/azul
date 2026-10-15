@@ -52,6 +52,7 @@ use crate::{
     error::{fail, CloudError, CloudResult, Context},
     state::{read_json, write_json},
     store::RemoteStore,
+    user_errors::{Code, UserError},
 };
 
 /// The states of a pairing's files, in its state folder.
@@ -285,6 +286,43 @@ impl FileRecord {
     }
 }
 
+/// A failed pass's error as the errors table names it ([`crate::user_errors`]), kept with the
+/// states so the app can say it in the window's language after a restart too.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncProblem {
+    /// The table's code (`network`, `credentials_revoked`, `quota_exceeded`, ...).
+    pub code: String,
+    /// The request ID: the error ID support traces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// What the service or the client said (the table's `{detail}`).
+    #[serde(default)]
+    pub detail: String,
+}
+
+impl SyncProblem {
+    /// The problem `e` is, when the errors table words it.
+    #[must_use]
+    pub fn of(e: &CloudError) -> Option<SyncProblem> {
+        UserError::from_cloud_error(e).map(|user| SyncProblem {
+            code: user.code.as_str().to_string(),
+            request_id: user.request_id,
+            detail: user.detail,
+        })
+    }
+
+    /// It as the table's error, to word and to class.
+    #[must_use]
+    pub fn user_error(&self) -> UserError {
+        UserError {
+            code: Code::parse(&self.code).unwrap_or(Code::Other),
+            retry_after: None,
+            request_id: self.request_id.clone(),
+            detail: self.detail.clone(),
+        }
+    }
+}
+
 /// What a pairing knows of its files between passes and runs of the app.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncStates {
@@ -302,6 +340,16 @@ pub struct SyncStates {
     pub last_pass: Option<i64>,
     #[serde(default)]
     pub last_error: Option<String>,
+    /// The last pass's failure as the errors table names it ([`crate::user_errors`]): what an
+    /// app words for the user ("Offline - changes will upload ...") instead of the error's own
+    /// words in `last_error`. `None` for an error of the app's own (the folder, a local disk).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_problem: Option<SyncProblem>,
+    /// The files of the folder here the last pass could not take, and why (a symbolic link, no
+    /// read permission, a name that cannot be a key, too big): they never reach the drive while
+    /// that lasts, so the app names them instead of saying "Up to date".
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub skipped: BTreeMap<String, String>,
     /// The drive refused a write (unpaid, locked down): it is read-only.
     #[serde(default)]
     pub read_only: bool,
@@ -354,10 +402,35 @@ impl SyncStates {
                 .any(|p| p.ends_with('/') && key.len() > p.len() && key.starts_with(p.as_str()))
     }
 
+    /// How many files cannot sync now: the ones the last pass could not take here, and the
+    /// drive's files whose transfer failed (a conflict waits for an answer, it is no failure).
+    #[must_use]
+    pub fn cannot_sync(&self) -> usize {
+        self.skipped.len()
+            + self
+                .files
+                .values()
+                .filter(|r| r.error.is_some() && r.conflict.is_none())
+                .count()
+    }
+
+    /// Whether a file failed because this computer's disk is full.
+    #[must_use]
+    pub fn disk_full(&self) -> bool {
+        self.files
+            .values()
+            .filter_map(|r| r.error.as_deref())
+            .chain(self.last_error.as_deref())
+            .any(is_disk_full)
+    }
+
     /// The state of the file `key`; `None` when the drive has no such file.
     #[must_use]
     pub fn state_of(&self, key: &str) -> Option<FileState> {
-        let record = self.files.get(key)?;
+        let Some(record) = self.files.get(key) else {
+            // A file here the drive does not have because the pass could not take it.
+            return self.skipped.get(key).map(|why| FileState::Error(why.clone()));
+        };
         Some(if record.conflict.is_some() {
             FileState::Conflict
         } else if let Some(why) = &record.error {
@@ -761,6 +834,7 @@ impl SyncSession {
     fn after_failure(&self, result: CloudResult<Pass>, states: &mut SyncStates) -> CloudResult<Pass> {
         if let Err(e) = &result {
             states.last_error = Some(e.to_string());
+            states.last_problem = SyncProblem::of(e);
             states.read_only = is_read_only(e) && self.readable();
             let _ = states.save(&self.dir);
         }
@@ -898,6 +972,7 @@ impl SyncSession {
         let freed = self.keep_cap(states);
         states.last_pass = Some(crate::now());
         states.last_error = None;
+        states.last_problem = None;
         states.read_only = false;
         states.save(&self.dir)?;
         Ok(Pass {
@@ -1352,6 +1427,7 @@ impl SyncSession {
         let freed = self.keep_cap(states);
         states.last_pass = Some(now);
         states.last_error = None;
+        states.last_problem = None;
         states.read_only = false;
         states.save(&self.dir)?;
         Ok(Pass {
@@ -1462,7 +1538,18 @@ fn record(states: &mut SyncStates, report: &SyncReport, moved: &BTreeSet<String>
         files.entry(key.clone()).or_default().error = Some(why.clone());
     }
     states.files = files;
+    states.skipped = report.skipped.iter().cloned().collect();
     states
         .keep_both
         .retain(|key| report.held.iter().any(|h| h.key == *key));
+}
+
+/// Whether an error's words say the local disk is full (`ENOSPC` on Unix, `ERROR_DISK_FULL` on
+/// Windows, as std's I/O errors print them).
+fn is_disk_full(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("no space left on device")
+        || error.contains("os error 28)")
+        || error.contains("there is not enough space on the disk")
+        || error.contains("os error 112)")
 }
