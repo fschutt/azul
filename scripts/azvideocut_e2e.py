@@ -16,7 +16,10 @@
     6. exports the first second: Ctrl+E, "First second", "Export now", waits for
        `AZVIDEOCUT_EXPORTED <key> <bytes> <mp4|y4m|h264>` and checks the file under the data
        root (an MP4 starts with an `ftyp` box);
-    7. switches to flora and dark and takes a screenshot.
+    7. switches to flora and dark and takes a screenshot;
+    8. two razor cuts right after each other (frames 25 and 75), then the window's close at
+       once: the close waits for the saves, the app ends, and project.json holds the clips of
+       the last edit (an older save never lands last).
 
 Usage (from the azul repository, after building libazul with the debug server and AzVideoCut):
 
@@ -384,7 +387,35 @@ def run(args, logs, out, data_root):
         app.must("set_mode", mode="dark")
         app.frame(3)
         app.screenshot(os.path.join(out, "flora-dark.png"))
-        log("PASS: sample, layout, playhead, razor, ripple delete, undo, export; screenshots in %s" % out)
+
+        # 8. Two quick edits, the window closed at once: the saves land in order (the last
+        # edit is what project.json holds) and the close waits for them.
+        playhead(app, lambda: app.key("home"), "Home")
+        playhead(app, lambda: app.key("right", shift=True), "Shift+Right to frame 25")
+        edit(app, "Razor", lambda: app.key("k", primary=True), "Ctrl+K at frame 25")
+
+        def move_and_cut():
+            app.key("right", shift=True)
+            app.key("right", shift=True)
+            app.key("k", primary=True)
+
+        last, _ = edit(app, "Razor", move_and_cut, "Ctrl+K at frame 75 right after it")
+        app.must("close")
+        # `until` gives up when the app ends, and here it must end.
+        closing = time.time() + 30
+        while app.process.poll() is None and time.time() < closing:
+            time.sleep(0.2)
+        if app.process.poll() is None:
+            raise Failure("AzVideoCut did not close once its saves landed")
+        with open(os.path.join(data_root, "videocut", project_id, "project.json"), encoding="utf-8") as f:
+            saved = json.load(f)
+        kept = sum(len(t.get("clips", [])) for t in saved["sequence"]["tracks"])
+        if kept != last:
+            raise Failure("project.json holds %d clips, the last edit left %d: an older save landed last"
+                          % (kept, last))
+        log("two quick edits, closed at once: project.json holds the last one (%d clips)" % last)
+        log("PASS: sample, layout, playhead, razor, ripple delete, undo, export, saves in order; "
+            "screenshots in %s" % out)
         return True
     except Failure as e:
         log("FAIL: %s" % e)
