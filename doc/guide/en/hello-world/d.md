@@ -190,6 +190,53 @@ the D object is wrapped in an opaque `RefAny`
 returns `Update.doNothing` if the downcast fails (with a log message).
 The API auto-converts strings to the expected Rust structs.
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is a `Nullable!T` (from `std.typecons`): a 
+parameter takes `Nullable!T()` for "none" or `nullable(x)`, a field or a return 
+value is a `Nullable!T`, and a failed call throws `ResultException!E` (its 
+`error` is the API's error value). An exception thrown inside a callback is 
+logged and the callback does nothing.
+
+A folder picker. Before, the resume callback could not downcast its result: 
+`downcast_` took an `Object`, and the `RefAny` the callback receives is a struct:
+
+```d
+Update onPickFolder(Model model, CallbackInfo info, RefAny result)
+{
+    // FileOpenResult.downcast_(result) does not compile: RefAny is not an Object
+    return Update.doNothing;
+}
+```
+
+Now the `RefAny` goes straight into `downcast`:
+
+```d
+Update onChooseFolder(Model model, CallbackInfo info)
+{
+    FileDialog.openDirectory("Choose a folder", Nullable!string(), model, &onPickFolder);
+    return Update.doNothing;
+}
+
+Update onPickFolder(Model model, CallbackInfo info, RefAny result)
+{
+    auto picked = FileOpenResult.downcast(result);
+    if (picked.isNull || picked.get.path.isNull)
+        return Update.doNothing; // not a folder pick, or cancelled
+    model.folder = picked.get.path.get.inner;
+    return Update.refreshDom;
+}
+
+Update onOpenLink(Model model, CallbackInfo info)
+{
+    auto url = Url.parse(model.link); // an Err is logged, the callback does nothing
+    return Update.refreshDom;
+}
+```
+
+D has no implicit conversion into `Nullable!T`, so "none" is written 
+`Nullable!string()` rather than `null`.
+
 ## Build and run
 
 If you used the `dub` installation, running your application is as simple as:
