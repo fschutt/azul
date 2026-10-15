@@ -487,7 +487,8 @@ class Laptop:
         return parts[1] if len(parts) > 1 else ""
 
     def passes(self, drive_id=None):
-        """Every pass's end, DONE or FAILED, in the order AzDrive printed them."""
+        """Every pass's end in the order AzDrive printed them: `DONE <drive> up=..` or `FAILED
+        <drive> <why>`."""
         drive_id = drive_id or self.drives[0]
         if not self.app:
             return []
@@ -496,8 +497,9 @@ class Laptop:
                 text = f.read()
         except OSError:
             return []
-        return re.findall(r"^AZDRIVE_SYNC_(?:DONE|FAILED) (%s(?:\s.*)?)$" % re.escape(drive_id),
-                          text, re.M)
+        found = re.findall(r"^AZDRIVE_SYNC_(DONE|FAILED) (%s(?:\s.*)?)$" % re.escape(drive_id),
+                           text, re.M)
+        return ["%s %s" % (kind, rest) for kind, rest in found]
 
     def failures(self, drive_id=None):
         return self.lines("AZDRIVE_SYNC_FAILED", drive_id)
