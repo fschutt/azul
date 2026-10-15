@@ -13,7 +13,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use azul_appkit::l10n::{Phrase, Text};
@@ -275,6 +275,37 @@ pub(crate) struct WireMessage {
     pub key_id: String,
     pub body: String,
     pub sig: String,
+}
+
+/// Kind byte of a chat record between peers (`ARCHITECTURE.md`, "Chat over the peers").
+pub const KIND_CHAT: u8 = 8;
+/// Version byte of a chat record between peers.
+pub const CHAT_VERSION: u8 = 1;
+
+/// A message as it travels between the peers: exactly the signed, sealed record the meet Worker
+/// gets, with its room and its sender. Checked as a synced message is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatRecord {
+    pub room: String,
+    pub id: String,
+    pub sender: String,
+    pub key_id: String,
+    pub body: String,
+    pub sig: String,
+}
+
+impl ChatRecord {
+    /// The record on the wire: the kind byte, the version byte, the JSON.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    /// A record read back; `None` for any other kind, another version, or bad JSON.
+    #[must_use]
+    pub fn decode(_bytes: &[u8]) -> Option<ChatRecord> {
+        None
+    }
 }
 
 /// A room as `POST /rooms`, `GET /rooms/<key>` and `/sync` answer it.
@@ -688,6 +719,19 @@ impl ChatRoom {
         self.trim_listed();
         self.outbox.push_back(Outgoing { id, text, ts });
         Some(message)
+    }
+
+    /// This device's messages sealed for the peers, each once, as soon as a key for the current
+    /// members is held (the meet Worker gets them too, from the outbox).
+    pub fn peer_records(&mut self, _me: &Identity) -> Vec<ChatRecord> {
+        Vec::new()
+    }
+
+    /// A record from a peer, through the checks a synced message goes through: listed (unnumbered
+    /// until the Worker's copy numbers it), waiting for its key, or counted unreadable. With
+    /// whether it was new here (a peer passes on only what was new to it).
+    pub fn take_record(&mut self, _me: &Identity, _record: ChatRecord) -> (Changes, bool) {
+        (Changes::default(), false)
     }
 
     // ---- the requests ----
@@ -2590,5 +2634,73 @@ mod tests {
             .room
             .on_answer(&ada.me, &CallKind::Sync, Some(200), "{}", 1000 + STUCK_MS);
         assert_eq!(late, Changes::default());
+    }
+
+    /// Ada's message reaches Ben from Ada herself, as a call carries it, with no request to the
+    /// Worker: listed at once with her name, and numbered later by the Worker's copy without being
+    /// listed twice.
+    #[test]
+    fn a_message_handed_to_a_peer_opens_there_before_the_worker_numbers_it() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, _, _) = ada_and_ben(&mut w);
+        // A first message through the Worker makes the room's key, and Ben holds it.
+        ada.room.send(&ada.me, "First", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        let _ = ada.room.peer_records(&ada.me);
+        ada.room.send(&ada.me, "Straight to you", w.now).unwrap();
+        let records = ada.room.peer_records(&ada.me);
+        assert_eq!(records.len(), 1, "the new message, sealed for the peers");
+        assert!(ada.room.peer_records(&ada.me).is_empty(), "each once");
+        let record = records[0].clone();
+        assert_eq!(ChatRecord::decode(&record.encode()), Some(record.clone()));
+        assert_eq!(record.encode()[..2], [KIND_CHAT, CHAT_VERSION]);
+        let (changes, new) = ben.room.take_record(&ben.me, record.clone());
+        assert!(new);
+        assert_eq!(texts(&changes), vec![pair("Ada", "Straight to you")]);
+        let listed = ben.room.messages().last().unwrap();
+        assert_eq!((listed.text.as_str(), listed.seq), ("Straight to you", None));
+        assert_eq!(ben.room.unread(), 2, "the first and the one from Ada herself");
+        let (again, new) = ben.room.take_record(&ben.me, record);
+        assert!(!new, "a repeat is not new: it is not passed on again");
+        assert_eq!(again, Changes::default());
+        // The Worker's copy numbers it, and it is not listed twice.
+        settle(&mut ada, &mut w);
+        let synced = settle(&mut ben, &mut w);
+        assert!(texts(&synced).is_empty(), "{synced:?}");
+        let numbered: Vec<_> = ben.room.messages().iter().filter(|m| m.text == "Straight to you").collect();
+        assert_eq!(numbered.len(), 1);
+        assert!(numbered[0].seq.is_some());
+    }
+
+    /// A record whose body was changed on the way, or from a stranger, is not listed.
+    #[test]
+    fn a_changed_or_strangers_record_is_counted_unreadable_and_not_listed() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, id, _) = ada_and_ben(&mut w);
+        ada.room.send(&ada.me, "First", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        let _ = ada.room.peer_records(&ada.me);
+        ada.room.send(&ada.me, "Untouched?", w.now).unwrap();
+        let mut record = ada.room.peer_records(&ada.me).remove(0);
+        record.body.push('A');
+        let before = ben.room.unreadable();
+        let (changes, _) = ben.room.take_record(&ben.me, record);
+        assert!(changes.arrived.is_empty());
+        assert_eq!(ben.room.unreadable(), before + 1);
+        // Another room's record is not this room's.
+        let stranger = device(9, "Eve", &id, None);
+        let forged = ChatRecord {
+            room: id.clone(),
+            id: random_id().unwrap(),
+            sender: stranger.me.device().to_string(),
+            key_id: String::from("nokey"),
+            body: String::from("x"),
+            sig: stranger.me.sign("not the message"),
+        };
+        let (changes, _) = ben.room.take_record(&ben.me, forged);
+        assert!(changes.arrived.is_empty());
+        assert!(ChatRecord::decode(&[KIND_CHAT, CHAT_VERSION + 1, b'{', b'}']).is_none());
     }
 }
