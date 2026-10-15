@@ -5214,17 +5214,24 @@ pub trait PlatformWindow {
     /// - **Wayland**: Close thread polling timerfd
     fn stop_thread_poll_timer(&mut self);
 
-    /// Run the thread poll timer exactly while this window's threads need a poll
-    /// each frame (`LayoutWindow::thread_poll_needed`): where the backend installed
-    /// a thread wake, a worker wakes the loop itself and the timer runs only for
-    /// workers that asked for frame ticks or are winding down.
-    fn sync_thread_poll_timer(&mut self) {
-        let needed = self
-            .get_layout_window()
-            .is_some_and(azul_layout::window::LayoutWindow::thread_poll_needed);
-        if needed {
+    /// Whether this window's threads need a poll each frame
+    /// (`LayoutWindow::thread_poll_needed`): where the backend installed a thread wake,
+    /// a worker wakes the loop itself, and the poll runs only for workers that asked for
+    /// frame ticks or are winding down.
+    fn thread_poll_needed(&self) -> bool {
+        self.get_layout_window()
+            .is_some_and(azul_layout::window::LayoutWindow::thread_poll_needed)
+    }
+
+    /// Starts or stops the thread poll timer when a change to this window's threads
+    /// (an add, a stop, a retirement, a hand-over) changed whether they need it;
+    /// `was_needed` is [`Self::thread_poll_needed`] from before the change. Only on
+    /// the edge: on X11 and Wayland a start asks for a rebuild.
+    fn sync_thread_poll_timer(&mut self, was_needed: bool) {
+        let needed = self.thread_poll_needed();
+        if needed && !was_needed {
             self.start_thread_poll_timer();
-        } else {
+        } else if !needed && was_needed {
             self.stop_thread_poll_timer();
         }
     }
@@ -6738,10 +6745,11 @@ pub trait PlatformWindow {
                     self.request_regeneration_all_windows();
                     return ProcessEventResult::DoNothing;
                 }
+                let was_needed = self.thread_poll_needed();
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.add_thread_owned_by(*thread_id, thread.clone(), *owner);
                 }
-                self.sync_thread_poll_timer();
+                self.sync_thread_poll_timer(was_needed);
                 ProcessEventResult::DoNothing
             }
 
@@ -6749,21 +6757,23 @@ pub trait PlatformWindow {
             // window, polled as before, until it has finished; its last write-backs
             // still run. Nothing here waits for the worker.
             CallbackChange::StopThread { thread_id } => {
+                let was_needed = self.thread_poll_needed();
                 if let Some(lw) = self.get_layout_window_mut() {
                     let _ = lw.stop_thread(thread_id);
                 }
                 // A thread winding down is polled until it leaves (its grace period).
-                self.sync_thread_poll_timer();
+                self.sync_thread_poll_timer(was_needed);
                 ProcessEventResult::DoNothing
             }
 
             // The engine retires a thread that has finished or was detached, so the
             // drop below joins nothing that still runs.
             CallbackChange::RemoveThread { thread_id } => {
+                let was_needed = self.thread_poll_needed();
                 if let Some(lw) = self.get_layout_window_mut() {
                     drop(lw.remove_thread(thread_id));
                 }
-                self.sync_thread_poll_timer();
+                self.sync_thread_poll_timer(was_needed);
                 ProcessEventResult::DoNothing
             }
 

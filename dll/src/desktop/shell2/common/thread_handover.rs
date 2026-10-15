@@ -34,6 +34,7 @@ pub fn hand_over_background_work<C: PlatformWindow, H: PlatformWindow>(
     if !can_inherit_work(heir.get_current_window_state().flags.window_type) {
         return false;
     }
+    let was_needed = heir.thread_poll_needed();
     let Some(from) = closing.get_layout_window_mut() else {
         return true;
     };
@@ -45,7 +46,7 @@ pub fn hand_over_background_work<C: PlatformWindow, H: PlatformWindow>(
     let keyring_ops = core::mem::take(&mut from.keyring_manager.in_flight);
     to.keyring_manager.mark_requests_dispatched(keyring_ops);
     if to.adopt_handed_over_threads(threads) {
-        heir.sync_thread_poll_timer();
+        heir.sync_thread_poll_timer(was_needed);
     }
     if keyring_ops > 0 {
         heir.sync_capability_pump_timer();

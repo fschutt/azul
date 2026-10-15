@@ -2489,12 +2489,13 @@ impl HeadlessWindow {
             }
             open
         });
+        let poll_was_needed = PlatformWindow::thread_poll_needed(self);
         let adopted = self.common.layout_window.as_mut().is_some_and(|lw| {
             lw.keyring_manager.mark_requests_dispatched(inherited_keyring_ops);
             lw.adopt_handed_over_threads(inherited)
         });
         if adopted {
-            PlatformWindow::sync_thread_poll_timer(self);
+            PlatformWindow::sync_thread_poll_timer(self, poll_was_needed);
         }
         if inherited_keyring_ops > 0 {
             PlatformWindow::sync_capability_pump_timer(self);
