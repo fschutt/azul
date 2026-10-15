@@ -4180,11 +4180,12 @@ pub(crate) fn inline_box_split_around(
 /// CSS 2.2 s9.2.1.1: such an inline box "is broken around the block-level
 /// box": the inline content before and after it goes into anonymous block
 /// boxes (`in_flow_block_level_mask` then makes them), the block becomes
-/// their sibling. The inline box keeps no box of its own here - its style
-/// reaches the content around the block through the cascade (colour, font,
-/// text decoration), but its own background, border and padding are not
-/// drawn on the fragments (the split inline's fragment boxes are not built).
-/// Before, the block was "inlinified" into the line and had no box at all.
+/// their sibling. The inline box keeps no layout box of its own here: its
+/// style reaches the content around the block through the cascade (colour,
+/// font, text decoration), its edges move the pen of its parts and its
+/// background and border are painted around them by the display list, the
+/// start edge on the first part and the end edge on the last
+/// ([`inline_box_split_around`]).
 #[must_use]
 pub(crate) fn split_inlines_around_blocks(
     styled_dom: &StyledDom,
