@@ -118,6 +118,11 @@ azvideocut-range-first-second = Erste Sekunde
 azvideocut-range-in-out = In bis Out
 azvideocut-range-sequence = Sequenz
 azvideocut-ready = Bereit.
+azvideocut-save-failed = Das Projekt konnte nicht gespeichert werden: { $why }
+azvideocut-changes-not-saved = { $count ->
+    [one] 1 Speichern ist nicht angekommen. Schließe das Fenster noch einmal, um ohne es zu beenden.
+   *[other] { $count } Speichervorgänge sind nicht angekommen. Schließe das Fenster noch einmal, um ohne sie zu beenden.
+ }
 azvideocut-redo = Wiederholen
 azvideocut-redo-edit = { $edit } wiederholen
 azvideocut-reset-effects = Effekte zurücksetzen

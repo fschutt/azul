@@ -88,6 +88,7 @@ use azul_appkit::{
     shortcuts::Shortcut,
     ui as kit,
 };
+use azul_pim::write_queue::{run_batch, BatchResult, CloseHold, MainClose, Write, WriteQueue};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
@@ -240,6 +241,11 @@ pub struct VideoCut {
     source_frame: Option<(u64, Frame, Canvas)>,
     program_job: Coalesce,
     source_job: Coalesce,
+    /// The project's saves: one batch in flight, the newest project waiting behind it, so an
+    /// older snapshot never lands after a newer one.
+    writes: WriteQueue,
+    /// The window's close, held while saves land; a save that failed is said once.
+    close_hold: CloseHold,
     /// The bin's thumbnails and the clips' heads.
     thumbs: HashMap<u64, ImageRef>,
     playback: Option<Playback>,
@@ -314,8 +320,8 @@ enum Job {
         sample_id: Option<String>,
         project: Option<String>,
     },
-    /// Write `project.json`.
-    Save { project: Project },
+    /// A batch of the write queue (`project.json` saves).
+    Write(Vec<Write>),
     /// The program picture at `frame`.
     Render {
         project: Project,
@@ -357,10 +363,7 @@ enum Outcome {
         sample_encoded: Option<bool>,
     },
     NoProject,
-    Saved {
-        id: String,
-        result: Result<(), String>,
-    },
+    Written(BatchResult),
     Rendered {
         frame: Frame,
         revision: u64,
@@ -450,10 +453,7 @@ fn run_job(job: Job, drive: &Arc<dyn Drive>, files: &Arc<MediaFiles>) -> Outcome
                 sample_encoded: None,
             }
         }
-        Job::Save { project } => Outcome::Saved {
-            id: project.id.clone(),
-            result: store::save_project(drive.as_ref(), &project),
-        },
+        Job::Write(batch) => Outcome::Written(run_batch(drive.as_ref(), batch)),
         Job::Render {
             project,
             frame,
@@ -583,10 +583,45 @@ fn spawn(info: &mut CallbackInfo, app_ref: &RefAny, app: &VideoCut, job: Job) {
     );
 }
 
-/// Saves the project (after an edit).
-fn save(info: &mut CallbackInfo, app_ref: &RefAny, app: &VideoCut) {
-    if let Some(project) = app.project.clone() {
-        spawn(info, app_ref, app, Job::Save { project });
+/// Saves the project (after an edit) through the write queue: one save in flight, the newest
+/// project waiting behind it.
+fn save(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) {
+    if let Some(project) = app.project.as_ref() {
+        store::queue_project(&mut app.writes, project);
+    }
+    pump_writes(info, app_ref, app);
+}
+
+/// Starts the write queue's next batch when none is in flight.
+fn pump_writes(info: &mut CallbackInfo, app_ref: &RefAny, app: &mut VideoCut) {
+    if let Some(batch) = app.writes.take() {
+        spawn(info, app_ref, app, Job::Write(batch));
+    }
+}
+
+/// The window is asked to close: it waits for the saves on their way (`on_job_done` closes it
+/// once they landed), and says once what did not land.
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app_ref = data.clone();
+    let Some(mut guard) = data.downcast_mut::<VideoCut>() else {
+        return Update::DoNothing;
+    };
+    let app = &mut *guard;
+    let failures = app.writes.failures().len();
+    match app.close_hold.request(!app.writes.is_idle(), failures) {
+        MainClose::Close => Update::DoNothing,
+        MainClose::Wait => {
+            announce("CLOSE_WAITS");
+            pump_writes(&mut info, &app_ref, app);
+            // Last: the veto rides on whatever this callback queued.
+            info.prevent_window_close();
+            Update::DoNothing
+        }
+        MainClose::Tell => {
+            app.status = t_args("azvideocut-changes-not-saved", &[("count", Arg::from(failures))]);
+            info.prevent_window_close();
+            Update::RefreshDom
+        }
     }
 }
 
@@ -644,15 +679,40 @@ extern "C" fn on_job_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackI
             app.loading = false;
             Update::RefreshDom
         }
-        Outcome::Saved { id, result } => {
-            match result {
-                Ok(()) => announce(&format!("SAVED {id}")),
-                Err(e) => {
-                    app.status = e.clone();
-                    announce(&format!("ERROR {e}"));
+        Outcome::Written(result) => {
+            for key in &result.done {
+                if let Some(id) = store::project_id_of(key) {
+                    announce(&format!("SAVED {id}"));
                 }
             }
-            Update::DoNothing
+            let mut refresh = false;
+            for (_, why) in &result.failed {
+                app.status = t_args("azvideocut-save-failed", &[("why", Arg::from(why.as_str()))]);
+                announce(&format!("ERROR {why}"));
+                refresh = true;
+            }
+            app.writes.finish(result.failed);
+            pump_writes(&mut info, &app_ref, app);
+            let failures = app.writes.failures().len();
+            match app.close_hold.landed(!app.writes.is_idle(), failures) {
+                Some(MainClose::Close) => {
+                    announce("CLOSED_AFTER_SAVE");
+                    info.close_window();
+                }
+                Some(_) => {
+                    // Not lost without a word: the window stays, says so, and the next close
+                    // passes.
+                    app.status =
+                        t_args("azvideocut-changes-not-saved", &[("count", Arg::from(failures))]);
+                    refresh = true;
+                }
+                None => {}
+            }
+            if refresh {
+                Update::RefreshDom
+            } else {
+                Update::DoNothing
+            }
         }
         Outcome::Rendered {
             frame,
@@ -1207,6 +1267,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             app_ref.clone(),
             on_key,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app_ref.clone(),
+            on_close_requested,
         )
 }
 
@@ -3046,7 +3111,7 @@ extern "C" fn on_new_project(mut data: RefAny, mut info: CallbackInfo) -> Update
     app.project = Some(Project::create(id.clone(), String::from("Untitled"), 1280, 720, 25));
     app.revision += 1;
     announce(&format!("PROJECT {id} 0 0"));
-    save(&mut info, &app_ref, &app);
+    save(&mut info, &app_ref, &mut app);
     Update::RefreshDom
 }
 
@@ -3240,6 +3305,8 @@ pub fn start() {
         source_frame: None,
         program_job: Coalesce::default(),
         source_job: Coalesce::default(),
+        writes: WriteQueue::new(),
+        close_hold: CloseHold::default(),
         thumbs: HashMap::new(),
         playback: None,
         export: ExportState {

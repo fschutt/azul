@@ -60,7 +60,9 @@ pub fn project_id_of(key: &str) -> Option<&str> {
 }
 
 /// Queues a save of `project.json` on the app's write queue.
-pub fn queue_project(_queue: &mut WriteQueue, _project: &Project) {}
+pub fn queue_project(queue: &mut WriteQueue, project: &Project) {
+    queue.put(project_key(&project.id), project.to_json().into_bytes());
+}
 
 /// Writes `project.json`.
 pub fn save_project(drive: &dyn Drive, project: &Project) -> Result<(), String> {

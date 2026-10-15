@@ -119,6 +119,11 @@ azvideocut-range-first-second = First second
 azvideocut-range-in-out = In to Out
 azvideocut-range-sequence = Sequence
 azvideocut-ready = Ready.
+azvideocut-save-failed = The project could not be saved: { $why }
+azvideocut-changes-not-saved = { $count ->
+    [one] 1 save did not land. Close the window again to quit without it.
+   *[other] { $count } saves did not land. Close the window again to quit without them.
+ }
 azvideocut-redo = Redo
 azvideocut-redo-edit = Redo { $edit }
 azvideocut-reset-effects = Reset effects
